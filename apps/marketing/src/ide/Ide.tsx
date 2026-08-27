@@ -33,20 +33,13 @@ import { FileTab } from "./Files"
 import { ScTab } from "./SourceControl"
 import { TerminalDock } from "./Terminal"
 import { StartCodingDialog } from "./StartCodingDialog"
-import { IcInbox, IcX } from "./icons"
+import { IcInbox } from "./icons"
 import { useDemoScale } from "../lib/use-demo-scale"
 
-const BASE_W = 960
-const IDE_H = 640
+const BASE_W = 1440
+const IDE_H = 900
 
 const issueTab = (id: string): Tab => ({ key: `issue:${id}`, kind: `issue`, label: id, ref: id })
-const fileTab = (path: string): Tab => ({
-  key: `file:${path}`,
-  kind: `file`,
-  label: path.split(`/`).pop() ?? path,
-  ref: path,
-})
-const scTab = (): Tab => ({ key: `sc`, kind: `sc`, label: `Source Control`, ref: `` })
 
 type InitState = {
   tool: Tool
@@ -60,14 +53,9 @@ const initialState = (view: IdeView): InitState => {
     case `issue`:
       return { tool: `issues`, tabs: [issueTab(`EXP-8`)], active: `issue:EXP-8`, selectedFile: null }
     case `files`:
-      return {
-        tool: `files`,
-        tabs: [fileTab(`package.json`)],
-        active: `file:package.json`,
-        selectedFile: `package.json`,
-      }
+      return { tool: `files`, tabs: [], active: null, selectedFile: null }
     case `source-control`:
-      return { tool: `source-control`, tabs: [scTab()], active: `sc`, selectedFile: null }
+      return { tool: `source-control`, tabs: [], active: null, selectedFile: null }
     default:
       return { tool: `issues`, tabs: [], active: null, selectedFile: null }
   }
@@ -76,16 +64,34 @@ const initialState = (view: IdeView): InitState => {
 function EmptyState() {
   return (
     <div className="ide-empty">
-      <IcInbox size={24} className="ide-c-muted" />
+      <IcInbox size={18} className="ide-c-muted" />
       <span className="ide-empty-title">Nothing open</span>
       <span className="ide-empty-sub">Pick an issue from the sidebar. It opens as a tab here.</span>
     </div>
   )
 }
 
+/* EXP-288: the center is driven by the active TOOL for Files / Source
+   Control (they are tab-less full-page modes) and by the open issue tab
+   otherwise. Only issues get a tab chip in the titlebar. */
 function CenterArea() {
-  const { tabs, active, selectTab, closeTab, interactive } = useIde()
-  if (tabs.length === 0) {
+  const { tool, tabs, active } = useIde()
+  if (tool === `files`) {
+    return (
+      <div className="ide-center">
+        <FileTab />
+      </div>
+    )
+  }
+  if (tool === `source-control`) {
+    return (
+      <div className="ide-center">
+        <ScTab />
+      </div>
+    )
+  }
+  const openTabs = tabs.filter((t) => t.kind === `issue`)
+  if (openTabs.length === 0) {
     return (
       <div className="ide-center">
         <EmptyState />
@@ -94,47 +100,11 @@ function CenterArea() {
   }
   return (
     <div className="ide-center">
-      <div className="ide-tabbar">
-        {tabs.map((tab) => (
-          <div
-            key={tab.key}
-            className={`ide-tab${tab.key === active ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
-            onClick={interactive ? () => selectTab(tab.key) : undefined}
-          >
-            <span className={`ide-tab-title${tab.kind === `issue` ? ` ide-mono` : ``}`}>
-              {tab.label}
-            </span>
-            <button
-              className={`ide-tab-x${interactive ? ` is-click` : ``}`}
-              type="button"
-              title="Close tab"
-              onClick={
-                interactive
-                  ? (e) => {
-                      e.stopPropagation()
-                      closeTab(tab.key)
-                    }
-                  : undefined
-              }
-            >
-              <IcX size={11} />
-            </button>
-          </div>
-        ))}
-      </div>
-      <div className="ide-tabpanes">
-        {tabs.map((tab) => (
-          <div key={tab.key} className="ide-tabpane" hidden={tab.key !== active}>
-            {tab.kind === `issue` ? (
-              <IssueDetail issueId={tab.ref} />
-            ) : tab.kind === `file` ? (
-              <FileTab />
-            ) : (
-              <ScTab />
-            )}
-          </div>
-        ))}
-      </div>
+      {openTabs.map((tab) => (
+        <div key={tab.key} className="ide-tabpane" hidden={tab.key !== active}>
+          <IssueDetail issueId={tab.ref} />
+        </div>
+      ))}
     </div>
   )
 }
@@ -253,11 +223,11 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
       }
     },
     openIssue: (id) => openTab(issueTab(id)),
-    openFile: (path) => openTab(fileTab(path)),
-    openSourceControl: () => {
-      setTool(`source-control`)
-      openTab(scTab())
+    openFile: (path) => {
+      setTool(`files`)
+      setSelectedFile(path)
     },
+    openSourceControl: () => setTool(`source-control`),
     filter,
     setFilter,
     collapsedGroups,
@@ -325,18 +295,17 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
           className={`ide-root${interactive ? `` : ` is-static`}`}
           style={scale < 1 ? { width: BASE_W, transform: `scale(${scale})` } : undefined}
         >
-          <Topbar />
-          <div className="ide-body">
-            <Rail />
-            {/* The terminal dock spans sidebar + center; only the icon rail
-                stays full-height, matching the real IDE. */}
-            <div className="ide-main">
-              <div className="ide-main-top">
-                <SidebarPanel />
-                <CenterArea />
-              </div>
-              <TerminalDock />
+          {/* The labelled rail is the ONE full-height column (it carries
+              its own titlebar strip); the titlebar, panes and terminal dock
+              all live in the content column right of it. */}
+          <Rail />
+          <div className="ide-main">
+            <Topbar />
+            <div className="ide-main-top">
+              <SidebarPanel />
+              <CenterArea />
             </div>
+            <TerminalDock />
           </div>
           {pendingCoding && <StartCodingDialog />}
         </div>

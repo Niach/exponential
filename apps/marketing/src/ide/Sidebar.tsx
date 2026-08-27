@@ -38,7 +38,7 @@ function InboxPanel() {
   return (
     <div className="ide-inboxpanel">
       <ToolHead
-        icon={<IcInbox size={13} className="ide-c-muted" />}
+        icon={<IcInbox size={10} className="ide-c-muted" />}
         title="Inbox"
         trailing={
           unreadLeft ? (
@@ -70,7 +70,7 @@ function InboxPanel() {
               }
             >
               <span className="ide-inbox-badge">
-                <Icon size={13} />
+                <Icon size={10} />
               </span>
               <div className="ide-inbox-main">
                 <div className="ide-inbox-line1">
@@ -98,7 +98,7 @@ function MyIssuesPanel() {
   return (
     <div className="ide-inboxpanel">
       <ToolHead
-        icon={<IcCircleUser size={13} className="ide-c-muted" />}
+        icon={<IcCircleUser size={10} className="ide-c-muted" />}
         title="My Issues"
       />
       <div className="ide-board-list">
@@ -116,7 +116,7 @@ function ReviewsPanel() {
   return (
     <div className="ide-inboxpanel">
       <ToolHead
-        icon={<IcGitPullRequest size={13} className="ide-c-muted" />}
+        icon={<IcGitPullRequest size={10} className="ide-c-muted" />}
         title="Reviews"
       />
       {visible.length === 0 ? (
@@ -176,10 +176,8 @@ function ReviewsPanel() {
 
 export function SidebarPanel() {
   const { tool } = useIde()
-  const wide =
-    tool === `issues` || tool === `my-issues` || tool === `reviews` || tool === `inbox`
   return (
-    <div className={`ide-sidebar${wide ? ` ide-sidebar-wide` : ``}`}>
+    <div className="ide-sidebar">
       {tool === `issues` ? (
         <BoardPanel />
       ) : tool === `files` ? (

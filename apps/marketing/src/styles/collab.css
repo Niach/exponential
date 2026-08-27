@@ -527,8 +527,9 @@
   min-width: 0;
 }
 
-/* HelpdeskChatDemo sizes its .web-root inline (desktop 460px with the
-   rail, phones 560px chat-only) — no height override here. */
+/* HelpdeskChatDemo sizes its .web-root inline (desktop 700px with the rail,
+   phones 760px chat-only — EXP-471 grew both when the recreation moved to the
+   app's real 18.5px rem grid) — no height override here. */
 .co-helpsup {
   flex: 1;
   min-width: 0;

@@ -24,11 +24,26 @@ const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 // Avatar recipe sampled from the desktop-hero-board-issue reference screenshot (the DS circles):
 // dark fuchsia fill ≈ #3d0f3a, brighter fuchsia ring, bright fuchsia initials.
 // (Deliberately local — the shared theme has no fuchsia token; matched to the ref.)
-const AVATAR_BG = `rgba(192,38,211,0.28)`
-const AVATAR_RING = `rgba(217,70,239,0.55)`
-const AVATAR_FG = `#e879f9`
+// The app tints each member's circle from their identity; the reference board
+// shows blue / amber / green / emerald side by side, so the film derives the
+// accent from the initials instead of painting everyone fuchsia.
+const AVATAR_ACCENTS = [
+  { bg: `rgba(59,130,246,0.30)`, fg: `#93c5fd` },
+  { bg: `rgba(245,158,11,0.30)`, fg: `#fcd34d` },
+  { bg: `rgba(34,197,94,0.30)`, fg: `#86efac` },
+  { bg: `rgba(217,70,239,0.28)`, fg: `#e879f9` },
+  { bg: `rgba(20,184,166,0.30)`, fg: `#5eead4` },
+] as const
+
+const avatarAccent = (initials: string) => {
+  let h = 0
+  for (const ch of initials) h = (h * 31 + ch.charCodeAt(0)) % 997
+  return AVATAR_ACCENTS[h % AVATAR_ACCENTS.length]
+}
 
 const ROW_H = WIN.row // 28
+// The list pane's own header strip (the Filter row) — pane content starts here.
+export const HEADER_H = 44
 
 // ── Tiny inline icons (lucide-style, stroke currentColor) ────────────────────
 const svgProps = (size: number, strokeWidth = 1.6) =>
@@ -120,13 +135,6 @@ const ListFilterIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
     <path d="M3 6h18" />
     <path d="M7 12h10" />
     <path d="M11 18h4" />
-  </svg>
-)
-
-const PlusIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
-  <svg {...svgProps(size, 2)}>
-    <path d="M5 12h14" />
-    <path d="M12 5v14" />
   </svg>
 )
 
@@ -249,6 +257,7 @@ export const Avatar: React.FC<{ initials?: string; size?: number }> = ({
       </span>
     )
   }
+  const accent = avatarAccent(initials)
   return (
     <span
       style={{
@@ -259,9 +268,8 @@ export const Avatar: React.FC<{ initials?: string; size?: number }> = ({
         alignItems: `center`,
         justifyContent: `center`,
         borderRadius: 999,
-        backgroundColor: AVATAR_BG,
-        border: `1px solid ${AVATAR_RING}`,
-        color: AVATAR_FG,
+        backgroundColor: accent.bg,
+        color: accent.fg,
         fontFamily: UI_FONT,
         fontSize: Math.round(size * 0.42),
         fontWeight: 600,
@@ -282,17 +290,13 @@ export const LabelChip: React.FC<{ name: string; dot: string }> = ({
     style={{
       display: `inline-flex`,
       alignItems: `center`,
-      gap: 4,
-      height: 17,
-      padding: `0 6px`,
+      gap: 5,
       flex: `none`,
-      borderRadius: 999,
-      border: `1px solid ${C.strokeCard}`,
       fontFamily: UI_FONT,
-      fontSize: 11,
+      fontSize: 12,
       color: C.muted,
       whiteSpace: `nowrap`,
-      maxWidth: 64,
+      maxWidth: 92,
       overflow: `hidden`,
     }}
   >
@@ -305,144 +309,91 @@ export const LabelChip: React.FC<{ name: string; dot: string }> = ({
         backgroundColor: dot,
       }}
     />
-    <span style={{ overflow: `hidden`, textOverflow: `ellipsis` }}>{name}</span>
+    <span style={{ overflow: `hidden`, textOverflow: `ellipsis` }}>
+      {name.charAt(0).toUpperCase() + name.slice(1)}
+    </span>
   </span>
 )
 
 // ── SidebarPane — the 520px tool-window chassis ──────────────────────────────
 // EXP-359 glass: the whole pane is transparent over the page gradient; a
 // STROKE_ROW hairline marks the boundary to the center (surface.rs idiom).
-// `pills` renders the board's filter pill row (true → the default three pills).
+// The board pane has NO title row and NO tab strip (EXP-282) — just the ghost
+// Filter button in a 44px header strip.
 
-export type SidebarPills = { labels: string[]; activeIndex?: number } | boolean
-
-// The board header's right cluster ("≡ Filter" ghost + primary "+ New Issue").
+// The board header's right cluster. Post-EXP-282 the list pane header carries
+// ONE ghost "Filter" button — the primary "+ New Issue" moved to the titlebar
+// and the All Issues / Active / Backlog tab strip is gone (shots/board/desktop).
 export const BoardActions: React.FC = () => (
-  <div style={{ display: `flex`, alignItems: `center`, gap: 8 }}>
-    <span
-      style={{
-        display: `inline-flex`,
-        alignItems: `center`,
-        gap: 4,
-        color: C.muted,
-        fontFamily: UI_FONT,
-        fontSize: 12,
-      }}
-    >
-      <ListFilterIcon size={13} />
-      Filter
-    </span>
-    <span
-      style={{
-        display: `inline-flex`,
-        alignItems: `center`,
-        gap: 4,
-        height: 26,
-        padding: `0 9px`,
-        borderRadius: 8,
-        backgroundColor: C.primary,
-        color: C.primaryFg,
-        fontFamily: UI_FONT,
-        fontSize: 12,
-        fontWeight: 500,
-        whiteSpace: `nowrap`,
-      }}
-    >
-      <PlusIcon size={11} />
-      New Issue
-    </span>
+  <div
+    style={{
+      display: `inline-flex`,
+      alignItems: `center`,
+      gap: 5,
+      height: 22,
+      padding: `0 8px`,
+      borderRadius: 8,
+      color: C.muted,
+      fontFamily: UI_FONT,
+      fontSize: 12,
+    }}
+  >
+    <ListFilterIcon size={13} />
+    Filter
   </div>
 )
 
 export const SidebarPane: React.FC<{
   children: React.ReactNode
-  title: string
+  title?: string // legacy label for non-board tools (Reviews); the board pane has none
   actions?: React.ReactNode
-  pills?: SidebarPills
   bottomInset?: number // px kept free at the window bottom (animated dock height); default the collapsed strip
-}> = ({ children, title, actions, pills, bottomInset = WIN.dockStrip }) => {
-  const pillSpec =
-    pills === true
-      ? { labels: [`All Issues`, `Active`, `Backlog`], activeIndex: 0 }
-      : pills === false || pills === undefined
-        ? undefined
-        : { labels: pills.labels, activeIndex: pills.activeIndex ?? 0 }
-  return (
+}> = ({ children, title, actions, bottomInset = WIN.dockStrip }) => (
+  <div
+    style={{
+      position: `absolute`,
+      left: WIN.rail,
+      top: WIN.titleBar,
+      width: WIN.sidebar,
+      height: WIN.h - WIN.titleBar - bottomInset,
+      borderRight: `1px solid ${C.strokeRow}`,
+      display: `flex`,
+      flexDirection: `column`,
+      fontFamily: UI_FONT,
+      overflow: `hidden`,
+    }}
+  >
     <div
       style={{
-        position: `absolute`,
-        left: WIN.rail,
-        top: WIN.titleBar,
-        width: WIN.sidebar,
-        height: WIN.h - WIN.titleBar - bottomInset,
-        borderRight: `1px solid ${C.strokeRow}`,
+        flex: `none`,
+        height: HEADER_H,
+        padding: `0 14px`,
         display: `flex`,
-        flexDirection: `column`,
-        fontFamily: UI_FONT,
-        overflow: `hidden`,
+        alignItems: `center`,
+        justifyContent: `space-between`,
       }}
     >
-      <div
-        style={{
-          flex: `none`,
-          height: 40,
-          padding: `0 12px`,
-          display: `flex`,
-          alignItems: `center`,
-          justifyContent: `space-between`,
-        }}
-      >
+      {title ? (
         <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
           {title}
         </span>
-        {actions ?? null}
-      </div>
-      {pillSpec ? (
-        <div
-          style={{
-            flex: `none`,
-            display: `flex`,
-            gap: 4,
-            padding: `0 12px 8px`,
-          }}
-        >
-          {pillSpec.labels.map((label, i) => {
-            const active = i === pillSpec.activeIndex
-            return (
-              <span
-                key={label}
-                style={{
-                  height: 22,
-                  padding: `0 10px`,
-                  display: `inline-flex`,
-                  alignItems: `center`,
-                  borderRadius: 999,
-                  backgroundColor: active ? C.fillActive : `transparent`,
-                  color: active ? C.text : C.muted,
-                  fontSize: 12,
-                  fontWeight: active ? 500 : 400,
-                  whiteSpace: `nowrap`,
-                }}
-              >
-                {label}
-              </span>
-            )
-          })}
-        </div>
-      ) : null}
-      <div style={{ flex: 1, minHeight: 0, position: `relative` }}>
-        {children}
-      </div>
+      ) : (
+        <span />
+      )}
+      {actions ?? null}
     </div>
-  )
-}
+    <div style={{ flex: 1, minHeight: 0, position: `relative` }}>{children}</div>
+  </div>
+)
 
 // ── BoardTool — grouped issue list ────────────────────────────────────────────
 
+// Contract displayOrder (issueStatusDefaults): backlog → unstarted → started
+// → completed. The app groups the board in exactly this order.
 const GROUPS: { status: IssueStatus; label: string; tint: string }[] = [
-  { status: `in_progress`, label: `In Progress`, tint: C.tintInProgress },
-  { status: `todo`, label: `Todo`, tint: C.tintTodo },
   { status: `backlog`, label: `Backlog`, tint: C.tintBacklog },
+  { status: `todo`, label: `Todo`, tint: C.tintTodo },
+  { status: `in_progress`, label: `In Progress`, tint: C.tintInProgress },
   { status: `done`, label: `Done`, tint: C.tintDone },
 ]
 
@@ -594,20 +545,29 @@ export const BoardTool: React.FC<{
           height: ROW_H,
           display: `flex`,
           alignItems: `center`,
-          gap: 6,
-          padding: `0 10px`,
+          gap: 5,
+          padding: `0 11px`,
           backgroundColor: g.tint,
           ...enter(placedB.index),
         }}
       >
-        <span style={{ color: C.dim, display: `flex` }}>
+        <span style={{ color: C.dim, display: `flex`, marginRight: 1 }}>
           <ChevronDownIcon size={12} />
         </span>
         <StatusIcon status={g.status} size={13} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+        <span
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: C.text,
+            marginLeft: 1,
+          }}
+        >
           {g.label}
         </span>
-        <span style={{ fontSize: 11, color: C.muted }}>{count}</span>
+        <span style={{ fontSize: 11.5, color: C.muted, marginLeft: 1 }}>
+          {count}
+        </span>
       </div>
     )
 
@@ -669,7 +629,7 @@ export const BoardTool: React.FC<{
             display: `flex`,
             alignItems: `center`,
             gap: 6,
-            padding: `0 10px`,
+            padding: `0 11px 0 24px`,
             backgroundColor: selected
               ? C.fillActive
               : inFlight
@@ -723,13 +683,13 @@ export const BoardTool: React.FC<{
           </span>
           <span
             style={{
-              width: 52,
+              width: 68,
               flex: `none`,
               display: `flex`,
               alignItems: `center`,
               gap: 3,
               fontFamily: MONO_FONT,
-              fontSize: 11,
+              fontSize: 11.5,
               color: C.muted,
               whiteSpace: `nowrap`,
               position: `relative`,
@@ -785,11 +745,16 @@ export const BoardTool: React.FC<{
               style={{
                 flex: `none`,
                 display: `flex`,
+                alignItems: `center`,
+                gap: 4,
                 color: C.muted,
+                fontSize: 12,
+                whiteSpace: `nowrap`,
                 position: `relative`,
               }}
             >
               <CalendarGlyph size={13} />
+              {row.due}
             </span>
           ) : null}
         </div>

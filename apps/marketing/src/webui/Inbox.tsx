@@ -1,86 +1,131 @@
-/* ─── Inbox — Linear-style notification stream in the web chrome ───
-   Mirrors apps/web inbox/inbox-view.tsx: centered column, type icon in a
-   muted circle, identifier + title + time + unread dot, sentence line,
-   read rows fade, "Mark all read" in the header. */
+/* ─── Inbox — the merged personal surface (EXP-186) ───
+   ONE sidebar entry with two tabs: the notification stream
+   (inbox/inbox-view.tsx) and cross-board My Issues (my-issues-view.tsx),
+   switched by the capsule segmented control in the page header, with
+   "Mark all read" opposite it. */
 import { INBOX_ITEMS, type InboxType } from "../ide/data"
 import { useWeb } from "./state"
+import { WebAgentDock, WebMyIssues } from "./Board"
 import {
-  IcBell,
-  IcCircleDot,
-  IcGitMerge,
-  IcGitPullRequest,
-  IcMessageSquare,
-  IcUserPlus,
-  type IdeIcon,
-} from "../ide/icons"
+  ICON_35,
+  ICON_4,
+  IcAssigned,
+  IcAssignee,
+  IcComment,
+  IcFilter,
+  IcInbox,
+  IcMerged,
+  IcReviews,
+  IcStatusChanged,
+  ICON_3,
+  type WebIcon,
+} from "./icons"
 
-const typeIcon: Record<InboxType, IdeIcon> = {
-  issue_assigned: IcUserPlus,
-  issue_comment: IcMessageSquare,
-  issue_status_changed: IcCircleDot,
-  pr_opened: IcGitPullRequest,
-  pr_merged: IcGitMerge,
+const typeIcon: Record<InboxType, WebIcon> = {
+  issue_assigned: IcAssigned,
+  issue_comment: IcComment,
+  issue_status_changed: IcStatusChanged,
+  pr_opened: IcReviews,
+  pr_merged: IcMerged,
+}
+
+function NotificationList() {
+  const { interactive, inboxRead, markInboxRead, setNav, openIssue } = useWeb()
+  return (
+    <div className="web-inbox-scroll">
+      <div className="web-inbox-col">
+        {INBOX_ITEMS.map((n) => {
+          const Icon = typeIcon[n.type]
+          const unread = n.unread && !inboxRead.has(n.id)
+          return (
+            <button
+              key={n.id}
+              type="button"
+              className={`web-notif${unread ? `` : ` is-read`}${interactive ? ` is-click` : ``}`}
+              onClick={
+                interactive
+                  ? () => {
+                      markInboxRead(n.id)
+                      setNav(`project`)
+                      openIssue(n.issueId)
+                    }
+                  : undefined
+              }
+            >
+              <span className="web-notif-badge">
+                <Icon size={ICON_35} />
+              </span>
+              <span className="web-notif-main">
+                <span className="web-notif-line1">
+                  <span className="web-notif-id">{n.issueId}</span>
+                  <span className={`web-notif-title${unread ? ` is-unread` : ``}`}>
+                    {n.title}
+                  </span>
+                  <span className="web-notif-time">{n.time}</span>
+                  {unread && <span className="web-notif-dot" />}
+                </span>
+                <span className="web-notif-sentence">{n.sentence}</span>
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 export function WebInbox() {
-  const { interactive, inboxRead, markInboxRead, markAllInboxRead, setNav, openIssue } = useWeb()
-  const unreadLeft = INBOX_ITEMS.some((n) => n.unread && !inboxRead.has(n.id))
+  const {
+    interactive,
+    inboxRead,
+    markAllInboxRead,
+    inboxTab,
+    setInboxTab,
+  } = useWeb()
+  const unread = INBOX_ITEMS.filter((n) => n.unread && !inboxRead.has(n.id)).length
+  const isMine = inboxTab === `my-issues`
+
   return (
-    <div className="web-inbox">
-      <div className="web-inbox-col">
-        <div className="web-inbox-head">
-          <span className="web-inbox-title">
-            <IcBell size={15} />
+    <div className="web-page">
+      <div className="web-tabrow">
+        <div className="web-seg">
+          <button
+            type="button"
+            className={`web-seg-btn${isMine ? `` : ` is-active`}${interactive ? ` is-click` : ``}`}
+            onClick={interactive ? () => setInboxTab(`inbox`) : undefined}
+          >
+            <IcInbox size={ICON_4} />
             Inbox
-          </span>
-          {unreadLeft && (
+            {unread > 0 && <span className="web-seg-count">{unread}</span>}
+          </button>
+          <button
+            type="button"
+            className={`web-seg-btn${isMine ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
+            onClick={interactive ? () => setInboxTab(`my-issues`) : undefined}
+          >
+            <IcAssignee size={ICON_4} />
+            My Issues
+          </button>
+        </div>
+        {isMine ? (
+          <button className="web-xsbtn is-click" type="button">
+            <IcFilter size={ICON_3} />
+            Filter
+          </button>
+        ) : (
+          unread > 0 && (
             <button
-              className={`web-ghost${interactive ? ` is-click` : ``}`}
+              className={`web-smbtn${interactive ? ` is-click` : ``}`}
               type="button"
               onClick={interactive ? markAllInboxRead : undefined}
             >
               Mark all read
             </button>
-          )}
-        </div>
-        <div className="web-inbox-list">
-          {INBOX_ITEMS.map((n) => {
-            const Icon = typeIcon[n.type]
-            const unread = n.unread && !inboxRead.has(n.id)
-            return (
-              <button
-                key={n.id}
-                type="button"
-                className={`web-inbox-card${unread ? `` : ` is-read`}${interactive ? ` is-click` : ``}`}
-                onClick={
-                  interactive
-                    ? () => {
-                        markInboxRead(n.id)
-                        setNav(`project`)
-                        openIssue(n.issueId)
-                      }
-                    : undefined
-                }
-              >
-                <span className="web-inbox-badge">
-                  <Icon size={13} />
-                </span>
-                <span className="web-inbox-main">
-                  <span className="web-inbox-line1">
-                    <span className="web-inbox-id">{n.issueId}</span>
-                    <span className={`web-inbox-issue${unread ? ` is-unread` : ``}`}>
-                      {n.title}
-                    </span>
-                    <span className="web-inbox-time">{n.time}</span>
-                    {unread && <span className="web-inbox-dot" />}
-                  </span>
-                  <span className="web-inbox-sentence">{n.sentence}</span>
-                </span>
-              </button>
-            )
-          })}
-        </div>
+          )
+        )}
       </div>
+      {isMine ? <WebMyIssues /> : <NotificationList />}
+      <WebAgentDock />
     </div>
   )
 }

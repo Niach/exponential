@@ -11,7 +11,12 @@ import { interpolate, spring } from "remotion"
 import { C, GLASS, MONO_FONT, POP, UI_FONT } from "../../ships/theme"
 import type { SteerItem } from "../../ships/fixtures"
 import { typed, useBlink, wallpaperBackground } from "../../ships/rig"
-import { CL_PHONE_FEED, CL_STEER_MSG, PHONE_START } from "../fixtures"
+import {
+  CL_FILE_STATS,
+  CL_PHONE_FEED,
+  CL_STEER_MSG,
+  PHONE_START,
+} from "../fixtures"
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 
@@ -291,52 +296,88 @@ export const SteerPhone: React.FC<{
     : 0
   return (
     <PhoneChassis glass={glass}>
-      {/* nav bar: back chevron · status dot + "Live · MacBook Pro" · stop */}
+      {/* nav bar (shots/steering/ios): circled back · status dot + state ·
+          host · the circled red kill-session button */}
       <div
         style={{
           position: "absolute",
-          top: 44,
+          top: 40,
           left: 12,
           right: 12,
-          height: 26,
+          height: 34,
           display: "flex",
           alignItems: "center",
           color: C.muted,
           zIndex: 2,
         }}
       >
-        <Glyph size={16} sw={2.2}>
-          <path d="m15 18-6-6 6-6" />
-        </Glyph>
         <span
           style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
+            width: 34,
+            height: 34,
+            flexShrink: 0,
+            borderRadius: 999,
+            backgroundColor: C.fillCard,
+            border: `1px solid rgba(255,255,255,0.07)`,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: 6,
+            color: C.text,
+          }}
+        >
+          <Glyph size={16} sw={2.2}>
+            <path d="m15 18-6-6 6-6" />
+          </Glyph>
+        </span>
+        <span
+          style={{
+            position: "absolute",
+            left: 42,
+            right: 42,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 7,
           }}
         >
           <span
             style={{
               width: 8,
               height: 8,
+              flexShrink: 0,
               borderRadius: 999,
               backgroundColor: C.green,
             }}
           />
           <span
-            style={{ fontSize: 12, fontWeight: 500, color: C.muted }}
+            style={{
+              fontSize: 12,
+              fontWeight: 500,
+              color: C.muted,
+              whiteSpace: "nowrap",
+            }}
           >{`Live · ${PHONE_START.device}`}</span>
         </span>
-        {/* kill-session stop glyph (owner-only in the app) */}
+        {/* kill-session button (owner-only in the app) */}
         <span
-          style={{ marginLeft: "auto", color: C.destructive, display: "flex" }}
+          style={{
+            marginLeft: "auto",
+            width: 34,
+            height: 34,
+            flexShrink: 0,
+            borderRadius: 999,
+            backgroundColor: C.fillCard,
+            border: `1px solid rgba(255,255,255,0.07)`,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: C.destructive,
+          }}
         >
-          <Glyph size={14} sw={2}>
-            <rect x="6" y="6" width="12" height="12" rx="2" />
+          <Glyph size={16} sw={2}>
+            <circle cx="12" cy="12" r="9" />
+            <path d="m15 9-6 6" />
+            <path d="m9 9 6 6" />
           </Glyph>
         </span>
       </div>
@@ -348,7 +389,7 @@ export const SteerPhone: React.FC<{
           top: 82,
           left: 14,
           right: 14,
-          bottom: 76,
+          bottom: 132,
           display: "flex",
           flexDirection: "column",
           justifyContent: "flex-end",
@@ -399,71 +440,113 @@ export const SteerPhone: React.FC<{
         ) : null}
       </div>
 
-      {/* composer: "Message the agent…" field + small glass send capsule */}
+      {/* the pinned "Latest changes" diffstat strip + the composer: ONE tall
+          rounded field with the plus affordance bottom-left and send
+          bottom-right (shots/steering/ios) */}
       <div
         style={{
           position: "absolute",
           left: 12,
           right: 12,
           bottom: 16,
-          display: "flex",
-          alignItems: "flex-end",
-          gap: 8,
         }}
       >
         <div
           style={{
-            flex: 1,
-            minHeight: 38,
+            height: 32,
+            marginBottom: 8,
             boxSizing: "border-box",
-            padding: "9px 12px",
-            borderRadius: 12,
-            backgroundColor: "rgba(255,255,255,0.06)",
-            border: `1px solid ${frame >= typeAt && !sent ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.10)"}`,
-            fontSize: 12,
-            lineHeight: 1.5,
-            color: typedMsg ? C.text : C.dim,
-          }}
-        >
-          {typedMsg || (sent || frame < typeAt ? "Message the agent…" : "")}
-          {!sent && frame >= typeAt ? (
-            <span
-              style={{
-                display: "inline-block",
-                width: 6,
-                height: 12,
-                marginLeft: 1,
-                verticalAlign: "-2px",
-                backgroundColor: C.text,
-                opacity: !typingDone || blinkOn ? 1 : 0,
-              }}
-            />
-          ) : null}
-        </div>
-        <span
-          style={{
-            height: 34,
-            padding: "0 12px",
-            flexShrink: 0,
-            borderRadius: 999,
-            backgroundColor:
-              typedMsg || sent ? C.fillActive : "rgba(255,255,255,0.06)",
-            border: `1px solid ${C.strokeCard}`,
-            color: C.text,
-            opacity: typedMsg || sent ? 1 : 0.5,
             display: "flex",
             alignItems: "center",
-            justifyContent: "center",
-            scale: sent
-              ? String(1 + 0.12 * Math.max(0, 1 - (frame - sendAt) / 8))
-              : "1",
+            gap: 8,
+            padding: "0 12px",
+            borderRadius: 12,
+            backgroundColor: "rgba(255,255,255,0.05)",
+            border: `1px solid rgba(255,255,255,0.07)`,
+            color: C.muted,
           }}
         >
-          <Glyph size={15} sw={2}>
-            <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
-            <path d="m21.854 2.147-10.94 10.939" />
+          <Glyph size={13} sw={1.8}>
+            <rect x="4" y="3" width="16" height="18" rx="2" />
+            <path d="M12 8v6" />
+            <path d="M9 11h6" />
           </Glyph>
-        </span>
+          <span style={{ flex: 1, fontSize: 12, color: C.text }}>
+            Latest changes
+          </span>
+          <span style={{ fontSize: 11.5, color: C.diffAdd }}>
+            {`+${CL_FILE_STATS.add}`}
+          </span>
+          <span style={{ fontSize: 11.5, color: C.destructive }}>
+            {`\u2212${CL_FILE_STATS.del}`}
+          </span>
+          <Glyph size={12} sw={2}>
+            <path d="m18 15-6-6-6 6" />
+          </Glyph>
+        </div>
+        <div
+          style={{
+            boxSizing: "border-box",
+            padding: "10px 12px 8px",
+            borderRadius: 16,
+            backgroundColor: "rgba(255,255,255,0.06)",
+            border: `1px solid ${frame >= typeAt && !sent ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.10)"}`,
+          }}
+        >
+          <div
+            style={{
+              minHeight: 17,
+              fontSize: 12,
+              lineHeight: 1.45,
+              color: typedMsg ? C.text : C.dim,
+            }}
+          >
+            {typedMsg || (sent || frame < typeAt ? "Message the agent…" : "")}
+            {!sent && frame >= typeAt ? (
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 6,
+                  height: 12,
+                  marginLeft: 1,
+                  verticalAlign: "-2px",
+                  backgroundColor: C.text,
+                  opacity: !typingDone || blinkOn ? 1 : 0,
+                }}
+              />
+            ) : null}
+          </div>
+          <div
+            style={{
+              marginTop: 8,
+              height: 22,
+              display: "flex",
+              alignItems: "center",
+              color: C.muted,
+            }}
+          >
+            <Glyph size={16} sw={2}>
+              <path d="M5 12h14" />
+              <path d="M12 5v14" />
+            </Glyph>
+            <span style={{ flex: 1 }} />
+            <span
+              style={{
+                display: "flex",
+                color: typedMsg || sent ? C.text : C.dim,
+                opacity: typedMsg || sent ? 1 : 0.6,
+                scale: sent
+                  ? String(1 + 0.12 * Math.max(0, 1 - (frame - sendAt) / 8))
+                  : "1",
+              }}
+            >
+              <Glyph size={17} sw={1.9}>
+                <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+                <path d="m21.854 2.147-10.94 10.939" />
+              </Glyph>
+            </span>
+          </div>
+        </div>
       </div>
     </PhoneChassis>
   )

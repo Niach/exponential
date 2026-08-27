@@ -1,24 +1,21 @@
-/* ─── Board — filter bar + grouped issue list ───
-   Mirrors apps/web issue-filter-bar.tsx ("Issues" title, pill tabs, primary
-   New Issue) and issue-list.tsx (grid rows [priority | identifier | status |
-   title | labels | assignee | due], tinted sticky group headers). */
-import {
-  FILTER_STATUSES,
-  GROUP_ORDER,
-  ISSUES,
-  MY_ISSUE_IDS,
-  type FilterTab,
-  type Issue,
-} from "../ide/data"
+/* ─── Board — filter bar + grouped issue list + agent dock ───
+   Mirrors apps/web issue-filter-bar.tsx (EXP-449: title-less control row,
+   just the right-hand Filter trigger) and issue-list.tsx (the md grid
+   [checkbox | priority | id | status | title | labels | assignee | due],
+   sticky status-washed group headers). The strip along the bottom is the
+   agent dock (agent-dock/agent-dock.tsx): one tab per live coding session. */
+import { GROUP_ORDER, ISSUES, MY_ISSUE_IDS, STATUS_LABEL, type Issue } from "../ide/data"
 import { useWeb } from "./state"
-import { Avatar, LabelChip, PriorityIcon, StatusIcon } from "../ide/bits"
-import { IcCalDays, IcChevRight, IcCircleUser, IcListFilter, IcPlus } from "../ide/icons"
+import { LabelPill, PriorityGlyph, StatusGlyph, WebAvatar } from "./bits"
+import { AGENT_SESSIONS, WEB_GROUP_ORDER } from "./data"
+import { ICON_3, ICON_35, IcCalendar, IcChevRight, IcFilter } from "./icons"
 
-const TABS: { id: FilterTab; label: string }[] = [
-  { id: `all`, label: `All Issues` },
-  { id: `active`, label: `Active` },
-  { id: `backlog`, label: `Backlog` },
-]
+/* The demo board's status groups in the app's display order. GROUP_ORDER
+   (ide/data) supplies the labels; contract displayOrder supplies the order. */
+const GROUPS = WEB_GROUP_ORDER.map((status) => ({
+  status,
+  label: GROUP_ORDER.find((g) => g.status === status)?.label ?? STATUS_LABEL[status],
+}))
 
 export function WebIssueRow({
   issue,
@@ -34,29 +31,29 @@ export function WebIssueRow({
       className={`web-row${interactive ? ` is-click` : ``}${entering ? ` is-new` : ``}`}
       onClick={interactive ? () => openIssue(issue.id) : undefined}
     >
+      {/* Bulk-select slot — the checkbox only fades in on row hover. */}
+      <span className="web-row-check">
+        <span className="web-check" />
+      </span>
       <span className="web-row-cell">
-        <PriorityIcon priority={issue.priority} />
+        <PriorityGlyph priority={issue.priority} />
       </span>
       <span className="web-row-id">{issue.id}</span>
       <span className="web-row-cell">
-        <StatusIcon status={issue.status} />
+        <StatusGlyph status={issue.status} />
       </span>
       <span className="web-row-title">{issue.title}</span>
       <span className="web-row-labels">
-        {issue.labels?.map((l) => <LabelChip key={l.name} label={l} />)}
+        {issue.labels?.map((l) => <LabelPill key={l.name} label={l} />)}
       </span>
       <span className="web-row-cell is-center">
-        <Avatar person={issue.assignee} size={18} />
+        <WebAvatar person={issue.assignee} />
       </span>
       <span className="web-row-due">
-        {issue.due ? (
-          <span className="ide-due">
-            <IcCalDays size={12} />
-            {issue.due}
-          </span>
-        ) : (
-          <span className="ide-due is-unset">
-            <IcCalDays size={12} />
+        {issue.due && (
+          <span className="web-due">
+            <IcCalendar size={ICON_3} />
+            <span className="web-due-text">{issue.due}</span>
           </span>
         )}
       </span>
@@ -64,24 +61,24 @@ export function WebIssueRow({
   )
 }
 
-function GroupedList({ issues }: { issues: Issue[] }) {
+export function WebGroupedList({ issues }: { issues: Issue[] }) {
   const { collapsedGroups, toggleGroup, interactive, injectedIssue } = useWeb()
   return (
     <div className="web-board-list">
-      {GROUP_ORDER.map((g) => {
+      {GROUPS.map((g) => {
         const groupIssues = issues.filter((i) => i.status === g.status)
         if (groupIssues.length === 0) return null
         const isCollapsed = collapsedGroups.has(g.status)
         return (
           <div key={g.status}>
             <div
-              className={`web-grouphead web-grouphead-${g.status}${interactive ? ` is-click` : ``}`}
+              className={`web-grouphead web-wash-${g.status}${interactive ? ` is-click` : ``}`}
               onClick={interactive ? () => toggleGroup(g.status) : undefined}
             >
               <span className={`web-groupchev${isCollapsed ? `` : ` is-open`}`}>
-                <IcChevRight size={12} className="ide-c-muted" />
+                <IcChevRight size={ICON_3} />
               </span>
-              <StatusIcon status={g.status} />
+              <StatusGlyph status={g.status} size={ICON_35} />
               <span className="web-group-name">{g.label}</span>
               <span className="web-group-count">{groupIssues.length}</span>
             </div>
@@ -100,58 +97,52 @@ function GroupedList({ issues }: { issues: Issue[] }) {
   )
 }
 
-export function WebBoard() {
-  const { filter, setFilter, interactive, injectedIssue } = useWeb()
-  const visibleStatuses = FILTER_STATUSES[filter]
-  /* The injected row leads the list, so it lands FIRST in its status group. */
-  const source = injectedIssue ? [injectedIssue, ...ISSUES] : ISSUES
-  const visible = source.filter((i) => visibleStatuses.includes(i.status))
+/* The board page's control row: EXP-449 left it with nothing but the filter
+   trigger (h-14, px-6). */
+export function WebFilterBar() {
   return (
-    <div className="web-board">
-      <div className="web-filterbar">
-        <div className="web-filterbar-top">
-          <span className="web-board-title">Issues</span>
-          <div className="web-board-actions">
-            <button className="web-ghost web-icbtn" type="button" title="Filter">
-              <IcListFilter size={14} />
-            </button>
-            <button className="web-newissue" type="button">
-              <IcPlus size={12} />
-              New Issue
-            </button>
-          </div>
-        </div>
-        <div className="web-tabs">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              className={`web-tab${filter === tab.id ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
-              onClick={interactive ? () => setFilter(tab.id) : undefined}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <GroupedList issues={visible} />
+    <div className="web-filterbar">
+      <button className="web-xsbtn is-click" type="button">
+        <IcFilter size={ICON_3} />
+        Filter
+      </button>
     </div>
   )
 }
 
-export function WebMyIssues() {
-  const mine = ISSUES.filter((i) => MY_ISSUE_IDS.includes(i.id))
+/* Agent dock (agent-dock.tsx): a h-9 glass strip of session tabs, each a
+   pinging green dot + the identifier + the device that runs it. */
+export function WebAgentDock() {
+  if (AGENT_SESSIONS.length === 0) return null
   return (
-    <div className="web-board">
-      <div className="web-filterbar">
-        <div className="web-filterbar-top">
-          <span className="web-board-title web-board-title-icon">
-            <IcCircleUser size={15} className="ide-c-muted" />
-            My Issues
-          </span>
-        </div>
-      </div>
-      <GroupedList issues={mine} />
+    <div className="web-dock">
+      {AGENT_SESSIONS.map((s) => (
+        <span className="web-dock-tab" key={s.issueId}>
+          <span className="web-dock-dot" />
+          <span className="web-dock-id">{s.issueId}</span>
+          <span className="web-dock-device">{` · ${s.device}`}</span>
+        </span>
+      ))}
     </div>
   )
+}
+
+export function WebBoard() {
+  const { injectedIssue } = useWeb()
+  /* The injected row leads the list, so it lands FIRST in its status group. */
+  const source = injectedIssue ? [injectedIssue, ...ISSUES] : ISSUES
+  return (
+    <div className="web-page">
+      <WebFilterBar />
+      <WebGroupedList issues={source} />
+      <WebAgentDock />
+    </div>
+  )
+}
+
+/* "My Issues" — the cross-board assigned list. Lives as a TAB of the Inbox
+   page (EXP-186), so it renders no header of its own. */
+export function WebMyIssues() {
+  const mine = ISSUES.filter((i) => MY_ISSUE_IDS.includes(i.id))
+  return <WebGroupedList issues={mine} />
 }

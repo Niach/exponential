@@ -60,13 +60,10 @@ export function IssuesDocsPage() {
             <DocShot view="board" priority />
 
             <p>
-              The filter bar keeps the board focused: <strong>All</strong> /
-              {` `}
-              <strong>Active</strong> / <strong>Backlog</strong> tab presets,
-              plus a filter popover that drills into any combination of{` `}
-              <strong>status</strong>, <strong>priority</strong>, and{` `}
-              <strong>labels</strong>. Active filters show as removable pills
-              under the bar.
+              The <strong>Filter</strong> popover keeps the board focused:
+              drill into any combination of <strong>status</strong>,{` `}
+              <strong>priority</strong>, and <strong>labels</strong>. Active
+              filters show as removable pills under the bar.
             </p>
             <p>
               Need to move many issues at once? <strong>Bulk select</strong>

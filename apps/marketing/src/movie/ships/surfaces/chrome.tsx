@@ -101,9 +101,49 @@ const LifeBuoyIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
   </Svg>
 )
 
-const ZapIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
-  <Svg size={size}>
-    <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
+const BotIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <Svg size={size} sw={1.7}>
+    <path d="M12 8V4H8" />
+    <rect x="4" y="8" width="16" height="12" rx="2" />
+    <path d="M2 14h2" />
+    <path d="M20 14h2" />
+    <path d="M15 13v2" />
+    <path d="M9 13v2" />
+  </Svg>
+)
+
+const SparklesIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <Svg size={size} sw={1.7}>
+    <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+    <path d="M20 3v4" />
+    <path d="M22 5h-4" />
+    <path d="M4 17v2" />
+    <path d="M5 18H3" />
+  </Svg>
+)
+
+const SquareKanbanIcon: React.FC<{ size?: number }> = ({ size = 15 }) => (
+  <Svg size={size} sw={2}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <path d="M8 7v7" />
+    <path d="M12 7v4" />
+    <path d="M16 7v9" />
+  </Svg>
+)
+
+const PanelLeftCloseIcon: React.FC<{ size?: number }> = ({ size = 15 }) => (
+  <Svg size={size} sw={1.8}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <path d="M9 3v18" />
+    <path d="m16 15-3-3 3-3" />
+  </Svg>
+)
+
+const CircleXIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
+  <Svg size={size} sw={2}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="m15 9-6 6" />
+    <path d="m9 9 6 6" />
   </Svg>
 )
 
@@ -221,9 +261,9 @@ export const chromeTabWidth = (t: ChromeTab): number => {
   return Math.min(280, Math.max(72, w))
 }
 
-const TAB_STRIP_LEFT = WIN.rail + 10
+const TAB_STRIP_LEFT = WIN.rail + 6
 const TAB_GAP = 4
-const TAB_H = 24
+const TAB_H = 22
 const TAB_Y = (WIN.titleBar - TAB_H) / 2
 
 // Window-local rect of a tab chip. Returns null when the id isn't present.
@@ -251,6 +291,7 @@ export type TitleBarProps = {
   activeId?: string
   popAt?: Record<string, number> // tab id → global frame it POP-springs in (hidden before)
   presence?: TitleBarPresence
+  newIssue?: boolean // the primary "+ New Issue" pill (right edge); default on
 }
 
 export const TitleBar: React.FC<TitleBarProps> = ({
@@ -259,6 +300,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   activeId,
   popAt,
   presence,
+  newIssue = true,
 }) => (
   <div
     style={{
@@ -277,9 +319,9 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   >
     {/* traffic lights */}
     {[
-      { x: 20, c: "#ff5f57" },
-      { x: 40, c: "#febc2e" },
-      { x: 60, c: "#28c840" },
+      { x: 16, c: "#ff5f57" },
+      { x: 39, c: "#febc2e" },
+      { x: 62, c: "#28c840" },
     ].map((l) => (
       <div
         key={l.c}
@@ -294,6 +336,23 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         }}
       />
     ))}
+    {/* rail collapse toggle — pinned at the rail's trailing edge
+        (icons.json nav-rail-collapse = panel-left-close) */}
+    <div
+      style={{
+        position: "absolute",
+        left: WIN.rail - 25,
+        top: WIN.titleBar / 2 - 8,
+        width: 16,
+        height: 16,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: C.muted,
+      }}
+    >
+      <PanelLeftCloseIcon size={15} />
+    </div>
     {/* tab chips */}
     <div
       style={{
@@ -375,6 +434,31 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         )
       })}
     </div>
+    {/* the primary "+ New Issue" pill, pinned to the titlebar's right edge */}
+    {newIssue ? (
+      <div
+        style={{
+          position: "absolute",
+          right: 14,
+          top: (WIN.titleBar - 21) / 2,
+          height: 21,
+          boxSizing: "border-box",
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          padding: "0 11px",
+          borderRadius: 999,
+          backgroundColor: "#ededed",
+          color: "#18181b",
+          fontSize: 11.5,
+          fontWeight: 600,
+          whiteSpace: "nowrap",
+        }}
+      >
+        <PlusIcon size={11} />
+        New Issue
+      </div>
+    ) : null}
     {/* presence facepile — inline right of the tab chips so board-scoped
         camera crops keep it in shot (EXP-337 board-live) */}
     {presence ? (
@@ -455,42 +539,51 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 )
 
 // ── ExpandedRail (164px labelled rail — sidebar.rs RAIL_EXPANDED_W) ───────────
-// Nav rows, a divider, the boards section (active board = FILL_ACTIVE pill),
-// "New board", Files/Source Control, and the pinned bottom user row. The rail
-// column carries the FILL_SECTION wash (sidebar.rs:1155); the glassier 0.72
-// page alpha under it is painted by WindowChassis.
+// The shipping order (shots/board/desktop.webp): Search · hairline · Inbox /
+// Reviews / Actions / Support · hairline · a "Boards" group label with a
+// trailing plus and the team's boards (each with its own colored pickable
+// glyph; the open board carries the FILL_ACTIVE pill) · hairline · Files /
+// Source Control · and pinned at the bottom Getting started + the user row.
+// The rail column carries the FILL_SECTION wash (sidebar.rs:1155); the
+// glassier 0.72 page alpha under it is painted by WindowChassis.
 
 export type RailRowId =
   | "search"
   | "inbox"
   | "reviews"
-  | "support"
   | "actions"
+  | "support"
   | "board"
-  | "new-board"
+  | "board1"
+  | "board2"
   | "files"
   | "source-control"
+  | "getting-started"
   | "user"
 
-const ROW_H = 30
-const ROW_X = 8
-const ROW_W = WIN.rail - 16
+const ROW_H = 28
+const ROW_X = 7
+const ROW_W = WIN.rail - 14
 
-// Window-local row top Ys. Nav rows from 42; divider; boards; divider;
-// files/source-control; the user row pinned at the bottom.
+// Window-local row top Ys, transcribed off the reference shot (1440×900 @1.25):
+// nav pitch 31, hairlines at 71/204/333, boards from 239, the two bottom rows
+// pinned 60/24 up from the window's bottom edge.
 const RAIL_ROW_Y: Record<RailRowId, number> = {
-  search: 42,
-  inbox: 74,
-  reviews: 106,
-  support: 138,
-  actions: 170,
-  board: 216,
-  "new-board": 248,
-  files: 294,
-  "source-control": 326,
+  search: 37,
+  inbox: 78,
+  reviews: 109,
+  actions: 140,
+  support: 171,
+  board: 239,
+  board1: 270,
+  board2: 301,
+  files: 342,
+  "source-control": 373,
+  "getting-started": WIN.h - 74,
   user: WIN.h - 38,
 }
-const RAIL_DIVIDERS = [208, 286] // hairline Ys between the sections
+const RAIL_DIVIDERS = [71, 204, 333] // hairline Ys between the sections
+const BOARDS_LABEL_Y = 214 // the "Boards" group label row (h 20)
 
 // Cursor-targeting helper: window-local center of a rail row.
 export const railRowCenter = (id: string): { x: number; y: number } => ({
@@ -498,30 +591,47 @@ export const railRowCenter = (id: string): { x: number; y: number } => ({
   y: (RAIL_ROW_Y[id as RailRowId] ?? RAIL_ROW_Y.board) + ROW_H / 2,
 })
 
-const RAIL_ICON: Record<
-  Exclude<RailRowId, "board" | "user">,
-  React.FC<{ size?: number }>
-> = {
+type NavRowId = Exclude<RailRowId, "board" | "board1" | "board2" | "user">
+
+const RAIL_ICON: Record<NavRowId, React.FC<{ size?: number }>> = {
   search: SearchIcon,
   inbox: InboxIcon,
   reviews: GitPullRequestIcon,
+  actions: BotIcon,
   support: LifeBuoyIcon,
-  actions: ZapIcon,
-  "new-board": PlusIcon,
   files: FolderIcon,
   "source-control": GitMergeIcon,
+  "getting-started": SparklesIcon,
 }
 
-const RAIL_LABEL: Record<Exclude<RailRowId, "board" | "user">, string> = {
+const RAIL_LABEL: Record<NavRowId, string> = {
   search: "Search",
   inbox: "Inbox",
   reviews: "Reviews",
-  support: "Support",
   actions: "Actions",
-  "new-board": "New board",
+  support: "Support",
   files: "Files",
   "source-control": "Source Control",
+  "getting-started": "Getting started",
 }
+
+// Board glyphs are the pickable icons.json names the boards actually carry;
+// each keeps its own accent (the rail is the only colored thing in the shell).
+export type BoardGlyph = "code" | "kanban" | "megaphone"
+const BOARD_GLYPH: Record<BoardGlyph, React.FC<{ size?: number }>> = {
+  code: CodeIcon,
+  kanban: SquareKanbanIcon,
+  megaphone: MegaphoneIcon,
+}
+
+export type RailBoard = { name: string; glyph: BoardGlyph; color: string }
+
+// The two companion boards every rail shows beside the film's own board — the
+// product's Boards group is never a single row.
+const COMPANION_BOARDS: RailBoard[] = [
+  { name: "Launch Marketing", glyph: "kanban", color: "#f59e0b" },
+  { name: "Product Feedback", glyph: "megaphone", color: "#22c55e" },
+]
 
 export type ExpandedRailProps = {
   frame: number
@@ -532,7 +642,8 @@ export type ExpandedRailProps = {
   dots?: string[] // rail row ids that carry a small dot at the row's right edge
   dotColor?: string
   boardName?: string
-  boardGlyph?: "code" | "megaphone"
+  boardGlyph?: BoardGlyph
+  boards?: RailBoard[] // full override of the Boards group
   userName?: string
   userInitial?: string
 }
@@ -542,12 +653,17 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
   active,
   activeTransition,
   dots = [],
-  dotColor = C.synNumber,
+  dotColor = C.green,
   boardName = IDENTITY.project,
   boardGlyph = "code",
+  boards,
   userName = IDENTITY.user,
   userInitial = IDENTITY.initials,
 }) => {
+  const boardRows: RailBoard[] = boards ?? [
+    { name: boardName, glyph: boardGlyph, color: "#818cf8" },
+    ...COMPANION_BOARDS,
+  ]
   const t = activeTransition
     ? interpolate(
         frame,
@@ -563,17 +679,29 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
   const pillY = fromY + (toY - fromY) * t
 
   const fgOf = (id: RailRowId): string => {
-    const activeFg = id === "board" ? C.text : C.text
-    if (id === active && id === fromId) return activeFg
+    if (id === active && id === fromId) return C.text
     if (id === active)
       return activeTransition
-        ? interpolateColors(t, [0, 1], [C.muted, activeFg])
-        : activeFg
-    if (id === fromId) return interpolateColors(t, [0, 1], [activeFg, C.muted])
+        ? interpolateColors(t, [0, 1], [C.muted, C.text])
+        : C.text
+    if (id === fromId) return interpolateColors(t, [0, 1], [C.text, C.muted])
     return C.muted
   }
 
-  const navRow = (id: Exclude<RailRowId, "board" | "user">) => {
+  const dotFor = (id: RailRowId) =>
+    dots.includes(id) ? (
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          flex: "none",
+          borderRadius: 999,
+          backgroundColor: dotColor,
+        }}
+      />
+    ) : null
+
+  const navRow = (id: NavRowId) => {
     const Icon = RAIL_ICON[id]
     return (
       <div
@@ -587,10 +715,10 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
           boxSizing: "border-box",
           display: "flex",
           alignItems: "center",
-          gap: 8,
+          gap: 9,
           padding: "0 8px",
           borderRadius: R.row,
-          color: id === "new-board" ? C.dim : fgOf(id),
+          color: fgOf(id),
         }}
       >
         <Icon size={14} />
@@ -606,17 +734,13 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
         >
           {RAIL_LABEL[id]}
         </span>
-        {dots.includes(id) ? (
-          <span
-            style={{
-              width: 5,
-              height: 5,
-              flex: "none",
-              borderRadius: 999,
-              backgroundColor: dotColor,
-            }}
-          />
-        ) : null}
+        {id === "source-control" ? (
+          <span style={{ color: C.destructive, display: "flex", flex: "none" }}>
+            <CircleXIcon size={12} />
+          </span>
+        ) : (
+          dotFor(id)
+        )}
       </div>
     )
   }
@@ -662,67 +786,85 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
         />
       ))}
       {/* rows render in window-local coords shifted by the container top */}
-      <div style={{ position: "absolute", inset: 0, translate: `0px ${-WIN.titleBar}px` }}>
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          translate: `0px ${-WIN.titleBar}px`,
+        }}
+      >
         {(
           [
             "search",
             "inbox",
             "reviews",
-            "support",
             "actions",
-            "new-board",
+            "support",
             "files",
             "source-control",
+            "getting-started",
           ] as const
         ).map(navRow)}
-        {/* board row */}
+        {/* the Boards group label + its trailing plus */}
         <div
           style={{
             position: "absolute",
             left: ROW_X,
-            top: RAIL_ROW_Y.board,
+            top: BOARDS_LABEL_Y,
             width: ROW_W,
-            height: ROW_H,
+            height: 20,
             boxSizing: "border-box",
             display: "flex",
             alignItems: "center",
-            gap: 8,
             padding: "0 8px",
-            borderRadius: R.row,
-            color: fgOf("board"),
+            color: C.dim,
           }}
         >
-          <span style={{ color: C.text, display: "flex" }}>
-            {boardGlyph === "code" ? (
-              <CodeIcon size={14} />
-            ) : (
-              <MegaphoneIcon size={14} />
-            )}
+          <span style={{ flex: 1, fontSize: 11.5, fontWeight: 500 }}>
+            Boards
           </span>
-          <span
-            style={{
-              flex: 1,
-              fontSize: 12.5,
-              fontWeight: 500,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {boardName}
-          </span>
-          {dots.includes("board") ? (
-            <span
-              style={{
-                width: 5,
-                height: 5,
-                flex: "none",
-                borderRadius: 999,
-                backgroundColor: dotColor,
-              }}
-            />
-          ) : null}
+          <PlusIcon size={12} />
         </div>
+        {/* board rows */}
+        {boardRows.slice(0, 3).map((b, i) => {
+          const id = (i === 0 ? "board" : `board${i}`) as RailRowId
+          return (
+            <div
+              key={b.name}
+              style={{
+                position: "absolute",
+                left: ROW_X,
+                top: RAIL_ROW_Y[id],
+                width: ROW_W,
+                height: ROW_H,
+                boxSizing: "border-box",
+                display: "flex",
+                alignItems: "center",
+                gap: 9,
+                padding: "0 8px",
+                borderRadius: R.row,
+                color: fgOf(id),
+              }}
+            >
+              <span style={{ color: b.color, display: "flex", flex: "none" }}>
+                {React.createElement(BOARD_GLYPH[b.glyph], { size: 15 })}
+              </span>
+              <span
+                style={{
+                  flex: 1,
+                  fontSize: 12.5,
+                  fontWeight: 500,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {b.name}
+              </span>
+              {dotFor(id)}
+            </div>
+          )
+        })}
         {/* pinned bottom: user + settings gear */}
         <div
           style={{
@@ -734,7 +876,7 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
             boxSizing: "border-box",
             display: "flex",
             alignItems: "center",
-            gap: 8,
+            gap: 9,
             padding: "0 8px",
             borderRadius: R.row,
             color: C.muted,
@@ -742,16 +884,15 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
         >
           <span
             style={{
-              width: 18,
-              height: 18,
+              width: 20,
+              height: 20,
               flex: "none",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
               borderRadius: 999,
-              backgroundColor: "rgba(192,38,211,0.28)",
-              border: "1px solid rgba(217,70,239,0.55)",
-              color: "#e879f9",
+              backgroundColor: "rgba(59,130,246,0.28)",
+              color: "#93c5fd",
               fontSize: 9,
               fontWeight: 600,
             }}
@@ -769,7 +910,7 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
               textOverflow: "ellipsis",
             }}
           >
-            {userName}
+            {userName.split(" ")[0]}
           </span>
           <SettingsIcon size={14} />
         </div>
@@ -807,9 +948,9 @@ export const DockCollapsedStrip: React.FC<DockCollapsedStripProps> = ({
     <span style={{ color: C.muted, display: "flex" }}>
       <SquareTerminalIcon size={13} />
     </span>
-    <span
-      style={{ fontSize: 12, fontWeight: 500, color: C.muted }}
-    >{`Terminal (${count})`}</span>
+    <span style={{ fontSize: 12, fontWeight: 500, color: C.muted }}>
+      {count > 1 ? `Terminal (${count})` : `Terminal`}
+    </span>
     <div style={{ flex: 1 }} />
     <span style={{ color: C.muted, display: "flex" }}>
       <ChevronUpIcon size={13} />

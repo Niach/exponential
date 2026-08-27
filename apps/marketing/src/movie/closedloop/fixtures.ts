@@ -31,6 +31,13 @@ export const CL = {
   sessionTab: "Fix the dead checkout button",
 } as const
 
+// The rail's Boards group (icons.json pickable glyphs + their accents).
+export const CL_BOARDS = [
+  { name: CL.project, glyph: "code", color: "#818cf8" },
+  { name: "Launch Marketing", glyph: "kanban", color: "#f59e0b" },
+  { name: "Product Feedback", glyph: "megaphone", color: "#22c55e" },
+] as const
+
 export const CL_LABELS = {
   bug: { name: "bug", dot: "#ef4444" },
   web: { name: "web", dot: "#f97316" },
@@ -107,6 +114,8 @@ export const CL_BOARD: BoardRow[] = [
     status: "todo",
     priority: "none",
     label: CL_LABELS.widget,
+    assignee: CL.initials,
+    due: "Jul 19",
   },
   {
     id: "EXP-149",
@@ -115,6 +124,7 @@ export const CL_BOARD: BoardRow[] = [
     priority: "medium",
     label: CL_LABELS.web,
     assignee: CL.initials,
+    due: "Jul 21",
   },
   {
     id: "EXP-150",
@@ -142,6 +152,7 @@ export const CL_BOARD: BoardRow[] = [
     title: "Fix coupon stacking on sale items",
     status: "done",
     priority: "medium",
+    label: CL_LABELS.web,
     assignee: CL.initials,
   },
   {
@@ -149,6 +160,7 @@ export const CL_BOARD: BoardRow[] = [
     title: "Bump storefront to React 19",
     status: "done",
     priority: "low",
+    label: CL_LABELS.infra,
     assignee: CL.initials,
   },
 ]
@@ -166,11 +178,20 @@ export const CL_ISSUE = {
     { actor: "Feedback widget", text: "created this issue" },
     { actor: CL.reporter, text: "subscribed as reporter" },
   ],
-  imagesMeta: "1 image",
+  comments: [
+    {
+      actor: CL.reporter,
+      initials: "JL",
+      time: "12 min ago",
+      body: "Happens every time on Safari 26.2 — the button just does not respond. Chrome is fine.",
+    },
+  ],
   pr: CL.pr,
   label: CL_LABELS.widget,
+  assigneeName: CL.user,
+  due: "Jul 19",
   project: CL.project,
-  projectColor: CL.projectColor,
+  projectColor: "#818cf8",
 } as const
 
 // ── The phone start flow (remote start over the steer rails, EXP-385) ────────
@@ -388,6 +409,7 @@ export type PhoneBoardProjection = {
   status: "backlog" | "todo" | "in_progress" | "done"
   labelDot?: string
   assignee?: string
+  due?: string
 }
 
 export const CL_PHONE_BOARD: PhoneBoardProjection[] = CL_BOARD.map((row) => ({
@@ -397,6 +419,7 @@ export const CL_PHONE_BOARD: PhoneBoardProjection[] = CL_BOARD.map((row) => ({
   status: row.status,
   labelDot: row.label?.dot,
   assignee: row.assignee,
+  due: row.due,
 }))
 
 // ── The platform-lineup finale ───────────────────────────────────────────────

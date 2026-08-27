@@ -1,19 +1,26 @@
-/* ─── Support — Featurebase-style 3-pane helpdesk inbox ───
-   Mirrors apps/web helpdesk/support-inbox.tsx (EXP-388 re-match): thread list
-   (Open/Resolved pills, unread primary dot), conversation headed by reporter +
-   THREAD title with the Close-ticket button, reply / internal-note composer,
-   and the details rail — Reporter, widget Context (page URL / user agent /
-   viewport), then Linked issue OR the Escalate board picker, lock footer. */
+/* ─── Support — the 3-pane helpdesk inbox ───
+   Mirrors apps/web helpdesk/support-inbox.tsx: a w-80 thread list headed by
+   the Open/Resolved capsule segment, the conversation (reporter + thread
+   title, Close ticket, glass/primary bubbles, reply-or-internal-note
+   composer), and the w-72 details rail — Reporter, widget Context, then the
+   Linked issue OR the Escalate board picker, with the lock footnote. */
 import { useState, type KeyboardEvent } from "react"
 import { getIssue, type Issue } from "../ide/data"
 import { useWeb } from "./state"
-import { IcCheck, IcChevDown, IcSend } from "../ide/icons"
+import { WebAgentDock } from "./Board"
 import {
+  ICON_3,
+  ICON_4,
+  IcCheck,
+  IcChevDown,
   IcExternalLink,
   IcLifeBuoy,
   IcLock,
   IcMail,
+  IcSend,
   IcStickyNote,
+  IcSupportOpen,
+  IcSupportResolved,
 } from "./icons"
 import {
   getThread,
@@ -42,7 +49,7 @@ export function Bubble({
     <div className={`web-bubble${kind}`}>
       {message.internal && (
         <span className="web-note-badge">
-          <IcStickyNote size={10} />
+          <IcStickyNote size={11.5} />
           Internal
         </span>
       )}
@@ -50,6 +57,23 @@ export function Bubble({
       <p className="web-bubble-meta">
         {`${isInbound ? reporter : message.author} · ${message.time}`}
       </p>
+    </div>
+  )
+}
+
+/* The conversation header — reporter name over the THREAD title, with the
+   Close-ticket button. Shared with HelpdeskChatDemo. */
+export function SupportChatHead({ thread }: { thread: SupportThread }) {
+  return (
+    <div className="web-sup-chathead">
+      <div className="web-sup-chatwho">
+        <div className="web-sup-chatname">{thread.reporterName}</div>
+        <div className="web-sup-issuetitle">{thread.title}</div>
+      </div>
+      <button className="web-outlinebtn" type="button">
+        <IcCheck size={ICON_3} />
+        {thread.resolved ? `Reopen ticket` : `Close ticket`}
+      </button>
     </div>
   )
 }
@@ -95,7 +119,7 @@ export function SupportRail({
             onClick={interactive ? onOpenIssue : undefined}
           >
             {issue.id}
-            <IcExternalLink size={11} className="ide-c-muted" />
+            <IcExternalLink size={ICON_3} />
           </button>
           <div className="web-rail-sub">{issue.title}</div>
         </div>
@@ -108,7 +132,7 @@ export function SupportRail({
           <div className="web-rail-escalate">
             <button className="web-rail-select" type="button">
               Pick a board
-              <IcChevDown size={12} className="ide-c-muted" />
+              <IcChevDown size={ICON_4} />
             </button>
             <button className="web-rail-create" type="button" disabled>
               Create issue
@@ -118,7 +142,7 @@ export function SupportRail({
       )}
       <div className="web-rail-foot">
         <div className="web-rail-lock">
-          <IcLock size={11} />
+          <IcLock size={ICON_3} />
           Replies are emailed to the reporter with a private conversation link.
         </div>
       </div>
@@ -148,13 +172,85 @@ export function SupportThreadRow({
     >
       <span className="web-sup-row1">
         <span className="web-sup-name">{thread.reporterName}</span>
-        <span className="web-sup-time">{thread.time}</span>
+        <span className="web-sup-time">{thread.lastSeen}</span>
         {unread && <span className="web-sup-dot" />}
       </span>
       <span className="web-sup-preview">
         {thread.messages[thread.messages.length - 1]?.body}
       </span>
     </button>
+  )
+}
+
+/* Reply / internal-note composer — shared with HelpdeskChatDemo. */
+export function SupportComposer({
+  reporterName,
+  mode,
+  setMode,
+  draft,
+  setDraft,
+  onSend,
+  interactive,
+}: {
+  reporterName: string
+  mode: `reply` | `note`
+  setMode?: (mode: `reply` | `note`) => void
+  draft: string
+  setDraft?: (draft: string) => void
+  onSend?: () => void
+  interactive: boolean
+}) {
+  const onComposerKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === `Enter` && !e.shiftKey) {
+      e.preventDefault()
+      onSend?.()
+    }
+  }
+  return (
+    <div className="web-sup-composer">
+      <div className="web-sup-modes">
+        <button
+          type="button"
+          className={`web-modepill${mode === `reply` ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
+          onClick={interactive ? () => setMode?.(`reply`) : undefined}
+        >
+          <IcMail size={ICON_3} />
+          Reply
+        </button>
+        <button
+          type="button"
+          className={`web-modepill is-note${mode === `note` ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
+          onClick={interactive ? () => setMode?.(`note`) : undefined}
+        >
+          <IcStickyNote size={ICON_3} />
+          Internal note
+        </button>
+      </div>
+      <div className="web-sup-inputrow">
+        <textarea
+          className={`web-sup-input${mode === `note` ? ` is-note` : ``}`}
+          rows={1}
+          placeholder={
+            mode === `reply`
+              ? `Reply to ${reporterName}… (emailed to them)`
+              : `Add an internal note… (never sent to the reporter)`
+          }
+          value={draft}
+          readOnly={!interactive}
+          onChange={(e) => setDraft?.(e.target.value)}
+          onKeyDown={interactive ? onComposerKey : undefined}
+        />
+        <button
+          className={`web-sup-send${interactive && draft.trim() ? ` is-click` : ``}`}
+          type="button"
+          disabled={!draft.trim()}
+          onClick={interactive ? onSend : undefined}
+          title={mode === `reply` ? `Send reply` : `Save note`}
+        >
+          <IcSend size={ICON_4} />
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -203,29 +299,28 @@ export function WebSupportInbox() {
     setDraft(``)
   }
 
-  const onComposerKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === `Enter` && !e.shiftKey) {
-      e.preventDefault()
-      send()
-    }
-  }
-
   return (
-    <div className="web-sup">
+    <div className="web-page">
+      <div className="web-sup is-inbox">
       {/* Left — thread list */}
       <div className="web-sup-list">
         <div className="web-sup-listhead">
-          <span className="web-sup-h1">Support</span>
-          {([`open`, `resolved`] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              className={`web-tab is-small${threadFilter === tab ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
-              onClick={interactive ? () => setThreadFilter(tab) : undefined}
-            >
-              {tab === `open` ? `Open` : `Resolved`}
-            </button>
-          ))}
+          <div className="web-seg is-sm">
+            {([`open`, `resolved`] as const).map((tab) => {
+              const Icon = tab === `open` ? IcSupportOpen : IcSupportResolved
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  className={`web-seg-btn${threadFilter === tab ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
+                  onClick={interactive ? () => setThreadFilter(tab) : undefined}
+                >
+                  <Icon size={ICON_3} />
+                  {tab === `open` ? `Open` : `Resolved`}
+                </button>
+              )
+            })}
+          </div>
         </div>
         <div className="web-sup-threads">
           {visible.map((t) => (
@@ -244,69 +339,25 @@ export function WebSupportInbox() {
       {/* Middle — conversation */}
       {shown ? (
         <div className="web-sup-chat">
-          <div className="web-sup-chathead">
-            <div className="web-sup-chatwho">
-              <span className="web-sup-name">{shown.reporterName}</span>
-              <span className="web-sup-issuetitle">{shown.title}</span>
-            </div>
-            <button className="web-btn-outline" type="button">
-              <IcCheck size={12} />
-              {shown.resolved ? `Reopen ticket` : `Close ticket`}
-            </button>
-          </div>
+          <SupportChatHead thread={shown} />
           <div className="web-sup-msgs">
             {messages.map((m, i) => (
               <Bubble key={i} message={m} reporter={shown.reporterName} />
             ))}
           </div>
-          <div className="web-sup-composer">
-            <div className="web-sup-modes">
-              <button
-                type="button"
-                className={`web-modepill${mode === `reply` ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
-                onClick={interactive ? () => setMode(`reply`) : undefined}
-              >
-                <IcMail size={12} />
-                Reply
-              </button>
-              <button
-                type="button"
-                className={`web-modepill is-note${mode === `note` ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
-                onClick={interactive ? () => setMode(`note`) : undefined}
-              >
-                <IcStickyNote size={12} />
-                Internal note
-              </button>
-            </div>
-            <div className="web-sup-inputrow">
-              <textarea
-                className={`web-composer-input${mode === `note` ? ` is-note` : ``}`}
-                rows={2}
-                placeholder={
-                  mode === `reply`
-                    ? `Reply to ${shown.reporterName}… (emailed to them)`
-                    : `Add an internal note… (never sent to the reporter)`
-                }
-                value={draft}
-                readOnly={!interactive}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={interactive ? onComposerKey : undefined}
-              />
-              <button
-                className={`web-send${interactive && draft.trim() ? ` is-click` : ``}`}
-                type="button"
-                disabled={!draft.trim()}
-                onClick={interactive ? send : undefined}
-                title={mode === `reply` ? `Send reply` : `Save note`}
-              >
-                <IcSend size={14} />
-              </button>
-            </div>
-          </div>
+          <SupportComposer
+            reporterName={shown.reporterName}
+            mode={mode}
+            setMode={setMode}
+            draft={draft}
+            setDraft={setDraft}
+            onSend={send}
+            interactive={interactive}
+          />
         </div>
       ) : (
         <div className="web-sup-empty">
-          <IcLifeBuoy size={26} className="ide-c-muted" />
+          <IcLifeBuoy size={37} />
           <span>Select a conversation</span>
         </div>
       )}
@@ -327,6 +378,8 @@ export function WebSupportInbox() {
           }
         />
       )}
+      </div>
+      <WebAgentDock />
     </div>
   )
 }

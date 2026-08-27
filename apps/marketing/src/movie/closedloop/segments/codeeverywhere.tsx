@@ -196,19 +196,13 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
               userInitial={CL.initials}
             />
 
-            <SidebarPane
-              title="All Issues"
-              actions={<BoardActions />}
-              pills
-              bottomInset={dockH}
-            >
+            <SidebarPane actions={<BoardActions />} bottomInset={dockH}>
               <BoardTool
                 frame={frame}
                 rows={CL_BOARD}
                 overrides={overrides}
                 selectedId={NEW_ISSUE_ID}
                 regroup={regroup}
-                showLabels={false}
               />
             </SidebarPane>
 

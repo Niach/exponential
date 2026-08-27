@@ -103,26 +103,31 @@ const CAMERA_KEYS_PT: CamKey[] = shotKeys([
   { at: 112, s: 1.8, x: 1444, y: 569 }, // the WHOLE phone + push banner
 ])
 
-// ── Cursors (window-local tool-window coords; rows y = 104 + layout offset) ──
-// Before the drag: h:ip 104, EXP-148 132, h:todo 160, EXP-151 188, EXP-149 216,
-// EXP-150 244. After: EXP-149 lands at 160 (after EXP-148 inside In Progress).
+// ── Cursors (window-local coords) ───────────────────────────────────────────
+// The list pane starts under the 34px titlebar + the 44px Filter header, so
+// row 0 sits at window y 78 and every row is 28 tall. Contract group order
+// (backlog → todo → in progress → done) puts, BEFORE the drag:
+//   h:backlog 78 · EXP-145 106 · EXP-146 134 · h:todo 162 · EXP-151 190 ·
+//   EXP-149 218 · EXP-150 246 · h:in-progress 274 · EXP-148 302 · h:done 330
+// AFTER it, EXP-149 lands at 302 (under EXP-148) and EXP-150 rises to 218.
+// Cursor Ys are row centers (top + 14).
 const REMOTE_KEYS: CursorKey[] = [
-  { f: B.remoteIn, x: 220, y: 146 },
-  { f: 44, x: 360, y: 230 },
-  { f: B.dragFrom, x: 360, y: 230 },
-  { f: B.dragTo, x: 360, y: 174 },
-  { f: 92, x: 360, y: 174 },
-  { f: 118, x: 420, y: 320 },
-  { f: 150, x: 420, y: 320 },
-  { f: B.remoteOut, x: 110, y: 260 },
+  { f: B.remoteIn, x: 250, y: 150 },
+  { f: 44, x: 360, y: 232 }, // EXP-149, still in Todo
+  { f: B.dragFrom, x: 360, y: 232 },
+  { f: B.dragTo, x: 360, y: 316 }, // dropped under EXP-148 in In Progress
+  { f: 92, x: 360, y: 316 },
+  { f: 118, x: 430, y: 372 },
+  { f: 150, x: 430, y: 372 },
+  { f: B.remoteOut, x: 120, y: 250 },
 ]
 
 const LOCAL_KEYS: CursorKey[] = [
   { f: 0, x: 900, y: 420 },
   { f: 52, x: 900, y: 420 },
-  { f: 70, x: 340, y: 258 }, // EXP-150 (its slot is stable through the regroup)
-  { f: 150, x: 340, y: 258 },
-  { f: 168, x: 340, y: 258 },
+  { f: 80, x: 345, y: 232 }, // EXP-150, where the regroup leaves it
+  { f: 150, x: 345, y: 232 },
+  { f: 168, x: 345, y: 232 },
   { f: 190, x: 900, y: 500 },
 ]
 
@@ -192,21 +197,15 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
               userInitial={CL.initials}
             />
 
-            <SidebarPane
-              title="All Issues"
-              actions={<BoardActions />}
-              pills
-              bottomInset={dockH}
-            >
+            <SidebarPane actions={<BoardActions />} bottomInset={dockH}>
               <BoardTool
                 frame={frame}
                 rows={CL_BOARD}
                 overrides={overrides}
-                hover={{ id: LIVE_EDIT_ID, from: 76, to: 150 }}
+                hover={{ id: LIVE_EDIT_ID, from: 84, to: 150 }}
                 selectedId={NEW_ISSUE_ID}
                 regroup={regroup}
                 flashAt={{ id: LIVE_EDIT_ID, at: B.liveEdit }}
-                showLabels={false}
               />
             </SidebarPane>
 

@@ -8,17 +8,22 @@
    chat stays readable instead of scaling the full 880px down. */
 import { useEffect, useState } from "react"
 import { useDemoScale } from "../lib/use-demo-scale"
-import { IcCheck, IcSend } from "../ide/icons"
-import { IcMail, IcStickyNote } from "./icons"
-import { Bubble, SupportRail } from "./SupportInbox"
+import {
+  Bubble,
+  SupportChatHead,
+  SupportComposer,
+  SupportRail,
+} from "./SupportInbox"
 import { SUPPORT_THREADS } from "./data"
 
 const BASE_W = 880
-const DEMO_H = 460
+const DEMO_H = 700
 /* Chat-only phone canvas — narrower base width means a bigger scale, and
-   the taller box absorbs the extra bubble wrapping. */
+   the taller box absorbs the extra bubble wrapping. Both heights grew with
+   EXP-471: the recreation now draws at the app's real 18.5px rem grid, so
+   every row is ~1.25× the old hand-tuned 13px scale. */
 const COMPACT_W = 440
-const COMPACT_H = 610
+const COMPACT_H = 760
 
 /* Mara's thread: has widget context and no linked issue, so the rail shows
    Reporter · Context · the Escalate board picker, per the real app. */
@@ -62,44 +67,18 @@ export function HelpdeskChatDemo() {
       >
         <div className="web-sup co-helpsup">
           <div className="web-sup-chat">
-            <div className="web-sup-chathead">
-              <div className="web-sup-chatwho">
-                <span className="web-sup-name">{THREAD.reporterName}</span>
-                <span className="web-sup-issuetitle">{THREAD.title}</span>
-              </div>
-              <button className="web-btn-outline" type="button">
-                <IcCheck size={12} />
-                Close ticket
-              </button>
-            </div>
+            <SupportChatHead thread={THREAD} />
             <div className="web-sup-msgs">
               {THREAD.messages.map((m, i) => (
                 <Bubble key={i} message={m} reporter={THREAD.reporterName} />
               ))}
             </div>
-            <div className="web-sup-composer">
-              <div className="web-sup-modes">
-                <button type="button" className="web-modepill is-active">
-                  <IcMail size={12} />
-                  Reply
-                </button>
-                <button type="button" className="web-modepill is-note">
-                  <IcStickyNote size={12} />
-                  Internal note
-                </button>
-              </div>
-              <div className="web-sup-inputrow">
-                <textarea
-                  className="web-composer-input"
-                  rows={2}
-                  placeholder={`Reply to ${THREAD.reporterName}… (emailed to them)`}
-                  readOnly
-                />
-                <button className="web-send" type="button" disabled>
-                  <IcSend size={14} />
-                </button>
-              </div>
-            </div>
+            <SupportComposer
+              reporterName={THREAD.reporterName}
+              mode={`reply`}
+              draft={``}
+              interactive={false}
+            />
           </div>
           {!compact && (
             <SupportRail thread={THREAD} issue={null} interactive={false} />

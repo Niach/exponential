@@ -2,6 +2,23 @@
 import type { ComponentType, CSSProperties } from "react"
 import {
   Bell,
+  Bot,
+  ChevronsLeftRight,
+  CircleSlash,
+  Ellipsis,
+  ExternalLink,
+  GitBranch,
+  LifeBuoy,
+  MessageSquareHeart,
+  SquareKanban,
+  Megaphone,
+  PanelLeftClose,
+  Paperclip,
+  Smile,
+  Sparkles,
+  SquarePen,
+  Trash2,
+  Upload,
   BellOff,
   Bold,
   CalendarDays,
@@ -134,3 +151,51 @@ export const IcListOrdered = wrap(ListOrdered)
 export const IcListChecks = wrap(ListChecks)
 export const IcClearFmt = wrap(RemoveFormatting)
 export const IcImage = wrap(ImagePlus)
+
+/* Rail / chrome concepts added for the EXP-471 pass */
+export const IcBot = wrap(Bot)
+export const IcLifeBuoy = wrap(LifeBuoy)
+export const IcSparkles = wrap(Sparkles)
+export const IcPanelLeftClose = wrap(PanelLeftClose)
+export const IcTrash = wrap(Trash2)
+export const IcEllipsis = wrap(Ellipsis)
+export const IcExternalLink = wrap(ExternalLink)
+export const IcGitBranch = wrap(GitBranch)
+export const IcMegaphone = wrap(Megaphone)
+export const IcMessageHeart = wrap(MessageSquareHeart)
+export const IcKanban = wrap(SquareKanban)
+export const IcPaperclip = wrap(Paperclip)
+export const IcSmile = wrap(Smile)
+export const IcSquarePen = wrap(SquarePen)
+export const IcCircleSlash = wrap(CircleSlash)
+export const IcChevsLeftRight = wrap(ChevronsLeftRight)
+export const IcUpload = wrap(Upload)
+
+/* ─── The positional pie-clock glyphs for the `started` category
+   (packages/icons/icons.json `custom`; EXP-314 parity across all clients).
+   With the two builtin started statuses N=2 → [2/4, 3/4]. ─── */
+const clock = (d: string): IdeIcon =>
+  function IdeClockIcon({ size = 14, className, style }: IdeIconProps) {
+    return (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.6}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+        style={style}
+        aria-hidden
+      >
+        <circle cx="12" cy="12" r="10" />
+        <path d={d} fill="currentColor" stroke="none" />
+      </svg>
+    )
+  }
+
+export const IcProgress24 = clock(`M12 12 L12 6 A6 6 0 0 1 12 18 Z`)
+export const IcProgress34 = clock(`M12 12 L12 6 A6 6 0 1 1 6 12 Z`)

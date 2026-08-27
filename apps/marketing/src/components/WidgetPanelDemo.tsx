@@ -155,7 +155,7 @@ export function WidgetPanelDemo({
                 </div>
               </div>
               <div className={`cw-field`}>
-                <span className={`cw-label`}>Email</span>
+                <span className={`cw-label`}>Email (optional)</span>
                 <div className={`cw-input`}>
                   {emailFilled ? (
                     `mara@heliolabs.io`

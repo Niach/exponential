@@ -3,14 +3,20 @@
    the container via the shared useDemoScale hook, one context object owns
    the interactive state, fixtures come from the shared universe in ide/data. */
 import { useMemo, useState } from "react"
-import type { FilterTab, Issue } from "../ide/data"
+import type { Issue } from "../ide/data"
 import { toggledSet } from "../ide/state"
 import { INBOX_ITEMS } from "../ide/data"
 import { useDemoScale } from "../lib/use-demo-scale"
-import { WebContext, type WebApi, type WebNav, type WebView } from "./state"
+import {
+  WebContext,
+  type InboxTab,
+  type WebApi,
+  type WebNav,
+  type WebView,
+} from "./state"
 import { SUPPORT_THREADS } from "./data"
 import { WebSidebar } from "./Sidebar"
-import { WebBoard, WebMyIssues } from "./Board"
+import { WebBoard } from "./Board"
 import { WebIssueDetail } from "./IssueDetail"
 import { WebInbox } from "./Inbox"
 import { WebSupportInbox } from "./SupportInbox"
@@ -54,8 +60,8 @@ export function WebDemo({
   const init = useMemo(() => initialState(view), [view])
 
   const [nav, setNav] = useState<WebNav>(init.nav)
+  const [inboxTab, setInboxTab] = useState<InboxTab>(`inbox`)
   const [openIssueId, setOpenIssueId] = useState<string | null>(init.openIssueId)
-  const [filter, setFilter] = useState<FilterTab>(`all`)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [inboxRead, setInboxRead] = useState<Set<string>>(new Set())
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(init.selectedThreadId)
@@ -67,11 +73,11 @@ export function WebDemo({
     injectedIssue,
     nav,
     setNav,
+    inboxTab,
+    setInboxTab,
     openIssueId,
     openIssue: (id) => setOpenIssueId(id),
     closeIssue: () => setOpenIssueId(null),
-    filter,
-    setFilter,
     collapsedGroups,
     toggleGroup: (status) => setCollapsedGroups((prev) => toggledSet(prev, status)),
     inboxRead,
@@ -92,24 +98,15 @@ export function WebDemo({
     threadRead,
   }
 
-  const main =
-    nav === `project` ? (
-      openIssueId ? (
-        <WebIssueDetail issueId={openIssueId} />
-      ) : (
-        <WebBoard />
-      )
-    ) : nav === `my-issues` ? (
-      openIssueId ? (
-        <WebIssueDetail issueId={openIssueId} />
-      ) : (
-        <WebMyIssues />
-      )
-    ) : nav === `inbox` ? (
-      <WebInbox />
-    ) : (
-      <WebSupportInbox />
-    )
+  const main = openIssueId ? (
+    <WebIssueDetail issueId={openIssueId} />
+  ) : nav === `project` ? (
+    <WebBoard />
+  ) : nav === `inbox` ? (
+    <WebInbox />
+  ) : (
+    <WebSupportInbox />
+  )
 
   const { ref, scale } = useDemoScale(BASE_W)
 

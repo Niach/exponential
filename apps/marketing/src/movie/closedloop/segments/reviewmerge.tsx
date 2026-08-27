@@ -246,11 +246,16 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
                     status="in_progress"
                     statusLabel="In Progress"
                     priorityLabel="No priority"
+                    assignee={{ name: CL.user, initials: CL.initials }}
+                    due={CL_ISSUE.due}
                     labelChip={CL_LABELS.widget}
                     description={REPORT.details}
                     activity={[
-                      "Feedback widget created the issue · 1 hr ago",
-                      "Riley Chen changed status from Todo to In Progress · 30 min ago",
+                      { text: "Feedback widget created the issue · 1 hr ago" },
+                      {
+                        status: "in_progress",
+                        text: "Riley Chen changed status from Todo to In Progress · 30 min ago",
+                      },
                     ]}
                     pr={{
                       number: CL.pr,
