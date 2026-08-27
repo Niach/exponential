@@ -209,6 +209,15 @@ data class SteerDevice(
     val canResume: Boolean get() = caps?.contains("resume") == true
 
     /**
+     * EXP-637: whether this machine can RESUME an ended action/chat run — it
+     * still holds the run's worktree and agent transcript, so the resumed
+     * session picks up where the last one stopped. Cap-gated like the others:
+     * the server refuses a resume start without it, so pickers hide the
+     * affordance instead of failing after the tap.
+     */
+    val canResumeRun: Boolean get() = caps?.contains("resume-run") == true
+
+    /**
      * Whether this machine runs action automations locally (EXP-530) — the
      * trigger device picker offers only these (offline-but-capable stays
      * pickable: the machine fires on its own clock once it's back).
@@ -324,6 +333,18 @@ private data class StartActionSessionInput(
     @SerialName("inputs") val inputs: Map<String, String>? = null,
 )
 
+// The resume form of steer.startSession (EXP-637): exactly one of
+// issueId/issueIds/actionId/resumeSessionId — this variant continues an ENDED
+// run on the machine that ran it. A resumed run keeps its recorded agent and
+// options, so no launch option rides along; the server refuses a run that is
+// still live, one owned by someone else, and a device that is offline or
+// lacks the `resume-run` cap.
+@Serializable
+private data class ResumeSessionInput(
+    @SerialName("resumeSessionId") val resumeSessionId: String,
+    @SerialName("deviceId") val deviceId: String,
+)
+
 @Singleton
 class SteerApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -414,6 +435,23 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 skipPermissions = options.skipPermissions,
             ),
             inputSerializer = StartBatchSessionInput.serializer(),
+        )
+    }
+
+    /**
+     * `steer.startSession` resume form (EXP-637) — continue the ENDED run
+     * [sessionId] on [deviceId], the machine that ran it (it still holds the
+     * worktree and the agent's transcript). Owner-only server-side, and gated
+     * on [SteerDevice.canResumeRun]; the resumed run keeps its recorded agent
+     * and options, so nothing else rides along. Same error mapping as the
+     * other forms.
+     */
+    suspend fun resumeSession(accountId: String, sessionId: String, deviceId: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "steer.startSession",
+            input = ResumeSessionInput(resumeSessionId = sessionId, deviceId = deviceId),
+            inputSerializer = ResumeSessionInput.serializer(),
         )
     }
 

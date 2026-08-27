@@ -28,6 +28,11 @@ sealed interface StartedRunKey {
      * server-side too — so the userId + startedAt cut carries the identity. */
     data object Batch : StartedRunKey
 
+    /** EXP-637: a resumed run — the desktop stamps the ENDED run it continues
+     * on the new row's `resumed_from_id`, which is exact (no name/timing
+     * guessing) and unique to this send. */
+    data class Resumed(val fromSessionId: String) : StartedRunKey
+
     companion object {
         /** The key for a Start-coding send: 1 id is a plain session, 2+ a batch. */
         fun forIssues(issueIds: List<String>): StartedRunKey? = when {
@@ -65,6 +70,7 @@ object StartedRunMatch {
             is StartedRunKey.Action -> session.actionName == key.actionName
             is StartedRunKey.Issue -> session.issueId == key.issueId && session.actionName == null
             StartedRunKey.Batch -> session.issueId == null && session.actionName == null
+            is StartedRunKey.Resumed -> session.resumedFromId == key.fromSessionId
         }
     }
 

@@ -23,6 +23,7 @@ class StartedRunMatchTest {
         userId: String = "user-1",
         startedAt: String = "2026-07-17T11:59:30Z",
         startedReason: String? = null,
+        resumedFromId: String? = null,
     ) = CodingSessionEntity(
         id = id,
         issueId = issueId,
@@ -30,6 +31,7 @@ class StartedRunMatchTest {
         userId = userId,
         actionName = actionName,
         startedReason = startedReason,
+        resumedFromId = resumedFromId,
         startedAt = startedAt,
         createdAt = startedAt,
         updatedAt = startedAt,
@@ -115,5 +117,38 @@ class StartedRunMatchTest {
         // Fail CLOSED here (unlike liveness): navigating into the wrong
         // session is worse than not navigating at all.
         assertFalse(matches(session(issueId = "issue-1", startedAt = "nonsense"), StartedRunKey.Issue("issue-1")))
+    }
+
+    // ── EXP-637: a resumed run ──────────────────────────────────────────────
+
+    /** The desktop stamps the ENDED run it continues on the new row, so the
+     * match is exact — no name or timing guessing. */
+    @Test
+    fun resumedRunMatchesOnTheRunItContinues() {
+        val key = StartedRunKey.Resumed("sess-old")
+        assertTrue(matches(session(resumedFromId = "sess-old"), key))
+        assertFalse(matches(session(resumedFromId = "sess-other"), key))
+        // A fresh run of the same action is not the resume we sent.
+        assertFalse(matches(session(actionName = "Refresh screenshots"), key))
+    }
+
+    @Test
+    fun resumedRunKeepsTheOwnershipTimingAndAutomationCuts() {
+        val key = StartedRunKey.Resumed("sess-old")
+        assertFalse(matches(session(resumedFromId = "sess-old", userId = "user-2"), key))
+        assertFalse(
+            matches(
+                session(resumedFromId = "sess-old", startedAt = "2026-07-17T11:00:00Z"),
+                key,
+            ),
+        )
+        // An automation that happened to resume something is the device's own
+        // doing — the reason cut runs before the key.
+        assertFalse(
+            matches(
+                session(resumedFromId = "sess-old", startedReason = "schedule"),
+                key,
+            ),
+        )
     }
 }
