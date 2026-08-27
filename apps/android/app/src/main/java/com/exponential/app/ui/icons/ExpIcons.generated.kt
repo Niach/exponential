@@ -1165,6 +1165,38 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `circle-alert`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "circle-alert",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 8L12 12"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 16L12.01 16"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `circle-arrow-up`: ImageVector by lazy {
         ImageVector.Builder(
             name = "circle-arrow-up",
@@ -1306,6 +1338,31 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M11 12A1 1 0 1 0 13 12A1 1 0 1 0 11 12Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `circle-minus`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "circle-minus",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M8 12h8"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -4309,6 +4366,31 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `rotate-ccw`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "rotate-ccw",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M3 3v5h5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `scale`: ImageVector by lazy {
         ImageVector.Builder(
             name = "scale",
@@ -5870,10 +5952,12 @@ public object ExpIcons {
         "chevron-up" -> `chevron-up`
         "chevrons-up-down" -> `chevrons-up-down`
         "circle" -> `circle`
+        "circle-alert" -> `circle-alert`
         "circle-arrow-up" -> `circle-arrow-up`
         "circle-check" -> `circle-check`
         "circle-dashed" -> `circle-dashed`
         "circle-dot" -> `circle-dot`
+        "circle-minus" -> `circle-minus`
         "circle-question-mark" -> `circle-question-mark`
         "circle-user" -> `circle-user`
         "circle-x" -> `circle-x`
@@ -5969,6 +6053,7 @@ public object ExpIcons {
         "remove-formatting" -> `remove-formatting`
         "repeat" -> `repeat`
         "rocket" -> `rocket`
+        "rotate-ccw" -> `rotate-ccw`
         "scale" -> `scale`
         "search" -> `search`
         "search-x" -> `search-x`
@@ -6184,6 +6269,14 @@ public object ExpIcons {
     public val priorityNone: ImageVector get() = `minus`
     /** Concept `priority-urgent`. */
     public val priorityUrgent: ImageVector get() = `triangle-alert`
+    /** Concept `run-outcome-blocked`. */
+    public val runOutcomeBlocked: ImageVector get() = `circle-alert`
+    /** Concept `run-outcome-done`. */
+    public val runOutcomeDone: ImageVector get() = `circle-check`
+    /** Concept `run-outcome-no-changes`. */
+    public val runOutcomeNoChanges: ImageVector get() = `circle-minus`
+    /** Concept `run-resume`. */
+    public val runResume: ImageVector get() = `rotate-ccw`
     /** Concept `sc-push`. */
     public val scPush: ImageVector get() = `upload`
     /** Concept `settings-about`. */

@@ -128,10 +128,12 @@ public enum AppIcons {
         "chevron-up",
         "chevrons-up-down",
         "circle",
+        "circle-alert",
         "circle-arrow-up",
         "circle-check",
         "circle-dashed",
         "circle-dot",
+        "circle-minus",
         "circle-question-mark",
         "circle-user",
         "circle-x",
@@ -227,6 +229,7 @@ public enum AppIcons {
         "remove-formatting",
         "repeat",
         "rocket",
+        "rotate-ccw",
         "scale",
         "search",
         "search-x",
@@ -446,6 +449,14 @@ public enum AppIcons {
     public static let priorityNone: String = "minus"
     /// Concept `priority-urgent`.
     public static let priorityUrgent: String = "triangle-alert"
+    /// Concept `run-outcome-blocked`.
+    public static let runOutcomeBlocked: String = "circle-alert"
+    /// Concept `run-outcome-done`.
+    public static let runOutcomeDone: String = "circle-check"
+    /// Concept `run-outcome-no-changes`.
+    public static let runOutcomeNoChanges: String = "circle-minus"
+    /// Concept `run-resume`.
+    public static let runResume: String = "rotate-ccw"
     /// Concept `sc-push`.
     public static let scPush: String = "upload"
     /// Concept `settings-about`.

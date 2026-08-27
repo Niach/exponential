@@ -133,10 +133,12 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "chevron-up" => ExpIcon::ChevronUp,
         "chevrons-up-down" => ExpIcon::ChevronsUpDown,
         "circle" => ExpIcon::Circle,
+        "circle-alert" => ExpIcon::CircleAlert,
         "circle-arrow-up" => ExpIcon::CircleArrowUp,
         "circle-check" => ExpIcon::CircleCheck,
         "circle-dashed" => ExpIcon::CircleDashed,
         "circle-dot" => ExpIcon::CircleDot,
+        "circle-minus" => ExpIcon::CircleMinus,
         "circle-question-mark" => ExpIcon::CircleQuestionMark,
         "circle-user" => ExpIcon::CircleUser,
         "circle-x" => ExpIcon::CircleX,
@@ -232,6 +234,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "remove-formatting" => ExpIcon::RemoveFormatting,
         "repeat" => ExpIcon::Repeat,
         "rocket" => ExpIcon::Rocket,
+        "rotate-ccw" => ExpIcon::RotateCcw,
         "scale" => ExpIcon::Scale,
         "search" => ExpIcon::Search,
         "search-x" => ExpIcon::SearchX,
@@ -448,6 +451,14 @@ pub const PRIORITY_MEDIUM: ExpIcon = ExpIcon::SignalMedium;
 pub const PRIORITY_NONE: ExpIcon = ExpIcon::Minus;
 /// Registry concept `priority-urgent` -> Lucide `triangle-alert`.
 pub const PRIORITY_URGENT: ExpIcon = ExpIcon::TriangleAlert;
+/// Registry concept `run-outcome-blocked` -> Lucide `circle-alert`.
+pub const RUN_OUTCOME_BLOCKED: ExpIcon = ExpIcon::CircleAlert;
+/// Registry concept `run-outcome-done` -> Lucide `circle-check`.
+pub const RUN_OUTCOME_DONE: ExpIcon = ExpIcon::CircleCheck;
+/// Registry concept `run-outcome-no-changes` -> Lucide `circle-minus`.
+pub const RUN_OUTCOME_NO_CHANGES: ExpIcon = ExpIcon::CircleMinus;
+/// Registry concept `run-resume` -> Lucide `rotate-ccw`.
+pub const RUN_RESUME: ExpIcon = ExpIcon::RotateCcw;
 /// Registry concept `sc-push` -> Lucide `upload`.
 pub const SC_PUSH: ExpIcon = ExpIcon::Upload;
 /// Registry concept `settings-about` -> Lucide `info`.
