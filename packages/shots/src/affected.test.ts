@@ -97,6 +97,39 @@ describe(`desktop attribution`, () => {
     const result = scope(`apps/desktop/crates/cli/src/main.rs`)
     expect(views(result, `desktop`)).toEqual([])
   })
+
+  test(`a wrapper suffix still narrows to the pane it draws`, () => {
+    // `notifications_prefs` is the notifications pane. Before the suffix strip
+    // it matched no view id and widened all ~48 desktop shots for a one-row
+    // settings change — the EXP-638 refresh paid exactly that.
+    const result = scope(`apps/desktop/crates/ui/src/settings/notifications_prefs.rs`)
+    expect(views(result, `desktop`)).toEqual([`settings-notifications`])
+  })
+
+  test(`a tabbed surface claims every one of its tabs`, () => {
+    // The ONE start-coding dialog draws all three tabs, so matching only the
+    // exact stem would leave two of them stale.
+    const result = scope(`apps/desktop/crates/ui/src/start_coding_dialog.rs`)
+    expect(views(result, `desktop`).sort()).toEqual([
+      `start-coding`,
+      `start-coding-actions`,
+      `start-coding-chat`,
+    ])
+  })
+
+  test(`a component reused across screens still widens`, () => {
+    // `_list` is NOT a wrapper suffix: issue_list.rs is pulled in by board.rs,
+    // search_sheet.rs and sidebar.rs, so narrowing it to the issue views would
+    // silently commit a stale board shot.
+    const result = scope(`apps/desktop/crates/ui/src/issue_list.rs`)
+    expect(views(result, `desktop`)).toHaveLength(viewsFor(`desktop`).length)
+  })
+
+  test(`a bare directory segment never becomes a family prefix`, () => {
+    // Otherwise `settings/account.rs` would claim all thirteen settings views.
+    const result = scope(`apps/desktop/crates/ui/src/settings/account.rs`)
+    expect(views(result, `desktop`)).toEqual([`settings-account`])
+  })
 })
 
 describe(`native attribution`, () => {
@@ -228,6 +261,38 @@ describe(`fail-safe`, () => {
     )
     for (const platform of WEB_LANES) expect(views(result, platform)).toEqual([])
     expect(result.ignored).toHaveLength(4)
+  })
+
+  test(`licence bookkeeping photographs nothing on any platform`, () => {
+    // No catalog view holds a licence surface: `/about` is an excludedRoute and
+    // NOTICES.txt is ignored. `inventory/android.json` matches no SOURCE_ROOT,
+    // so before this rule an Android dependency bump widened ALL SIX lanes —
+    // it is what turned the EXP-625/638 refresh into 87 pointless web shots.
+    const result = affectedScope({
+      changedFiles: [
+        `packages/licenses/inventory/android.json`,
+        `packages/licenses/curated/npm.json`,
+      ],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    for (const platform of PLATFORMS) expect(result.byPlatform.get(platform)).toEqual([])
+    expect(result.broad).toEqual([])
+  })
+
+  test(`native unit tests render nothing`, () => {
+    // They carry a `Tests` SUFFIX rather than a `.test.` infix, so the generic
+    // rule missed them and one ExpCore test file widened both iOS lanes.
+    const result = affectedScope({
+      changedFiles: [
+        `apps/ios/ExpCore/Tests/SteerReconnectPolicyTests.swift`,
+        `apps/android/app/src/test/java/com/exponential/app/data/steer/SteerConnectionTest.kt`,
+      ],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    for (const platform of PLATFORMS) expect(result.byPlatform.get(platform)).toEqual([])
+    expect(result.broad).toEqual([])
   })
 
   test(`a changed catalog entry is in scope on every platform that shoots it`, () => {
