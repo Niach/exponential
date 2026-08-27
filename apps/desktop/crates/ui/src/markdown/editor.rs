@@ -3423,12 +3423,28 @@ mod tests {
     }
 
     /// EXP-521: a pointer sweep across two selectable [`MarkdownView`]s
-    /// (mounted under `Root`, which owns the window TextSelection layer)
     /// selects across both and copy yields both bodies in document order —
     /// the desktop analog of sweeping across two comments on the web.
+    ///
+    /// The host mounts [`TextSelectionLayer`] as its first child, which is
+    /// what owns the window-local selection entity (its stable
+    /// `window-text-selection` element id is what retains it across frames).
+    /// In the app that mount is `Root`'s job, and this test used to build a
+    /// real `Root` to get it — but `Root::new` calls
+    /// `gpui_base::install_window_hit_test_forwarder`, which asks the window
+    /// for its `RawWindowHandle`, and gpui's `TestWindow` answers that with
+    /// `unimplemented!("Test Windows are not backed by a real platform
+    /// window")`. Upstream guards the call with
+    /// `cfg(all(target_os = "macos", not(test)))`, but `not(test)` holds only
+    /// when gpui-component ITSELF is compiled as a test — never when it is a
+    /// dependency — so since the da4f9369 bump every downstream macOS test
+    /// that builds a `Root` in a test window panics. Mounting the layer
+    /// directly covers the same seam without a platform window (EXP-653):
+    /// drop the `TextSelectionLayer` child and the sweep selects nothing.
     #[gpui::test]
     async fn markdown_view_sweep_selects_across_views(cx: &mut gpui::TestAppContext) {
         use gpui::{Modifiers, MouseButton, VisualTestContext};
+        use gpui_base::TextSelectionLayer;
 
         struct Host;
         impl Render for Host {
@@ -3439,6 +3455,8 @@ mod tests {
             ) -> impl IntoElement {
                 div()
                     .size_full()
+                    // First child, exactly as `Root` mounts it.
+                    .child(TextSelectionLayer)
                     .child(MarkdownView::new(
                         SharedString::from("sweep-view-a"),
                         "alpha first comment body",
@@ -3454,10 +3472,7 @@ mod tests {
             gpui_component::init(cx);
             theme::init(cx);
         });
-        let (_root, cx) = cx.add_window_view(|window, cx| {
-            let host = cx.new(|_| Host);
-            gpui_component::Root::new(host, window, cx)
-        });
+        let (_host, cx) = cx.add_window_view(|_window, _cx| Host);
         let cx: &mut VisualTestContext = cx;
         for _ in 0..2 {
             cx.update(|window, cx| window.draw(cx).clear(cx));
