@@ -523,8 +523,8 @@
         "file": "shots/issue-comments/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 76338,
-        "sha256": "63521b66b613c284debf0b15efade5e7914568f96132daaa5e815e97b4777a32"
+        "bytes": 76336,
+        "sha256": "9d08fcf928d1a33b3eed1ed4cfdb81485ed0e7a2f713f16fdbf1258ca078e6f2"
       },
       "web": {
         "file": "shots/issue-comments/web.webp",
@@ -560,8 +560,8 @@
         "file": "shots/issue-create/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 37894,
-        "sha256": "059fdf86ca6d24c18ec8bab883a058726b49344ac26d3660c3a9270750b70824"
+        "bytes": 32910,
+        "sha256": "4e64195d6d061db12d3fa9b7eb0890e12fe3b4dafd67b9f59d1b2e42112daabf"
       },
       "web": {
         "file": "shots/issue-create/web.webp",
@@ -604,8 +604,8 @@
         "file": "shots/issue-detail/ipad.webp",
         "width": 1350,
         "height": 1800,
-        "bytes": 83770,
-        "sha256": "483f9a582348bdaa774b21a8eaa0efac71197714ed7455af3457ded6c6053ac8"
+        "bytes": 81712,
+        "sha256": "c8f423f5aa04835f050fab785f5e1b661bd9428bd966e81b8267ed19a4d93e09"
       },
       "web": {
         "file": "shots/issue-detail/web.webp",
