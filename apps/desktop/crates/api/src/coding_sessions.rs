@@ -58,6 +58,10 @@ pub struct CodingSession {
     /// `coding_session_status`).
     #[serde(default)]
     pub status: Option<String>,
+    /// EXP-484: the agent CLI running it (`claude`/`codex`/`pi`); `None` on
+    /// rows written before the column existed.
+    #[serde(default)]
+    pub agent: Option<String>,
     /// EXP-637 close-out — who ended the run (`agent`/`user`/`client`/
     /// `merge`/`system`), the agent's declared `outcome`
     /// (`done`/`blocked`/`no_changes`) and its one-paragraph `summary`.
@@ -113,6 +117,11 @@ struct StartInput<'a> {
     /// `skip_serializing_if`, so a fresh start's wire is byte-identical.
     #[serde(skip_serializing_if = "Option::is_none")]
     resumed_from_id: Option<&'a str>,
+    /// EXP-484: which agent CLI runs this session (contract `codingAgent`).
+    /// Behind `skip_serializing_if`, so an agent-less start's wire is
+    /// byte-identical and an older server simply strips the key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -131,6 +140,11 @@ struct StartBatchInput<'a> {
     /// EXP-662 — same as [`StartInput::resumed_from_id`], on the batch branch.
     #[serde(skip_serializing_if = "Option::is_none")]
     resumed_from_id: Option<&'a str>,
+    /// EXP-484: which agent CLI runs this session (contract `codingAgent`).
+    /// Behind `skip_serializing_if`, so an agent-less start's wire is
+    /// byte-identical and an older server simply strips the key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -165,6 +179,11 @@ struct StartActionInput<'a> {
     /// EXP-637: the ended session this run resumes.
     #[serde(skip_serializing_if = "Option::is_none")]
     resumed_from_id: Option<&'a str>,
+    /// EXP-484: which agent CLI runs this session (contract `codingAgent`).
+    /// Behind `skip_serializing_if`, so an agent-less start's wire is
+    /// byte-identical and an older server simply strips the key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -205,6 +224,9 @@ pub struct HeartbeatScope {
     /// at the worktree the agent is actually working in. `None` on issue
     /// scopes (the server refuses it there) and on repo-less runs.
     pub branch: Option<String>,
+    /// EXP-484: the agent CLI running the session, echoed so a resurrected
+    /// row still says which one it is.
+    pub agent: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -231,6 +253,8 @@ struct HeartbeatInput<'a> {
     automation_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     branch: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent: Option<&'a str>,
 }
 
 #[derive(Deserialize)]
@@ -305,6 +329,7 @@ pub fn start(
     attribution: Attribution,
     started_reason: Option<&str>,
     resumed_from_id: Option<&str>,
+    agent: Option<&str>,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
@@ -315,6 +340,7 @@ pub fn start(
             started_by_id: attribution.started_by_id,
             device_id: attribution.device_id,
             resumed_from_id,
+            agent,
         },
     )?;
     Ok(envelope.session)
@@ -331,6 +357,7 @@ pub fn start_batch(
     attribution: Attribution,
     started_reason: Option<&str>,
     resumed_from_id: Option<&str>,
+    agent: Option<&str>,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
@@ -341,6 +368,7 @@ pub fn start_batch(
             started_by_id: attribution.started_by_id,
             device_id: attribution.device_id,
             resumed_from_id,
+            agent,
         },
     )?;
     Ok(envelope.session)
@@ -370,6 +398,8 @@ pub struct ActionStart<'a> {
     pub branch: Option<&'a str>,
     /// The ended session this run resumes; `None` on a fresh run.
     pub resumed_from_id: Option<&'a str>,
+    /// EXP-484: the agent CLI executing the run (contract `codingAgent`).
+    pub agent: Option<&'a str>,
     pub attribution: Attribution<'a>,
 }
 
@@ -389,6 +419,7 @@ pub fn start_action(
             device_id: start.attribution.device_id,
             branch: start.branch,
             resumed_from_id: start.resumed_from_id,
+            agent: start.agent,
         },
     )?;
     Ok(envelope.session)
@@ -453,6 +484,7 @@ pub fn heartbeat(
             started_reason: scope.and_then(|scope| scope.started_reason.as_deref()),
             automation_id: scope.and_then(|scope| scope.automation_id.as_deref()),
             branch: scope.and_then(|scope| scope.branch.as_deref()),
+            agent: scope.and_then(|scope| scope.agent.as_deref()),
         },
     )?;
     Ok(envelope.alive)
@@ -541,6 +573,7 @@ mod tests {
             Attribution::default(),
             None,
             Some("sess-old"),
+            None,
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -564,6 +597,7 @@ mod tests {
             Attribution::default(),
             None,
             Some("sess-old"),
+            None,
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -621,6 +655,7 @@ mod tests {
             started_reason: None,
             automation_id: None,
             branch: None,
+            agent: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -668,6 +703,7 @@ mod tests {
             started_reason: None,
             automation_id: None,
             branch: None,
+            agent: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -689,6 +725,7 @@ mod tests {
             started_reason: None,
             automation_id: None,
             branch: None,
+            agent: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -846,6 +883,7 @@ mod tests {
             started_reason: None,
             automation_id: None,
             branch: None,
+            agent: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -872,6 +910,7 @@ mod tests {
             started_reason: Some("schedule".to_string()),
             automation_id: Some("auto-1".to_string()),
             branch: None,
+            agent: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -925,12 +964,98 @@ mod tests {
             started_reason: None,
             automation_id: None,
             branch: Some("exp/chat-1a2b3c4d".to_string()),
+            agent: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"id":"sess-a","teamId":"ws-1","actionId":"act-1","actionName":"Code review","branch":"exp/chat-1a2b3c4d"}"#
         ));
+    }
+
+    /// EXP-484: every start names the agent CLI that will run it — behind
+    /// `skip_serializing_if`, so the agent-less wires above stay
+    /// byte-identical.
+    #[test]
+    fn starts_post_the_agent() {
+        let (base, captured) = one_shot_server(200, SESSION_BODY);
+        let _ = start(
+            &client(&base),
+            "issue-1",
+            Some("testbox"),
+            Attribution::default(),
+            None,
+            Some("codex"),
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request
+            .ends_with(r#"{"issueId":"issue-1","deviceLabel":"testbox","agent":"codex"}"#));
+
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-b","teamId":"ws-1","status":"running"}}}}"#,
+        );
+        let _ = start_batch(
+            &client(&base),
+            "ws-1",
+            None,
+            Attribution::default(),
+            None,
+            Some("pi"),
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"teamId":"ws-1","agent":"pi"}"#));
+
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-a","teamId":"ws-1","status":"running"}}}}"#,
+        );
+        start_action(
+            &client(&base),
+            ActionStart {
+                action_id: "act-1",
+                agent: Some("claude"),
+                ..ActionStart::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"actionId":"act-1","agent":"claude"}"#));
+    }
+
+    /// And the heartbeat echoes it, so a resurrected row keeps naming its
+    /// agent.
+    #[test]
+    fn heartbeat_posts_the_agent() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
+        let scope = HeartbeatScope {
+            issue_id: Some("issue-1".to_string()),
+            team_id: None,
+            action_id: None,
+            action_name: None,
+            device_label: None,
+            started_by_id: None,
+            device_id: None,
+            started_reason: None,
+            automation_id: None,
+            branch: None,
+            agent: Some("codex".to_string()),
+        };
+        assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"id":"sess-1","issueId":"issue-1","agent":"codex"}"#));
+    }
+
+    /// The synced row decodes it (absent on pre-EXP-484 rows).
+    #[test]
+    fn decodes_the_session_agent() {
+        let session: CodingSession =
+            serde_json::from_str(r#"{"id":"sess-1","agent":"pi"}"#).unwrap();
+        assert_eq!(session.agent.as_deref(), Some("pi"));
+        let session: CodingSession = serde_json::from_str(r#"{"id":"sess-2"}"#).unwrap();
+        assert_eq!(session.agent, None);
     }
 
     #[test]

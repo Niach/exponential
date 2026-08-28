@@ -2109,6 +2109,10 @@ describe(`exponential_devices_list`, () => {
         version: `1.2.3`,
         sharedTeamId: null,
         isDefault: true,
+        // EXP-484: null until the machine's collector reports.
+        agentAccounts: null,
+        agentUsage: null,
+        agentUsageAt: null,
       },
     ])
     // No teamId ⇒ no shared join, so nothing is gated on team membership.

@@ -193,6 +193,8 @@ describe(`codingSessions.start — issue path`, () => {
       hostUserId: null,
       deviceId: null,
       deviceLabel: null,
+      // EXP-484: no agent named by this start.
+      agent: null,
       // EXP-637: issue rows carry no run branch (the issue owns
       // `exp/<IDENTIFIER>`) and this start resumes nothing.
       resumedFromId: null,
@@ -230,6 +232,7 @@ describe(`codingSessions.start — batch path`, () => {
       hostUserId: null,
       deviceId: null,
       deviceLabel: null,
+      agent: null,
       branch: null,
       resumedFromId: null,
       status: `running`,
@@ -266,6 +269,24 @@ describe(`codingSessions.start — batch path`, () => {
   })
 })
 
+// EXP-484: the run records which agent CLI drives it.
+describe(`codingSessions.start — agent (EXP-484)`, () => {
+  it(`stores the named agent on an issue run`, async () => {
+    await caller.start({ issueId: ISSUE_ID, agent: `codex` })
+    expect(inserts[0]!.values.agent).toBe(`codex`)
+  })
+
+  it(`stores it on batch runs too, and rejects an off-contract agent`, async () => {
+    await caller.start({ teamId: TEAM_ID, agent: `pi` })
+    expect(inserts[0]!.values.agent).toBe(`pi`)
+
+    const error = await rejectionOf(
+      caller.start({ teamId: TEAM_ID, agent: `aider` } as never)
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+  })
+})
+
 describe(`codingSessions.start — action path (EXP-253)`, () => {
   it(`inserts batch-shaped plus actionId + the server-resolved name snapshot`, async () => {
     selectResults.push([
@@ -288,6 +309,7 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       hostUserId: null,
       deviceId: null,
       deviceLabel: null,
+      agent: null,
       branch: null,
       resumedFromId: null,
       status: `running`,

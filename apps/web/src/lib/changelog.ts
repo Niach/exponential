@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-agent-usage-and-accounts`,
+    date: `2026-08-28`,
+    title: `Agent usage and accounts on every machine`,
+    summary: `Every client now shows which account each agent CLI is signed in with and how much of its rate limits you have used, and you can start a sign-in on any of your machines from anywhere.`,
+    body: `- **Usage at a glance**: a live coding session shows a small bar for the agent running it, filled to the window closest to its limit, amber past 75 percent and red past 95. It says when the window resets, and dims itself with an "as of" note when the numbers are older than a quarter of an hour.
+- **Every window**: expand the bar to see all of an agent's limits at once, the five hour session, the week, per model and credits, and pin the one you care about. The choice is remembered on that device.
+- **Accounts per machine**: a machine's settings now list its agent CLIs with the account each one is signed in as and the plan behind it. Nothing about a credential ever leaves the machine.
+- **Login from anywhere**: start a sign-in or an account switch for Claude Code or Codex on any of your machines from the web app, iOS, Android or the desktop, and the link and code come back to you as soon as the machine has them.`,
+  },
+  {
     id: `2026-08-agent-report-stays-open`,
     date: `2026-08-28`,
     title: `Agents report back without closing`,

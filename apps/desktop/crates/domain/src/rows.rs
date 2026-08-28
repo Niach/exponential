@@ -442,6 +442,10 @@ pub struct CodingSession {
     /// `running` / `in_review` / `ended` — raw wire value (contract-locked).
     #[serde(default)]
     pub status: Option<String>,
+    /// EXP-484: the agent CLI running it (`claude`/`codex`/`pi`) — raw wire
+    /// value; `None` on rows written before the column existed.
+    #[serde(default)]
+    pub agent: Option<String>,
     /// Desktop-written attention flag (EXP-214): the agent is parked on a
     /// plan-approval / AskUserQuestion picker and waits for a human.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
@@ -628,6 +632,19 @@ pub struct DeviceRow {
     pub launch_defaults: Option<serde_json::Value>,
     #[serde(default)]
     pub launch_defaults_updated_at: Option<String>,
+    /// EXP-484 jsonb `{<agent>: {signedIn, email?, plan?, checkedAt}}` — who
+    /// is signed in to each agent CLI on that machine. READ-ONLY here: the
+    /// device writes it on register/heartbeat, no client ever edits it.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub agent_accounts: Option<serde_json::Value>,
+    /// EXP-484 jsonb `{<agent>: {fetchedAt, stale, windows: [..]}}` — the
+    /// rate-limit windows, same rules.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub agent_usage: Option<serde_json::Value>,
+    /// When the server last accepted an `agent_usage` write. Deliberately
+    /// NOT a sync nudge trigger anywhere: it moves every few minutes.
+    #[serde(default)]
+    pub agent_usage_at: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_i64")]
     pub active_sessions: Option<i64>,
     #[serde(default)]
@@ -676,6 +693,30 @@ impl DeviceRow {
 
     pub fn is_server(&self) -> bool {
         self.kind.as_deref() == Some("server")
+    }
+
+    /// EXP-484: this machine's account row for `agent` (`claude`/`codex`/
+    /// `pi`), still as the raw wire object — `domain` deliberately does not
+    /// depend on `coding`, so the typed shape stays there and callers
+    /// deserialize what they need.
+    pub fn agent_account(&self, agent: &str) -> Option<&serde_json::Value> {
+        Self::agent_entry(&self.agent_accounts, agent)
+    }
+
+    /// EXP-484: its usage snapshot for `agent`.
+    pub fn agent_usage_for(&self, agent: &str) -> Option<&serde_json::Value> {
+        Self::agent_entry(&self.agent_usage, agent)
+    }
+
+    fn agent_entry<'a>(
+        column: &'a Option<serde_json::Value>,
+        agent: &str,
+    ) -> Option<&'a serde_json::Value> {
+        column
+            .as_ref()?
+            .as_object()?
+            .get(agent)
+            .filter(|entry| entry.is_object())
     }
 }
 
@@ -765,6 +806,42 @@ mod tests {
         let narrow: DeviceRow = serde_json::from_value(json!({"id": "row-2"})).unwrap();
         assert!(!narrow.is_server());
         assert!(narrow.agent_ids().is_empty());
+    }
+
+    /// EXP-484: the two agent-status columns hydrate through the same
+    /// TEXT-stored tolerance as every other jsonb, and the accessors read
+    /// one agent out (an absent/garbage column is simply nothing to show).
+    #[test]
+    fn device_row_reads_agent_accounts_and_usage() {
+        let row: DeviceRow = serde_json::from_value(json!({
+            "id": "row-1",
+            "agent_accounts": "{\"claude\":{\"signedIn\":true,\"email\":\"dev@acme.test\",\"plan\":\"max\"},\"codex\":{\"signedIn\":false}}",
+            "agent_usage": {"claude": {"fetchedAt": "2026-08-28T10:00:00.000Z", "stale": false, "windows": [{"key": "session", "label": "5h", "percent": 42}]}},
+            "agent_usage_at": "2026-08-28T10:00:00.000Z",
+        }))
+        .unwrap();
+        assert_eq!(
+            row.agent_account("claude").unwrap()["email"],
+            "dev@acme.test"
+        );
+        assert_eq!(row.agent_account("codex").unwrap()["signedIn"], false);
+        assert_eq!(row.agent_account("pi"), None);
+        assert_eq!(
+            row.agent_usage_for("claude").unwrap()["windows"][0]["percent"],
+            42
+        );
+        assert_eq!(row.agent_usage_for("codex"), None);
+        assert_eq!(row.agent_usage_at.as_deref(), Some("2026-08-28T10:00:00.000Z"));
+
+        // A row from an older server (or a garbage column) reads as nothing
+        // to render, never a dropped row.
+        let narrow: DeviceRow = serde_json::from_value(json!({
+            "id": "row-2",
+            "agent_accounts": "not json",
+        }))
+        .unwrap();
+        assert_eq!(narrow.agent_account("claude"), None);
+        assert_eq!(narrow.agent_usage_for("claude"), None);
     }
 
     #[test]

@@ -87,10 +87,23 @@ private struct SetLaunchDefaultsInput: Encodable {
 
 private struct CreateCommandInput: Encodable {
     let deviceId: String
-    /// `worktree_remove` (repoFullName + branch required) | `worktree_prune`.
+    /// `worktree_remove` (repoFullName + branch required) | `worktree_prune` |
+    /// `agent_login` (EXP-484: `agent` required, `switch` optional).
     let kind: String
     let repoFullName: String?
     let branch: String?
+    /// EXP-484: contract `codingAgent` id for `agent_login` (`pi` is refused
+    /// server-side — it has no remote sign-in).
+    let agent: String?
+    /// EXP-484: sign out first, then sign in as somebody else. `switch` is a
+    /// Swift keyword, so the property is renamed and the wire key restored via
+    /// CodingKeys; the server takes a real JSON boolean.
+    let switchAccount: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case deviceId, kind, repoFullName, branch, agent
+        case switchAccount = "switch"
+    }
 }
 
 /// EXP-481: `devices.createCommand`'s result — the id the issuing UI polls.
@@ -218,18 +231,24 @@ public final class DevicesApi: Sendable {
     /// EXP-481: queue a worktree command for the device (owner-only). Runs on
     /// its next heartbeat — immediately when online (relay nudge), on return
     /// when offline. `worktree_remove` needs repoFullName + branch.
+    /// EXP-484: `agent_login` needs `agent` (and optionally `switchAccount`) —
+    /// the device runs the agent's own sign-in and completes the command early
+    /// with the URL/code as its `result`.
     public func createCommand(
         accountId: String,
         deviceId: String,
         kind: String,
         repoFullName: String? = nil,
-        branch: String? = nil
+        branch: String? = nil,
+        agent: String? = nil,
+        switchAccount: Bool? = nil
     ) async throws -> CreatedDeviceCommand {
         try await trpc.mutation(
             accountId: accountId,
             path: "devices.createCommand",
             input: CreateCommandInput(
-                deviceId: deviceId, kind: kind, repoFullName: repoFullName, branch: branch
+                deviceId: deviceId, kind: kind, repoFullName: repoFullName, branch: branch,
+                agent: agent, switchAccount: switchAccount
             )
         )
     }

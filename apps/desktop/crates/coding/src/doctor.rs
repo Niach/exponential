@@ -40,6 +40,7 @@
 //! executor (settings "Check tools" button, onboarding, launch step 0).
 
 use crate::agent::CodingAgent;
+use crate::agent_accounts::{now_iso, pi_account, AgentAccount, AgentAccounts};
 use crate::settings::Settings;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -50,7 +51,7 @@ use terminal::process::background_command;
 /// the doctor inline on a 5-minute cadence — an agent CLI that wedges (a
 /// hung update check, a dead network filesystem) would otherwise stall that
 /// loop, and with it the device's presence, indefinitely.
-const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The minimum supported Claude Code version: `--permission-mode auto`
 /// (EXP-201's default posture) is verified on 2.1.215; `--effort ultracode`
@@ -136,6 +137,16 @@ pub struct ToolCheck {
     /// error but `version` kept — UIs distinguish "sign in" from "install").
     /// `None` = not applicable (git) or unknown (probe failed open).
     pub authed: Option<bool>,
+    /// EXP-484: WHO is signed in on this machine — filled from the same
+    /// sign-in probe the gate above runs (claude's `auth status` JSON, pi's
+    /// credential files, codex's presence-only answer, enriched from the
+    /// usage cache by [`crate::agent_usage::collect_if_due`]). `None` for
+    /// git and for a check that never reached its auth probe.
+    pub account: Option<AgentAccount>,
+    /// EXP-484: whether this agent's usage windows may be fetched at all —
+    /// [`ClaudeAuthStatus::usage_eligible`] for claude, `false` elsewhere
+    /// (codex answers over its app-server, pi over its own credential).
+    pub usage_eligible: bool,
 }
 
 impl ToolCheck {
@@ -239,6 +250,29 @@ impl DoctorReport {
                 })
                 .collect(),
         }
+    }
+
+    /// EXP-484: who is signed in per agent, as the `devices.agentAccounts`
+    /// wire map. One entry per INSTALLED agent (a probe that never resolved
+    /// a binary has nothing to say, and the clients omit the row entirely);
+    /// a signed-out install is present with `signedIn: false`. `now` is the
+    /// ISO stamp every entry gets — deliberately an argument, so one
+    /// collection pass stamps one instant.
+    ///
+    /// Deliberately NOT part of [`AgentAdvertisement`]: `checked_at` moves
+    /// on every probe, and the advertisement is the anti-flap key for the
+    /// relay re-dial.
+    pub fn agent_accounts(&self, now: &str) -> AgentAccounts {
+        let mut accounts = AgentAccounts::new();
+        for agent in CodingAgent::ALL {
+            let check = self.check_for(agent);
+            if let Some(account) = &check.account {
+                let mut account = account.clone();
+                account.checked_at = now.to_string();
+                accounts.insert(agent.id().to_string(), account);
+            }
+        }
+        accounts
     }
 }
 
@@ -356,10 +390,38 @@ fn apply_auth_gate_with_path(check: &mut ToolCheck, program: &str, path_env: &st
     if !check.ok {
         return;
     }
+    let now = now_iso();
     let authed = match check.tool {
-        Tool::Claude => probe_claude_auth(program, path_env),
-        Tool::Codex => probe_codex_auth(program, path_env),
-        Tool::Pi => probe_pi_auth(),
+        Tool::Claude => {
+            let status = probe_claude_auth_status(program, path_env);
+            if let Some(status) = &status {
+                check.account = Some(status.account(&now));
+                check.usage_eligible = status.usage_eligible();
+            }
+            status.map(|status| status.logged_in)
+        }
+        Tool::Codex => {
+            let authed = probe_codex_auth(program, path_env);
+            // EXP-484: `codex login status` answers presence, never WHO —
+            // the email/plan arrive from the app-server probe and are
+            // merged in by `agent_usage::collect_if_due`.
+            check.account = Some(AgentAccount {
+                signed_in: authed.unwrap_or(true),
+                checked_at: now.clone(),
+                ..AgentAccount::default()
+            });
+            authed
+        }
+        Tool::Pi => {
+            let state = read_pi_credentials();
+            check.account = Some(pi_account(
+                state.auth_json.as_deref(),
+                state.settings_json.as_deref(),
+                state.env_credential,
+                &now,
+            ));
+            pi_auth_state(state.auth_json.as_deref(), state.env_credential)
+        }
         Tool::Git => return,
     };
     check.authed = authed;
@@ -369,22 +431,87 @@ fn apply_auth_gate_with_path(check: &mut ToolCheck, program: &str, path_env: &st
     }
 }
 
+/// The full `claude auth status` answer (EXP-484). `loggedIn` is the EXP-409
+/// gate; the rest names the account and decides whether its usage windows
+/// may be read at all ([`Self::usage_eligible`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ClaudeAuthStatus {
+    pub logged_in: bool,
+    /// `claude.ai` on a subscription login; `apiKey`/absent otherwise.
+    pub auth_method: Option<String>,
+    /// `firstParty` on a direct Anthropic account; `bedrock`/`vertex` on a
+    /// cloud-provider login (no OAuth usage endpoint there).
+    pub api_provider: Option<String>,
+    pub email: Option<String>,
+    /// `max`/`pro`/… — the caption's plan half.
+    pub subscription_type: Option<String>,
+}
+
+impl ClaudeAuthStatus {
+    /// Whether this login can answer the OAuth usage endpoint: a signed-in
+    /// claude.ai subscription on first-party Anthropic. An API-key or
+    /// Bedrock/Vertex login has no usage windows to read — never spend a
+    /// request finding that out again.
+    pub fn usage_eligible(&self) -> bool {
+        self.logged_in
+            && self.auth_method.as_deref() == Some("claude.ai")
+            && self
+                .api_provider
+                .as_deref()
+                .is_none_or(|provider| provider == "firstParty")
+    }
+
+    /// This status as the wire account row.
+    pub fn account(&self, now: &str) -> AgentAccount {
+        AgentAccount {
+            signed_in: self.logged_in,
+            email: self.logged_in.then(|| self.email.clone()).flatten(),
+            plan: self
+                .logged_in
+                .then(|| self.subscription_type.clone())
+                .flatten(),
+            checked_at: now.to_string(),
+        }
+    }
+}
+
 /// `claude auth status` prints local JSON with a `loggedIn` bool (verified on
 /// 2.1.220; [`MIN_CLAUDE_VERSION`] builds carry it). Any spawn failure or
 /// unrecognisable output fails open to `None`.
-fn probe_claude_auth(program: &str, path_env: &str) -> Option<bool> {
+fn probe_claude_auth_status(program: &str, path_env: &str) -> Option<ClaudeAuthStatus> {
     let mut cmd = background_command(program);
     cmd.env("PATH", path_env).args(["auth", "status"]);
     let output = output_with_timeout(cmd, PROBE_TIMEOUT).ok()?;
-    parse_claude_auth_status(&String::from_utf8_lossy(&output.stdout))
+    parse_claude_auth_status_full(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// Pull `loggedIn` out of `claude auth status` output, tolerating noise
 /// before the JSON object.
 pub fn parse_claude_auth_status(stdout: &str) -> Option<bool> {
+    parse_claude_auth_status_full(stdout).map(|status| status.logged_in)
+}
+
+/// The whole `claude auth status` object (EXP-484). `loggedIn` must be a
+/// real bool — everything else is optional and tolerated absent, so an
+/// older/narrower answer still gates correctly and simply names nobody.
+pub fn parse_claude_auth_status_full(stdout: &str) -> Option<ClaudeAuthStatus> {
     let json = &stdout[stdout.find('{')?..];
     let value: serde_json::Value = serde_json::from_str(json).ok()?;
-    value.get("loggedIn")?.as_bool()
+    let text = |key: &str| {
+        value
+            .get(key)
+            .and_then(|found| found.as_str())
+            .map(str::trim)
+            .filter(|found| !found.is_empty())
+            .map(str::to_string)
+    };
+    Some(ClaudeAuthStatus {
+        logged_in: value.get("loggedIn")?.as_bool()?,
+        auth_method: text("authMethod"),
+        api_provider: text("apiProvider"),
+        email: text("email"),
+        subscription_type: text("subscriptionType"),
+    })
 }
 
 /// `codex login status`: exit 0 = logged in; a "not logged in" answer = signed
@@ -439,15 +566,31 @@ const PI_PROVIDER_ENV_VARS: &[&str] = &[
     "AWS_BEARER_TOKEN_BEDROCK",
 ];
 
-fn probe_pi_auth() -> Option<bool> {
+/// pi's on-disk credential state: its provider credentials, its settings
+/// (for `defaultProvider`) and whether any provider API key is exported.
+pub(crate) struct PiCredentials {
+    pub auth_json: Option<String>,
+    pub settings_json: Option<String>,
+    pub env_credential: bool,
+}
+
+pub(crate) fn read_pi_credentials() -> PiCredentials {
     let env_credential = PI_PROVIDER_ENV_VARS
         .iter()
         .any(|name| std::env::var(name).is_ok_and(|value| !value.trim().is_empty()));
-    let auth_json = dirs::home_dir()
-        .map(|home| home.join(".pi").join("agent").join("auth.json"))
-        .filter(|path| path.exists())
-        .map(|path| std::fs::read_to_string(&path).unwrap_or_default());
-    pi_auth_state(auth_json.as_deref(), env_credential)
+    let read = |file: &str| {
+        dirs::home_dir()
+            .map(|home| home.join(".pi").join("agent").join(file))
+            .filter(|path| path.exists())
+            .map(|path| std::fs::read_to_string(&path).unwrap_or_default())
+    };
+    PiCredentials {
+        auth_json: read("auth.json"),
+        // EXP-484: pi names no account — its caption is the PROVIDER it
+        // would run against, which lives here and nowhere else.
+        settings_json: read("settings.json"),
+        env_credential,
+    }
 }
 
 /// Classify pi's credential presence (split out for tests): any env key OR a
@@ -497,13 +640,15 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
         Ok(output) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             match parse_version_output(tool, &stdout) {
-                Some(version) => ToolCheck { tool, ok: true, version: Some(version), error: None, authed: None },
+                Some(version) => ToolCheck { tool, ok: true, version: Some(version), error: None, authed: None, account: None, usage_eligible: false },
                 None => ToolCheck {
                     tool,
                     ok: false,
                     version: None,
                     error: Some(format!("{program} --version produced no output")),
                     authed: None,
+                    account: None,
+                    usage_eligible: false,
                 },
             }
         }
@@ -518,6 +663,8 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
                 version: None,
                 error: Some(format!("{program} --version failed: {detail}")),
                 authed: None,
+                account: None,
+                usage_eligible: false,
             }
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => ToolCheck {
@@ -526,6 +673,8 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
             version: None,
             error: Some(tool.not_found_message().to_string()),
             authed: None,
+            account: None,
+            usage_eligible: false,
         },
         Err(err) => ToolCheck {
             tool,
@@ -533,6 +682,8 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
             version: None,
             error: Some(format!("could not run {program}: {err}")),
             authed: None,
+            account: None,
+            usage_eligible: false,
         },
     }
 }
@@ -541,7 +692,7 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
 /// killed and reaped and `ErrorKind::TimedOut` returns — the auth probes'
 /// `.ok()?` then fails OPEN (`authed: None`), and `check_tool_with_path`
 /// surfaces it as an ordinary "could not run" failure.
-fn output_with_timeout(
+pub(crate) fn output_with_timeout(
     mut cmd: std::process::Command,
     timeout: Duration,
 ) -> std::io::Result<std::process::Output> {
@@ -687,6 +838,8 @@ mod tests {
             version: Some(version.to_string()),
             error: None,
             authed: None,
+            account: None,
+            usage_eligible: false,
         }
     }
 
@@ -697,6 +850,8 @@ mod tests {
             version: None,
             error: Some(tool.not_found_message().to_string()),
             authed: None,
+            account: None,
+            usage_eligible: false,
         }
     }
 
@@ -1047,6 +1202,93 @@ mod tests {
         // Some builds print the answer but still exit 0.
         assert_eq!(parse_codex_login_status(true, "Not logged in\n"), Some(false));
         assert_eq!(parse_codex_login_status(false, "error: unknown subcommand `login`"), None);
+    }
+
+    /// EXP-484: the full `claude auth status` object — the account fields
+    /// ride through, absent ones tolerate, and `usage_eligible` gates the
+    /// OAuth usage fetch on a first-party claude.ai login.
+    #[test]
+    fn claude_auth_status_full_names_the_account_and_gates_usage() {
+        let status = parse_claude_auth_status_full(
+            "{\"loggedIn\": true, \"authMethod\": \"claude.ai\", \"apiProvider\": \"firstParty\", \"email\": \"dev@acme.test\", \"subscriptionType\": \"max\"}",
+        )
+        .unwrap();
+        assert!(status.logged_in);
+        assert_eq!(status.email.as_deref(), Some("dev@acme.test"));
+        assert_eq!(status.subscription_type.as_deref(), Some("max"));
+        assert!(status.usage_eligible());
+        let account = status.account("2026-08-28T10:00:00.000Z");
+        assert!(account.signed_in);
+        assert_eq!(account.email.as_deref(), Some("dev@acme.test"));
+        assert_eq!(account.plan.as_deref(), Some("max"));
+        assert_eq!(account.checked_at, "2026-08-28T10:00:00.000Z");
+
+        // An absent apiProvider is first-party by omission.
+        let status = parse_claude_auth_status_full(
+            "{\"loggedIn\": true, \"authMethod\": \"claude.ai\"}",
+        )
+        .unwrap();
+        assert!(status.usage_eligible());
+        assert_eq!(status.account("now").email, None);
+
+        // An API-key / Bedrock login has no usage windows to read.
+        for body in [
+            "{\"loggedIn\": true, \"authMethod\": \"apiKey\"}",
+            "{\"loggedIn\": true, \"authMethod\": \"claude.ai\", \"apiProvider\": \"bedrock\"}",
+            "{\"loggedIn\": false, \"authMethod\": \"claude.ai\"}",
+        ] {
+            assert!(!parse_claude_auth_status_full(body).unwrap().usage_eligible(), "{body}");
+        }
+        // A signed-OUT status names nobody, even with a stale email around.
+        let signed_out = parse_claude_auth_status_full(
+            "{\"loggedIn\": false, \"email\": \"dev@acme.test\", \"subscriptionType\": \"max\"}",
+        )
+        .unwrap();
+        let account = signed_out.account("now");
+        assert!(!account.signed_in);
+        assert_eq!(account.email, None);
+        assert_eq!(account.plan, None);
+        // Junk still fails open, exactly like the bool-only parse.
+        assert_eq!(parse_claude_auth_status_full("nope"), None);
+    }
+
+    /// EXP-484: the accounts map covers INSTALLED agents only, restamps
+    /// every entry with the passed instant, and never leaks into the
+    /// advertisement (whose change detection would then flap every probe).
+    #[test]
+    fn agent_accounts_cover_installed_agents_only() {
+        let mut claude = green(Tool::Claude, "2.1.215 (Claude Code)");
+        claude.account = Some(AgentAccount {
+            signed_in: true,
+            email: Some("dev@acme.test".into()),
+            plan: Some("max".into()),
+            checked_at: "2026-01-01T00:00:00.000Z".into(),
+        });
+        let mut codex = green(Tool::Codex, "0.46.0");
+        codex.account = Some(AgentAccount {
+            signed_in: true,
+            checked_at: "2026-01-01T00:00:00.000Z".into(),
+            ..AgentAccount::default()
+        });
+        let report = DoctorReport {
+            claude,
+            codex,
+            // Not installed: no probe ran, so no row at all.
+            pi: red(Tool::Pi),
+            git: green(Tool::Git, "2.45.0"),
+        };
+        let accounts = report.agent_accounts("2026-08-28T10:00:00.000Z");
+        assert_eq!(accounts.keys().collect::<Vec<_>>(), vec!["claude", "codex"]);
+        assert_eq!(accounts["claude"].email.as_deref(), Some("dev@acme.test"));
+        assert_eq!(accounts["claude"].checked_at, "2026-08-28T10:00:00.000Z");
+        assert_eq!(accounts["codex"].checked_at, "2026-08-28T10:00:00.000Z");
+        assert_eq!(accounts["codex"].email, None);
+
+        // The advertisement must NOT carry any of it (anti-flap key).
+        let advert = report.agent_advertisement(&Settings::default());
+        let wire = format!("{advert:?}");
+        assert!(!wire.contains("dev@acme.test"), "accounts never ride the advertisement");
+        assert!(!wire.contains("checked_at"));
     }
 
     /// EXP-409: pi credential presence — env key or a non-empty auth.json

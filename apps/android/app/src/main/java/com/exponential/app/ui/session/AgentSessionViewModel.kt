@@ -5,6 +5,8 @@ import android.os.SystemClock
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.AgentUsageWindowPrefs
+import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
@@ -17,6 +19,7 @@ import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.data.steer.SteerConnectionStore
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentPhase
+import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
@@ -58,6 +61,7 @@ class AgentSessionViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val steerApi: SteerApi,
     private val store: SteerConnectionStore,
+    private val usageWindowPrefs: AgentUsageWindowPrefs,
     stats: SyncStats,
 ) : ViewModel() {
 
@@ -86,9 +90,13 @@ class AgentSessionViewModel @Inject constructor(
      * device ticker, since Room flows only re-emit on writes and the 90s
      * freshness window elapses on its own.
      */
+    /** Every synced machine row — the host join and the usage bar read it. */
+    private val deviceRows: Flow<List<DeviceEntity>> =
+        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() }
+
     val hostDevice: StateFlow<SessionDevicePresentation> = combine(
         session,
-        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
+        deviceRows,
         DeviceLiveness.ticker(),
         devicesPolledAt,
     ) { row, devices, now, polledAt ->
@@ -124,6 +132,39 @@ class AgentSessionViewModel @Inject constructor(
     val hostDeviceOffline: StateFlow<Boolean> = combine(hostDevice, session) { device, row ->
         device.offline && row != null && row.status == DomainContract.codingSessionStatusRunning
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /**
+     * EXP-484: the host machine's usage for the agent THIS run launched with —
+     * the strip above the feed. Null whenever anything is missing (an ended
+     * run, a row with no agent, a machine that never reported, numbers older
+     * than the freshness window): the rules live in
+     * [AgentUsagePresentation.sessionUsage], which the four clients share.
+     *
+     * Recomputed on the device ticker for the same reason [hostDevice] is —
+     * usage ages out on its own clock, with no write to re-emit on.
+     */
+    val agentUsage: StateFlow<AgentUsage?> = combine(
+        session,
+        deviceRows,
+        DeviceLiveness.ticker(),
+    ) { row, devices, now ->
+        row?.let { AgentUsagePresentation.sessionUsage(it, devices, now) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * Which window the collapsed strip shows for this run's agent — a purely
+     * local preference (see [AgentUsageWindowPrefs]). The prefs store isn't
+     * observable, so its version counter is what re-reads after a pick.
+     */
+    val preferredUsageWindow: StateFlow<String?> = combine(
+        session,
+        usageWindowPrefs.version,
+    ) { row, _ ->
+        row?.agent?.takeIf { it.isNotBlank() }?.let(usageWindowPrefs::read)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Remember [key] as [agent]'s window — the strip re-reads via the version. */
+    fun selectUsageWindow(agent: String, key: String) = usageWindowPrefs.remember(agent, key)
 
     /**
      * Probed sizes of the linked issue's attachments (REV2-79) — the feed

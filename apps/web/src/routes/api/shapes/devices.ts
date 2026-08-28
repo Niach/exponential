@@ -18,7 +18,10 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // persisted data even while the machine is offline. EXP-622: `is_default`
 // rides along so every client's picker can prefill the owner's default
 // machine — it is the OWNER's preference, so clients honour it only on rows
-// whose `user_id` is theirs.
+// whose `user_id` is theirs. EXP-484: `agent_accounts`/`agent_usage`(+`_at`)
+// carry the machine's read-only per-agent sign-in and usage status — a
+// ONE-TIME shape-identity rotation, and never a convergence trigger (the
+// desktop watches `launch_defaults_updated_at` alone).
 const DEVICE_COLUMNS = [
   `id`,
   `user_id`,
@@ -32,6 +35,9 @@ const DEVICE_COLUMNS = [
   `unauthed_agents`,
   `launch_defaults`,
   `launch_defaults_updated_at`,
+  `agent_accounts`,
+  `agent_usage`,
+  `agent_usage_at`,
   `active_sessions`,
   `last_seen_at`,
   `shared_team_id`,

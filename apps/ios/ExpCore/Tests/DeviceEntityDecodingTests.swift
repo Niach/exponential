@@ -77,6 +77,54 @@ final class DeviceEntityDecodingTests: XCTestCase {
         XCTAssertFalse(try decodeDevice(base + "}").isDefault)
     }
 
+    // EXP-484: the per-agent auth/usage jsonb arrives as real objects off the
+    // wire and pre-stringified from fixtures — both land as stored JSON text —
+    // and a pre-EXP-484 snapshot omits all three columns entirely (a required
+    // absent field would drop every device row forever).
+    func testDecodesAgentStatusJsonbAndAbsence() throws {
+        let device = try decodeDevice("""
+        {"id":"row-4","user_id":"u1","device_id":"dev-4","label":"macbook",
+        "agent_accounts":{"claude":{"signedIn":true,"email":"danny@yourev.at",
+        "plan":"max","checkedAt":"2026-08-28T09:58:00Z"},
+        "codex":{"signedIn":false,"checkedAt":"2026-08-28T09:58:00Z"}},
+        "agent_usage":{"claude":{"fetchedAt":"2026-08-28T09:58:00Z","stale":false,
+        "windows":[{"key":"session","label":"5h","percent":42,
+        "resetsAt":"2026-08-28T12:10:30Z"}]}},
+        "agent_usage_at":"2026-08-28T09:58:00Z"}
+        """)
+        let accounts = try XCTUnwrap(
+            AgentUsagePresentation.parseAccounts(device.agentAccounts)
+        )
+        XCTAssertEqual(accounts["claude"]?.email, "danny@yourev.at")
+        // The booleans must survive the jsonb round trip as REAL bools.
+        XCTAssertEqual(accounts["codex"]?.signedIn, false)
+        let usage = try XCTUnwrap(
+            AgentUsagePresentation.parseMap(device.agentUsage)
+        )
+        XCTAssertEqual(usage["claude"]?.stale, false)
+        XCTAssertEqual(usage["claude"]?.windows?.first?.percent, 42)
+        XCTAssertEqual(device.agentUsageAt, "2026-08-28T09:58:00Z")
+
+        // Pre-stringified (fixture form) and absent both decode.
+        let stringified = try decodeDevice("""
+        {"id":"row-5","user_id":"u1","device_id":"dev-5","label":"laptop",
+        "agent_accounts":"{\\"pi\\":{\\"signedIn\\":true,\\"plan\\":\\"anthropic (oauth)\\"}}"}
+        """)
+        XCTAssertEqual(
+            AgentUsagePresentation.parseAccounts(stringified.agentAccounts)?["pi"]?.plan,
+            "anthropic (oauth)"
+        )
+        XCTAssertNil(stringified.agentUsage)
+        XCTAssertNil(stringified.agentUsageAt)
+
+        let bare = try decodeDevice(
+            #"{"id":"row-6","user_id":"u1","device_id":"dev-6","label":"box"}"#
+        )
+        XCTAssertNil(bare.agentAccounts)
+        XCTAssertNil(bare.agentUsage)
+        XCTAssertNil(bare.agentUsageAt)
+    }
+
     func testDecodesWorktreeWithPostgresTextBool() throws {
         let worktree = try decodeWorktree("""
         {"id":"wt-1","device_row_id":"row-1","repo_full_name":"acme/api",

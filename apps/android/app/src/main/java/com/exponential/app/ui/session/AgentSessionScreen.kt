@@ -192,6 +192,11 @@ fun AgentSessionScreen(
     // EXP-621: the draft lives with the connection, not in a `remember` — so a
     // half-typed message survives a reconnect, a back-tap and a rotation.
     val draft by viewModel.draft.collectAsStateWithLifecycle()
+    // EXP-484: the host machine's rate-limit usage for the agent this run
+    // launched with — absent (and silent) unless the run is live, recorded its
+    // agent, and its machine reported fresh numbers.
+    val agentUsage by viewModel.agentUsage.collectAsStateWithLifecycle()
+    val preferredUsageWindow by viewModel.preferredUsageWindow.collectAsStateWithLifecycle()
 
     // Steer image attach (EXP-511) — the system photo picker feeds the VM's
     // pending list; batch and action runs have no issue to upload to.
@@ -316,6 +321,18 @@ fun AgentSessionScreen(
                 .imePadding()
                 .padding(horizontal = 12.dp),
         ) {
+            // ── Agent usage (EXP-484) ────────────────────────────────────────
+            val usage = agentUsage
+            val usageAgent = session?.agent
+            if (usage != null && usageAgent != null) {
+                AgentUsageStrip(
+                    agent = usageAgent,
+                    usage = usage,
+                    preferredKey = preferredUsageWindow,
+                    onSelect = { key -> viewModel.selectUsageWindow(usageAgent, key) },
+                )
+            }
+
             // ── The activity feed (bottom-anchored, follow-scroll) ───────────
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 when {

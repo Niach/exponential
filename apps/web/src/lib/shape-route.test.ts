@@ -558,6 +558,7 @@ describe(`shape column + trash contracts`, () => {
       `user_id`,
       `device_label`,
       `device_id`,
+      `agent`,
       `status`,
       `branch`,
       `summary`,
@@ -815,6 +816,10 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     expect(columns).toContain(`user_id`)
     expect(columns).toContain(`launch_defaults`)
     expect(columns).toContain(`launch_defaults_updated_at`)
+    // EXP-484: the read-only per-agent auth + usage status.
+    expect(columns).toContain(`agent_accounts`)
+    expect(columns).toContain(`agent_usage`)
+    expect(columns).toContain(`agent_usage_at`)
     expect(columns).toContain(`unauthed_agents`)
     expect(columns).toContain(`last_seen_at`)
     expect(columns).toContain(`caps`)

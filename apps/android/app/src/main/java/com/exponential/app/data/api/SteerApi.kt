@@ -67,6 +67,48 @@ data class DeviceLaunchDefaults(
 )
 
 /**
+ * EXP-484: what a machine knows about ONE agent CLI's local sign-in. Read-only
+ * status — no credential is ever carried, copied or refreshed. [plan] is the
+ * subscription tier for claude/codex (`api key` for a codex API-key account)
+ * and `"<provider> (oauth|api key)"` for pi, which has no email at all.
+ * [checkedAt] is when the machine last probed.
+ */
+@Serializable
+data class AgentAccount(
+    @SerialName("signedIn") val signedIn: Boolean = false,
+    @SerialName("email") val email: String? = null,
+    @SerialName("plan") val plan: String? = null,
+    @SerialName("checkedAt") val checkedAt: String? = null,
+)
+
+/**
+ * One rate-limit window of an agent's usage (EXP-484). [key] is stable
+ * (`session`, `weekly`, `model:<name>`, `credits`, `<durationMins>`) and is
+ * what a per-agent window preference stores; [label] is the display string
+ * (`5h`, `Week`, `Fable`, `Credits`, `Month`). [percent] is 0-100 as reported.
+ */
+@Serializable
+data class AgentUsageWindow(
+    @SerialName("key") val key: String,
+    @SerialName("label") val label: String = "",
+    @SerialName("percent") val percent: Double = 0.0,
+    @SerialName("resetsAt") val resetsAt: String? = null,
+)
+
+/**
+ * One agent's usage snapshot (EXP-484). [fetchedAt] gates rendering (older
+ * than 15 minutes = not shown, fail closed) and [stale] means the numbers are
+ * the last good ones after a failed refresh — rendered dimmed with an
+ * "as of ..." caption rather than dropped.
+ */
+@Serializable
+data class AgentUsage(
+    @SerialName("fetchedAt") val fetchedAt: String? = null,
+    @SerialName("stale") val stale: Boolean = false,
+    @SerialName("windows") val windows: List<AgentUsageWindow> = emptyList(),
+)
+
+/**
  * One machine the caller can start on (mirrors web's `lib/steer-devices.ts`).
  * Every surface reads these from `devices.list` (EXP-403 — the durable
  * registry merged with live relay presence, plus the team's shared servers
@@ -134,6 +176,17 @@ data class SteerDevice(
      * never prefills off it.
      */
     @SerialName("isDefault") val isDefault: Boolean = false,
+    // ── Agent auth + usage status (EXP-484) ──────────────────────────────────
+    /**
+     * Per-agent sign-in status keyed by contract `codingAgent` id, as the
+     * machine last probed it. Absent on relay-only rows and on machines older
+     * than EXP-484 — the Agents section then simply doesn't render.
+     */
+    @SerialName("agentAccounts") val agentAccounts: Map<String, AgentAccount>? = null,
+    /** Per-agent usage windows keyed the same way; absent = nothing to show. */
+    @SerialName("agentUsage") val agentUsage: Map<String, AgentUsage>? = null,
+    /** Server stamp of the last usage write — the offline "as of ..." fallback. */
+    @SerialName("agentUsageAt") val agentUsageAt: String? = null,
     /**
      * EXP-481: the synced `devices` ROW id — joins `device_worktrees` rows.
      * Null on rows decoded from `devices.list` / relay payloads (which never
@@ -223,6 +276,15 @@ data class SteerDevice(
      * pickable: the machine fires on its own clock once it's back).
      */
     val canRunAutomations: Boolean get() = caps?.contains("automations") == true
+
+    /**
+     * EXP-484: whether this machine can run an agent sign-in on request — the
+     * `agent_login` device command opens the CLI's own login flow there and
+     * publishes the URL (plus the codex device code) back. Cap-gated: an older
+     * build would leave the command pending forever, so the Login / Switch
+     * account buttons only appear for machines that advertise it.
+     */
+    val canAgentLogin: Boolean get() = caps?.contains("agent-login") == true
 
     companion object {
         const val KIND_DESKTOP = "desktop"

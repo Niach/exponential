@@ -16,8 +16,10 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // devices row for the renamed label and its online-ness), and
 // `summary`/`outcome`/`ended_by`/`resumed_from_id` for EXP-637 (the agent's
 // own close-out via `exponential_sessions_end`, who ended the run, and the
-// run a Resume continues) — each a ONE-TIME shape-identity rotation (benign:
-// small table, full resync; land in one deploy).
+// run a Resume continues), plus `agent` for EXP-484 (which agent CLI runs the
+// session, so clients can name it and pair it with the host device's usage
+// windows) — each a ONE-TIME shape-identity rotation (benign: small table,
+// full resync; land in one deploy).
 // `merged_own_pr` stays OUT: server-only like `host_user_id` (nothing on a
 // client acts on it; only the merge-driven end paths read it).
 // Old native builds drop unknown columns safely (verified: iOS filters to
@@ -35,6 +37,7 @@ const CODING_SESSION_COLUMNS = [
   `user_id`,
   `device_label`,
   `device_id`,
+  `agent`,
   `status`,
   `branch`,
   `summary`,

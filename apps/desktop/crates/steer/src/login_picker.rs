@@ -58,9 +58,16 @@ const TRUSTED_LOGIN_DOMAINS: &[&str] = &["claude.ai", "claude.com", "anthropic.c
 
 /// Whether a detected sign-in URL points at an Anthropic-owned host
 /// (exactly a [`TRUSTED_LOGIN_DOMAINS`] entry, or a subdomain of one).
+pub fn is_trusted_login_url(url: &str) -> bool {
+    host_in(url, TRUSTED_LOGIN_DOMAINS)
+}
+
+/// Whether `url`'s host is exactly one of `domains` or a subdomain of one.
 /// https-only; a userinfo `@` in the authority is rejected outright —
 /// `https://claude.com@evil.com/` has no legitimate use on a login screen.
-pub fn is_trusted_login_url(url: &str) -> bool {
+/// Shared with [`crate::codex_login_picker`], which trusts a different
+/// domain list over the same rules (EXP-484).
+pub(crate) fn host_in(url: &str, domains: &[&str]) -> bool {
     let Some(rest) = url.strip_prefix("https://") else {
         return false;
     };
@@ -87,7 +94,7 @@ pub fn is_trusted_login_url(url: &str) -> bool {
     if host.is_empty() {
         return false;
     }
-    TRUSTED_LOGIN_DOMAINS
+    domains
         .iter()
         .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
 }
@@ -205,15 +212,40 @@ fn detect_url_prompt(lines: &[String]) -> Option<String> {
         .position(|line| line.trim_start().starts_with("https://"))?
         + anchor_idx
         + 1;
+    Some(join_wrapped_url(lines, start))
+}
+
+/// Reconstruct a hard-wrapped URL starting at `lines[start]`: append
+/// consecutive rows until a blank line — or any line containing whitespace,
+/// which can only be the screen's next prose line on a grid too narrow for a
+/// blank separator. Shared with [`crate::codex_login_picker`] (EXP-484).
+pub(crate) fn join_wrapped_url(lines: &[String], start: usize) -> String {
     let mut url = String::new();
-    for line in &lines[start..] {
+    for line in lines.iter().skip(start) {
         let fragment = line.trim();
         if fragment.is_empty() || fragment.contains(char::is_whitespace) {
             break;
         }
         url.push_str(fragment);
     }
-    Some(url)
+    url
+}
+
+/// The anchor-less variant used by the EXP-484 login DRIVER: the first
+/// `https://` row on the grid, wrap-joined, kept only when it points at a
+/// trusted host. `claude auth login --claudeai` prints its sign-in URL with
+/// none of [`detect`]'s TUI anchors around it — that flow is a plain
+/// non-interactive command, not the mid-session `/login` screen — so the
+/// driver falls back to this after [`detect`] finds nothing. The session
+/// emitter deliberately keeps using [`detect`] (EXP-430 behaviour is
+/// untouched): the trusted-host test is all that stands between the grid and
+/// a published link, and an anchored screen is the stronger signal.
+pub fn detect_trusted_url(lines: &[String]) -> Option<String> {
+    let start = lines
+        .iter()
+        .position(|line| line.trim_start().starts_with("https://"))?;
+    let url = join_wrapped_url(lines, start);
+    is_trusted_login_url(&url).then_some(url)
 }
 
 fn detect_error(lines: &[String]) -> Option<String> {
@@ -595,6 +627,35 @@ mod tests {
         ]);
         assert!(crate::plan_picker::detect(&plan_screen).is_some());
         assert_eq!(detect(&plan_screen), None);
+    }
+
+    /// EXP-484: `claude auth login --claudeai` prints the sign-in URL with
+    /// none of the TUI anchors around it — the driver's fallback reads a
+    /// bare line, and only a trusted host may come back.
+    #[test]
+    fn detect_trusted_url_finds_a_bare_url_without_the_anchor() {
+        let bare = screen(&[
+            "Opening your browser to sign in…",
+            "",
+            "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redir",
+            "ect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainf",
+            "erence+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload&code_challenge=j7BY1qKMJ1Y2LC5xNqD5VUJayK_UZb",
+            "Pl_FCJLsmPZzk&code_challenge_method=S256&state=joiGbKCc8WwbICmveDWnCjihN6dnqxVjkxcYKIMI6SE",
+            "",
+            "Waiting for the browser…",
+        ]);
+        // No anchor: the EXP-430 emitter path still sees nothing here.
+        assert_eq!(detect(&bare), None);
+        assert_eq!(detect_trusted_url(&bare).as_deref(), Some(FULL_URL));
+        // The anchored screen reads the same through the fallback.
+        assert_eq!(detect_trusted_url(&url_screen()).as_deref(), Some(FULL_URL));
+        // Off-domain links are refused, and a screen with no link at all is
+        // simply nothing.
+        assert_eq!(
+            detect_trusted_url(&screen(&["https://evil.test/oauth/authorize?code=true"])),
+            None
+        );
+        assert_eq!(detect_trusted_url(&repl_screen()), None);
     }
 
     /// EXP-444: only Anthropic-owned hosts may travel verbatim through the

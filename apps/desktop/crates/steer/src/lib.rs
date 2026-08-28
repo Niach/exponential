@@ -43,8 +43,10 @@
 //!    a clean `bye`.
 
 pub mod activity;
+pub mod agent_login_driver;
 pub mod codex_activity;
 pub mod codex_approval_picker;
+pub mod codex_login_picker;
 pub mod control_channel;
 pub mod frames;
 pub mod hooks;

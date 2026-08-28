@@ -20,6 +20,7 @@
 //! stays reachable behind `EXP_DEV_BOARD=1`.
 
 mod action_editor_dialog;
+mod agent_login;
 mod action_run;
 mod action_suggestions;
 mod actions;
@@ -103,6 +104,7 @@ mod trunk_sync;
 mod timeline;
 mod title_bar;
 mod undock;
+mod usage_bar;
 mod undocked_terminal;
 mod update;
 mod user_avatar;

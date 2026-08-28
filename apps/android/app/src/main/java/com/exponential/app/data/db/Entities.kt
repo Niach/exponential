@@ -256,6 +256,10 @@ data class CodingSessionEntity(
     // issue-scoped sessions, on action rows, and on batch rows whose PR
     // isn't open yet (or that were flipped before the stamp existed).
     val branch: String? = null,
+    // EXP-484: the coding agent this run launched with (contract `codingAgent`
+    // values, a documented varchar server-side). NULL on every pre-EXP-484 row
+    // and on any starter that omits it — the usage bar simply doesn't render.
+    val agent: String? = null,
     // EXP-637: the agent's OWN close-out, written by the
     // `exponential_sessions_end` MCP tool — a one-paragraph summary the team
     // reads on the run row, plus its outcome (`done` | `blocked` |
@@ -480,6 +484,20 @@ data class DeviceEntity(
     @Serializable(with = JsonAsStringSerializer::class) val launchDefaults: String? = null,
     @ColumnInfo(name = "launch_defaults_updated_at") @SerialName("launch_defaults_updated_at") @JsonNames("launchDefaultsUpdatedAt")
     val launchDefaultsUpdatedAt: String? = null,
+    // EXP-484: the machine's READ-ONLY per-agent auth + usage status, shipped
+    // on register/heartbeat. Two jsonb objects kept as their raw JSON text and
+    // parsed at the consumer (AgentUsagePresentation) — the launch_defaults
+    // idiom. `agent_accounts` is { [agent]: { signedIn, email?, plan?,
+    // checkedAt } }, `agent_usage` { [agent]: { fetchedAt, stale, windows[] } }.
+    // No credential ever rides here.
+    @ColumnInfo(name = "agent_accounts") @SerialName("agent_accounts") @JsonNames("agentAccounts")
+    @Serializable(with = JsonAsStringSerializer::class) val agentAccounts: String? = null,
+    @ColumnInfo(name = "agent_usage") @SerialName("agent_usage") @JsonNames("agentUsage")
+    @Serializable(with = JsonAsStringSerializer::class) val agentUsage: String? = null,
+    // Server stamp of the last usage write. Moves every 3-10 minutes, so it is
+    // NEVER a sync-nudge trigger — only a display fallback ("as of ...").
+    @ColumnInfo(name = "agent_usage_at") @SerialName("agent_usage_at") @JsonNames("agentUsageAt")
+    val agentUsageAt: String? = null,
     @ColumnInfo(name = "active_sessions") @SerialName("active_sessions") @JsonNames("activeSessions")
     val activeSessions: Int = 0,
     @ColumnInfo(name = "last_seen_at") @SerialName("last_seen_at") @JsonNames("lastSeenAt")

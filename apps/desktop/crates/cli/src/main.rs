@@ -8,6 +8,7 @@
 //! `daemon` registers this machine as a persistent per-user device
 //! (`devices.register`, kind `server`) and executes remote starts.
 
+mod agent_login_host;
 mod commands;
 mod context;
 mod launch;

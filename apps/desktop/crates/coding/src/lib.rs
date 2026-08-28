@@ -38,6 +38,9 @@
 
 pub mod action_prompt;
 pub mod agent;
+pub mod agent_accounts;
+pub mod agent_login;
+pub mod agent_usage;
 pub mod atomic_config;
 pub mod argv;
 pub mod automations;
@@ -45,6 +48,7 @@ pub mod batch_launcher;
 pub mod batch_prompt;
 pub mod claude_trust;
 pub mod clone_manager;
+pub mod codex_app_server;
 pub mod codex_sessions;
 pub mod codex_trust;
 pub mod doctor;
@@ -70,6 +74,7 @@ pub mod token_cache;
 pub mod token_refresh;
 pub mod token_refresh_host;
 pub mod trunk_state;
+pub mod usage_cache;
 pub mod worktree_agents;
 
 pub use agent::CodingAgent;
@@ -90,8 +95,13 @@ pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
 pub use codex_sessions::default_codex_sessions_root;
 pub use doctor::{
-    parse_claude_version, run_doctor, AgentAdvertisement, AgentLaunchDefaults, DoctorReport,
-    Tool, ToolCheck, MIN_CLAUDE_VERSION,
+    parse_claude_version, run_doctor, AgentAdvertisement, AgentLaunchDefaults, ClaudeAuthStatus,
+    DoctorReport, Tool, ToolCheck, MIN_CLAUDE_VERSION,
+};
+pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts};
+pub use agent_login::{login_plan, LoginPhase, LoginPlan, LoginProgress};
+pub use agent_usage::{
+    collect_if_due, AgentStatusPayload, AgentUsage, AgentUsageMap, UsageWindow,
 };
 pub use scm::{
     CommitInfo, ConflictKind, ConflictState, DiffFile, DiffLine, DiffLineKind, FileChange,

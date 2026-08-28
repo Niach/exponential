@@ -45,6 +45,13 @@ pub struct RegisterDevice<'a> {
     /// `api` deliberately does not depend on `coding`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub launch_defaults: Option<&'a serde_json::Value>,
+    /// EXP-484: who is signed in to each agent CLI here
+    /// (`coding::agent_usage`'s `agentAccounts` map, passed as a raw value —
+    /// `api` deliberately does not depend on `coding`). Skipped when absent,
+    /// and the server leaves the column untouched on conflict, so an older
+    /// build's re-register never blanks a row.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_accounts: Option<&'a serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<&'a str>,
 }
@@ -91,12 +98,23 @@ struct DeviceIdInput<'a> {
 /// EXP-481: `defaults_synced_at` is the launch-defaults stamp this device
 /// last converged to (`null` = never) — the server answers the current copy
 /// only when it differs, keeping the steady-state beat tiny.
-#[derive(Serialize)]
+/// EXP-484 widened it with the two agent-status columns; both are skipped
+/// when absent, so a beat that has nothing new to say keeps its historic
+/// byte-for-byte body (and the server leaves the columns alone).
+#[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct HeartbeatInput<'a> {
-    device_id: &'a str,
-    active_sessions: u32,
-    defaults_synced_at: Option<&'a str>,
+pub struct HeartbeatInput<'a> {
+    pub device_id: &'a str,
+    pub active_sessions: u32,
+    /// ALWAYS present (`null` = never converged).
+    pub defaults_synced_at: Option<&'a str>,
+    /// `coding::agent_usage`'s `agentAccounts` map, as a raw value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_accounts: Option<&'a serde_json::Value>,
+    /// Its `agentUsage` map. The server stamps `agent_usage_at` when this
+    /// rides along — which is why hosts only send it when it CHANGED.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_usage: Option<&'a serde_json::Value>,
 }
 
 /// EXP-481: one pending owner→device command riding the heartbeat response.
@@ -106,11 +124,14 @@ struct HeartbeatInput<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct PendingCommand {
     pub id: String,
-    /// `worktree_remove` | `worktree_prune`; unknown kinds are completed
+    /// `worktree_remove` | `worktree_prune` | `agent_login`; unknown kinds
+    /// are completed
     /// `ok: false` ("unsupported") by the executor, never dropped silently.
     #[serde(default)]
     pub kind: String,
-    /// `worktree_remove`: `{repoFullName, branch}`; `worktree_prune`: `{}`.
+    /// `worktree_remove`: `{repoFullName, branch}`; `worktree_prune`: `{}`;
+    /// `agent_login`: `{agent, switch}` (both STRINGS — the payload column is
+    /// a `Record<string,string>`).
     #[serde(default)]
     pub payload: serde_json::Value,
 }
@@ -140,18 +161,9 @@ pub struct HeartbeatResult {
 /// (EXP-411) and pull pending work (EXP-481).
 pub fn heartbeat(
     trpc: &TrpcClient,
-    device_id: &str,
-    active_sessions: u32,
-    defaults_synced_at: Option<&str>,
+    input: &HeartbeatInput,
 ) -> Result<HeartbeatResult, ApiError> {
-    trpc.mutation(
-        "devices.heartbeat",
-        &HeartbeatInput {
-            device_id,
-            active_sessions,
-            defaults_synced_at,
-        },
-    )
+    trpc.mutation("devices.heartbeat", input)
 }
 
 #[derive(Serialize)]
@@ -476,6 +488,39 @@ pub fn create_command(
     )
 }
 
+/// `devices.createCommand` for an `agent_login` (EXP-484) — ask one of the
+/// CALLER's own machines to run `agent`'s sign-in flow. `switch` first signs
+/// the current account out (a Codex switch REVOKES that session server-side,
+/// so callers confirm first). Serialized as a JSON boolean: the server owns
+/// the `Record<string,string>` payload's `"true"`/`"false"` encoding.
+///
+/// `pi` is refused server-side — it has no remote sign-in (its `/login` is a
+/// slash command inside a running TUI).
+pub fn create_agent_login_command(
+    trpc: &TrpcClient,
+    device_id: &str,
+    agent: &str,
+    switch: bool,
+) -> Result<CreatedCommand, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        device_id: &'a str,
+        kind: &'a str,
+        agent: &'a str,
+        switch: bool,
+    }
+    trpc.mutation(
+        "devices.createCommand",
+        &Input {
+            device_id,
+            kind: "agent_login",
+            agent,
+            switch,
+        },
+    )
+}
+
 /// One `device_commands` row (`devices.getCommand` / `devices.listCommands`).
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -553,7 +598,15 @@ mod tests {
             200,
             r#"{"result":{"data":{"ok":true,"updateRequested":false}}}"#,
         );
-        let result = heartbeat(&client(&base), "dev-1", 2, None).unwrap();
+        let result = heartbeat(
+            &client(&base),
+            &HeartbeatInput {
+                device_id: "dev-1",
+                active_sessions: 2,
+                ..HeartbeatInput::default()
+            },
+        )
+        .unwrap();
         assert!(result.ok);
         assert!(!result.update_requested);
         assert!(result.commands.is_empty(), "older server: no commands field");
@@ -573,7 +626,16 @@ mod tests {
             200,
             r#"{"result":{"data":{"ok":true,"updateRequested":false,"commands":[{"id":"cmd-1","kind":"worktree_remove","payload":{"repoFullName":"acme/web","branch":"exp/EXP-7"}},{"id":"cmd-2","kind":"worktree_prune","payload":{}}],"launchDefaults":{"defaultAgent":"codex"},"launchDefaultsUpdatedAt":"2026-08-11T10:00:00.000Z"}}}"#,
         );
-        let result = heartbeat(&client(&base), "dev-1", 0, Some("2026-08-01T00:00:00.000Z")).unwrap();
+        let result = heartbeat(
+            &client(&base),
+            &HeartbeatInput {
+                device_id: "dev-1",
+                active_sessions: 0,
+                defaults_synced_at: Some("2026-08-01T00:00:00.000Z"),
+                ..HeartbeatInput::default()
+            },
+        )
+        .unwrap();
         assert_eq!(result.commands.len(), 2);
         assert_eq!(result.commands[0].kind, "worktree_remove");
         assert_eq!(result.commands[0].payload["branch"], "exp/EXP-7");
@@ -589,6 +651,119 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"deviceId":"dev-1","activeSessions":0,"defaultsSyncedAt":"2026-08-01T00:00:00.000Z"}"#
+        ));
+    }
+
+    /// EXP-484: the agent-status columns ride the beat only when the host
+    /// has something new to say — and then in this exact order.
+    #[test]
+    fn heartbeat_posts_agent_status_when_present() {
+        let accounts = serde_json::json!({"claude": {"signedIn": true}});
+        let usage = serde_json::json!({"claude": {"stale": false}});
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        heartbeat(
+            &client(&base),
+            &HeartbeatInput {
+                device_id: "dev-1",
+                active_sessions: 1,
+                defaults_synced_at: None,
+                agent_accounts: Some(&accounts),
+                agent_usage: Some(&usage),
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"deviceId":"dev-1","activeSessions":1,"defaultsSyncedAt":null,"agentAccounts":{"claude":{"signedIn":true}},"agentUsage":{"claude":{"stale":false}}}"#
+        ));
+
+        // One half alone is a valid beat (accounts change on a login,
+        // usage on its own cadence).
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        heartbeat(
+            &client(&base),
+            &HeartbeatInput {
+                device_id: "dev-1",
+                active_sessions: 0,
+                agent_usage: Some(&usage),
+                ..HeartbeatInput::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(!request.contains("agentAccounts"), "{request}");
+        assert!(request.contains(r#""agentUsage""#));
+    }
+
+    /// EXP-484: registration carries the accounts (never the usage — the
+    /// first beat brings that) and stays byte-identical without them.
+    #[test]
+    fn register_posts_agent_accounts() {
+        let accounts = serde_json::json!({"codex": {"signedIn": false}});
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        register(
+            &client(&base),
+            &RegisterDevice {
+                device_id: "dev-1",
+                label: "buildbox",
+                kind: "server",
+                platform: None,
+                agents: &[],
+                unauthed_agents: &[],
+                caps: &[],
+                launch_defaults: None,
+                agent_accounts: Some(&accounts),
+                version: None,
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/devices.register HTTP/1.1"));
+        assert!(request.ends_with(
+            r#"{"deviceId":"dev-1","label":"buildbox","kind":"server","agents":[],"caps":[],"agentAccounts":{"codex":{"signedIn":false}}}"#
+        ));
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        register(
+            &client(&base),
+            &RegisterDevice {
+                device_id: "dev-1",
+                label: "buildbox",
+                kind: "server",
+                platform: None,
+                agents: &[],
+                unauthed_agents: &[],
+                caps: &[],
+                launch_defaults: None,
+                agent_accounts: None,
+                version: None,
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(!request.contains("agentAccounts"), "{request}");
+    }
+
+    /// EXP-484: the queued login command names its agent and whether it is a
+    /// switch — `switch` is a JSON BOOLEAN on the wire (the server encodes
+    /// the payload's string form).
+    #[test]
+    fn agent_login_command_posts_agent_and_switch() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-7"}}}"#);
+        let created = create_agent_login_command(&client(&base), "dev-1", "codex", true).unwrap();
+        assert_eq!(created.id, "cmd-7");
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/devices.createCommand HTTP/1.1"));
+        assert!(request.ends_with(
+            r#"{"deviceId":"dev-1","kind":"agent_login","agent":"codex","switch":true}"#
+        ));
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-8"}}}"#);
+        create_agent_login_command(&client(&base), "dev-1", "claude", false).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false}"#
         ));
     }
 

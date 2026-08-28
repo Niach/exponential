@@ -25,14 +25,21 @@ import {
 } from "@/lib/trpc"
 import {
   automations,
+  deviceAgentAccountsSchema,
+  deviceAgentUsageSchema,
   deviceCommands,
   deviceLaunchDefaultsSchema,
   devices,
   deviceWorktrees,
   teamMembers,
   users,
+  type DeviceAgentAccount,
+  type DeviceAgentAccounts,
   type DeviceAgentLaunchDefaults,
+  type DeviceAgentUsage,
+  type DeviceAgentUsageMap,
   type DeviceLaunchDefaults,
+  type DeviceUsageWindow,
 } from "@/db/schema"
 import { assertTeamMember, getTeamMember } from "@/lib/team-membership"
 import { versionPayload } from "@/lib/client-version"
@@ -52,6 +59,7 @@ import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 const agentsInput = z.array(z.string().min(1).max(32)).max(16)
 const capsInput = z.array(z.string().min(1).max(32)).max(16)
 const deviceIdInput = z.string().min(1).max(128)
+const codingAgentValues = contract.codingAgent.values as [string, ...string[]]
 
 // Heartbeats deliver at most this many pending commands per cycle — rows stay
 // `pending` until completeCommand, so a missed cycle redelivers for free.
@@ -106,6 +114,96 @@ function clampLaunchDefaults(
       if (Object.keys(entry).length > 0) agents[agent] = entry
     }
     if (Object.keys(agents).length > 0) out.agents = agents
+  }
+  return out
+}
+
+// EXP-484 bounds: the device reports at most one entry per contract agent,
+// and a window list a bar can actually render.
+const MAX_STATUS_AGENTS = 3
+const MAX_USAGE_WINDOWS = 10
+const MAX_USAGE_KEY = 64
+const MAX_USAGE_LABEL = 32
+const MAX_ACCOUNT_EMAIL = 320
+const MAX_ACCOUNT_PLAN = 64
+
+// ISO-normalize a device-reported timestamp; anything unparsable degrades to
+// null (the presentation layer treats a missing stamp as unknown, never as
+// "now").
+function isoStampOrNull(value: unknown): string | null {
+  if (typeof value !== `string` || value.length === 0) return null
+  const at = new Date(value)
+  return Number.isNaN(at.getTime()) ? null : at.toISOString()
+}
+
+// EXP-484: same contract as clampLaunchDefaults — ALWAYS clamp, never reject.
+// A machine whose agent vocabulary drifts (or whose nullish fields arrive as
+// explicit null, EXP-495) must lose a field, not its whole heartbeat. Agents
+// outside contract `codingAgent` are dropped; stored copies are null-free.
+export function clampAgentAccounts(
+  input: z.infer<typeof deviceAgentAccountsSchema>
+): DeviceAgentAccounts {
+  const agentIds = contract.codingAgent.values as readonly string[]
+  const out: DeviceAgentAccounts = {}
+  for (const [agent, account] of Object.entries(input)) {
+    if (!agentIds.includes(agent) || !account) continue
+    if (Object.keys(out).length >= MAX_STATUS_AGENTS) break
+    const entry: DeviceAgentAccount = { signedIn: account.signedIn === true }
+    if (typeof account.email === `string` && account.email.length > 0) {
+      entry.email = account.email.slice(0, MAX_ACCOUNT_EMAIL)
+    }
+    if (typeof account.plan === `string` && account.plan.length > 0) {
+      entry.plan = account.plan.slice(0, MAX_ACCOUNT_PLAN)
+    }
+    const checkedAt = isoStampOrNull(account.checkedAt)
+    if (checkedAt) entry.checkedAt = checkedAt
+    out[agent] = entry
+  }
+  return out
+}
+
+// EXP-484: as above for the usage windows. `percent` rounds and clamps to
+// 0-100 (a bar can't render 137%), key/label truncate, `resetsAt` is ISO or
+// null, and a window without a key or label is dropped. `fetchedAt` falls
+// back to `now` — the device is reporting what it just read, and the
+// presentation layer's freshness rule keys on it.
+export function clampAgentUsage(
+  input: z.infer<typeof deviceAgentUsageSchema>,
+  now: Date
+): DeviceAgentUsageMap {
+  const agentIds = contract.codingAgent.values as readonly string[]
+  const out: DeviceAgentUsageMap = {}
+  for (const [agent, usage] of Object.entries(input)) {
+    if (!agentIds.includes(agent) || !usage) continue
+    if (Object.keys(out).length >= MAX_STATUS_AGENTS) break
+    const windows: DeviceUsageWindow[] = []
+    for (const window of usage.windows ?? []) {
+      if (!window) continue
+      if (windows.length >= MAX_USAGE_WINDOWS) break
+      const key =
+        typeof window.key === `string` ? window.key.slice(0, MAX_USAGE_KEY) : ``
+      const label =
+        typeof window.label === `string`
+          ? window.label.slice(0, MAX_USAGE_LABEL)
+          : ``
+      if (key.length === 0 || label.length === 0) continue
+      const raw = typeof window.percent === `number` ? window.percent : 0
+      const percent = Number.isFinite(raw)
+        ? Math.min(100, Math.max(0, Math.round(raw)))
+        : 0
+      windows.push({
+        key,
+        label,
+        percent,
+        resetsAt: isoStampOrNull(window.resetsAt),
+      })
+    }
+    const entry: DeviceAgentUsage = {
+      fetchedAt: isoStampOrNull(usage.fetchedAt) ?? now.toISOString(),
+      stale: usage.stale === true,
+      windows,
+    }
+    out[agent] = entry
   }
   return out
 }
@@ -191,6 +289,10 @@ export const devicesRouter = router({
         // seed (row column NULL) — after that the server copy is
         // authoritative and the setLaunchDefaults CAS decides.
         launchDefaults: deviceLaunchDefaultsSchema.optional(),
+        // EXP-484: the machine's per-agent sign-in status from its doctor
+        // probe. ABSENT (an older build) leaves the column untouched on
+        // conflict — never zeroed to "signed out".
+        agentAccounts: deviceAgentAccountsSchema.optional(),
         version: z.string().min(1).max(32).optional(),
       })
     )
@@ -211,6 +313,9 @@ export const devicesRouter = router({
             ? clampLaunchDefaults(input.launchDefaults)
             : null,
           launchDefaultsUpdatedAt: input.launchDefaults ? now : null,
+          agentAccounts: input.agentAccounts
+            ? clampAgentAccounts(input.agentAccounts)
+            : null,
           version: input.version ?? null,
           lastSeenAt: now,
         })
@@ -229,6 +334,11 @@ export const devicesRouter = router({
                   launchDefaults: sql`COALESCE(${devices.launchDefaults}, ${JSON.stringify(clampLaunchDefaults(input.launchDefaults))}::jsonb)`,
                   launchDefaultsUpdatedAt: sql`COALESCE(${devices.launchDefaultsUpdatedAt}, ${now.toISOString()}::timestamptz)`,
                 }
+              : {}),
+            // Absent = an older build with no collector: keep whatever the
+            // last reporting register wrote.
+            ...(input.agentAccounts
+              ? { agentAccounts: clampAgentAccounts(input.agentAccounts) }
               : {}),
             version: input.version ?? null,
             // Registering CONSUMES a pending Update click: the daemon
@@ -275,6 +385,12 @@ export const devicesRouter = router({
         // The launch-defaults stamp the device last converged to (null =
         // never).
         defaultsSyncedAt: z.string().datetime().nullable(),
+        // EXP-484: the collector's latest read, sent only when it CHANGED
+        // (the device compares against what it last shipped) — absent leaves
+        // the columns alone. `agent_usage_at` moves with `agent_usage` only,
+        // and is deliberately not a convergence trigger for anything.
+        agentAccounts: deviceAgentAccountsSchema.optional(),
+        agentUsage: deviceAgentUsageSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -285,6 +401,15 @@ export const devicesRouter = router({
           lastSeenAt: now,
           updatedAt: now,
           activeSessions: input.activeSessions,
+          ...(input.agentAccounts
+            ? { agentAccounts: clampAgentAccounts(input.agentAccounts) }
+            : {}),
+          ...(input.agentUsage
+            ? {
+                agentUsage: clampAgentUsage(input.agentUsage, now),
+                agentUsageAt: now,
+              }
+            : {}),
         })
         .where(
           and(
@@ -533,19 +658,26 @@ export const devicesRouter = router({
 
   // EXP-481: queue owner→device work. The device picks it up on its next
   // heartbeat (nudged immediately when online); an offline device runs it on
-  // return — deliberately durable.
+  // return — deliberately durable. EXP-484 adds `agent_login`: the device
+  // drives the agent CLI's own login flow and completes the row EARLY with
+  // the sign-in URL, which the requester polls for via `getCommand`.
   createCommand: authedProcedure
     .input(
       z.object({
         deviceId: deviceIdInput,
-        kind: z.enum([`worktree_remove`, `worktree_prune`]),
+        kind: z.enum([`worktree_remove`, `worktree_prune`, `agent_login`]),
         repoFullName: z.string().min(1).max(255).optional(),
         branch: z.string().min(1).max(255).optional(),
+        // EXP-484 `agent_login` inputs (ignored by the other kinds): which
+        // agent CLI to sign in, and whether to sign the current account out
+        // first (Switch account).
+        agent: z.enum(codingAgentValues).optional(),
+        switch: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const [row] = await ctx.db
-        .select({ id: devices.id })
+        .select({ id: devices.id, caps: devices.caps })
         .from(devices)
         .where(
           and(
@@ -586,6 +718,35 @@ export const devicesRouter = router({
           })
         }
         payload = { repoFullName: input.repoFullName, branch: input.branch }
+      }
+
+      if (input.kind === `agent_login`) {
+        if (!input.agent) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `agent_login needs an agent`,
+          })
+        }
+        // pi signs in through its own interactive prompt with no device-code
+        // flow to hand back — local only, by design.
+        if (input.agent === `pi`) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `pi has no remote sign-in`,
+          })
+        }
+        // The executor lives in the desktop app and the daemon; an older
+        // build would leave the row pending forever.
+        if (!(row.caps ?? []).includes(`agent-login`)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That machine's app is too old to sign an agent in remotely`,
+          })
+        }
+        payload = {
+          agent: input.agent,
+          switch: input.switch === true ? `true` : `false`,
+        }
       }
 
       // One pending command per (device, kind, payload) — a double-click must

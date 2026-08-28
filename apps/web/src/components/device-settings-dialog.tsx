@@ -21,7 +21,15 @@ import {
   agentSupportsSkipPermissions,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
-import { deviceRowIsOnline, type SteerDevice } from "@/lib/steer-devices"
+import {
+  deviceCanAgentLogin,
+  deviceRowIsOnline,
+  type SteerDevice,
+} from "@/lib/steer-devices"
+import {
+  DeviceAgentsSection,
+  agentLoginKey,
+} from "@/components/device-agents-section"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -218,6 +226,8 @@ export function DeviceSettingsDialog({
     sentDefaultsStampRef.current = 0
     setSectionErrors({})
     setTracked([])
+    setCommandResults({})
+    setSwitchTarget(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, row?.id])
   useEffect(() => {
@@ -456,6 +466,13 @@ export function DeviceSettingsDialog({
   const [tracked, setTracked] = useState<TrackedCommand[]>([])
   const [removeTarget, setRemoveTarget] =
     useState<SyncedDeviceWorktree | null>(null)
+  // EXP-484: a finished command's `result`, kept per key AFTER the tracked
+  // entry is dropped — `agent_login` completes EARLY with the sign-in URL,
+  // which is the whole point of the round trip.
+  const [commandResults, setCommandResults] = useState<Record<string, string>>(
+    {}
+  )
+  const [switchTarget, setSwitchTarget] = useState<string | null>(null)
 
   const commandKey = (worktree: SyncedDeviceWorktree) =>
     `${worktree.repoFullName} ${worktree.branch}`
@@ -465,9 +482,16 @@ export function DeviceSettingsDialog({
     input:
       | { kind: `worktree_prune` }
       | { kind: `worktree_remove`; repoFullName: string; branch: string }
+      | { kind: `agent_login`; agent: string; switch: boolean }
   ) => {
     if (!deviceId) return
     setSectionErrors((current) => ({ ...current, [key]: `` }))
+    setCommandResults((current) => {
+      if (!(key in current)) return current
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
     try {
       const { id } = await trpc.devices.createCommand.mutate({
         deviceId,
@@ -495,6 +519,14 @@ export function DeviceSettingsDialog({
             commandId: command.id,
           })
           if (cancelled || result.status === `pending`) continue
+          // EXP-484: capture the payload BEFORE the tracked entry goes — a
+          // login's whole answer (the sign-in URL) lives in `result`, and
+          // only a `done` row ever carries one. Failures keep travelling
+          // through `sectionErrors` like every other command.
+          if (result.status === `done` && result.result) {
+            const text = result.result
+            setCommandResults((current) => ({ ...current, [command.key]: text }))
+          }
           setTracked((current) => current.filter((c) => c.id !== command.id))
           if (result.status === `failed`) {
             setSectionErrors((current) => ({
@@ -535,6 +567,36 @@ export function DeviceSettingsDialog({
 
   const pendingKey = (key: string) =>
     tracked.some((command) => command.key === key)
+
+  // EXP-484: rows only for agents the machine actually REPORTED status for —
+  // one it never probed has nothing to say, so the section stays quiet (and
+  // vanishes entirely on a build that ships no agent status at all).
+  const agentStatusAgents = useMemo(
+    () =>
+      editorAgents.filter(
+        (agent) =>
+          (row?.agentAccounts && agent in row.agentAccounts) ||
+          (row?.agentUsage && agent in row.agentUsage)
+      ),
+    [editorAgents, row?.agentAccounts, row?.agentUsage]
+  )
+
+  const queueAgentLogin = (agent: string, switchAccount: boolean) =>
+    void queueCommand(agentLoginKey(agent), {
+      kind: `agent_login`,
+      agent,
+      switch: switchAccount,
+    })
+
+  const startAgentLogin = (agent: string, switchAccount: boolean) => {
+    // `codex logout` revokes the token SERVER-side — switching accounts is
+    // not a local-only act, so it asks first. Claude's is local.
+    if (switchAccount && agent === `codex`) {
+      setSwitchTarget(agent)
+      return
+    }
+    queueAgentLogin(agent, switchAccount)
+  }
 
   const dirtyLabel = (dirty: string): string | null =>
     dirty === `tracked`
@@ -649,6 +711,24 @@ export function DeviceSettingsDialog({
           )}
 
           <Separator />
+
+          {/* ── Agents: who each CLI is signed in as + usage (EXP-484) ── */}
+          {agentStatusAgents.length > 0 && (
+            <>
+              <DeviceAgentsSection
+                agents={agentStatusAgents}
+                row={row}
+                online={online}
+                canAgentLogin={deviceCanAgentLogin({ caps: row?.caps ?? [] })}
+                now={now}
+                errors={sectionErrors}
+                isPending={pendingKey}
+                results={commandResults}
+                onLogin={startAgentLogin}
+              />
+              <Separator />
+            </>
+          )}
 
           {/* ── Agent defaults (server-authoritative, EXP-481) ────────── */}
           <div className="space-y-3">
@@ -866,6 +946,35 @@ export function DeviceSettingsDialog({
                 }}
               >
                 Remove
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog
+          open={switchTarget !== null}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setSwitchTarget(null)
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Switch Codex account</AlertDialogTitle>
+              <AlertDialogDescription>
+                Codex logout revokes the token server-side; you'll sign in
+                again on that machine.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  const target = switchTarget
+                  setSwitchTarget(null)
+                  if (target) queueAgentLogin(target, true)
+                }}
+              >
+                Sign out and sign in
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

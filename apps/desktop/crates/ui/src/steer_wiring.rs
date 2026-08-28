@@ -373,10 +373,13 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     let check_in = crate::device_sync::check_in_flag(cx);
     let account_id = account.id.clone();
     cx.spawn(async move |cx| {
-        let advertisement: coding::AgentAdvertisement = cx
+        // EXP-484: the REPORT is kept, not just the advertisement it
+        // derives — `devices.register` also carries the per-agent accounts.
+        let report: coding::DoctorReport = cx
             .background_executor()
-            .spawn(async move { coding::run_doctor(&settings).agent_advertisement(&settings) })
+            .spawn(async move { coding::run_doctor(&settings) })
             .await;
+        let advertisement: coding::AgentAdvertisement = report.agent_advertisement(&settings2);
         let caps = device_caps(&advertisement);
         // EXP-403: record this machine in the per-user devices registry so the
         // agents UI can show it with an offline "last seen" state (relay
@@ -393,6 +396,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             &advertisement,
             &caps,
             &settings2,
+            Some(&report),
             &cx.background_executor(),
         );
         let _ = cx.update(|cx| {
@@ -523,6 +527,7 @@ pub fn refresh_device_advertisement(cx: &mut App) {
         &desired,
         &caps,
         &settings,
+        Some(&report),
         &cx.background_executor(),
     );
     if let Some(channels) = ControlChannels::global_ref(cx) {
@@ -537,11 +542,13 @@ pub fn refresh_device_advertisement(cx: &mut App) {
 /// stopped being Claude-only — plus `action-inputs` for builtin +
 /// inputs-carrying starts and `fix-conflicts` for the EXP-259 builtin, whose
 /// ids a pre-EXP-259 desktop would treat as real actions and fail to fetch).
-/// EXP-481's `resume`/`worktrees`/`launch-defaults` are BUILD capabilities and
-/// ride even with zero runnable agents. Hand-synced with the CLI daemon's
-/// `DEVICE_CAPS` + `ACTION_CAPS`.
+/// EXP-481's `resume`/`worktrees`/`launch-defaults` and EXP-484's
+/// `agent-login` are BUILD capabilities and ride even with zero runnable
+/// agents (a machine with nothing signed in is exactly the one a remote
+/// Login button targets). Hand-synced with the CLI daemon's `DEVICE_CAPS` +
+/// `ACTION_CAPS`.
 fn device_caps(advertisement: &coding::AgentAdvertisement) -> Vec<String> {
-    let mut caps: Vec<String> = ["resume", "worktrees", "launch-defaults"]
+    let mut caps: Vec<String> = ["resume", "worktrees", "launch-defaults", "agent-login"]
         .iter()
         .map(|cap| cap.to_string())
         .collect();
@@ -581,11 +588,22 @@ fn register_device(
     advertisement: &coding::AgentAdvertisement,
     caps: &[String],
     settings: &coding::Settings,
+    report: Option<&coding::DoctorReport>,
     executor: &gpui::BackgroundExecutor,
 ) {
     let agents = advertisement.agents.clone();
     let unauthed_agents = advertisement.unauthed_agents.clone();
     let caps = caps.to_vec();
+    // EXP-484: WHO each installed CLI is signed in as, straight off the
+    // doctor probe that produced this advertisement. Skipped when nothing is
+    // installed — the server then leaves the column untouched, so an older
+    // build's re-register can never blank a row.
+    let agent_accounts = report.and_then(|report| {
+        let accounts = report.agent_accounts(&coding::agent_accounts::now_iso());
+        (!accounts.is_empty())
+            .then(|| serde_json::to_value(&accounts).ok())
+            .flatten()
+    });
     // EXP-481: the local defaults ride as a first-ever SEED (server-side no-op
     // once the column is set); the device-sync beat reconciles the response
     // copy within one interval, so it is deliberately dropped here.
@@ -604,6 +622,7 @@ fn register_device(
                     unauthed_agents: &unauthed_agents,
                     caps: &caps,
                     launch_defaults: Some(&launch_defaults),
+                    agent_accounts: agent_accounts.as_ref(),
                     version: Some(domain::client_version::current_version()),
                 },
             );

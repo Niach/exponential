@@ -238,6 +238,35 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(row.status, "ended")
     }
 
+    // EXP-484: the coding-sessions shape carries the agent the run was
+    // launched with. It round-trips into the v23 column, and a pre-EXP-484
+    // snapshot omitting the key decodes nil rather than bricking the shape.
+    func testCodingSessionDecodesAgentAndDefaultsNil() async throws {
+        let session = CodingSessionEntity(
+            id: "cs3", issueId: "i1", teamId: "ws1", userId: "u1",
+            deviceLabel: "macbook", deviceId: "dev-1", status: "running", agent: "codex",
+            startedAt: "2026-08-28T09:00:00Z", endedAt: nil,
+            createdAt: "2026-08-28T09:00:00Z", updatedAt: "2026-08-28T09:00:00Z"
+        )
+        let message = ShapeMessage<CodingSessionEntity>.insert(
+            key: #""public"."coding_sessions"/"cs3""#, value: session
+        )
+        try await applyBatch(
+            messages: [message], name: "coding-sessions", table: "coding_sessions", pool: pool
+        )
+        let stored = try await pool.read { try CodingSessionEntity.fetchOne($0, key: "cs3") }
+        XCTAssertEqual(stored?.agent, "codex")
+
+        let json = """
+            {"id":"cs4","issue_id":"i1","team_id":"ws1","user_id":"u1",
+             "device_label":"macbook","status":"running",
+             "started_at":"2026-08-28T09:00:00Z","ended_at":null,
+             "created_at":"2026-08-28T09:00:00Z","updated_at":"2026-08-28T09:00:00Z"}
+            """
+        let row = try JSONDecoder().decode(CodingSessionEntity.self, from: Data(json.utf8))
+        XCTAssertNil(row.agent)
+    }
+
     func testSupportReplyNotificationInsertPersistsTeamId() async throws {
         // The notifications shape now carries team_id — set on issue-less
         // support_reply rows (the helpdesk ticket's team). An inserted row must

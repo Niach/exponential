@@ -385,6 +385,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("user_id", .text).notNull().indexed()
                 t.column("device_label", .text)
                 t.column("status", .text).notNull().defaults(to: "running")
+                // EXP-484: the coding agent the run was launched with
+                // (contract `codingAgent`); NULL on rows that never named one.
+                t.column("agent", .text)
                 // EXP-545: the pr_open batch flip's stamped head branch — the
                 // batch row's own-PR linkage for the Merge shortcut.
                 t.column("branch", .text)
@@ -875,6 +878,12 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("unauthed_agents", .text)
                 t.column("launch_defaults", .text)
                 t.column("launch_defaults_updated_at", .text)
+                // EXP-484: the machine's per-agent auth status + rate-limit
+                // usage (jsonb, stored as stringified JSON) and when the
+                // server last stored the usage.
+                t.column("agent_accounts", .text)
+                t.column("agent_usage", .text)
+                t.column("agent_usage_at", .text)
                 t.column("active_sessions", .integer).notNull().defaults(to: 0)
                 t.column("last_seen_at", .text)
                 t.column("shared_team_id", .text)
@@ -1091,6 +1100,43 @@ public final class DatabaseManager: @unchecked Sendable {
                     UPDATE "electric_offsets"
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'coding-sessions'
+                    """)
+            }
+        }
+
+        // v23 (EXP-484 agent auth status + usage): the machine's per-agent
+        // account/usage report rides the devices shape
+        // (`agent_accounts`/`agent_usage` jsonb + `agent_usage_at`), and the
+        // agent a run was launched with rides the coding-sessions shape
+        // (`coding_sessions.agent`). Guarded additive ALTERs so fresh installs
+        // (which get the columns from the v1 create above) and older stores
+        // converge, then BOTH shape offsets reset so the rows already synced
+        // re-arrive carrying them (the v17/v18/v19/v20/v21/v22 precedent).
+        migrator.registerMigration("v23_agent_status") { db in
+            if try db.tableExists("devices") {
+                let existing = Set(try db.columns(in: "devices").map(\.name))
+                for column in ["agent_accounts", "agent_usage", "agent_usage_at"]
+                where !existing.contains(column) {
+                    try db.alter(table: "devices") { t in
+                        t.add(column: column, .text)
+                    }
+                }
+            }
+            if try db.tableExists("coding_sessions") {
+                let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+                if !existing.contains("agent") {
+                    try db.alter(table: "coding_sessions") { t in
+                        t.add(column: "agent", .text)
+                    }
+                }
+            }
+            // Two shapes rotate here. NOTE: the coding-sessions shape key has
+            // A DASH (the proxy route name), not the SQLite table name.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" IN ('devices', 'coding-sessions')
                     """)
             }
         }

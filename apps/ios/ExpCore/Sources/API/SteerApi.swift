@@ -106,6 +106,115 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     }
 }
 
+/// EXP-484: one coding agent's sign-in status on a machine, as the device
+/// reported it (`devices.agent_accounts[agent]`). READ-ONLY visibility — no
+/// credential ever leaves the machine. `plan` is the subscription tier for
+/// claude/codex and `"<provider> (oauth|api key)"` for pi, which has no email.
+/// Every field optional: the sender is a desktop/daemon of unknown vintage and
+/// the server clamps rather than rejects.
+public struct AgentAccount: Decodable, Equatable, Sendable {
+    public let signedIn: Bool?
+    public let email: String?
+    public let plan: String?
+    /// When the device last probed the agent.
+    public let checkedAt: String?
+
+    public init(
+        signedIn: Bool? = nil,
+        email: String? = nil,
+        plan: String? = nil,
+        checkedAt: String? = nil
+    ) {
+        self.signedIn = signedIn
+        self.email = email
+        self.plan = plan
+        self.checkedAt = checkedAt
+    }
+}
+
+/// EXP-484: one rate-limit window of an agent's usage report. `key` is the
+/// stable identity (`session`, `weekly`, `model:<name>`, `credits`, a duration
+/// in minutes) the per-client window preference is stored under; `label` is
+/// what the bar prints. `percent` is 0-100 (server-clamped, and clamped again
+/// on decode) and nil when the agent reported none.
+public struct AgentUsageWindow: Decodable, Equatable, Sendable, Identifiable {
+    public let key: String
+    public let label: String
+    public let percent: Double?
+    /// When the window rolls over; nil for windows that never reset.
+    public let resetsAt: String?
+
+    public var id: String { key }
+
+    public init(key: String, label: String, percent: Double? = nil, resetsAt: String? = nil) {
+        self.key = key
+        self.label = label
+        self.percent = percent
+        self.resetsAt = resetsAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case key, label, percent, resetsAt
+    }
+
+    /// Tolerant like the web/Android mirrors: only `key` is load-bearing (it
+    /// is what a window is selected and remembered by), everything else
+    /// degrades. The percentage is clamped HERE so every path that decodes a
+    /// device's report — the presentation parsers and the `SteerDevice`
+    /// mapping alike — can trust 0-100.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = try c.decode(String.self, forKey: .key)
+        label = (try? c.decode(String.self, forKey: .label)) ?? ""
+        // SE-0230 flattens the try?-of-optional; a non-finite number is no
+        // percentage at all.
+        if let raw = try? c.decodeIfPresent(Double.self, forKey: .percent), raw.isFinite {
+            percent = min(max(raw, 0), 100)
+        } else {
+            percent = nil
+        }
+        resetsAt = try? c.decodeIfPresent(String.self, forKey: .resetsAt)
+    }
+}
+
+/// A window that never throws: a malformed entry is dropped instead of
+/// blanking the whole agent's report (matching the web/Android parsers).
+private struct FailableUsageWindow: Decodable {
+    let value: AgentUsageWindow?
+
+    init(from decoder: Decoder) throws {
+        value = try? AgentUsageWindow(from: decoder)
+    }
+}
+
+/// EXP-484: one agent's usage report (`devices.agent_usage[agent]`).
+/// `fetchedAt` is when the DEVICE fetched the numbers — the freshness gate
+/// every renderer applies — and `stale` marks numbers the device kept after a
+/// failed refresh.
+public struct AgentUsage: Decodable, Equatable, Sendable {
+    public let fetchedAt: String?
+    public let stale: Bool?
+    public let windows: [AgentUsageWindow]?
+
+    public init(fetchedAt: String? = nil, stale: Bool? = nil, windows: [AgentUsageWindow]? = nil) {
+        self.fetchedAt = fetchedAt
+        self.stale = stale
+        self.windows = windows
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case fetchedAt, stale, windows
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        fetchedAt = try? c.decodeIfPresent(String.self, forKey: .fetchedAt)
+        stale = try? c.decodeIfPresent(Bool.self, forKey: .stale)
+        windows = (try? c.decodeIfPresent([FailableUsageWindow].self, forKey: .windows))
+            .map { $0.compactMap(\.value) }
+    }
+}
+
 /// One machine: a registry row (EXP-403 — desktops and headless
 /// `exponential` daemon servers, online or not, synced through the devices
 /// shape) or a bare relay-presence row. ONE shape for both, mirroring
@@ -157,6 +266,16 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// the device row and belongs to its owner, so a teammate's shared server
     /// never prefills off it.
     public let isDefault: Bool?
+    /// EXP-484: per-agent sign-in status, keyed by contract `codingAgent`.
+    /// Absent on an older desktop and on machines that reported nothing —
+    /// never confuse "not reported" with "signed out".
+    public let agentAccounts: [String: AgentAccount]?
+    /// EXP-484: per-agent rate-limit usage, keyed by contract `codingAgent`.
+    /// Read it through `AgentUsagePresentation`, which applies the freshness
+    /// gate — numbers older than the window must not be drawn as current.
+    public let agentUsage: [String: AgentUsage]?
+    /// EXP-484: when the server last stored `agentUsage`.
+    public let agentUsageAt: String?
     /// EXP-437: this machine's own per-agent coding defaults, so picking it in
     /// a remote Start-coding sheet pre-fills its settings. Absent on an older
     /// desktop (and on a machine with nothing runnable) — read it through
@@ -187,6 +306,9 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         sharedTeamId: String? = nil,
         owner: DeviceOwner? = nil,
         isDefault: Bool? = nil,
+        agentAccounts: [String: AgentAccount]? = nil,
+        agentUsage: [String: AgentUsage]? = nil,
+        agentUsageAt: String? = nil,
         launchDefaults: DeviceLaunchDefaults? = nil,
         rowId: String? = nil
     ) {
@@ -207,6 +329,9 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         self.sharedTeamId = sharedTeamId
         self.owner = owner
         self.isDefault = isDefault
+        self.agentAccounts = agentAccounts
+        self.agentUsage = agentUsage
+        self.agentUsageAt = agentUsageAt
         self.launchDefaults = launchDefaults
         self.rowId = rowId
     }
@@ -249,6 +374,11 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     public var needsAgentSignIn: Bool {
         isOnline && !hasRunnableAgent && !unauthedAgentIds.isEmpty
     }
+
+    /// EXP-484: whether this machine can run an agent sign-in REMOTELY (the
+    /// `agent_login` device command). Strictly cap-gated like the other remote
+    /// affordances — an old build would never pick the command up.
+    public var canAgentLogin: Bool { caps?.contains("agent-login") == true }
 
     /// EXP-437: the machine's configured default agent, clamped to what it can
     /// actually RUN. Nil when it advertises none (older desktop) or names an

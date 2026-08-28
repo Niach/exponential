@@ -103,6 +103,13 @@ final class AgentSessionModel {
     /// `devices` row's label (renames land; the session's `device_label` is a
     /// start-time snapshot) and whether that machine stopped heartbeating.
     private(set) var hostDevice = SessionDevicePresentation(label: nil, online: nil)
+    /// EXP-484: how much of its rate-limit window the agent running THIS
+    /// session has used, off the host machine's synced report. Nil whenever
+    /// there is nothing honest to draw — a finished run, a pre-EXP-484 row
+    /// with no agent, no matching devices row, or numbers older than the
+    /// freshness window (all decided by `AgentUsagePresentation.sessionUsage`).
+    /// Recomputed on the same three inputs as `hostDevice`.
+    private(set) var agentUsage: SessionAgentUsage?
     /// Kill-switch failure (EXP-268), surfaced as an inline banner — cleared
     /// on each attempt. Success needs no local state: the synced row flips to
     /// `ended` and the view already reacts.
@@ -780,6 +787,9 @@ final class AgentSessionModel {
                 devicesPolledAt: SyncFreshness.shared.devicesPolledAt(accountId: accountId),
                 now: now
             )
+        )
+        agentUsage = AgentUsagePresentation.sessionUsage(
+            session: session, devices: deviceRows, now: now
         )
     }
 

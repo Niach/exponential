@@ -2,9 +2,11 @@ package com.exponential.app.ui.session
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.AgentUsageWindowPrefs
 import com.exponential.app.data.api.DeviceCommandDto
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.DevicesApi
+import com.exponential.app.data.api.agentLoginCommand
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.api.worktreePruneCommand
 import com.exponential.app.data.api.worktreeRemoveCommand
@@ -59,13 +61,31 @@ sealed interface DeviceCommandUiState {
 /** The prune button's stable key in [DeviceSettingsViewModel.commandStates]. */
 const val PRUNE_COMMAND_KEY = "__prune__"
 
+/**
+ * One agent's sign-in command key in [DeviceSettingsViewModel.commandStates]
+ * (EXP-484) — the prefix is what tells a `Done` result apart from a worktree
+ * command's plain-text summary, so its payload is parsed as a login URL.
+ */
+fun agentLoginCommandKey(agent: String): String = "login:$agent"
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class DeviceSettingsViewModel @Inject constructor(
     private val auth: AuthRepository,
     holder: DatabaseHolder,
     private val devicesApi: DevicesApi,
+    private val usageWindowPrefs: AgentUsageWindowPrefs,
 ) : ViewModel() {
+
+    /**
+     * EXP-484: bumped on every window pick, so the Agents section's rows
+     * re-read the (non-observable) local preference store.
+     */
+    val usageWindowVersion: StateFlow<Int> = usageWindowPrefs.version
+
+    fun readUsageWindow(agent: String): String? = usageWindowPrefs.read(agent)
+
+    fun rememberUsageWindow(agent: String, key: String) = usageWindowPrefs.remember(agent, key)
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
@@ -253,6 +273,28 @@ class DeviceSettingsViewModel @Inject constructor(
         issueCommand(
             key = "${worktree.repoFullName} ${worktree.branch}",
             command = worktreeRemoveCommand(deviceId, worktree.repoFullName, worktree.branch),
+            deviceOnline = deviceOnline,
+        )
+    }
+
+    /**
+     * EXP-484: ask the machine to run [agent]'s own sign-in flow and publish
+     * the login URL (plus codex's device code) back as the command result —
+     * no credential ever travels. [switchAccount] signs the current account
+     * out first (which, for codex, revokes the token server-side — the sheet
+     * confirms before calling). Same durable queue as the worktree commands,
+     * but only offered for an ONLINE machine that advertises the cap: a login
+     * link parked until tomorrow would be expired anyway.
+     */
+    fun agentLogin(
+        deviceId: String,
+        agent: String,
+        switchAccount: Boolean,
+        deviceOnline: Boolean,
+    ) {
+        issueCommand(
+            key = agentLoginCommandKey(agent),
+            command = agentLoginCommand(deviceId, agent, switchAccount),
             deviceOnline = deviceOnline,
         )
     }

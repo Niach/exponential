@@ -1,5 +1,7 @@
 package com.exponential.app.domain
 
+import com.exponential.app.data.api.AgentAccount
+import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.DeviceOwner
 import com.exponential.app.data.api.SteerDevice
@@ -9,6 +11,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 
@@ -110,6 +113,19 @@ fun parseLaunchDefaults(raw: String?): DeviceLaunchDefaults? =
     }
 
 /**
+ * EXP-484: the stored `agent_accounts` jsonb object → per-agent sign-in
+ * status; null/bad = null (the Agents section then reads "unknown").
+ */
+fun parseAgentAccounts(raw: String?): Map<String, AgentAccount>? =
+    AgentUsagePresentation.parseAccounts(raw)
+
+/** The stored `agent_usage` jsonb object → per-agent usage; null/bad = null. */
+fun parseAgentUsage(raw: String?): Map<String, AgentUsage>? =
+    // The tolerant presentation parser: one malformed window drops that
+    // window, never the whole map (the session view already parses this way).
+    AgentUsagePresentation.parseUsageMap(raw)
+
+/**
  * One synced devices row as the [SteerDevice] every picker/list renders.
  * [ownerName] is the resolved display name for a TEAMMATE's shared row (the
  * owner is always inside the users shape — a sharing owner is a member of the
@@ -146,6 +162,9 @@ fun DeviceEntity.toSteerDevice(
     // EXP-622: a default belongs to the row's OWNER — never surface a
     // teammate's shared server as the caller's default.
     isDefault = isDefault && userId == currentUserId,
+    agentAccounts = parseAgentAccounts(agentAccounts),
+    agentUsage = parseAgentUsage(agentUsage),
+    agentUsageAt = agentUsageAt,
     rowId = id,
 )
 

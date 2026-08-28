@@ -130,6 +130,28 @@ class CodingSessionEntityDecodeTest {
         assertNull(entity.resumedFromId)
     }
 
+    // EXP-484: the agent a run launched with — absent on every pre-EXP-484 row.
+    @Test
+    fun `agent decodes and defaults null`() {
+        fun row(extra: String) = """
+            {
+              "id": "sess-1",
+              "team_id": "team-1",
+              "user_id": "user-1",
+              "status": "running"$extra,
+              "started_at": "2026-08-11 10:00:00+00",
+              "created_at": "2026-08-11 10:00:00+00",
+              "updated_at": "2026-08-11 10:00:00+00"
+            }
+        """.trimIndent()
+        assertEquals(
+            "codex",
+            json.decodeFromString(CodingSessionEntity.serializer(), row(", \"agent\": \"codex\"")).agent,
+        )
+        assertNull(json.decodeFromString(CodingSessionEntity.serializer(), row(", \"agent\": null")).agent)
+        assertNull(json.decodeFromString(CodingSessionEntity.serializer(), row("")).agent)
+    }
+
     /** A summary is free-form GFM: newlines, quotes and unicode ride through
      * as written (mobile renders it as plain text). */
     @Test
