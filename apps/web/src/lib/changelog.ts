@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-agent-report-stays-open`,
+    date: `2026-08-28`,
+    title: `Agents report back without closing`,
+    summary: `A run you started now stays open after the agent reports its summary and outcome, so you can keep the conversation going. Automated runs still close on their own.`,
+    body: `- **Keep talking after the report**: a run you started from an issue, a batch, an action or a chat now records its summary and outcome and stays live, so you can answer, ask for more or steer it further without resuming.
+- **Automations still close**: runs started by a schedule or a trigger end when they report, exactly as before.
+- **Recent runs keep the report**: the web app, iOS and Android list a finished run's summary even after its tab is closed on the desktop.`,
+  },
+  {
     id: `2026-08-terminal-inline-images`,
     date: `2026-08-28`,
     title: `Inline images in the terminal`,

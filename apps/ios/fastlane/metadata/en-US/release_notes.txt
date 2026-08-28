@@ -1,5 +1,6 @@
 Everything since 0.14.0:
 
+- A run you started stays open after the agent reports back, so you can keep the conversation going; automated runs still close on their own
 - Agents report back when a run finishes: read the summary and outcome anywhere, and resume a finished run where it stopped
 - Type # to embed an issue chip in comments and descriptions, with smarter caret handling around chips
 - Live sessions stay quiet during long waits instead of reconnecting, and recover faster when they do drop

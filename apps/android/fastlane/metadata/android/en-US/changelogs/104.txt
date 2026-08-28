@@ -1,0 +1,1 @@
+Agents that finish a run you started now report back and stay open for follow-ups, and finished runs keep their reports in Recent runs.
