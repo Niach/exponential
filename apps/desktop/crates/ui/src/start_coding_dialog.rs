@@ -73,8 +73,8 @@ use sync::Store;
 
 use api::repositories::IssueRepository;
 use coding::{
-    ActionInputValue, BatchIssueSpec, BatchLaunchRequest, CodingAgent, LaunchOptions,
-    LaunchOrigin, Prepared, PrepareRequest, RepoGroup,
+    run_registry::RunRecord, ActionInputValue, BatchIssueSpec, BatchLaunchRequest, LaunchOptions,
+    LaunchOrigin, Prepared, PrepareRequest, RepoGroup, ResumeRunRequest,
 };
 use domain::IssueStatus;
 
@@ -389,13 +389,14 @@ pub struct StartCodingDialogView {
     rows: Vec<IssueRow>,
     /// issue id → probe state (LAZY: only checked issues probe).
     repos: HashMap<String, RepoState>,
-    /// issue id → its persisted worktree's resume state (EXP-202 — computed
-    /// alongside the repo probe; drives the Resume affordance for a
-    /// single-checked issue, per-agent since EXP-210).
-    worktrees: HashMap<String, coding_flow::WorktreeResume>,
+    /// issue id → the newest resumable run record for it (EXP-662 — probed
+    /// alongside the repo, `None` = nothing to resume). Drives the Resume
+    /// affordance for a single-checked issue; the record names the agent,
+    /// branch and transcript the resume relaunches.
+    resumables: HashMap<String, Option<RunRecord>>,
     /// EXP-202: "Resume previous session" checkbox state. Only ACTIVE
     /// ([`Self::resume_candidate`]) when exactly one issue is checked and
-    /// its worktree exists; default-on so a re-launch resumes by default.
+    /// a record exists for it; default-on so a re-launch resumes by default.
     resume: bool,
     /// Stale-probe guard (old results must not land after a re-open).
     probe_generation: u64,
@@ -590,7 +591,7 @@ impl StartCodingDialogView {
             team_repos: Vec::new(),
             rows,
             repos: HashMap::new(),
-            worktrees: HashMap::new(),
+            resumables: HashMap::new(),
             resume: true,
             probe_generation: 0,
             checked,
@@ -987,36 +988,37 @@ impl StartCodingDialogView {
         self.repos.insert(issue_id.clone(), RepoState::Loading);
         let generation = self.probe_generation;
         let probe_id = issue_id.clone();
-        // EXP-202: once the repo resolves, the same background hop stats the
-        // issue's persisted worktree (the launcher's own path derivation) —
-        // never a blocking fs call in render.
-        let settings = CodingHub::global(cx).read(cx).settings.clone();
-        let identifier = self
-            .rows
-            .iter()
-            .find(|row| row.issue_id == issue_id)
-            .map(|row| row.identifier.clone());
+        // EXP-662: once the repo resolves, the same background hop reads the
+        // run registry for this issue's newest resumable record (a file read
+        // plus a `.git` stat — never a blocking fs call in render). Both
+        // inputs are snapshotted here: the background thread reaches no
+        // globals.
+        let data_dir = coding_flow::coding_data_dir(cx);
+        let account_id = queries::active_account(cx).map(|account| account.id);
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
                     let result = api::repositories::for_issue(&trpc, &probe_id);
-                    let worktree_resume = match (&result, &identifier) {
-                        (Ok(Some(repo)), Some(identifier)) => coding_flow::issue_worktree_resume(
-                            &settings,
-                            &repo.full_name,
-                            identifier,
+                    // Only a repo-backed issue can launch at all, so a
+                    // record for an unresolvable one would offer a Resume
+                    // the blocker refuses anyway.
+                    let resumable = match (&result, &account_id) {
+                        (Ok(Some(_)), Some(account_id)) => coding::run_registry::latest_for_issue(
+                            &data_dir,
+                            account_id,
+                            &probe_id,
                         ),
-                        _ => coding_flow::WorktreeResume::None,
+                        _ => None,
                     };
-                    (result, worktree_resume)
+                    (result, resumable)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.probe_generation != generation {
                     return; // superseded
                 }
-                let (result, worktree_resume) = result;
+                let (result, resumable) = result;
                 let state = match result {
                     Ok(repo) => RepoState::Ready(repo),
                     Err(err) => RepoState::Error(err.to_string()),
@@ -1026,20 +1028,19 @@ impl StartCodingDialogView {
                     this.checked.remove(&issue_id);
                 }
                 this.repos.insert(issue_id.clone(), state);
-                this.worktrees.insert(issue_id.clone(), worktree_resume);
+                this.resumables.insert(issue_id.clone(), resumable);
                 cx.notify();
             });
         })
         .detach();
     }
 
-    /// EXP-202: the single checked issue whose persisted worktree already
-    /// exists — the only shape a resume can take (batch branches are random
-    /// `exp/batch-<id8>` and are never resumable). EXP-210: per-agent — a
-    /// worktree only another agent coded in offers nothing to continue for
-    /// the selected one, so the Resume row hides instead of promising a
-    /// `--continue` that would fail.
-    fn resume_candidate(&self) -> Option<&IssueRow> {
+    /// EXP-202/EXP-662: the single checked issue that has a resumable run
+    /// record, with that record — the only shape a resume can take (a batch
+    /// session's issues are never singly checked here). NOT gated on the
+    /// picked agent: a resume relaunches the RECORDED agent's transcript
+    /// (D2), the row just says so.
+    fn resume_candidate(&self) -> Option<(&IssueRow, &RunRecord)> {
         // Resume is an ISSUE concept — the Actions tab never offers it.
         if self.subject_tab != SubjectTab::Issues {
             return None;
@@ -1048,14 +1049,9 @@ impl StartCodingDialogView {
             return None;
         }
         let issue_id = self.checked.iter().next()?;
-        if !self
-            .worktrees
-            .get(issue_id)
-            .is_some_and(|state| state.offers(self.launch.agent))
-        {
-            return None;
-        }
-        self.rows.iter().find(|row| &row.issue_id == issue_id)
+        let record = self.resumables.get(issue_id)?.as_ref()?;
+        let row = self.rows.iter().find(|row| &row.issue_id == issue_id)?;
+        Some((row, record))
     }
 
     /// Whether the launch will actually RESUME (checkbox on + a candidate).
@@ -1079,11 +1075,20 @@ impl StartCodingDialogView {
             return Some("Starting…".into());
         }
         let hub = CodingHub::global(cx);
+        // EXP-662: a resume runs the RECORDED agent, not the picked one — so
+        // that is the one whose tooling has to be there.
+        let gated_agent = match self.resume_active() {
+            true => self
+                .resume_candidate()
+                .map(|(_, record)| record.agent)
+                .unwrap_or(self.launch.agent),
+            false => self.launch.agent,
+        };
         match hub.read(cx).doctor.report.as_ref() {
             None => return Some("Checking local tools…".into()),
             // Per-agent gate (EXP-201): only git + the SELECTED agent block.
             Some(report) => {
-                if let Some(failed) = report.first_failure_for(self.launch.agent) {
+                if let Some(failed) = report.first_failure_for(gated_agent) {
                     return Some(
                         failed
                             .error
@@ -1339,9 +1344,39 @@ impl StartCodingDialogView {
         if self.checked.len() == 1 {
             let issue_id = self.checked.iter().next().cloned().expect("one checked");
             let options = self.options(cx);
-            let resume = self.resume_active();
+            // EXP-662: an active resume relaunches the RECORDED run exactly
+            // (its agent, its worktree, its transcript). Only model/effort may
+            // be nudged, and only while the picker is on that same agent (D2)
+            // — otherwise the picker is describing a different program.
+            let record = self
+                .resume_active()
+                .then(|| self.resume_candidate().map(|(_, record)| record.clone()))
+                .flatten();
+            if let Some(record) = record {
+                let same_agent = options.agent == record.agent;
+                let Some(deps) = coding_flow::build_resume_deps(&record, cx) else {
+                    self.error =
+                        Some("Sign in and wait for sync before starting a session.".into());
+                    cx.notify();
+                    return;
+                };
+                let request = ResumeRunRequest {
+                    record,
+                    device_label: coding::default_device_label(),
+                    origin: LaunchOrigin::Local,
+                    model: same_agent.then(|| options.model.clone()),
+                    effort: same_agent.then(|| options.effort.clone()),
+                };
+                return self.run_prepare(
+                    PrepareRequest::ResumeRun(request),
+                    deps,
+                    SessionSubject::Issue(issue_id),
+                    window,
+                    cx,
+                );
+            }
             let Some((request, deps)) =
-                coding_flow::build_launch(&issue_id, LaunchOrigin::Local, options, resume, cx)
+                coding_flow::build_launch(&issue_id, LaunchOrigin::Local, options, false, cx)
             else {
                 self.error = Some("Sign in and wait for sync before starting a session.".into());
                 cx.notify();
@@ -1496,26 +1531,42 @@ impl StartCodingDialogView {
             .into_any_element()
     }
 
-    /// EXP-202: the "Resume previous session" notice + checkbox — rendered
-    /// only while a single checked issue's worktree already exists on disk
-    /// ([`Self::resume_candidate`]).
-    fn resume_row(&self, identifier: &str, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    /// EXP-202/EXP-662: the "Resume previous session" notice + checkbox —
+    /// rendered only while a single checked issue has a resumable run record
+    /// ([`Self::resume_candidate`]). The copy names the RECORDED agent, since
+    /// that is the one the resume relaunches whatever the picker says (D2).
+    fn resume_row(
+        &self,
+        row: &IssueRow,
+        record: &RunRecord,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
         let settings = CodingHub::global(cx).read(cx).settings.clone();
-        let branch = coding::branch_name(&settings.branch_prefix, identifier);
-        let hint: SharedString = match self.launch.agent {
-            // codex has no cwd-scoped --continue; the launcher recovers the
-            // worktree's exact recorded session id instead.
-            CodingAgent::Codex => "Resumes the worktree's recorded Codex session \
-                                   (codex resume <session-id>); if none is recorded, starts a \
-                                   new session instructed to continue the work."
-                .into(),
-            agent => format!(
-                "Continues the last {} conversation in this worktree (--continue).",
-                agent.label()
+        let branch = record
+            .branch
+            .clone()
+            .unwrap_or_else(|| coding::branch_name(&settings.branch_prefix, &row.identifier));
+        let when = crate::comments::relative_time_epoch(
+            record.recorded_at as i64,
+            chrono::Utc::now().timestamp(),
+        );
+        let hint: SharedString = format!(
+            "Resumes the {} session exactly (its own transcript), and falls back to a fresh \
+             session seeded with the resume prompt if the transcript is gone.",
+            record.agent.label()
+        )
+        .into();
+        // The picker's agent is IGNORED by a resume — say so instead of
+        // silently launching a different program than the pills show.
+        let agent_note: Option<SharedString> = (self.launch.agent != record.agent).then(|| {
+            format!(
+                "Runs {}, not {}: a resume keeps the session's own agent.",
+                record.agent.label(),
+                self.launch.agent.label()
             )
-            .into(),
-        };
+            .into()
+        });
         v_flex()
             .gap_0p5()
             .child(
@@ -1533,7 +1584,7 @@ impl StartCodingDialogView {
                     .text_xs()
                     .text_color(muted)
                     .child(SharedString::from(format!(
-                        "A worktree for {identifier} already exists ({branch})."
+                        "A session on {branch} ended {when}."
                     ))),
             )
             .child(
@@ -1543,6 +1594,15 @@ impl StartCodingDialogView {
                     .text_color(muted.opacity(0.7))
                     .child(hint),
             )
+            .when_some(agent_note, |this, note| {
+                this.child(
+                    div()
+                        .pl_6()
+                        .text_xs()
+                        .text_color(muted.opacity(0.7))
+                        .child(note),
+                )
+            })
     }
 
     /// The top-level Issues | Actions subject strip (EXP-257). EXP-525: the
@@ -2071,13 +2131,12 @@ impl Render for StartCodingDialogView {
             );
         }
 
-        // ---- resume (EXP-202): single checked issue with an existing
-        //      worktree offers "Resume previous session" ----
+        // ---- resume (EXP-202/EXP-662): single checked issue with a recorded
+        //      run offers "Resume previous session" ----
         let resume_active = self.resume_active();
         let resume_row = self
             .resume_candidate()
-            .map(|row| row.identifier.clone())
-            .map(|identifier| self.resume_row(&identifier, cx).into_any_element());
+            .map(|(row, record)| self.resume_row(row, record, cx).into_any_element());
 
         let blocker = self.launch_blocker(cx);
         // EXP-268: two-column widescreen layout (web `launch-dialog.tsx`

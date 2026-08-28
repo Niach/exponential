@@ -54,8 +54,10 @@ use sync::Store;
 use terminal::{TabId, TabKind, TerminalManager, TerminalManagerEvent};
 
 use coding::{
-    run_doctor, CodingDeps, DoctorReport, IssueSeed, LaunchOptions, LaunchOrigin, LaunchOutcome,
-    LaunchRequest, Settings,
+    run_doctor,
+    run_registry::{RunKind, RunRecord},
+    CodingDeps, DoctorReport, IssueSeed, LaunchOptions, LaunchOrigin, LaunchOutcome, LaunchRequest,
+    Settings,
 };
 
 use crate::controls::WebControl as _;
@@ -1038,24 +1040,35 @@ pub(crate) fn find_terminal_dock(item: &DockItem) -> Option<Entity<TerminalDockP
 // Launch orchestration (§7.1 — the ONE sequence, UI side)
 // ---------------------------------------------------------------------------
 
+/// Where this install keeps its per-account state — the token store, the
+/// device id and (EXP-662) the run registry every resume reads. The signed-in
+/// [`AuthContext`] is authoritative; the default only covers the pre-session
+/// window.
+pub fn coding_data_dir(cx: &App) -> PathBuf {
+    cx.try_global::<AuthContext>()
+        .map(|auth| auth.data_dir.clone())
+        .unwrap_or_else(api::default_data_dir)
+}
+
 /// Everything `coding::prepare` needs for an ISSUE launch, assembled from the
 /// signed-in app state. `None` when signed out or the issue isn't synced
 /// (both make Start coding meaningless). Shared by the Start-coding dialog
 /// and — via the same construction — the §08 relay `start_session` path
 /// (which passes settings-default `options` with plan mode forced OFF).
+///
+/// EXP-662: `resume_prompt` only seeds the RESUME prompt (and clamps plan
+/// mode) — an exact resume goes through [`build_resume_deps`] +
+/// `PrepareRequest::ResumeRun` instead, off a `run_registry` record.
 pub fn build_launch(
     issue_id: &str,
     origin: LaunchOrigin,
     options: LaunchOptions,
-    resume: bool,
+    resume_prompt: bool,
     cx: &mut App,
 ) -> Option<(LaunchRequest, CodingDeps)> {
     let account = queries::active_account(cx)?;
     let trpc = Arc::new(queries::trpc_client(cx)?);
-    let data_dir = cx
-        .try_global::<AuthContext>()
-        .map(|auth| auth.data_dir.clone())
-        .unwrap_or_else(api::default_data_dir);
+    let data_dir = coding_data_dir(cx);
     let hub = CodingHub::global(cx);
     let settings = hub.read(cx).settings.clone();
 
@@ -1078,7 +1091,7 @@ pub fn build_launch(
         device_label: coding::default_device_label(),
         origin,
         options,
-        resume,
+        resume_prompt,
     };
     let deps = CodingDeps {
         trpc,
@@ -1095,57 +1108,6 @@ pub fn build_launch(
     Some((request, deps))
 }
 
-/// EXP-202: whether `identifier`'s persisted worktree already exists —
-/// and, when it does, which agents are recorded as having coded in it
-/// (EXP-210: the Resume offer is per-agent — `--continue` under an agent
-/// that never ran in the worktree dies with "no conversation found to
-/// continue", so the dialog only offers resume for recorded agents).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub enum WorktreeResume {
-    /// No persisted worktree — nothing to resume.
-    #[default]
-    None,
-    /// Worktree exists but predates the recorded-agent marker — history
-    /// unknown, keep the legacy behavior (any agent may offer resume).
-    Any,
-    /// Worktree exists with a recorded-agent marker: only these agents have
-    /// a conversation there to continue.
-    Agents(Vec<coding::CodingAgent>),
-}
-
-impl WorktreeResume {
-    /// Whether the Resume affordance applies for `agent`.
-    pub fn offers(&self, agent: coding::CodingAgent) -> bool {
-        match self {
-            WorktreeResume::None => false,
-            WorktreeResume::Any => true,
-            WorktreeResume::Agents(agents) => agents.contains(&agent),
-        }
-    }
-}
-
-/// `identifier`'s persisted-worktree resume state for `full_name` under the
-/// current coding settings — the launcher's OWN derivation (`branch_name` +
-/// `clone_path` + `worktree_path`), so it can never disagree with where a
-/// launch would land. Blocking `.git` stat + marker read — call from a
-/// background spawn (the dialog's probe closure), not render.
-pub fn issue_worktree_resume(
-    settings: &coding::Settings,
-    full_name: &str,
-    identifier: &str,
-) -> WorktreeResume {
-    let branch = coding::branch_name(&settings.branch_prefix, identifier);
-    let clone = coding::clone_path(&settings.repos_root_path(), full_name);
-    let worktree = coding::worktree_path(&clone, &branch);
-    if !worktree.join(".git").exists() {
-        return WorktreeResume::None;
-    }
-    match coding::worktree_agents(&worktree) {
-        None => WorktreeResume::Any,
-        Some(agents) => WorktreeResume::Agents(agents),
-    }
-}
-
 /// [`CodingDeps`] for a BATCH launch — the same assembly as [`build_launch`]
 /// minus the issue lookup: the dialog snapshots every issue's
 /// title/description into the [`coding::BatchLaunchRequest`] itself, so the
@@ -1153,10 +1115,7 @@ pub fn issue_worktree_resume(
 pub fn build_batch_deps(cx: &mut App) -> Option<CodingDeps> {
     let account = queries::active_account(cx)?;
     let trpc = Arc::new(queries::trpc_client(cx)?);
-    let data_dir = cx
-        .try_global::<AuthContext>()
-        .map(|auth| auth.data_dir.clone())
-        .unwrap_or_else(api::default_data_dir);
+    let data_dir = coding_data_dir(cx);
     let hub = CodingHub::global(cx);
     let settings = hub.read(cx).settings.clone();
     Some(CodingDeps {
@@ -1199,6 +1158,102 @@ fn run_is_resumable_now(session_id: &str) -> bool {
 /// the issue-seed fn is inert. `None` when signed out.
 pub fn build_action_deps(cx: &mut App) -> Option<CodingDeps> {
     build_batch_deps(cx)
+}
+
+/// EXP-662: [`CodingDeps`] for RESUMING `record` — [`build_batch_deps`] plus
+/// the issue seed an ISSUE record's fallback prompt needs (the launcher asks
+/// for `record.issue_id` when no native transcript survived). Snapshotted in
+/// the foreground like [`build_launch`] does: the seed fn runs on a
+/// background thread, where the collections are unreachable. `None` when
+/// signed out; a missing/unsynced issue just leaves the seed empty (the
+/// prompt falls back to the identifier).
+pub fn build_resume_deps(record: &RunRecord, cx: &mut App) -> Option<CodingDeps> {
+    let mut deps = build_batch_deps(cx)?;
+    if let Some(issue_id) = record.issue_id.clone() {
+        let seed = Store::global(cx)
+            .collections()
+            .issues
+            .read(cx)
+            .get(&issue_id)
+            .map(|issue| IssueSeed {
+                title: issue.title.clone(),
+                description: issue.description.clone(),
+            });
+        deps.issue_seed = Arc::new(move |asked| {
+            if asked == issue_id {
+                seed.clone()
+            } else {
+                None
+            }
+        });
+    }
+    Some(deps)
+}
+
+/// EXP-662: which [`LocalSessions`] key a resumed run registers under. An
+/// issue/batch resume must land on the SUBJECT (so the header's Coding…/Stop
+/// flip and the one-session-per-issue guard see it), not on the new row id —
+/// only action/chat runs key by session.
+pub fn resume_subject(record: &RunRecord, new_session_id: String) -> SessionSubject {
+    match record.kind {
+        RunKind::Issue => match &record.issue_id {
+            Some(issue_id) => SessionSubject::Issue(issue_id.clone()),
+            None => SessionSubject::Action(new_session_id),
+        },
+        RunKind::Batch => match &record.batch_id {
+            Some(batch_id) => SessionSubject::Batch(batch_id.clone()),
+            None => SessionSubject::Action(new_session_id),
+        },
+        _ => SessionSubject::Action(new_session_id),
+    }
+}
+
+/// EXP-662: why `record` cannot be resumed right now; `None` = go ahead.
+/// The one-session-per-issue rule (EXP-202/REV2-24) applies to a resume
+/// exactly as it applies to a fresh start — the resumed agent lands back in
+/// the same `exp/<ID>` worktree, so a second one would orphan the first.
+/// Checked against BOTH this process ([`LocalSessions`]) and the live synced
+/// rows (any other device), for the issue itself or every member of a batch.
+/// Action and chat records own their own branch and are never blocked.
+pub fn resume_blocker(record: &RunRecord, cx: &mut App) -> Option<String> {
+    let subjects: Vec<(&str, &str)> = match record.kind {
+        RunKind::Issue => {
+            let issue_id = record.issue_id.as_deref()?;
+            vec![(
+                issue_id,
+                record.issue_identifier.as_deref().unwrap_or(issue_id),
+            )]
+        }
+        RunKind::Batch => record
+            .issues
+            .iter()
+            .map(|issue| (issue.issue_id.as_str(), issue.identifier.as_str()))
+            .collect(),
+        _ => return None,
+    };
+    let sessions = LocalSessions::global(cx);
+    let now = chrono::Utc::now().timestamp();
+    for (issue_id, identifier) in subjects {
+        // The record's OWN session never blocks its resume: the ended strip
+        // closes the finished tab and calls straight through, but the close's
+        // `TabClosed` (which drops the registration) only lands on the next
+        // effect flush — a self-conflict would refuse every strip Resume.
+        if sessions
+            .read(cx)
+            .get(issue_id)
+            .is_some_and(|session| session.session_id != record.session_id)
+        {
+            return Some(format!(
+                "Already coding {identifier}. Stop that session first."
+            ));
+        }
+        if let Some(device) = queries::live_session_device_for_issue(cx, issue_id, now) {
+            return Some(format!(
+                "{identifier} already has a live session on {device} (only one session per issue)."
+            ));
+        }
+    }
+    None
 }
 
 /// Foreground half of the launch: spawn the prepared Claude tab into THIS
@@ -1770,6 +1825,53 @@ mod tests {
         ));
         // Trunk/scratch runs record no branch — never match anything.
         assert!(!branch_pr_merged("", [&merged, &branchless].into_iter()));
+    }
+
+    /// EXP-662: a resumed run registers under its SUBJECT, so the header's
+    /// Coding…/Stop flip and the one-session-per-issue guards see it — the
+    /// new row id keys only action/chat runs.
+    #[test]
+    fn a_resumed_issue_or_batch_registers_under_its_subject() {
+        let record = |extra: serde_json::Value| -> RunRecord {
+            let mut value = serde_json::json!({
+                "sessionId": "old-row", "accountId": "acct-1", "agent": "claude",
+                "cwd": "/tmp/wt", "recordedAt": 1,
+            });
+            for (key, field) in extra.as_object().expect("object") {
+                value[key] = field.clone();
+            }
+            serde_json::from_value(value).expect("record")
+        };
+        assert_eq!(
+            resume_subject(
+                &record(serde_json::json!({ "kind": "issue", "issueId": "i-1" })),
+                "new-row".to_string()
+            ),
+            SessionSubject::Issue("i-1".to_string())
+        );
+        assert_eq!(
+            resume_subject(
+                &record(serde_json::json!({ "kind": "batch", "batchId": "a1b2c3d4" })),
+                "new-row".to_string()
+            ),
+            SessionSubject::Batch("a1b2c3d4".to_string())
+        );
+        assert_eq!(
+            resume_subject(
+                &record(serde_json::json!({ "kind": "chat" })),
+                "new-row".to_string()
+            ),
+            SessionSubject::Action("new-row".to_string())
+        );
+        // A subject-less issue record (a downgrade/upgrade artifact) degrades
+        // to the row key rather than panicking or keying on an empty string.
+        assert_eq!(
+            resume_subject(
+                &record(serde_json::json!({ "kind": "issue" })),
+                "new-row".to_string()
+            ),
+            SessionSubject::Action("new-row".to_string())
+        );
     }
 
     #[test]

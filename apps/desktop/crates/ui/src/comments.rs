@@ -91,6 +91,12 @@ pub(crate) fn relative_time(timestamp: &str, now_epoch: i64) -> String {
     let Some(then) = parse_epoch(timestamp) else {
         return String::new();
     };
+    relative_time_epoch(then, now_epoch)
+}
+
+/// [`relative_time`]'s core, for callers that already hold epoch seconds
+/// (EXP-662: the run registry's `recorded_at`) instead of a wire timestamp.
+pub(crate) fn relative_time_epoch(then: i64, now_epoch: i64) -> String {
     let delta = now_epoch - then;
     let (magnitude, future) = if delta >= 0 {
         (delta, false)

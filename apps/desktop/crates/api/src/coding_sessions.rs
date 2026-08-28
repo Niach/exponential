@@ -101,6 +101,11 @@ struct StartInput<'a> {
     started_by_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_id: Option<&'a str>,
+    /// EXP-662: the ended session this issue run resumes (the server has
+    /// accepted `resumedFromId` on the issue branch since EXP-637). Behind
+    /// `skip_serializing_if`, so a fresh start's wire is byte-identical.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resumed_from_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -113,6 +118,9 @@ struct StartBatchInput<'a> {
     started_by_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_id: Option<&'a str>,
+    /// EXP-662 — same as [`StartInput::resumed_from_id`], on the batch branch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resumed_from_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -275,11 +283,14 @@ pub fn live_for_issue(
 /// `codingSessions.start` — mutation. A 412 (`PRECONDITION_FAILED`) is the
 /// plan's concurrent-session cap; the launcher maps it to its `SessionLimit`
 /// disabled state with the server's upgrade copy.
+/// EXP-662: `resumed_from_id` links the new row to the ended session it
+/// continues; `None` on every fresh start.
 pub fn start(
     trpc: &TrpcClient,
     issue_id: &str,
     device_label: Option<&str>,
     attribution: Attribution,
+    resumed_from_id: Option<&str>,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
@@ -288,6 +299,7 @@ pub fn start(
             device_label,
             started_by_id: attribution.started_by_id,
             device_id: attribution.device_id,
+            resumed_from_id,
         },
     )?;
     Ok(envelope.session)
@@ -302,6 +314,7 @@ pub fn start_batch(
     team_id: &str,
     device_label: Option<&str>,
     attribution: Attribution,
+    resumed_from_id: Option<&str>,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
@@ -310,6 +323,7 @@ pub fn start_batch(
             device_label,
             started_by_id: attribution.started_by_id,
             device_id: attribution.device_id,
+            resumed_from_id,
         },
     )?;
     Ok(envelope.session)
@@ -448,7 +462,7 @@ mod tests {
     #[test]
     fn start_decodes_session_envelope_and_posts_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default()).unwrap();
+        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default(), None).unwrap();
         assert_eq!(session.id, "sess-1");
         assert_eq!(session.status.as_deref(), Some("running"));
         assert_eq!(session.device_label.as_deref(), Some("testbox"));
@@ -475,7 +489,7 @@ mod tests {
     #[test]
     fn start_omits_absent_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let _ = start(&client(&base), "issue-1", None, Attribution::default()).unwrap();
+        let _ = start(&client(&base), "issue-1", None, Attribution::default(), None).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"issueId":"issue-1"}"#));
     }
@@ -488,13 +502,55 @@ mod tests {
                 "id":"sess-b","issueId":null,"teamId":"ws-1",
                 "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
         );
-        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default()).unwrap();
+        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None).unwrap();
         assert_eq!(session.id, "sess-b");
         assert_eq!(session.team_id.as_deref(), Some("ws-1"));
         assert_eq!(session.issue_id, None);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/codingSessions.start HTTP/1.1"));
         assert!(request.ends_with(r#"{"teamId":"ws-1","deviceLabel":"testbox"}"#));
+    }
+
+    #[test]
+    fn start_posts_the_resume_link() {
+        // EXP-662: a resumed ISSUE session points back at the run it
+        // continues. Behind skip_serializing_if — the two tests above lock
+        // the byte-identical wire a fresh start still sends.
+        let (base, captured) = one_shot_server(200, SESSION_BODY);
+        let _ = start(
+            &client(&base),
+            "issue-1",
+            Some("testbox"),
+            Attribution::default(),
+            Some("sess-old"),
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"issueId":"issue-1","deviceLabel":"testbox","resumedFromId":"sess-old"}"#
+        ));
+    }
+
+    #[test]
+    fn start_batch_posts_the_resume_link() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{
+                "id":"sess-b","issueId":null,"teamId":"ws-1",
+                "userId":"user-1","status":"running"}}}}"#,
+        );
+        let _ = start_batch(
+            &client(&base),
+            "ws-1",
+            Some("testbox"),
+            Attribution::default(),
+            Some("sess-old"),
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"teamId":"ws-1","deviceLabel":"testbox","resumedFromId":"sess-old"}"#
+        ));
     }
 
     #[test]
@@ -506,7 +562,7 @@ mod tests {
             started_by_id: Some("user-2"),
             device_id: Some("dev-1"),
         };
-        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution).unwrap();
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"issueId":"issue-1","deviceLabel":"testbox","startedById":"user-2","deviceId":"dev-1"}"#
@@ -524,7 +580,7 @@ mod tests {
             started_by_id: None,
             device_id: Some("dev-1"),
         };
-        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution).unwrap();
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request
             .ends_with(r#"{"issueId":"issue-1","deviceLabel":"testbox","deviceId":"dev-1"}"#));
@@ -560,7 +616,7 @@ mod tests {
             412,
             r#"{"error":{"message":"Concurrent coding session limit reached — upgrade to run more.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
         );
-        match start(&client(&base), "issue-1", None, Attribution::default()) {
+        match start(&client(&base), "issue-1", None, Attribution::default(), None) {
             Err(ApiError::Http { status, message }) => {
                 assert_eq!(status, 412);
                 assert!(message.contains("limit"));

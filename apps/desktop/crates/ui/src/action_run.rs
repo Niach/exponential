@@ -530,11 +530,13 @@ fn take_over_branch(branch: &str, window: gpui::AnyWindowHandle, cx: &mut App) -
     }
 }
 
-/// EXP-637 — RESUME an ended action/chat run. The run registry holds
-/// everything the relaunch needs (agent, workspace, branch, options), so this
-/// entry point takes only the ended session's id and the usual launch
-/// context. A missing record or a reclaimed workspace surfaces as a notice —
-/// never a silent no-op, because the user just pressed a Resume button.
+/// EXP-637 — RESUME an ended run of ANY kind (EXP-662 added issue and batch
+/// sessions to the registry, so this is the desktop's one resume entry
+/// point). The run registry holds everything the relaunch needs (agent,
+/// workspace, branch, options), so this takes only the ended session's id and
+/// the usual launch context. A missing record, a reclaimed workspace or a
+/// subject that is already being coded surfaces as a notice — never a silent
+/// no-op, because the user just pressed a Resume button.
 pub(crate) fn resume_run(
     session_id: String,
     target: Option<gpui::AnyWindowHandle>,
@@ -550,11 +552,13 @@ pub(crate) fn resume_run(
         log::info!("actions: duplicate resume for {session_id} ignored");
         return;
     };
-    let Some(deps) = coding_flow::build_action_deps(cx) else {
+    // Signed-in check + the registry's location in one (the RESUME's own deps
+    // are built below, once the record says what kind of run this is).
+    let Some(data_dir) = coding_flow::build_action_deps(cx).map(|deps| deps.data_dir) else {
         log::warn!("actions: resume ignored — not signed in");
         return;
     };
-    let Some(record) = coding::run_registry::get(&deps.data_dir, &session_id) else {
+    let Some(record) = coding::run_registry::get(&data_dir, &session_id) else {
         notify_target_error(
             target,
             "This run can't be resumed on this machine — it has no local record.",
@@ -566,6 +570,18 @@ pub(crate) fn resume_run(
         notify_target_error(target, "This run's workspace is gone.", cx);
         return;
     }
+    // EXP-662: an issue/batch record resumes back into `exp/<ID>` — the
+    // one-session-per-issue rule applies exactly as it does to a fresh start.
+    if let Some(message) = coding_flow::resume_blocker(&record, cx) {
+        notify_target_error(target, &message, cx);
+        return;
+    }
+    // The deps a RESUME needs: an issue record's fallback prompt asks for the
+    // issue's seed, which only the foreground can snapshot.
+    let Some(deps) = coding_flow::build_resume_deps(&record, cx) else {
+        log::warn!("actions: resume ignored — not signed in");
+        return;
+    };
     let Some(window) = target.or_else(|| crate::steer_wiring::find_team_window(cx)) else {
         log::warn!("actions: resume for {session_id} — no shell window open");
         return;
@@ -573,6 +589,9 @@ pub(crate) fn resume_run(
     if activate_app {
         cx.activate(true);
     }
+    // EXP-662: an issue/batch resume registers under its SUBJECT, so the
+    // header's Coding…/Stop flip and the launch guards see it.
+    let subject_of = record.clone();
     let request = ResumeRunRequest {
         record,
         device_label: coding::default_device_label(),
@@ -597,7 +616,7 @@ pub(crate) fn resume_run(
             .await;
         let _ = window.update(cx, |_, window, cx| match prepared {
             Ok(Prepared::Ready(prepared)) => {
-                let subject = SessionSubject::Action(prepared.session_id.clone());
+                let subject = coding_flow::resume_subject(&subject_of, prepared.session_id.clone());
                 if let Err(message) = coding_flow::spawn_into_window(prepared, subject, window, cx)
                 {
                     log::warn!("actions: resume spawn failed: {message}");
