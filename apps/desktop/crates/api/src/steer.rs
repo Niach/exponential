@@ -11,9 +11,6 @@
 //!   `?ticket=…` already embedded (`steerTicketUrl`). Consumers use `url`
 //!   **as-is** — never reconstruct it (the relay reads the ticket from the
 //!   query string only).
-//! - `steer.myDevices` — **query**, no input → `{devices: [...]}` (the
-//!   phone-side "Start on my desktop" picker; mirrored here for parity and
-//!   diagnostics).
 //!
 //! The desktop is NEVER a signer: it holds no `STEER_RELAY_SECRET` and never
 //! touches `signSteerTicket`. All authorization is decided server-side at
@@ -134,28 +131,6 @@ pub fn mint_viewer_ticket(
     mint(trpc, &MintInput::Viewer { coding_session_id })
 }
 
-/// One online desktop from `steer.myDevices` (relay in-memory presence).
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct SteerDevice {
-    pub device_id: String,
-    pub device_label: String,
-    /// Unix millis (relay `Date.now()` at `online`).
-    #[serde(default)]
-    pub connected_at: Option<i64>,
-}
-
-#[derive(Deserialize)]
-struct DevicesWire {
-    devices: Vec<SteerDevice>,
-}
-
-/// `steer.myDevices` — query, no input. Empty when the relay is disabled.
-pub fn my_devices(trpc: &TrpcClient) -> Result<Vec<SteerDevice>, ApiError> {
-    let wire: DevicesWire = trpc.query("steer.myDevices")?;
-    Ok(wire.devices)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,20 +221,5 @@ mod tests {
         assert!(matches!(result, MintTicketResult::Ticket(_)));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"kind":"viewer","codingSessionId":"sess-1"}"#));
-    }
-
-    #[test]
-    fn my_devices_decodes_list() {
-        let (base, captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"devices":[{"deviceId":"dev-1","deviceLabel":"MacBook","connectedAt":1751500000000}]}}}"#,
-        );
-        let devices = my_devices(&client(&base)).unwrap();
-        assert_eq!(devices.len(), 1);
-        assert_eq!(devices[0].device_id, "dev-1");
-        assert_eq!(devices[0].device_label, "MacBook");
-        assert_eq!(devices[0].connected_at, Some(1751500000000));
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("GET /api/trpc/steer.myDevices HTTP/1.1"));
     }
 }

@@ -104,7 +104,6 @@ const h = vi.hoisted(() => {
     state,
     db,
     getSteerRelayConfig: vi.fn(),
-    relayGetDevices: vi.fn(),
     relayPostNudge: vi.fn(async () => ({ delivered: true })),
     assertTeamMember: vi.fn(),
     getTeamMember: vi.fn(async () => ({ role: `member` }) as unknown),
@@ -116,7 +115,6 @@ vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
-  relayGetDevices: h.relayGetDevices,
   relayPostNudge: h.relayPostNudge,
 }))
 vi.mock(`@/lib/team-membership`, () => ({
@@ -143,28 +141,6 @@ const caller = devicesRouter.createCaller({
   request: new Request(`http://localhost/`),
 } as never)
 
-const registryRow = (over: Record<string, unknown> = {}) => ({
-  id: `row-1`,
-  userId: `actor`,
-  deviceId: `dev-1`,
-  label: `buildbox`,
-  kind: `server`,
-  platform: `linux`,
-  agents: [`claude`],
-  caps: [`actions`],
-  version: `0.8.52`,
-  updateRequestedAt: null,
-  activeSessions: 0,
-  lastSeenAt: new Date(`2026-08-01T10:00:00Z`),
-  sharedTeamId: null,
-  unauthedAgents: [],
-  launchDefaults: null,
-  launchDefaultsUpdatedAt: null,
-  createdAt: new Date(`2026-07-01T10:00:00Z`),
-  updatedAt: new Date(`2026-08-01T10:00:00Z`),
-  ...over,
-})
-
 // What setShared's ownership probe selects (id, kind, shared_team_id).
 const sharedProbe = (sharedTeamId: string | null) => [
   [{ id: `row-1`, kind: `server`, sharedTeamId }],
@@ -185,7 +161,6 @@ beforeEach(() => {
     secret: `s`,
     enabled: true,
   })
-  h.relayGetDevices.mockResolvedValue({ devices: [] })
   h.endForeignHostedSessions.mockResolvedValue([])
   h.getTeamMember.mockResolvedValue({ role: `member` })
 })
@@ -357,164 +332,6 @@ describe(`devices.latestVersions`, () => {
   it(`returns the desktop/cli latest hints`, async () => {
     const result = await caller.latestVersions()
     expect(result).toEqual({ desktop: `0.9.0`, cli: `0.9.0` })
-  })
-})
-
-describe(`devices.list`, () => {
-  it(`marks a registered row online when the relay reports it connected`, async () => {
-    h.state.selectRows = [registryRow()]
-    h.relayGetDevices.mockResolvedValue({
-      devices: [
-        {
-          deviceId: `dev-1`,
-          deviceLabel: `buildbox`,
-          connectedAt: 1,
-          agents: [`claude`, `pi`],
-          caps: [`actions`, `fix-conflicts`],
-        },
-      ],
-    })
-    const { devices } = await caller.list()
-    expect(devices).toHaveLength(1)
-    expect(devices[0]).toMatchObject({
-      deviceId: `dev-1`,
-      kind: `server`,
-      online: true,
-      registered: true,
-      // EXP-485: presence feeds the `online` flag and nothing else — the
-      // frame's stale advertisement never wins over the registered row.
-      agents: [`claude`],
-      caps: [`actions`],
-      // The REGISTRY label is authoritative too (renames stay visible).
-      deviceLabel: `buildbox`,
-    })
-    // Write-on-observe: a connected row staler than 60s gets its last_seen_at
-    // advanced, so a later disconnect reads near the actual disconnect.
-    expect(h.state.updates).toHaveLength(1)
-    expect(h.state.updates[0]?.set).toMatchObject({
-      lastSeenAt: expect.any(Date),
-    })
-  })
-
-  it(`reports signed-out agents off the registered row (EXP-409/EXP-485)`, async () => {
-    // The daemon's only agent is signed out: `register` persisted a runnable
-    // list that is explicitly empty and an unauthed list naming it.
-    h.state.selectRows = [
-      registryRow({ agents: [], unauthedAgents: [`claude`] }),
-    ]
-    h.relayGetDevices.mockResolvedValue({
-      devices: [{ deviceId: `dev-1`, deviceLabel: `buildbox`, connectedAt: 1 }],
-    })
-    const { devices } = await caller.list()
-    expect(devices[0]).toMatchObject({
-      online: true,
-      agents: [],
-      unauthedAgents: [`claude`],
-    })
-  })
-
-  it(`carries launch defaults off the registered row, online or not (EXP-481)`, async () => {
-    const launchDefaults = {
-      defaultAgent: `claude`,
-      agents: { claude: { model: `opus`, effort: ``, planMode: true } },
-    }
-    h.state.selectRows = [registryRow({ launchDefaults })]
-    h.relayGetDevices.mockResolvedValue({
-      devices: [{ deviceId: `dev-1`, deviceLabel: `buildbox`, connectedAt: 1 }],
-    })
-    const { devices } = await caller.list()
-    expect(devices[0]?.launchDefaults).toEqual(launchDefaults)
-
-    // Offline (relay down) reads the SAME server-authoritative copy: the
-    // defaults are the machine's persisted state, not a presence frame.
-    h.state.selectRows = [registryRow({ launchDefaults })]
-    h.relayGetDevices.mockRejectedValue(new Error(`relay down`))
-    const { devices: offline } = await caller.list()
-    expect(offline[0]?.launchDefaults).toEqual(launchDefaults)
-
-    // A row that never seeded any carries none.
-    h.state.selectRows = [registryRow()]
-    const { devices: unseeded } = await caller.list()
-    expect(unseeded[0]?.launchDefaults).toBeUndefined()
-  })
-
-  it(`defaults unauthedAgents to empty for offline registry rows`, async () => {
-    h.state.selectRows = [registryRow()]
-    h.relayGetDevices.mockRejectedValue(new Error(`relay down`))
-    const { devices } = await caller.list()
-    expect(devices[0]?.unauthedAgents).toEqual([])
-  })
-
-  it(`shows the renamed registry label even while the relay holds the old one`, async () => {
-    h.state.selectRows = [registryRow({ label: `renamed-box` })]
-    h.relayGetDevices.mockResolvedValue({
-      devices: [
-        { deviceId: `dev-1`, deviceLabel: `old-hostname`, connectedAt: 1 },
-      ],
-    })
-    const { devices } = await caller.list()
-    expect(devices[0]?.deviceLabel).toBe(`renamed-box`)
-  })
-
-  it(`keeps registry rows (offline) when the relay is unreachable`, async () => {
-    h.state.selectRows = [registryRow()]
-    h.relayGetDevices.mockRejectedValue(new Error(`relay down`))
-    const { devices } = await caller.list()
-    expect(devices).toHaveLength(1)
-    expect(devices[0]).toMatchObject({
-      online: false,
-      lastSeenAt: `2026-08-01T10:00:00.000Z`,
-      agents: [`claude`],
-    })
-  })
-
-  it(`omits relay-connected devices that never registered (pre-registry builds retired)`, async () => {
-    h.state.selectRows = []
-    h.relayGetDevices.mockResolvedValue({
-      devices: [
-        { deviceId: `old-desktop`, deviceLabel: `Old Mac`, connectedAt: 1 },
-      ],
-    })
-    const { devices } = await caller.list()
-    expect(devices).toHaveLength(0)
-  })
-
-  it(`marks a pending update blocked while the daemon reports live sessions (EXP-411)`, async () => {
-    h.state.selectRows = [
-      registryRow({
-        updateRequestedAt: new Date(`2026-08-03T10:00:00Z`),
-        activeSessions: 1,
-      }),
-    ]
-    h.relayGetDevices.mockRejectedValue(new Error(`relay down`))
-    const { devices } = await caller.list()
-    expect(devices[0]).toMatchObject({
-      updateRequested: true,
-      updateBlocked: true,
-    })
-  })
-
-  it(`clears the blocked state once the machine reads idle`, async () => {
-    h.state.selectRows = [
-      registryRow({
-        updateRequestedAt: new Date(`2026-08-03T10:00:00Z`),
-        activeSessions: 0,
-      }),
-    ]
-    h.relayGetDevices.mockRejectedValue(new Error(`relay down`))
-    const { devices } = await caller.list()
-    expect(devices[0]).toMatchObject({
-      updateRequested: true,
-      updateBlocked: false,
-    })
-  })
-
-  it(`works with the relay unconfigured — everything reads offline`, async () => {
-    h.getSteerRelayConfig.mockReturnValue(null)
-    h.state.selectRows = [registryRow()]
-    const { devices } = await caller.list()
-    expect(devices[0]?.online).toBe(false)
-    expect(h.relayGetDevices).not.toHaveBeenCalled()
   })
 })
 
@@ -717,119 +534,6 @@ describe(`devices.setShared — automation disarm`, () => {
     await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A })
     expect(h.state.updates).toHaveLength(1)
     expect(h.getTeamMember).not.toHaveBeenCalled()
-  })
-})
-
-// EXP-432: the team-scoped list — teammates' shared servers.
-describe(`devices.list({teamId})`, () => {
-  const TEAM = `11111111-1111-4111-8111-111111111111`
-  const sharedJoinRow = (over: Record<string, unknown> = {}) => ({
-    device: registryRow({
-      id: `row-2`,
-      userId: `teammate`,
-      deviceId: `dev-2`,
-      label: `teambox`,
-      sharedTeamId: TEAM,
-      ...over,
-    }),
-    ownerName: `Tessa Teammate`,
-  })
-
-  it(`asserts membership and appends teammates' shared rows with owner attribution`, async () => {
-    h.state.selectQueue = [[registryRow()], [sharedJoinRow()]]
-    h.relayGetDevices.mockResolvedValue({ devices: [] })
-    const { devices } = await caller.list({ teamId: TEAM })
-    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM)
-    expect(devices).toHaveLength(2)
-    // Own rows first, teammate rows appended after.
-    expect(devices[0]).toMatchObject({ deviceId: `dev-1`, sharedTeamId: null })
-    expect(devices[0]?.owner).toBeUndefined()
-    expect(devices[1]).toMatchObject({
-      deviceId: `dev-2`,
-      kind: `server`,
-      deviceLabel: `teambox`,
-      sharedTeamId: TEAM,
-      owner: { id: `teammate`, name: `Tessa Teammate` },
-      registered: true,
-    })
-  })
-
-  it(`merges the OWNER's relay presence onto a shared row`, async () => {
-    h.state.selectQueue = [
-      [],
-      [
-        sharedJoinRow({
-          agents: [`claude`, `codex`],
-          caps: [`actions`, `action-inputs`],
-        }),
-      ],
-    ]
-    h.relayGetDevices.mockImplementation((_config, userId: string) =>
-      userId === `teammate`
-        ? Promise.resolve({
-            devices: [
-              { deviceId: `dev-2`, deviceLabel: `teambox`, connectedAt: 1 },
-            ],
-          })
-        : Promise.resolve({ devices: [] })
-    )
-    const { devices } = await caller.list({ teamId: TEAM })
-    expect(devices[0]).toMatchObject({
-      deviceId: `dev-2`,
-      // EXP-485: the owner's presence decides ONLY online-ness — the
-      // advertisement is the teammate's registered row.
-      online: true,
-      agents: [`claude`, `codex`],
-      caps: [`actions`, `action-inputs`],
-    })
-  })
-
-  it(`reads a shared row offline when its owner's presence fetch fails`, async () => {
-    h.state.selectQueue = [[], [sharedJoinRow()]]
-    h.relayGetDevices.mockImplementation((_config, userId: string) =>
-      userId === `teammate`
-        ? Promise.reject(new Error(`relay down`))
-        : Promise.resolve({ devices: [] })
-    )
-    const { devices } = await caller.list({ teamId: TEAM })
-    expect(devices[0]).toMatchObject({ deviceId: `dev-2`, online: false })
-  })
-
-  it(`never writes other users' rows on observe — only own rows bump last_seen_at`, async () => {
-    h.state.selectQueue = [[], [sharedJoinRow()]]
-    h.relayGetDevices.mockResolvedValue({
-      devices: [{ deviceId: `dev-2`, deviceLabel: `teambox`, connectedAt: 1 }],
-    })
-    await caller.list({ teamId: TEAM })
-    expect(h.state.updates).toHaveLength(0)
-  })
-
-  // EXP-622: the flag on a teammate's row is THEIR preference — old clients
-  // reading this list must never prefill someone else's default.
-  it(`carries isDefault on own rows and zeroes it on shared ones`, async () => {
-    h.state.selectQueue = [
-      [registryRow({ isDefault: true })],
-      [sharedJoinRow({ isDefault: true })],
-    ]
-    const { devices } = await caller.list({ teamId: TEAM })
-    expect(devices[0]).toMatchObject({ deviceId: `dev-1`, isDefault: true })
-    expect(devices[1]).toMatchObject({ deviceId: `dev-2`, isDefault: false })
-  })
-
-  it(`carries the caller's own sharedTeamId so the UI can badge it`, async () => {
-    h.state.selectQueue = [[registryRow({ sharedTeamId: TEAM })], []]
-    const { devices } = await caller.list({ teamId: TEAM })
-    expect(devices[0]).toMatchObject({ deviceId: `dev-1`, sharedTeamId: TEAM })
-    expect(devices[0]?.owner).toBeUndefined()
-  })
-
-  it(`no-input list stays byte-identical to the pre-EXP-432 behavior`, async () => {
-    h.state.selectRows = [registryRow()]
-    const { devices } = await caller.list()
-    expect(h.assertTeamMember).not.toHaveBeenCalled()
-    expect(devices).toHaveLength(1)
-    // Exactly one relay fetch — never a per-owner sweep without teamId.
-    expect(h.relayGetDevices).toHaveBeenCalledTimes(1)
   })
 })
 

@@ -14,9 +14,9 @@ import UniformTypeIdentifiers
 // rows whose `comment_id` points at that comment.
 //
 // Comment attachments are NEVER inlined into the markdown body — that is the
-// whole point of EXP-554. The bytes go up through the existing REST routes
-// (images → /api/issues/{id}/images, everything else → /api/issues/{id}/files)
-// and the ids are handed to `comments.create`/`comments.update`.
+// whole point of EXP-554. The bytes go up through the existing REST route
+// (everything, images included, posts to /api/issues/{id}/files) and the ids
+// are handed to `comments.create`/`comments.update`.
 
 // MARK: - Pending model
 

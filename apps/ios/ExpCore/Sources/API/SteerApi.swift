@@ -108,10 +108,10 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
 
 /// One machine: a registry row (EXP-403 — desktops and headless
 /// `exponential` daemon servers, online or not, synced through the devices
-/// shape) or a bare relay-presence row from `steer.myDevices`. ONE shape for
-/// both, mirroring apps/web/src/lib/steer-devices.ts: the registry fields are
-/// optional and an absent `online` reads as online, because a presence row is
-/// alive by construction. Usually the caller's own — but teammates' shared
+/// shape) or a bare relay-presence row. ONE shape for both, mirroring
+/// apps/web/src/lib/steer-devices.ts: the registry fields are optional and an
+/// absent `online` reads as online, because a presence row is alive by
+/// construction. Usually the caller's own — but teammates' shared
 /// servers (EXP-432) ride along too, told apart by `owner`.
 public struct SteerDevice: Decodable, Sendable, Identifiable {
     public let deviceId: String
@@ -347,16 +347,6 @@ public struct LatestVersions: Decodable, Sendable {
     }
 }
 
-/// `steer.myDevices`' envelope — exactly `{ devices }`; unknown keys decode
-/// away.
-public struct SteerDevicesResult: Decodable, Sendable {
-    public let devices: [SteerDevice]
-
-    public init(devices: [SteerDevice]) {
-        self.devices = devices
-    }
-}
-
 private struct ViewerTicketInput: Encodable {
     let kind = "viewer"
     let codingSessionId: String
@@ -486,16 +476,6 @@ public final class SteerApi: Sendable {
             path: "steer.mintTicket",
             input: ViewerTicketInput(codingSessionId: codingSessionId)
         )
-    }
-
-    /// The caller's online desktops (`steer.myDevices` query) — own relay
-    /// presence only. Since EXP-432 the start surfaces use
-    /// `DeviceQueries.onlineStartTargets` (the synced devices rows) instead,
-    /// so teammates' shared servers count as start targets; this stays as the
-    /// presence-only primitive. Relay-off ⇒ empty list.
-    public func myDevices(accountId: String) async throws -> [SteerDevice] {
-        let result: SteerDevicesResult = try await trpc.query(accountId: accountId, path: "steer.myDevices")
-        return result.devices
     }
 
     /// Remote "Start on my desktop": route a `start_session` to the chosen

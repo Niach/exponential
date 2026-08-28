@@ -74,7 +74,6 @@ const h = vi.hoisted(() => {
   return {
     getSteerRelayConfig: vi.fn(),
     relayPostStart: vi.fn(),
-    relayGetDevices: vi.fn(),
     mintSteerTicket: vi.fn(),
     relayPostKill: vi.fn(),
     assertTeamMember: vi.fn(),
@@ -106,7 +105,6 @@ vi.mock(`@/lib/trpc/repositories`, () => ({
 vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
   relayPostStart: h.relayPostStart,
-  relayGetDevices: h.relayGetDevices,
   mintSteerTicket: h.mintSteerTicket,
   relayPostKill: h.relayPostKill,
 }))
@@ -172,9 +170,6 @@ beforeEach(() => {
   })
   h.relayPostKill.mockReset()
   h.relayPostKill.mockResolvedValue(undefined)
-  h.relayGetDevices.mockReset()
-  // Only steer.myDevices reads presence now; startSession must never call it.
-  h.relayGetDevices.mockResolvedValue({ devices: [] })
   h.assertTeamMember.mockReset()
   h.assertTeamMember.mockResolvedValue({ role: `member` })
   h.getIssueTeamContext.mockReset()
@@ -567,72 +562,53 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
-  it(`refuses a device without the actions cap`, async () => {
-    // A registered row with agents but NO caps — an old build with no action
-    // launch path at all.
+  // EXP-639: the `actions` / `action-inputs` cap refusals are gone — every
+  // build above the version floor advertises them whenever it advertises a
+  // runnable agent, so the agent list is the only gate on this path.
+  it(`starts an action on a row advertising no caps at all`, async () => {
     queueAction()
     queueOwnDevice()
-    const error = await rejectionOf(
-      caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1` })
-    )
-    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect((error as TRPCError).message).toContain(`can't run actions`)
-  })
-
-  it(`input-less runs stay allowed on an actions-only (pre-inputs) desktop`, async () => {
-    queueAction()
-    queueOwnDevice({ caps: [`actions`] })
     await caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1` })
     expect(h.relayPostStart).toHaveBeenCalledTimes(1)
   })
 
-  it(`non-claude runs require the action-inputs cap (pre-EXP-257 desktops clamp to claude)`, async () => {
-    // A pre-EXP-257 desktop advertises `actions` + its full agent list, but
-    // its action runner forces claude while honoring the model string — the
-    // start would silently launch claude with a codex model.
+  it(`honors a non-claude agent without any cap, but only if the row runs it`, async () => {
     queueAction()
-    queueOwnDevice({ caps: [`actions`], agents: [`claude`, `codex`] })
+    queueOwnDevice({ agents: [`claude`, `codex`] })
+    await caller.startSession({
+      actionId: ACTION_ID,
+      deviceId: `dev-1`,
+      agent: `codex`,
+      model: `gpt-5.6-sol`,
+    })
+    expect(lastStartBody()).toMatchObject({ agent: `codex` })
+
+    queueAction()
+    queueOwnDevice({ agents: [`claude`] })
     const error = await rejectionOf(
       caller.startSession({
         actionId: ACTION_ID,
         deviceId: `dev-1`,
         agent: `codex`,
-        model: `gpt-5.6-sol`,
       })
     )
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect((error as TRPCError).message).toContain(`only run actions on claude`)
-    expect(h.relayPostStart).not.toHaveBeenCalled()
+    expect((error as TRPCError).message).toContain(`codex is not installed`)
   })
 
-  it(`claude runs stay allowed on an actions-only desktop (options it ignores are not a regression)`, async () => {
-    queueAction()
-    queueOwnDevice({ caps: [`actions`], agents: [`claude`] })
-    await caller.startSession({
-      actionId: ACTION_ID,
-      deviceId: `dev-1`,
-      agent: `claude`,
-      model: `opus`,
-      skipPermissions: true,
-    })
-    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
-  })
-
-  it(`inputs-carrying runs require the action-inputs cap`, async () => {
+  it(`carries inputs to a row advertising no caps`, async () => {
     queueAction({
       inputs: [{ key: `topic`, label: `Topic`, type: `text`, required: false }],
     })
-    queueOwnDevice({ caps: [`actions`] })
-    const error = await rejectionOf(
-      caller.startSession({
-        actionId: ACTION_ID,
-        deviceId: `dev-1`,
-        inputs: { topic: `perf` },
-      })
-    )
-    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect((error as TRPCError).message).toContain(`action inputs`)
-    expect(h.relayPostStart).not.toHaveBeenCalled()
+    queueOwnDevice()
+    await caller.startSession({
+      actionId: ACTION_ID,
+      deviceId: `dev-1`,
+      inputs: { topic: `perf` },
+    })
+    expect(lastStartBody()).toMatchObject({
+      inputs: [{ key: `topic`, value: `perf` }],
+    })
   })
 
   it(`validates values against the schema — missing required, unknown key`, async () => {
@@ -759,18 +735,15 @@ describe(`steer.startSession — builtin create-action (EXP-257)`, () => {
     )
   })
 
-  it(`builtin starts require the action-inputs cap`, async () => {
-    queueOwnDevice({ caps: [`actions`] })
-    const error = await rejectionOf(
-      caller.startSession({
-        actionId: BUILTIN_ID,
-        teamId: `55555555-5555-4555-8555-555555555555`,
-        deviceId: `dev-1`,
-        inputs: { description: `x` },
-      })
-    )
-    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect((error as TRPCError).message).toContain(`action inputs`)
+  it(`builtin starts need no caps on the row (EXP-639)`, async () => {
+    queueOwnDevice()
+    await caller.startSession({
+      actionId: BUILTIN_ID,
+      teamId: `55555555-5555-4555-8555-555555555555`,
+      deviceId: `dev-1`,
+      inputs: { description: `x` },
+    })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
   })
 
   it(`rejects inputs riding a non-action start`, async () => {
@@ -921,7 +894,6 @@ describe(`steer.startSession — shared devices (EXP-432)`, () => {
     await caller.startSession({ issueId: ISSUE_A, deviceId: SHARED_DEVICE })
 
     // EXP-485: resolution is pure DB — no presence round-trip at all.
-    expect(h.relayGetDevices).not.toHaveBeenCalled()
     expect(lastStartBody()).toMatchObject({
       userId: `owner-1`,
       startedBy: `actor`,
@@ -969,8 +941,6 @@ describe(`steer.startSession — shared devices (EXP-432)`, () => {
     const body = lastStartBody()
     expect(body.userId).toBe(`actor`)
     expect(`startedBy` in body).toBe(false)
-    // EXP-485: no presence round-trip on any path.
-    expect(h.relayGetDevices).not.toHaveBeenCalled()
   })
 
   it(`refuses a deviceId nobody registered (EXP-542)`, async () => {
@@ -1038,39 +1008,27 @@ describe(`steer.startSession — shared devices (EXP-432)`, () => {
     })
   })
 
-  it(`checks the action caps against the OWNER's row`, async () => {
-    // The owner's daemon is old: it registered no caps at all.
+  it(`checks the action agent against the OWNER's row`, async () => {
+    // The owner's box runs claude only — a codex action start refuses there
+    // even though the caller's own machine could run it.
     queueAction()
-    queueSharedDevice()
-
-    const error = await rejectionOf(
-      caller.startSession({ actionId: ACTION_ID, deviceId: SHARED_DEVICE })
-    )
-    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect((error as TRPCError).message).toContain(`can't run actions`)
-    expect(h.relayPostStart).not.toHaveBeenCalled()
-  })
-
-  it(`requires action-inputs on the owner's device for a builtin start`, async () => {
-    queueSharedDevice({ sharedTeamId: BUILTIN_TEAM_ID, caps: [`actions`] })
+    queueSharedDevice({ agents: [`claude`] })
 
     const error = await rejectionOf(
       caller.startSession({
-        actionId: BUILTIN_ID,
-        teamId: BUILTIN_TEAM_ID,
+        actionId: ACTION_ID,
         deviceId: SHARED_DEVICE,
-        inputs: { description: `x` },
+        agent: `codex`,
       })
     )
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect((error as TRPCError).message).toContain(`action inputs`)
+    expect((error as TRPCError).message).toContain(`codex is not installed`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
   it(`routes a builtin start on a shared device with startedBy`, async () => {
-    queueSharedDevice({
-      sharedTeamId: BUILTIN_TEAM_ID,
-      caps: [`actions`, `action-inputs`],
-    })
+    // EXP-639: a capless owner row is fine — only the agent list gates.
+    queueSharedDevice({ sharedTeamId: BUILTIN_TEAM_ID })
 
     await caller.startSession({
       actionId: BUILTIN_ID,
@@ -1192,8 +1150,8 @@ describe(`steer.killSession — owner OR host (EXP-432)`, () => {
   })
 })
 
-// EXP-481: remote resume — single-issue only, strictly gated on the
-// persisted row's `resume` cap.
+// EXP-481: remote resume — single-issue only. EXP-639 dropped the `resume`
+// cap refusal: every build above the version floor honors the flag.
 describe(`steer.startSession — resume (EXP-481)`, () => {
   it(`rejects resume on a batch start at the input layer`, async () => {
     const error = await rejectionOf(
@@ -1219,16 +1177,6 @@ describe(`steer.startSession — resume (EXP-481)`, () => {
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
-  it(`refuses when the persisted row lacks the resume cap`, async () => {
-    queueOwnDevice({ caps: [`actions`] })
-    const error = await rejectionOf(
-      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, resume: true })
-    )
-    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect((error as TRPCError).message).toContain(`can't resume`)
-    expect(h.relayPostStart).not.toHaveBeenCalled()
-  })
-
   it(`refuses when the device never registered (legacy desktop)`, async () => {
     const error = await rejectionOf(
       caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, resume: true })
@@ -1237,8 +1185,8 @@ describe(`steer.startSession — resume (EXP-481)`, () => {
     expect((error as TRPCError).message).toContain(`hasn't registered`)
   })
 
-  it(`rides the relay body when the cap is present`, async () => {
-    queueOwnDevice({ caps: [`actions`, `resume`, `worktrees`] })
+  it(`rides the relay body when requested`, async () => {
+    queueOwnDevice()
     const result = await caller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,

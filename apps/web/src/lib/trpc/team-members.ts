@@ -190,11 +190,11 @@ export const teamMembersRouter = router({
           )
         // Membership end = share end (EXP-481). The devices/device_worktrees
         // shapes scope on shared_team_id single-table — an Electric where
-        // clause cannot re-check membership the way devices.list's join does,
-        // so an ex-member's shared box would keep streaming to the team.
-        // Clearing here (trigger #13 heals the worktree mirrors) makes the
-        // membership boundary hold; list/resolveTargetDevice keep their joins
-        // as belt-and-braces for pre-existing rows.
+        // clause cannot re-check membership the way a server-side team_members
+        // join does, so an ex-member's shared box would keep streaming to the
+        // team. Clearing here (trigger #13 heals the worktree mirrors) makes
+        // the membership boundary hold; resolveTargetDevice and the MCP device
+        // list keep their joins as belt-and-braces for pre-existing rows.
         const cleared = await tx
           .update(devices)
           .set({ sharedTeamId: null, updatedAt: new Date() })

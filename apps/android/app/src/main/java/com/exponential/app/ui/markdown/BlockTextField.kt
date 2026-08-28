@@ -630,12 +630,33 @@ internal fun atomizeChipEdit(
         new.text.length == old.text.length - 1 &&
         new.text == old.text.removeRange(oldCaret - 1, oldCaret)
     if (!isBackspace) return new
-    val chip = chips.firstOrNull { it.sourceEnd == oldCaret } ?: return new
+    // [chips] are remembered off `value.text` and can be ONE FRAME STALE when
+    // two IME callbacks land in the same frame — deleting a stale chip's range
+    // would splice out whatever now sits at those offsets. Only a chip whose
+    // recorded source range still spells its own token in [old] is the token
+    // this backspace ate; anything else falls through as an ordinary delete.
+    val chip = chips.firstOrNull { it.stillSpellsItsToken(old.text) && it.sourceEnd == oldCaret }
+        ?: return new
     return TextFieldValue(
         old.text.removeRange(chip.sourceStart, chip.sourceEnd),
         TextRange(chip.sourceStart),
     )
 }
+
+/**
+ * Whether this chip's source range still holds the `#IDENTIFIER` it was built
+ * from in [text] — the cheap staleness check that keeps a one-frame-old chip
+ * from atomizing a range that has since become something else.
+ *
+ * Case-INSENSITIVE, like [IssueRefHandler.resolve]: the token is chipped as
+ * typed (`#exp-238` matches [IssueRefs] too) while the resolved target always
+ * carries the canonical identifier, so a byte compare would call every
+ * lowercase chip stale.
+ */
+private fun IssueChipTransform.Chip.stillSpellsItsToken(text: String): Boolean =
+    sourceStart >= 0 && sourceEnd <= text.length && sourceStart < sourceEnd &&
+        text.substring(sourceStart, sourceEnd)
+            .equals("#" + target.identifier, ignoreCase = true)
 
 /**
  * [newCaret], unless it lies strictly inside a chip — then that chip's edge

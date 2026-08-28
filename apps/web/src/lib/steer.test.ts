@@ -4,7 +4,6 @@ import {
   buildSteerTicketClaims,
   getSteerRelayConfig,
   mintSteerTicket,
-  relayGetDevices,
   relayPostKill,
   relayPostNudge,
   relayPostStart,
@@ -236,27 +235,6 @@ describe(`mintSteerTicket`, () => {
 })
 
 describe(`relay admin HTTP`, () => {
-  it(`myDevices passes through the relay's device list with the shared secret`, async () => {
-    const devices = [
-      { deviceId: `dev-1`, deviceLabel: `My MacBook`, connectedAt: 123 },
-    ]
-    const fetchImpl = vi
-      .fn<RelayFetch>()
-      .mockResolvedValue(fakeResponse(200, { devices }))
-
-    await expect(
-      relayGetDevices(CONFIG, `user 1`, fetchImpl)
-    ).resolves.toEqual({ devices })
-    expect(fetchImpl).toHaveBeenCalledWith(
-      `https://steer.example.com/devices/user%201`,
-      {
-        headers: { "x-relay-secret": `test-secret` },
-        // EXP-414: bounded — a wedged relay must not hang `devices.list`.
-        signal: expect.any(AbortSignal),
-      }
-    )
-  })
-
   // EXP-504: with an internal URL configured, every server-to-server call
   // dials the compose-network address (no hairpin through public DNS) while
   // the ticket dial URL — what clients connect to — keeps the public url.
@@ -270,7 +248,6 @@ describe(`relay admin HTTP`, () => {
       .fn<RelayFetch>()
       .mockResolvedValue(fakeResponse(200, { devices: [], delivered: true }))
 
-    await relayGetDevices(config, `user-1`, fetchImpl)
     await relayPostStart(
       config,
       { userId: `user-1`, deviceId: `dev-1`, issueId: `issue-1` },
@@ -279,7 +256,6 @@ describe(`relay admin HTTP`, () => {
     await relayPostKill(config, `sess-1`, fetchImpl)
     await relayPostNudge(config, `user-1`, `dev-1`, fetchImpl)
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
-      `http://steer-relay:4002/devices/user-1`,
       `http://steer-relay:4002/start`,
       `http://steer-relay:4002/sessions/sess-1/kill`,
       `http://steer-relay:4002/devices/user-1/dev-1/nudge`,
@@ -288,15 +264,6 @@ describe(`relay admin HTTP`, () => {
     const minted = mintSteerTicket(config, { kind: `control`, userId: `u` })
     expect(`url` in minted && minted.url).toMatch(
       /^wss:\/\/issues\.example\.com\/steer\/ws\?ticket=/
-    )
-  })
-
-  it(`throws on a non-ok devices response`, async () => {
-    const fetchImpl = vi
-      .fn<RelayFetch>()
-      .mockResolvedValue(fakeResponse(401, { error: `Unauthorized` }))
-    await expect(relayGetDevices(CONFIG, `user-1`, fetchImpl)).rejects.toThrow(
-      `Steer relay /devices failed (401)`
     )
   })
 

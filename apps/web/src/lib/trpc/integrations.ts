@@ -594,7 +594,6 @@ export const integrationsRouter = router({
             installed: false,
             installUrl: null as string | null,
             connectUrl: null as string | null,
-            accounts: [] as string[],
             installations: [] as Array<
               ReturnType<typeof installationSummary> & {
                 needsReauth: boolean
@@ -645,12 +644,6 @@ export const integrationsRouter = router({
           installed: visible.length > 0,
           installUrl: installUrlFor(userId, teamId, { mobile }),
           connectUrl: connectUrlFor(userId, teamId, { mobile }),
-          // Login-only convenience mirror of `installations` — kept ONLY for
-          // shipped native builds that decode it non-optionally (the iOS build
-          // in App Review). Cleanup: EXP-558.
-          accounts: visible
-            .map((r) => r.accountLogin)
-            .filter((a): a is string => Boolean(a)),
           installations: visible.map((inst) => ({
             ...installationSummary(inst),
             // Per-viewer: YOUR installation with zero grants FROM YOU needs a

@@ -46,9 +46,8 @@
 //! Mutation outputs decode the server `txId` for the §4.1 `awaitTxId` gate.
 //!
 //! Phase-6 surface (§8): [`steer`] — the ticket-CONSUMER mirrors
-//! (`steer.config`, `steer.mintTicket` control/publisher/viewer,
-//! `steer.myDevices`). The desktop never signs tickets and dials the
-//! server-returned `url` as-is.
+//! (`steer.config`, `steer.mintTicket` control/publisher/viewer). The desktop
+//! never signs tickets and dials the server-returned `url` as-is.
 //!
 //! **Two distinct credentials — never confuse them (§5.7):** the Better Auth
 //! *session token* is the `Authorization: Bearer` on every shape + tRPC

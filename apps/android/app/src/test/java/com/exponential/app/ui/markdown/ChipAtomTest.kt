@@ -62,6 +62,40 @@ class ChipAtomTest {
     }
 
     @Test
+    fun backspaceAtTheRightEdgeDeletesAHandTypedLowercaseToken() {
+        // `#exp-238` is a legal token as typed (IssueRefs matches either case
+        // and resolution uppercases), so its chip is just as atomic as the
+        // canonical spelling — the staleness check must not read the case
+        // difference as "this range is no longer my token".
+        val lower = "see #exp-238 now"
+        val lowerChips = IssueChipTransform.build(
+            lower,
+            marks = emptyList(),
+            issueRefs = IssueRefHandler(
+                candidates = listOf(IssueRefTarget("id", "EXP-238", "mobile chips broken")),
+                onOpen = {},
+            ),
+            paragraphs = listOf(ParagraphAttrs.PLAIN),
+        ).chips
+        val reported = at(11, "see #exp-23 now")
+        assertEquals(
+            at(4, "see  now"),
+            atomizeChipEdit(at(12, lower), reported, lowerChips),
+        )
+    }
+
+    @Test
+    fun aStaleChipNeverAtomizesTextItNoLongerCovers() {
+        // The chips are remembered off the previous text and can be one frame
+        // behind when two IME callbacks land together: [4, 12) no longer
+        // spells `#EXP-238`, so the backspace stays an ordinary one-character
+        // delete instead of splicing out eight innocent characters.
+        val stale = "see the words now"
+        val reported = at(11, "see the wors now")
+        assertSame(reported, atomizeChipEdit(at(12, stale), reported, chips))
+    }
+
+    @Test
     fun backspaceElsewhereIsAnOrdinaryDelete() {
         val reported = at(15, "see #EXP-238 no")
         assertSame(reported, atomizeChipEdit(at(16), reported, chips))

@@ -13,7 +13,6 @@ import {
 import {
   BUILTIN_CHAT_ID,
   BUILTIN_CHAT_NAME,
-  BUILTIN_FIX_CONFLICTS_ID,
   builtinFixConflictsAction,
 } from "@/lib/builtin-actions"
 import { useTeamBoards } from "@/hooks/use-team-data"
@@ -21,10 +20,6 @@ import { trpc } from "@/lib/trpc-client"
 import { missingRequiredInputs, buildInputsPayload } from "@/lib/action-inputs"
 import type { CodingLaunchPrefs } from "@/lib/coding-launch-prefs"
 import {
-  deviceCanFixConflicts,
-  deviceCanResume,
-  deviceCanRunActionInputs,
-  deviceCanRunActions,
   deviceHasRunnableAgent,
   deviceIsOnline,
   resumeWorktree,
@@ -359,39 +354,19 @@ export function LaunchDialog({
     }
   }, [open, selectedActionId, actions])
 
-  // Per-tab device candidates: Issues offers every online desktop; Chat only
-  // chat-capable ones (EXP-615); Actions only actions-capable ones, tightened
-  // to action-inputs-capable when the selected action is the builtin or
-  // declares inputs (the server enforces the same caps at start time).
-  const needsInputsCap = Boolean(
-    selectedAction && (selectedAction.builtin || inputDefs.length > 0)
+  // Device candidates, the same on every tab (EXP-639: the whole fleet above
+  // the version floor advertises the action/inputs/fix-conflicts caps
+  // whenever it advertises a runnable agent, so only these two filters
+  // remain — and `steer.startSession` enforces the agent check server-side).
+  //
+  // EXP-403: the registry lists offline machines too — only online ones are
+  // startable (the relay would 404 the rest with device_offline). EXP-409: a
+  // machine whose every agent is signed out is equally unstartable — the My
+  // machines list carries the "sign in" reason.
+  const candidateDevices = useMemo(
+    () => devices.filter(deviceIsOnline).filter(deviceHasRunnableAgent),
+    [devices]
   )
-  // The "Fix merge conflicts" builtin needs its own cap on top (EXP-259) —
-  // filter here so an outdated desktop can't be picked and fail after submit.
-  const needsFixConflictsCap = selectedAction?.id === BUILTIN_FIX_CONFLICTS_ID
-  const candidateDevices = useMemo(() => {
-    // EXP-403: the registry lists offline machines too — only online ones
-    // are startable (the relay would 404 the rest with device_offline).
-    // EXP-409: a machine whose every agent is signed out is equally
-    // unstartable — the My machines list carries the "sign in" reason.
-    const online = devices
-      .filter(deviceIsOnline)
-      .filter(deviceHasRunnableAgent)
-    if (tab === `issues`) return online
-    // Chat rides the builtin-action rails — gate on the action caps (the
-    // chat cap itself is fleet-wide since 0.14.22, EXP-624).
-    if (tab === `chat`)
-      return online.filter(
-        (candidate) =>
-          deviceCanRunActions(candidate) && deviceCanRunActionInputs(candidate)
-      )
-    return online.filter(
-      (candidate) =>
-        deviceCanRunActions(candidate) &&
-        (!needsInputsCap || deviceCanRunActionInputs(candidate)) &&
-        (!needsFixConflictsCap || deviceCanFixConflicts(candidate))
-    )
-  }, [devices, tab, needsInputsCap, needsFixConflictsCap])
 
   // The shared device-settle + device-seeded agent/model/effort cluster
   // (EXP-437/EXP-201), identical to the create-action dialog's.
@@ -438,7 +413,7 @@ export function LaunchDialog({
       ? allById.get([...selected][0]!)
       : undefined
   const resumeCandidate =
-    soleIssue && device && deviceCanResume(device)
+    soleIssue && device
       ? resumeWorktree(
           (worktreeRows ?? []) as SyncedDeviceWorktree[],
           device.rowId,
@@ -578,15 +553,9 @@ export function LaunchDialog({
             device={device}
             onDeviceChange={launch.setDeviceId}
             noDeviceNote={
-              tab === `actions`
-                ? needsFixConflictsCap
-                  ? `No desktop can fix merge conflicts yet. Update the Exponential desktop app.`
-                  : needsInputsCap
-                    ? `No capable desktop online. This action needs a desktop app new enough to run action inputs.`
-                    : `No actions-capable desktop online. Open (or update) the Exponential desktop app.`
-                : tab === `chat`
-                  ? `No chat-capable device online. Update the Exponential desktop app.`
-                  : `No desktop online. Open the Exponential desktop app to start coding.`
+              tab === `issues`
+                ? `No desktop online. Open the Exponential desktop app to start coding.`
+                : `No desktop online. Open the Exponential desktop app to start a run.`
             }
             agent={agent}
             availableAgents={launch.availableAgents}

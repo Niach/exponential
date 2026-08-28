@@ -24,6 +24,7 @@
 //! to the steer publisher (§08; EXP-249 removed the PTY tee with the binary
 //! mirror).
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
@@ -1355,6 +1356,7 @@ pub fn prepare_with_hooks(
             started_reason: None,
             resumed_from_id: None,
             recorded_at: crate::run_registry::now_secs(),
+            extra: BTreeMap::new(),
         },
     );
 
@@ -2039,6 +2041,7 @@ fn prepare_action(
                 .map(|note| note.started_reason().to_string()),
             resumed_from_id: None,
             recorded_at: crate::run_registry::now_secs(),
+            extra: BTreeMap::new(),
         },
     );
 
@@ -4190,6 +4193,7 @@ mod tests {
             started_reason: Some("schedule".to_string()),
             resumed_from_id: None,
             recorded_at: crate::run_registry::now_secs(),
+            extra: BTreeMap::new(),
         }
     }
 

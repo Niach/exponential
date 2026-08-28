@@ -138,9 +138,12 @@ Applies to the following 89 components:
   profiling-procmacros 1.0.18
     MIT elected from `MIT OR Apache-2.0`
   rio-graphics 0.5.26
+    Copyright (c) 2023-Present Raphael Amorim
   rio-unicode 0.5.26
+    Copyright (c) 2023-Present Raphael Amorim
     MIT elected from `MIT OR Apache-2.0`
   rio-vt 0.5.26
+    Copyright (c) 2023-Present Raphael Amorim
   rust-i18n-macro 4.2.1
   rust-i18n-support 4.2.1
   seahash 4.1.0

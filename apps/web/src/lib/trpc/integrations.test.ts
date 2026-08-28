@@ -1014,7 +1014,10 @@ describe(`integrations.github.status viewer scoping (EXP-557)`, () => {
       needsReauth: false,
       stale: true,
     })
-    expect(result.accounts).toEqual([`acct-1`, `play-review`])
+    expect(result.installations.map((i) => i.accountLogin)).toEqual([
+      `acct-1`,
+      `play-review`,
+    ])
   })
 
   it(`a plain member never sees a teammate's or a foreign stale link`, async () => {

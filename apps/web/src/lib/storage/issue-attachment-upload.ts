@@ -23,17 +23,13 @@ export interface IssueAttachmentUploadContext {
 }
 
 /**
- * Shared body of both issue upload routes (EXP-297).
- *
- * `imagesOnly: true` is the byte-frozen legacy `/images` contract (5 raster
- * types, 10 MB, "Missing image file" / "Unsupported image type" wording) that
- * old native builds still call. `imagesOnly: false` is `/files`: any content
- * type, 10 MB for inline images and 50 MB for everything else.
+ * Shared body of the `/files` issue upload route (EXP-297): any content type,
+ * 10 MB for the inline image types and 50 MB for everything else.
  */
-export async function handleIssueAttachmentUpload(
-  { params, request }: IssueAttachmentUploadContext,
-  { imagesOnly }: { imagesOnly: boolean }
-) {
+export async function handleIssueAttachmentUpload({
+  params,
+  request,
+}: IssueAttachmentUploadContext) {
   // Same credential surface as /api/mcp and /api/attachments: MCP clients and
   // api-key holders can upload images too, and auth-plugin throws must become
   // a clean 401 rather than a 500.
@@ -58,15 +54,13 @@ export async function handleIssueAttachmentUpload(
     // "file; filename=", value decoded as a lossy STRING — the bytes are
     // unrecoverable here). Ktor's MultiPartFormDataContent emits exactly
     // that form, so every Android build before the EXP-61 fix lands in this
-    // branch. Name the failure instead of a bare "Missing image file".
+    // branch. Name the failure instead of a bare "Missing file".
     const mangled = [...formData.keys()].some((key) => key.startsWith(`file;`))
     throw new TRPCError({
       code: `BAD_REQUEST`,
       message: mangled
         ? `Unsupported multipart encoding (unquoted disposition). Update the app.`
-        : imagesOnly
-          ? `Missing image file`
-          : `Missing file`,
+        : `Missing file`,
     })
   }
 
@@ -76,23 +70,14 @@ export async function handleIssueAttachmentUpload(
   const contentType = canonicalizeContentType(file.type)
   const isImage = isAcceptedImageContentType(contentType)
 
-  if (imagesOnly && !isImage) {
-    throw new TRPCError({
-      code: `BAD_REQUEST`,
-      message: `Unsupported image type`,
-    })
-  }
-
-  if (!imagesOnly && file.size === 0) {
+  if (file.size === 0) {
     throw new TRPCError({
       code: `BAD_REQUEST`,
       message: `File is empty`,
     })
   }
 
-  const maxBytes = imagesOnly
-    ? maxImageUploadBytes
-    : getMaxUploadBytesForContentType(contentType)
+  const maxBytes = getMaxUploadBytesForContentType(contentType)
 
   if (file.size > maxBytes) {
     throw new TRPCError({
@@ -107,10 +92,7 @@ export async function handleIssueAttachmentUpload(
 
   // Browser file names arrive verbatim — strip control chars and clamp so the
   // stored display name is always header- and column-safe.
-  const filename = sanitizeUploadFilename(
-    file.name,
-    imagesOnly ? `image` : `file`
-  )
+  const filename = sanitizeUploadFilename(file.name, `file`)
   const attachmentId = crypto.randomUUID()
   const storageKey = buildAttachmentStorageKey(
     params.issueId,

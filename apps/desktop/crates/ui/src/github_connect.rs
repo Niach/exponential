@@ -150,8 +150,9 @@ pub(crate) struct GithubStatus {
     pub connect_url: Option<String>,
     /// The team's linked installations — `needs_reauth` drives the
     /// grant-model reconnect notice, and `account_login` is where the account
-    /// NAMES come from (EXP-558 dropped the flat `accounts` mirror; serde
-    /// ignores it while older servers still send it).
+    /// NAMES come from (EXP-558 dropped the flat `accounts` mirror the server
+    /// used to send alongside). `default` keeps an older self-hosted server,
+    /// which may omit the field entirely, decoding.
     #[serde(default)]
     pub installations: Vec<GithubInstallation>,
 }

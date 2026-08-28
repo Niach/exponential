@@ -100,15 +100,6 @@ function connectStalePublicViewer(hub: Hub, sessionId = `sess-1`) {
 const activity = (hub: Hub, pub: FakeSocket, event: unknown) =>
   hub.onMessage(pub, JSON.stringify({ t: `activity`, event }))
 
-/** A legacy desktop's binary PTY output frame (opcode 0x01 + bytes). */
-function binaryOutput(hub: Hub, sock: FakeSocket, text: string) {
-  const payload = new TextEncoder().encode(text)
-  const framed = new Uint8Array(payload.byteLength + 1)
-  framed[0] = 0x01
-  framed.set(payload, 1)
-  hub.onMessage(sock, framed)
-}
-
 interface RoomInternals {
   activityLog: { framed: string; bytes: number }[]
   activityBytes: number
@@ -134,9 +125,7 @@ describe(`device presence + remote start`, () => {
     )
 
     expect(hub.devicesFor(`owner`)).toMatchObject([
-      // EXP-201: no advertisement on the online frame ⇒ claude-only (the
-      // old-desktop compat default).
-      { deviceId: `dev-1`, deviceLabel: `MacBook`, agents: [`claude`] },
+      { deviceId: `dev-1`, deviceLabel: `MacBook` },
     ])
 
     const routed = hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` })
@@ -326,101 +315,6 @@ describe(`device presence + remote start`, () => {
     })
   })
 
-  test(`online advertises installed agents (EXP-201)`, () => {
-    const hub = new Hub()
-    const desktop = new FakeSocket()
-    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(
-      desktop,
-      JSON.stringify({
-        t: `online`,
-        deviceId: `dev-1`,
-        deviceLabel: `MacBook`,
-        agents: [`claude`, `pi`],
-      })
-    )
-    expect(hub.devicesFor(`owner`)).toMatchObject([
-      { deviceId: `dev-1`, agents: [`claude`, `pi`], unauthedAgents: [] },
-    ])
-  })
-
-  test(`online passes signed-out agents through, and an explicit empty agents list defeats the claude default (EXP-409)`, () => {
-    const hub = new Hub()
-    const desktop = new FakeSocket()
-    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(
-      desktop,
-      JSON.stringify({
-        t: `online`,
-        deviceId: `dev-1`,
-        deviceLabel: `Homelab`,
-        agents: [],
-        unauthedAgents: [`claude`],
-      })
-    )
-    expect(hub.devicesFor(`owner`)).toMatchObject([
-      { deviceId: `dev-1`, agents: [], unauthedAgents: [`claude`] },
-    ])
-  })
-
-  test(`online passes launch defaults through; absent stays absent (EXP-437)`, () => {
-    const hub = new Hub()
-    const modern = new FakeSocket()
-    hub.onOpen(modern, claims({ role: `control`, sub: `owner` }))
-    const launchDefaults = {
-      defaultAgent: `claude`,
-      agents: {
-        claude: { model: `fable`, effort: ``, planMode: true },
-        codex: { model: ``, effort: `high`, skipPermissions: true },
-      },
-    }
-    hub.onMessage(
-      modern,
-      JSON.stringify({
-        t: `online`,
-        deviceId: `dev-1`,
-        agents: [`claude`, `codex`],
-        launchDefaults,
-      })
-    )
-    const legacy = new FakeSocket()
-    hub.onOpen(legacy, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(legacy, JSON.stringify({ t: `online`, deviceId: `dev-2` }))
-
-    const devices = hub.devicesFor(`owner`)
-    expect(devices).toMatchObject([
-      { deviceId: `dev-1`, launchDefaults },
-      { deviceId: `dev-2` },
-    ])
-    // Old desktops' rows keep their exact pre-EXP-437 wire shape: the key
-    // must vanish under JSON serialization, not ride as null.
-    expect(JSON.stringify(devices[1])).not.toContain(`launchDefaults`)
-  })
-
-  test(`a malformed launch-defaults blob degrades to none without dropping the online frame (EXP-437)`, () => {
-    const hub = new Hub()
-    const desktop = new FakeSocket()
-    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
-    // 17 agent keys exceeds the record bound — the .catch() clamps the field
-    // to undefined; a strict parse would silently drop the whole frame and
-    // the machine would read offline.
-    const oversized = Object.fromEntries(
-      Array.from({ length: 17 }, (_, i) => [`agent-${i}`, { model: `x` }])
-    )
-    hub.onMessage(
-      desktop,
-      JSON.stringify({
-        t: `online`,
-        deviceId: `dev-1`,
-        agents: [`claude`],
-        launchDefaults: { defaultAgent: `claude`, agents: oversized },
-      })
-    )
-    const devices = hub.devicesFor(`owner`)
-    expect(devices).toMatchObject([{ deviceId: `dev-1`, agents: [`claude`] }])
-    expect(devices[0]?.launchDefaults).toBeUndefined()
-  })
-
   test(`startSession routes a batch subject as a fat start_session frame`, () => {
     const hub = new Hub()
     const desktop = new FakeSocket()
@@ -485,7 +379,6 @@ describe(`device presence + remote start`, () => {
       JSON.stringify({
         t: `online`,
         deviceId: `dev-1`,
-        agents: [`claude`],
         caps: [`actions`],
       })
     )
@@ -495,8 +388,8 @@ describe(`device presence + remote start`, () => {
 
     expect(hub.devicesFor(`owner`)).toMatchObject([
       { deviceId: `dev-1`, caps: [`actions`] },
-      // Old desktops never advertise ⇒ [] — the web server strictly gates
-      // action starts on the capability, so they are never targeted.
+      // No advertisement ⇒ [] — the web server strictly gates action starts
+      // on the capability, so such a device is never targeted.
       { deviceId: `dev-2`, caps: [] },
     ])
   })
@@ -708,31 +601,6 @@ describe(`session rooms`, () => {
     hub.destroy()
   })
 
-  test(`a pty/absent-channel join is refused with pty_removed and joins nothing`, () => {
-    const hub = new Hub()
-    const pub = connectPublisher(hub)
-
-    const legacy = new FakeSocket()
-    hub.onOpen(
-      legacy,
-      claims({ role: `viewer`, sub: `old`, sessionId: `sess-1` })
-    )
-    hub.onMessage(legacy, JSON.stringify({ t: `join` }))
-    expect(legacy.frames()).toEqual([{ t: `error`, code: `pty_removed` }])
-    expect(legacy.closed).toBeNull()
-
-    hub.onMessage(legacy, JSON.stringify({ t: `join`, channel: `pty` }))
-    expect(legacy.framesOf(`error`).length).toBe(2)
-
-    // It entered no audience: activity never reaches it.
-    activity(hub, pub, { kind: `narration`, text: `secret` })
-    expect(legacy.framesOf(`activity`).length).toBe(0)
-
-    // Nor can it steer — it never joined the room.
-    hub.onMessage(legacy, JSON.stringify({ t: `input`, data: `x` }))
-    expect(pub.lastFrame(`input`)).toBeUndefined()
-  })
-
   test(`join on a dead session errors + closes`, () => {
     const hub = new Hub()
     const member = connectMember(hub, { sessionId: `nope` })
@@ -844,42 +712,8 @@ describe(`session rooms`, () => {
   })
 })
 
-describe(`PTY mirror removal (EXP-249)`, () => {
-  test(`an old desktop's binary output frames are ignored, not fanned out`, () => {
-    const hub = new Hub()
-    const pub = connectPublisher(hub)
-    const member = connectMember(hub)
-    const sentBefore = member.sent.length
-
-    expect(() => binaryOutput(hub, pub, `secret pty bytes`)).not.toThrow()
-    expect(member.sent.length).toBe(sentBefore)
-
-    // The room survives and still carries live activity.
-    activity(hub, pub, { kind: `narration`, text: `still fine` })
-    expect(member.events().at(-1)).toMatchObject({ text: `still fine` })
-  })
-
-  test(`a binary frame still counts as publisher liveness`, () => {
-    const hub = new Hub()
-    const pub = connectPublisher(hub, `sess-bin`)
-    room(hub, `sess-bin`).lastPublisherActivity = Date.now() - 91_000
-    binaryOutput(hub, pub, `output`)
-    ;(hub as unknown as { checkIdlePublishers: () => void }).checkIdlePublishers()
-    expect(pub.closed).toBeNull()
-    hub.destroy()
-  })
-
-  test(`an old desktop's resize frame parses and is dropped`, () => {
-    const hub = new Hub()
-    const pub = connectPublisher(hub)
-    const member = connectMember(hub)
-    const sentBefore = member.sent.length
-    hub.onMessage(pub, JSON.stringify({ t: `resize`, cols: 80, rows: 24 }))
-    expect(member.sent.length).toBe(sentBefore)
-    expect(member.lastFrame(`resize`)).toBeUndefined()
-  })
-
-  test(`hello still accepts (and ignores) legacy geometry + activityPublic`, () => {
+describe(`hello leftovers (EXP-90)`, () => {
+  test(`hello still accepts (and ignores) activityPublic`, () => {
     const hub = new Hub()
     const sock = new FakeSocket()
     hub.onOpen(sock, claims({ role: `publisher`, sessionId: `sess-1` }))
@@ -888,8 +722,6 @@ describe(`PTY mirror removal (EXP-249)`, () => {
       JSON.stringify({
         t: `hello`,
         sessionId: `sess-1`,
-        cols: 120,
-        rows: 40,
         activityPublic: false,
       })
     )
@@ -898,14 +730,14 @@ describe(`PTY mirror removal (EXP-249)`, () => {
     const member = connectMember(hub)
     activity(hub, sock, { kind: `narration`, text: `still flows` })
     expect(member.events().at(-1)).toMatchObject({ text: `still flows` })
-    // A re-hello with different geometry no longer broadcasts anything.
+    // A re-hello broadcasts nothing to the joined member.
     hub.onClose(sock)
     const pub2 = new FakeSocket()
     hub.onOpen(pub2, claims({ role: `publisher`, sessionId: `sess-1` }))
     const before = member.sent.length
     hub.onMessage(
       pub2,
-      JSON.stringify({ t: `hello`, sessionId: `sess-1`, cols: 80, rows: 24 })
+      JSON.stringify({ t: `hello`, sessionId: `sess-1` })
     )
     expect(member.frames().slice(before)).toEqual([])
   })

@@ -31,10 +31,8 @@ import {
 import {
   getSteerRelayConfig,
   mintSteerTicket,
-  relayGetDevices,
   relayPostKill,
   relayPostStart,
-  type SteerDevice,
   type SteerStartRepo,
 } from "@/lib/steer"
 import { resolveActionInputs } from "@/lib/action-inputs"
@@ -185,16 +183,6 @@ export const steerRouter = router({
         sessionId: session.id,
       })
     }),
-
-  // The caller's online desktops, straight off the relay — kept for OLD
-  // clients only (new clients read the synced devices shape). Since EXP-485
-  // the frames carry no agents/launchDefaults advertisement, so these rows
-  // are presence + caps only.
-  myDevices: authedProcedure.query(async ({ ctx }) => {
-    const config = getSteerRelayConfig()
-    if (!config) return { devices: [] as SteerDevice[] }
-    return relayGetDevices(config, ctx.session.user.id)
-  }),
 
   // Remote "Start on my desktop": route a start command to the chosen online
   // device's control socket via the relay. Accepts a single issueId
@@ -760,54 +748,12 @@ export const steerRouter = router({
         const { ownerId, device, shared } = await resolveTargetDevice(
           action.teamId
         )
-        const caps = device.caps
-        if (!caps.includes(`actions`)) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `That desktop app can't run actions yet. Update it.`,
-          })
-        }
-        if (
-          (builtin || resolved.inputs.length > 0) &&
-          !caps.includes(`action-inputs`)
-        ) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `That desktop app can't run action inputs yet. Update it.`,
-          })
-        }
-        // The fix-conflicts builtin (EXP-259) needs its own launch path on
-        // the device — a pre-EXP-259 desktop advertises `actions` +
-        // `action-inputs` but would treat the id as a real action and fail
-        // its fetch.
-        if (
-          input.actionId === BUILTIN_FIX_CONFLICTS_ID &&
-          !caps.includes(`fix-conflicts`)
-        ) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `That desktop app can't fix merge conflicts yet. Update it.`,
-          })
-        }
-        // EXP-624 removed the chat-cap refusal here: the desktop/CLI fleet
-        // floor advertises `chat` (>= 0.14.22), enforced via
-        // CLIENT_MIN_VERSION_DESKTOP rather than a per-start gate.
+        // EXP-639 removed the `actions`/`action-inputs`/`fix-conflicts` cap
+        // refusals here: every desktop and CLI build above the version floor
+        // advertises all three whenever it advertises a runnable agent, so
+        // the agent check below is the only real gate left (chat went the
+        // same way in EXP-624, enforced via CLIENT_MIN_VERSION_DESKTOP).
         const actionAgent = input.agent ?? `claude`
-        // ...but only on a desktop that actually LAUNCHES the chosen agent. A
-        // pre-EXP-257 desktop advertises `actions` and its full agent list,
-        // yet its action runner clamps the agent to claude while still
-        // honoring the model string — a codex/pi start would silently launch
-        // claude with a foreign model. `action-inputs` is the EXP-257 marker
-        // cap, so it is the reliable "this desktop honors the agent" test.
-        // (The new toggles are NOT gated: an old desktop ignores them and
-        // falls back to its own device settings, exactly as it did before
-        // EXP-257 offered them — degraded, not a regression.)
-        if (actionAgent !== `claude` && !caps.includes(`action-inputs`)) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `That desktop app can only run actions on claude yet. Update it.`,
-          })
-        }
         // EXP-409: an empty registered list means nothing is runnable (every
         // installed agent signed out) — no claude fallback (the EXP-542
         // absent-advertisement leniency is gone; the row is authoritative).
@@ -914,17 +860,6 @@ export const steerRouter = router({
           message: signedOut
             ? `${agent} is installed on that device but not signed in — sign in on the machine first`
             : `${agent} is not installed on that device`,
-        })
-      }
-
-      // EXP-481: resume is gated on the row's `resume` cap — an old build
-      // would silently drop the flag and start fresh, which reads as data
-      // loss to someone expecting their session back. Caps are immutable per
-      // build and registered at startup.
-      if (input.resume && !device.caps.includes(`resume`)) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `That device can't resume sessions yet. Update it.`,
         })
       }
 

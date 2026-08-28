@@ -11,7 +11,6 @@ import {
   parseClientFrame,
   type ActivityEvent,
   type ClientFrame,
-  type LaunchDefaults,
   type ServerFrame,
   type StartInput,
   type StartRepoGroup,
@@ -64,21 +63,10 @@ interface DeviceEntry {
   conn: Conn
   deviceLabel: string
   connectedAt: number
-  /** EXP-201: agent CLIs the device advertised in its `online` frame.
-   * Absent on old desktops ⇒ defaulted to ["claude"] at store time.
-   * Since EXP-409: runnable (installed AND signed in). */
-  agents: string[]
-  /** EXP-409: agents installed but signed out on the device — unusable,
-   * passed through so the web can explain instead of hiding them. */
-  unauthedAgents: string[]
   /** EXP-253: feature capabilities (`actions`) the device advertised.
-   * Absent on old desktops ⇒ [] — the web server strictly gates action
-   * starts on this. */
+   * Absent ⇒ []. Presence listings only: the web server gates starts on the
+   * persisted `devices` row, never on what rode the online frame. */
   caps: string[]
-  /** EXP-437: the machine's per-agent launch defaults, passed through
-   * verbatim so remote Start-coding dialogs can seed from the selected
-   * device. Absent on old desktops ⇒ stays absent on the wire. */
-  launchDefaults?: LaunchDefaults
 }
 
 /** One replayable activity event, pre-serialized once: the same string feeds
@@ -201,24 +189,19 @@ export class Hub {
     }
   }
 
-  onMessage(sock: RelaySocket, data: string | Uint8Array) {
+  onMessage(sock: RelaySocket, data: string) {
     const conn = this.conns.get(sock)
     if (!conn) return
 
     // REV2-X: Update last activity timestamp for publisher connections — ANY
-    // message (including pings and the ignored legacy binary frames) counts,
-    // so an idle-but-connected publisher (plan mode) stays alive while a truly
-    // dead publisher times out.
+    // message (including pings) counts, so an idle-but-connected publisher
+    // (plan mode) stays alive while a truly dead publisher times out.
     if (conn.claims.role === `publisher` && conn.sessionId) {
       const room = this.rooms.get(conn.sessionId)
       if (room && room.publisher === conn) {
         room.lastPublisherActivity = Date.now()
       }
     }
-
-    // EXP-249: binary frames were the PTY mirror. Old desktops still push
-    // them — they count as liveness (above) and are otherwise dropped.
-    if (typeof data !== `string`) return
 
     const msg = parseClientFrame(data)
     if (!msg) return
@@ -307,16 +290,8 @@ export class Hub {
           deviceLabel:
             msg.deviceLabel ?? conn.claims.deviceLabel ?? `Desktop`,
           connectedAt: Date.now(),
-          // Absent = old desktop that predates the advertisement — it can
-          // run exactly what every desktop could before EXP-201: claude.
-          agents: msg.agents ?? [`claude`],
-          // Absent = old sender that predates EXP-409.
-          unauthedAgents: msg.unauthedAgents ?? [],
-          // Absent = old desktop with no action launch path (EXP-253).
+          // Absent = a sender with no action launch path (EXP-253).
           caps: msg.caps ?? [],
-          // Absent (old desktop / malformed blob caught to undefined) =
-          // no defaults advertised — clients seed statically (EXP-437).
-          launchDefaults: msg.launchDefaults,
         })
         return
       }
@@ -362,14 +337,6 @@ export class Hub {
         if (!sessionId) return
         if (conn.claims.role !== `viewer`) return
 
-        // EXP-249: the PTY mirror is gone. An absent channel (or the legacy
-        // `pty`) gets a typed error and joins NOTHING, so an old client shows
-        // an update prompt instead of an empty terminal.
-        if (msg.channel !== `activity`) {
-          conn.sock.send(frame({ t: `error`, code: `pty_removed` }))
-          return
-        }
-
         const room = this.rooms.get(sessionId)
         if (!room) {
           conn.sock.send(frame({ t: `error`, code: `no_such_session` }))
@@ -388,11 +355,6 @@ export class Hub {
         // so a client never waits out its quiet fallback on a fresh room.
         conn.sock.send(ACTIVITY_SYNCED_FRAME)
         this.viewerJoins += 1
-        return
-      }
-
-      case `resize`: {
-        // Legacy PTY geometry from old desktops — parsed, then dropped.
         return
       }
 
@@ -476,12 +438,7 @@ export class Hub {
       deviceId,
       deviceLabel: entry.deviceLabel,
       connectedAt: entry.connectedAt,
-      agents: entry.agents,
-      unauthedAgents: entry.unauthedAgents,
       caps: entry.caps,
-      // `undefined` drops out of JSON.stringify — old desktops' rows keep
-      // their exact pre-EXP-437 wire shape.
-      launchDefaults: entry.launchDefaults,
     }))
   }
 

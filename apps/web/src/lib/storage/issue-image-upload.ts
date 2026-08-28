@@ -8,9 +8,6 @@ export interface UploadedIssueAttachment {
   width: number | null
 }
 
-// Legacy alias — the image call sites still speak in "image" terms.
-export type UploadedIssueImage = UploadedIssueAttachment
-
 async function postIssueUpload(
   path: string,
   file: File,
@@ -46,8 +43,6 @@ async function postIssueUpload(
  * route — identical request/response contract; the server applies the 10 MB
  * ceiling only to the five accepted inline image types (everything else gets
  * the 50 MB file cap), so callers must pre-filter to accepted image types.
- * The frozen `/images` route stays behind for native builds that predate
- * their EXP-613 switch to `/files`.
  */
 export async function uploadIssueImageFile(issueId: string, file: File) {
   return postIssueUpload(

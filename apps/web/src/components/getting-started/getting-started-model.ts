@@ -18,9 +18,11 @@ export type EntryKey =
 export type EntryState = `done` | `available` | `locked`
 
 export interface GettingStartedSignals {
-  /** devices.list (own rows) has a desktop-kind device — the IDE registered. */
+  /** The synced devices shape (own rows) has a desktop-kind device — the IDE
+   * registered. */
   hasDesktopDevice: boolean
-  /** devices.list (own rows) has a server-kind device — the CLI daemon registered. */
+  /** The synced devices shape (own rows) has a server-kind device — the CLI
+   * daemon registered. */
   hasServerDevice: boolean
   /** integrations.github.status → installed (team has a linked App install). */
   githubInstalled: boolean

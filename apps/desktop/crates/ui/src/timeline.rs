@@ -85,7 +85,8 @@ pub(crate) struct PendingCommentAttachment {
     pub(crate) filename: String,
     /// What `read_any_file` WILL send (derived from the extension).
     pub(crate) content_type: String,
-    /// One of the five inline-image types → the `/images` endpoint.
+    /// One of the five inline-image types → embeds in the description
+    /// instead of landing in the Files rail.
     pub(crate) is_image: bool,
     /// Set once the upload answered — a retry after a mid-batch failure
     /// never re-uploads it.

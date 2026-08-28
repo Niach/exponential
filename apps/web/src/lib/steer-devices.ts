@@ -4,24 +4,19 @@ import type { Device, SyncedDeviceWorktree, User } from "@/db/schema"
 import { parseVersionTuple } from "./client-version"
 import type { AgentLaunchDefaults } from "./coding-launch-prefs"
 
-// The caller's machines (EXP-403). Since EXP-481 the primary source is the
-// synced `devices` shape (`steerDeviceFromRow`/`composeDeviceList` below —
-// online-ness derives from `last_seen_at` freshness client-side); the legacy
-// `devices.list` merge shape still fits, so every existing consumer keeps
-// compiling. Rows straight off the relay (`steer.myDevices`) also fit: the
-// registry fields are optional and absent-`online` reads as online.
+// The caller's machines (EXP-403). The ONE source is the synced `devices`
+// shape: `steerDeviceFromRow`/`composeDeviceList` below turn its rows into
+// this shape, and online-ness derives from `last_seen_at` freshness against
+// the contract window — never from relay presence (EXP-639 retired the
+// `devices.list` merge and the relay-presence rows it also had to fit).
 
 export interface SteerDevice {
-  /** EXP-481: the synced devices row id — joins `device_worktrees` rows.
-   * Absent on legacy `devices.list` / relay-presence rows. */
+  /** EXP-481: the synced devices row id — joins `device_worktrees` rows. */
   rowId?: string
   deviceId: string
   deviceLabel: string
-  /** Relay presence timestamp — absent on registry-only (offline) rows. */
-  connectedAt?: number
-  /** EXP-201: agent CLIs installed on the device; absent = claude-only.
-   * Since EXP-409: RUNNABLE (installed AND signed in) — explicitly empty
-   * means the machine can run nothing right now. */
+  /** EXP-201/EXP-409: the RUNNABLE agent CLIs on the device (installed AND
+   * signed in) — empty means the machine can run nothing right now. */
   agents?: string[]
   /** EXP-409: agents installed but signed out on the machine — never
    * offered in pickers; shown with a "sign in" hint instead. */
@@ -29,8 +24,10 @@ export interface SteerDevice {
   /** EXP-253: launch capabilities beyond issue coding (e.g. `actions`);
    * absent = an older desktop with none. */
   caps?: string[]
-  /** EXP-403 registry fields (devices.list). */
+  /** EXP-403 registry fields. */
   kind?: `desktop` | `server`
+  /** The machine's OS as of its last register; null for old builds. */
+  platform?: string | null
   online?: boolean
   /** ISO timestamp of the last register/heartbeat; null for relay-only rows. */
   lastSeenAt?: string | null
@@ -99,18 +96,18 @@ export function deviceIsMine(device: SteerDevice): boolean {
   return !device.owner
 }
 
-/** Whether the device is startable right now. Rows without the field come
- * straight off the relay presence map and are online by construction. */
+/** Whether the device is startable right now (`steerDeviceFromRow` stamps
+ * `online` from `last_seen_at` freshness). */
 export function deviceIsOnline(device: SteerDevice): boolean {
   return device.online !== false
 }
 
-/** Agents the device can run — an ABSENT advertisement means claude-only
- * (pre-EXP-201 sender), but an explicitly EMPTY one means the machine can
- * run nothing right now (EXP-409: every installed agent is signed out). */
+/** Agents the device can run — empty means the machine can run nothing right
+ * now (EXP-409: every installed agent is installed but signed out). */
 export function deviceAgentIds(device: SteerDevice | undefined): string[] {
-  if (!device?.agents) return [`claude`]
-  return device.agents.filter((a) => contract.codingAgent.values.includes(a))
+  return (device?.agents ?? []).filter((a) =>
+    contract.codingAgent.values.includes(a)
+  )
 }
 
 /** EXP-409: agents installed but signed out on the device. */
@@ -127,39 +124,11 @@ export function deviceHasRunnableAgent(device: SteerDevice): boolean {
   return deviceAgentIds(device).length > 0
 }
 
-/** Only desktops advertising this capability have an action launch path —
- * older builds can run claude but not actions (`steer.startSession` enforces
- * the same server-side). */
-export function deviceCanRunActions(device: SteerDevice): boolean {
-  return (device.caps ?? []).includes(`actions`)
-}
-
-/** Builtin or inputs-carrying action runs additionally need this capability
- * (EXP-257) — an older desktop would silently drop the inputs field and run
- * a valueless prompt (`steer.startSession` enforces the same server-side). */
-export function deviceCanRunActionInputs(device: SteerDevice): boolean {
-  return (device.caps ?? []).includes(`action-inputs`)
-}
-
-/** The builtin "Fix merge conflicts" run needs this capability (EXP-259) —
- * `steer.startSession` rejects the builtin without it, so filter such desktops
- * out of the picker instead of failing after submit (EXP-323). */
-export function deviceCanFixConflicts(device: SteerDevice): boolean {
-  return (device.caps ?? []).includes(`fix-conflicts`)
-}
-
 /** EXP-530: only devices advertising this capability evaluate action
  * triggers locally — older builds would accept the binding and never fire.
  * Offline-but-capable devices stay pickable (they catch up on reconnect). */
 export function deviceCanRunAutomations(device: SteerDevice): boolean {
   return (device.caps ?? []).includes(`automations`)
-}
-
-/** EXP-481: remote resume needs this capability — an older build would
- * silently drop the flag and start fresh (`steer.startSession` gates on the
- * persisted row's caps server-side). */
-export function deviceCanResume(device: SteerDevice): boolean {
-  return (device.caps ?? []).includes(`resume`)
 }
 
 /** EXP-637: resuming an ENDED run (its worktree, its agent transcript) is a
@@ -198,6 +167,7 @@ export function steerDeviceFromRow(
     deviceId: row.deviceId,
     deviceLabel: row.label,
     kind: row.kind === `server` ? `server` : `desktop`,
+    platform: row.platform,
     agents: row.agents,
     unauthedAgents: row.unauthedAgents,
     caps: row.caps,
@@ -219,7 +189,7 @@ export function steerDeviceFromRow(
 }
 
 /** EXP-481: compose the device list from synced rows — own rows first, then
- * servers shared with `teamId` (the legacy `devices.list` grouping). Within
+ * servers shared with `teamId`. Within
  * each group online machines lead, sorted by label so heartbeats can't
  * reorder them (EXP-623); offline rows don't beat, so last-seen desc is
  * stable there. */

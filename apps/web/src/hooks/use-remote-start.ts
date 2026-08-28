@@ -29,8 +29,8 @@ import {
 // `devices` shape (no more 15s polling) — online-ness derives from
 // `last_seen_at` freshness against a 30s ticking clock, and renames/removes/
 // share toggles stream in like any other synced row. Only `latestVersions`
-// (instance config, not a shape column) still comes from `devices.list`,
-// fetched once per mount.
+// (instance config, not a shape column) comes over tRPC, from
+// `devices.latestVersions`, fetched once per mount.
 //
 // EXP-536: after ANY send — a single issue, a batch, an action run — the hook
 // watches the synced coding_sessions rows for the desktop's run and focuses

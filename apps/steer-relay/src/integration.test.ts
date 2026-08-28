@@ -119,8 +119,8 @@ describe(`steer relay end-to-end`, () => {
   test(`activity channel: reset + replay, live fan-out, input, answer, kill, bye`, async () => {
     const sessionId = `sess-e2e`
 
-    // Older desktops still send the removed activityPublic flag and PTY
-    // geometry in hello — non-strict parsing must ignore both.
+    // Publishers still send the removed public-activity feature's
+    // activityPublic flag in hello — non-strict parsing must ignore it.
     const pub = await connect(
       ticket({ role: `publisher`, sub: `desktop-user`, sessionId })
     )
@@ -130,8 +130,6 @@ describe(`steer relay end-to-end`, () => {
         t: `hello`,
         sessionId,
         issueId: `i1`,
-        cols: 100,
-        rows: 30,
         activityPublic: false,
       })
     )
@@ -258,33 +256,13 @@ describe(`steer relay end-to-end`, () => {
     pub.close()
   })
 
-  test(`old clients: pty joins are refused, binary output + resize are ignored`, async () => {
+  test(`an unknown frame is dropped and the room survives`, async () => {
     const sessionId = `sess-legacy`
     const pub = await connect(
       ticket({ role: `publisher`, sub: `desktop-user`, sessionId })
     )
-    const pubIn = collector(pub)
-    pub.send(JSON.stringify({ t: `hello`, sessionId, cols: 80, rows: 24 }))
+    pub.send(JSON.stringify({ t: `hello`, sessionId }))
 
-    // An old viewer joining the removed PTY mirror gets a typed error and
-    // enters no audience.
-    const legacy = await connect(
-      ticket({ role: `viewer`, sub: `old-client`, sessionId })
-    )
-    const legacyIn = collector(legacy)
-    legacy.send(JSON.stringify({ t: `join` }))
-    expect(await legacyIn.nextJson()).toEqual({
-      t: `error`,
-      code: `pty_removed`,
-    })
-    legacy.send(JSON.stringify({ t: `join`, channel: `pty` }))
-    expect(await legacyIn.nextJson()).toEqual({
-      t: `error`,
-      code: `pty_removed`,
-    })
-
-    // An old desktop's binary output frame and resize are swallowed; the room
-    // stays live and activity still flows to a real member.
     const member = await connect(
       ticket({ role: `viewer`, sub: `member-user`, sessionId })
     )
@@ -293,19 +271,19 @@ describe(`steer relay end-to-end`, () => {
     expect(await memberIn.nextJson()).toEqual({ t: `activity_reset` })
     expect(await memberIn.nextJson()).toEqual({ t: `activity_synced` })
 
-    pub.send(new Uint8Array([0x01, ...new TextEncoder().encode(`pty bytes`)]))
+    // A frame no schema in the union matches fails the parse and is dropped;
+    // nothing is relayed and the socket stays open.
     pub.send(JSON.stringify({ t: `resize`, cols: 200, rows: 50 }))
     pub.send(
       JSON.stringify({
         t: `activity`,
-        event: { kind: `narration`, text: `after legacy frames` },
+        event: { kind: `narration`, text: `after the unknown frame` },
       })
     )
-    // The very next frame is the activity event — nothing was relayed for the
-    // binary or resize frames.
+    // The very next frame is the activity event.
     expect(await memberIn.nextJson()).toMatchObject({
       t: `activity`,
-      event: { kind: `narration`, text: `after legacy frames` },
+      event: { kind: `narration`, text: `after the unknown frame` },
     })
 
     const info = await fetch(`${base}/sessions/${sessionId}`, {
@@ -315,7 +293,7 @@ describe(`steer relay end-to-end`, () => {
 
     pub.send(JSON.stringify({ t: `bye`, outcome: `done` }))
     pub.close()
-    legacy.close()
+    member.close()
   })
 
   test(`remote start routes through the control socket`, async () => {
@@ -323,17 +301,11 @@ describe(`steer relay end-to-end`, () => {
       ticket({ role: `control`, sub: `owner-1`, deviceLabel: `Test Box` })
     )
     const desktopIn = collector(desktop)
-    // EXP-437: the launch-defaults advertisement rides the same online frame.
-    const launchDefaults = {
-      defaultAgent: `claude`,
-      agents: { claude: { model: `fable`, effort: ``, planMode: true } },
-    }
     desktop.send(
       JSON.stringify({
         t: `online`,
         deviceId: `dev-9`,
         deviceLabel: `Test Box`,
-        launchDefaults,
       })
     )
 
@@ -346,7 +318,9 @@ describe(`steer relay end-to-end`, () => {
       devices = ((await res.json()) as { devices: { deviceId: string }[] }).devices
       if (devices.length === 0) await new Promise((r) => setTimeout(r, 25))
     }
-    expect(devices).toMatchObject([{ deviceId: `dev-9`, launchDefaults }])
+    expect(devices).toMatchObject([
+      { deviceId: `dev-9`, deviceLabel: `Test Box` },
+    ])
 
     const start = await fetch(`${base}/start`, {
       method: `POST`,
@@ -648,7 +622,6 @@ describe(`steer relay end-to-end`, () => {
       JSON.stringify({
         t: `online`,
         deviceId: `dev-action`,
-        agents: [`claude`],
         caps: [`actions`],
       })
     )

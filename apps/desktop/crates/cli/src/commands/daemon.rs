@@ -2804,6 +2804,7 @@ mod tests {
             started_reason: None,
             resumed_from_id: None,
             recorded_at: coding::run_registry::now_secs(),
+            extra: std::collections::BTreeMap::new(),
         }
     }
 

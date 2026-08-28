@@ -19,7 +19,7 @@
 //!   `:`-emoji completion overlay (§4.6, EXP-551).
 //! - [`image_paste`] — the single image path: clipboard paste /
 //!   file picker → staged `draft://` blocks → atomic upload via
-//!   `/api/issues/{id}/images` → canonical `![alt](/api/attachments/{id})`.
+//!   `/api/issues/{id}/files` → canonical `![alt](/api/attachments/{id})`.
 //!
 //! Screens B/C consume the seam: build a [`MarkdownEditor`] entity, feed it
 //! [`MarkdownEditor::set_markdown`], read [`MarkdownEditor::markdown`] on

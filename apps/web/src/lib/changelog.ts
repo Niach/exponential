@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-compat-retirement`,
+    date: `2026-08-28`,
+    title: `Older app builds retire`,
+    summary: `The compatibility paths kept for pre-August builds are gone. Update the desktop app, the CLI and the Android app when prompted; iOS keeps working on the current App Store build.`,
+    body: `- **Update prompts**: the desktop app, the \`exponential\` CLI and the Android app now require this release, and each one tells you when it needs updating. iOS keeps working on the current App Store build.
+- **Cleanup**: the legacy image upload route, the relay's removed-terminal frames and the device-list poll are retired. Machines have come from the synced registry for a while, so nothing changes in how you pick one.`,
+  },
+  {
     id: `2026-08-issue-session-resume`,
     date: `2026-08-28`,
     title: `Resume issue sessions exactly`,

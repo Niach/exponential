@@ -494,10 +494,10 @@ export default {
     open(ws: ServerWebSocket<WsData>) {
       hub.onOpen(adapt(ws), ws.data.claims)
     },
-    // EXP-249 removed the binary PTY mirror; old desktops still push binary
-    // output frames, so they are handed to the hub (which counts them as
-    // publisher liveness and drops them) rather than decoded here.
+    // Text frames only: the hub speaks JSON. Anything binary is dropped here
+    // rather than handed down.
     message(ws: ServerWebSocket<WsData>, message: string | Buffer) {
+      if (typeof message !== `string`) return
       hub.onMessage(adapt(ws), message)
     },
     // REV2-X: Bun routes protocol-level ping frames HERE, not to `message`.

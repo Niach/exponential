@@ -1,25 +1,23 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { errorToResponse } from "@/lib/http-errors"
-import { handleIssueAttachmentUpload } from "@/lib/storage/issue-attachment-upload"
 
-// Legacy image-only upload route. Its external contract (status codes, error
-// strings, response JSON) is BYTE-FROZEN — shipped native builds up to the
-// EXP-613 migration (iOS <= 0.14.14, Android <= 0.14.17, desktop <= 0.14.22)
-// still post inline images here; every current client uses
-// POST /api/issues/$issueId/files. Removable once those floors pass
-// (EXP-613/EXP-589).
+// Tombstone for the retired image-only upload route (EXP-639 removed the
+// handler; every current client posts to /api/issues/$issueId/files).
+// Self-hosted instances usually run without CLIENT_MIN_VERSION_*, so a
+// pre-/files build is not blocked at the door and would post here: without a
+// route TanStack answers an HTML 404, which those clients surface as a
+// mystery failure. A 410 with a one-line reason is the honest answer. No
+// upload logic and nothing to authorize — the body says only what any caller
+// already knows.
 export const Route = createFileRoute(`/api/issues/$issueId/images`)({
   server: {
     handlers: {
-      POST: async (context) => {
-        try {
-          return await handleIssueAttachmentUpload(context, {
-            imagesOnly: true,
-          })
-        } catch (error) {
-          return errorToResponse(error)
-        }
-      },
+      POST: () =>
+        Response.json(
+          {
+            error: `Inline image upload moved. Update the Exponential app to attach images.`,
+          },
+          { status: 410 }
+        ),
     },
   },
 })

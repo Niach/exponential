@@ -158,7 +158,7 @@ pub type OnSaveDescription = Rc<dyn Fn(String, &mut Window, &mut App)>;
 
 /// Everything the factory gets to build one editor instance.
 pub struct DescriptionEditorParams {
-    /// Image uploads target this issue (`/api/issues/{id}/images`).
+    /// Image uploads target this issue (`/api/issues/{id}/files`).
     pub issue_id: String,
     pub initial_markdown: String,
     pub placeholder: SharedString,
@@ -1318,17 +1318,13 @@ impl IssueDetailView {
                 .spawn(async move {
                     let (filename, content_type, bytes) =
                         crate::markdown::read_any_file(&path)?;
-                    if is_inline_image(Some(content_type.as_str())) {
-                        // The /images endpoint enforces the inline-image
-                        // contract (type + 10 MB cap) atomically.
-                        transport
-                            .upload(&upload_issue, &filename, &content_type, &bytes)
-                            .map(|uploaded| (uploaded, true))
-                    } else {
-                        transport
-                            .upload_file(&upload_issue, &filename, &content_type, &bytes)
-                            .map(|uploaded| (uploaded, false))
-                    }
+                    // One upload route for both; the flag only routes the
+                    // RESULT — an inline image joins the description, every
+                    // other type stays a Files row.
+                    let is_image = is_inline_image(Some(content_type.as_str()));
+                    transport
+                        .upload(&upload_issue, &filename, &content_type, &bytes)
+                        .map(|uploaded| (uploaded, is_image))
                 })
                 .await;
             this.update_in(cx, |this, window, cx| match result {

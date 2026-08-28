@@ -1,8 +1,9 @@
 //! The per-app, per-account device-presence socket (masterplan-v3 §8.3).
 //!
-//! What makes "Start on my desktop" work: phone → `steer.myDevices()` → relay
-//! `devices` map (populated by OUR `online` frame) → `steer.startSession` →
-//! relay routes a `start_session` frame down this socket → the §7 launcher.
+//! What makes "Start on my desktop" work: a client picks one of the synced
+//! `devices` rows → `steer.startSession` → the relay (whose in-memory presence
+//! map is populated by OUR `online` frame) routes a `start_session` frame down
+//! this socket → the §7 launcher.
 //!
 //! The channel holds **no** PTY and **no** session state — a thin presence
 //! beacon. Exactly one per account per app process; multi-window shares it
