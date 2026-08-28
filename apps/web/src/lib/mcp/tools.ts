@@ -13,14 +13,17 @@ import {
   gte,
   ilike,
   inArray,
+  isNotNull,
   isNull,
   lte,
   or,
+  type SQL,
 } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   actions,
   attachments,
+  automations,
   codingSessions,
   comments,
   issueLabels,
@@ -29,6 +32,7 @@ import {
   labels,
   notifications,
   boards,
+  supportThreads,
   users,
   teamInvites,
   teamMembers,
@@ -44,6 +48,7 @@ import { teamColumns } from "@/lib/team-columns"
 import {
   builtinCreateAction,
   builtinFixConflictsAction,
+  isBuiltinActionId,
 } from "@/lib/builtin-actions"
 import {
   assertTeamMember,
@@ -89,6 +94,7 @@ import { endSessionByAgent } from "@/lib/coding-session-end"
 import { codingSessionOutcomeValues } from "@exp/db-schema/domain"
 import { err, ok } from "./helpers"
 import { ALWAYS_LOAD_META } from "./always-load"
+import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
 import type { McpUser } from "./server"
 import {
   assertFullAccess,
@@ -205,6 +211,82 @@ async function getActionContext(id: string) {
   return row
 }
 
+// Automation id → its team, for grant checks on update/toggle/delete
+// (EXP-660; owner-ship itself is enforced in the automations router).
+async function getAutomationContext(id: string) {
+  const [row] = await db
+    .select({ teamId: automations.teamId })
+    .from(automations)
+    .where(eq(automations.id, id))
+    .limit(1)
+  if (!row) throw new Error(`Automation not found`)
+  return row
+}
+
+// Support thread id → its team plus that team's helpdesk switch, in ONE
+// select (EXP-660). The helpdesk router deliberately never reads the flag
+// (REV2-23: disabling freezes threads rather than hiding them), so the MCP
+// layer is where a switched-off team refuses the agent.
+async function getSupportThreadContext(threadId: string) {
+  const [row] = await db
+    .select({
+      teamId: supportThreads.teamId,
+      helpdeskEnabled: teams.helpdeskEnabled,
+    })
+    .from(supportThreads)
+    .innerJoin(teams, eq(teams.id, supportThreads.teamId))
+    .where(eq(supportThreads.id, threadId))
+    .limit(1)
+  if (!row) throw new Error(`Thread not found`)
+  return row
+}
+
+function assertHelpdeskEnabled(enabled: boolean) {
+  if (!enabled) throw new Error(`Helpdesk is not enabled for this team`)
+}
+
+// EXP-660: the coding_sessions projection the session tools return — the
+// Electric shape allowlist (routes/api/shapes/coding-sessions.ts), camelCased,
+// plus the linked issue's identifier/title. `host_user_id` and
+// `merged_own_pr` are server-only and stay out; the board mirrors are
+// WHERE-only.
+const sessionColumns = {
+  id: codingSessions.id,
+  issueId: codingSessions.issueId,
+  issueIdentifier: issues.identifier,
+  issueTitle: issues.title,
+  teamId: codingSessions.teamId,
+  boardId: codingSessions.boardId,
+  actionId: codingSessions.actionId,
+  actionName: codingSessions.actionName,
+  startedReason: codingSessions.startedReason,
+  automationId: codingSessions.automationId,
+  userId: codingSessions.userId,
+  deviceLabel: codingSessions.deviceLabel,
+  deviceId: codingSessions.deviceId,
+  status: codingSessions.status,
+  branch: codingSessions.branch,
+  summary: codingSessions.summary,
+  outcome: codingSessions.outcome,
+  endedBy: codingSessions.endedBy,
+  resumedFromId: codingSessions.resumedFromId,
+  needsInput: codingSessions.needsInput,
+  startedAt: codingSessions.startedAt,
+  endedAt: codingSessions.endedAt,
+  createdAt: codingSessions.createdAt,
+  updatedAt: codingSessions.updatedAt,
+}
+
+// How long exponential_sessions_start waits for the device to report the
+// row it created off the relay frame (heartbeat-class latency: the frame is
+// pushed, the desktop registers the run via codingSessions.start).
+const SESSION_START_POLL_MS = 10_000
+const SESSION_START_POLL_STEP_MS = 500
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
+
 const issueStatusEnumSchema = z.enum(issueStatusValues)
 const issuePriorityEnumSchema = z.enum(issuePriorityValues)
 // EXP-353: keep the serialized tool context small — every schema below is part
@@ -229,7 +311,11 @@ export function registerExponentialTools(
   // EXP-637: the coding_sessions row this MCP request runs inside, parsed
   // from the launcher-injected X-Exp-Session-Id header. Null for every caller
   // that is not a launched agent.
-  sessionId: string | null = null
+  sessionId: string | null = null,
+  // EXP-660: which conditional tool families register for this caller
+  // (resolved per request by the route). Defaults to everything so tests and
+  // the context budget see the whole surface.
+  gates: McpToolGates = ALL_MCP_TOOL_GATES
 ) {
   // The header session, but only when it is really THIS caller's run — owner
   // or host (EXP-432: a shared-device run is requester-owned while the
@@ -1099,10 +1185,92 @@ export function registerExponentialTools(
     }
   )
 
+  // EXP-660: custom status CRUD (FEED-17). Membership and every invariant
+  // (started ≤ 4, locked builtins, unique names, reassign-before-delete) live
+  // in the statuses router — these only add the grant check and project.
+  server.registerTool(
+    `exponential_statuses_create`,
+    {
+      description: `Create a custom issue status in a category (never duplicate; started allows at most 4 rows per team). Names are unique per team, color is #rrggbb. Team members only; ids via exponential_statuses_list.`,
+      inputSchema: {
+        teamId: uuidString,
+        category: z.enum([
+          `backlog`,
+          `unstarted`,
+          `started`,
+          `completed`,
+          `cancelled`,
+        ]),
+        name: z.string().min(1).max(255),
+        color: z.string().regex(/^#[0-9a-fA-F]{6}$/, `Expected #rrggbb`),
+      },
+    },
+    async (input) => {
+      try {
+        assertTeamFullyGranted(access, input.teamId)
+        const result = await caller(user, request).statuses.create(input)
+        return ok(result.status)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_statuses_update`,
+    {
+      description: `Rename or recolor a custom issue status. Builtin statuses (builtinKey set) are locked and the category is immutable. Team members only.`,
+      inputSchema: {
+        teamId: uuidString,
+        statusId: uuidString,
+        name: z.string().min(1).max(255).optional(),
+        color: z
+          .string()
+          .regex(/^#[0-9a-fA-F]{6}$/, `Expected #rrggbb`)
+          .optional(),
+      },
+    },
+    async (input) => {
+      try {
+        assertTeamFullyGranted(access, input.teamId)
+        await caller(user, request).statuses.update(input)
+        return ok({ ok: true, statusId: input.statusId })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_statuses_delete`,
+    {
+      description: `Delete a custom issue status. Builtins refuse. When issues still use it the call fails with their count until reassignToId names a same-team replacement (not duplicate). Team members only.`,
+      inputSchema: {
+        teamId: uuidString,
+        statusId: uuidString,
+        reassignToId: uuidString.optional(),
+      },
+    },
+    async (input) => {
+      try {
+        assertTeamFullyGranted(access, input.teamId)
+        const result = await caller(user, request).statuses.delete(input)
+        return ok({
+          ok: true,
+          statusId: input.statusId,
+          reassigned: result.reassigned,
+          reassignedToId: result.reassignedToId,
+        })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   server.registerTool(
     `exponential_statuses_list`,
     {
-      description: `List a team's issue statuses (id, name, category, position). Use id as statusId in exponential_issues_update.`,
+      description: `List a team's issue statuses (id, name, category, color, position, builtinKey). Use id as statusId in exponential_issues_update.`,
       inputSchema: { teamId: uuidString },
     },
     async ({ teamId }) => {
@@ -1116,6 +1284,7 @@ export function registerExponentialTools(
             id: issueStatuses.id,
             name: issueStatuses.name,
             category: issueStatuses.category,
+            color: issueStatuses.color,
             builtinKey: issueStatuses.builtinKey,
             sortOrder: issueStatuses.sortOrder,
             createdAt: issueStatuses.createdAt,
@@ -1147,6 +1316,7 @@ export function registerExponentialTools(
               id: row.id,
               name: row.name,
               category: row.category,
+              color: row.color,
               position,
               builtinKey: row.builtinKey,
             }
@@ -1637,6 +1807,304 @@ export function registerExponentialTools(
     }
   )
 
+  // EXP-660: the session read side. No tRPC list/get exists (clients read the
+  // Electric shape), so these are direct reads over the SAME predicate the
+  // shape uses: the caller's teams minus trashed/archived boards.
+  server.registerTool(
+    `exponential_sessions_list`,
+    {
+      description: `List coding sessions (newest first) across your teams or one team: status, issue, action, branch, device, and once ended the run's own summary/outcome/endedBy. mine limits to runs you started or host.`,
+      inputSchema: {
+        teamId: uuidString.optional(),
+        status: z.enum([`running`, `in_review`, `ended`]).optional(),
+        mine: z.boolean().default(false),
+        limit: z.number().int().min(1).max(100).default(50),
+        offset: z.number().int().min(0).default(0),
+      },
+    },
+    async ({ teamId, status, mine, limit, offset }) => {
+      try {
+        let teamIds: string[]
+        if (teamId) {
+          assertTeamVisible(access, teamId)
+          await resolveTeamAccess(user.id, teamId)
+          teamIds = [teamId]
+        } else {
+          teamIds = filterVisibleTeamIds(access, await getUserTeamIds(user.id))
+          if (teamIds.length === 0) return ok([])
+        }
+        const rows = await db
+          .select(sessionColumns)
+          .from(codingSessions)
+          .leftJoin(issues, eq(issues.id, codingSessions.issueId))
+          .where(
+            and(
+              inArray(codingSessions.teamId, teamIds),
+              isNull(codingSessions.boardDeletedAt),
+              isNull(codingSessions.boardArchivedAt),
+              status ? eq(codingSessions.status, status) : undefined,
+              mine
+                ? or(
+                    eq(codingSessions.userId, user.id),
+                    eq(codingSessions.hostUserId, user.id)
+                  )
+                : undefined
+            )
+          )
+          .orderBy(desc(codingSessions.startedAt))
+          .limit(limit)
+          .offset(offset)
+        return ok(rows)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_sessions_get`,
+    {
+      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open) → ended, then summary and outcome (done|blocked|no_changes) are the run's own close-out.`,
+      inputSchema: { id: uuidString },
+    },
+    async ({ id }) => {
+      try {
+        const [row] = await db
+          .select(sessionColumns)
+          .from(codingSessions)
+          .leftJoin(issues, eq(issues.id, codingSessions.issueId))
+          .where(
+            and(
+              eq(codingSessions.id, id),
+              isNull(codingSessions.boardDeletedAt),
+              isNull(codingSessions.boardArchivedAt)
+            )
+          )
+          .limit(1)
+        if (!row) throw new Error(`Session not found`)
+        if (row.userId !== user.id) {
+          if (!row.teamId) throw new Error(`Session not found`)
+          assertTeamVisible(access, row.teamId)
+          await resolveTeamAccess(user.id, row.teamId)
+        }
+        return ok(row)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_sessions_kill`,
+    {
+      description: `Abort a live coding session you own or host: the row flips to ended (endedBy user) and the device tears the agent down. Idempotent. Never your own run — that ends via exponential_sessions_end.`,
+      inputSchema: { id: uuidString },
+    },
+    async ({ id }) => {
+      try {
+        // The desktop reads its own row's →ended edge as the kill switch, so
+        // an agent killing itself would vanish mid-call without its
+        // close-out — refuse and point at the proper exit.
+        if (sessionId && id === sessionId) {
+          throw new Error(
+            `That is your own session: finish it with exponential_sessions_end instead of killing it.`
+          )
+        }
+        if (!access.full) {
+          const [row] = await db
+            .select({ teamId: codingSessions.teamId })
+            .from(codingSessions)
+            .where(eq(codingSessions.id, id))
+            .limit(1)
+          if (!row) throw new Error(`Session not found`)
+          if (row.teamId) assertTeamVisible(access, row.teamId)
+        }
+        // Owner-or-host, idempotency and the best-effort relay kill all live
+        // in steer.killSession; its row is projected — never returned raw.
+        const result = await caller(user, request).steer.killSession({
+          codingSessionId: id,
+        })
+        return ok({
+          ok: true,
+          id,
+          status: result.session.status,
+          endedAt: result.session.endedAt,
+        })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // EXP-552: remote start over the steer rails, the way the Start-coding
+  // dialog and the mobile clients do it. steer.startSession validates the
+  // one-of rule, the per-agent model/effort vocabulary, the device's caps and
+  // installed agents, and resolves repos; a 404 from the relay means the
+  // device is offline. The device then creates the coding_sessions row
+  // itself, so the tool waits briefly for it to appear and hands back its id.
+  server.registerTool(
+    `exponential_sessions_start`,
+    {
+      description: `Start a coding session on a registered device (exponential_devices_list; online, agents includes the agent). Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs for its inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and opens its own PR; track it with exponential_sessions_get. sessionId null = the device has not reported the run yet.`,
+      inputSchema: {
+        deviceId: z.string().min(1).max(128),
+        issueId: z.string().min(1).optional(),
+        issueIds: z.array(uuidString).min(2).max(30).optional(),
+        actionId: z.string().min(1).optional(),
+        teamId: uuidString.optional(),
+        inputs: z.record(z.string(), z.string()).optional(),
+        resumeSessionId: uuidString.optional(),
+        agent: z.enum([`claude`, `codex`, `pi`]).optional(),
+        model: z.string().max(64).optional(),
+        effort: z.string().max(32).optional(),
+        planMode: z.boolean().optional(),
+        skipPermissions: z.boolean().optional(),
+        ultracode: z.boolean().optional(),
+      },
+    },
+    async (input) => {
+      try {
+        const startedAfter = new Date()
+        let issueId: string | undefined
+        // The row the device will create, by subject — what the poll below
+        // keys on besides user, device and freshness.
+        let match: SQL | undefined
+        if (input.issueId) {
+          issueId = await resolveIssueId(input.issueId, user.id, access)
+          const ctx = await getIssueTeamContext(issueId)
+          assertBoardGranted(access, ctx.boardId, ctx.teamId)
+          match = eq(codingSessions.issueId, issueId)
+        } else if (input.issueIds) {
+          const contexts = await Promise.all(
+            input.issueIds.map((id) => getIssueTeamContext(id))
+          )
+          for (const ctx of contexts) {
+            assertBoardGranted(access, ctx.boardId, ctx.teamId)
+          }
+          // A batch row is issue-less and action-less in the batch's team.
+          match = and(
+            inArray(codingSessions.teamId, [
+              ...new Set(contexts.map((ctx) => ctx.teamId)),
+            ]),
+            isNull(codingSessions.issueId),
+            isNull(codingSessions.actionId)
+          )
+        } else if (input.actionId) {
+          if (isBuiltinActionId(input.actionId)) {
+            // The router requires teamId here; a builtin run is an issue-less
+            // row carrying the action name snapshot but no action FK.
+            if (input.teamId) assertTeamFullyGranted(access, input.teamId)
+            match = and(
+              input.teamId ? eq(codingSessions.teamId, input.teamId) : undefined,
+              isNull(codingSessions.issueId),
+              isNotNull(codingSessions.actionName)
+            )
+          } else {
+            const action = await getActionContext(input.actionId)
+            assertTeamFullyGranted(access, action.teamId)
+            match = eq(codingSessions.actionId, input.actionId)
+          }
+        } else if (input.resumeSessionId) {
+          const [row] = await db
+            .select({ teamId: codingSessions.teamId })
+            .from(codingSessions)
+            .where(eq(codingSessions.id, input.resumeSessionId))
+            .limit(1)
+          if (!row) throw new Error(`Session not found`)
+          if (row.teamId) assertTeamFullyGranted(access, row.teamId)
+          match = eq(codingSessions.resumedFromId, input.resumeSessionId)
+        } else {
+          throw new Error(
+            `Exactly one of issueId, issueIds, actionId or resumeSessionId is required`
+          )
+        }
+
+        await caller(user, request).steer.startSession({
+          ...input,
+          issueId,
+        })
+
+        // The relay accepted the frame; the desktop registers the run via
+        // codingSessions.start moments later. Wait for it so the caller can
+        // track the run by id instead of guessing from a list.
+        const deadline = Date.now() + SESSION_START_POLL_MS
+        let session: Record<string, unknown> | null = null
+        for (;;) {
+          const [row] = await db
+            .select(sessionColumns)
+            .from(codingSessions)
+            .leftJoin(issues, eq(issues.id, codingSessions.issueId))
+            .where(
+              and(
+                eq(codingSessions.userId, user.id),
+                eq(codingSessions.deviceId, input.deviceId),
+                eq(codingSessions.status, `running`),
+                gte(codingSessions.createdAt, startedAfter),
+                match
+              )
+            )
+            .orderBy(desc(codingSessions.createdAt))
+            .limit(1)
+          if (row) {
+            session = row
+            break
+          }
+          if (Date.now() >= deadline) break
+          await sleep(SESSION_START_POLL_STEP_MS)
+        }
+        return ok({
+          ok: true,
+          deviceId: input.deviceId,
+          sessionId: (session?.id as string | undefined) ?? null,
+          session,
+        })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Devices (EXP-660: the picker for exponential_sessions_start)
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_devices_list`,
+    {
+      description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include actions for action runs and resume-run for resumes.`,
+      inputSchema: { teamId: uuidString.optional() },
+    },
+    async ({ teamId }) => {
+      try {
+        // Shared rows name teammates' machines and agents — team-level
+        // operational data, gated like actions_list.
+        if (teamId) assertTeamFullyGranted(access, teamId)
+        const result = await caller(user, request).devices.list(
+          teamId ? { teamId } : undefined
+        )
+        return ok(
+          result.devices.map((device) => ({
+            deviceId: device.deviceId,
+            label: device.deviceLabel,
+            kind: device.kind,
+            platform: device.platform,
+            online: device.online,
+            lastSeenAt: device.lastSeenAt,
+            agents: device.agents,
+            unauthedAgents: device.unauthedAgents,
+            caps: device.caps,
+            version: device.version,
+            sharedTeamId: device.sharedTeamId,
+            isDefault: device.isDefault,
+            ...(device.owner ? { owner: device.owner } : {}),
+          }))
+        )
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   // -----------------------------------------------------------------------
   // Comments (edit / delete)
   // -----------------------------------------------------------------------
@@ -2103,6 +2571,111 @@ export function registerExponentialTools(
     }
   )
 
+  // EXP-660: the rest of the automations surface. Owner checks, the
+  // enabled⇒no-required-inputs rule, device/agent validation and the
+  // trigger union all live in the router; these add the grant check only.
+  server.registerTool(
+    `exponential_automations_list`,
+    {
+      description: `List a team's automations: which action runs on which device, its trigger (schedule or issue event), launch agent/model/effort and whether it is enabled. Team members only.`,
+      inputSchema: { teamId: uuidString },
+    },
+    async ({ teamId }) => {
+      try {
+        // Rows name devices and locally executed actions — team-level
+        // operational data, gated like actions_list.
+        if (!access.full) assertTeamFullyGranted(access, teamId)
+        const result = await caller(user, request).automations.list({ teamId })
+        return ok(result.automations)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_automations_update`,
+    {
+      description: `Update an automation (owner only); pass only the fields to change. trigger takes the same shape as exponential_automations_create; null agent/model/effort clears the pin. An enabled automation needs every action input optional.`,
+      inputSchema: {
+        id: uuidString,
+        actionId: uuidString.optional(),
+        deviceId: z.string().min(1).max(128).optional(),
+        trigger: z.record(z.string(), z.unknown()).optional(),
+        enabled: z.boolean().optional(),
+        sortOrder: z.number().finite().optional(),
+        agent: z.string().max(16).nullable().optional(),
+        model: z.string().max(64).nullable().optional(),
+        effort: z.string().max(32).nullable().optional(),
+      },
+    },
+    async (input) => {
+      try {
+        if (!access.full) {
+          const automation = await getAutomationContext(input.id)
+          assertTeamFullyGranted(access, automation.teamId)
+        }
+        // Loose in the schema for the context budget; the strict union
+        // validates here (and again in the router — single source).
+        const trigger =
+          input.trigger === undefined
+            ? undefined
+            : automationTriggerSchema.parse(input.trigger)
+        const result = await caller(user, request).automations.update({
+          ...input,
+          agent: input.agent as `claude` | `codex` | `pi` | null | undefined,
+          trigger,
+        })
+        return ok(result.automation)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_automations_toggle`,
+    {
+      description: `Enable or disable an automation (owner only) without touching its trigger, device or action. Enabling needs every input of the action optional.`,
+      inputSchema: { id: uuidString, enabled: z.boolean() },
+    },
+    async ({ id, enabled }) => {
+      try {
+        if (!access.full) {
+          const automation = await getAutomationContext(id)
+          assertTeamFullyGranted(access, automation.teamId)
+        }
+        const result = await caller(user, request).automations.update({
+          id,
+          enabled,
+        })
+        return ok(result.automation)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_automations_delete`,
+    {
+      description: `Delete an automation (owner only). Past runs keep their history; nothing else is touched.`,
+      inputSchema: { id: uuidString },
+    },
+    async ({ id }) => {
+      try {
+        if (!access.full) {
+          const automation = await getAutomationContext(id)
+          assertTeamFullyGranted(access, automation.teamId)
+        }
+        await caller(user, request).automations.delete({ id })
+        return ok({ ok: true, id })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   // -----------------------------------------------------------------------
   // Pull request changed files
   // -----------------------------------------------------------------------
@@ -2428,6 +3001,176 @@ export function registerExponentialTools(
       }
     }
   )
+
+  // -----------------------------------------------------------------------
+  // Helpdesk (EXP-660): support tickets filed through the widget
+  // -----------------------------------------------------------------------
+  // Registered only when at least one team this caller could use them in
+  // has helpdesk switched on (gates.helpdesk, resolved per request by the
+  // route) — a family of tools the agent can never call is context noise.
+  // That is hygiene, not the boundary: every tool re-checks the SPECIFIC
+  // team's flag (the router never does, REV2-23), membership lives in the
+  // router, and reads need a FULL team grant like writes — threads carry
+  // reporter email/name, not board-workflow aux data.
+  if (gates.helpdesk) {
+    server.registerTool(
+      `exponential_helpdesk_threads_list`,
+      {
+        description: `List a team's support tickets (newest activity first) with their last message and an unread flag. Page with cursor = the oldest loaded row's updatedAt. Team members only; needs helpdesk enabled.`,
+        inputSchema: {
+          teamId: uuidString,
+          filter: z.enum([`open`, `resolved`]).default(`open`),
+          limit: z.number().int().min(1).max(100).default(50),
+          cursor: z.string().optional(),
+        },
+      },
+      async (input) => {
+        try {
+          assertTeamFullyGranted(access, input.teamId)
+          const [team] = await db
+            .select({ helpdeskEnabled: teams.helpdeskEnabled })
+            .from(teams)
+            .where(eq(teams.id, input.teamId))
+            .limit(1)
+          if (!team) throw new Error(`Team not found`)
+          assertHelpdeskEnabled(team.helpdeskEnabled)
+          const result = await caller(user, request).helpdesk.listThreads({
+            ...input,
+            cursor: input.cursor ? new Date(input.cursor) : undefined,
+          })
+          return ok(result)
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+
+    server.registerTool(
+      `exponential_helpdesk_threads_get`,
+      {
+        description: `Get a support ticket with its full conversation (public replies and internal notes, each with its email delivery status) and the escalated issue if any.`,
+        inputSchema: { threadId: uuidString },
+      },
+      async ({ threadId }) => {
+        try {
+          const thread = await getSupportThreadContext(threadId)
+          assertTeamFullyGranted(access, thread.teamId)
+          assertHelpdeskEnabled(thread.helpdeskEnabled)
+          const result = await caller(user, request).helpdesk.getThread({
+            threadId,
+          })
+          return ok(result)
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+
+    server.registerTool(
+      `exponential_helpdesk_reply`,
+      {
+        description: `Post a public reply on a support ticket: the reporter sees it on their magic-link page and gets it emailed (once they have opened the link and are not viewing right now). Replying to a resolved ticket reopens it.`,
+        inputSchema: {
+          threadId: uuidString,
+          body: z.string().trim().min(1).max(10_000),
+        },
+      },
+      async (input) => {
+        try {
+          const thread = await getSupportThreadContext(input.threadId)
+          assertTeamFullyGranted(access, thread.teamId)
+          assertHelpdeskEnabled(thread.helpdeskEnabled)
+          const result = await caller(user, request).helpdesk.reply(input)
+          return ok(result)
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+
+    server.registerTool(
+      `exponential_helpdesk_note`,
+      {
+        description: `Add an internal note to a support ticket: visible to team members only, never emailed, never shown to the reporter.`,
+        inputSchema: {
+          threadId: uuidString,
+          body: z.string().trim().min(1).max(10_000),
+        },
+      },
+      async (input) => {
+        try {
+          const thread = await getSupportThreadContext(input.threadId)
+          assertTeamFullyGranted(access, thread.teamId)
+          assertHelpdeskEnabled(thread.helpdeskEnabled)
+          const result = await caller(user, request).helpdesk.note(input)
+          return ok(result.message)
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+
+    server.registerTool(
+      `exponential_helpdesk_close`,
+      {
+        description: `Resolve a support ticket: the transcript stays readable but the reporter's magic link stops accepting replies. An escalated issue is untouched.`,
+        inputSchema: { threadId: uuidString },
+      },
+      async ({ threadId }) => {
+        try {
+          const thread = await getSupportThreadContext(threadId)
+          assertTeamFullyGranted(access, thread.teamId)
+          assertHelpdeskEnabled(thread.helpdeskEnabled)
+          await caller(user, request).helpdesk.close({ threadId })
+          return ok({ ok: true, threadId })
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+
+    server.registerTool(
+      `exponential_helpdesk_reopen`,
+      {
+        description: `Reopen a resolved support ticket; the reporter's existing magic link works again.`,
+        inputSchema: { threadId: uuidString },
+      },
+      async ({ threadId }) => {
+        try {
+          const thread = await getSupportThreadContext(threadId)
+          assertTeamFullyGranted(access, thread.teamId)
+          assertHelpdeskEnabled(thread.helpdeskEnabled)
+          await caller(user, request).helpdesk.reopen({ threadId })
+          return ok({ ok: true, threadId })
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+
+    server.registerTool(
+      `exponential_helpdesk_escalate`,
+      {
+        description: `File an issue from a support ticket on a board of the ticket's team and link them (one escalation per ticket). The issue opens with the reporter's message as its description; title defaults to the ticket's.`,
+        inputSchema: {
+          threadId: uuidString,
+          boardId: uuidString,
+          title: z.string().trim().min(1).max(500).optional(),
+        },
+      },
+      async (input) => {
+        try {
+          const thread = await getSupportThreadContext(input.threadId)
+          assertTeamFullyGranted(access, thread.teamId)
+          assertHelpdeskEnabled(thread.helpdeskEnabled)
+          const result = await caller(user, request).helpdesk.escalate(input)
+          return ok(result.issue)
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+  }
 
   // EXP-496: vendor bug intake. Registered only where the instance has an
   // in-app feedback widget (cloud — the same gate as the sidebar Feedback

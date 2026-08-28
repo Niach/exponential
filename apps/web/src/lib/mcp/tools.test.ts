@@ -34,6 +34,20 @@ const h = vi.hoisted(() => {
     teams: { create: vi.fn(), update: vi.fn() },
     teamInvites: { create: vi.fn(), list: vi.fn(), revoke: vi.fn() },
     attachments: { delete: vi.fn() },
+    // EXP-660: the deferred families.
+    statuses: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    automations: { list: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    steer: { killSession: vi.fn(), startSession: vi.fn() },
+    devices: { list: vi.fn() },
+    helpdesk: {
+      listThreads: vi.fn(),
+      getThread: vi.fn(),
+      reply: vi.fn(),
+      note: vi.fn(),
+      close: vi.fn(),
+      reopen: vi.fn(),
+      escalate: vi.fn(),
+    },
   }
 
   // A chainable, thenable drizzle query stub. Every builder method returns the
@@ -44,7 +58,14 @@ const h = vi.hoisted(() => {
   const insertValues = vi.fn(async () => undefined)
 
   const queryBuilder: Record<string, unknown> = {}
-  for (const method of [`from`, `innerJoin`, `orderBy`, `limit`, `offset`]) {
+  for (const method of [
+    `from`,
+    `innerJoin`,
+    `leftJoin`,
+    `orderBy`,
+    `limit`,
+    `offset`,
+  ]) {
     queryBuilder[method] = vi.fn(() => queryBuilder)
   }
   queryBuilder.where = vi.fn((cond: unknown) => {
@@ -191,7 +212,8 @@ import {
   builtinCreateAction,
   builtinFixConflictsAction,
 } from "@/lib/builtin-actions"
-import { FULL_ACCESS } from "@/lib/mcp/scope"
+import { FULL_ACCESS, type McpAccess } from "@/lib/mcp/scope"
+import { ALL_MCP_TOOL_GATES, type McpToolGates } from "@/lib/mcp/gates"
 import type { McpUser } from "@/lib/mcp/server"
 
 // ── Harness ──────────────────────────────────────────────────────────────────
@@ -218,9 +240,13 @@ const USER: McpUser = {
 
 // EXP-637: `sessionId` is what `routes/api/mcp.ts` parsed off the launcher's
 // X-Exp-Session-Id header — null for every caller that is not a launched agent.
+// EXP-660: `gates` defaults to the full surface (what the route resolves per
+// caller); `access` lets scoping tests hand in a confined OAuth grant.
 function collectTools(
   user: McpUser = USER,
-  sessionId: string | null = null
+  sessionId: string | null = null,
+  gates: McpToolGates = ALL_MCP_TOOL_GATES,
+  access: McpAccess = FULL_ACCESS
 ): Map<string, ToolHandler> {
   const tools = new Map<string, ToolHandler>()
   const fakeServer = {
@@ -234,8 +260,9 @@ function collectTools(
     new Request(`https://x.test/api/mcp`, {
       headers: { "user-agent": `claude-code/test` },
     }),
-    FULL_ACCESS,
-    sessionId
+    access,
+    sessionId,
+    gates
   )
   return tools
 }
@@ -257,6 +284,12 @@ const WS = `22222222-2222-2222-2222-222222222222`
 const PROJ = `33333333-3333-3333-3333-333333333333`
 const REPO = `44444444-4444-4444-4444-444444444444`
 const INV = `55555555-5555-5555-5555-555555555555`
+// EXP-660 fixtures.
+const STATUS = `77777777-7777-7777-7777-777777777777`
+const THREAD = `88888888-8888-8888-8888-888888888888`
+const AUTO = `99999999-9999-9999-9999-999999999999`
+const RUN = `66666666-6666-6666-6666-666666666666`
+const HELPDESK_ROWS = [{ teamId: WS, helpdeskEnabled: true }]
 
 const forbidden = () =>
   new TRPCError({ code: `FORBIDDEN`, message: `not allowed here` })
@@ -277,6 +310,7 @@ beforeEach(() => {
     teamId: `ws-1`,
     boardId: `proj-1`,
   })
+  membership.getUserTeamIds.mockResolvedValue([`ws-1`])
   assertWithinStorageLimit.mockResolvedValue(undefined)
   insertValues.mockResolvedValue(undefined)
 })
@@ -290,6 +324,9 @@ type Descriptor = {
   resolved: unknown
   expected: unknown
   calledWith?: unknown
+  // EXP-660: rows the drizzle stub serves for the tool's own context lookup
+  // (every select resolves to the same rows, so tools keep it to ONE).
+  rows?: Array<unknown>
 }
 
 const descriptors: Array<Descriptor> = [
@@ -469,12 +506,210 @@ const descriptors: Array<Descriptor> = [
     expected: { ok: true, id: INV },
     calledWith: { id: INV },
   },
+  // ── EXP-660: statuses ──
+  {
+    tool: `exponential_statuses_create`,
+    pick: () => caller.statuses.create,
+    args: { teamId: WS, category: `started`, name: `QA`, color: `#ff8800` },
+    resolved: { txId: 1, status: { id: STATUS, name: `QA` } },
+    expected: { id: STATUS, name: `QA` },
+    calledWith: { teamId: WS, category: `started`, name: `QA`, color: `#ff8800` },
+  },
+  {
+    tool: `exponential_statuses_update`,
+    pick: () => caller.statuses.update,
+    args: { teamId: WS, statusId: STATUS, name: `QA 2` },
+    resolved: { txId: 1 },
+    expected: { ok: true, statusId: STATUS },
+    calledWith: { teamId: WS, statusId: STATUS, name: `QA 2` },
+  },
+  {
+    tool: `exponential_statuses_delete`,
+    pick: () => caller.statuses.delete,
+    args: { teamId: WS, statusId: STATUS, reassignToId: UUID },
+    resolved: { txId: 1, reassigned: 3, reassignedToId: UUID },
+    expected: { ok: true, statusId: STATUS, reassigned: 3, reassignedToId: UUID },
+    calledWith: { teamId: WS, statusId: STATUS, reassignToId: UUID },
+  },
+  // ── EXP-660: automations ──
+  {
+    tool: `exponential_automations_list`,
+    pick: () => caller.automations.list,
+    args: { teamId: WS },
+    resolved: { automations: [{ id: AUTO, enabled: true }] },
+    expected: [{ id: AUTO, enabled: true }],
+    calledWith: { teamId: WS },
+  },
+  {
+    tool: `exponential_automations_update`,
+    pick: () => caller.automations.update,
+    args: { id: AUTO, enabled: false },
+    resolved: { automation: { id: AUTO, enabled: false }, txid: 1 },
+    expected: { id: AUTO, enabled: false },
+    calledWith: { id: AUTO, enabled: false },
+  },
+  {
+    tool: `exponential_automations_toggle`,
+    pick: () => caller.automations.update,
+    args: { id: AUTO, enabled: true },
+    resolved: { automation: { id: AUTO, enabled: true }, txid: 1 },
+    expected: { id: AUTO, enabled: true },
+    calledWith: { id: AUTO, enabled: true },
+  },
+  {
+    tool: `exponential_automations_delete`,
+    pick: () => caller.automations.delete,
+    args: { id: AUTO },
+    resolved: { ok: true, txid: 1 },
+    expected: { ok: true, id: AUTO },
+    calledWith: { id: AUTO },
+  },
+  // ── EXP-660: sessions / devices ──
+  {
+    tool: `exponential_sessions_kill`,
+    pick: () => caller.steer.killSession,
+    args: { id: RUN },
+    // The router hands back the FULL row; the tool must project the
+    // server-only columns away.
+    resolved: {
+      session: {
+        id: RUN,
+        status: `ended`,
+        endedAt: null,
+        hostUserId: `host-1`,
+        mergedOwnPr: true,
+      },
+      txid: 1,
+    },
+    expected: { ok: true, id: RUN, status: `ended`, endedAt: null },
+    calledWith: { codingSessionId: RUN },
+  },
+  {
+    tool: `exponential_devices_list`,
+    pick: () => caller.devices.list,
+    args: { teamId: WS },
+    resolved: {
+      devices: [
+        {
+          deviceId: `mac-1`,
+          deviceLabel: `Mac`,
+          kind: `desktop`,
+          platform: `macos`,
+          online: true,
+          lastSeenAt: `2026-08-28T00:00:00.000Z`,
+          agents: [`claude`],
+          unauthedAgents: [],
+          caps: [`actions`],
+          version: `1.2.3`,
+          sharedTeamId: null,
+          isDefault: true,
+          launchDefaults: { agents: {} },
+          registered: true,
+          updateRequested: false,
+          updateBlocked: false,
+        },
+      ],
+      latestVersions: { desktop: null, cli: null },
+    },
+    expected: [
+      {
+        deviceId: `mac-1`,
+        label: `Mac`,
+        kind: `desktop`,
+        platform: `macos`,
+        online: true,
+        lastSeenAt: `2026-08-28T00:00:00.000Z`,
+        agents: [`claude`],
+        unauthedAgents: [],
+        caps: [`actions`],
+        version: `1.2.3`,
+        sharedTeamId: null,
+        isDefault: true,
+      },
+    ],
+    calledWith: { teamId: WS },
+  },
+  // ── EXP-660: helpdesk (registered under the default gates) ──
+  {
+    tool: `exponential_helpdesk_threads_list`,
+    pick: () => caller.helpdesk.listThreads,
+    rows: [{ helpdeskEnabled: true }],
+    args: { teamId: WS, filter: `open`, limit: 50 },
+    resolved: [{ id: THREAD, title: `Login broken` }],
+    expected: [{ id: THREAD, title: `Login broken` }],
+    calledWith: { teamId: WS, filter: `open`, limit: 50 },
+  },
+  {
+    tool: `exponential_helpdesk_threads_get`,
+    pick: () => caller.helpdesk.getThread,
+    rows: HELPDESK_ROWS,
+    args: { threadId: THREAD },
+    resolved: { thread: { id: THREAD }, messages: [], linkedIssue: null },
+    expected: { thread: { id: THREAD }, messages: [], linkedIssue: null },
+    calledWith: { threadId: THREAD },
+  },
+  {
+    tool: `exponential_helpdesk_reply`,
+    pick: () => caller.helpdesk.reply,
+    rows: HELPDESK_ROWS,
+    args: { threadId: THREAD, body: `On it.` },
+    resolved: {
+      message: { id: UUID },
+      reporterEmailed: true,
+      reporterViewing: false,
+      reopened: false,
+    },
+    expected: {
+      message: { id: UUID },
+      reporterEmailed: true,
+      reporterViewing: false,
+      reopened: false,
+    },
+    calledWith: { threadId: THREAD, body: `On it.` },
+  },
+  {
+    tool: `exponential_helpdesk_note`,
+    pick: () => caller.helpdesk.note,
+    rows: HELPDESK_ROWS,
+    args: { threadId: THREAD, body: `internal` },
+    resolved: { message: { id: UUID, visibility: `internal` } },
+    expected: { id: UUID, visibility: `internal` },
+    calledWith: { threadId: THREAD, body: `internal` },
+  },
+  {
+    tool: `exponential_helpdesk_close`,
+    pick: () => caller.helpdesk.close,
+    rows: HELPDESK_ROWS,
+    args: { threadId: THREAD },
+    resolved: { ok: true },
+    expected: { ok: true, threadId: THREAD },
+    calledWith: { threadId: THREAD },
+  },
+  {
+    tool: `exponential_helpdesk_reopen`,
+    pick: () => caller.helpdesk.reopen,
+    rows: HELPDESK_ROWS,
+    args: { threadId: THREAD },
+    resolved: { ok: true },
+    expected: { ok: true, threadId: THREAD },
+    calledWith: { threadId: THREAD },
+  },
+  {
+    tool: `exponential_helpdesk_escalate`,
+    pick: () => caller.helpdesk.escalate,
+    rows: HELPDESK_ROWS,
+    args: { threadId: THREAD, boardId: PROJ, title: `Login broken` },
+    resolved: { issue: { id: UUID, identifier: `EXP-9` }, txId: 1 },
+    expected: { id: UUID, identifier: `EXP-9` },
+    calledWith: { threadId: THREAD, boardId: PROJ, title: `Login broken` },
+  },
 ]
 
 describe.each(descriptors)(
   `caller-backed MCP tool $tool`,
-  ({ tool: name, pick, args, resolved, expected, calledWith }) => {
+  ({ tool: name, pick, args, resolved, expected, calledWith, rows }) => {
     it(`happy path returns the mapped payload`, async () => {
+      if (rows) dbRows.current = rows
       pick().mockResolvedValue(resolved)
       const result = await tool(name)(args)
       expect(parseOk(result)).toEqual(expected)
@@ -484,6 +719,7 @@ describe.each(descriptors)(
     })
 
     it(`surfaces a permission denial as an MCP error`, async () => {
+      if (rows) dbRows.current = rows
       pick().mockRejectedValue(forbidden())
       const result = await tool(name)(args)
       expect(result.isError).toBe(true)
@@ -710,6 +946,7 @@ describe(`exponential_statuses_list`, () => {
         id: `b`,
         name: `Todo`,
         category: `unstarted`,
+        color: `#6b7280`,
         builtinKey: `todo`,
         sortOrder: 1,
         createdAt: at(`2026-01-01T00:00:00Z`),
@@ -718,6 +955,7 @@ describe(`exponential_statuses_list`, () => {
         id: `a`,
         name: `QA`,
         category: `started`,
+        color: `#ff8800`,
         builtinKey: null,
         sortOrder: 2,
         createdAt: at(`2026-01-02T00:00:00Z`),
@@ -726,6 +964,7 @@ describe(`exponential_statuses_list`, () => {
         id: `c`,
         name: `In Progress`,
         category: `started`,
+        color: `#f59e0b`,
         builtinKey: `in_progress`,
         sortOrder: 1,
         createdAt: at(`2026-01-01T00:00:00Z`),
@@ -737,6 +976,7 @@ describe(`exponential_statuses_list`, () => {
         id: `b`,
         name: `Todo`,
         category: `unstarted`,
+        color: `#6b7280`,
         position: 1,
         builtinKey: `todo`,
       },
@@ -744,6 +984,7 @@ describe(`exponential_statuses_list`, () => {
         id: `c`,
         name: `In Progress`,
         category: `started`,
+        color: `#f59e0b`,
         position: 1,
         builtinKey: `in_progress`,
       },
@@ -751,6 +992,7 @@ describe(`exponential_statuses_list`, () => {
         id: `a`,
         name: `QA`,
         category: `started`,
+        color: `#ff8800`,
         position: 2,
         builtinKey: null,
       },
@@ -1178,5 +1420,378 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
     })
 
     expect(updates).toHaveLength(0)
+  })
+})
+
+// ── EXP-660: the deferred families ───────────────────────────────────────────
+
+function renderWhere(): { sql: string; params: unknown[] } {
+  const query = new PgDialect().sqlToQuery(state.capturedWhere as never)
+  return { sql: query.sql, params: query.params }
+}
+
+const SCOPED_TO_WS: McpAccess = {
+  full: false,
+  fullTeamIds: new Set([WS]),
+  grantedBoardIds: new Set(),
+  visibleTeamIds: new Set([WS]),
+}
+
+const SERVER_ONLY_SESSION_COLUMNS = [
+  `hostUserId`,
+  `mergedOwnPr`,
+  `boardDeletedAt`,
+  `boardArchivedAt`,
+]
+
+describe(`exponential_statuses_list color`, () => {
+  it(`passes each row's color through`, async () => {
+    dbRows.current = [
+      {
+        id: `a`,
+        name: `QA`,
+        category: `started`,
+        color: `#ff8800`,
+        builtinKey: null,
+        sortOrder: 1,
+        createdAt: new Date(`2026-01-01T00:00:00Z`),
+      },
+    ]
+    const result = await tool(`exponential_statuses_list`)({ teamId: WS })
+    expect(parseOk(result)).toEqual([
+      {
+        id: `a`,
+        name: `QA`,
+        category: `started`,
+        color: `#ff8800`,
+        position: 1,
+        builtinKey: null,
+      },
+    ])
+  })
+})
+
+describe(`exponential_sessions_list`, () => {
+  it(`projects the shape allowlist only and scopes like the shape`, async () => {
+    dbRows.current = [{ id: RUN, status: `running` }]
+    const result = await tool(`exponential_sessions_list`)({
+      teamId: WS,
+      mine: true,
+      status: `running`,
+      limit: 50,
+      offset: 0,
+    })
+    expect(parseOk(result)).toEqual([{ id: RUN, status: `running` }])
+    expect(membership.resolveTeamAccess).toHaveBeenCalledWith(`user-1`, WS)
+
+    // The stub's select is typed without params; the tool passes the
+    // projection object as its first argument.
+    const selectCalls = db.select.mock.calls as unknown as Array<
+      [Record<string, unknown>]
+    >
+    const projection = Object.keys(selectCalls[0]![0])
+    for (const column of SERVER_ONLY_SESSION_COLUMNS) {
+      expect(projection).not.toContain(column)
+    }
+    for (const column of [`id`, `issueId`, `issueIdentifier`, `summary`, `outcome`, `endedBy`, `branch`, `deviceId`]) {
+      expect(projection).toContain(column)
+    }
+
+    const { sql, params } = renderWhere()
+    expect(sql).toContain(`"team_id" in`)
+    expect(sql).toContain(`"board_deleted_at" is null`)
+    expect(sql).toContain(`"board_archived_at" is null`)
+    expect(sql).toContain(`"status" =`)
+    // `mine` = started by me OR hosted on my machine; host_user_id is
+    // WHERE-only, never projected.
+    expect(sql).toContain(`"user_id" =`)
+    expect(sql).toContain(`"host_user_id" =`)
+    expect(params).toContain(WS)
+    expect(params).toContain(`user-1`)
+  })
+
+  it(`spans every visible team when teamId is omitted`, async () => {
+    membership.getUserTeamIds.mockResolvedValue([WS, PROJ])
+    dbRows.current = []
+    const result = await tool(`exponential_sessions_list`)({
+      mine: false,
+      limit: 50,
+      offset: 0,
+    })
+    expect(parseOk(result)).toEqual([])
+    const { params } = renderWhere()
+    expect(params).toContain(WS)
+    expect(params).toContain(PROJ)
+    expect(membership.resolveTeamAccess).not.toHaveBeenCalled()
+  })
+
+  it(`returns [] without a query when the caller has no teams`, async () => {
+    membership.getUserTeamIds.mockResolvedValue([])
+    const result = await tool(`exponential_sessions_list`)({
+      mine: false,
+      limit: 50,
+      offset: 0,
+    })
+    expect(parseOk(result)).toEqual([])
+    expect(db.select).not.toHaveBeenCalled()
+  })
+
+  it(`denies a non-member and an ungranted team before querying`, async () => {
+    membership.resolveTeamAccess.mockRejectedValue(
+      new TRPCError({ code: `FORBIDDEN`, message: `not a member` })
+    )
+    const denied = await tool(`exponential_sessions_list`)({
+      teamId: WS,
+      mine: false,
+      limit: 50,
+      offset: 0,
+    })
+    expect(denied.isError).toBe(true)
+    expect(denied.content[0].text).toContain(`not a member`)
+    expect(db.select).not.toHaveBeenCalled()
+
+    membership.resolveTeamAccess.mockResolvedValue(undefined)
+    const scoped = await collectTools(USER, null, ALL_MCP_TOOL_GATES, SCOPED_TO_WS).get(
+      `exponential_sessions_list`
+    )!({ teamId: PROJ, mine: false, limit: 50, offset: 0 })
+    expect(scoped.isError).toBe(true)
+    expect(db.select).not.toHaveBeenCalled()
+  })
+})
+
+describe(`exponential_sessions_get`, () => {
+  it(`returns the projected row and checks membership for a teammate's run`, async () => {
+    dbRows.current = [{ id: RUN, userId: `user-2`, teamId: WS, status: `ended`, summary: `Shipped`, outcome: `done` }]
+    const result = await tool(`exponential_sessions_get`)({ id: RUN })
+    expect(parseOk(result)).toMatchObject({ id: RUN, summary: `Shipped`, outcome: `done` })
+    expect(membership.resolveTeamAccess).toHaveBeenCalledWith(`user-1`, WS)
+  })
+
+  it(`skips the membership lookup for the caller's own run`, async () => {
+    dbRows.current = [{ id: RUN, userId: `user-1`, teamId: WS, status: `running` }]
+    const result = await tool(`exponential_sessions_get`)({ id: RUN })
+    expect(parseOk(result)).toMatchObject({ id: RUN })
+    expect(membership.resolveTeamAccess).not.toHaveBeenCalled()
+  })
+
+  it(`reports a missing (or trashed-board) row as not found`, async () => {
+    dbRows.current = []
+    const result = await tool(`exponential_sessions_get`)({ id: RUN })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`Session not found`)
+  })
+})
+
+describe(`exponential_sessions_kill`, () => {
+  it(`refuses to kill the caller's own header session`, async () => {
+    const result = await collectTools(USER, RUN).get(`exponential_sessions_kill`)!({
+      id: RUN,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`exponential_sessions_end`)
+    expect(caller.steer.killSession).not.toHaveBeenCalled()
+  })
+
+  it(`kills another run from inside a session`, async () => {
+    caller.steer.killSession.mockResolvedValue({
+      session: { id: UUID, status: `ended`, endedAt: null },
+    })
+    const result = await collectTools(USER, RUN).get(`exponential_sessions_kill`)!({
+      id: UUID,
+    })
+    expect(parseOk(result)).toEqual({ ok: true, id: UUID, status: `ended`, endedAt: null })
+    expect(caller.steer.killSession).toHaveBeenCalledWith({ codingSessionId: UUID })
+  })
+
+  it(`checks the run's team against a scoped grant before delegating`, async () => {
+    dbRows.current = [{ teamId: PROJ }]
+    const result = await collectTools(USER, null, ALL_MCP_TOOL_GATES, SCOPED_TO_WS).get(
+      `exponential_sessions_kill`
+    )!({ id: UUID })
+    expect(result.isError).toBe(true)
+    expect(caller.steer.killSession).not.toHaveBeenCalled()
+  })
+})
+
+describe(`exponential_sessions_start`, () => {
+  const startedRow = { id: RUN, status: `running`, issueId: UUID, deviceId: `mac-1` }
+
+  it(`resolves an identifier, starts over the steer rails and returns the run`, async () => {
+    caller.steer.startSession.mockResolvedValue({ ok: true })
+    // Every select resolves to dbRows.current at await time, so stage the
+    // rows per call: 1 = boards (resolveIssueId), 2 = the issue by
+    // identifier, 3+ = the poll for the device-created row.
+    const builder = db.select()
+    db.select.mockClear()
+    let call = 0
+    db.select.mockImplementation(() => {
+      call += 1
+      dbRows.current =
+        call === 1
+          ? [{ id: PROJ, teamId: `ws-1` }]
+          : call === 2
+            ? [{ id: UUID }]
+            : [startedRow]
+      return builder
+    })
+
+    let result: ToolResult
+    try {
+      result = await tool(`exponential_sessions_start`)({
+        deviceId: `mac-1`,
+        issueId: `exp-7`,
+        agent: `codex`,
+      })
+    } finally {
+      db.select.mockImplementation(() => builder)
+    }
+
+    expect(parseOk(result)).toEqual({
+      ok: true,
+      deviceId: `mac-1`,
+      sessionId: RUN,
+      session: startedRow,
+    })
+    expect(caller.steer.startSession).toHaveBeenCalledWith(
+      expect.objectContaining({ deviceId: `mac-1`, issueId: UUID, agent: `codex` })
+    )
+    const { sql, params } = renderWhere()
+    expect(sql).toContain(`"user_id" =`)
+    expect(sql).toContain(`"device_id" =`)
+    expect(sql).toContain(`"status" =`)
+    expect(sql).toContain(`"created_at" >=`)
+    expect(sql).toContain(`"issue_id" =`)
+    expect(params).toContain(UUID)
+    expect(params).toContain(`mac-1`)
+  })
+
+  it(`hands back sessionId null when the device never reports the run`, async () => {
+    caller.steer.startSession.mockResolvedValue({ ok: true })
+    dbRows.current = []
+    vi.useFakeTimers()
+    try {
+      const pending = tool(`exponential_sessions_start`)({
+        deviceId: `mac-1`,
+        issueId: UUID,
+      })
+      await vi.advanceTimersByTimeAsync(12_000)
+      const result = await pending
+      expect(parseOk(result)).toEqual({
+        ok: true,
+        deviceId: `mac-1`,
+        sessionId: null,
+        session: null,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(caller.steer.startSession).toHaveBeenCalledTimes(1)
+  })
+
+  it(`surfaces an offline device (relay 404) as an MCP error`, async () => {
+    caller.steer.startSession.mockRejectedValue(
+      new TRPCError({ code: `PRECONDITION_FAILED`, message: `device_offline` })
+    )
+    const result = await tool(`exponential_sessions_start`)({
+      deviceId: `mac-1`,
+      issueId: UUID,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`device_offline`)
+  })
+
+  it(`refuses an ungranted board before touching the relay`, async () => {
+    membership.getIssueTeamContext.mockResolvedValue({ teamId: PROJ, boardId: `other-board` })
+    const result = await collectTools(USER, null, ALL_MCP_TOOL_GATES, SCOPED_TO_WS).get(
+      `exponential_sessions_start`
+    )!({ deviceId: `mac-1`, issueId: UUID })
+    expect(result.isError).toBe(true)
+    expect(caller.steer.startSession).not.toHaveBeenCalled()
+  })
+
+  it(`requires exactly one subject`, async () => {
+    const result = await tool(`exponential_sessions_start`)({ deviceId: `mac-1` })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`Exactly one of`)
+    expect(caller.steer.startSession).not.toHaveBeenCalled()
+  })
+})
+
+describe(`exponential_automations_update trigger`, () => {
+  it(`rejects a malformed trigger before calling the router`, async () => {
+    const result = await tool(`exponential_automations_update`)({
+      id: AUTO,
+      trigger: { kind: `nope` },
+    })
+    expect(result.isError).toBe(true)
+    expect(caller.automations.update).not.toHaveBeenCalled()
+  })
+
+  it(`forwards a parsed schedule trigger`, async () => {
+    caller.automations.update.mockResolvedValue({ automation: { id: AUTO }, txid: 1 })
+    const trigger = { kind: `schedule`, interval: `daily`, minuteOfDay: 540 }
+    const result = await tool(`exponential_automations_update`)({ id: AUTO, trigger })
+    expect(parseOk(result)).toEqual({ id: AUTO })
+    expect(caller.automations.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: AUTO, trigger })
+    )
+  })
+})
+
+describe(`exponential_helpdesk_* gating`, () => {
+  const HELPDESK_TOOLS = [
+    `exponential_helpdesk_threads_list`,
+    `exponential_helpdesk_threads_get`,
+    `exponential_helpdesk_reply`,
+    `exponential_helpdesk_note`,
+    `exponential_helpdesk_close`,
+    `exponential_helpdesk_reopen`,
+    `exponential_helpdesk_escalate`,
+  ]
+
+  it(`registers the whole family under the default gates and none when off`, () => {
+    for (const name of HELPDESK_TOOLS) expect(tools.has(name)).toBe(true)
+    const off = collectTools(USER, null, { helpdesk: false })
+    for (const name of [...off.keys()]) {
+      expect(name.startsWith(`exponential_helpdesk_`)).toBe(false)
+    }
+    // Everything else is untouched by the gate.
+    expect(off.has(`exponential_sessions_start`)).toBe(true)
+  })
+
+  it(`refuses a thread of a team with helpdesk switched off`, async () => {
+    dbRows.current = [{ teamId: WS, helpdeskEnabled: false }]
+    const result = await tool(`exponential_helpdesk_reply`)({ threadId: THREAD, body: `hi` })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`not enabled`)
+    expect(caller.helpdesk.reply).not.toHaveBeenCalled()
+  })
+
+  it(`refuses listing for a team with helpdesk switched off`, async () => {
+    dbRows.current = [{ helpdeskEnabled: false }]
+    const result = await tool(`exponential_helpdesk_threads_list`)({
+      teamId: WS,
+      filter: `open`,
+      limit: 50,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`not enabled`)
+    expect(caller.helpdesk.listThreads).not.toHaveBeenCalled()
+  })
+
+  it(`reports an unknown thread as not found`, async () => {
+    dbRows.current = []
+    const result = await tool(`exponential_helpdesk_close`)({ threadId: THREAD })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`Thread not found`)
+  })
+
+  it(`requires a FULL grant on the thread's team even for reads`, async () => {
+    dbRows.current = [{ teamId: PROJ, helpdeskEnabled: true }]
+    const result = await collectTools(USER, null, ALL_MCP_TOOL_GATES, SCOPED_TO_WS).get(
+      `exponential_helpdesk_threads_get`
+    )!({ threadId: THREAD })
+    expect(result.isError).toBe(true)
+    expect(caller.helpdesk.getThread).not.toHaveBeenCalled()
   })
 })
