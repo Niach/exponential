@@ -26,6 +26,9 @@ import { conceptIcon } from "@/lib/icons.generated"
 import type { CodingSession } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import { useSessionDevice } from "@/hooks/use-session-device"
+import { useNow } from "@/hooks/use-now"
+import { useSessionAgentUsage } from "@/hooks/use-session-agent-usage"
+import { AgentUsageStrip } from "@/components/agent-usage-bar"
 import type { SessionDevice } from "@/lib/session-device"
 import {
   activeQuestionIds,
@@ -362,6 +365,10 @@ export function AgentSessionView({
   /** EXP-549/550: the host machine per the synced devices row — its RENAMED
    *  label, and whether it is offline right now. */
   const device = useSessionDevice(session)
+  /** EXP-484: the host machine's fresh rate-limit report for THIS run's
+   *  agent, or null (finished run, other agent, stale or absent numbers). */
+  const agentUsage = useSessionAgentUsage(session)
+  const usageNow = useNow(30_000)
   /** EXP-550: no live stream AND the host machine is offline (lid closed,
    *  usage-limit pause…) — the agent is PAUSED on that machine, not starting
    *  and not gone. The synced row stays `running`, so it resumes when the
@@ -454,6 +461,16 @@ export function AgentSessionView({
           <ChevronDown />
         </Button>
       </div>
+
+      {/* EXP-484: how much of the agent's rate-limit window this machine has
+          spent — a hairline under the header, expandable to every window. */}
+      {agentUsage && (
+        <AgentUsageStrip
+          agent={agentUsage.agent}
+          usage={agentUsage.usage}
+          now={usageNow}
+        />
+      )}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card/40">
           {/* EXP-356: conversation tabs — Main plus one per RUNNING subagent

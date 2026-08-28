@@ -1,6 +1,12 @@
 import { contract } from "@exp/domain-contract"
 
-import type { Device, SyncedDeviceWorktree, User } from "@/db/schema"
+import type {
+  Device,
+  DeviceAgentAccounts,
+  DeviceAgentUsageMap,
+  SyncedDeviceWorktree,
+  User,
+} from "@/db/schema"
 import { parseVersionTuple } from "./client-version"
 import type { AgentLaunchDefaults } from "./coding-launch-prefs"
 
@@ -53,6 +59,17 @@ export interface SteerDevice {
    * the device row and is its owner's preference, so a teammate's shared
    * server never prefills off it. */
   isDefault?: boolean
+  /** EXP-484: the machine's read-only per-agent sign-in status as it last
+   * probed it. Absent = an older build with no collector (render no Agents
+   * section rather than claiming "signed out"). */
+  agentAccounts?: DeviceAgentAccounts
+  /** EXP-484: the machine's per-agent usage windows as it last fetched them;
+   * absent = never reported. Freshness comes from each entry's `fetchedAt`
+   * (lib/agent-usage.ts), not from this row. */
+  agentUsage?: DeviceAgentUsageMap
+  /** EXP-484: when the device last wrote `agentUsage` — the offline "as of"
+   * fallback when an entry carries no `fetchedAt`. */
+  agentUsageAt?: string | null
 }
 
 /** EXP-437: a device's launch-defaults advertisement — `agents` keyed by
@@ -138,6 +155,16 @@ export function deviceCanResumeRun(device: SteerDevice): boolean {
   return (device.caps ?? []).includes(`resume-run`)
 }
 
+/** EXP-484: the machine runs the `agent_login` device command (the desktop
+ * app and the CLI daemon both advertise it). Without the cap the queued row
+ * would sit pending forever, so requesters hide Login/Switch account. pi is
+ * refused server-side regardless — its sign-in has no device-code flow. */
+export function deviceCanAgentLogin(
+  device: Pick<SteerDevice, `caps`>
+): boolean {
+  return (device.caps ?? []).includes(`agent-login`)
+}
+
 /** EXP-481: whether a devices row reads "online" — `last_seen_at` within the
  * contract window of `now` (devices heartbeat ~30s; the window is three
  * missed beats). A negative age (server stamp ahead of the client clock)
@@ -172,6 +199,11 @@ export function steerDeviceFromRow(
     unauthedAgents: row.unauthedAgents,
     caps: row.caps,
     launchDefaults: row.launchDefaults ?? undefined,
+    agentAccounts: row.agentAccounts ?? undefined,
+    agentUsage: row.agentUsage ?? undefined,
+    agentUsageAt: row.agentUsageAt
+      ? new Date(row.agentUsageAt).toISOString()
+      : null,
     online: deviceRowIsOnline(row.lastSeenAt, opts.now),
     lastSeenAt: new Date(row.lastSeenAt).toISOString(),
     registered: true,

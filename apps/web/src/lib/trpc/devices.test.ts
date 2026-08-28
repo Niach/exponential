@@ -133,7 +133,11 @@ vi.mock(`@/lib/client-version`, () => ({
   }),
 }))
 
-import { devicesRouter } from "@/lib/trpc/devices"
+import {
+  clampAgentAccounts,
+  clampAgentUsage,
+  devicesRouter,
+} from "@/lib/trpc/devices"
 
 const caller = devicesRouter.createCaller({
   session: { user: { id: `actor`, name: `Actor`, email: `a@example.com` } },
@@ -870,5 +874,244 @@ describe(`devices.heartbeat — work pull (EXP-481)`, () => {
       defaultsSyncedAt: `2026-08-10T10:00:00.000Z`,
     })
     expect(converged).not.toHaveProperty(`launchDefaults`)
+  })
+})
+
+// EXP-484: the machine's read-only per-agent auth + usage status.
+describe(`agent status clamps (EXP-484)`, () => {
+  const NOW = new Date(`2026-08-28T12:00:00.000Z`)
+
+  it(`clamps accounts to contract agents and strips nulls`, () => {
+    const out = clampAgentAccounts({
+      claude: {
+        signedIn: true,
+        email: `danny@example.com`,
+        plan: `Max`,
+        checkedAt: `2026-08-28T11:59:00Z`,
+      },
+      // Explicit nulls (the EXP-495 shape) degrade field-wise.
+      codex: { signedIn: false, email: null, plan: null, checkedAt: null },
+      // Not a contract agent — dropped whole.
+      aider: { signedIn: true, email: `x@y.z` },
+    })
+    expect(out).toEqual({
+      claude: {
+        signedIn: true,
+        email: `danny@example.com`,
+        plan: `Max`,
+        checkedAt: `2026-08-28T11:59:00.000Z`,
+      },
+      codex: { signedIn: false },
+    })
+    expect(JSON.stringify(out)).not.toContain(`null`)
+  })
+
+  it(`drops an unparsable checkedAt instead of failing the write`, () => {
+    expect(
+      clampAgentAccounts({ pi: { signedIn: true, checkedAt: `yesterday` } })
+    ).toEqual({ pi: { signedIn: true } })
+  })
+
+  it(`rounds and clamps percent, caps windows, truncates key and label`, () => {
+    const out = clampAgentUsage(
+      {
+        claude: {
+          fetchedAt: `2026-08-28T11:55:00Z`,
+          stale: null,
+          windows: [
+            { key: `session`, label: `5h`, percent: 41.6, resetsAt: null },
+            { key: `weekly`, label: `Week`, percent: 137 },
+            { key: `credits`, label: `Credits`, percent: -3 },
+            { key: `x`.repeat(80), label: `y`.repeat(50), percent: 1 },
+            // No key and no label — nothing to render.
+            { percent: 5 },
+            ...Array.from({ length: 12 }, (_, i) => ({
+              key: `w${i}`,
+              label: `W${i}`,
+              percent: i,
+            })),
+          ],
+        },
+      },
+      NOW
+    )
+    const windows = out.claude.windows
+    expect(windows).toHaveLength(10)
+    expect(windows[0]).toEqual({
+      key: `session`,
+      label: `5h`,
+      percent: 42,
+      resetsAt: null,
+    })
+    expect(windows[1].percent).toBe(100)
+    expect(windows[2].percent).toBe(0)
+    expect(windows[3].key).toHaveLength(64)
+    expect(windows[3].label).toHaveLength(32)
+    expect(out.claude.fetchedAt).toBe(`2026-08-28T11:55:00.000Z`)
+    expect(out.claude.stale).toBe(false)
+  })
+
+  it(`falls back to the write time when the device sends no fetchedAt`, () => {
+    const out = clampAgentUsage({ codex: { windows: [] } }, NOW)
+    expect(out.codex.fetchedAt).toBe(NOW.toISOString())
+  })
+
+  it(`drops agents outside the contract`, () => {
+    expect(clampAgentUsage({ aider: { windows: [] } }, NOW)).toEqual({})
+  })
+})
+
+describe(`devices.register / heartbeat agent status (EXP-484)`, () => {
+  const heartbeatRow = () => [
+    [
+      {
+        id: `row-1`,
+        updateRequestedAt: null,
+        launchDefaults: null,
+        launchDefaultsUpdatedAt: null,
+      },
+    ],
+  ]
+
+  it(`register stores the reported accounts`, async () => {
+    await caller.register({
+      deviceId: `dev-1`,
+      label: `buildbox`,
+      kind: `desktop`,
+      agentAccounts: { claude: { signedIn: true, plan: `Max` } },
+    })
+    expect(h.state.inserted[0]).toMatchObject({
+      agentAccounts: { claude: { signedIn: true, plan: `Max` } },
+    })
+    const upsert = h.state.upserts[0] as { set: Record<string, unknown> }
+    expect(upsert.set.agentAccounts).toEqual({
+      claude: { signedIn: true, plan: `Max` },
+    })
+  })
+
+  it(`a register without accounts leaves the column untouched`, async () => {
+    await caller.register({
+      deviceId: `dev-1`,
+      label: `buildbox`,
+      kind: `desktop`,
+    })
+    const upsert = h.state.upserts[0] as { set: Record<string, unknown> }
+    expect(upsert.set).not.toHaveProperty(`agentAccounts`)
+  })
+
+  it(`heartbeat writes usage plus its stamp`, async () => {
+    h.state.updateReturning = heartbeatRow()
+    await caller.heartbeat({
+      deviceId: `dev-1`,
+      activeSessions: 0,
+      defaultsSyncedAt: null,
+      agentAccounts: { codex: { signedIn: false } },
+      agentUsage: {
+        codex: {
+          fetchedAt: `2026-08-28T11:55:00Z`,
+          windows: [{ key: `session`, label: `5h`, percent: 12 }],
+        },
+      },
+    })
+    const set = h.state.updates[0]?.set as Record<string, unknown>
+    expect(set.agentAccounts).toEqual({ codex: { signedIn: false } })
+    expect(set.agentUsage).toMatchObject({
+      codex: { windows: [{ key: `session`, label: `5h`, percent: 12 }] },
+    })
+    expect(set.agentUsageAt).toBeInstanceOf(Date)
+  })
+
+  it(`a heartbeat without agent status touches neither column`, async () => {
+    h.state.updateReturning = heartbeatRow()
+    await caller.heartbeat({
+      deviceId: `dev-1`,
+      activeSessions: 0,
+      defaultsSyncedAt: null,
+    })
+    const set = h.state.updates[0]?.set as Record<string, unknown>
+    expect(set).not.toHaveProperty(`agentAccounts`)
+    expect(set).not.toHaveProperty(`agentUsage`)
+    expect(set).not.toHaveProperty(`agentUsageAt`)
+  })
+})
+
+// EXP-484: the remote sign-in command.
+describe(`devices.createCommand — agent_login`, () => {
+  const capableProbe = () => [
+    [{ id: `row-1`, caps: [`worktrees`, `agent-login`] }],
+  ]
+
+  it(`queues the agent and the switch flag as strings`, async () => {
+    h.state.selectQueue = [...capableProbe(), []]
+    h.state.insertReturning = [[{ id: `cmd-1` }]]
+    const result = await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_login`,
+      agent: `claude`,
+      switch: true,
+    })
+    expect(result).toEqual({ id: `cmd-1` })
+    expect(h.state.inserted[0]).toMatchObject({
+      deviceRowId: `row-1`,
+      kind: `agent_login`,
+      payload: { agent: `claude`, switch: `true` },
+    })
+    expect(h.relayPostNudge).toHaveBeenCalled()
+  })
+
+  it(`defaults switch to false`, async () => {
+    h.state.selectQueue = [...capableProbe(), []]
+    await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_login`,
+      agent: `codex`,
+    })
+    expect(h.state.inserted[0]).toMatchObject({
+      payload: { agent: `codex`, switch: `false` },
+    })
+  })
+
+  it(`needs an agent`, async () => {
+    h.state.selectQueue = capableProbe()
+    await expect(
+      caller.createCommand({ deviceId: `dev-1`, kind: `agent_login` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+
+  it(`refuses pi — its sign-in has no device-code flow`, async () => {
+    h.state.selectQueue = capableProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_login`,
+        agent: `pi`,
+      })
+    ).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: `pi has no remote sign-in`,
+    })
+  })
+
+  it(`refuses a machine that does not advertise the cap`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, caps: [`worktrees`] }]]
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_login`,
+        agent: `claude`,
+      })
+    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
+  it(`dedupes a second identical login while one is pending`, async () => {
+    h.state.selectQueue = [...capableProbe(), [{ id: `cmd-1` }]]
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_login`,
+        agent: `claude`,
+      })
+    ).rejects.toMatchObject({ code: `CONFLICT` })
   })
 })

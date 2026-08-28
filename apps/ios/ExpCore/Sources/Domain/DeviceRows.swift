@@ -114,6 +114,12 @@ public extension SteerDevice {
             // EXP-622: a default belongs to the row's OWNER — never surface a
             // teammate's shared server as the caller's default.
             isDefault: mine && entity.isDefault,
+            // EXP-484: read-only agent status the machine reported. Undecodable
+            // JSON degrades to nil (the section simply doesn't render) rather
+            // than dropping the whole machine.
+            agentAccounts: Self.decodeAgentAccounts(entity.agentAccounts),
+            agentUsage: Self.decodeAgentUsage(entity.agentUsage),
+            agentUsageAt: entity.agentUsageAt,
             launchDefaults: Self.decodeLaunchDefaults(entity.launchDefaults),
             rowId: entity.id
         )
@@ -127,6 +133,16 @@ public extension SteerDevice {
     private static func decodeLaunchDefaults(_ json: String?) -> DeviceLaunchDefaults? {
         guard let json else { return nil }
         return try? JSONDecoder().decode(DeviceLaunchDefaults.self, from: Data(json.utf8))
+    }
+
+    private static func decodeAgentAccounts(_ json: String?) -> [String: AgentAccount]? {
+        guard let json else { return nil }
+        return try? JSONDecoder().decode([String: AgentAccount].self, from: Data(json.utf8))
+    }
+
+    private static func decodeAgentUsage(_ json: String?) -> [String: AgentUsage]? {
+        guard let json else { return nil }
+        return try? JSONDecoder().decode([String: AgentUsage].self, from: Data(json.utf8))
     }
 }
 

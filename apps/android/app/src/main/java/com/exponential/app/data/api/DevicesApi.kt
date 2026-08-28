@@ -245,6 +245,21 @@ fun worktreePruneCommand(deviceId: String): JsonObject = buildJsonObject {
 }
 
 /**
+ * The `agent_login` input for [DevicesApi.createCommand] (EXP-484) — ask the
+ * machine to run [agent]'s OWN sign-in flow and publish the login URL (plus
+ * the codex device code) back as the command result. [switchAccount] signs the
+ * current account out first; the server refuses the whole command for `pi`,
+ * which has no remote sign-in. Gated on [SteerDevice.canAgentLogin].
+ */
+fun agentLoginCommand(deviceId: String, agent: String, switchAccount: Boolean): JsonObject =
+    buildJsonObject {
+        put("deviceId", deviceId)
+        put("kind", "agent_login")
+        put("agent", agent)
+        put("switch", switchAccount)
+    }
+
+/**
  * Whether [version] compares below [latest] (both `major.minor.patch`).
  * Missing or unparseable on either side = no hint, never a false alarm.
  * Mirrors `updateAvailable` in apps/web/src/components/my-machines.tsx.

@@ -689,6 +689,12 @@ export const codingSessions = pgTable(
     // devices row for the RENAMED label and its `last_seen_at` freshness (the
     // "paused — device offline" state). NULL on rows from pre-EXP-549 clients.
     deviceId: varchar(`device_id`, { length: 128 }),
+    // EXP-484: the agent CLI running the session (documented varchar, values
+    // = contract `codingAgent`, like `started_reason`). Written by the
+    // launcher at start (and echoed on the heartbeat re-create); NULL on rows
+    // from clients that predate it. Synced, so every client can show which
+    // agent a run uses and pair it with the device's usage windows.
+    agent: varchar({ length: 16 }),
     status: codingSessionStatusEnum().notNull().default(`running`),
     // EXP-545: the batch↔PR linkage. Stamped with the PR's head branch
     // (`exp/batch-<id8>`) when the MCP pr_open batch flip parks the row in
@@ -871,6 +877,73 @@ export const deviceLaunchDefaultsSchema = z.object({
     .nullish(),
 })
 
+// EXP-484: the machine's READ-ONLY per-agent auth + usage status, collected
+// locally by the device (it never holds, copies or refreshes a credential)
+// and shipped on register/heartbeat. Keyed by contract `codingAgent` id;
+// inner keys are camelCase verbatim on every client (column mappers only
+// rename top-level columns). `checkedAt`/`fetchedAt`/`resetsAt` are ISO
+// strings, `percent` is 0-100. Presentation (window selection, severity,
+// freshness, captions) is hand-mirrored ×4 — web `lib/agent-usage.ts`.
+export interface DeviceAgentAccount {
+  signedIn: boolean
+  email?: string
+  plan?: string
+  checkedAt?: string
+}
+export type DeviceAgentAccounts = Record<string, DeviceAgentAccount>
+
+export interface DeviceUsageWindow {
+  key: string
+  label: string
+  percent: number
+  resetsAt?: string | null
+}
+export interface DeviceAgentUsage {
+  fetchedAt?: string
+  stale?: boolean
+  windows: DeviceUsageWindow[]
+}
+export type DeviceAgentUsageMap = Record<string, DeviceAgentUsage>
+
+// Every field is `.nullish()` for the same reason the launch defaults are
+// (EXP-495): a client serializing an absent field as explicit `null` must
+// degrade that field, never 400 the whole register and leave the machine
+// invisible. Structural bounds only — `clampAgentAccounts`/`clampAgentUsage`
+// (lib/trpc/devices.ts) own the vocabulary and the stored copies stay
+// null-free.
+export const deviceAgentAccountsSchema = z
+  .record(
+    z.string().min(1).max(32),
+    z.object({
+      signedIn: z.boolean().nullish(),
+      email: z.string().max(320).nullish(),
+      plan: z.string().max(64).nullish(),
+      checkedAt: z.string().max(64).nullish(),
+    })
+  )
+  .refine((agents) => Object.keys(agents).length <= 16)
+
+export const deviceAgentUsageSchema = z
+  .record(
+    z.string().min(1).max(32),
+    z.object({
+      fetchedAt: z.string().max(64).nullish(),
+      stale: z.boolean().nullish(),
+      windows: z
+        .array(
+          z.object({
+            key: z.string().max(64).nullish(),
+            label: z.string().max(64).nullish(),
+            percent: z.number().nullish(),
+            resetsAt: z.string().max(64).nullish(),
+          })
+        )
+        .max(32)
+        .nullish(),
+    })
+  )
+  .refine((agents) => Object.keys(agents).length <= 16)
+
 // EXP-403 registered devices — since EXP-481 an Electric shape (own rows plus
 // team-shared server rows; devices router `list` retained for old clients).
 // One row per (user, deviceId): desktops and headless `exponential` daemon
@@ -944,6 +1017,17 @@ export const devices = pgTable(
     launchDefaultsUpdatedAt: timestamp(`launch_defaults_updated_at`, {
       withTimezone: true,
     }),
+    // EXP-484: per-agent sign-in status (see DeviceAgentAccount above) as the
+    // machine last probed it. NULL = never reported (older build) — clients
+    // render no Agents section rather than claiming "signed out".
+    agentAccounts: jsonb(`agent_accounts`).$type<DeviceAgentAccounts>(),
+    // EXP-484: per-agent usage windows as the machine last fetched them,
+    // plus the stamp of that write. The stamp moves every few minutes and is
+    // NEVER a convergence trigger: the desktop watches
+    // `launch_defaults_updated_at` only, or every usage refresh would nudge
+    // the fleet.
+    agentUsage: jsonb(`agent_usage`).$type<DeviceAgentUsageMap>(),
+    agentUsageAt: timestamp(`agent_usage_at`, { withTimezone: true }),
     ...timestamps,
   },
   (table) => [
@@ -1013,7 +1097,10 @@ export const deviceWorktrees = pgTable(
 // check_in nudge for immediacy), completed via devices.completeCommand.
 // Rows stay `pending` until completed — redelivery on a missed cycle is free
 // idempotency. `kind` is a documented varchar: `worktree_remove` (payload
-// {repoFullName, branch}) | `worktree_prune` (payload {}).
+// {repoFullName, branch}) | `worktree_prune` (payload {}) | `agent_login`
+// (EXP-484, payload {agent, switch: "true"|"false"} — the device runs the
+// agent CLI's own login flow and completes the command EARLY, as soon as the
+// sign-in URL is on screen, with the JSON progress in `result`).
 export const deviceCommands = pgTable(
   `device_commands`,
   {
@@ -1985,6 +2072,8 @@ export const selectDeviceSchema = createSelectSchema(devices, {
   caps: z.array(z.string()),
   unauthedAgents: z.array(z.string()),
   launchDefaults: deviceLaunchDefaultsSchema.nullable(),
+  agentAccounts: deviceAgentAccountsSchema.nullable(),
+  agentUsage: deviceAgentUsageSchema.nullable(),
 })
 
 export const selectDeviceWorktreeSchema = createSelectSchema(deviceWorktrees, {

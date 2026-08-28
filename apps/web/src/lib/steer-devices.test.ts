@@ -198,6 +198,7 @@ import {
   composeDeviceList,
   defaultDeviceId,
   deviceAgentIds,
+  deviceCanAgentLogin,
   deviceHasRunnableAgent,
   deviceRowIsOnline,
   resumeWorktree,
@@ -491,5 +492,53 @@ describe(`deviceAgentIds`, () => {
   it(`gates runnability on the same list`, () => {
     expect(deviceHasRunnableAgent(server())).toBe(false)
     expect(deviceHasRunnableAgent(server({ agents: [`claude`] }))).toBe(true)
+  })
+})
+
+// EXP-484: the machine's read-only per-agent status rides the synced row.
+describe(`agent status mapping (EXP-484)`, () => {
+  const accounts = {
+    claude: { signedIn: true, email: `danny@example.com`, plan: `Max` },
+  }
+  const usage = {
+    claude: {
+      fetchedAt: `2026-08-11T11:58:00.000Z`,
+      stale: false,
+      windows: [
+        { key: `session`, label: `5h`, percent: 42, resetsAt: null },
+      ],
+    },
+  }
+
+  it(`maps accounts, usage and the usage stamp`, () => {
+    const mapped = steerDeviceFromRow(
+      deviceRow({
+        agentAccounts: accounts,
+        agentUsage: usage,
+        agentUsageAt: new Date(`2026-08-11T11:58:00Z`),
+      }),
+      { now: NOW, currentUserId: `me` }
+    )
+    expect(mapped.agentAccounts).toEqual(accounts)
+    expect(mapped.agentUsage).toEqual(usage)
+    expect(mapped.agentUsageAt).toBe(`2026-08-11T11:58:00.000Z`)
+  })
+
+  it(`leaves a machine without a collector undefined, never "signed out"`, () => {
+    const mapped = steerDeviceFromRow(deviceRow(), {
+      now: NOW,
+      currentUserId: `me`,
+    })
+    expect(mapped.agentAccounts).toBeUndefined()
+    expect(mapped.agentUsage).toBeUndefined()
+    expect(mapped.agentUsageAt).toBeNull()
+  })
+
+  it(`gates remote sign-in on the advertised cap`, () => {
+    expect(deviceCanAgentLogin({ caps: [`worktrees`, `agent-login`] })).toBe(
+      true
+    )
+    expect(deviceCanAgentLogin({ caps: [`worktrees`] })).toBe(false)
+    expect(deviceCanAgentLogin({})).toBe(false)
   })
 })

@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,17 +37,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentLaunchDefaults
+import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.DeviceWorktreeEntity
+import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.parseAgentLoginResult
 import com.exponential.app.ui.components.AgentSegmentedTabs
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
@@ -64,6 +72,7 @@ import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.components.modelValuesFor
 import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.TextEmphasis
 
 // The device-settings sheet (EXP-481) — the mobile twin of the web dialog,
@@ -109,6 +118,9 @@ fun DeviceSettingsSheet(
     val defaultError by viewModel.defaultError.collectAsStateWithLifecycle()
     val defaultsError by viewModel.defaultsError.collectAsStateWithLifecycle()
     val commandStates by viewModel.commandStates.collectAsStateWithLifecycle()
+    // EXP-484: bumped on every window pick — the prefs store isn't observable,
+    // so this is what re-reads it for the Agents section's rows.
+    val usageWindowVersion by viewModel.usageWindowVersion.collectAsStateWithLifecycle()
 
     var label by remember { mutableStateOf(device.deviceLabel.ifBlank { device.deviceId }) }
     var nameFocused by remember { mutableStateOf(false) }
@@ -119,6 +131,9 @@ fun DeviceSettingsSheet(
         mutableStateOf(editableAgents.associateWith { agentDraft(device, it) })
     }
     var removeTarget by remember { mutableStateOf<DeviceWorktreeEntity?>(null) }
+    // Codex's logout revokes the token server-side, so switching accounts
+    // there is confirmed first (EXP-484); claude just re-runs its login.
+    var switchConfirmAgent by remember { mutableStateOf<String?>(null) }
 
     // Live reseeds. The name only re-seeds while the field is idle, the
     // defaults only while nothing of theirs is queued or in flight — otherwise
@@ -398,6 +413,58 @@ fun DeviceSettingsSheet(
                 ErrorCaption(defaultsError)
                 Spacer(Modifier.height(8.dp))
 
+                // ── Agents (EXP-484) ─────────────────────────────────────────
+                // Read-only sign-in + usage status per agent, plus the login
+                // the machine runs for itself. Only agents the machine
+                // actually reported on are listed — a machine older than
+                // EXP-484 reports none, and the whole section disappears
+                // rather than claiming everything is signed out.
+                val statusAgents = editableAgents.filter { agent ->
+                    device.agentAccounts?.containsKey(agent) == true ||
+                        device.agentUsage?.containsKey(agent) == true
+                }
+                if (statusAgents.isNotEmpty()) {
+                    SectionLabel("Agents")
+                    OptionGroup {
+                        statusAgents.forEachIndexed { index, agent ->
+                            if (index > 0) GroupDivider()
+                            AgentAccountRow(
+                                agent = agent,
+                                account = device.agentAccounts?.get(agent),
+                                usage = device.agentUsage?.get(agent),
+                                usageAt = device.agentUsageAt,
+                                state = commandStates[agentLoginCommandKey(agent)],
+                                // The command opens a login flow ON the machine
+                                // and publishes its URL back, so it needs a
+                                // machine that is ours, online, and new enough
+                                // to advertise the cap. pi has no remote
+                                // sign-in at all (the server refuses it).
+                                canLogin = device.online && device.canAgentLogin &&
+                                    device.isMine && agent != "pi",
+                                selectedWindow = remember(agent, usageWindowVersion) {
+                                    viewModel.readUsageWindow(agent)
+                                },
+                                onSelectWindow = { key ->
+                                    viewModel.rememberUsageWindow(agent, key)
+                                },
+                                onLogin = { switchAccount ->
+                                    if (switchAccount && agent == "codex") {
+                                        switchConfirmAgent = agent
+                                    } else {
+                                        viewModel.agentLogin(
+                                            device.deviceId,
+                                            agent,
+                                            switchAccount,
+                                            device.online,
+                                        )
+                                    }
+                                },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
                 // ── Worktrees (EXP-481) ──────────────────────────────────────
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -455,6 +522,30 @@ fun DeviceSettingsSheet(
                 Spacer(Modifier.height(24.dp))
             }
         }
+    }
+
+    switchConfirmAgent?.let { agent ->
+        AlertDialog(
+            onDismissRequest = { switchConfirmAgent = null },
+            title = { Text("Switch ${agentLabel(agent)} account?") },
+            text = {
+                Text(
+                    "Codex logout revokes the token server-side. You'll sign in " +
+                        "again on that machine.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.agentLogin(device.deviceId, agent, true, device.online)
+                        switchConfirmAgent = null
+                    },
+                ) { Text("Switch account") }
+            },
+            dismissButton = {
+                TextButton(onClick = { switchConfirmAgent = null }) { Text("Cancel") }
+            },
+        )
     }
 
     removeTarget?.let { worktree ->
@@ -563,6 +654,166 @@ private fun WorktreeRow(
             }
         }
         CommandCaption(state)
+    }
+}
+
+/**
+ * One agent's status row in the Agents section (EXP-484): who is signed in on
+ * that machine, its usage windows while they are fresh, and the button that
+ * asks the machine to run the agent's OWN sign-in flow. No credential is ever
+ * carried here — the machine publishes a login URL and the user finishes on
+ * whatever device they are holding.
+ */
+@Composable
+private fun AgentAccountRow(
+    agent: String,
+    account: AgentAccount?,
+    usage: AgentUsage?,
+    usageAt: String?,
+    state: DeviceCommandUiState?,
+    canLogin: Boolean,
+    selectedWindow: String?,
+    onSelectWindow: (String) -> Unit,
+    onLogin: (Boolean) -> Unit,
+) {
+    val busy = state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running
+    // Freshness is decided once, on the same clock the strip uses: numbers
+    // older than the window are simply not shown (fail closed).
+    val fresh = usage != null &&
+        AgentUsagePresentation.isFresh(usage.fetchedAt, System.currentTimeMillis())
+    Column(modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                AgentUsagePresentation.accountRow(agent, account),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            when {
+                busy -> CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp).padding(end = 2.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                canLogin -> {
+                    val switching = account?.signedIn == true
+                    TextButton(onClick = { onLogin(switching) }) {
+                        Icon(
+                            if (switching) ExpIcons.uiSwap else ExpIcons.uiSignIn,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (switching) "Switch account" else "Login")
+                    }
+                }
+            }
+        }
+        if (fresh && usage != null) {
+            Spacer(Modifier.height(6.dp))
+            AgentUsageWindowRows(
+                agent = agent,
+                usage = usage,
+                selectedKey = selectedWindow,
+                onSelect = onSelectWindow,
+                modifier = Modifier.padding(end = 12.dp),
+            )
+        }
+        // No button here means nothing can be done from this screen, so the row
+        // says how old what it shows is instead of looking live.
+        if (!canLogin) {
+            (account?.checkedAt ?: usageAt)?.let { at ->
+                val relative = relativeTime(at)
+                if (relative.isNotEmpty()) {
+                    Text(
+                        "as of $relative",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = TextEmphasis.Tertiary,
+                        ),
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+            }
+        }
+        LoginResultCaption(state)
+    }
+}
+
+/**
+ * What a queued `agent_login` command is doing (EXP-484). A completed one
+ * publishes JSON — the machine's login URL, plus codex's device code — which
+ * renders as an openable link and a copyable code; anything else (queued,
+ * failed, a result that isn't a login publication) falls through to the
+ * ordinary command caption.
+ */
+@Composable
+private fun LoginResultCaption(state: DeviceCommandUiState?) {
+    val login = (state as? DeviceCommandUiState.Done)?.let { parseAgentLoginResult(it.message) }
+    when {
+        state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running ->
+            Text(
+                "Waiting for the sign-in link…",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        login != null -> {
+            val uriHandler = LocalUriHandler.current
+            val clipboard = LocalClipboardManager.current
+            Spacer(Modifier.height(4.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clickable { uriHandler.openUri(login.url) },
+            ) {
+                Icon(
+                    ExpIcons.uiExternalLink,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    login.url,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            login.code?.let { code ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        code,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }) {
+                        Icon(
+                            ExpIcons.uiCopy,
+                            contentDescription = "Copy code",
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = TextEmphasis.Tertiary,
+                            ),
+                        )
+                    }
+                }
+            }
+            Text(
+                if (login.code == null) {
+                    "Open the link on any device."
+                } else {
+                    "Open the link on any device and enter the code on the machine."
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+        }
+        else -> CommandCaption(state)
     }
 }
 

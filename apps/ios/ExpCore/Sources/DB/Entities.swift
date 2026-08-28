@@ -352,6 +352,11 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // offline" while the machine sleeps.
     public let deviceId: String?
     public let status: String
+    // EXP-484: the coding agent the run was launched with (contract
+    // `codingAgent`: claude/codex/pi). NULL on rows started before the column
+    // existed and on any start that didn't name one — the usage bar simply
+    // doesn't render then.
+    public let agent: String?
     // EXP-545: the batch↔PR linkage — the PR's head branch
     // (`exp/batch-<id8>`), stamped by the server's pr_open batch flip
     // alongside the in_review status. Ties a batch row's Merge shortcut to
@@ -402,6 +407,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         deviceLabel: String?,
         deviceId: String? = nil,
         status: String,
+        agent: String? = nil,
         branch: String? = nil,
         needsInput: Bool = false,
         actionId: String? = nil,
@@ -425,6 +431,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.deviceLabel = deviceLabel
         self.deviceId = deviceId
         self.status = status
+        self.agent = agent
         self.branch = branch
         self.needsInput = needsInput
         self.actionId = actionId
@@ -442,7 +449,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, status, branch, summary, outcome
+        case id, status, agent, branch, summary, outcome
         case issueId = "issue_id"
         case boardId = "board_id"
         case teamId = "team_id"
@@ -479,6 +486,8 @@ extension CodingSessionEntity: Codable {
         // Pre-EXP-549 snapshots omit the key — decode permissively.
         deviceId = try c.decodeIfPresent(String.self, forKey: .deviceId)
         status = try c.decode(String.self, forKey: .status)
+        // Pre-EXP-484 snapshots omit the key — decode permissively.
+        agent = try c.decodeIfPresent(String.self, forKey: .agent)
         // Pre-EXP-545 snapshots omit the key — decode permissively.
         branch = try c.decodeIfPresent(String.self, forKey: .branch)
         needsInput = c.decodeWireBool(forKey: .needsInput, default: false)
@@ -1416,6 +1425,15 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
     /// stringified JSON. Inner keys are camelCase verbatim on the wire.
     public let launchDefaults: String?
     public let launchDefaultsUpdatedAt: String?
+    /// EXP-484: per-agent auth status and rate-limit usage the machine reports
+    /// on register/heartbeat — jsonb objects keyed by contract `codingAgent`,
+    /// stored as stringified JSON (decoded by `AgentUsagePresentation`).
+    /// READ-ONLY here: the device is the only writer.
+    public let agentAccounts: String?
+    public let agentUsage: String?
+    /// When the server last stored `agentUsage`. Moves every few minutes, so
+    /// it must never be a re-sync nudge trigger.
+    public let agentUsageAt: String?
     public let activeSessions: Int
     public let lastSeenAt: String?
     public let sharedTeamId: String?
@@ -1440,6 +1458,9 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         unauthedAgents: String? = nil,
         launchDefaults: String? = nil,
         launchDefaultsUpdatedAt: String? = nil,
+        agentAccounts: String? = nil,
+        agentUsage: String? = nil,
+        agentUsageAt: String? = nil,
         activeSessions: Int = 0,
         lastSeenAt: String? = nil,
         sharedTeamId: String? = nil,
@@ -1460,6 +1481,9 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         self.unauthedAgents = unauthedAgents
         self.launchDefaults = launchDefaults
         self.launchDefaultsUpdatedAt = launchDefaultsUpdatedAt
+        self.agentAccounts = agentAccounts
+        self.agentUsage = agentUsage
+        self.agentUsageAt = agentUsageAt
         self.activeSessions = activeSessions
         self.lastSeenAt = lastSeenAt
         self.sharedTeamId = sharedTeamId
@@ -1476,6 +1500,9 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         case unauthedAgents = "unauthed_agents"
         case launchDefaults = "launch_defaults"
         case launchDefaultsUpdatedAt = "launch_defaults_updated_at"
+        case agentAccounts = "agent_accounts"
+        case agentUsage = "agent_usage"
+        case agentUsageAt = "agent_usage_at"
         case activeSessions = "active_sessions"
         case lastSeenAt = "last_seen_at"
         case sharedTeamId = "shared_team_id"
@@ -1507,6 +1534,11 @@ extension DeviceEntity: Codable {
         unauthedAgents = c.decodeWireJsonString(forKey: .unauthedAgents)
         launchDefaults = c.decodeWireJsonString(forKey: .launchDefaults)
         launchDefaultsUpdatedAt = try c.decodeIfPresent(String.self, forKey: .launchDefaultsUpdatedAt)
+        // EXP-484: jsonb like agents/caps — object off the wire, pre-stringified
+        // from fixtures. Absent on a pre-EXP-484 snapshot, so never required.
+        agentAccounts = c.decodeWireJsonString(forKey: .agentAccounts)
+        agentUsage = c.decodeWireJsonString(forKey: .agentUsage)
+        agentUsageAt = try c.decodeIfPresent(String.self, forKey: .agentUsageAt)
         // SE-0230 flattens the try?-of-optional; unparseable text degrades to
         // 0 rather than dropping the row (activeSessions only gates a badge).
         activeSessions = (try? c.decodeWireInt(forKey: .activeSessions)) ?? 0

@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { contract } from "@exp/domain-contract"
 import {
   actionInputsSchema,
   automationTriggerSchema,
@@ -269,6 +270,7 @@ const sessionColumns = {
   userId: codingSessions.userId,
   deviceLabel: codingSessions.deviceLabel,
   deviceId: codingSessions.deviceId,
+  agent: codingSessions.agent,
   status: codingSessions.status,
   branch: codingSessions.branch,
   summary: codingSessions.summary,
@@ -292,6 +294,8 @@ const SESSION_START_POLL_STEP_MS = 500
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
+
+const codingAgentValues = contract.codingAgent.values as [string, ...string[]]
 
 const issueStatusEnumSchema = z.enum(issueStatusValues)
 const issuePriorityEnumSchema = z.enum(issuePriorityValues)
@@ -2141,7 +2145,7 @@ export function registerExponentialTools(
         teamId: uuidString.optional(),
         inputs: z.record(z.string(), z.string()).optional(),
         resumeSessionId: uuidString.optional(),
-        agent: z.enum([`claude`, `codex`, `pi`]).optional(),
+        agent: z.enum(codingAgentValues).optional(),
         model: z.string().max(64).optional(),
         effort: z.string().max(32).optional(),
         planMode: z.boolean().optional(),
@@ -2328,6 +2332,12 @@ export function registerExponentialTools(
             version: device.version,
             sharedTeamId: device.sharedTeamId,
             isDefault: device.isDefault,
+            // EXP-484: per-agent sign-in status and usage windows as the
+            // machine last probed them (absent on builds without the
+            // collector).
+            agentAccounts: device.agentAccounts ?? null,
+            agentUsage: device.agentUsage ?? null,
+            agentUsageAt: device.agentUsageAt ?? null,
             ...(device.owner ? { owner: device.owner } : {}),
           }))
         )

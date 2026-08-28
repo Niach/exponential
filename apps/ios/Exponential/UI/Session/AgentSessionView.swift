@@ -87,6 +87,14 @@ struct AgentSessionView: View {
 
             VStack(spacing: 0) {
                 if let model {
+                    // EXP-484: how close the machine running this agent is to
+                    // its rate limit. Only ever drawn for a live run whose host
+                    // reported fresh numbers, so its absence is the norm.
+                    if let usage = model.agentUsage {
+                        AgentUsageStrip(agent: usage.agent, usage: usage.usage)
+                            .padding(.horizontal, 14)
+                            .padding(.top, 4)
+                    }
                     feedArea(model)
                     banners(model)
                     bottomBar(model)

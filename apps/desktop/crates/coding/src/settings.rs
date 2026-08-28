@@ -21,6 +21,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use std::collections::BTreeMap;
+
 use crate::agent::{CodingAgent, CODEX_EFFORTS, CODEX_MODELS, PI_MODELS, PI_THINKING};
 
 pub const DEFAULT_CLAUDE_PATH: &str = "claude";
@@ -158,6 +160,13 @@ pub struct Settings {
     /// server-side per-type prefs still decide which types may leave the
     /// app at all. ON by default — a fresh install toasts until switched off.
     pub os_notifications: bool,
+    /// EXP-484: which usage window this machine shows for each agent
+    /// (`{"claude": "weekly"}` — the [`crate::agent_usage::UsageWindow`]
+    /// key). Absent = the highest-percent window. A LOCAL view preference
+    /// like `rail_expanded`: it is deliberately NOT part of the launch
+    /// defaults wire (`remote_admin::defaults_wire`) or the sync
+    /// fingerprint, so picking a window never queues a device push.
+    pub usage_window: BTreeMap<String, String>,
 }
 
 /// Deserialize [`Settings::default_agent`] leniently: any non-string or
@@ -198,6 +207,7 @@ impl Default for Settings {
             tools_setup_seen: false,
             emoji_recents: Vec::new(),
             os_notifications: true,
+            usage_window: BTreeMap::new(),
         }
     }
 }
@@ -807,6 +817,7 @@ mod tests {
             tools_setup_seen: true,
             emoji_recents: vec!["🎉".to_string()],
             os_notifications: true,
+            usage_window: BTreeMap::from([("claude".to_string(), "weekly".to_string())]),
         };
         settings.save(&path).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
@@ -827,6 +838,38 @@ mod tests {
             "camelCase keys: {raw}"
         );
         assert_eq!(Settings::load(&path), settings);
+    }
+
+    /// EXP-484: the per-agent usage-window pick is a LOCAL view preference.
+    /// It rides settings.json (camelCase like every other key) but must
+    /// never reach the launch-defaults wire or its sync fingerprint —
+    /// picking a window would otherwise queue a device push and fight the
+    /// server copy on every glance at the bar.
+    #[test]
+    fn usage_window_is_local_and_never_a_launch_default() {
+        let dir = TempDir::new("usage-window");
+        let path = dir.0.join("settings.json");
+        let mut settings = Settings::default();
+        assert!(settings.usage_window.is_empty(), "no default pick");
+        settings
+            .usage_window
+            .insert("claude".to_string(), "model:fable".to_string());
+        settings.save(&path).unwrap();
+        let raw = fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("\"usageWindow\""), "camelCase keys: {raw}");
+        assert_eq!(
+            Settings::load(&path).usage_window.get("claude").map(String::as_str),
+            Some("model:fable")
+        );
+
+        // The device wire and its fingerprint are blind to it.
+        let wire = serde_json::to_string(&crate::remote_admin::defaults_wire(&settings)).unwrap();
+        assert!(!wire.contains("usageWindow"), "{wire}");
+        assert!(!wire.contains("model:fable"), "{wire}");
+        assert_eq!(
+            crate::launch_defaults_sync::defaults_fingerprint(&settings),
+            crate::launch_defaults_sync::defaults_fingerprint(&Settings::default())
+        );
     }
 
     /// EXP-551: the emoji prefs are hand-editable like every other key —

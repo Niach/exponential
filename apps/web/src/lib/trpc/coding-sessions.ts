@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, desc, eq, gte, inArray, or } from "drizzle-orm"
+import { contract } from "@exp/domain-contract"
 import {
   CODING_SESSION_STALE_MS,
   startedReasonValues,
@@ -23,6 +24,8 @@ import {
 // rows are batch-shaped (actionId NULL) with the server-constant name
 // snapshot, which also makes clients' actionName-based run watching work
 // uniformly.
+const codingAgentValues = contract.codingAgent.values as [string, ...string[]]
+
 const actionIdInput = z
   .string()
   .uuid()
@@ -248,6 +251,10 @@ export const codingSessionsRouter = router({
           // EXP-637: the ended run this one continues (desktop Resume or
           // steer.startSession({ resumeSessionId })). History only.
           resumedFromId: z.string().uuid().optional(),
+          // EXP-484: the agent CLI running the session, recorded so every
+          // client can name it (and pair the run with the host device's usage
+          // windows). Absent on rows from clients that predate it.
+          agent: z.enum(codingAgentValues).optional(),
         })
         .refine((value) => !(value.branch && value.issueId), {
           message: `branch excludes issueId — an issue session's branch lives on the issue`,
@@ -328,6 +335,7 @@ export const codingSessionsRouter = router({
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
             ...device,
+            agent: input.agent ?? null,
             branch: input.branch ?? null,
             resumedFromId,
             status: `running`,
@@ -383,6 +391,7 @@ export const codingSessionsRouter = router({
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
             ...device,
+            agent: input.agent ?? null,
             branch: input.branch ?? null,
             resumedFromId,
             status: `running`,
@@ -421,6 +430,7 @@ export const codingSessionsRouter = router({
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
             ...device,
+            agent: input.agent ?? null,
             resumedFromId,
             status: `running`,
           })
@@ -455,6 +465,7 @@ export const codingSessionsRouter = router({
           userId: attribution.userId,
           hostUserId: attribution.hostUserId,
           ...device,
+          agent: input.agent ?? null,
           branch: input.branch ?? null,
           resumedFromId,
           status: `running`,
@@ -512,6 +523,8 @@ export const codingSessionsRouter = router({
           // resurrects tied to the same branch (the desktop's own-branch
           // guards and the unlinked-PR merge sweep both key off it).
           branch: z.string().max(255).optional(),
+          // EXP-484: echoed so a resurrected row keeps naming its agent.
+          agent: z.enum(codingAgentValues).optional(),
         })
         .refine((value) => !(value.branch && value.issueId), {
           message: `branch excludes issueId — an issue session's branch lives on the issue`,
@@ -579,6 +592,7 @@ export const codingSessionsRouter = router({
               userId: attribution.userId,
               hostUserId: attribution.hostUserId,
               ...device,
+              agent: input.agent ?? null,
               status: merged
                 ? `ended`
                 : issue?.status === `in_review`
@@ -653,6 +667,7 @@ export const codingSessionsRouter = router({
               userId: attribution.userId,
               hostUserId: attribution.hostUserId,
               ...device,
+              agent: input.agent ?? null,
               branch: input.branch ?? null,
               // Batch/action rows have no issue to re-derive review state
               // from — a resurrected session degrades to `running` (badge

@@ -121,6 +121,41 @@ class DeviceEntityDecodeTest {
         assertFalse(json.decodeFromString(DeviceEntity.serializer(), row("")).isDefault)
     }
 
+    // EXP-484: the two agent-status jsonb columns ride as raw JSON text like
+    // launch_defaults, and an older server sends neither.
+    @Test
+    fun `agent status jsonb columns decode as text and default absent`() {
+        val row = """
+            {
+              "id": "row-1",
+              "user_id": "u",
+              "device_id": "d",
+              "agent_accounts": {"claude": {"signedIn": true, "email": "danny@yourev.at", "plan": "max"}},
+              "agent_usage": {"claude": {"fetchedAt": "2026-08-28T09:58:00Z", "stale": false, "windows": [{"key": "session", "label": "5h", "percent": 42}]}},
+              "agent_usage_at": "2026-08-28 09:58:00+00"
+            }
+        """.trimIndent()
+        val entity = json.decodeFromString(DeviceEntity.serializer(), row)
+        assertTrue(entity.agentAccounts!!.contains("danny@yourev.at"))
+        assertTrue(entity.agentUsage!!.contains("\"key\""))
+        assertEquals("2026-08-28 09:58:00+00", entity.agentUsageAt)
+
+        val camel = json.decodeFromString(
+            DeviceEntity.serializer(),
+            """{"id": "row-1", "userId": "u", "deviceId": "d", "agentUsageAt": "2026-08-28T09:58:00Z"}""",
+        )
+        assertEquals("2026-08-28T09:58:00Z", camel.agentUsageAt)
+
+        // An older server sends none of the three — the row must still decode.
+        val bare = json.decodeFromString(
+            DeviceEntity.serializer(),
+            """{"id": "row-1", "user_id": "u", "device_id": "d"}""",
+        )
+        assertNull(bare.agentAccounts)
+        assertNull(bare.agentUsage)
+        assertNull(bare.agentUsageAt)
+    }
+
     @Test
     fun `worktree row decodes with Postgres text booleans and absent optionals`() {
         val row = """

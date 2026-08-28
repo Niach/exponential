@@ -187,9 +187,15 @@ import androidx.room.RoomDatabase
     //      writes a summary + `done`/`blocked`/`no_changes`), who ended the run,
     //      and the ended run a Resume continues. Additive on an existing shape;
     //      destructive fallback wipes + resyncs.
+    // v42 (EXP-484): devices.agent_accounts / agent_usage / agent_usage_at —
+    //      the machine's read-only per-agent auth + usage status (jsonb kept as
+    //      raw text) and the server stamp of the last usage write — plus
+    //      coding_sessions.agent, the agent a run launched with (so a session
+    //      view can find its host machine's usage). Additive on two existing
+    //      shapes; destructive fallback wipes + resyncs.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so an additive shape column just wipes and re-syncs from Electric.
-    version = 41,
+    version = 42,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

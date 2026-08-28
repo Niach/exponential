@@ -364,6 +364,9 @@ pub const SHAPES: [ShapeSpec; 19] = [
             // (heal_missing_columns ALTERs it onto existing stores).
             "device_id",
             "status",
+            // EXP-484: which agent CLI runs it — the session views caption
+            // the usage bar with it (heals onto existing store tables).
+            "agent",
             "needs_input",
             // EXP-530 automation attribution: `action_id`/`action_name` scope
             // a run to its action (name snapshotted — outlives a deleted
@@ -463,9 +466,23 @@ pub const SHAPES: [ShapeSpec; 19] = [
             "unauthed_agents",
             "launch_defaults",
             "launch_defaults_updated_at",
+            // EXP-484: the read-only per-agent status the machine reports —
+            // who is signed in, and how much of each rate-limit window is
+            // spent. `agent_usage_at` is the server's write stamp and must
+            // never become a sync-nudge trigger (it moves every few minutes;
+            // the desktop's device watch keys on `launch_defaults_updated_at`
+            // alone).
+            "agent_accounts",
+            "agent_usage",
+            "agent_usage_at",
             "active_sessions",
             "last_seen_at",
             "shared_team_id",
+            // EXP-622: the owner's default machine. It was missing from this
+            // list (the proxy always served it), so `DeviceRow.is_default`
+            // hydrated None on the desktop and every picker fell back to
+            // "no default" — fixed with the EXP-484 columns.
+            "is_default",
             "update_requested_at",
             "created_at",
             "updated_at",
@@ -693,6 +710,22 @@ mod tests {
         assert!(spec.columns.contains(&"last_seen_at"));
         assert!(spec.columns.contains(&"user_id"));
         assert!(spec.columns.contains(&"caps"));
+    }
+
+    #[test]
+    fn devices_sync_the_agent_status_columns() {
+        // EXP-484: dropping any of these silently blanks the Agents section
+        // and every usage bar on this client.
+        let spec = shape_by_name("devices").unwrap();
+        for column in ["agent_accounts", "agent_usage", "agent_usage_at"] {
+            assert!(spec.columns.contains(&column), "devices needs {column}");
+        }
+        // EXP-622's flag was never listed — a picker with no default is the
+        // symptom.
+        assert!(spec.columns.contains(&"is_default"));
+        // And the session row names the agent whose windows those are.
+        let sessions = shape_by_name("coding_sessions").unwrap();
+        assert!(sessions.columns.contains(&"agent"));
     }
 
     #[test]

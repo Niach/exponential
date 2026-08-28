@@ -3,7 +3,7 @@ import ExpCore
 import SwiftUI
 
 // The device settings sheet (EXP-481) — Edit on a machines row opens it, the
-// iOS twin of the web/IDE device-settings dialog. Five sections, no Save
+// iOS twin of the web/IDE device-settings dialog. Six sections, no Save
 // buttons (EXP-490):
 //   Name     — devices.rename (registry-authoritative, works offline),
 //              debounced while typing and flushed on blur/submit/close.
@@ -15,6 +15,11 @@ import SwiftUI
 //              the machine is OFFLINE too: the row is the truth and the
 //              machine's settings.json converges on its next heartbeat, so the
 //              only offline concession is a footer saying so.
+//   Agents   — EXP-484: read-only per-agent auth status and rate-limit usage
+//              off the machine's own report, plus Login / Switch account,
+//              which queue an `agent_login` command the machine runs locally.
+//              No credential is ever held or forwarded — the machine publishes
+//              only the sign-in link it shows on its own screen.
 //   Worktrees — the synced inventory (shape 18) with per-row Remove and a
 //              Prune button, queued as devices.createCommand rows the device
 //              runs on its next heartbeat (immediately when online). Progress
@@ -80,6 +85,16 @@ struct DeviceSettingsSheet: View {
     @State private var removeTarget: DeviceWorktreeEntity?
     /// The device-reported prune summary ("Pruned 2 worktrees"), shown once.
     @State private var commandSummary: String?
+    /// EXP-484: which usage window each agent's rows mark, once this
+    /// presentation has picked one (`AgentUsageWindowPrefs` holds the
+    /// remembered value across launches).
+    @State private var usageWindows: [String: String] = [:]
+    /// The sign-in payload a finished `agent_login` command carried, per agent.
+    /// Cleared the moment that agent is queued again.
+    @State private var loginResults: [String: String] = [:]
+    /// The agent a Switch-account tap is confirming (codex only — its logout
+    /// revokes the token server-side).
+    @State private var switchConfirmAgent: String?
 
     /// The live row off the devices shape. Own machines only — the sheet is an
     /// owner surface, so a row that stops being ours reads as gone.
@@ -106,6 +121,7 @@ struct DeviceSettingsSheet: View {
                     sharingSection(device)
                 }
                 defaultsSection(device)
+                agentsSection(device)
                 worktreesSection(device)
                 if let errorMessage {
                     Section {
@@ -169,6 +185,23 @@ struct DeviceSettingsSheet: View {
             Button("Remove", role: .destructive) { removeWorktree(worktree) }
         } message: { worktree in
             Text("Remove \(worktree.branch) on \(device.deviceLabel)? Uncommitted tracked changes make the machine refuse.")
+        }
+        .confirmationDialog(
+            "Switch the Codex account?",
+            isPresented: Binding(
+                get: { switchConfirmAgent != nil },
+                set: { if !$0 { switchConfirmAgent = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Switch account", role: .destructive) {
+                let agent = switchConfirmAgent
+                switchConfirmAgent = nil
+                if let agent { queueLogin(agent: agent, switchAccount: true) }
+            }
+            Button("Cancel", role: .cancel) { switchConfirmAgent = nil }
+        } message: {
+            Text("Codex logout revokes the token server-side. You'll sign in again on that machine.")
         }
     }
 
@@ -561,6 +594,176 @@ struct DeviceSettingsSheet: View {
         if defaultsPending, !savingDefaults { saveDefaultsNow() }
     }
 
+    // MARK: - Agents (EXP-484)
+
+    /// The agents this machine actually reported on. `editableAgents` is the
+    /// DEFAULTS vocabulary — it deliberately includes agents only the stored
+    /// defaults remember — and an agent with neither an account nor a usage
+    /// report has nothing to say here. A machine that reported none at all (an
+    /// older build) gets no section.
+    private func reportedAgents(_ device: SteerDevice) -> [String] {
+        editableAgents(device).filter {
+            device.agentAccounts?[$0] != nil || device.agentUsage?[$0] != nil
+        }
+    }
+
+    /// Read-only visibility plus the one action: hand the machine's own login
+    /// flow a nudge. No credential is ever held, copied or forwarded — the
+    /// device runs `claude auth login` / `codex login` locally and publishes
+    /// only the sign-in link it puts on its own screen.
+    @ViewBuilder
+    private func agentsSection(_ device: SteerDevice) -> some View {
+        let agents = reportedAgents(device)
+        if !agents.isEmpty {
+            Section {
+                ForEach(agents, id: \.self) { agent in
+                    agentRow(device, agent: agent)
+                        .listRowSeparator(.hidden)
+                }
+            } header: {
+                Text("Agents")
+            } footer: {
+                // Only meaningful for a login queued before the machine went
+                // quiet — the button itself is offline-gated.
+                if !device.isOnline, pendingCommands.keys.contains(where: { $0.hasPrefix("login:") }) {
+                    Text("Runs when the device comes online.")
+                }
+            }
+            .listRowBackground(glassFormRowFill)
+        }
+    }
+
+    private func agentRow(_ device: SteerDevice, agent: String) -> some View {
+        let account = device.agentAccounts?[agent]
+        let usage = device.agentUsage?[agent]
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(AgentUsagePresentation.accountRow(agent: agent, account: account))
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .fixedSize(horizontal: false, vertical: true)
+            // Numbers past the freshness window are not drawn at all: an old
+            // percentage beside a live machine reads as a current one.
+            if let usage, AgentUsagePresentation.isFresh(fetchedAt: usage.fetchedAt) {
+                AgentUsageWindowRows(
+                    agent: agent,
+                    usage: usage,
+                    selectedKey: usageWindows[agent] ?? AgentUsageWindowPrefs.read(agent: agent),
+                    onSelect: { windowKey in
+                        usageWindows[agent] = windowKey
+                        AgentUsageWindowPrefs.remember(agent: agent, key: windowKey)
+                    }
+                )
+            }
+            if canOfferLogin(device, agent: agent) {
+                loginControl(agent: agent, account: account)
+            } else if let asOf = asOfCaption(device, account: account) {
+                Text(asOf)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            loginOutcome(agent: agent)
+        }
+    }
+
+    /// A remote login rides a `device_commands` row the machine picks up on
+    /// its heartbeat, so it needs a machine that is listening and a build that
+    /// advertises the capability. pi has no remote sign-in at all (no device
+    /// code, no URL — the server refuses it too).
+    private func canOfferLogin(_ device: SteerDevice, agent: String) -> Bool {
+        device.isOnline && device.canAgentLogin && agent != "pi"
+    }
+
+    /// When we can't drive the machine from here, say how old what we show is.
+    private func asOfCaption(_ device: SteerDevice, account: AgentAccount?) -> String? {
+        let asOf = agentUsageRelativeDate(account?.checkedAt ?? device.agentUsageAt)
+        return asOf.isEmpty ? nil : "as of \(asOf)"
+    }
+
+    @ViewBuilder
+    private func loginControl(agent: String, account: AgentAccount?) -> some View {
+        if pendingCommands["login:\(agent)"] != nil {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Waiting for the sign-in link…")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+        } else {
+            let signedIn = account?.signedIn == true
+            Button {
+                if signedIn, agent == "codex" {
+                    switchConfirmAgent = agent
+                } else {
+                    queueLogin(agent: agent, switchAccount: signedIn)
+                }
+            } label: {
+                Label(
+                    signedIn ? "Switch account" : "Login",
+                    appIcon: signedIn ? AppIcons.uiSwap : AppIcons.uiSignIn
+                )
+            }
+        }
+    }
+
+    /// What came back: the machine completes the command EARLY, the moment the
+    /// sign-in link is on its screen, so this is the link (and codex's device
+    /// code) — not a finished login. The row itself flips to "signed in" later,
+    /// when the machine re-probes and the devices row syncs.
+    @ViewBuilder
+    private func loginOutcome(agent: String) -> some View {
+        if let message = commandErrors["login:\(agent)"] {
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(DesignTokens.Semantic.red)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        if let result = loginResults[agent] {
+            if let link = AgentUsagePresentation.parseAgentLoginResult(result),
+               let url = URL(string: link.url) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Link(destination: url) {
+                        Label("Open the sign-in link", appIcon: AppIcons.uiExternalLink)
+                    }
+                    if let code = link.code {
+                        HStack(spacing: 8) {
+                            Text(code)
+                                .font(.caption.monospaced())
+                            Button {
+                                Platform.copyToPasteboard(code)
+                            } label: {
+                                AppIcon(AppIcons.uiCopy, size: AppIcon.Size.small)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Copy code")
+                        }
+                    }
+                    Text(link.code == nil
+                        ? "Open the link on any device."
+                        : "Open the link on any device and enter the code on the machine.")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                // Not a link payload (an older build, a plain note): verbatim.
+                Text(result)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func queueLogin(agent: String, switchAccount: Bool) {
+        runCommand(
+            targetKey: "login:\(agent)",
+            kind: "agent_login",
+            agent: agent,
+            switchAccount: switchAccount
+        )
+    }
+
     // MARK: - Worktrees
 
     private func deviceWorktrees(_ device: SteerDevice) -> [DeviceWorktreeEntity] {
@@ -694,9 +897,13 @@ struct DeviceSettingsSheet: View {
         targetKey: String,
         kind: String,
         repoFullName: String? = nil,
-        branch: String? = nil
+        branch: String? = nil,
+        agent: String? = nil,
+        switchAccount: Bool? = nil
     ) {
         commandErrors[targetKey] = nil
+        // A re-queued login supersedes whatever link the last one published.
+        if let agent { loginResults[agent] = nil }
         pendingCommands[targetKey] = ""
         Task {
             do {
@@ -705,7 +912,9 @@ struct DeviceSettingsSheet: View {
                     deviceId: deviceId,
                     kind: kind,
                     repoFullName: repoFullName,
-                    branch: branch
+                    branch: branch,
+                    agent: agent,
+                    switchAccount: switchAccount
                 )
                 pendingCommands[targetKey] = created.id
                 // ~2 minutes of 2s polls; a queued-behind-offline command
@@ -724,6 +933,9 @@ struct DeviceSettingsSheet: View {
                             // The prune summary is worth showing on success
                             // ("Pruned 2 worktrees").
                             commandSummary = command.result
+                        } else if let agent {
+                            // EXP-484: the sign-in link the machine published.
+                            loginResults[agent] = command.result
                         }
                         return
                     }
