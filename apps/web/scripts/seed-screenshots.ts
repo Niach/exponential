@@ -69,6 +69,7 @@ import {
   DEMO_PENDING_INVITE_EXPIRY,
   DEMO_NAME,
   DEMO_PASSWORD,
+  DEMO_DUE_DATES,
   DEMO_SERVER_VERSION,
   DEMO_SHOWCASE_COMMENT_HOURS_AGO,
   EMPTY_BOARD_SLUG,
@@ -114,8 +115,6 @@ if (frozenNow !== undefined) {
 const now = frozenNow ?? Date.now()
 const daysAgo = (d: number) => new Date(now - d * 86_400_000)
 const hoursAgo = (h: number) => new Date(now - h * 3_600_000)
-const inDays = (d: number) =>
-  new Date(now + d * 86_400_000).toISOString().slice(0, 10)
 
 /**
  * Attachment ids for the STORAGE settings view, minted up front so the seeded
@@ -471,7 +470,7 @@ async function main() {
       priority: `high`,
       assigneeId: demoId,
       creatorId: sofia,
-      dueDate: inDays(2),
+      dueDate: DEMO_DUE_DATES.darkMode,
       labels: [`Design`],
       createdDaysAgo: 5,
     },
@@ -492,7 +491,7 @@ async function main() {
       priority: `urgent`,
       assigneeId: jonas,
       creatorId: demoId,
-      dueDate: inDays(4),
+      dueDate: DEMO_DUE_DATES.coldStart,
       labels: [`Performance`],
       createdDaysAgo: 3,
     },
@@ -503,7 +502,7 @@ async function main() {
       priority: `urgent`,
       assigneeId: demoId,
       creatorId: mira,
-      dueDate: inDays(1),
+      dueDate: DEMO_DUE_DATES.deepLinks,
       labels: [`Bug`],
       createdDaysAgo: 2,
     },
@@ -522,7 +521,7 @@ async function main() {
       priority: `medium`,
       assigneeId: sofia,
       creatorId: demoId,
-      dueDate: inDays(7),
+      dueDate: DEMO_DUE_DATES.emptyStates,
       labels: [`Design`],
       createdDaysAgo: 7,
     },

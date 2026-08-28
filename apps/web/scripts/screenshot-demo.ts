@@ -96,6 +96,44 @@ export const DEMO_PENDING_INVITE_EXPIRY = {
 } as const
 
 /**
+ * The due dates on the four issues that carry one (EXP-669).
+ *
+ * A due date renders as an ABSOLUTE `MMM d` chip on all five clients, so a
+ * relative offset moved it every calendar day and rewrote `board`,
+ * `issue-detail`, `issue-comments` and `my-issues` on the first refresh after
+ * midnight. Unlike a comment's relative label there is no bucket wide enough
+ * to hide in: the only stable absolute date is a fixed one.
+ *
+ * Spaced 1 / 2 / 4 / 7 days apart the way the relative offsets were, so the
+ * board's due column keeps the same order and spread, and parked in the same
+ * era as `DEMO_PENDING_INVITE_EXPIRY` so ONE bump moves every pinned date in
+ * this file. No client prints a year (web `formatDate`, iOS/Android `MMM d`,
+ * desktop `format_short_date` discards it outright), so a date two years out
+ * is pixel-identical in shape to next week's.
+ *
+ * They must all stay in the FUTURE: `dueDateTone` is a three-way rule and an
+ * upcoming date is the muted one every current shot shows. `screenshot-demo.test.ts`
+ * fails on `MIN_RUNWAY_DAYS` of headroom, long before one goes overdue and
+ * reddens a row.
+ *
+ * Note this deliberately costs one thing: at `inDays(1)` the deep-links issue
+ * rendered the literal "Tomorrow" on iOS and Android, which those two
+ * special-case. A fixed date cannot say that, so the mobile chip now reads
+ * `Jun 8` like everywhere else. Churning `board` on web and desktop every
+ * night was the worse trade.
+ */
+export const DEMO_DUE_DATES = {
+  /** `Push notification deep links open the wrong tab` — the soonest. */
+  deepLinks: `2027-06-08`,
+  /** `Dark mode contrast pass across settings`. */
+  darkMode: `2027-06-09`,
+  /** `Reduce cold start below 800 ms` — APP-5, the showcase issue. */
+  coldStart: `2027-06-11`,
+  /** `Improve empty states with illustrations` — the furthest out. */
+  emptyStates: `2027-06-14`,
+} as const
+
+/**
  * How long ago each comment on the showcase issue (APP-5) was posted, in hours
  * (EXP-669).
  *

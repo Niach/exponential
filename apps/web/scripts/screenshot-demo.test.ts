@@ -1,6 +1,7 @@
 import { formatDistanceToNowStrict } from "date-fns"
 import { describe, expect, it } from "vitest"
 import {
+  DEMO_DUE_DATES,
   DEMO_PENDING_INVITE_EXPIRY,
   DEMO_SHOWCASE_COMMENT_HOURS_AGO,
 } from "./screenshot-demo"
@@ -98,5 +99,34 @@ describe(`pinned showcase comment offsets (EXP-669)`, () => {
     for (const [, hours] of offsets) {
       expect(hours).toBeLessThan(3 * 24)
     }
+  })
+})
+
+describe(`pinned demo due dates (EXP-669)`, () => {
+  const dueDates = Object.entries(DEMO_DUE_DATES)
+
+  it.each(dueDates)(`%s is a real YYYY-MM-DD the clients can parse`, (_issue, due) => {
+    // `dueDateTone` compares these LEXICALLY against today, and desktop's
+    // `format_short_date` splits on the dashes — both quietly do the wrong
+    // thing with a malformed string rather than throwing.
+    expect(due).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(new Date(`${due}T00:00:00Z`).toISOString().slice(0, 10)).toBe(due)
+  })
+
+  it.each(dueDates)(`%s stays far enough out to render as upcoming`, (_issue, due) => {
+    // Push the dates out (and re-capture the board views) when this fails.
+    // Every shot in the store has these rows muted; the day one of them goes
+    // overdue it turns red, and `board` sorts overdue-first, so the row moves
+    // too. Meant to fail with months to spare.
+    const runwayDays = (Date.parse(`${due}T00:00:00Z`) - Date.now()) / 86_400_000
+    expect(runwayDays).toBeGreaterThan(MIN_RUNWAY_DAYS)
+  })
+
+  it(`keeps the four on distinct days, soonest first`, () => {
+    // The order is the board's due-date spread, and EXP-668 is the standing
+    // reminder that a tie between two seeded rows is an unstable sort.
+    const values = dueDates.map(([, due]) => due)
+    expect(values).toStrictEqual([...values].sort())
+    expect(new Set(values).size).toBe(values.length)
   })
 })
