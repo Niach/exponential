@@ -987,34 +987,6 @@
       }
     },
     {
-      "id": "recent-runs",
-      "group": "coding",
-      "title": "Recent runs",
-      "blurb": "The EXP-637 close-out: a run the agent ended itself, expanded to its outcome glyph, the summary it wrote and the Resume button.",
-      "order": 9,
-      "web": {
-        "route": "/t/$teamSlug/agents",
-        "anchor": {
-          "text": "Triaged 4 failing specs",
-          "timeoutMs": 30000
-        },
-        "recipe": "expandRecentRun",
-        "settleMs": 1200
-      },
-      "webMobile": "inherit",
-      "ios": {
-        "shot": "sg_recent-runs",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_recent-runs",
-        "lane": "styleguide"
-      },
-      "notes": {
-        "desktop": "The desktop Actions screen has no Recent runs section — only the Automations tab's \"Recent automated runs\", which automations-list photographs."
-      }
-    },
-    {
       "id": "reviews",
       "group": "reviews",
       "title": "Reviews",

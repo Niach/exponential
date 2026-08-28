@@ -22,17 +22,6 @@ public enum RunOutcomePresentation {
         default: return "Ended"
         }
     }
-
-    /// Whether an ENDED row carries the agent's close-out — the rule the runs
-    /// lists filter on. Those are the rows with a summary worth expanding.
-    /// Keyed on `outcome` (its only writer is `exponential_sessions_end`),
-    /// NOT on `ended_by` (EXP-673): a person-started run's end is the tab
-    /// close or kill that came after its report. Mirrored on web
-    /// (`use-agents-data.ts`) and Android (`recentRunRows`).
-    public static func hasCloseOut(_ session: CodingSessionEntity) -> Bool {
-        session.status == DomainContract.codingSessionStatusEnded
-            && session.outcome != nil
-    }
 }
 
 /// EXP-637: whether an ended run can be picked up again, and on which machine.

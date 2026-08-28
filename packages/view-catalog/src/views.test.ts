@@ -78,7 +78,6 @@ const PINNED_RECIPES = [
   `openBoardBulkEdit`,
   `openBoardSwitcher`,
   `openIssuePropertiesMobile`,
-  `expandRecentRun`,
   `openMachineSettings`,
   `openAddServer`,
   `openActionCreate`,

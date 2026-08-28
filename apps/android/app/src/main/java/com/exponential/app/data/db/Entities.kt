@@ -265,8 +265,7 @@ data class CodingSessionEntity(
     val outcome: String? = null,
     // EXP-637: who ended the run — `agent` (sessions_end), `user`
     // (killSession), `client` (exit/tab close/quit), `merge` (a PR merge) or
-    // `system` (the sweep). The "Recent runs" lists keep to the agent's own
-    // close-outs; NULL on rows ended before the stamp existed.
+    // `system` (the sweep). NULL on rows ended before the stamp existed.
     @ColumnInfo(name = "ended_by") @SerialName("ended_by") @JsonNames("endedBy") val endedBy: String? = null,
     // EXP-637: the ended run this one continues (Resume) — FK SET NULL. The
     // post-send start watch matches a resumed run by it (StartedRunMatch).

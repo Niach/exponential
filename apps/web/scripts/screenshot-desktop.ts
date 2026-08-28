@@ -56,8 +56,8 @@ import {
 // online frame.
 const AGENTS = [`claude`, `codex`, `pi`]
 // `resume-run` (EXP-637) is advertised by every real desktop and is what makes
-// the seed's ended runs resumable — without it "Recent runs" renders, but the
-// Resume button never does (EXP-663).
+// the seed's ended runs resumable — without it "Recent automated runs"
+// renders, but the Resume button never does (EXP-663).
 const CAPS = [
   `actions`,
   `action-inputs`,
