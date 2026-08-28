@@ -73,8 +73,8 @@
         "file": "shots/action-suggestions/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 90494,
-        "sha256": "a1c8585029302949ab80abfb0e6ef7aefc38a553db38ab3c5f2006e5c0bc3de1"
+        "bytes": 81184,
+        "sha256": "5e38a76cf1285ca0c33cfe910667f33e5c62209ab61ef0659d5337c0c6017647"
       },
       "web-mobile": {
         "file": "shots/action-suggestions/web-mobile.webp",
@@ -449,15 +449,15 @@
         "file": "shots/inbox/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 40244,
-        "sha256": "0211e9a8363c5971e7c636bc3d53db0485d6b4bc864b8293b4a1daad2b7cfcb2"
+        "bytes": 41026,
+        "sha256": "0c7b9a6465b6eeef67bf7bd9c8963c7c32891a20f51c5080f98009c6b5fb0844"
       },
       "web-mobile": {
         "file": "shots/inbox/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 36368,
-        "sha256": "d95d7543d94880ed531c5542bc1a4fa30683fc325d29f7e2c873bb149dfaa7e6"
+        "bytes": 39256,
+        "sha256": "0bc8baf540846bbe2be8ee8246d317b15b03b2f81f08fac945362e7639cf2842"
       }
     },
     "invite-accept": {
@@ -867,8 +867,8 @@
         "file": "shots/reviews/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 34896,
-        "sha256": "d63c0a32444452f2564eb78eafc2af25a1d846c267469e76cd59c7a624c0d0ff"
+        "bytes": 34866,
+        "sha256": "2312edcf88d9d0f47873a356d73df449f350d81d2f4ba69358464858d3fde006"
       },
       "web-mobile": {
         "file": "shots/reviews/web-mobile.webp",
