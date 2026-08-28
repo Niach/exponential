@@ -77,17 +77,17 @@ async function resolveStartAttribution(
 }
 
 // EXP-549: the session's host-device stamp. The device sends its steer
-// `deviceId` plus its OS hostname as `deviceLabel`; the registry row's `label`
-// (the user's RENAME, `devices.rename`) wins for the snapshot whenever the
-// caller — the hosting account in both self-hosted and shared-device runs —
-// owns a row for that deviceId. Clients prefer the live devices row via
-// `device_id`; the snapshot renders historical rows. Every supported sender
-// stamps a deviceId (EXP-560 retired the label-only pre-EXP-549 wire —
-// `deviceLabel` stays ACCEPTED on the input but never rides alone).
+// `deviceId`; the label snapshot comes from the registry row's `label` (the
+// user's RENAME, `devices.rename`) whenever the caller — the hosting account
+// in both self-hosted and shared-device runs — owns a row for that deviceId.
+// Clients prefer the live devices row via `device_id`; the snapshot renders
+// historical rows. EXP-560 retired the label-only pre-EXP-549 wire and
+// EXP-639 the `deviceLabel` input itself: the registry row is the ONE label
+// source.
 async function resolveSessionDevice(
   db: Context[`db`],
   callerId: string,
-  input: { deviceId?: string; deviceLabel?: string }
+  input: { deviceId?: string }
 ): Promise<{ deviceId: string | null; deviceLabel: string | null }> {
   if (!input.deviceId) {
     return { deviceId: null, deviceLabel: null }
@@ -101,8 +101,29 @@ async function resolveSessionDevice(
     .limit(1)
   return {
     deviceId: input.deviceId,
-    deviceLabel: device?.label ?? input.deviceLabel ?? null,
+    deviceLabel: device?.label ?? null,
   }
+}
+
+// EXP-637's resume link, hardened (EXP-639). `resumed_from_id` is a real FK
+// and history ONLY — never authorization — but the run it names may be gone:
+// the 2h idle sweep (lib/coding-session-sweep.ts) DELETES stale running rows,
+// so a desktop run-registry record easily outlives its session and the insert
+// would fail with a raw 23503 (a 500 on the user's Resume click). Resolve it
+// first and degrade to NULL when the row no longer exists; scope is
+// deliberately not checked (the link is provenance, and the row is only ever
+// read back as the caller's own history).
+async function resolveResumedFromId(
+  db: Context[`db`],
+  resumedFromId: string | undefined
+): Promise<string | null> {
+  if (!resumedFromId) return null
+  const [row] = await db
+    .select({ id: codingSessions.id })
+    .from(codingSessions)
+    .where(eq(codingSessions.id, resumedFromId))
+    .limit(1)
+  return row?.id ?? null
 }
 
 // The desktop launcher's live "coding now" record (§4a step 7). One row per
@@ -199,7 +220,6 @@ export const codingSessionsRouter = router({
           issueId: z.string().uuid().optional(),
           teamId: z.string().uuid().optional(),
           actionId: actionIdInput.optional(),
-          deviceLabel: z.string().max(255).optional(),
           // EXP-432 shared-device attribution (see resolveStartAttribution).
           startedById: z.string().min(1).max(128).optional(),
           deviceId: z.string().min(1).max(128).optional(),
@@ -249,6 +269,13 @@ export const codingSessionsRouter = router({
         })
     )
     .mutation(async ({ ctx, input }) => {
+      // A vanished predecessor (swept while the user was away) must never
+      // turn Resume into a 500 — see resolveResumedFromId.
+      const resumedFromId = await resolveResumedFromId(
+        ctx.db,
+        input.resumedFromId
+      )
+
       if (input.actionId && isBuiltinActionId(input.actionId)) {
         await assertTeamMember(ctx.session.user.id, input.teamId!)
         const attribution = await resolveStartAttribution(
@@ -275,7 +302,7 @@ export const codingSessionsRouter = router({
             hostUserId: attribution.hostUserId,
             ...device,
             branch: input.branch ?? null,
-            resumedFromId: input.resumedFromId ?? null,
+            resumedFromId,
             status: `running`,
           })
           .returning()
@@ -330,7 +357,7 @@ export const codingSessionsRouter = router({
             hostUserId: attribution.hostUserId,
             ...device,
             branch: input.branch ?? null,
-            resumedFromId: input.resumedFromId ?? null,
+            resumedFromId,
             status: `running`,
           })
           .returning()
@@ -364,7 +391,7 @@ export const codingSessionsRouter = router({
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
             ...device,
-            resumedFromId: input.resumedFromId ?? null,
+            resumedFromId,
             status: `running`,
           })
           .returning()
@@ -396,7 +423,7 @@ export const codingSessionsRouter = router({
           hostUserId: attribution.hostUserId,
           ...device,
           branch: input.branch ?? null,
-          resumedFromId: input.resumedFromId ?? null,
+          resumedFromId,
           status: `running`,
         })
         .returning()
@@ -436,7 +463,6 @@ export const codingSessionsRouter = router({
           // client-held snapshot (the action may be gone by resurrect time).
           actionId: actionIdInput.optional(),
           actionName: z.string().max(255).optional(),
-          deviceLabel: z.string().max(255).optional(),
           // EXP-432: shared-device runs echo their attribution so a swept row
           // resurrects requester-owned instead of silently flipping to the
           // host (which would break the requester's steering mid-run).
@@ -609,9 +635,8 @@ export const codingSessionsRouter = router({
       // updatedAt — never status — so a ping cannot downgrade an
       // `in_review` row back to `running`. EXP-549: a ping carrying
       // the deviceId also refreshes the device stamp (id + the registry
-      // label), so rows started by older builds pick up their identity and a
-      // rename converges within one beat even for clients that only render
-      // the snapshot.
+      // label), so a rename converges within one beat even for clients that
+      // only render the snapshot.
       const device = input.deviceId
         ? await resolveSessionDevice(ctx.db, ctx.session.user.id, input)
         : null

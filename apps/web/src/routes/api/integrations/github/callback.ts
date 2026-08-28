@@ -261,21 +261,24 @@ export async function handleCallback(request: Request): Promise<Response> {
     // re-auth scrubs-only and `needsReauth`/`stale` warns forever. This
     // re-auth just proved which installations the user controls, so reap the
     // team's links that are ALL of: created by this same user (their own
-    // residue, never a teammate's connection) OR carrying a NULL creator
-    // while the acting user is a team OWNER (EXP-557 — legacy rows predate
-    // the created_by column, so nobody's own-residue filter could ever match
-    // them and the EXP-556 stale warning was permanent), not controlled and
-    // not undetermined by this enumeration, not suspended (REV2-29: links
-    // survive suspension, and a suspended installation may be missing from
-    // the enumeration without proving lost control), and load-bearing for
+    // residue, never a teammate's connection), not controlled and not
+    // undetermined by this enumeration, not suspended (REV2-29: links survive
+    // suspension, and a suspended installation may be missing from the
+    // enumeration without proving lost control), and load-bearing for
     // nothing — zero team grants from ANY member and zero active repository
     // rows (mirrors `unlink`'s guard: deleting a link kills token minting for
     // its connected repos).
+    //
+    // NULL-creator links are NOT reaped (EXP-639): prod is backfilled, but
+    // the created_by FK is ON DELETE SET NULL, so a link's creator going
+    // through account deletion makes NULL creators reappear — that is a
+    // teammate's connection, not this user's residue. Owners keep the
+    // stale→Disconnect affordance for them (integrations.test.ts, "an owner
+    // may unlink a NULL-creator legacy link").
     try {
       // Ex-members (removed since launching the flow) reap nothing — the
       // links aren't theirs to touch anymore.
       const actingMember = await getTeamMember(actingUserId, teamId)
-      const actingIsOwner = actingMember?.role === `owner`
       const links = actingMember
         ? await db
         .select({
@@ -296,8 +299,7 @@ export async function handleCallback(request: Request): Promise<Response> {
         : []
       const candidates = links.filter(
         (link) =>
-          (link.createdByUserId === actingUserId ||
-            (link.createdByUserId == null && actingIsOwner)) &&
+          link.createdByUserId === actingUserId &&
           !controlledIds.has(link.installationId) &&
           !undeterminedIds.has(link.installationId) &&
           link.suspendedAt == null

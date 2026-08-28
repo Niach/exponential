@@ -617,7 +617,7 @@ impl CreateIssueDialogView {
                             .background_executor()
                             .spawn(async move {
                                 for (filename, content_type, bytes) in &staged_files {
-                                    if let Err(err) = transport.upload_file(
+                                    if let Err(err) = transport.upload(
                                         &upload_issue,
                                         filename,
                                         content_type,

@@ -85,9 +85,9 @@ vi.mock(`@/lib/auth/resolve-bearer`, () => ({
   resolveSessionUserId: () => resolveSessionUserId(),
 }))
 
-// EXP-557: the callback gates on plain membership (link path) and reads the
-// acting member's role for the reap's NULL-creator owner rule. Default: an
-// owner-member, overridden per test.
+// The callback gates on plain membership on both the link path and the reap
+// (an ex-member reaps nothing). Default: an owner-member, overridden per
+// test.
 const getTeamMember = vi.fn(
   async (): Promise<{ role: string } | undefined> => ({ role: `owner` })
 )
@@ -517,22 +517,11 @@ describe(`github OAuth callback — stale-link self-heal (EXP-365)`, () => {
     expect(deletedTables).not.toContain(`github_installation_links`)
   })
 
-  // EXP-557 (the EXP-556 prod bug): legacy links predate created_by_user_id,
-  // so the own-residue filter could never match them and the stale warning
-  // was permanent. An OWNER's re-auth now reaps NULL-creator links too; a
-  // plain member's never does.
-  it(`reaps a NULL-creator legacy link when the acting user is a team owner`, async () => {
-    selectRows[`github_installation_links`] = [
-      staleLink({ createdByUserId: null }),
-    ]
-
-    await handleCallback(callbackRequest(oauthState()))
-
-    expect(deletedTables).toContain(`github_installation_links`)
-  })
-
-  it(`never reaps a NULL-creator link for a plain member`, async () => {
-    getTeamMember.mockResolvedValue({ role: `member` })
+  // EXP-639: NULL creators are never this user's residue. The column is ON
+  // DELETE SET NULL, so a link whose creator deleted their account reads NULL
+  // while still being a teammate's live connection — owners disconnect those
+  // by hand from the stale card instead.
+  it(`never reaps a NULL-creator link, not even for an owner`, async () => {
     selectRows[`github_installation_links`] = [
       staleLink({ createdByUserId: null }),
     ]

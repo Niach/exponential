@@ -197,7 +197,8 @@ describe(`deviceIsMine`, () => {
 import {
   composeDeviceList,
   defaultDeviceId,
-  deviceCanResume,
+  deviceAgentIds,
+  deviceHasRunnableAgent,
   deviceRowIsOnline,
   resumeWorktree,
   steerDeviceFromRow,
@@ -263,13 +264,13 @@ describe(`steerDeviceFromRow`, () => {
       deviceId: `dev-1`,
       deviceLabel: `buildbox`,
       kind: `server`,
+      platform: `linux`,
       online: true,
       registered: true,
       updateRequested: true,
       updateBlocked: true,
     })
     expect(mapped.owner).toBeUndefined()
-    expect(deviceCanResume(mapped)).toBe(true)
   })
 
   it(`marks a stale row offline and never blocks without an update request`, () => {
@@ -475,9 +476,20 @@ describe(`resumeWorktree`, () => {
   })
 })
 
-describe(`deviceCanResume`, () => {
-  it(`is strict on the cap`, () => {
-    expect(deviceCanResume(server())).toBe(false)
-    expect(deviceCanResume(server({ caps: [`resume`] }))).toBe(true)
+// EXP-639: the registered row is the ONE advertisement — an absent `agents`
+// list is a row that advertises nothing, never the old claude-only fallback.
+describe(`deviceAgentIds`, () => {
+  it(`never falls back to claude and drops unknown agent ids`, () => {
+    expect(deviceAgentIds(server())).toEqual([])
+    expect(deviceAgentIds(undefined)).toEqual([])
+    expect(deviceAgentIds(server({ agents: [] }))).toEqual([])
+    expect(deviceAgentIds(server({ agents: [`codex`, `nope`] }))).toEqual([
+      `codex`,
+    ])
+  })
+
+  it(`gates runnability on the same list`, () => {
+    expect(deviceHasRunnableAgent(server())).toBe(false)
+    expect(deviceHasRunnableAgent(server({ agents: [`claude`] }))).toBe(true)
   })
 })

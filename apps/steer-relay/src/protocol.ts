@@ -1,13 +1,11 @@
 // Steer relay wire protocol (masterplan §3.2; steering v2 = EXP-249).
 //
-// TEXT frames only: JSON control messages `{ t, ... }`. The binary PTY mirror
-// (opcode `0x01` + verbatim terminal bytes, the ring buffer, `resync`, viewer
-// `resize` and the `pty` join channel) was REMOVED in EXP-249 — it had zero
-// consumers, every client joins `channel: 'activity'`. Old desktops still push
-// binary output frames and `resize`; both are accepted-then-ignored so their
-// sessions keep working (`resize` stays IN the parser deliberately: a frame
-// that parses and hits an explicit no-op case is quieter than one that fails
-// the parse and takes the unknown-frame path).
+// TEXT frames only: JSON control messages `{ t, ... }`. A control socket
+// announces device presence (`online`); a publisher opens its room (`hello`)
+// and streams already-scrubbed `activity` events; a viewer `join`s the one
+// audience there is (`channel: 'activity'`) and steers it with `input` /
+// `answer` / `kill`. Anything else on the wire fails the parse and is
+// dropped.
 //
 // The relay is a dumb pipe with auth + ephemeral presence: it never parses
 // terminal escape codes and never persists anything.
@@ -20,78 +18,27 @@ export const onlineFrame = z.object({
   t: z.literal(`online`),
   deviceId: z.string().min(1).max(128),
   deviceLabel: z.string().max(255).optional(),
-  // EXP-201/EXP-409: the agent CLIs installed on the device
-  // (`claude`/`codex`/`pi`), runnable vs signed-out. ACCEPTED FROM OLD
-  // SENDERS ONLY — HEAD desktops and CLI daemons no longer advertise either
-  // list, because the web server reads the persisted `devices` row written by
-  // `devices.register` instead (EXP-485): that row survives relay restarts and
-  // changes without a re-dial. The schema keeps both fields so a pre-485
-  // sender's online frame still parses (a dropped online frame reads as an
-  // offline machine); the relay is a dumb pipe and never interprets them.
-  agents: z.array(z.string().min(1).max(32)).max(16).optional(),
-  // See `agents`: accepted from OLD senders, no longer advertised at HEAD.
-  unauthedAgents: z.array(z.string().min(1).max(32)).max(16).optional(),
-  // EXP-253: feature capabilities (`actions`). Same dumb-pipe stance — the
-  // web server interprets them. Absent (old desktop) ⇒ the hub defaults to
-  // [] and action starts to that device are refused server-side.
+  // EXP-253: feature capabilities (`actions`). The relay is a dumb pipe —
+  // the web server interprets them and strictly gates action starts on the
+  // capability.
   caps: z.array(z.string().min(1).max(32)).max(16).optional(),
-  // EXP-437: the machine's per-agent launch defaults. ACCEPTED FROM OLD
-  // SENDERS ONLY — HEAD desktops and CLI daemons no longer advertise them;
-  // the web server reads the persisted `devices` row instead (EXP-485).
-  // Same dumb-pipe stance while it lasts: bounded strings only,
-  // vocabulary-free (clients validate against the contract). Blank
-  // model/effort is meaningful ("CLI default"); booleans absent = false.
-  // `.catch(undefined)` so a malformed/oversized blob degrades to "no
-  // defaults" instead of failing the WHOLE online parse (a dropped online
-  // frame reads as an offline machine).
-  launchDefaults: z
-    .object({
-      defaultAgent: z.string().min(1).max(32).optional(),
-      agents: z
-        .record(
-          z.string().min(1).max(32),
-          z.object({
-            model: z.string().max(64).optional(),
-            effort: z.string().max(64).optional(),
-            ultracode: z.boolean().optional(),
-            planMode: z.boolean().optional(),
-            skipPermissions: z.boolean().optional(),
-          })
-        )
-        .refine((agents) => Object.keys(agents).length <= 16)
-        .optional(),
-    })
-    .optional()
-    .catch(undefined),
 })
-
-export type LaunchDefaults = NonNullable<z.infer<typeof onlineFrame>[`launchDefaults`]>
 
 export const helloFrame = z.object({
   t: z.literal(`hello`),
   sessionId: z.string().min(1).max(128),
   issueId: z.string().max(128).optional(),
-  // Geometry belonged to the removed PTY mirror — still accepted so old
-  // desktops' hello frames parse, but the hub ignores it.
-  cols: z.number().int().positive().max(1000).optional(),
-  rows: z.number().int().positive().max(1000).optional(),
-  // EXP-90: the removed public-activity feature's `activityPublic` flag may
-  // still arrive from older desktops — non-strict parsing ignores it.
+  // EXP-90: publishers still send the removed public-activity feature's
+  // `activityPublic: false` — non-strict parsing ignores it (do NOT add
+  // `.strict()` here).
 })
 
 export const joinFrame = z.object({
   t: z.literal(`join`),
-  // `activity` (the scrubbed member stream) is the ONLY audience. The legacy
-  // value is still parsed so a `pty`/absent join can be answered with an
-  // explicit `pty_removed` error instead of being silently dropped.
-  channel: z.enum([`pty`, `activity`]).optional(),
-})
-
-// Legacy PTY geometry from old desktops — parsed, then ignored by the hub.
-export const resizeFrame = z.object({
-  t: z.literal(`resize`),
-  cols: z.number().int().positive().max(1000),
-  rows: z.number().int().positive().max(1000),
+  // `activity` (the scrubbed member stream) is the ONLY audience, so the
+  // literal is REQUIRED, not an optional field: parsing is non-strict, and a
+  // dropped `channel` would silently admit any value a client sent.
+  channel: z.literal(`activity`),
 })
 
 export const inputFrame = z.object({
@@ -258,7 +205,6 @@ export const clientFrame = z.discriminatedUnion(`t`, [
   onlineFrame,
   helloFrame,
   joinFrame,
-  resizeFrame,
   inputFrame,
   answerFrame,
   killFrame,

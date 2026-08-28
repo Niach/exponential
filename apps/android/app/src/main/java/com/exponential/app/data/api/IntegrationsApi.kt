@@ -49,7 +49,6 @@ data class GithubStatusResult(
     val installed: Boolean = false,
     val installUrl: String? = null,
     val connectUrl: String? = null,
-    val accounts: List<String> = emptyList(),
     val installations: List<GithubInstallation> = emptyList(),
 )
 

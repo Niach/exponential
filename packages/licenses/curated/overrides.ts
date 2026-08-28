@@ -112,6 +112,51 @@ export const LICENCE_OVERRIDES: LicenceOverride[] = [
       `binaries that declare nothing at all. All ship under the Remotion ` +
       `License as part of the same distribution.`,
   },
+  {
+    scope: `desktop`,
+    name: `rio-vt`,
+    declared: `MIT`,
+    licenses: [`MIT`],
+    useTemplate: true,
+    copyright: [`Copyright (c) 2023-Present Raphael Amorim`],
+    reason:
+      `Checked 2026-08-28 (EXP-636 rio-vt migration): the crate tarball ships ` +
+      `no LICENSE file, so the collector fell back to the bare MIT template ` +
+      `with a placeholder copyright line. Upstream (github.com/raphamorim/rio, ` +
+      `LICENSE) is MIT, "Copyright (c) 2023-Present Raphael Amorim"; the ` +
+      `sibling rio-grapheme-width crate ships that exact line. MIT requires ` +
+      `carrying the notice, so it is restored here.`,
+  },
+  {
+    scope: `desktop`,
+    name: `rio-graphics`,
+    declared: `MIT`,
+    licenses: [`MIT`],
+    useTemplate: true,
+    copyright: [`Copyright (c) 2023-Present Raphael Amorim`],
+    reason:
+      `Checked 2026-08-28 (EXP-636 rio-vt migration): the crate tarball ships ` +
+      `no LICENSE file, so the collector fell back to the bare MIT template ` +
+      `with a placeholder copyright line. Upstream (github.com/raphamorim/rio, ` +
+      `LICENSE) is MIT, "Copyright (c) 2023-Present Raphael Amorim"; the ` +
+      `sibling rio-grapheme-width crate ships that exact line. MIT requires ` +
+      `carrying the notice, so it is restored here.`,
+  },
+  {
+    scope: `desktop`,
+    name: `rio-unicode`,
+    declared: `MIT`,
+    licenses: [`MIT`],
+    useTemplate: true,
+    copyright: [`Copyright (c) 2023-Present Raphael Amorim`],
+    reason:
+      `Checked 2026-08-28 (EXP-636 rio-vt migration): the crate tarball ships ` +
+      `no LICENSE file, so the collector fell back to the bare MIT template ` +
+      `with a placeholder copyright line. Upstream (github.com/raphamorim/rio, ` +
+      `LICENSE) is MIT, "Copyright (c) 2023-Present Raphael Amorim"; the ` +
+      `sibling rio-grapheme-width crate ships that exact line. MIT requires ` +
+      `carrying the notice, so it is restored here.`,
+  },
 ]
 
 /** Exact name first, then `*` prefixes, longest prefix wins. */

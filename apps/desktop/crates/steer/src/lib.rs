@@ -62,7 +62,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 
-pub use api::steer::{MintTicketResult, MintedTicket, SteerConfig, SteerDevice};
+pub use api::steer::{MintTicketResult, MintedTicket, SteerConfig};
 pub use control_channel::{
     spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity, RemoteStart,
     RemoteStartSubject, TrpcControlApi,

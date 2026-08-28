@@ -943,6 +943,11 @@ export function createSteerSessionStore(
           // in-flight redial (visible + online firing back to back) is left
           // to finish or hit its own deadline, while a redial whose socket
           // never opened still self-heals after the window.
+          // EXP-639: never for a run the synced row already calls ended — the
+          // publisher is gone, so the redial can only draw `no_such_session`
+          // and park the viewer in `starting` until the row syncs. Same rule
+          // the `closed` case above applies.
+          if (sessionStatus === `ended`) return
           if (Date.now() - Math.max(lastFrameAt, dialStartedAt) <= LIVE_STALE_MS)
             return
           clearRetryTimer()

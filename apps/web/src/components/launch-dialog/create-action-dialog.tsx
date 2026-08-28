@@ -23,8 +23,6 @@ import {
 import {
   defaultDeviceId,
   deviceAgentIds,
-  deviceCanRunActionInputs,
-  deviceCanRunActions,
   deviceDefaultAgent,
   deviceHasRunnableAgent,
   deviceIsOnline,
@@ -133,15 +131,10 @@ export function CreateActionDialog({
   const [automationModel, setAutomationModel] = useState(``)
   const [automationEffort, setAutomationEffort] = useState(``)
 
-  // The builtin always needs the action-inputs cap (same gate the launch
-  // dialog applies to it), so an outdated desktop can't be picked here.
+  // Same candidate rule as the launch dialog (EXP-639): online with a
+  // runnable agent — every build above the version floor can run the builtin.
   const candidateDevices = useMemo(
-    () =>
-      devices
-        .filter(deviceIsOnline)
-        .filter(deviceHasRunnableAgent)
-        .filter(deviceCanRunActions)
-        .filter(deviceCanRunActionInputs),
+    () => devices.filter(deviceIsOnline).filter(deviceHasRunnableAgent),
     [devices]
   )
 

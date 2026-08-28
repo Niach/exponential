@@ -3,16 +3,23 @@ import XCTest
 @testable import ExpCore
 
 // EXP-403: registry rows (the durable per-machine state, synced through the
-// devices shape) and `steer.myDevices` (presence only) decode into ONE
-// `SteerDevice`, mirroring apps/web/src/lib/steer-devices.ts. The registry
+// devices shape) and bare relay-presence rows decode into ONE `SteerDevice`,
+// mirroring apps/web/src/lib/steer-devices.ts. The registry
 // fields are all optional, so a presence row — which carries none — must read
 // as ONLINE: treating an absent `online` as offline would hide every start
 // affordance the moment an older server answers. EXP-432 adds the two sharing
 // fields on the same terms — both optional, both absent from an older server,
 // as does EXP-437's `launchDefaults` (the machine's own coding defaults).
+
+/// The rows always arrive wrapped in a `{ devices }` object, so the fixtures
+/// decode through one here.
+private struct Envelope: Decodable {
+    let devices: [SteerDevice]
+}
+
 final class SteerDeviceDecodingTests: XCTestCase {
-    private func decode(_ json: String) throws -> SteerDevicesResult {
-        try JSONDecoder().decode(SteerDevicesResult.self, from: Data(json.utf8))
+    private func decode(_ json: String) throws -> Envelope {
+        try JSONDecoder().decode(Envelope.self, from: Data(json.utf8))
     }
 
     func testDecodesRegistryRow() throws {

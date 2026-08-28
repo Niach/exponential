@@ -12,9 +12,10 @@
  * protocol (apps/steer-relay/src/protocol.ts) the way the real desktop does
  * (apps/desktop/crates/steer/{control_channel,publisher}.rs):
  *
- *   control socket    → one `online` frame, so `steer.myDevices` returns a
- *                       device and the Start-coding dialog opens with a real
- *                       picker. Inbound `start_session` is logged and ignored:
+ *   control socket    → one `online` frame, so the relay holds the device
+ *                       present for remote starts (the picker itself reads
+ *                       the synced `devices` row heartbeated below).
+ *                       Inbound `start_session` is logged and ignored:
  *                       the screenshot opens the dialog and cancels.
  *   publisher socket  → `hello` + `activity_reset` + a scripted activity feed
  *                       for the seeded running session, ending on an UNANSWERED
@@ -50,7 +51,9 @@ import {
 } from "./screenshot-demo"
 
 // >1 agent so the sheet renders its agent pill strip; the caps are the ones a
-// real desktop advertises (see crates/ui/src/steer_wiring.rs).
+// real desktop advertises (see crates/ui/src/steer_wiring.rs). Since EXP-485
+// the agents advertisement rides the registered devices ROW, not the relay
+// online frame.
 const AGENTS = [`claude`, `codex`, `pi`]
 // `resume-run` (EXP-637) is advertised by every real desktop and is what makes
 // the seed's ended runs resumable — without it "Recent runs" renders, but the
@@ -340,7 +343,6 @@ async function main() {
         t: `online`,
         deviceId: DEMO_DEVICE_ID,
         deviceLabel: DEMO_DEVICE_LABEL,
-        agents: AGENTS,
         caps: CAPS,
       }),
     onFrame: (frame) => {

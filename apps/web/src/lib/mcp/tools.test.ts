@@ -29,7 +29,13 @@ const h = vi.hoisted(() => {
       update: vi.fn(),
       delete: vi.fn(),
     },
-    issues: { prFiles: vi.fn(), retargetPr: vi.fn(), update: vi.fn() },
+    issues: {
+      prFiles: vi.fn(),
+      retargetPr: vi.fn(),
+      update: vi.fn(),
+      // EXP-639: the issue path of exponential_pr_merge.
+      mergePr: vi.fn(),
+    },
     boards: { delete: vi.fn(), setRepository: vi.fn() },
     teams: { create: vi.fn(), update: vi.fn() },
     teamInvites: { create: vi.fn(), list: vi.fn(), revoke: vi.fn() },
@@ -38,7 +44,6 @@ const h = vi.hoisted(() => {
     statuses: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     automations: { list: vi.fn(), update: vi.fn(), delete: vi.fn() },
     steer: { killSession: vi.fn(), startSession: vi.fn() },
-    devices: { list: vi.fn() },
     helpdesk: {
       listThreads: vi.fn(),
       getThread: vi.fn(),
@@ -583,51 +588,6 @@ const descriptors: Array<Descriptor> = [
     },
     expected: { ok: true, id: RUN, status: `ended`, endedAt: null },
     calledWith: { codingSessionId: RUN },
-  },
-  {
-    tool: `exponential_devices_list`,
-    pick: () => caller.devices.list,
-    args: { teamId: WS },
-    resolved: {
-      devices: [
-        {
-          deviceId: `mac-1`,
-          deviceLabel: `Mac`,
-          kind: `desktop`,
-          platform: `macos`,
-          online: true,
-          lastSeenAt: `2026-08-28T00:00:00.000Z`,
-          agents: [`claude`],
-          unauthedAgents: [],
-          caps: [`actions`],
-          version: `1.2.3`,
-          sharedTeamId: null,
-          isDefault: true,
-          launchDefaults: { agents: {} },
-          registered: true,
-          updateRequested: false,
-          updateBlocked: false,
-        },
-      ],
-      latestVersions: { desktop: null, cli: null },
-    },
-    expected: [
-      {
-        deviceId: `mac-1`,
-        label: `Mac`,
-        kind: `desktop`,
-        platform: `macos`,
-        online: true,
-        lastSeenAt: `2026-08-28T00:00:00.000Z`,
-        agents: [`claude`],
-        unauthedAgents: [],
-        caps: [`actions`],
-        version: `1.2.3`,
-        sharedTeamId: null,
-        isDefault: true,
-      },
-    ],
-    calledWith: { teamId: WS },
   },
   // ── EXP-660: helpdesk (registered under the default gates) ──
   {
@@ -1366,7 +1326,12 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
     expect(caller.repositories.mergePull).not.toHaveBeenCalled()
   })
 
-  it(`stamps merged_own_pr on the header session BEFORE merging (decision 6)`, async () => {
+  // Records every db.update() the tool makes: the stamp and, when the merge
+  // did not land, its revert.
+  function captureUpdates(): Array<{
+    set: Record<string, unknown>
+    where: unknown
+  }> {
     const updates: Array<{ set: Record<string, unknown>; where: unknown }> = []
     db.update.mockImplementation(() => ({
       set: (values: Record<string, unknown>) => ({
@@ -1375,15 +1340,42 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
         },
       }),
     }))
-    dbRows.current = [
-      {
-        id: SESSION,
-        teamId: WS,
-        status: `in_review`,
-        userId: `user-1`,
-        hostUserId: null,
-      },
-    ]
+    return updates
+  }
+
+  // The drizzle stub serves ONE row set per await, so stage the tool's reads
+  // in call order: 1 = the header session (loadCallerSession), 2 = the issues
+  // it was asked to merge.
+  function stageSelects(staged: Array<Array<unknown>>): () => void {
+    const builder = db.select()
+    db.select.mockClear()
+    let call = 0
+    db.select.mockImplementation(() => {
+      dbRows.current = staged[call] ?? []
+      call += 1
+      return builder
+    })
+    return () => db.select.mockImplementation(() => builder)
+  }
+
+  const runRow = (over: Record<string, unknown> = {}) => ({
+    id: SESSION,
+    teamId: WS,
+    issueId: null,
+    branch: null,
+    status: `in_review`,
+    needsInput: false,
+    mergedOwnPr: false,
+    userId: `user-1`,
+    hostUserId: null,
+    ...over,
+  })
+
+  it(`stamps merged_own_pr on the header session BEFORE merging (decision 6)`, async () => {
+    const updates = captureUpdates()
+    // An issue-less run parked on the chore branch it opened the PR from —
+    // the only row shape the branch-keyed merge sweep can reach.
+    dbRows.current = [runRow({ branch: `exp/chore-1a2b3c4d` })]
     caller.repositories.mergePull.mockResolvedValue({ merged: true })
 
     await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({
@@ -1403,15 +1395,42 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
     expect(params).toContain(SESSION)
   })
 
+  it(`spares nothing when an ISSUE run lands a chore PR (EXP-639)`, async () => {
+    const updates = captureUpdates()
+    dbRows.current = [runRow({ issueId: UUID })]
+    caller.repositories.mergePull.mockResolvedValue({ merged: true })
+
+    await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({
+      repositoryId: REPO,
+      prNumber: 9,
+    })
+
+    expect(caller.repositories.mergePull).toHaveBeenCalled()
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`reverts the stamp when the chore merge fails (EXP-639)`, async () => {
+    const updates = captureUpdates()
+    dbRows.current = [runRow({ branch: `exp/chore-1a2b3c4d` })]
+    caller.repositories.mergePull.mockRejectedValue(
+      new TRPCError({ code: `PRECONDITION_FAILED`, message: `not mergeable` })
+    )
+
+    const result = await collectTools(USER, SESSION).get(
+      `exponential_pr_merge`
+    )!({ repositoryId: REPO, prNumber: 9 })
+
+    expect(result.isError).toBe(true)
+    expect(updates).toHaveLength(2)
+    expect(updates[1]!.set).toMatchObject({
+      mergedOwnPr: false,
+      status: `in_review`,
+      needsInput: false,
+    })
+  })
+
   it(`stamps nothing without a header session`, async () => {
-    const updates: Array<{ set: Record<string, unknown> }> = []
-    db.update.mockImplementation(() => ({
-      set: (values: Record<string, unknown>) => ({
-        where: async () => {
-          updates.push({ set: values })
-        },
-      }),
-    }))
+    const updates = captureUpdates()
     caller.repositories.mergePull.mockResolvedValue({ merged: true })
 
     await collectTools(USER, null).get(`exponential_pr_merge`)!({
@@ -1420,6 +1439,135 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
     })
 
     expect(updates).toHaveLength(0)
+  })
+
+  // EXP-639: `merged_own_pr` is DURABLE — stamping it for a PR the run does
+  // not own would also spare the row from the later merge of its own PR, so
+  // the issue path matches the merged PR against the run's own issue/branch.
+  it(`stamps when the run merges the PR of its OWN issue`, async () => {
+    const updates = captureUpdates()
+    caller.issues.mergePr.mockResolvedValue({ merged: true })
+    const restore = stageSelects([
+      [runRow({ issueId: UUID })],
+      [
+        {
+          id: UUID,
+          identifier: `MET-1`,
+          prUrl: `https://github.com/acme/app/pull/9`,
+          branch: `exp/MET-1`,
+        },
+      ],
+    ])
+
+    try {
+      const result = await collectTools(USER, SESSION).get(
+        `exponential_pr_merge`
+      )!({ issueId: UUID })
+      expect(parseOk(result)).toMatchObject({
+        results: [{ issueId: UUID, identifier: `MET-1`, merged: true }],
+      })
+    } finally {
+      restore()
+    }
+
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.set).toMatchObject({
+      mergedOwnPr: true,
+      status: `running`,
+    })
+  })
+
+  it(`stamps when a BATCH run merges the PR on its own branch`, async () => {
+    const updates = captureUpdates()
+    caller.issues.mergePr.mockResolvedValue({ merged: true })
+    const restore = stageSelects([
+      [runRow({ branch: `exp/batch-1a2b3c4d` })],
+      [
+        {
+          id: UUID,
+          identifier: `MET-1`,
+          prUrl: `https://github.com/acme/app/pull/9`,
+          branch: `exp/batch-1a2b3c4d`,
+        },
+      ],
+    ])
+
+    try {
+      await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({
+        issueId: UUID,
+      })
+    } finally {
+      restore()
+    }
+
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.set).toMatchObject({ mergedOwnPr: true })
+  })
+
+  it(`stamps NOTHING when the run merges somebody else's PR`, async () => {
+    const updates = captureUpdates()
+    caller.issues.mergePr.mockResolvedValue({ merged: true })
+    const restore = stageSelects([
+      // A run on its own issue + branch, asked to land an unrelated PR.
+      [runRow({ issueId: RUN, branch: `exp/batch-1a2b3c4d` })],
+      [
+        {
+          id: UUID,
+          identifier: `MET-1`,
+          prUrl: `https://github.com/acme/app/pull/9`,
+          branch: `exp/MET-1`,
+        },
+      ],
+    ])
+
+    try {
+      await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({
+        issueId: UUID,
+      })
+    } finally {
+      restore()
+    }
+
+    expect(caller.issues.mergePr).toHaveBeenCalledWith({ issueId: UUID })
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`leaves the row untouched when its own merge fails`, async () => {
+    const updates = captureUpdates()
+    caller.issues.mergePr.mockRejectedValue(
+      new TRPCError({ code: `PRECONDITION_FAILED`, message: `not mergeable` })
+    )
+    const restore = stageSelects([
+      [runRow({ issueId: UUID })],
+      [
+        {
+          id: UUID,
+          identifier: `MET-1`,
+          prUrl: `https://github.com/acme/app/pull/9`,
+          branch: `exp/MET-1`,
+        },
+      ],
+    ])
+
+    try {
+      const result = await collectTools(USER, SESSION).get(
+        `exponential_pr_merge`
+      )!({ issueId: UUID })
+      // The per-item failure is a result, never a thrown call.
+      expect(parseOk(result)).toMatchObject({
+        results: [{ issueId: UUID, merged: false }],
+      })
+    } finally {
+      restore()
+    }
+
+    expect(updates).toHaveLength(2)
+    expect(updates[0]!.set).toMatchObject({ mergedOwnPr: true })
+    expect(updates[1]!.set).toMatchObject({
+      mergedOwnPr: false,
+      status: `in_review`,
+      needsInput: false,
+    })
   })
 })
 
@@ -1434,6 +1582,15 @@ const SCOPED_TO_WS: McpAccess = {
   full: false,
   fullTeamIds: new Set([WS]),
   grantedBoardIds: new Set(),
+  visibleTeamIds: new Set([WS]),
+}
+
+// EXP-639: a consent grant confined to ONE board of a team the connection can
+// otherwise see (the host team stays visible for label/member aux reads).
+const SCOPED_TO_BOARD: McpAccess = {
+  full: false,
+  fullTeamIds: new Set(),
+  grantedBoardIds: new Set([PROJ]),
   visibleTeamIds: new Set([WS]),
 }
 
@@ -1536,6 +1693,45 @@ describe(`exponential_sessions_list`, () => {
     expect(db.select).not.toHaveBeenCalled()
   })
 
+  // EXP-639: team visibility is what a board grant hands out for aux reads —
+  // never a licence to list the team's OTHER boards' runs.
+  it(`filters a board-confined grant down to that board, in SQL`, async () => {
+    dbRows.current = []
+    await collectTools(USER, null, ALL_MCP_TOOL_GATES, SCOPED_TO_BOARD).get(
+      `exponential_sessions_list`
+    )!({ teamId: WS, mine: false, limit: 50, offset: 0 })
+
+    const { sql, params } = renderWhere()
+    expect(sql).toContain(`"board_id" in`)
+    expect(params).toContain(PROJ)
+  })
+
+  it(`keeps a whole-team grant unfiltered, so issue-less runs still list`, async () => {
+    dbRows.current = []
+    await collectTools(USER, null, ALL_MCP_TOOL_GATES, SCOPED_TO_WS).get(
+      `exponential_sessions_list`
+    )!({ teamId: WS, mine: false, limit: 50, offset: 0 })
+
+    // A batch/action/chat row carries board_id NULL — a board predicate would
+    // drop it, so a full-team grant must not add one.
+    const { sql } = renderWhere()
+    expect(sql).not.toContain(`"board_id" in`)
+  })
+
+  it(`returns [] without a query when the grant covers nothing`, async () => {
+    const empty: McpAccess = {
+      full: false,
+      fullTeamIds: new Set(),
+      grantedBoardIds: new Set(),
+      visibleTeamIds: new Set([WS]),
+    }
+    const result = await collectTools(USER, null, ALL_MCP_TOOL_GATES, empty).get(
+      `exponential_sessions_list`
+    )!({ teamId: WS, mine: false, limit: 50, offset: 0 })
+    expect(parseOk(result)).toEqual([])
+    expect(db.select).not.toHaveBeenCalled()
+  })
+
   it(`denies a non-member and an ungranted team before querying`, async () => {
     membership.resolveTeamAccess.mockRejectedValue(
       new TRPCError({ code: `FORBIDDEN`, message: `not a member` })
@@ -1580,6 +1776,63 @@ describe(`exponential_sessions_get`, () => {
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`Session not found`)
   })
+
+  // EXP-639: the grant confines the caller's OWN runs too — a board-confined
+  // connection reading a sibling board's run is out of scope, not "mine".
+  it(`hides a sibling board's run from a board-confined grant`, async () => {
+    dbRows.current = [
+      { id: RUN, userId: `user-1`, teamId: WS, boardId: `other-board`, status: `running` },
+    ]
+    const result = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_BOARD
+    ).get(`exponential_sessions_get`)!({ id: RUN })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`Session not found`)
+  })
+
+  it(`serves the granted board's run`, async () => {
+    dbRows.current = [
+      { id: RUN, userId: `user-2`, teamId: WS, boardId: PROJ, status: `running` },
+    ]
+    const result = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_BOARD
+    ).get(`exponential_sessions_get`)!({ id: RUN })
+    expect(parseOk(result)).toMatchObject({ id: RUN })
+    expect(membership.resolveTeamAccess).toHaveBeenCalledWith(`user-1`, WS)
+  })
+
+  it(`needs a whole-team grant for an issue-less run`, async () => {
+    const issueLess = {
+      id: RUN,
+      userId: `user-1`,
+      teamId: WS,
+      boardId: null,
+      status: `running`,
+    }
+    dbRows.current = [issueLess]
+    const denied = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_BOARD
+    ).get(`exponential_sessions_get`)!({ id: RUN })
+    expect(denied.isError).toBe(true)
+
+    dbRows.current = [issueLess]
+    const allowed = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_WS
+    ).get(`exponential_sessions_get`)!({ id: RUN })
+    expect(parseOk(allowed)).toMatchObject({ id: RUN })
+  })
 })
 
 describe(`exponential_sessions_kill`, () => {
@@ -1604,12 +1857,115 @@ describe(`exponential_sessions_kill`, () => {
   })
 
   it(`checks the run's team against a scoped grant before delegating`, async () => {
-    dbRows.current = [{ teamId: PROJ }]
+    dbRows.current = [{ teamId: PROJ, boardId: null }]
     const result = await collectTools(USER, null, ALL_MCP_TOOL_GATES, SCOPED_TO_WS).get(
       `exponential_sessions_kill`
     )!({ id: UUID })
     expect(result.isError).toBe(true)
     expect(caller.steer.killSession).not.toHaveBeenCalled()
+  })
+
+  // EXP-639: same predicate as the read side — a visible team is not a
+  // licence to kill runs on its other boards.
+  it(`refuses a sibling board's run under a board-confined grant`, async () => {
+    dbRows.current = [{ teamId: WS, boardId: `other-board` }]
+    const denied = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_BOARD
+    ).get(`exponential_sessions_kill`)!({ id: UUID })
+    expect(denied.isError).toBe(true)
+    expect(caller.steer.killSession).not.toHaveBeenCalled()
+
+    caller.steer.killSession.mockResolvedValue({
+      session: { id: UUID, status: `ended`, endedAt: null },
+    })
+    dbRows.current = [{ teamId: WS, boardId: PROJ }]
+    const allowed = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_BOARD
+    ).get(`exponential_sessions_kill`)!({ id: UUID })
+    expect(parseOk(allowed)).toMatchObject({ ok: true, id: UUID })
+  })
+})
+
+// EXP-639: the tool reads the devices ROWS directly — `devices.list` (tRPC +
+// relay presence) is gone, so `online` is last_seen_at freshness against the
+// contract window, exactly like every synced client computes it.
+describe(`exponential_devices_list`, () => {
+  const deviceRow = (over: Record<string, unknown> = {}) => ({
+    id: `row-1`,
+    userId: `user-1`,
+    deviceId: `mac-1`,
+    label: `Mac`,
+    kind: `desktop`,
+    platform: `macos`,
+    version: `1.2.3`,
+    agents: [`claude`],
+    unauthedAgents: [],
+    caps: [`actions`, `resume-run`],
+    launchDefaults: null,
+    updateRequestedAt: null,
+    activeSessions: 0,
+    lastSeenAt: new Date(),
+    sharedTeamId: null,
+    isDefault: true,
+    ...over,
+  })
+
+  it(`projects the caller's own rows and derives online from last_seen_at`, async () => {
+    dbRows.current = [deviceRow()]
+    const result = await tool(`exponential_devices_list`)({})
+    expect(parseOk(result)).toEqual([
+      {
+        deviceId: `mac-1`,
+        label: `Mac`,
+        kind: `desktop`,
+        platform: `macos`,
+        online: true,
+        lastSeenAt: (dbRows.current[0] as { lastSeenAt: Date }).lastSeenAt.toISOString(),
+        agents: [`claude`],
+        unauthedAgents: [],
+        caps: [`actions`, `resume-run`],
+        version: `1.2.3`,
+        sharedTeamId: null,
+        isDefault: true,
+      },
+    ])
+    // No teamId ⇒ no shared join, so nothing is gated on team membership.
+    expect(membership.assertTeamMember).not.toHaveBeenCalled()
+  })
+
+  it(`reads a row past the window as offline`, async () => {
+    dbRows.current = [
+      deviceRow({ lastSeenAt: new Date(Date.now() - 10 * 60_000) }),
+    ]
+    const [device] = parseOk(
+      await tool(`exponential_devices_list`)({})
+    ) as Array<{ online: boolean }>
+    expect(device!.online).toBe(false)
+  })
+
+  it(`gates a teamId on both the OAuth grant and live membership`, async () => {
+    const scoped = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_WS
+    ).get(`exponential_devices_list`)!({ teamId: PROJ })
+    expect(scoped.isError).toBe(true)
+    expect(db.select).not.toHaveBeenCalled()
+
+    membership.assertTeamMember.mockRejectedValueOnce(
+      new TRPCError({ code: `FORBIDDEN`, message: `not a member` })
+    )
+    const denied = await tool(`exponential_devices_list`)({ teamId: WS })
+    expect(denied.isError).toBe(true)
+    expect(denied.content[0].text).toContain(`not a member`)
+    expect(db.select).not.toHaveBeenCalled()
   })
 })
 

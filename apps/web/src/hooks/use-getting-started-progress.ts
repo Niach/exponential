@@ -180,7 +180,7 @@ export function useGettingStartedProgress(
   // User-level, team-independent. The synced devices shape already carries
   // the caller's own rows (EXP-481) — "installed the app / ran the server
   // one-liner in another window" arrives as a live insert, so the old
-  // devices.list one-shot + focus listener is gone (EXP-485).
+  // one-shot tRPC fetch + focus listener is gone (EXP-485).
   const { data: deviceRows } = useLiveQuery((query) =>
     query.from({ d: deviceCollection })
   )

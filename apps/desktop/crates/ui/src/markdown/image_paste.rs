@@ -71,7 +71,7 @@ pub struct StagedImage {
     pub bytes: Arc<Vec<u8>>,
 }
 
-/// Response of the issue upload routes (`/files`, legacy `/images`).
+/// Response of the issue upload route (`POST /api/issues/{id}/files`).
 #[derive(Debug, Clone, Deserialize)]
 pub struct UploadedImage {
     pub id: String,
@@ -105,22 +105,12 @@ pub fn validate_image(content_type: &str, len: usize) -> Result<(), String> {
 /// fetch for rendering `/api/attachments/{id}` bytes (auth-gated). Object
 /// safety keeps the editor testable without a server.
 pub trait AttachmentTransport: Send + Sync {
-    /// Upload one image to an issue (atomic on the server; multipart `file`).
+    /// Upload one attachment to an issue — inline images and arbitrary files
+    /// alike ride the ONE route `POST /api/issues/{id}/files` (single-part
+    /// multipart `file`, atomic on the server, one response shape with
+    /// `width`/`height` null for non-images). The cap that applies is
+    /// [`max_upload_bytes_for`]; the error label follows the content type.
     fn upload(
-        &self,
-        issue_id: &str,
-        filename: &str,
-        content_type: &str,
-        bytes: &[u8],
-    ) -> anyhow::Result<UploadedImage>;
-
-    /// EXP-297: upload one ARBITRARY file to an issue —
-    /// `POST /api/issues/{id}/files`, same single-part multipart contract and
-    /// same response shape as [`Self::upload`] (`width`/`height` are null for
-    /// non-images). [`Self::upload`] posts here too since EXP-613 (the
-    /// legacy `/images` route stays server-side for old builds); the two
-    /// methods survive for their distinct size caps and error labels.
-    fn upload_file(
         &self,
         issue_id: &str,
         filename: &str,
@@ -179,16 +169,21 @@ impl HttpAttachmentTransport {
         }
     }
 
-    /// One multipart POST to an issue upload route (`/images` or `/files` —
-    /// identical request and response shapes, so both go through here).
+    /// One multipart POST to the issue upload route. The user-facing error
+    /// label follows the payload: an inline image is an "image", every other
+    /// content type a "file".
     fn post_multipart(
         &self,
         url: &str,
-        what: &str,
         filename: &str,
         content_type: &str,
         bytes: &[u8],
     ) -> anyhow::Result<UploadedImage> {
+        let what = if crate::issue_files::is_inline_image(Some(content_type)) {
+            "image"
+        } else {
+            "file"
+        };
         let boundary = format!("----ExpMarkdownEditor{}", new_draft_url().len() as u64 + rand_ish());
         let body = build_multipart(&boundary, filename, content_type, bytes);
         let response = self
@@ -248,21 +243,8 @@ impl AttachmentTransport for HttpAttachmentTransport {
         content_type: &str,
         bytes: &[u8],
     ) -> anyhow::Result<UploadedImage> {
-        // EXP-613: inline images ride the general /files route too — the
-        // legacy image-only /images route stays server-side for old builds.
         let url = format!("{}/api/issues/{issue_id}/files", self.base_url);
-        self.post_multipart(&url, "image", filename, content_type, bytes)
-    }
-
-    fn upload_file(
-        &self,
-        issue_id: &str,
-        filename: &str,
-        content_type: &str,
-        bytes: &[u8],
-    ) -> anyhow::Result<UploadedImage> {
-        let url = format!("{}/api/issues/{issue_id}/files", self.base_url);
-        self.post_multipart(&url, "file", filename, content_type, bytes)
+        self.post_multipart(&url, filename, content_type, bytes)
     }
 
     fn fetch(&self, url: &str) -> anyhow::Result<Vec<u8>> {
@@ -866,17 +848,17 @@ mod tests {
         assert!(request.contains("name=\"file\"; filename=\"a.png\""));
     }
 
-    // EXP-297: the files rail posts to `/files` — same multipart body, same
-    // response shape, `width`/`height` null for a non-image.
+    // EXP-297: a non-image rides the very same `/files` route — same
+    // multipart body, same response shape, `width`/`height` null for it.
     #[test]
-    fn upload_file_posts_to_the_files_route() {
+    fn file_upload_posts_to_the_files_route() {
         let (base, captured) = one_shot_server(
             200,
             r#"{"id":"att-2","url":"/api/attachments/att-2","filename":"report.pdf","contentType":"application/pdf","sizeBytes":4,"width":null,"height":null}"#,
         );
         let transport = HttpAttachmentTransport::new(&base, Arc::new(NullToken));
         let uploaded = transport
-            .upload_file("issue-1", "report.pdf", "application/pdf", b"PDF!")
+            .upload("issue-1", "report.pdf", "application/pdf", b"PDF!")
             .expect("upload");
         assert_eq!(uploaded.id, "att-2");
         assert_eq!(uploaded.width, None);
@@ -896,7 +878,7 @@ mod tests {
     // only say "status code 400".
     #[test]
     fn upload_failures_surface_the_server_message() {
-        // The real shape both upload routes emit: {"error": "<string>"}
+        // The real shape the upload route emits: {"error": "<string>"}
         // (errorToResponse in apps/web/src/lib/http-errors.ts).
         let (base, _captured) = one_shot_server(
             400,
@@ -904,7 +886,7 @@ mod tests {
         );
         let transport = HttpAttachmentTransport::new(&base, Arc::new(NullToken));
         let error = transport
-            .upload_file("issue-1", "big.zip", "application/zip", b"Z")
+            .upload("issue-1", "big.zip", "application/zip", b"Z")
             .unwrap_err()
             .to_string();
         assert!(error.contains("Files must be 50 MB or smaller"), "{error}");
@@ -918,7 +900,7 @@ mod tests {
         );
         let transport = HttpAttachmentTransport::new(&base, Arc::new(NullToken));
         let error = transport
-            .upload_file("issue-1", "big.zip", "application/zip", b"Z")
+            .upload("issue-1", "big.zip", "application/zip", b"Z")
             .unwrap_err()
             .to_string();
         assert!(error.contains("Team storage limit reached"), "{error}");

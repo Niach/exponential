@@ -523,6 +523,21 @@ describe(`live staleness (EXP-648)`, () => {
     store.dispose()
   })
 
+  // EXP-639: an ended run has no publisher left, so the silent redial can
+  // only draw `no_such_session` and park the viewer in `starting` until the
+  // row syncs. Same rule the `closed` case already applies.
+  it(`never redials a run the synced row already calls ended`, async () => {
+    const { store, sockets } = makeStore()
+    await goLive(store, sockets)
+    store.noteSessionStatus(`ended`)
+    await vi.advanceTimersByTimeAsync(45_100)
+    store.kick(`visible`)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sockets).toHaveLength(1)
+    expect(store.getSnapshot().phase.kind).toBe(`live`)
+    store.dispose()
+  })
+
   it(`a second kick during the silent redial does not double-dial`, async () => {
     const { store, sockets } = makeStore()
     await goLive(store, sockets)

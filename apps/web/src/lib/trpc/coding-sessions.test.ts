@@ -175,10 +175,7 @@ describe(`codingSessions.start — exactly-one-subject refine`, () => {
 
 describe(`codingSessions.start — issue path`, () => {
   it(`inserts with issueId + denormalized teamId/boardId after asserting membership`, async () => {
-    const result = await caller.start({
-      issueId: ISSUE_ID,
-      deviceLabel: `MacBook`,
-    })
+    const result = await caller.start({ issueId: ISSUE_ID })
 
     expect(h.getIssueTeamContext).toHaveBeenCalledWith(ISSUE_ID)
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, `ws-issue`)
@@ -216,10 +213,7 @@ describe(`codingSessions.start — issue path`, () => {
 
 describe(`codingSessions.start — batch path`, () => {
   it(`inserts with the teamId and NO issueId/boardId`, async () => {
-    const result = await caller.start({
-      teamId: TEAM_ID,
-      deviceLabel: `MacBook`,
-    })
+    const result = await caller.start({ teamId: TEAM_ID })
 
     // Membership is asserted against the given team.
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM_ID)
@@ -260,9 +254,10 @@ describe(`codingSessions.start — batch path`, () => {
     expect(inserts).toHaveLength(0)
   })
 
-  it(`nulls an omitted deviceLabel`, async () => {
+  it(`nulls the device stamp when no deviceId rides along`, async () => {
     await caller.start({ teamId: TEAM_ID })
 
+    expect(inserts[0]!.values.deviceId).toBeNull()
     expect(inserts[0]!.values.deviceLabel).toBeNull()
   })
 })
@@ -273,10 +268,7 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       { id: ACTION_ID, teamId: TEAM_ID, name: `Code review` },
     ])
 
-    const result = await caller.start({
-      actionId: ACTION_ID,
-      deviceLabel: `MacBook`,
-    })
+    const result = await caller.start({ actionId: ACTION_ID })
 
     // Membership is asserted against the ACTION's team, not client input.
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM_ID)
@@ -572,7 +564,6 @@ describe(`codingSessions — builtin create-action (EXP-257)`, () => {
     const result = await caller.start({
       actionId: BUILTIN_ID,
       teamId: TEAM_ID,
-      deviceLabel: `MacBook`,
     })
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM_ID)
     expect(inserts).toHaveLength(1)
@@ -629,7 +620,6 @@ describe(`codingSessions — builtin fix-conflicts (EXP-259)`, () => {
     const result = await caller.start({
       actionId: FIX_CONFLICTS_ID,
       teamId: TEAM_ID,
-      deviceLabel: `MacBook`,
     })
     expect(inserts).toHaveLength(1)
     expect(inserts[0]!.values).toMatchObject({
@@ -675,7 +665,6 @@ describe(`codingSessions — builtin chat (EXP-615)`, () => {
     const result = await caller.start({
       actionId: CHAT_ID,
       teamId: TEAM_ID,
-      deviceLabel: `MacBook`,
     })
     expect(inserts).toHaveLength(1)
     expect(inserts[0]!.values).toMatchObject({
@@ -813,7 +802,6 @@ describe(`codingSessions.start — shared-device attribution (EXP-432)`, () => {
       issueId: ISSUE_ID,
       deviceId: DEVICE_ID,
       startedById: REQUESTER,
-      deviceLabel: `build-box`,
     })
 
     // Both principals are checked against the session's team: the caller
@@ -977,19 +965,14 @@ describe(`codingSessions.start — shared-device attribution (EXP-432)`, () => {
 })
 
 // EXP-549: the session row carries the host machine's steer deviceId, and
-// its `device_label` snapshot prefers the registry row's label (the user's
-// RENAME) over the hostname the client stamps — resolved among the CALLER's
-// own device rows. Rows from clients that send no deviceId keep the old
-// hostname-only behaviour.
+// its `device_label` snapshot comes from the registry row's label (the user's
+// RENAME) — resolved among the CALLER's own device rows. EXP-639 dropped the
+// client-sent label, so no deviceId means no stamp at all.
 describe(`codingSessions — device stamp (EXP-549)`, () => {
   it(`start stamps deviceId and prefers the registry label over the sent hostname`, async () => {
     selectResults.push([{ label: `macbook` }])
 
-    await caller.start({
-      issueId: ISSUE_ID,
-      deviceId: DEVICE_ID,
-      deviceLabel: `MacBook-Pro-von-Danny.local`,
-    })
+    await caller.start({ issueId: ISSUE_ID, deviceId: DEVICE_ID })
 
     expect(whereShape(selectWheres[0])).toEqual([
       `col:user_id`,
@@ -1003,23 +986,19 @@ describe(`codingSessions — device stamp (EXP-549)`, () => {
     })
   })
 
-  it(`start keeps the sent label when the caller has no registry row for the device`, async () => {
+  it(`start stamps a NULL label when the caller has no registry row for the device`, async () => {
     selectResults.push([])
 
-    await caller.start({
-      teamId: TEAM_ID,
-      deviceId: DEVICE_ID,
-      deviceLabel: `fresh-box`,
-    })
+    await caller.start({ teamId: TEAM_ID, deviceId: DEVICE_ID })
 
     expect(inserts[0]!.values).toMatchObject({
       deviceId: DEVICE_ID,
-      deviceLabel: `fresh-box`,
+      deviceLabel: null,
     })
   })
 
-  it(`start without a deviceId stamps NULL — the label never rides alone (EXP-560)`, async () => {
-    await caller.start({ issueId: ISSUE_ID, deviceLabel: `old-host` })
+  it(`start without a deviceId stamps NULL and never probes the registry`, async () => {
+    await caller.start({ issueId: ISSUE_ID })
 
     expect(selectWheres).toHaveLength(0)
     expect(inserts[0]!.values).toMatchObject({
@@ -1035,7 +1014,6 @@ describe(`codingSessions — device stamp (EXP-549)`, () => {
     const result = await caller.heartbeat({
       id: SESSION_ID,
       deviceId: DEVICE_ID,
-      deviceLabel: `MacBook-Pro-von-Danny.local`,
     })
 
     expect(result).toEqual({ alive: true })
@@ -1222,6 +1200,9 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
   const RESUMED_FROM = `55555555-5555-4555-8555-555555555555`
 
   it(`stamps the branch on an action start`, async () => {
+    // 1 = the resume-link lookup (the predecessor still exists), 2 = the
+    // action row.
+    selectResults.push([{ id: RESUMED_FROM }])
     selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Refresh` }])
 
     await caller.start({
@@ -1234,6 +1215,35 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
       branch: `exp/refresh-1a2b3c4d`,
       resumedFromId: RESUMED_FROM,
     })
+  })
+
+  // EXP-639: `resumed_from_id` is a real FK and the 2h idle sweep DELETES
+  // stale running rows, so the desktop's run-registry record routinely names
+  // a session that is gone. Inserting it raw failed with a 23503 — a raw 500
+  // on the user's Resume click.
+  it(`stores NULL when the resumed-from run no longer exists`, async () => {
+    selectResults.push([]) // swept predecessor
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Refresh` }])
+
+    await caller.start({
+      actionId: ACTION_ID,
+      branch: `exp/refresh-1a2b3c4d`,
+      resumedFromId: RESUMED_FROM,
+    })
+
+    expect(inserts[0]!.values).toMatchObject({ resumedFromId: null })
+    // Scoped by id ONLY — the link is history, never authorization.
+    expect(whereShape(selectWheres[0])).toEqual([`col:id`, RESUMED_FROM])
+  })
+
+  it(`skips the lookup entirely without a resumedFromId`, async () => {
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Refresh` }])
+
+    await caller.start({ actionId: ACTION_ID })
+
+    expect(inserts[0]!.values).toMatchObject({ resumedFromId: null })
+    // Only the action lookup ran.
+    expect(selectWheres).toHaveLength(1)
   })
 
   it(`stamps the branch on a batch and a builtin start`, async () => {

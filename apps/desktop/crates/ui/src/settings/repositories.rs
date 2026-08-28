@@ -899,9 +899,9 @@ fn primary_status_line(status: Option<&GithubStatus>, cx: &gpui::App) -> impl In
             }));
     }
 
-    // EXP-558: the account names come off `installations[]` (which is decoded
-    // alongside and carries the same logins) — the flat `accounts` mirror is
-    // going away server-side.
+    // EXP-558: the account names come off `installations[]`, which carries
+    // the same logins — the flat `accounts` mirror the server used to send
+    // alongside is gone.
     let accounts: Vec<String> = status
         .installations
         .iter()

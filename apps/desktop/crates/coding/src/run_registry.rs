@@ -228,20 +228,70 @@ fn registry_path(data_dir: &Path) -> PathBuf {
     data_dir.join("runs.json")
 }
 
-fn load(data_dir: &Path) -> Vec<RunRecord> {
-    let Ok(raw) = std::fs::read_to_string(registry_path(data_dir)) else {
-        return Vec::new();
-    };
-    serde_json::from_str(&raw).unwrap_or_else(|err| {
-        log::warn!("run registry unreadable ({err}); starting empty");
-        Vec::new()
-    })
+/// The file split into what THIS build understands and what it does not.
+/// Parsing is PER ENTRY: the desktop app and the CLI daemon share one data
+/// dir and update independently, so a newer build widening [`RunKind`] (or
+/// the record shape) writes entries this one cannot deserialize — as a
+/// whole-file parse they would take every sibling record down with them, and
+/// the next `record()` would rewrite the file with its single entry. Unknown
+/// entries are instead carried verbatim through every load-modify-save, so an
+/// older host never deletes a newer host's records.
+#[derive(Default)]
+struct Registry {
+    records: Vec<RunRecord>,
+    unknown: Vec<serde_json::Value>,
 }
 
-fn save(data_dir: &Path, records: &[RunRecord]) {
+fn load_registry(data_dir: &Path) -> Registry {
+    let Ok(raw) = std::fs::read_to_string(registry_path(data_dir)) else {
+        return Registry::default();
+    };
+    let entries: Vec<serde_json::Value> = match serde_json::from_str(&raw) {
+        Ok(entries) => entries,
+        Err(err) => {
+            log::warn!("run registry unreadable ({err}); starting empty");
+            return Registry::default();
+        }
+    };
+    let mut registry = Registry::default();
+    for entry in entries {
+        match serde_json::from_value::<RunRecord>(entry.clone()) {
+            Ok(record) => registry.records.push(record),
+            Err(err) => {
+                log::debug!("run registry: keeping an entry this build cannot read ({err})");
+                registry.unknown.push(entry);
+            }
+        }
+    }
+    registry
+}
+
+fn load(data_dir: &Path) -> Vec<RunRecord> {
+    load_registry(data_dir).records
+}
+
+/// A field off an unknown entry — the only two this build reads out of one
+/// (the upsert key and the TTL key); everything else stays opaque.
+fn entry_session_id(entry: &serde_json::Value) -> Option<&str> {
+    entry.get("sessionId")?.as_str()
+}
+
+fn entry_recorded_at(entry: &serde_json::Value) -> Option<u64> {
+    entry.get("recordedAt")?.as_u64()
+}
+
+fn save(data_dir: &Path, registry: &Registry) {
     let path = registry_path(data_dir);
     let tmp = path.with_extension("json.tmp");
-    let Ok(json) = serde_json::to_string_pretty(records) else {
+    let mut entries: Vec<serde_json::Value> = Vec::with_capacity(registry.records.len());
+    for record in &registry.records {
+        let Ok(value) = serde_json::to_value(record) else {
+            return;
+        };
+        entries.push(value);
+    }
+    entries.extend(registry.unknown.iter().cloned());
+    let Ok(json) = serde_json::to_string_pretty(&entries) else {
         return;
     };
     let _ = std::fs::create_dir_all(data_dir);
@@ -254,11 +304,19 @@ fn save(data_dir: &Path, records: &[RunRecord]) {
 /// drop everything past the TTL in the same pass.
 pub fn record(data_dir: &Path, record: RunRecord) {
     let _guard = locked();
-    let mut records = load(data_dir);
+    let mut registry = load_registry(data_dir);
     let cutoff = now_secs().saturating_sub(TTL_SECS);
-    records.retain(|old| old.session_id != record.session_id && old.recorded_at >= cutoff);
-    records.push(record);
-    save(data_dir, &records);
+    registry
+        .records
+        .retain(|old| old.session_id != record.session_id && old.recorded_at >= cutoff);
+    // Unknown entries take the same upsert and TTL rules where they expose
+    // the two keys they ride on, and are kept untouched where they don't.
+    registry.unknown.retain(|entry| {
+        entry_session_id(entry) != Some(record.session_id.as_str())
+            && entry_recorded_at(entry).is_none_or(|at| at >= cutoff)
+    });
+    registry.records.push(record);
+    save(data_dir, &registry);
 }
 
 pub fn get(data_dir: &Path, session_id: &str) -> Option<RunRecord> {
@@ -293,11 +351,16 @@ pub fn latest_for_issue(
 
 pub fn remove(data_dir: &Path, session_id: &str) {
     let _guard = locked();
-    let mut records = load(data_dir);
-    let before = records.len();
-    records.retain(|record| record.session_id != session_id);
-    if records.len() != before {
-        save(data_dir, &records);
+    let mut registry = load_registry(data_dir);
+    let before = registry.records.len() + registry.unknown.len();
+    registry
+        .records
+        .retain(|record| record.session_id != session_id);
+    registry
+        .unknown
+        .retain(|entry| entry_session_id(entry) != Some(session_id));
+    if registry.records.len() + registry.unknown.len() != before {
+        save(data_dir, &registry);
     }
 }
 
@@ -556,6 +619,57 @@ mod tests {
         assert_eq!(records[0].issue_id, None);
         assert!(records[0].issues.is_empty());
         assert_eq!(records[0].display_name(), "Code review");
+    }
+
+    #[test]
+    fn an_entry_this_build_cannot_read_survives_a_write() {
+        // The desktop app and the CLI daemon share this file and update
+        // independently: an entry a NEWER build wrote (here a widened
+        // `RunKind`) must cost nothing but itself — its siblings still load,
+        // and the next write carries it through verbatim instead of the older
+        // host silently wiping every record it could not parse.
+        let dir = temp_dir("unknown-entry");
+        let now = now_secs();
+        let json = format!(
+            r#"[{{
+                "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"team",
+                "actionId":"act-1","actionName":"Code review","teamId":"ws-1",
+                "cwd":"/repos/owner/name.worktrees/code-review-1a2b3c4d",
+                "clone":"/repos/owner/name","repo":"owner/name","repositoryId":"repo-1",
+                "branch":"exp/code-review-1a2b3c4d","baseBranch":"main",
+                "claudeSessionId":"cs-1","model":"fable","effort":"high",
+                "ultracode":false,"skipPermissions":true,"recordedAt":{now}
+            }},{{
+                "sessionId":"sess-future","accountId":"acc-1","agent":"claude",
+                "kind":"someFutureKind","cwd":"/repos/owner/name",
+                "somethingNew":{{"deep":[1,2]}},"recordedAt":{now}
+            }}]"#
+        );
+        std::fs::write(registry_path(&dir), json).unwrap();
+
+        // The readable record loads; the other one is invisible to every read.
+        assert_eq!(load(&dir).len(), 1);
+        assert!(get(&dir, "sess-1").is_some());
+        assert_eq!(get(&dir, "sess-future"), None);
+
+        record(&dir, sample("sess-2"));
+        let entries: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(registry_path(&dir)).unwrap()).unwrap();
+        assert_eq!(entries.len(), 3, "the write kept both siblings");
+        let future = entries
+            .iter()
+            .find(|entry| entry["sessionId"] == "sess-future")
+            .expect("the unreadable entry survives a neighbour's write");
+        assert_eq!(future["kind"], "someFutureKind");
+        assert_eq!(future["somethingNew"]["deep"], serde_json::json!([1, 2]));
+        assert_eq!(load(&dir).len(), 2);
+
+        // It is still addressable by session id, so a removal reaches it.
+        remove(&dir, "sess-future");
+        let entries: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(registry_path(&dir)).unwrap()).unwrap();
+        assert_eq!(entries.len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

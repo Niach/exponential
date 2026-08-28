@@ -90,9 +90,9 @@ pub(crate) fn comment_attachments(comment_id: &str, cx: &App) -> Vec<Attachment>
 /// caller stamps the ids back onto its pending rows so a retry resumes where
 /// this left off instead of re-uploading.
 ///
-/// BLOCKING. Routing mirrors the Files rail: the five inline-image content
-/// types go to `/api/issues/{id}/images` (10 MB cap, enforced server-side),
-/// everything else to `/api/issues/{id}/files` (50 MB).
+/// BLOCKING. Everything posts to the one route `/api/issues/{id}/files`;
+/// the server applies the cap of the content type (10 MB for the five
+/// inline-image types, 50 MB for everything else).
 pub(crate) fn upload_pending_attachments(
     transport: &dyn AttachmentTransport,
     issue_id: &str,
@@ -108,13 +108,7 @@ pub(crate) fn upload_pending_attachments(
             filename,
             content_type,
             bytes,
-        )| {
-            if is_inline_image(Some(content_type.as_str())) {
-                transport.upload(issue_id, &filename, &content_type, &bytes)
-            } else {
-                transport.upload_file(issue_id, &filename, &content_type, &bytes)
-            }
-        });
+        )| transport.upload(issue_id, &filename, &content_type, &bytes));
         match result {
             Ok(row) => uploaded.push((item.key, row.id)),
             Err(error) => return (uploaded, Some(error.to_string())),

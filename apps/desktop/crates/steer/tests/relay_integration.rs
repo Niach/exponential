@@ -16,7 +16,6 @@
 //! * a joined viewer's `input` reaches the publisher's PTY-writer hook
 //!   (EXP-312 — steering is seamless and owner-only: no claim, no perm tier),
 //!   and an `answer` frame reaches the emitter seam instead (never the PTY);
-//! * a `pty`/channel-less join is refused with `pty_removed` (EXP-249);
 //! * viewer `kill` → publisher kill hook + clean `bye` → the relay closes the
 //!   room (`CLOSE_SESSION_ENDED` at the viewer);
 //! * a severed publisher socket (TCP proxy dropped) → re-mint → re-`hello`
@@ -547,7 +546,7 @@ fn full_protocol_flow_against_the_real_relay() {
         assert_eq!(start.plan_mode, Some(false));
     }
 
-    // ── Publisher: hello with true geometry, room goes live (§8.4) ────────
+    // ── Publisher: hello, room goes live (§8.4) ──────────────────────────
     let recorded = Arc::new(Recorded::default());
     let (answer_link, answers_rx) = AnswerLink::new();
     let handle = publish(
@@ -571,19 +570,6 @@ fn full_protocol_flow_against_the_real_relay() {
     let activity = handle.activity_sender();
     activity.send(ActivityEvent::narration("early-scrollback"));
     std::thread::sleep(Duration::from_millis(300)); // let the relay ingest
-
-    // ── A legacy join (no channel) is refused outright since EXP-249 ──────
-    let legacy = connect_viewer_on(&runtime, relay.port, r#"{"t":"join"}"#);
-    wait_for("pty_removed error", || {
-        legacy
-            .texts()
-            .iter()
-            .any(|text| text.contains(r#""code":"pty_removed""#))
-    });
-    assert!(
-        !legacy.texts().iter().any(|text| text.contains(r#""t":"activity""#)),
-        "a refused join must receive nothing"
-    );
 
     // ── Viewer join: the relay's own reset + replay of the log ────────────
     let viewer = connect_viewer(&runtime, relay.port);

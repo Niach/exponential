@@ -6,18 +6,16 @@
 // local settings.json converges), `device_worktrees` mirrors its worktree
 // inventory, and `device_commands` queues owner→device work (worktree
 // remove/prune) delivered on the heartbeat plus a best-effort relay
-// `check_in` nudge. `list` (tRPC + live relay presence merge) is retained
-// for OLD clients only — new clients read the shapes and derive online-ness
-// from last_seen_at freshness. Since EXP-485 `register` is the SOLE
-// agents/caps/unauthedAgents writer (the relay online frame no longer
-// advertises them).
+// `check_in` nudge. Clients read the shapes and derive online-ness from
+// last_seen_at freshness (EXP-639 retired the `list` procedure). Since
+// EXP-485 `register` is the SOLE agents/caps/unauthedAgents writer (the relay
+// online frame no longer advertises them).
 // EXP-432 bends the per-user rule exactly once: a server device may be SHARED
-// with one team (`shared_team_id`, owner-toggled via `setShared`), and a
-// team-scoped `list({teamId})` additionally returns teammates' shared rows so
-// members can remote-start on them.
+// with one team (`shared_team_id`, owner-toggled via `setShared`) so members
+// can remote-start on it.
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, desc, eq, ne, inArray, sql } from "drizzle-orm"
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import {
@@ -26,8 +24,6 @@ import {
   deviceLaunchDefaultsSchema,
   devices,
   deviceWorktrees,
-  teamMembers,
-  users,
   type DeviceAgentLaunchDefaults,
   type DeviceLaunchDefaults,
 } from "@/db/schema"
@@ -42,13 +38,7 @@ import {
   agentSupportsSkipPermissions,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
-import {
-  getSteerRelayConfig,
-  relayGetDevices,
-  relayPostNudge,
-  type SteerDevice,
-  type SteerLaunchDefaults,
-} from "@/lib/steer"
+import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 
 // Mirrors the relay's online-frame bounds (steer-relay protocol.ts): the
 // relay is a dumb pipe and the same strings land here via `register`.
@@ -125,49 +115,6 @@ function nudgeDevice(ownerId: string, deviceId: string): void {
 // compare on the echoed string; never `>`, no clock-skew semantics).
 function stampOf(value: Date | null): string | null {
   return value ? value.toISOString() : null
-}
-
-export type DeviceListEntry = {
-  deviceId: string
-  deviceLabel: string
-  kind: `desktop` | `server`
-  platform: string | null
-  // EXP-432: the team this device is shared with (null = private). Set on
-  // own rows too so the UI can badge them "Shared".
-  sharedTeamId: string | null
-  // EXP-432: set ONLY on teammates' shared rows — the device owner, for
-  // attribution in lists/pickers. Absent on the caller's own rows.
-  owner?: { id: string; name: string }
-  // Runnable agents (installed AND signed in since EXP-409). Persisted by
-  // devices.register — the registered row is the only source since EXP-485
-  // (the relay online frame no longer advertises them).
-  agents: string[]
-  // EXP-409: agents installed but signed out on the machine.
-  unauthedAgents: string[]
-  caps: string[]
-  // EXP-437/EXP-481: the machine's per-agent launch defaults off the
-  // server-authoritative row. Absent = never seeded; clients seed static
-  // contract defaults.
-  launchDefaults?: SteerLaunchDefaults
-  online: boolean
-  // ISO timestamp of the last register/heartbeat; null for a relay-only
-  // device that predates the registry (old desktop build).
-  lastSeenAt: string | null
-  registered: boolean
-  // The client's marketing version as of its last register; null for old
-  // builds that don't send one.
-  version: string | null
-  // An Update click is pending (set by requestUpdate, consumed when the
-  // device re-registers after acting on it).
-  updateRequested: boolean
-  // EXP-411: the pending request is parked behind live coding sessions on
-  // the machine — it applies once they close, and the rows say "Update
-  // queued" instead of spinning forever.
-  updateBlocked: boolean
-  // EXP-622: the caller's default machine — pickers prefill it when several
-  // are candidates. ALWAYS false on a teammate's shared row: the flag is
-  // that row owner's preference, never the caller's.
-  isDefault: boolean
 }
 
 export const devicesRouter = router({
@@ -737,183 +684,6 @@ export const devicesRouter = router({
       }
     }
   ),
-
-  // Optional `teamId` (EXP-432): additionally return teammates' server
-  // devices shared with that team. Old clients call with no input and get
-  // exactly the pre-EXP-432 own-devices behavior.
-  list: authedProcedure
-    .input(z.object({ teamId: z.string().uuid().optional() }).optional())
-    .query(async ({ ctx, input }): Promise<{
-    devices: DeviceListEntry[]
-    // Informational CLIENT_LATEST_VERSION_* values (null when unset) — the
-    // UI hints "update available" when a row's version compares below.
-    latestVersions: { desktop: string | null; cli: string | null }
-  }> => {
-    const teamId = input?.teamId
-    if (teamId) await assertTeamMember(ctx.session.user.id, teamId)
-
-    const rows = await ctx.db
-      .select()
-      .from(devices)
-      .where(eq(devices.userId, ctx.session.user.id))
-      .orderBy(desc(devices.lastSeenAt))
-
-    // Teammates' shared server devices (EXP-432). The team_members join
-    // drops ghost shares whose owner has since left the team — the share
-    // column survives membership changes, but an ex-member's box must
-    // neither list nor start.
-    const sharedRows = teamId
-      ? await ctx.db
-          .select({
-            device: devices,
-            ownerName: users.name,
-          })
-          .from(devices)
-          .innerJoin(users, eq(users.id, devices.userId))
-          .innerJoin(
-            teamMembers,
-            and(
-              eq(teamMembers.userId, devices.userId),
-              eq(teamMembers.teamId, teamId)
-            )
-          )
-          .where(
-            and(
-              eq(devices.sharedTeamId, teamId),
-              eq(devices.kind, `server`),
-              ne(devices.userId, ctx.session.user.id)
-            )
-          )
-          .orderBy(desc(devices.lastSeenAt))
-      : []
-
-    // Live relay presence is best-effort: a down relay must not blank the
-    // registry — everything just reads offline. Shared rows need their
-    // OWNER's presence bucket; fetch once per distinct owner.
-    const config = getSteerRelayConfig()
-    let live: SteerDevice[] = []
-    const liveByOwner = new Map<string, Map<string, SteerDevice>>()
-    if (config) {
-      try {
-        live = (await relayGetDevices(config, ctx.session.user.id)).devices
-      } catch {
-        live = []
-      }
-      const ownerIds = [...new Set(sharedRows.map((r) => r.device.userId))]
-      await Promise.all(
-        ownerIds.map(async (ownerId) => {
-          try {
-            const { devices: ownerLive } = await relayGetDevices(
-              config,
-              ownerId
-            )
-            liveByOwner.set(
-              ownerId,
-              new Map(ownerLive.map((d) => [d.deviceId, d]))
-            )
-          } catch {
-            // That owner's rows read offline.
-          }
-        })
-      )
-    }
-    const liveById = new Map(live.map((d) => [d.deviceId, d]))
-
-    // Relay-connected rows are demonstrably alive RIGHT NOW — advance their
-    // last_seen_at so a later disconnect shows "last seen" near the actual
-    // disconnect, not the process start. (Pre-EXP-481 desktops register once
-    // per control-channel start and never heartbeat; this write-on-observe
-    // keeps their timestamp honest while anyone is watching.) Throttled to
-    // rows staler than 60s since the shapes landed: devices is synced now,
-    // and an unthrottled bump per 15s poll would fan a no-op Electric update
-    // to every client of every member.
-    const observeCutoff = new Date(Date.now() - 60_000)
-    const observedOnline = rows
-      .filter(
-        (row) => liveById.has(row.deviceId) && row.lastSeenAt < observeCutoff
-      )
-      .map((row) => row.id)
-    if (observedOnline.length > 0) {
-      const now = new Date()
-      await ctx.db
-        .update(devices)
-        .set({ lastSeenAt: now, updatedAt: now })
-        .where(inArray(devices.id, observedOnline))
-      for (const row of rows) {
-        if (liveById.has(row.deviceId)) row.lastSeenAt = now
-      }
-    }
-
-    const entries: DeviceListEntry[] = rows.map((row) => {
-      const online = liveById.get(row.deviceId)
-      return {
-        deviceId: row.deviceId,
-        // The REGISTRY label is authoritative for registered rows — a
-        // rename must be visible immediately, online or not (the relay
-        // still holds the label the device advertised at connect time).
-        deviceLabel: row.label,
-        kind: row.kind === `server` ? `server` : `desktop`,
-        platform: row.platform,
-        // EXP-485: the registered row is the ONLY advertisement source —
-        // the relay frame no longer carries agents/defaults; relay presence
-        // feeds just the `online` flag (and the write-on-observe bump).
-        agents: row.agents,
-        unauthedAgents: row.unauthedAgents,
-        caps: row.caps,
-        launchDefaults:
-          (row.launchDefaults as SteerLaunchDefaults | null) ?? undefined,
-        online: Boolean(online),
-        lastSeenAt: row.lastSeenAt.toISOString(),
-        registered: true,
-        version: row.version,
-        updateRequested: Boolean(row.updateRequestedAt),
-        updateBlocked: Boolean(row.updateRequestedAt) && row.activeSessions > 0,
-        sharedTeamId: row.sharedTeamId,
-        isDefault: row.isDefault,
-      }
-    })
-
-    // Teammates' shared rows, appended AFTER own rows (stable UI grouping).
-    // Row-sourced like own rows; no write-on-observe — a server device
-    // heartbeats its own last_seen_at every 60s, and list() must not write
-    // other users' rows.
-    for (const { device: row, ownerName } of sharedRows) {
-      const online = liveByOwner.get(row.userId)?.get(row.deviceId)
-      entries.push({
-        deviceId: row.deviceId,
-        deviceLabel: row.label,
-        kind: `server`,
-        platform: row.platform,
-        agents: row.agents,
-        unauthedAgents: row.unauthedAgents,
-        caps: row.caps,
-        launchDefaults:
-          (row.launchDefaults as SteerLaunchDefaults | null) ?? undefined,
-        online: Boolean(online),
-        lastSeenAt: row.lastSeenAt.toISOString(),
-        registered: true,
-        version: row.version,
-        updateRequested: Boolean(row.updateRequestedAt),
-        updateBlocked: Boolean(row.updateRequestedAt) && row.activeSessions > 0,
-        sharedTeamId: row.sharedTeamId,
-        // The owner's own default, never the caller's — always false here.
-        isDefault: false,
-        owner: { id: row.userId, name: ownerName },
-      })
-    }
-
-    const payload = versionPayload() as Record<
-      string,
-      { latest: string | null }
-    >
-    return {
-      devices: entries,
-      latestVersions: {
-        desktop: payload.desktop?.latest ?? null,
-        cli: payload.cli?.latest ?? null,
-      },
-    }
-  }),
 
   // EXP-432: share/unshare one of the caller's SERVER devices with a team
   // they belong to (teamId: null clears the share). Sharing is the consent

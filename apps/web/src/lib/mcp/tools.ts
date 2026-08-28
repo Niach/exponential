@@ -16,6 +16,7 @@ import {
   isNotNull,
   isNull,
   lte,
+  ne,
   or,
   type SQL,
 } from "drizzle-orm"
@@ -26,6 +27,7 @@ import {
   automations,
   codingSessions,
   comments,
+  devices,
   issueLabels,
   issues,
   issueStatuses,
@@ -85,6 +87,7 @@ import {
   noteAgentIssueActivity,
   releasePrOpenClaim,
 } from "@/lib/integrations/pr-actor-claims"
+import { composeDeviceList } from "@/lib/steer-devices"
 import { escapeLikePattern } from "@/lib/like-pattern"
 import { buildRuntimeConfig } from "@/lib/runtime-config"
 import { createAgentBugReport } from "@/lib/widget/agent-report"
@@ -103,6 +106,7 @@ import {
   assertTeamVisible,
   filterVisibleTeamIds,
   isBoardGranted,
+  isTeamFullyGranted,
   isTeamVisible,
   type McpAccess,
 } from "./scope"
@@ -325,14 +329,25 @@ export function registerExponentialTools(
   async function loadCallerSession(): Promise<{
     id: string
     teamId: string | null
+    // EXP-639: what pr_merge needs to tell the run's OWN PR from any other —
+    // its issue, the branch pr_open stamped on it, and the state to restore
+    // when a merge it stamped for fails.
+    issueId: string | null
+    branch: string | null
     status: string
+    needsInput: boolean
+    mergedOwnPr: boolean
   } | null> {
     if (!sessionId) return null
     const [row] = await db
       .select({
         id: codingSessions.id,
         teamId: codingSessions.teamId,
+        issueId: codingSessions.issueId,
+        branch: codingSessions.branch,
         status: codingSessions.status,
+        needsInput: codingSessions.needsInput,
+        mergedOwnPr: codingSessions.mergedOwnPr,
         userId: codingSessions.userId,
         hostUserId: codingSessions.hostUserId,
       })
@@ -341,7 +356,30 @@ export function registerExponentialTools(
       .limit(1)
     if (!row) return null
     if (row.userId !== user.id && row.hostUserId !== user.id) return null
-    return { id: row.id, teamId: row.teamId, status: row.status }
+    return {
+      id: row.id,
+      teamId: row.teamId,
+      issueId: row.issueId ?? null,
+      branch: row.branch ?? null,
+      status: row.status,
+      needsInput: Boolean(row.needsInput),
+      mergedOwnPr: Boolean(row.mergedOwnPr),
+    }
+  }
+
+  // EXP-639: the grant predicate for ONE coding_sessions row, the row-level
+  // twin of the SQL filter exponential_sessions_list applies. An issue-less
+  // row (batch, action and chat runs carry board_id NULL) is reachable only
+  // under a whole-team grant — no board can vouch for it.
+  function isSessionGranted(row: {
+    teamId: string | null
+    boardId: string | null
+  }): boolean {
+    if (access.full) return true
+    if (!row.teamId) return false
+    return row.boardId
+      ? isBoardGranted(access, row.boardId, row.teamId)
+      : isTeamFullyGranted(access, row.teamId)
   }
 
   // Park the run that just opened a PR in `in_review` and stamp the PR's head
@@ -1631,14 +1669,38 @@ export function registerExponentialTools(
           throw new Error(`repositoryId and prNumber must be passed together`)
         }
 
-        // EXP-637 decision 6: a session that merges the PR it opened must
-        // survive its own merge. Stamp the durable spare BEFORE the merge, so
-        // every merge-driven end (this call's own in-tx sweep, GitHub's
-        // webhook, the outbound poller) skips the row. It ends later through
-        // exponential_sessions_end or its own exit. `running` is restored so
-        // the badge reads "coding" again instead of staying parked in review.
+        // EXP-637 decision 6, corrected in EXP-639. A run that merges the PR
+        // IT opened must survive its own merge: the durable `merged_own_pr`
+        // spare filters every merge-driven end (this call's in-tx sweep,
+        // GitHub's webhook, the outbound poller), and the run ends later
+        // through exponential_sessions_end or its own exit. `running` is
+        // restored with it so the badge reads "coding" again instead of
+        // staying parked in review. Two rules the first cut missed:
+        //   * ONLY the run's OWN PR may stamp it. The column is durable, so
+        //     stamping it while landing a teammate's PR would also spare the
+        //     row from the later merge of its own PR — a run nothing ends.
+        //   * A merge that never happened may not leave the stamp (nor the
+        //     in_review → running flip) behind.
+        // The ORDER is forced by the issue path: issues.mergePr runs
+        // applyPrMergeState in the SAME call and that in-tx sweep filters on
+        // `merged_own_pr = false`, so the stamp has to be committed BEFORE
+        // the merge or the run is ended by its own success. Hence
+        // stamp-then-merge behind the own-PR check, reverted when the merge
+        // it was stamped for does not land.
         const callerSession = await loadCallerSession()
-        if (callerSession && callerSession.status !== `ended`) {
+        const stampable =
+          callerSession &&
+          callerSession.status !== `ended` &&
+          !callerSession.mergedOwnPr
+            ? callerSession
+            : null
+        // The state to restore on revert (the stamp only ever applies to
+        // these two, and `ended` rows are excluded above).
+        const priorStatus =
+          stampable?.status === `in_review`
+            ? (`in_review` as const)
+            : (`running` as const)
+        const stampMergedOwnPr = async () => {
           await db
             .update(codingSessions)
             .set({
@@ -1649,8 +1711,29 @@ export function registerExponentialTools(
             })
             .where(
               and(
-                eq(codingSessions.id, callerSession.id),
+                eq(codingSessions.id, stampable!.id),
                 inArray(codingSessions.status, [`running`, `in_review`])
+              )
+            )
+        }
+        const revertMergedOwnPr = async () => {
+          // Put the row back exactly as it was, so the run is still ended by
+          // the merge it did NOT perform. Guarded on the stamp itself and on
+          // the status this call wrote — a concurrent kill or close-out is
+          // never resurrected.
+          await db
+            .update(codingSessions)
+            .set({
+              mergedOwnPr: false,
+              status: priorStatus,
+              needsInput: stampable!.needsInput,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(codingSessions.id, stampable!.id),
+                eq(codingSessions.mergedOwnPr, true),
+                eq(codingSessions.status, `running`)
               )
             )
         }
@@ -1659,10 +1742,27 @@ export function registerExponentialTools(
         // guards (membership, App config, installation link-gate) and the
         // merge itself; there is no issue row to sync.
         if (repositoryId) {
-          await caller(user, request).repositories.mergePull({
-            repositoryId,
-            prNumber: prNumber!,
-          })
+          // Own-PR test without a second GitHub round-trip: repositoryId +
+          // prNumber names no branch and the session row carries no PR url,
+          // but the ONLY merge-driven end that can reach an issue-less row is
+          // the webhook's endSessionsOnMergedBranch — keyed on the very
+          // `branch` exponential_pr_open stamped when it parked this run on
+          // the chore PR it opened. So the spare is for exactly that row
+          // shape: an issue-less run sitting on a branch of its own. An
+          // issue-scoped run landing a chore PR is never its own.
+          const ownChorePr = Boolean(
+            stampable && !stampable.issueId && stampable.branch
+          )
+          if (ownChorePr) await stampMergedOwnPr()
+          try {
+            await caller(user, request).repositories.mergePull({
+              repositoryId,
+              prNumber: prNumber!,
+            })
+          } catch (e) {
+            if (ownChorePr) await revertMergedOwnPr()
+            throw e
+          }
           return ok({
             results: [{ repositoryId, prNumber: prNumber!, merged: true }],
           })
@@ -1689,6 +1789,9 @@ export function registerExponentialTools(
             id: issues.id,
             identifier: issues.identifier,
             prUrl: issues.prUrl,
+            // EXP-639: the own-PR test below — a batch/chore run's row carries
+            // the head branch, its issues carry the same one.
+            branch: issues.branch,
           })
           .from(issues)
           .where(inArray(issues.id, ids))
@@ -1705,6 +1808,30 @@ export function registerExponentialTools(
           }
           targets.push({ id, identifier: row?.identifier ?? id })
         }
+
+        // The PR this run owns: the one on the issue it was launched on, or
+        // the one on the branch pr_open stamped on a batch/chore row. Matched
+        // over every REQUESTED issue rather than the deduped targets, so a
+        // batch PR still counts when a sibling issue ended up representing
+        // it; a target then owns the merge when it carries that same prUrl.
+        const ownPrUrls = new Set<string>()
+        if (stampable) {
+          for (const row of rows) {
+            const own =
+              row.id === stampable.issueId ||
+              (stampable.branch !== null && row.branch === stampable.branch)
+            if (own && row.prUrl) ownPrUrls.add(row.prUrl)
+          }
+        }
+        const ownTargetIds = new Set(
+          targets
+            .filter((target) => {
+              const prUrl = rowById.get(target.id)?.prUrl
+              return Boolean(prUrl && ownPrUrls.has(prUrl))
+            })
+            .map((target) => target.id)
+        )
+        if (ownTargetIds.size > 0) await stampMergedOwnPr()
 
         // The tRPC mutation owns the guards (open-state, repo-from-prUrl,
         // installation link-gate) and the shared applyPrMergeState writer.
@@ -1731,6 +1858,16 @@ export function registerExponentialTools(
               error: e instanceof Error ? e.message : String(e),
             })
           }
+        }
+        // Only a merge that actually landed earns the spare — an unmergeable
+        // PR leaves the row exactly as this call found it.
+        if (
+          ownTargetIds.size > 0 &&
+          !results.some(
+            (result) => result.merged && ownTargetIds.has(result.issueId)
+          )
+        ) {
+          await revertMergedOwnPr()
         }
         return ok({ results })
       } catch (e) {
@@ -1833,6 +1970,29 @@ export function registerExponentialTools(
           teamIds = filterVisibleTeamIds(access, await getUserTeamIds(user.id))
           if (teamIds.length === 0) return ok([])
         }
+        // EXP-639: a board-confined grant sees THAT board's runs, not the
+        // team's other boards' — team visibility alone is the host-team
+        // read the grant hands out for aux lookups, never a licence to list.
+        // Same SQL-side shape as exponential_notifications_list: granted
+        // boards OR whole-team grants, filtered BEFORE limit/offset (a
+        // post-limit JS filter under-fills pages and makes offset skip
+        // in-scope rows). Issue-less rows (board_id NULL: batch, action and
+        // chat runs) count only under a whole-team grant.
+        let grantFilter: SQL | undefined
+        if (!access.full) {
+          const grantedBoardIds = [...access.grantedBoardIds]
+          const fullTeamIds = [...access.fullTeamIds]
+          const grantClauses = [
+            ...(grantedBoardIds.length > 0
+              ? [inArray(codingSessions.boardId, grantedBoardIds)]
+              : []),
+            ...(fullTeamIds.length > 0
+              ? [inArray(codingSessions.teamId, fullTeamIds)]
+              : []),
+          ]
+          if (grantClauses.length === 0) return ok([])
+          grantFilter = or(...grantClauses)!
+        }
         const rows = await db
           .select(sessionColumns)
           .from(codingSessions)
@@ -1842,6 +2002,7 @@ export function registerExponentialTools(
               inArray(codingSessions.teamId, teamIds),
               isNull(codingSessions.boardDeletedAt),
               isNull(codingSessions.boardArchivedAt),
+              grantFilter,
               status ? eq(codingSessions.status, status) : undefined,
               mine
                 ? or(
@@ -1882,9 +2043,13 @@ export function registerExponentialTools(
           )
           .limit(1)
         if (!row) throw new Error(`Session not found`)
+        // EXP-639: the grant confines every read, the caller's OWN runs
+        // included — a connection consented to one board must not read the
+        // run its teammate (or it, from another client) started on a sibling
+        // board. Denied reads as not-found, like a trashed board's row.
+        if (!isSessionGranted(row)) throw new Error(`Session not found`)
         if (row.userId !== user.id) {
           if (!row.teamId) throw new Error(`Session not found`)
-          assertTeamVisible(access, row.teamId)
           await resolveTeamAccess(user.id, row.teamId)
         }
         return ok(row)
@@ -1911,13 +2076,19 @@ export function registerExponentialTools(
           )
         }
         if (!access.full) {
+          // Same grant predicate as the read side (EXP-639): killing a run
+          // on a board this connection was never granted is out of scope,
+          // even inside a team it can otherwise see.
           const [row] = await db
-            .select({ teamId: codingSessions.teamId })
+            .select({
+              teamId: codingSessions.teamId,
+              boardId: codingSessions.boardId,
+            })
             .from(codingSessions)
             .where(eq(codingSessions.id, id))
             .limit(1)
           if (!row) throw new Error(`Session not found`)
-          if (row.teamId) assertTeamVisible(access, row.teamId)
+          if (!isSessionGranted(row)) throw new Error(`Session not found`)
         }
         // Owner-or-host, idempotency and the best-effort relay kill all live
         // in steer.killSession; its row is projected — never returned raw.
@@ -2071,23 +2242,71 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_devices_list`,
     {
-      description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include actions for action runs and resume-run for resumes.`,
+      description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended run.`,
       inputSchema: { teamId: uuidString.optional() },
     },
     async ({ teamId }) => {
       try {
         // Shared rows name teammates' machines and agents — team-level
-        // operational data, gated like actions_list.
-        if (teamId) assertTeamFullyGranted(access, teamId)
-        const result = await caller(user, request).devices.list(
-          teamId ? { teamId } : undefined
+        // operational data, gated like actions_list, and readable only by a
+        // member of that team.
+        if (teamId) {
+          assertTeamFullyGranted(access, teamId)
+          await assertTeamMember(user.id, teamId)
+        }
+
+        const ownRows = await db
+          .select()
+          .from(devices)
+          .where(eq(devices.userId, user.id))
+
+        // Teammates' server devices shared with the team (EXP-432). The
+        // team_members join drops ghost shares whose owner has since left
+        // the team — the share column survives membership changes, but an
+        // ex-member's box must neither list nor start.
+        const sharedRows = teamId
+          ? await db
+              .select({ device: devices, ownerName: users.name })
+              .from(devices)
+              .innerJoin(users, eq(users.id, devices.userId))
+              .innerJoin(
+                teamMembers,
+                and(
+                  eq(teamMembers.userId, devices.userId),
+                  eq(teamMembers.teamId, teamId)
+                )
+              )
+              .where(
+                and(
+                  eq(devices.sharedTeamId, teamId),
+                  eq(devices.kind, `server`),
+                  ne(devices.userId, user.id)
+                )
+              )
+          : []
+
+        const ownerNames = new Map(
+          sharedRows.map((row) => [
+            row.device.userId,
+            { id: row.device.userId, name: row.ownerName },
+          ])
         )
+        // `online` is last_seen_at freshness (contract onlineWindowSeconds),
+        // not relay presence — the same rule every synced client applies.
+        const list = composeDeviceList(
+          [...ownRows, ...sharedRows.map((row) => row.device)],
+          ownerNames,
+          new Date(),
+          user.id,
+          teamId
+        )
+
         return ok(
-          result.devices.map((device) => ({
+          list.map((device) => ({
             deviceId: device.deviceId,
             label: device.deviceLabel,
             kind: device.kind,
-            platform: device.platform,
+            platform: device.platform ?? null,
             online: device.online,
             lastSeenAt: device.lastSeenAt,
             agents: device.agents,
