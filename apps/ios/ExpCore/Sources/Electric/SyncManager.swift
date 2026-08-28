@@ -18,24 +18,22 @@ public final class SyncManager: @unchecked Sendable {
 
     private let lock = NSLock()
     private var pipelines: [String: [Task<Void, Never>]] = [:]
+    // EXP-656: the URLSession each account's 19 shapes share, so a park can
+    // `invalidateAndCancel()` it (which is what actually kills the in-flight
+    // long-polls and drops their sockets) and a relaunch can invalidate the
+    // one it replaces — every restart used to build a new session and leak the
+    // old one, holding its zombie connections open.
+    private var sessions: [String: URLSession] = [:]
     private var observationTask: Task<Void, Never>?
     // Accounts with a resync in flight — a concurrent second resync would
     // relaunch the pipeline and overwrite `pipelines[accountId]`, orphaning
     // 18 uncancellable shape Tasks (duplicate long-polls racing the wipe).
     private var resyncing: Set<String> = []
-    // When the scene last left the foreground, and when the last all-account
-    // restart ran. Both lock-guarded like everything else here: the scene
+    // Parked-ness + the last all-account restart stamp, as the pure rule in
+    // SyncLifecycle.swift. Lock-guarded like everything else here: the scene
     // callbacks arrive on the main actor while the restart itself runs off it.
-    private var enteredBackgroundAt: Date?
-    private var lastRestartAllAt: Date?
+    private var lifecycle = SyncLifecycleState()
 
-    /// How long the app must have been backgrounded before returning to the
-    /// foreground is worth a pipeline restart. Short suspensions keep their
-    /// sockets alive and cost nothing to ride out; the payoff is REAL
-    /// suspensions, where every shape comes back either parked on escalated
-    /// backoff (up to 30s) or holding a zombie socket that won't fail until the
-    /// 90s request timeout.
-    private static let minBackgroundForRestart: TimeInterval = 10
     /// Floor between all-account restarts. Waking up and regaining the network
     /// co-fire on resume (the path monitor reports the transition just as the
     /// scene activates) — collapse the pair into one restart.
@@ -86,6 +84,7 @@ public final class SyncManager: @unchecked Sendable {
         // Settings.
         let tasks = lock.withLock { pipelines.removeValue(forKey: accountId) ?? [] }
         for task in tasks { task.cancel() }
+        discardSession(accountId: accountId)
     }
 
     /// Full local resync ("Resync now"): cancel the account's pipeline, purge
@@ -159,48 +158,99 @@ public final class SyncManager: @unchecked Sendable {
         launchPipeline(accountId: accountId, pool: pool)
     }
 
-    // MARK: - Wake / connectivity kicks (EXP-264)
+    // MARK: - Wake / connectivity kicks (EXP-264, EXP-656)
 
-    /// The scene left the foreground. Stamping the moment (rather than
-    /// restarting on every return) is what lets `sceneDidBecomeActive` tell a
-    /// real suspension from a permission-alert flicker.
+    /// The scene left the foreground: PARK, immediately (EXP-656). Every
+    /// account's shape tasks are cancelled and its session invalidated, so the
+    /// 19 long-polls are torn down instead of being carried into suspension on
+    /// sockets the OS then kills silently — the shape of the "stale for 5-10s
+    /// after coming back" report, and Electric's own client contract
+    /// (packages/electric-protocol/README.md §4).
+    ///
+    /// There is deliberately no grace window: a "park after N seconds" timer
+    /// runs on a clock that stops in deep sleep, so on the phones that need it
+    /// most it never fires at all.
     public func sceneDidEnterBackground() {
-        lock.withLock { enteredBackgroundAt = Date() }
+        let action = lock.withLock { () -> SyncLifecycleAction in
+            let outcome = lifecycle.onBackground()
+            lifecycle = outcome.state
+            return outcome.action
+        }
+        guard action == .park else { return }
+        parkPipelines()
     }
 
-    /// The scene became active again. Reads AND clears the background stamp: a
-    /// nil stamp means a cold launch (or an `.inactive`-only flip that never
-    /// reached `.background`), where the pipelines are already fresh and a
-    /// restart would only throw away the snapshot that is landing.
+    /// The scene became active again. A parked manager relaunches every
+    /// signed-in account right away on a FRESH session — no drain sleep (there
+    /// is nothing in flight to drain: the park cancelled it) and no restart
+    /// floor, since the user is waiting on exactly this. Every fresh `run()`
+    /// starts with `confirmFreshness = true`, so the resume is a non-live
+    /// catch-up poll per shape by construction.
     public func sceneDidBecomeActive() {
-        let backgroundedAt = lock.withLock { () -> Date? in
-            let stamp = enteredBackgroundAt
-            enteredBackgroundAt = nil
-            return stamp
+        let action = lock.withLock { () -> SyncLifecycleAction in
+            let outcome = lifecycle.onForeground(now: Date())
+            lifecycle = outcome.state
+            return outcome.action
         }
-        guard let backgroundedAt,
-              Date().timeIntervalSince(backgroundedAt) >= Self.minBackgroundForRestart
-        else { return }
+        guard action == .relaunchAll else { return }
+        SyncDebug.shared.log("[lifecycle] foreground: relaunching parked pipelines")
         Task { [weak self] in
-            await self?.restartAllPipelines(reason: "app became active")
+            self?.relaunchAllNow(reason: "app became active")
+        }
+    }
+
+    /// Cancel every account's shape tasks and invalidate its session, keeping
+    /// the `pipelines` keys (with empty task arrays) so a parked account is
+    /// still a known one — the reconcile tick tracks its own `running` set and
+    /// launches nothing new while backgrounded.
+    private func parkPipelines() {
+        let snapshot = lock.withLock { () -> ([String: [Task<Void, Never>]], [URLSession]) in
+            let tasks = pipelines
+            for accountId in pipelines.keys { pipelines[accountId] = [] }
+            let openSessions = Array(sessions.values)
+            sessions.removeAll()
+            return (tasks, openSessions)
+        }
+        for (_, tasks) in snapshot.0 { tasks.forEach { $0.cancel() } }
+        // Cancelling the Tasks unwinds the loops; invalidating the session is
+        // what closes the sockets those loops are parked on.
+        for session in snapshot.1 { session.invalidateAndCancel() }
+        SyncDebug.shared.log("[lifecycle] parked \(snapshot.0.count) pipeline(s) on background")
+    }
+
+    /// Relaunch every signed-in account's pipeline NOW (the foreground path).
+    /// Unlike `restartPipeline` there is no 250ms drain wait: the park already
+    /// cancelled everything, and the whole point is to be back on the wire
+    /// before the user has finished looking at the screen.
+    private func relaunchAllNow(reason: String) {
+        for accountId in auth.accounts.filter({ $0.token != nil }).map(\.id) {
+            // A resync/restart in flight owns this account's pipeline and will
+            // launch its own — stepping in would orphan 19 uncancellable tasks.
+            let busy = lock.withLock { resyncing.contains(accountId) }
+            if busy { continue }
+            guard let pool = try? db.pool(forAccountId: accountId) else { continue }
+            let tasks = lock.withLock { pipelines.removeValue(forKey: accountId) ?? [] }
+            for task in tasks { task.cancel() }
+            SyncDebug.shared.log("[restart-all] relaunching pipeline (\(reason))")
+            launchPipeline(accountId: accountId, pool: pool)
         }
     }
 
     /// Cancel + relaunch EVERY signed-in account's pipeline without wiping
     /// anything — the multi-account form of `restartPipeline`, for events that
-    /// invalidate every account's sockets at once (waking up, regaining the
-    /// network). Serial on purpose: each account's restart drains its own
-    /// in-flight batch write before relaunching.
+    /// invalidate every account's sockets at once (regaining the network, a
+    /// path change). Serial on purpose: each account's restart drains its own
+    /// in-flight batch write before relaunching. Foregrounding does NOT come
+    /// through here since EXP-656 — it takes the immediate path above.
     public func restartAllPipelines(reason: String) async {
-        let allowed = lock.withLock { () -> Bool in
-            if let last = lastRestartAllAt, Date().timeIntervalSince(last) < Self.restartAllFloor {
-                return false
-            }
-            lastRestartAllAt = Date()
-            return true
+        let action = lock.withLock { () -> SyncLifecycleAction in
+            let outcome = lifecycle.onNetworkEdge(now: Date(), floor: Self.restartAllFloor)
+            lifecycle = outcome.state
+            return outcome.action
         }
-        guard allowed else {
-            SyncDebug.shared.log("[restart-all] skipped (\(reason)) — one just ran")
+        guard action == .relaunchAll else {
+            // Parked (backgrounded — the resume relaunches), or one just ran.
+            SyncDebug.shared.log("[restart-all] skipped (\(reason))")
             return
         }
         SyncDebug.shared.log("[restart-all] \(reason)")
@@ -276,18 +326,30 @@ public final class SyncManager: @unchecked Sendable {
     }
 
     private func cancelAll() {
-        let snapshot = lock.withLock { () -> [String: [Task<Void, Never>]] in
+        let snapshot = lock.withLock { () -> ([String: [Task<Void, Never>]], [URLSession]) in
             let copy = pipelines
             pipelines.removeAll()
-            return copy
+            let openSessions = Array(sessions.values)
+            sessions.removeAll()
+            return (copy, openSessions)
         }
-        for (_, tasks) in snapshot { tasks.forEach { $0.cancel() } }
+        for (_, tasks) in snapshot.0 { tasks.forEach { $0.cancel() } }
+        for session in snapshot.1 { session.invalidateAndCancel() }
     }
 
     private func cancelPipeline(accountId: String) {
         let tasks = lock.withLock { pipelines.removeValue(forKey: accountId) ?? [] }
         for task in tasks { task.cancel() }
+        // EXP-656: the account is gone from the pipeline set, so its session has
+        // nothing left to serve — invalidate it instead of leaking it.
+        discardSession(accountId: accountId)
         logger.info("Cancelled shape pipeline for account \(accountId, privacy: .public)")
+    }
+
+    /// Invalidate (and forget) an account's shape session.
+    private func discardSession(accountId: String) {
+        let session = lock.withLock { sessions.removeValue(forKey: accountId) }
+        session?.invalidateAndCancel()
     }
 
     // MARK: - Per-account shape launch
@@ -318,7 +380,18 @@ public final class SyncManager: @unchecked Sendable {
         // HTTP/2 and multiplex them over a single connection. Per ACCOUNT, not
         // global: the session is cookie-less by design and that is a
         // cross-account leak guard (see makeShapeSession).
+        //
+        // EXP-656: the session this one replaces is invalidated rather than
+        // dropped on the floor. Every restart used to build a fresh one and
+        // leave the old one alive with its connections (and any long-poll a
+        // cancelled Task hadn't unwound yet) open.
         let session = makeShapeSession()
+        let replaced = lock.withLock { () -> URLSession? in
+            let previous = sessions[accountId]
+            sessions[accountId] = session
+            return previous
+        }
+        replaced?.invalidateAndCancel()
 
         var tasks: [Task<Void, Never>] = []
         tasks.append(makeShapeTask(

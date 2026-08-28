@@ -9,6 +9,7 @@ import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.domain.ActivityFeedState
+import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.CodingSessionLiveness
@@ -24,6 +25,7 @@ import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.failUnacknowledged
 import com.exponential.app.domain.lockAnswer
 import com.exponential.app.domain.locksCard
+import com.exponential.app.domain.questionLockKey
 import io.ktor.http.HttpStatusCode
 import kotlin.math.pow
 import kotlin.random.Random
@@ -138,6 +140,17 @@ data class SteerTimings(
     val upgradeMs: Long = 20_000,
     /** 3x the relay's viewer keepalive interval (apps/steer-relay/src/hub.ts). */
     val liveStaleMs: Long = 45_000,
+    /**
+     * EXP-656: how long a staged join replay may stay quiet before it is
+     * committed anyway. The relay marks the end of its replay with
+     * `activity_synced`, so this only covers a publisher-driven republish (old
+     * desktops give no end marker) — long enough that a chunky replay does not
+     * commit in halves, short enough that the feed is never visibly late.
+     */
+    val replayQuietMs: Long = 400,
+    /** Hard cap on a staged replay: a stream that never goes quiet commits
+     *  what it has (and then appends normally) rather than staging forever. */
+    val replayMaxMs: Long = 3_000,
 )
 
 /**
@@ -200,10 +213,30 @@ class SteerConnection internal constructor(
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected
 
-    // The feed survives reconnects, navigation and the session end — only the
-    // relay's activity_reset starts it empty (EXP-249).
+    // The feed survives reconnects, navigation and the session end. Since
+    // EXP-656 an `activity_reset` no longer empties it either: the replay that
+    // follows is STAGED and swapped in as one emission, so a reader parked in
+    // the middle of a plan never sees the list collapse (which is what used to
+    // dispose the LazyColumn's scroll state and yank them to the bottom).
     private val _activity = MutableStateFlow(ActivityFeedState())
     val activity: StateFlow<ActivityFeedState> = _activity
+
+    /**
+     * The replay being staged, or null when nothing is staging (EXP-656). Holds
+     * each `{t:'activity'}` frame's `event` payload, in arrival order; the
+     * committed feed is folded from them in one go.
+     */
+    private var stagedFrames: MutableList<JsonObject>? = null
+
+    /** Messages this client sent WHILE staging: the replay predates them, so
+     *  they are re-appended after the fold or they'd vanish on commit. */
+    private val stagedLocalEchoes = mutableListOf<String>()
+
+    /** Commit deadlines: [SteerTimings.replayQuietMs] since the last staged
+     *  frame, and [SteerTimings.replayMaxMs] since the reset. */
+    private var stageQuietJob: Job? = null
+    private var stageCapJob: Job? = null
+    private var stageStartedAtMs = 0L
 
     /** Images picked for the next steer message (EXP-511), capped at
      *  [MAX_STEER_IMAGES]; uploaded to the session's issue on send. */
@@ -276,14 +309,21 @@ class SteerConnection internal constructor(
      */
     fun kick(reason: String) {
         val dialActive = connectJob?.isActive == true
-        val stale = _connected.value && nowMs() - lastFrameAtMs > timings.liveStaleMs
+        val sinceFrame = nowMs() - lastFrameAtMs
+        val stale = _connected.value && sinceFrame > timings.liveStaleMs
         val action = steerRevivalAction(
             phase = _phase.value,
             dialActive = dialActive,
             finished = isFinished,
             socketStale = stale,
         )
-        Log.i(TAG, "[$sid] kick($reason) phase=${_phase.value} dial=$dialActive stale=$stale -> $action")
+        // sinceFrame is the number the "it reconnects every 30s" reports turn
+        // on (EXP-656): a stale verdict is only ever as good as it.
+        Log.i(
+            TAG,
+            "[$sid] kick($reason) phase=${_phase.value} dial=$dialActive " +
+                "stale=$stale sinceFrame=${sinceFrame}ms -> $action",
+        )
         when (action) {
             SteerRevivalAction.Dial -> connect()
             SteerRevivalAction.WakeRetry -> wake.trySend(Unit)
@@ -381,6 +421,7 @@ class SteerConnection internal constructor(
         runCatching { ws?.cancel() }
         ws = null
         _connected.value = false
+        discardStaging()
         setPhase(AgentPhase.Idle, "park")
     }
 
@@ -399,6 +440,7 @@ class SteerConnection internal constructor(
         runCatching { ws?.cancel() }
         ws = null
         _connected.value = false
+        discardStaging()
         // The phase is state a ViewModel still holding this connection reads;
         // leaving it on Connecting behind a cancelled scope stranded the
         // screen on a spinner nothing could clear (EXP-625).
@@ -569,7 +611,12 @@ class SteerConnection internal constructor(
             // there is no reason to wait on it.
             if (!retryStarting) {
                 closeCode = opened.closeCode()
-                Log.i(TAG, "[$sid] dial#$dial closed code=$closeCode")
+                // EXP-656: the reason names WHO hung up on a close code that
+                // otherwise reads as a generic drop.
+                Log.i(
+                    TAG,
+                    "[$sid] dial#$dial closed code=$closeCode reason=${opened.closeReason()}",
+                )
             } else {
                 Log.i(TAG, "[$sid] dial#$dial relay: no_such_session")
             }
@@ -610,6 +657,11 @@ class SteerConnection internal constructor(
             if (ws === opened) {
                 ws = null
                 _connected.value = false
+                // A replay this socket never finished delivering (EXP-656):
+                // drop the buffer, keep what the reader can see. Guarded like
+                // the fields above — a superseded dial unwinding late must not
+                // discard its replacement's staging.
+                discardStaging()
             }
             runCatching { opened?.cancel() }
         }
@@ -643,21 +695,34 @@ class SteerConnection internal constructor(
         val obj = runCatching { json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return null
         return when ((obj["t"] as? JsonPrimitive)?.contentOrNull) {
             "activity" -> {
-                handleActivityEvent(obj["event"] as? JsonObject)
+                val event = obj["event"] as? JsonObject
+                if (stagedFrames != null) stageFrame(event) else handleActivityEvent(event)
                 FrameResult(live = true)
             }
             // The relay's uniform "clear your feed now" signal (EXP-249) — sent
             // to every activity viewer right before its join replay, and fanned
-            // out whenever the publisher resets the log. It is the ONLY thing
-            // that wipes the feed.
+            // out whenever the publisher resets the log. Since EXP-656 it opens
+            // a STAGING buffer instead of wiping: the visible feed only changes
+            // when the replay is committed, all at once.
             "activity_reset" -> {
-                resetActivity()
+                beginStaging()
+                FrameResult(live = true)
+            }
+            // EXP-656: the relay's end-of-replay marker, sent right after the
+            // join replay. Nothing else needs it — an old relay falls back to
+            // the quiet timer.
+            "activity_synced" -> {
+                commitStaging("marker")
                 FrameResult(live = true)
             }
             // The relay's liveness beat to joined viewers (EXP-648). Already
             // counted: the receive loop stamped lastFrameAtMs before handing
-            // the frame here. Never a phase change, never a feed change.
-            "keepalive" -> null
+            // the frame here. Never a phase change, never a feed change — but
+            // its 15s cadence does prove a staged replay burst is over.
+            "keepalive" -> {
+                if (stagedFrames != null) commitStaging("keepalive")
+                null
+            }
             "bye" -> {
                 val outcome = (obj["outcome"] as? JsonPrimitive)?.contentOrNull
                 if (outcome == "publisher_lost") {
@@ -703,12 +768,114 @@ class SteerConnection internal constructor(
         _activity.value = after
     }
 
-    /** Wipe everything the relay's activity log owns (EXP-249). */
-    private fun resetActivity() {
-        recentEchoes.clear()
-        ackTimeouts.values.forEach { it.cancel() }
-        ackTimeouts.clear()
-        _activity.value = ActivityFeedState()
+    // ── Staged replay (EXP-656) ──────────────────────────────────────────────
+    //
+    // The relay answers EVERY viewer join with `activity_reset` + a full replay
+    // of the room log, and a publisher reconnect fans out the same thing. Doing
+    // what the frame literally says — empty the feed, then re-append N events —
+    // collapsed the LazyColumn to nothing for the length of the burst, which
+    // disposed its scroll state, its follow flag and the focused subagent tab,
+    // and dumped a reader parked mid-plan at the bottom of the replay. So the
+    // burst is buffered and swapped in as ONE emission instead: same result,
+    // no intermediate empty state, and the row keys the reader is anchored on
+    // survive it.
+
+    /** Open (or restart) the staging buffer. The VISIBLE feed is untouched. */
+    private fun beginStaging() {
+        stageQuietJob?.cancel()
+        stageQuietJob = null
+        stageCapJob?.cancel()
+        stagedFrames = mutableListOf()
+        stagedLocalEchoes.clear()
+        stageStartedAtMs = nowMs()
+        // A republish that never goes quiet still has to land eventually.
+        stageCapJob = scope.launch {
+            delay(timings.replayMaxMs)
+            commitStaging("cap")
+        }
+    }
+
+    /** Buffer one replayed event and push the quiet deadline out. */
+    private fun stageFrame(event: JsonObject?) {
+        val staged = stagedFrames ?: return
+        if (event != null) staged.add(event)
+        stageQuietJob?.cancel()
+        stageQuietJob = scope.launch {
+            delay(timings.replayQuietMs)
+            commitStaging("quiet")
+        }
+    }
+
+    /**
+     * Swap the staged replay in as the feed — ONE `_activity` write.
+     *
+     * The replay is authoritative (same reasoning as `dialOnce`'s
+     * `recentEchoes.clear()`), so it is folded with `isEcho = { false }` from a
+     * fresh [ActivityFeedState]: ids restart at 0, which is what keeps the
+     * replayed prefix on the SAME LazyColumn keys the reader is anchored to.
+     * Two things are then carried across the swap: messages this client sent
+     * during the window (the replay predates them) and answer locks still
+     * awaiting their ack, whose cards came back in the replay — the tap that
+     * locked them may be only milliseconds old.
+     */
+    private fun commitStaging(why: String) {
+        val staged = stagedFrames ?: return
+        stageQuietJob?.cancel()
+        stageQuietJob = null
+        stageCapJob?.cancel()
+        stageCapJob = null
+        stagedFrames = null
+        val echoes = stagedLocalEchoes.toList()
+        stagedLocalEchoes.clear()
+
+        val previous = _activity.value
+        var next = staged.fold(ActivityFeedState()) { state, event ->
+            state.applyActivityEvent(event) { false }
+        }
+        // The desktop may have published a message we echoed locally before the
+        // burst ended, so only re-append the ones the replay does not carry.
+        for (text in echoes) {
+            val alreadyThere = next.feed.asReversed().take(echoes.size + 1).any { item ->
+                item is AgentFeedItem.UserMessage && item.text.trim() == text.trim()
+            }
+            if (!alreadyThere) next = next.appendUserMessage(text)
+        }
+        // A card that survived the replay keeps its in-flight lock (and the
+        // labels the stepper renders for it); everything else is released.
+        val liveKeys = next.feed.filterIsInstance<AgentFeedItem.Question>()
+            .mapTo(mutableSetOf()) { questionLockKey(it) }
+        val carried = previous.answerLocks
+            .filterKeys { it in liveKeys }
+            .filterValues { it == AnswerState.Sending }
+        next = next.copy(
+            answerLocks = next.answerLocks + carried,
+            answerLabels = next.answerLabels + previous.answerLabels.filterKeys { it in carried },
+        )
+        // What `resetActivity` used to do on the reset frame, at commit time:
+        // an ack deadline whose lock did not carry over guards nothing.
+        ackTimeouts.keys.toList().forEach { key ->
+            if (key !in carried) ackTimeouts.remove(key)?.cancel()
+        }
+        _activity.value = next
+        Log.i(
+            TAG,
+            "[$sid] replay committed (why=$why frames=${staged.size} " +
+                "ms=${nowMs() - stageStartedAtMs})",
+        )
+    }
+
+    /** Drop a staged replay that will never be completed — a socket that died
+     *  mid-burst, a park, a close. The VISIBLE feed stays exactly as it is:
+     *  the last complete picture beats a half-replayed one. */
+    private fun discardStaging() {
+        if (stagedFrames == null) return
+        stageQuietJob?.cancel()
+        stageQuietJob = null
+        stageCapJob?.cancel()
+        stageCapJob = null
+        stagedFrames = null
+        stagedLocalEchoes.clear()
+        Log.i(TAG, "[$sid] replay discarded")
     }
 
     /** Whether an incoming `user_message` matches a recent local echo —
@@ -740,6 +907,9 @@ class SteerConnection internal constructor(
         recentEchoes.addLast(text.trim() to System.currentTimeMillis())
         while (recentEchoes.size > ECHO_CAP) recentEchoes.removeFirst()
         _activity.value = _activity.value.appendUserMessage(text)
+        // Sent mid-replay (EXP-656): the staged log predates it, so record it
+        // to be re-appended when the swap lands, or it disappears on commit.
+        stagedFrames?.let { stagedLocalEchoes.add(text) }
         scope.launch {
             runCatching {
                 var i = 0

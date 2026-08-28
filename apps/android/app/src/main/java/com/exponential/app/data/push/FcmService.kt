@@ -31,7 +31,9 @@ class FcmService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         // Any push means server state changed; catching up now (rather than at
         // tap time) is what makes the tapped issue already local when the
-        // detail screen opens.
+        // detail screen opens. Free when the process is only cached (EXP-656):
+        // the shape gate is closed, so the kick arms freshness and queues a
+        // token that no loop acts on until the app is opened.
         syncManager.kick("push")
 
         val data = message.data

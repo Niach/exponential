@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
@@ -20,7 +21,9 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.domain.CodingSessionLiveness
+import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.RunResumeTarget
@@ -105,10 +108,23 @@ class AgentsViewModel @Inject constructor(
     private val devicesApi: DevicesApi,
     private val issuesApi: IssuesApi,
     private val selection: TeamSelection,
+    stats: SyncStats,
 ) : ViewModel() {
 
     // Reactive account scoping (no constructor-time DB snapshot).
     private val dbFlow = accountDatabaseFlow(auth, holder)
+
+    /** EXP-656: when our own `devices` shape last completed a poll — a cursor
+     *  we haven't refreshed can only produce a FALSE offline, so a session on
+     *  one must render unknown presence rather than "Paused". */
+    private val devicesPolledAt = auth.activeAccountId.flatMapLatest { stats.devicesPolledAt(it) }
+
+    // The machine rows every session row joins to (EXP-549/550: current labels
+    // and last_seen_at freshness), paired with that freshness stamp.
+    private val deviceRowsAndFreshness = combine(
+        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
+        devicesPolledAt,
+    ) { devices, polledAt -> devices to polledAt }
 
     private val _steerEnabled = MutableStateFlow<Boolean?>(null)
 
@@ -154,12 +170,11 @@ class AgentsViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
     ) { sessions, issues, boards -> Triple(sessions, issues, boards) }
 
-    // EXP-549/550: the machine rows every session row joins to — current
-    // labels and last_seen_at freshness.
+    // Bundled to keep the combine below inside the typed overloads.
     private val steerEnabledAndDevices = combine(
         _steerEnabled,
-        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
-    ) { steerEnabled, devices -> steerEnabled to devices }
+        deviceRowsAndFreshness,
+    ) { steerEnabled, (devices, polledAt) -> Triple(steerEnabled, devices, polledAt) }
 
     val state: StateFlow<AgentsState> = combine(
         liveSessionsIssuesAndBoards,
@@ -172,9 +187,16 @@ class AgentsViewModel @Inject constructor(
         DeviceLiveness.ticker(),
         auth.userId,
         selection.selectedId,
-    ) { (sessions, issues, boards), (steerEnabled, devices), now, userId, teamId ->
+    ) { (sessions, issues, boards), (steerEnabled, devices, polledAt), now, userId, teamId ->
         AgentsState(
-            rows = agentRows(sessions, issues, boards, userId, teamId, now, devices),
+            rows = agentRows(
+                sessions, issues, boards, userId, teamId, now, devices,
+                // The stamp rides elapsedRealtime, not the wall clock `now`.
+                devicesFresh = DeviceFreshness.isTrustworthy(
+                    polledAt,
+                    SystemClock.elapsedRealtime(),
+                ),
+            ),
             steerEnabled = steerEnabled,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())
@@ -210,11 +232,14 @@ class AgentsViewModel @Inject constructor(
     val recentRuns: StateFlow<List<RecentRunRow>> = combine(
         endedSessionRows,
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
-        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
+        deviceRowsAndFreshness,
         combine(auth.userId, selection.selectedId) { userId, teamId -> userId to teamId },
         DeviceLiveness.ticker(),
-    ) { sessions, issues, devices, (userId, teamId), now ->
-        recentRunRows(sessions, issues, userId, teamId, devices, now)
+    ) { sessions, issues, (devices, polledAt), (userId, teamId), now ->
+        recentRunRows(
+            sessions, issues, userId, teamId, devices, now,
+            devicesFresh = DeviceFreshness.isTrustworthy(polledAt, SystemClock.elapsedRealtime()),
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // Session ids with a resume in flight — the row swaps its Resume pill for
@@ -505,6 +530,9 @@ fun agentRows(
     // Defaulted so a caller that only cares about the session/issue join
     // (tests, and any future non-device surface) stays unchanged.
     devices: List<DeviceEntity> = emptyList(),
+    // EXP-656: whether our own `devices` cursor is fresh enough for a stale
+    // last_seen_at to mean "away" rather than "we haven't heard".
+    devicesFresh: Boolean = true,
 ): List<AgentRow> {
     if (currentUserId == null || teamId == null) return emptyList()
     val issuesById = issues.associateBy { it.id }
@@ -528,7 +556,7 @@ fun agentRows(
         AgentRow(
             session = session,
             issue = session.issueId?.let(issuesById::get),
-            device = resolveSessionDevice(session, devices, nowMs),
+            device = resolveSessionDevice(session, devices, nowMs, devicesFresh),
             batchPrIssue = if (session.isBatchInReview) {
                 resolveBatchPrIssue(batchPrReps, session.branch)
             } else {
@@ -561,6 +589,9 @@ fun recentRunRows(
     devices: List<DeviceEntity> = emptyList(),
     nowMs: Long = System.currentTimeMillis(),
     limit: Int = RECENT_RUN_LIMIT,
+    // EXP-656: see [agentRows] — an unrefreshed devices cursor renders unknown
+    // presence, never offline.
+    devicesFresh: Boolean = true,
 ): List<RecentRunRow> {
     if (currentUserId == null || teamId == null) return emptyList()
     val issuesById = issues.associateBy { it.id }
@@ -582,7 +613,7 @@ fun recentRunRows(
             RecentRunRow(
                 session = session,
                 issue = session.issueId?.let(issuesById::get),
-                device = resolveSessionDevice(session, devices, nowMs),
+                device = resolveSessionDevice(session, devices, nowMs, devicesFresh),
                 resume = resumeTargetFor(session, steerDevices, currentUserId),
             )
         }

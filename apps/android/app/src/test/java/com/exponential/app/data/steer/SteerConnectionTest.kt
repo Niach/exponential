@@ -12,6 +12,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
@@ -58,6 +60,8 @@ class SteerConnectionTest {
 
         @Volatile var code: Int? = null
 
+        @Volatile var reason: String? = null
+
         /** Makes the next [send] throw the ktor-shaped foreign cancellation. */
         @Volatile var failSend: (() -> Throwable)? = null
 
@@ -74,6 +78,8 @@ class SteerConnectionTest {
         }
 
         override suspend fun closeCode(): Int? = code
+
+        override suspend fun closeReason(): String? = reason
 
         /** Push a relay frame at the viewer. */
         fun emit(text: String) {
@@ -318,6 +324,281 @@ class SteerConnectionTest {
         }
     }
 
+    // ── Staged replay (EXP-656) ─────────────────────────────────────────────
+    //
+    // The relay answers every join with activity_reset + a full replay of the
+    // room log. Applying that literally emptied the feed for the length of the
+    // burst, which disposed the LazyColumn (and with it the reader's scroll
+    // position, the follow flag and the focused subagent tab) and dumped
+    // someone reading a plan at the bottom of the replay.
+
+    /** Millisecond-scale staging windows, so a failing case fails fast. */
+    private val stagingTimings = fastTimings.copy(replayQuietMs = 40, replayMaxMs = 200)
+
+    private fun narration(text: String) =
+        """{"t":"activity","event":{"kind":"narration","text":"$text"}}"""
+
+    /** A live connection with an established feed — the state a reader parked
+     *  mid-plan is in when the relay decides to replay at them. */
+    private suspend fun liveWithFeed(
+        transport: FakeTransport,
+        connection: SteerConnection,
+    ): FakeSocket {
+        connection.connect()
+        val socket = transport.awaitOpen()
+        socket.emit("""{"t":"activity_reset"}""")
+        socket.emit(narration("original one"))
+        socket.emit("""{"t":"activity_synced"}""")
+        waitUntil("the first feed") { connection.activity.value.feed.size == 1 }
+        return socket
+    }
+
+    @Test
+    fun aResetAndReplayCommitsOnceAndNeverShowsAnEmptyFeed() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            val socket = liveWithFeed(transport, connection)
+            val sizes = CopyOnWriteArrayList<Int>()
+            val watcher = launch(Dispatchers.Unconfined) {
+                connection.activity.collect { sizes += it.feed.size }
+            }
+
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(narration("replayed one"))
+            socket.emit(narration("replayed two"))
+            socket.emit("""{"t":"activity_synced"}""")
+            waitUntil("the committed replay") { connection.activity.value.feed.size == 2 }
+            delay(stagingTimings.replayQuietMs * 3)
+            watcher.cancel()
+
+            // One emission for the whole burst, and never an empty list in
+            // between (which is what remounted the feed and lost the anchor).
+            assertEquals(listOf(1, 2), sizes.toList())
+            // The prefix keeps its ids, so the LazyColumn keys still line up.
+            assertEquals(listOf(0L, 1L), connection.activity.value.feed.map { it.id })
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun aReplayWithNoEndMarkerCommitsOnTheQuietTimeout() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            val socket = liveWithFeed(transport, connection)
+            // An old relay: reset + replay, no activity_synced.
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(narration("replayed one"))
+            // The old feed holds until the burst goes quiet.
+            assertEquals(1, connection.activity.value.feed.size)
+            waitUntil("the quiet commit") {
+                connection.activity.value.feed.singleOrNull()?.let {
+                    it is com.exponential.app.domain.AgentFeedItem.Narration &&
+                        it.text == "replayed one"
+                } == true
+            }
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun eventsArrivingDuringStagingLandInTheCommittedFeed() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            val socket = liveWithFeed(transport, connection)
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(narration("replayed one"))
+            // A genuinely new event racing the tail of the replay is
+            // indistinguishable on the wire — it must not be dropped.
+            socket.emit(narration("live during replay"))
+            socket.emit("""{"t":"activity_synced"}""")
+            waitUntil("both events") { connection.activity.value.feed.size == 2 }
+            assertEquals(
+                listOf("replayed one", "live during replay"),
+                connection.activity.value.feed.map {
+                    (it as com.exponential.app.domain.AgentFeedItem.Narration).text
+                },
+            )
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun aKeepaliveEndsAStagedReplay() = runBlocking {
+        val transport = FakeTransport()
+        // No quiet/cap rescue in this window: only the keepalive can commit.
+        val connection = connection(
+            transport,
+            fastTimings.copy(replayQuietMs = 30_000, replayMaxMs = 30_000),
+        )
+        try {
+            val socket = liveWithFeed(transport, connection)
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(narration("replayed one"))
+            // The relay's own 15s beat proves the burst is over.
+            socket.emit("""{"t":"keepalive"}""")
+            waitUntil("the keepalive commit") {
+                connection.activity.value.feed.singleOrNull()?.let {
+                    it is com.exponential.app.domain.AgentFeedItem.Narration &&
+                        it.text == "replayed one"
+                } == true
+            }
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun aNeverQuietReplayCommitsAtTheHardCap() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(
+            transport,
+            // Quiet can never fire: something arrives every few ms.
+            fastTimings.copy(replayQuietMs = 30_000, replayMaxMs = 150),
+        )
+        try {
+            val socket = liveWithFeed(transport, connection)
+            socket.emit("""{"t":"activity_reset"}""")
+            val pump = launch {
+                var n = 0
+                while (isActive) {
+                    socket.emit(narration("replayed ${n++}"))
+                    delay(5)
+                }
+            }
+            waitUntil("the capped commit") { connection.activity.value.feed.size > 1 }
+            pump.cancel()
+            // …and the stream keeps appending normally afterwards.
+            val committed = connection.activity.value.feed.size
+            socket.emit(narration("after the cap"))
+            waitUntil("a post-commit append") {
+                connection.activity.value.feed.size > committed
+            }
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun aSocketCloseDuringStagingKeepsTheVisibleFeed() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings.copy(replayMaxMs = 30_000))
+        try {
+            val socket = liveWithFeed(transport, connection)
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.hangUp(1006)
+            waitUntil("the dial to unwind") { !connection.connected.value }
+            delay(stagingTimings.replayQuietMs * 3)
+            // A half-delivered replay is worth less than the last complete
+            // picture — the reader keeps what they were reading.
+            assertEquals(1, connection.activity.value.feed.size)
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun aSecondResetRestartsStaging() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings.copy(replayMaxMs = 30_000))
+        try {
+            val socket = liveWithFeed(transport, connection)
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(narration("abandoned"))
+            // The publisher republished mid-replay: the first buffer is dead.
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(narration("restarted"))
+            socket.emit("""{"t":"activity_synced"}""")
+            waitUntil("the restarted replay") {
+                connection.activity.value.feed.singleOrNull()?.let {
+                    it is com.exponential.app.domain.AgentFeedItem.Narration &&
+                        it.text == "restarted"
+                } == true
+            }
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun anAnswerSentDuringStagingKeepsItsLock() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings.copy(replayMaxMs = 30_000))
+        try {
+            connection.connect()
+            val socket = transport.awaitOpen()
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(QUESTION_FRAME)
+            socket.emit("""{"t":"activity_synced"}""")
+            waitUntil("the question card") { connection.activity.value.feed.size == 1 }
+
+            // The replay window is ≤400ms in production — a plan-approval tap
+            // lands inside it more often than one would like, and its card must
+            // not come back unlocked (a double-tap would re-answer the ask).
+            socket.emit("""{"t":"activity_reset"}""")
+            connection.sendQuestionAnswer("q1", askId = null, keys = listOf("1"))
+            socket.emit(QUESTION_FRAME)
+            socket.emit("""{"t":"activity_synced"}""")
+            waitUntil("the recommitted card") { connection.activity.value.feed.size == 1 }
+            assertEquals(
+                com.exponential.app.domain.AnswerState.Sending,
+                connection.activity.value.answerLocks["q1"],
+            )
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun aMessageSentDuringStagingSurvivesTheCommit() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings.copy(replayMaxMs = 30_000))
+        try {
+            val socket = liveWithFeed(transport, connection)
+            socket.emit("""{"t":"activity_reset"}""")
+            // The replay predates this message, so only the local record of it
+            // can put it back.
+            assertTrue(connection.sendMessage("steered mid-replay"))
+            socket.emit(narration("replayed one"))
+            socket.emit("""{"t":"activity_synced"}""")
+            waitUntil("the committed replay") { connection.activity.value.feed.size == 2 }
+            val texts = connection.activity.value.feed.map {
+                when (it) {
+                    is com.exponential.app.domain.AgentFeedItem.Narration -> it.text
+                    is com.exponential.app.domain.AgentFeedItem.UserMessage -> it.text
+                    else -> ""
+                }
+            }
+            assertEquals(listOf("replayed one", "steered mid-replay"), texts)
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun anUnknownFrameIsIgnored() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            val socket = liveWithFeed(transport, connection)
+            // The protocol only ever grows; a frame from a newer relay must
+            // change nothing at all.
+            socket.emit("""{"t":"something_new","payload":{"a":1}}""")
+            socket.emit("""not json at all""")
+            delay(stagingTimings.replayQuietMs * 3)
+            assertEquals(1, connection.activity.value.feed.size)
+            assertEquals(AgentPhase.Live, connection.phase.value)
+            assertTrue(connection.connected.value)
+        } finally {
+            connection.close()
+        }
+    }
+
     @Test
     fun closeIsFinalAndAKickCannotReviveIt() = runBlocking {
         val transport = FakeTransport()
@@ -335,3 +616,9 @@ class SteerConnectionTest {
 
 private const val SESSION_ID = "11111111-2222-3333-4444-555555555555"
 private const val JOIN_FRAME = """{"t":"join","channel":"activity"}"""
+
+/** One semantic question card (EXP-249 wire id `q1`) — the plan-approval
+ *  shape whose lock has to survive a replay. */
+private const val QUESTION_FRAME =
+    """{"t":"activity","event":{"kind":"question","id":"q1","text":"Approve?",""" +
+        """"options":[{"label":"Yes","key":"1"},{"label":"No","key":"2"}]}}"""

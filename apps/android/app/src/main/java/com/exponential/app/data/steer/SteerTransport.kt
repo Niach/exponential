@@ -6,6 +6,7 @@ import com.exponential.app.data.auth.AuthRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.plugins.websocket.webSocketSession
+import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CancellationException
@@ -35,6 +36,10 @@ internal interface SteerSocket {
 
     /** The relay's close code once the socket closed on its own, if any. */
     suspend fun closeCode(): Int?
+
+    /** The close frame's reason text, when the peer sent one (EXP-656) — the
+     *  code alone rarely says WHO hung up or why. */
+    suspend fun closeReason(): String?
 }
 
 internal interface SteerTransport {
@@ -80,6 +85,13 @@ private class KtorSteerSocket(private val session: DefaultClientWebSocketSession
                 // exception escaping here would be an unhandled coroutine
                 // failure rather than a closed socket.
                 if (t is CancellationException) throw t
+                // EXP-656: a socket dropping every ~30s left no trace at all
+                // here. The class alone names the culprit (an OkHttp pong
+                // deadline reads very differently from an EOF).
+                android.util.Log.w(
+                    "SteerSocket",
+                    "read loop ended: ${t.javaClass.simpleName}: ${t.message}",
+                )
             } finally {
                 texts.close()
             }
@@ -96,8 +108,13 @@ private class KtorSteerSocket(private val session: DefaultClientWebSocketSession
         runCatching { session.cancel() }
     }
 
-    override suspend fun closeCode(): Int? = try {
-        withTimeoutOrNull(CLOSE_REASON_TIMEOUT_MS) { session.closeReason.await() }?.code?.toInt()
+    override suspend fun closeCode(): Int? = awaitCloseReason()?.code?.toInt()
+
+    override suspend fun closeReason(): String? =
+        awaitCloseReason()?.message?.takeIf { it.isNotBlank() }
+
+    private suspend fun awaitCloseReason(): CloseReason? = try {
+        withTimeoutOrNull(CLOSE_REASON_TIMEOUT_MS) { session.closeReason.await() }
     } catch (t: Throwable) {
         // ktor surfaces a java.util.concurrent.CancellationException off a
         // cancelled call job here: that is the RELAY hanging up, not us

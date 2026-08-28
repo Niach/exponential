@@ -15,12 +15,20 @@ import com.exponential.app.data.db.DeviceEntity
 
 /**
  * The resolved machine identity for one session row: the label to render and
- * whether that machine is currently offline.
+ * what we know about that machine's presence.
+ *
+ * [online] is deliberately nullable (EXP-656, web `resolveSessionDevice`
+ * parity): null = we do not know — no devices row, or a devices cursor we have
+ * not refreshed inside the contract window, which can only ever produce a
+ * FALSE offline (see [DeviceFreshness]). Unknown never pauses anything.
  */
 data class SessionDevicePresentation(
     val label: String?,
-    val offline: Boolean,
+    val online: Boolean?,
 ) {
+    /** Known to be away. Unknown presence is NOT offline. */
+    val offline: Boolean get() = online == false
+
     /** Never blank — an unlabelled/unknown machine still reads as something. */
     val displayLabel: String get() = label?.takeIf { it.isNotBlank() } ?: "Desktop"
 
@@ -37,7 +45,7 @@ data class SessionDevicePresentation(
             )
 
     companion object {
-        val Unknown = SessionDevicePresentation(label = null, offline = false)
+        val Unknown = SessionDevicePresentation(label = null, online = null)
     }
 }
 
@@ -51,13 +59,19 @@ data class SessionDevicePresentation(
  * and guessing a machine by name could land on a DIFFERENT one.
  *
  * With no row we cannot know anything about presence, so the snapshot label
- * renders and `offline` stays false — an unknown machine (or a null
+ * renders and presence stays UNKNOWN — an unknown machine (or a null
  * `deviceId`) must never fake a paused session.
+ *
+ * [devicesFresh] (EXP-656) says whether our own `devices` shape has polled
+ * recently enough for a stale `last_seen_at` to mean anything. It defaults to
+ * true so a call site that has no freshness signal behaves exactly as before;
+ * every real site passes it.
  */
 fun resolveSessionDevice(
     session: CodingSessionEntity,
     devices: List<DeviceEntity>,
     nowMs: Long,
+    devicesFresh: Boolean = true,
 ): SessionDevicePresentation {
     val deviceId = session.deviceId
     val row = deviceId?.let {
@@ -65,10 +79,13 @@ fun resolveSessionDevice(
         matches.firstOrNull { device -> device.userId == session.userId } ?: matches.firstOrNull()
     }
     if (row == null) {
-        return SessionDevicePresentation(label = session.deviceLabel, offline = false)
+        return SessionDevicePresentation(label = session.deviceLabel, online = null)
     }
+    val live = DeviceLiveness.isOnline(row.lastSeenAt, nowMs)
     return SessionDevicePresentation(
         label = row.label.takeIf { it.isNotBlank() } ?: session.deviceLabel,
-        offline = !DeviceLiveness.isOnline(row.lastSeenAt, nowMs),
+        // A fresh heartbeat is online whatever our cursor did; only the
+        // NEGATIVE needs a cursor we trust.
+        online = if (live) true else if (devicesFresh) false else null,
     )
 }

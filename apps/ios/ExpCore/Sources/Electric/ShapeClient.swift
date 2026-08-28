@@ -112,6 +112,11 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         // this needs to be true.
         var confirmFreshness = true
         var consecutiveNetworkErrors = 0
+        // EXP-656: the `electric-cursor` the last response carried, echoed on
+        // the next LIVE request (desktop parity, coding/src/electric/client.rs).
+        // Transient per run and never persisted — it is a cache-busting hint,
+        // not part of the shape's resumable state.
+        var cursor: String?
         while !Task.isCancelled {
             do {
                 guard let baseUrl = baseUrlProvider(), let token = tokenProvider() else {
@@ -126,9 +131,11 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
                     SyncDebug.shared.log("[\(shapeName)] resumed: credentials available")
                     loggedMissingCreds = false
                 }
-                let shouldPause = try await pollOnce(
-                    baseUrl: baseUrl, token: token, confirmFreshness: confirmFreshness
+                let poll = try await pollOnce(
+                    baseUrl: baseUrl, token: token, confirmFreshness: confirmFreshness,
+                    cursor: cursor
                 )
+                cursor = poll.cursor
                 // Freshness is established — this poll returned from the current
                 // offset — so the next one may take the live hold.
                 confirmFreshness = false
@@ -143,7 +150,7 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
                     SyncDebug.shared.reportRecovery(name: shapeName, .recovered)
                 }
                 backoffMs = 500
-                if shouldPause {
+                if poll.shouldPause {
                     try await Task.sleep(for: .milliseconds(500))
                 }
             } catch is CancellationError {
@@ -265,11 +272,20 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             || message.contains("datatype mismatch")
     }
 
-    /// Returns `true` when the next poll should be paced (a refetch is pending
-    /// after a 409 / inline must-refetch, or a non-live poll made no progress).
+    /// One poll's outcome: whether the next one should be paced, plus the
+    /// cursor to echo on it.
+    private struct PollResult {
+        /// A refetch is pending (409 / inline must-refetch), or a non-live poll
+        /// made no progress — pace the loop so it can't spin-request.
+        let shouldPause: Bool
+        /// The response's `electric-cursor` header (EXP-656). Nil on every
+        /// path that doesn't reach a 2xx body.
+        let cursor: String?
+    }
+
     private func pollOnce(
-        baseUrl: String, token: String, confirmFreshness: Bool
-    ) async throws -> Bool {
+        baseUrl: String, token: String, confirmFreshness: Bool, cursor: String?
+    ) async throws -> PollResult {
         let saved = try await pool.read { db in
             try ElectricOffset.fetchOne(db, key: shapeName)
         }
@@ -300,6 +316,13 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             // seen); catch-up polls stay non-live per the Electric protocol.
             if goLive {
                 query.append(URLQueryItem(name: "live", value: "true"))
+                // EXP-656: echo back the cursor the previous response handed
+                // us, so a live request is never answered from an
+                // intermediary's cache (desktop parity). No functional effect
+                // behind our own `no-store` shape proxy.
+                if let cursor, !cursor.isEmpty {
+                    query.append(URLQueryItem(name: "cursor", value: cursor))
+                }
             }
             components.queryItems = query
         }
@@ -341,7 +364,7 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
                     needsRefetch: true, isLive: false
                 ).save(db)
             }
-            return true
+            return PollResult(shouldPause: true, cursor: nil)
         }
 
         // EXP-624: a 400 is Electric refusing the REQUEST we hold state for —
@@ -362,7 +385,7 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
                     needsRefetch: true, isLive: false
                 ).save(db)
             }
-            return true
+            return PollResult(shouldPause: true, cursor: nil)
         }
 
         // Dead-session gate: shape reads always carry the bearer, so a 401 is
@@ -389,6 +412,14 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             throw ShapeError.httpError(httpResponse.statusCode)
         }
 
+        // EXP-656: a devices poll that came back is this client's own evidence
+        // that its presence rows are current — stamped here rather than
+        // observed off GRDB because a healthy catch-up answers a bare
+        // `up-to-date` and writes no rows at all.
+        if shapeName == SyncFreshness.devicesShapeName {
+            SyncFreshness.shared.recordDevicesPoll(accountId: accountId)
+        }
+
         let handle = httpResponse.value(forHTTPHeaderField: "electric-handle")
         let offset = httpResponse.value(forHTTPHeaderField: "electric-offset")
 
@@ -410,7 +441,7 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             if !messages.isEmpty {
                 try await onMessages(messages)
             }
-            return true
+            return PollResult(shouldPause: true, cursor: nil)
         }
 
         // Only up-to-date flips the shape live — snapshot-end merely closes a
@@ -449,7 +480,10 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         // Keyed on goLive, not wasLive: a freshness-confirming poll is non-live
         // too, so if one ever came back empty without up-to-date it must be
         // paced like any other no-progress poll rather than spin-requesting.
-        return !goLive && !sawUpToDate && messages.isEmpty
+        return PollResult(
+            shouldPause: !goLive && !sawUpToDate && messages.isEmpty,
+            cursor: httpResponse.value(forHTTPHeaderField: "electric-cursor")
+        )
     }
 
     // Internal (not private) so ExpCoreTests can lock the wire-format mapping

@@ -56,22 +56,29 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
         // had one captured (EXP-452 — mobile-only accounts digested in UTC).
         timezoneClaimer.start()
         // The shape loops only run while the app is visible (REV2-38): the gate
-        // starts closed, ON_START opens it and ON_STOP parks the loops after a
-        // grace window, so a backgrounded (or push-woken) process holds no
-        // shape connections.
+        // starts closed, ON_START opens it and ON_STOP closes it AT ONCE
+        // (EXP-656 — the old 30s grace timer was a coroutine delay on a clock
+        // that stops in deep sleep, so a phone sleeping right after ON_STOP
+        // regularly carried 19 open long-polls into suspension). A
+        // backgrounded (or push-woken) process therefore holds no shape
+        // connections at all.
         //
-        // Coming back to the foreground, the loops may also be sitting in a
-        // stale backoff or holding a socket the radio killed while we were
-        // away — that was the ~10s of stale content on open (EXP-264). Kick
-        // them so the first thing the user sees is current. On a cold launch
-        // this fires immediately after start(), where the freshness window
-        // makes it a harmless no-op.
+        // Nothing is kicked here on the way back. `setForeground(true)` drops
+        // the idle pooled connections a sleeping radio may have killed and
+        // then reopens the gate, and the gate's edge is itself the kick every
+        // shape loop needs (ShapeClient.run) — a kick fan-out on top would
+        // cancel the very catch-up polls the gate just started, which is what
+        // the ~10s of stale content on open (EXP-264) had degenerated into.
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
+                // Order matters and must stay this way (EXP-656): setForeground
+                // stamps lastKickAt, which the steer store fans out to its
+                // connections, and setForeground(true) below then calls
+                // resume() on each of them. Adding a kick of either kind here
+                // buys nothing and costs a second redial per open session.
                 syncManager.setForeground(true)
-                syncManager.kick("app-foreground")
                 // Same gate for the live steer sockets (EXP-621): they are
-                // app-held now, so backgrounding parks them after the same
+                // app-held now, so backgrounding parks them after their own
                 // grace window and coming back revives them.
                 steerConnectionStore.setForeground(true)
             }

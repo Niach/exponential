@@ -81,6 +81,11 @@ final class AgentsViewModel {
     private var deviceTask: Task<Void, Never>?
     private var worktreeTask: Task<Void, Never>?
     private var userTask: Task<Void, Never>?
+    /// EXP-656: wakes when our own `devices` shape completes a poll — the
+    /// missing foreground re-derivation hook. Presence is only as current as
+    /// that cursor, so a machine's badge must repaint the moment it advances
+    /// (and not before: an unrefreshed cursor renders presence as unknown).
+    private var freshnessTask: Task<Void, Never>?
 
     private var sessions: [CodingSessionEntity] = []
     // EXP-637: agent-ended rows, observed separately from the live ones — the
@@ -211,6 +216,18 @@ final class AgentsViewModel {
             } catch {}
         }
 
+        // EXP-656: the devices cursor advancing is neither a row write nor a
+        // clock tick, so nothing else in here notices it — and it is exactly
+        // the moment a "Paused" row we couldn't vouch for becomes knowledge.
+        freshnessTask = Task { [weak self] in
+            for await polledAccountId in SyncFreshness.shared.updates() {
+                guard let self, !Task.isCancelled else { return }
+                guard polledAccountId == self.accountId else { continue }
+                self.rebuild()
+                self.rebuildDevices()
+            }
+        }
+
         // GRDB only re-fires on writes — this clock re-applies the staleness
         // filters so a phantom session clears once its liveness window
         // elapses (EXP-153) and a silent machine drops to "last seen" once
@@ -243,6 +260,18 @@ final class AgentsViewModel {
         worktreeTask = nil
         userTask?.cancel()
         userTask = nil
+        freshnessTask?.cancel()
+        freshnessTask = nil
+    }
+
+    /// EXP-656: may a stale `last_seen_at` be read as "that machine is gone"?
+    /// Only when our own `devices` shape polled within the contract window —
+    /// otherwise the rows are pre-sleep knowledge and presence is unknown.
+    private func devicesFresh(now: Date = Date()) -> Bool {
+        DeviceFreshness.isTrustworthy(
+            devicesPolledAt: SyncFreshness.shared.devicesPolledAt(accountId: accountId),
+            now: now
+        )
     }
 
     /// EXP-481: recompose the machines list from the observed rows — own
@@ -266,6 +295,8 @@ final class AgentsViewModel {
     /// started yesterday and finished a minute ago is the most recent one),
     /// falling back to the start stamp for a row whose end never landed.
     private func rebuildRecent() {
+        let now = Date()
+        let fresh = devicesFresh(now: now)
         let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let deviceRows = deviceEntities ?? []
         let startTargets = devices ?? []
@@ -280,7 +311,7 @@ final class AgentsViewModel {
                     session: session,
                     issue: session.issueId.flatMap { issuesById[$0] },
                     device: SessionDevicePresentation.resolve(
-                        session: session, devices: deviceRows
+                        session: session, devices: deviceRows, now: now, devicesFresh: fresh
                     ),
                     resumeDevice: RunResume.target(
                         for: session, devices: startTargets, currentUserId: userId
@@ -334,6 +365,7 @@ final class AgentsViewModel {
         // One clock for the whole pass (EXP-550): every row's offline-ness is
         // read against the same instant.
         let now = Date()
+        let fresh = devicesFresh(now: now)
         let deviceRows = deviceEntities ?? []
         let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         // EXP-535: the active team's open batch PRs, collapsed once per
@@ -372,7 +404,7 @@ final class AgentsViewModel {
                             openBatchPrs: openBatchPrs
                         ) : nil,
                     device: SessionDevicePresentation.resolve(
-                        session: session, devices: deviceRows, now: now
+                        session: session, devices: deviceRows, now: now, devicesFresh: fresh
                     )
                 )
             }

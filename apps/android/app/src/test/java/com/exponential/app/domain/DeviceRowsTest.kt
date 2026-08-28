@@ -51,6 +51,25 @@ class DeviceRowsTest {
         assertFalse(DeviceLiveness.isOnline(null, nowMs))
     }
 
+    // ── DeviceFreshness (EXP-656) ────────────────────────────────────────────
+
+    @Test
+    fun `a devices cursor is trustworthy only inside the contract window`() {
+        val polledAt = 500_000L
+        assertTrue(DeviceFreshness.isTrustworthy(polledAt, polledAt))
+        assertTrue(DeviceFreshness.isTrustworthy(polledAt, polledAt + 89_000))
+        assertFalse(DeviceFreshness.isTrustworthy(polledAt, polledAt + 90_000))
+        assertFalse(DeviceFreshness.isTrustworthy(polledAt, polledAt + 10 * 60_000))
+    }
+
+    @Test
+    fun `a shape that has never polled is never trustworthy`() {
+        // 0 = no completed poll on this run — the state a just-foregrounded
+        // (or offline) app is in, and exactly when a stale last_seen_at would
+        // otherwise fake a paused session.
+        assertFalse(DeviceFreshness.isTrustworthy(0L, 1_000L))
+    }
+
     // ── toSteerDevice ────────────────────────────────────────────────────────
 
     @Test

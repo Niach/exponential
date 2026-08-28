@@ -24,12 +24,14 @@ struct ExponentialApp: App {
                 // EXP-643: every Toggle in the tree (sheets included) renders
                 // the black-on-white glass switch instead of the system one.
                 .toggleStyle(.glass)
-                // A suspension leaves every shape long-poll either parked on
-                // escalated backoff (up to 30s) or holding a socket that won't
-                // fail until the 90s request timeout, so a returning user can
-                // stare at stale data for a minute. Restart the pipelines on
-                // the way back in — no wipe, same reconnect-on-.active idiom
-                // AgentSessionView uses for its steer socket.
+                // EXP-656: the shape pipelines PARK on the way out and relaunch
+                // on the way back in. Carrying 19 long-polls into a suspension
+                // left them holding sockets the OS had already killed — nothing
+                // failed until the 90s request timeout, so a returning user
+                // stared at pre-sleep data (a machine still reading "Paused")
+                // for as long as that took. The relaunch resumes from each
+                // shape's persisted cursor with a non-live catch-up poll, which
+                // answers in one round trip.
                 .onChange(of: scenePhase) { _, newPhase in
                     switch newPhase {
                     case .background: dependencies.syncManager.sceneDidEnterBackground()

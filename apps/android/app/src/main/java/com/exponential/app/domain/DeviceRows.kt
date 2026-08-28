@@ -50,6 +50,32 @@ object DeviceLiveness {
 }
 
 /**
+ * EXP-656: is what we know about device presence worth rendering?
+ *
+ * `last_seen_at` only ever moves FORWARD, so a devices cursor we haven't
+ * refreshed can produce a false OFFLINE (the machine has been beating the
+ * whole time, we just didn't hear it) but never a false online. That is
+ * exactly the "my session says Paused for the first 5-10s after I open the
+ * app" report — and the same is true of a phone with no network at all.
+ * Presence is therefore only trustworthy while our OWN `devices` shape has
+ * completed a poll inside the contract window; outside it the answer is
+ * UNKNOWN, and unknown must never render as paused.
+ */
+object DeviceFreshness {
+
+    /**
+     * [polledAtMs] and [nowMs] are the same monotonic clock
+     * (`SystemClock.elapsedRealtime`); 0 means the shape has never completed a
+     * poll on this run, which is never trustworthy.
+     */
+    fun isTrustworthy(
+        polledAtMs: Long,
+        nowMs: Long,
+        windowMs: Long = DomainContract.deviceOnlineWindowMs,
+    ): Boolean = polledAtMs > 0L && nowMs - polledAtMs < windowMs
+}
+
+/**
  * EXP-623: stable device-list order — online machines first, sorted by label
  * so heartbeats can't reorder them; offline rows don't beat, so last-seen
  * desc is stable there. Ties break on deviceId.

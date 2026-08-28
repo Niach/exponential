@@ -369,6 +369,14 @@ export type ServerFrame =
   // nothing, never changes a viewer's phase, and is only ever sent to a
   // socket whose join has already been answered.
   | { t: `keepalive` }
+  // EXP-656: relay → the JOINING viewer only, right after `activity_reset` +
+  // the replay — "the picture is complete, commit it". Lets a client stage a
+  // reconnect's replay behind its visible feed and swap atomically, so a
+  // reader scrolled up in a plan is never yanked to the bottom. Carries
+  // nothing; every client ignores unknown `t` values, and a publisher-driven
+  // reset + republish never gets one (old desktops give the relay no
+  // end-of-republish signal — clients fall back to a quiet timer).
+  | { t: `activity_synced` }
 
 // ── Close codes ───────────────────────────────────────────────────────────────
 

@@ -151,8 +151,18 @@ initializer. The Drizzle/tRPC mutation path stays camelCase. See
    normal long-poll close — that's the happy path.
 
 4. **Background lifecycle.** On app background, cancel the running poll
-   `Task` / coroutine. On foreground, resume from the persisted cursor.
-   Mobile OSes will tear down HTTP connections in background regardless.
+   `Task` / coroutine **immediately** — no grace window. A "park after N
+   seconds" timer on a monotonic clock never fires on a phone that goes
+   to sleep right after backgrounding (EXP-656: Android's old 30s park),
+   and mobile OSes tear down HTTP connections in background regardless.
+   On foreground, **drop idle pooled connections first** (the radio
+   killed them silently; a pooled HTTP/2 connection is reused for GETs
+   without a health check and only fails at the next keepalive ping),
+   then resume from the persisted cursor with a **non-live** catch-up
+   request per shape, exactly like `@electric-sql/client` does on
+   `visibilitychange`. Android: `SyncManager.setForeground` +
+   `ConnectionPool.evictAll()`; iOS: `SyncManager` parks/relaunches the
+   pipeline and invalidates its `URLSession`.
 
 5. **Single auth header.** `Authorization: Bearer <token>` (mobile) or
    the session cookie (web). The shape proxy accepts either via
@@ -162,7 +172,19 @@ initializer. The Drizzle/tRPC mutation path stays camelCase. See
 6. **Timeout headroom.** Client request timeout should be **longer**
    than the server-side long-poll window (~60s). Android uses
    `LIVE_TIMEOUT_MS + 30_000L` = 90s. iOS uses 90s. Web's
-   `@electric-sql/client` manages this internally.
+   `@electric-sql/client` manages this internally. The **non-live
+   catch-up** request issued right after a resume/kick has no hold to
+   survive and gets a short budget instead (Android
+   `CONFIRM_TIMEOUT_MS` = 15s): if it has not answered by then it is
+   sitting on a dead socket, not waiting on a slow server.
+
+7. **Freshness-unknown.** Presence derived from synced rows (a device's
+   `last_seen_at` vs `contract.device.onlineWindowSeconds`) is only as
+   fresh as the client's own cursor. A client that has not completed a
+   successful poll of that shape within the window renders **unknown**
+   (never "offline"/"paused") — a stale cursor can only produce a false
+   offline, since `last_seen_at` only moves forward. Client-side only,
+   no wire change (EXP-656; `DeviceFreshness` on Android + iOS).
 
 ---
 

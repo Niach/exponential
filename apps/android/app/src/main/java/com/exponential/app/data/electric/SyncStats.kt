@@ -3,9 +3,13 @@ package com.exponential.app.data.electric
 import android.os.SystemClock
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 
 /**
@@ -60,6 +64,9 @@ class SyncStats @Inject constructor() {
     // rather than a transient hiccup, without hammering or misleading.
     companion object {
         const val UNAUTHORIZED_THRESHOLD = 3
+
+        /** The synced shape whose freshness device presence is derived from. */
+        const val DEVICES_SHAPE = "devices"
     }
 
     // accountId -> (shape -> status)
@@ -170,4 +177,24 @@ class SyncStats @Inject constructor() {
     fun clearAccount(accountId: String) {
         _state.update { it - accountId }
     }
+
+    /**
+     * EXP-656: elapsedRealtime of the `devices` shape's last completed poll for
+     * [accountId] (0 = never on this run, which is also what a null account
+     * reports).
+     *
+     * Device presence is derived from a synced `last_seen_at`, so it is only
+     * meaningful while THIS shape's cursor is fresh — see
+     * [com.exponential.app.domain.DeviceFreshness]. The stamp is already
+     * reactive and, unlike a Room flow, it fires for a bare `up-to-date` too:
+     * a poll that writes no rows is exactly the one that proves a machine is
+     * still where we last saw it.
+     */
+    fun devicesPolledAt(accountId: String?): Flow<Long> =
+        if (accountId == null) {
+            flowOf(0L)
+        } else {
+            state.map { it[accountId]?.get(DEVICES_SHAPE)?.lastSuccessAtMs ?: 0L }
+                .distinctUntilChanged()
+        }
 }

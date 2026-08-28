@@ -186,4 +186,69 @@ final class SessionDevicePresentationTests: XCTestCase {
         )
         XCTAssertTrue(resolved.offline)
     }
+
+    // MARK: - Freshness-unknown guard (EXP-656)
+
+    // The report's exact shape: the phone slept, the devices cursor is older
+    // than the contract window, and the row's last_seen_at is pre-sleep. That
+    // is ignorance, not evidence — never "Paused".
+    func testAnUnrefreshedCursorNeverPauses() {
+        let rows = [
+            device(id: "r1", deviceId: "dev-1", label: "macbook", lastSeenAt: stale)
+        ]
+        let resolved = SessionDevicePresentation.resolve(
+            session: session(deviceId: "dev-1", deviceLabel: "macbook"),
+            devices: rows,
+            now: now,
+            devicesFresh: false
+        )
+        XCTAssertNil(resolved.online)
+        XCTAssertFalse(resolved.offline)
+        XCTAssertFalse(resolved.isPaused(.running))
+        XCTAssertEqual(resolved.label, "macbook")
+    }
+
+    // A stale cursor can only produce a false OFFLINE (last_seen_at only moves
+    // forward), so an online verdict stands whatever our cursor says.
+    func testAFreshHeartbeatStaysOnlineWithAStaleCursor() {
+        let rows = [
+            device(id: "r1", deviceId: "dev-1", label: "macbook", lastSeenAt: fresh)
+        ]
+        let resolved = SessionDevicePresentation.resolve(
+            session: session(deviceId: "dev-1", deviceLabel: "macbook"),
+            devices: rows,
+            now: now,
+            devicesFresh: false
+        )
+        XCTAssertEqual(resolved.online, true)
+        XCTAssertFalse(resolved.offline)
+    }
+
+    // EXP-550 guard: knowledge still pauses. A cursor inside the window plus a
+    // stale heartbeat means the machine really did go away.
+    func testAFreshCursorStillPausesAStaleHeartbeat() {
+        let rows = [
+            device(id: "r1", deviceId: "dev-1", label: "macbook", lastSeenAt: stale)
+        ]
+        let resolved = SessionDevicePresentation.resolve(
+            session: session(deviceId: "dev-1", deviceLabel: "macbook"),
+            devices: rows,
+            now: now,
+            devicesFresh: true
+        )
+        XCTAssertEqual(resolved.online, false)
+        XCTAssertTrue(resolved.offline)
+        XCTAssertTrue(resolved.isPaused(.running))
+    }
+
+    // No matched row is unknown too — an absent machine is not an offline one.
+    func testAnUnmatchedRowResolvesUnknown() {
+        let resolved = SessionDevicePresentation.resolve(
+            session: session(deviceId: "dev-gone", deviceLabel: "macbook"),
+            devices: [],
+            now: now
+        )
+        XCTAssertNil(resolved.online)
+        XCTAssertFalse(resolved.offline)
+    }
 }

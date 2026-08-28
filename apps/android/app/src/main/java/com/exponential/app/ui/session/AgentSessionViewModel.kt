@@ -1,6 +1,7 @@
 package com.exponential.app.ui.session
 
 import android.net.Uri
+import android.os.SystemClock
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -12,9 +13,11 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.data.steer.SteerConnectionStore
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentPhase
+import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.PendingAttachment
@@ -25,6 +28,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -54,6 +58,7 @@ class AgentSessionViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val steerApi: SteerApi,
     private val store: SteerConnectionStore,
+    stats: SyncStats,
 ) : ViewModel() {
 
     val codingSessionId: String = savedStateHandle["codingSessionId"] ?: ""
@@ -68,6 +73,12 @@ class AgentSessionViewModel @Inject constructor(
      *  from the connection, which needs it eagerly for its redial loop. */
     val session: StateFlow<CodingSessionEntity?> = connection.session
 
+    /** EXP-656: when our own `devices` shape last completed a poll — presence
+     *  derived from an unrefreshed cursor is unknown, never offline. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val devicesPolledAt: Flow<Long> =
+        auth.activeAccountId.flatMapLatest { stats.devicesPolledAt(it) }
+
     /**
      * EXP-549/550: the session's host machine, joined to its LIVE devices row
      * — the CURRENT label (a rename must land here, not the start-time
@@ -79,11 +90,22 @@ class AgentSessionViewModel @Inject constructor(
         session,
         dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
         DeviceLiveness.ticker(),
-    ) { row, devices, now ->
+        devicesPolledAt,
+    ) { row, devices, now, polledAt ->
         if (row == null) {
             SessionDevicePresentation.Unknown
         } else {
-            resolveSessionDevice(row, devices, now)
+            resolveSessionDevice(
+                row,
+                devices,
+                now,
+                // The stamp is elapsedRealtime, so the window is measured on
+                // that clock — not on the wall clock the ticker emits.
+                devicesFresh = DeviceFreshness.isTrustworthy(
+                    polledAt,
+                    SystemClock.elapsedRealtime(),
+                ),
+            )
         }
     }.stateIn(
         viewModelScope,
