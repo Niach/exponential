@@ -70,6 +70,7 @@ import {
   DEMO_NAME,
   DEMO_PASSWORD,
   DEMO_SERVER_VERSION,
+  DEMO_SHOWCASE_COMMENT_HOURS_AGO,
   EMPTY_BOARD_SLUG,
   NEWCOMER_EMAIL,
   NEWCOMER_NAME,
@@ -695,7 +696,11 @@ async function main() {
   inserted.push(duplicate)
 
   // Showcase issue APP-5: comments + activity + subscribers for the
-  // issue-detail and comments screenshots.
+  // issue-detail and comments screenshots. The offsets are pinned rather than
+  // written inline because a comment's relative label is the only thing in
+  // this thread that moves between runs (EXP-669) —
+  // `DEMO_SHOWCASE_COMMENT_HOURS_AGO` explains which offsets survive the gap
+  // between the seed and the shutter, and on which clients.
   const showcase = inserted[4]
   await db.insert(comments).values([
     {
@@ -704,7 +709,7 @@ async function main() {
       boardId: showcase.boardId,
       authorId: mira,
       body: `Profiled on a mid-range device — the shape subscribe alone is **410 ms**. Deferring it until after first frame gets us to ~750 ms cold.`,
-      createdAt: hoursAgo(26),
+      createdAt: hoursAgo(DEMO_SHOWCASE_COMMENT_HOURS_AGO.mira),
     },
     {
       issueId: showcase.id,
@@ -712,7 +717,7 @@ async function main() {
       boardId: showcase.boardId,
       authorId: jonas,
       body: `Nice find. I'll take the board snapshot cache — we can reuse the reducer state and paint before sync finishes.`,
-      createdAt: hoursAgo(22),
+      createdAt: hoursAgo(DEMO_SHOWCASE_COMMENT_HOURS_AGO.jonas),
     },
     {
       issueId: showcase.id,
@@ -720,7 +725,7 @@ async function main() {
       boardId: showcase.boardId,
       authorId: demoId,
       body: `Deferral PR is merged. CI numbers:\n\n- cold start: ~1.4s → **860 ms**\n- warm start: unchanged\n\nSnapshot cache should get us under target.`,
-      createdAt: hoursAgo(5),
+      createdAt: hoursAgo(DEMO_SHOWCASE_COMMENT_HOURS_AGO.demo),
     },
     // @mention + #issue ref so the comments screenshot shows both pill types
     // (interchange forms: plain `@<email>` and `#<IDENTIFIER>` GFM text).
@@ -730,7 +735,7 @@ async function main() {
       boardId: showcase.boardId,
       authorId: sofia,
       body: `@${TEAMMATES[1].email} once #APP-2 is verified on device, can you re-run the profiling? The HEIC fix might shave a little more off the cold start.`,
-      createdAt: hoursAgo(2),
+      createdAt: hoursAgo(DEMO_SHOWCASE_COMMENT_HOURS_AGO.sofia),
     },
   ])
   await db.insert(issueSubscribers).values([

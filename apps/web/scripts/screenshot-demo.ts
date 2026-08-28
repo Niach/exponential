@@ -96,6 +96,45 @@ export const DEMO_PENDING_INVITE_EXPIRY = {
 } as const
 
 /**
+ * How long ago each comment on the showcase issue (APP-5) was posted, in hours
+ * (EXP-669).
+ *
+ * These are pinned for the same reason as the invite expiries above, but
+ * against a different mechanism. A comment renders a RELATIVE label the client
+ * computes against its own clock, so what reaches the pixel is not the seeded
+ * offset — it is the offset PLUS however long passed between the seed and the
+ * shutter. That gap is not a constant: it is a minute or two for a narrowed
+ * `--views issue-comments` run, most of an hour by the time the web-mobile
+ * lane reaches this view in a full refresh, and longer still for the native
+ * styleguide lanes that run last. With the old sub-day offsets the label was
+ * hour-granular and a bucket is one hour wide, so the same unchanged thread
+ * photographed "22 hours ago" one run and "23 hours ago" the next, rewriting
+ * every issue-comments shot for nothing.
+ *
+ * A DAY-granular label is the fix, because that bucket is wide enough to
+ * swallow the gap. It is only 12 hours wide across the fleet, though, not 24:
+ * web rounds (date-fns `formatDistanceToNowStrict`, so "1 day" is 24-36h)
+ * while iOS, Android and desktop floor on calendar boundaries ("1 day" is
+ * 24-48h). Their boundaries therefore fall every 12 hours, and an offset only
+ * survives the gap if it sits just ABOVE one — which is also where the two
+ * rules agree on what to print, so the same thread reads the same on all five
+ * platforms in the gallery.
+ *
+ * `screenshot-demo.test.ts` checks both rules against
+ * `COMMENT_LABEL_RUNWAY_HOURS`; edit these numbers only if it still passes.
+ */
+export const DEMO_SHOWCASE_COMMENT_HOURS_AGO = {
+  /** Mira opens with the profiling numbers. */
+  mira: 50,
+  /** Jonas picks up the snapshot cache. */
+  jonas: 49,
+  /** The demo user (Alex) posts the CI results. */
+  demo: 26,
+  /** Sofia's @mention + #issue-ref reply, the newest in the thread. */
+  sofia: 25,
+} as const
+
+/**
  * The LAST event of the scripted steering transcript: the unanswered question
  * the steering screenshot is composed around.
  *
