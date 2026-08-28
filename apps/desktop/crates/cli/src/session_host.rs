@@ -310,7 +310,14 @@ pub fn launch(
 
     // --- Kill-switch poll: the desktop's own-row kill-watch, over tRPC.
     // Fires ONLY on an explicit own-row `ended` (vanished row ≠ kill; a
-    // resurrected row owned by someone else must never kill this run). -----
+    // resurrected row owned by someone else must never kill this run).
+    // EXP-674: this edge is the daemon's ONLY reaper besides the child's
+    // own exit — deliberately no idle bound. A person-started run's report
+    // (`exponential_sessions_end`) records summary + outcome without
+    // flipping the row (EXP-673), so the agent keeps waiting for replies
+    // here exactly like in a desktop tab or an attached terminal, until a
+    // web/mobile "Kill session", a merge or the sweep ends the row.
+    // Automation-started runs end on their report and reap right away. -----
     let watch_done = Arc::new(AtomicBool::new(false));
     {
         let trpc = Arc::clone(&env.ctx.trpc);
