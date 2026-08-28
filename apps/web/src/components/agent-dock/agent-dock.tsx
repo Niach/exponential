@@ -234,6 +234,7 @@ export function AgentDock({
           session={panelRow.session}
           currentUserId={currentUserId}
           title={<SessionTitle row={panelRow} teamSlug={teamSlug} />}
+          prIssue={panelRow.issue ?? panelRow.batchPrIssue}
           onCollapse={() => dock?.collapseDock()}
         />
       </div>
@@ -309,6 +310,7 @@ export function AgentDock({
               session={panelRow.session}
               currentUserId={currentUserId}
               title={<SessionTitle row={panelRow} teamSlug={teamSlug} />}
+              prIssue={panelRow.issue ?? panelRow.batchPrIssue}
               onCollapse={() => {
                 setFullscreen(false)
                 dock?.collapseDock()

@@ -23,6 +23,10 @@ public struct GlassPillLabel<Leading: View>: View {
     var isActive: Bool = false
     var isOpaque: Bool = false
     var enabled: Bool = true
+    /// EXP-678: the ONE geometry knob — a pill sitting beside a taller row
+    /// (the steer screen's "Latest changes" chip) matches its height instead
+    /// of drawing a short pill against it. Default = the shared 6pt.
+    var verticalPadding: CGFloat = 6
     let leading: Leading
 
     public init(
@@ -30,12 +34,14 @@ public struct GlassPillLabel<Leading: View>: View {
         isActive: Bool = false,
         isOpaque: Bool = false,
         enabled: Bool = true,
+        verticalPadding: CGFloat = 6,
         @ViewBuilder leading: () -> Leading
     ) {
         self.label = label
         self.isActive = isActive
         self.isOpaque = isOpaque
         self.enabled = enabled
+        self.verticalPadding = verticalPadding
         self.leading = leading()
     }
 
@@ -47,14 +53,26 @@ public struct GlassPillLabel<Leading: View>: View {
         }
         .foregroundStyle(.white.opacity(enabled ? TextOpacity.primary : TextOpacity.quaternary))
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.vertical, verticalPadding)
         .glassButton(isActive: isActive, isOpaque: isOpaque)
     }
 }
 
 extension GlassPillLabel where Leading == EmptyView {
-    public init(_ label: String, isActive: Bool = false, isOpaque: Bool = false, enabled: Bool = true) {
-        self.init(label, isActive: isActive, isOpaque: isOpaque, enabled: enabled) { EmptyView() }
+    public init(
+        _ label: String,
+        isActive: Bool = false,
+        isOpaque: Bool = false,
+        enabled: Bool = true,
+        verticalPadding: CGFloat = 6
+    ) {
+        self.init(
+            label,
+            isActive: isActive,
+            isOpaque: isOpaque,
+            enabled: enabled,
+            verticalPadding: verticalPadding
+        ) { EmptyView() }
     }
 }
 
@@ -65,6 +83,7 @@ public struct GlassPillButton: View {
     var isActive: Bool = false
     var isOpaque: Bool = false
     var enabled: Bool = true
+    var verticalPadding: CGFloat = 6
     let action: () -> Void
 
     public init(
@@ -73,6 +92,7 @@ public struct GlassPillButton: View {
         isActive: Bool = false,
         isOpaque: Bool = false,
         enabled: Bool = true,
+        verticalPadding: CGFloat = 6,
         action: @escaping () -> Void
     ) {
         self.label = label
@@ -80,12 +100,19 @@ public struct GlassPillButton: View {
         self.isActive = isActive
         self.isOpaque = isOpaque
         self.enabled = enabled
+        self.verticalPadding = verticalPadding
         self.action = action
     }
 
     public var body: some View {
         Button(action: action) {
-            GlassPillLabel(label, isActive: isActive, isOpaque: isOpaque, enabled: enabled) {
+            GlassPillLabel(
+                label,
+                isActive: isActive,
+                isOpaque: isOpaque,
+                enabled: enabled,
+                verticalPadding: verticalPadding
+            ) {
                 if let icon {
                     AppIcon(icon, size: 14)
                 }

@@ -23,8 +23,9 @@ import {
   X,
 } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
-import type { CodingSession } from "@/db/schema"
+import type { CodingSession, Issue } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
+import { SessionMergeButton } from "@/components/session-merge-button"
 import { useSessionDevice } from "@/hooks/use-session-device"
 import { useNow } from "@/hooks/use-now"
 import { useSessionAgentUsage } from "@/hooks/use-session-agent-usage"
@@ -163,6 +164,7 @@ export function AgentSessionView({
   session,
   currentUserId,
   title,
+  prIssue,
   onCollapse,
   isFullscreen,
   onToggleFullscreen,
@@ -171,6 +173,10 @@ export function AgentSessionView({
   currentUserId: string
   /** Header identity — an issue-identifier Link, or plain text (batch/syncing). */
   title: React.ReactNode
+  /** EXP-678: the issue whose PR this session would merge — the linked issue,
+   *  or a batch run's resolved representative (EXP-535). Absent (action runs,
+   *  still syncing) = no Merge pill. */
+  prIssue?: Issue
   /** Collapse the dock panel (the socket tears down on unmount). */
   onCollapse: () => void
   /** Fullscreen toggle chrome (EXP-184) — owned by the dock; absent = no button. */
@@ -307,6 +313,10 @@ export function AgentSessionView({
   // is disabled) — unmounting it on a phase change was how a slow-consumer
   // eviction ate a typed draft. It only leaves with the session itself.
   const composerVisible = !sessionEnded && phase.kind !== `ended`
+  // EXP-678: an open PR on a still-live run is mergeable right here. The
+  // server ends the session on merge (EXP-498) and the prState echo hides
+  // the pill again — no local state to unwind.
+  const canMerge = composerVisible && prIssue?.prState === `open`
 
   /** Identity-scoped questions stay answerable until they resolve; legacy
    *  cards fall back to the trailing-run heuristic, with a plan-approval card
@@ -665,33 +675,61 @@ export function AgentSessionView({
             </div>
           )}
 
-          {/* Pinned "Latest changes" (directly above the composer) */}
-          {latestDiff && (
+          {/* Pinned "Latest changes" (directly above the composer). EXP-678:
+              once the PR is open the strip shares its row with a glass Merge
+              pill — the trigger shrinks, the pill sits on the right at the
+              same height, and the expanded diff still spans the full width.
+              The pill alone holds the row when no diff has arrived yet. */}
+          {(latestDiff || canMerge) && (
             <Collapsible
-              open={diffOpen}
+              open={diffOpen && Boolean(latestDiff)}
               onOpenChange={setDiffOpen}
               className="border-t border-border"
             >
-              <CollapsibleTrigger className="flex w-full items-center gap-2 bg-muted/30 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/50">
-                <ChevronRight
-                  className={cn(
-                    `size-3.5 shrink-0 text-muted-foreground transition-transform`,
-                    diffOpen && `rotate-90`
-                  )}
-                />
-                <span className="font-medium">Latest changes</span>
-                <span className="ml-auto" />
-                <span className="shrink-0 font-mono">
-                  <span className="text-emerald-400">+{diffStats.additions}</span>
-                  {` `}
-                  <span className="text-rose-400">-{diffStats.deletions}</span>
-                </span>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="max-h-72 overflow-y-auto overscroll-contain border-t border-border/60">
-                  <FileDiffList files={diffFiles} />
-                </div>
-              </CollapsibleContent>
+              <div className="flex items-stretch bg-muted/30">
+                {latestDiff ? (
+                  <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/50">
+                    <ChevronRight
+                      className={cn(
+                        `size-3.5 shrink-0 text-muted-foreground transition-transform`,
+                        diffOpen && `rotate-90`
+                      )}
+                    />
+                    <span className="font-medium">Latest changes</span>
+                    <span className="ml-auto" />
+                    <span className="shrink-0 font-mono">
+                      <span className="text-emerald-400">
+                        +{diffStats.additions}
+                      </span>
+                      {` `}
+                      <span className="text-rose-400">
+                        -{diffStats.deletions}
+                      </span>
+                    </span>
+                  </CollapsibleTrigger>
+                ) : (
+                  <span className="flex-1" />
+                )}
+                {canMerge && prIssue && (
+                  <div className="flex shrink-0 items-center py-1 pr-2 pl-1">
+                    <SessionMergeButton
+                      variant="glass"
+                      size="sm"
+                      label="Merge"
+                      prState={prIssue.prState}
+                      prNumber={prIssue.prNumber}
+                      issueId={prIssue.id}
+                    />
+                  </div>
+                )}
+              </div>
+              {latestDiff && (
+                <CollapsibleContent>
+                  <div className="max-h-72 overflow-y-auto overscroll-contain border-t border-border/60">
+                    <FileDiffList files={diffFiles} />
+                  </div>
+                </CollapsibleContent>
+              )}
             </Collapsible>
           )}
 

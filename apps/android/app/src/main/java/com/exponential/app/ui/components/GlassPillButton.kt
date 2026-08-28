@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -21,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -39,6 +41,12 @@ fun GlassPillButton(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
     enabled: Boolean = true,
+    /** EXP-678: taller when the pill has to match a neighbouring chip's height
+     *  — the steer screen's Merge pill beside the "Latest changes" chip. */
+    verticalPadding: Dp = 6.dp,
+    /** A call in flight: the icon becomes a spinner, so the pill keeps its
+     *  width and the caller only has to dim it via [enabled]. */
+    loading: Boolean = false,
 ) {
     val fg = MaterialTheme.colorScheme.onSurface.copy(
         alpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary,
@@ -49,9 +57,15 @@ fun GlassPillButton(
         modifier = modifier
             .glassButton()
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp, vertical = verticalPadding),
     ) {
-        if (icon != null) {
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(14.dp),
+                strokeWidth = 2.dp,
+                color = fg,
+            )
+        } else if (icon != null) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = fg)
         }
         Text(label, style = MaterialTheme.typography.labelMedium, color = fg)
