@@ -40,7 +40,9 @@ const DOCTOR_RECHECK: Duration = Duration::from_secs(5 * 60);
 /// confirms (or clears) a pending change, so a real change still converges
 /// in ~DOCTOR_RECHECK + this instead of two full periods.
 const ADVERT_CONFIRM_RECHECK: Duration = Duration::from_secs(30);
-/// EXP-481 adds `resume` (start_session honors the resume flag),
+/// EXP-481 adds `resume` (start_session honors the resume flag — registry
+/// driven since EXP-662: a recorded run relaunches its exact transcript, a
+/// record-less issue degrades to a fresh resume-prompted session),
 /// `worktrees` (inventory reporting + remove/prune commands) and
 /// `launch-defaults` (server-authoritative defaults convergence + the
 /// `check_in` nudge frame). EXP-490 split them off [`ACTION_CAPS`]: these
@@ -983,6 +985,42 @@ fn handle_remote_start(
     }
 }
 
+/// The one-session-per-issue guards every issue-shaped start takes — this
+/// daemon's own live sessions first, then the REV2-24 cross-device probe
+/// (desktop parity: one session per issue, wherever it runs). `Some` refuses
+/// the start and carries the reason; the probe is best-effort, so an older
+/// server without it never blocks.
+fn issue_start_blocker(ctx: &Ctx, sessions: &Sessions, issue_id: &str) -> Option<String> {
+    if issue_is_coding_here(sessions, issue_id) {
+        return Some(format!(
+            "remote start for {issue_id} ignored — already coding this issue"
+        ));
+    }
+    if let Ok(Some(live)) = api::coding_sessions::live_for_issue(&ctx.trpc, issue_id) {
+        return Some(format!(
+            "remote start for {issue_id} ignored — live session on {} (one session per issue)",
+            live.device_label.as_deref().unwrap_or("another device")
+        ));
+    }
+    None
+}
+
+/// EXP-662 — what a remote start's `resume` flag resolves to: the newest
+/// still-resumable ISSUE record on this account, or nothing. The flag gates
+/// the lookup, so an unchecked box never relaunches a transcript, and a miss
+/// degrades to a fresh session seeded with the resume prompt.
+fn issue_resume_record(
+    data_dir: &Path,
+    account_id: &str,
+    issue_id: &str,
+    start_resume: bool,
+) -> Option<coding::run_registry::RunRecord> {
+    if !start_resume {
+        return None;
+    }
+    coding::run_registry::latest_for_issue(data_dir, account_id, issue_id)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn remote_issue_start(
     ctx: &Ctx,
@@ -995,29 +1033,36 @@ fn remote_issue_start(
     issue_id: String,
     start_resume: bool,
 ) -> anyhow::Result<()> {
-    if issue_is_coding_here(sessions, &issue_id) {
-        log::info!("remote start for {issue_id} ignored — already coding this issue");
-        return Ok(());
-    }
-    // REV2-24 cross-device guard (desktop parity): one session per issue,
-    // wherever it runs. Best-effort — an older server without the probe
-    // must not block the start.
-    if let Ok(Some(live)) = api::coding_sessions::live_for_issue(&ctx.trpc, &issue_id) {
-        log::info!(
-            "remote start for {issue_id} ignored — live session on {} (one session per issue)",
-            live.device_label.as_deref().unwrap_or("another device")
-        );
+    if let Some(reason) = issue_start_blocker(ctx, sessions, &issue_id) {
+        log::info!("{reason}");
         return Ok(());
     }
     let fetched = api::issues::issues_get(&ctx.trpc, &issue_id).context("resolve the issue")?;
     let issue = fetched.issue;
-    let request =
-        launch::issue_launch_request(&issue, options, origin, start_resume);
     let mut seeds = HashMap::new();
     seeds.insert(issue.id.clone(), launch::issue_seed(&issue));
     let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon);
+    // EXP-662: a recorded run relaunches its EXACT transcript (the recorded
+    // agent, workspace and identity pin); only a record-less resume falls
+    // through to a fresh session carrying the resume PROMPT.
+    let request = match issue_resume_record(&ctx.data_dir, &ctx.account.id, &issue.id, start_resume)
+    {
+        Some(record) => PrepareRequest::ResumeRun(coding::ResumeRunRequest {
+            record,
+            device_label: coding::default_device_label(),
+            origin,
+            model: None,
+            effort: None,
+        }),
+        None => PrepareRequest::Issue(launch::issue_launch_request(
+            &issue,
+            options,
+            origin,
+            start_resume,
+        )),
+    };
     let prepared = coding::prepare_with_hooks(
-        &PrepareRequest::Issue(request),
+        &request,
         &deps,
         sidecars.hook_setup().as_ref(),
         sidecars.observer_setup().as_ref(),
@@ -1192,10 +1237,10 @@ fn remote_action_start(
     spawn_prepared(ctx, sidecars, runtime, sessions, personal_key, prepared, None, is_fix_run)
 }
 
-/// EXP-637 — RESUME an ended action/chat run out of the local run registry.
-/// A record this daemon never wrote (or whose workspace is gone) is a hard
-/// refusal, logged: the requester sees no new session row, exactly like every
-/// other refused start.
+/// EXP-637 — RESUME an ended run of ANY kind out of the local run registry
+/// (EXP-662 added the issue and batch shapes). A record this daemon never
+/// wrote (or whose workspace is gone) is a hard refusal, logged: the requester
+/// sees no new session row, exactly like every other refused start.
 #[allow(clippy::too_many_arguments)]
 fn remote_resume_start(
     ctx: &Ctx,
@@ -1212,6 +1257,35 @@ fn remote_resume_start(
     if !record.resumable() {
         anyhow::bail!("run {session_id}'s workspace is gone");
     }
+    // EXP-662: an issue/batch record resumes as a SESSION on those issues, so
+    // it takes the same one-session-per-issue guards a fresh start does.
+    let mut seeds = HashMap::new();
+    match record.kind {
+        coding::run_registry::RunKind::Issue => {
+            if let Some(issue_id) = record.issue_id.clone() {
+                if let Some(reason) = issue_start_blocker(ctx, sessions, &issue_id) {
+                    anyhow::bail!(reason);
+                }
+                // Best-effort seed: it only feeds the FALLBACK prompt (the
+                // issue's title) for a record whose native transcript is
+                // gone. A failed fetch still resumes.
+                if let Ok(fetched) = api::issues::issues_get(&ctx.trpc, &issue_id) {
+                    seeds.insert(issue_id, launch::issue_seed(&fetched.issue));
+                }
+            }
+        }
+        coding::run_registry::RunKind::Batch => {
+            for issue in &record.issues {
+                if let Some(reason) = issue_start_blocker(ctx, sessions, &issue.issue_id) {
+                    anyhow::bail!(reason);
+                }
+            }
+        }
+        _ => {}
+    }
+    // The LiveSession/steer room is issue-shaped for an issue record, exactly
+    // like the fresh start it continues.
+    let issue_id = record.issue_id.clone();
     let request = coding::ResumeRunRequest {
         record,
         device_label: coding::default_device_label(),
@@ -1219,7 +1293,7 @@ fn remote_resume_start(
         model: None,
         effort: None,
     };
-    let deps = launch::coding_deps(ctx, HashMap::new(), launch::LaunchHost::Daemon);
+    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon);
     let prepared = coding::prepare_with_hooks(
         &PrepareRequest::ResumeRun(request),
         &deps,
@@ -1227,7 +1301,7 @@ fn remote_resume_start(
         sidecars.observer_setup().as_ref(),
     )
     .map_err(|err| anyhow::anyhow!("{err}"))?;
-    spawn_prepared(ctx, sidecars, runtime, sessions, personal_key, prepared, None, false)
+    spawn_prepared(ctx, sidecars, runtime, sessions, personal_key, prepared, issue_id, false)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2693,6 +2767,72 @@ mod tests {
             AdvertStep::AwaitConfirmation
         );
         assert_eq!(pending, Some(second));
+    }
+
+    // -----------------------------------------------------------------------
+    // EXP-662: the remote `resume` flag resolves through the run registry
+    // -----------------------------------------------------------------------
+
+    fn issue_record(cwd: &Path, session_id: &str, issue_id: &str) -> coding::run_registry::RunRecord {
+        coding::run_registry::RunRecord {
+            session_id: session_id.to_string(),
+            account_id: "acct-1".to_string(),
+            agent: coding::CodingAgent::Claude,
+            kind: coding::run_registry::RunKind::Issue,
+            action_id: String::new(),
+            action_name: String::new(),
+            team_id: "team-1".to_string(),
+            issue_id: Some(issue_id.to_string()),
+            issue_identifier: Some("EXP-42".to_string()),
+            batch_id: None,
+            issues: Vec::new(),
+            cwd: cwd.to_path_buf(),
+            clone: None,
+            repo: None,
+            repository_id: None,
+            branch: Some("exp/EXP-42".to_string()),
+            base_branch: Some("master".to_string()),
+            claude_session_id: Some("claude-1".to_string()),
+            pi_session_file: None,
+            codex_originator: None,
+            inputs: Vec::new(),
+            model: String::new(),
+            effort: String::new(),
+            ultracode: false,
+            skip_permissions: false,
+            fix: None,
+            started_reason: None,
+            resumed_from_id: None,
+            recorded_at: coding::run_registry::now_secs(),
+        }
+    }
+
+    /// The frame's `resume` flag GATES the registry lookup: an unchecked box
+    /// starts fresh even with a resumable record sitting right there, and a
+    /// checked one resolves the newest record for that issue + account (a
+    /// miss — another issue, another account — degrades to a fresh session
+    /// seeded with the resume prompt).
+    #[test]
+    fn the_resume_flag_gates_the_registry_lookup() {
+        let dir = std::env::temp_dir().join(format!("exp-cli-resume-{}", uuid::Uuid::new_v4()));
+        let cwd = dir.join("worktree");
+        std::fs::create_dir_all(&cwd).expect("temp worktree");
+        coding::run_registry::record(&dir, issue_record(&cwd, "sess-1", "issue-1"));
+
+        assert_eq!(
+            issue_resume_record(&dir, "acct-1", "issue-1", false),
+            None,
+            "resume: false never relaunches a transcript"
+        );
+        assert_eq!(
+            issue_resume_record(&dir, "acct-1", "issue-1", true)
+                .map(|record| record.session_id),
+            Some("sess-1".to_string())
+        );
+        assert_eq!(issue_resume_record(&dir, "acct-1", "issue-2", true), None);
+        assert_eq!(issue_resume_record(&dir, "acct-2", "issue-1", true), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // -----------------------------------------------------------------------

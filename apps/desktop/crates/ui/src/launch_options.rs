@@ -352,7 +352,9 @@ impl LaunchOptionsSection {
 
     /// The cluster's choices as launch options. `resume_active` clamps plan
     /// mode off (EXP-202: the plan already happened in the conversation being
-    /// continued) — pass `false` on surfaces that cannot resume.
+    /// continued) — pass `false` on surfaces that cannot resume. EXP-662: a
+    /// resume also keeps the RECORDED agent, so only `model`/`effort` from
+    /// here reach it, and only while the picker sits on that same agent.
     pub(crate) fn options(&self, resume_active: bool, cx: &App) -> LaunchOptions {
         LaunchOptions {
             agent: self.agent,

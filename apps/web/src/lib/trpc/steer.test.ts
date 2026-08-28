@@ -62,6 +62,7 @@ const h = vi.hoisted(() => {
         cond = value
         return chain
       },
+      orderBy: () => chain,
       limit: () => {
         const rows = (dbQueue.shift() ?? []) as Record<string, unknown>[]
         const parts = walkWhere(cond)
@@ -1381,6 +1382,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
       branch: null,
     })
     queueOwnDevice({ caps: [`resume-run`] })
+    // Nothing queued for the live-session probe — the issue is free.
 
     await caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
 
@@ -1388,5 +1390,23 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
     expect(body).toMatchObject({ resumeSessionId: RESUME, issueId: ISSUE_A })
     expect(body.actionName).toBeUndefined()
     expect(body.branch).toBeUndefined()
+  })
+
+  // EXP-662: one session per issue. The desktop would refuse the frame
+  // anyway, so the refusal happens here, named, instead of vanishing.
+  it(`refuses an issue run whose issue already has a live session`, async () => {
+    queueEndedRun({ issueId: ISSUE_A, actionName: null, branch: null })
+    queueOwnDevice({ caps: [`resume-run`] })
+    h.dbQueue.push([{ id: uuid(9), deviceLabel: `studio` }])
+
+    const error = await rejectionOf(
+      caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
+    )
+
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toBe(
+      `That issue already has a live session on studio`
+    )
+    expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 })

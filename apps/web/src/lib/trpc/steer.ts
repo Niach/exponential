@@ -1,8 +1,9 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, eq } from "drizzle-orm"
+import { and, desc, eq, gte, inArray } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import {
+  CODING_SESSION_STALE_MS,
   MAX_ACTION_INPUTS,
   MAX_ACTION_INPUT_KEY,
   MAX_ACTION_INPUT_TEXT,
@@ -491,6 +492,41 @@ export const steerRouter = router({
             code: `PRECONDITION_FAILED`,
             message: `That device can't resume runs yet. Update it.`,
           })
+        }
+        // EXP-662: an issue run resumes into the issue's ONE session slot
+        // (REV2-24), so a live session for it means the desktop would refuse
+        // the frame after the relay swallowed it — decide it here instead and
+        // name the machine. Same "live" predicate as
+        // codingSessions.liveForIssue: still-alive status (in_review stays
+        // steerable) within the staleness window.
+        if (session.issueId) {
+          const { db } = await import(`@/db/connection`)
+          const [live] = await db
+            .select({
+              id: codingSessions.id,
+              deviceLabel: codingSessions.deviceLabel,
+            })
+            .from(codingSessions)
+            .where(
+              and(
+                eq(codingSessions.issueId, session.issueId),
+                inArray(codingSessions.status, [`running`, `in_review`]),
+                gte(
+                  codingSessions.updatedAt,
+                  new Date(Date.now() - CODING_SESSION_STALE_MS)
+                )
+              )
+            )
+            .orderBy(desc(codingSessions.updatedAt))
+            .limit(1)
+          if (live) {
+            throw new TRPCError({
+              code: `PRECONDITION_FAILED`,
+              message: live.deviceLabel
+                ? `That issue already has a live session on ${live.deviceLabel}`
+                : `That issue already has a live session`,
+            })
+          }
         }
         const result = await relayPostStart(config, {
           userId: ownerId,

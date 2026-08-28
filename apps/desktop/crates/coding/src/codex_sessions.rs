@@ -11,11 +11,12 @@
 //! ```
 //!
 //! …and `codex resume <SESSION_ID>` reopens that exact session (accepting the
-//! same `-m`/`-c`/sandbox/approval flags as a fresh spawn). So THE session
-//! for an issue's worktree is recoverable: newest rollout whose meta `cwd`
-//! equals the worktree. No recorded session (worktree previously coded by a
-//! different agent, sessions pruned) → the launcher falls back to a fresh
-//! session seeded with the resume prompt.
+//! same `-m`/`-c`/sandbox/approval flags as a fresh spawn). So THE session a
+//! recorded run left behind is recoverable: newest rollout whose meta `cwd`
+//! equals the workspace and whose `originator` is the run's own stamp. No
+//! recorded session (workspace previously coded by a different agent,
+//! rollouts pruned) → the launcher falls back to a fresh session seeded with
+//! the resume prompt.
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -31,21 +32,18 @@ pub fn default_codex_sessions_root() -> Option<PathBuf> {
     Some(home.join("sessions"))
 }
 
-/// The NEWEST recorded codex session whose meta `cwd` is `worktree`.
+/// The NEWEST recorded codex session whose meta `cwd` is `worktree`, and
+/// (EXP-637) whose meta `originator` is `originator` when one is given — the
+/// per-session value the launcher stamps into codex's rollout metas
+/// ([`crate::argv::CODEX_ORIGINATOR_ENV`]). A worktree can host several codex
+/// conversations (the run itself, then a resume, then a shell), so a resume
+/// reopens the one that BELONGS to the recorded run; `None` originator is the
+/// cwd-only match.
+///
 /// Filenames embed the full ISO timestamp, so a descending sort over
 /// basenames is newest-first regardless of the year/month/day directory
 /// fan-out; the scan early-exits on the first match and skips unreadable or
 /// malformed files (never an error — resume degrades, it doesn't block).
-pub fn find_latest_codex_session_id(sessions_root: &Path, worktree: &Path) -> Option<String> {
-    find_codex_session_id(sessions_root, worktree, None)
-}
-
-/// EXP-637: [`find_latest_codex_session_id`] narrowed to a specific
-/// ORIGINATOR — the per-session value the launcher stamps into codex's
-/// rollout metas ([`crate::argv::CODEX_ORIGINATOR_ENV`]). A run worktree can
-/// host several codex conversations (the run itself, then a resume, then a
-/// shell), so a resume must reopen the one that BELONGS to the recorded run,
-/// not merely the newest for the cwd. `None` originator = the cwd-only match.
 pub fn find_codex_session_id(
     sessions_root: &Path,
     worktree: &Path,
@@ -173,7 +171,7 @@ mod tests {
         write_rollout(&root, "2026/07/20", "2026-07-20T09-00-00", "wrong-cwd", &elsewhere);
         write_rollout(&root, "2026/07/20", "2026-07-20T08-00-00", "new-match", &worktree);
         assert_eq!(
-            find_latest_codex_session_id(&root, &worktree),
+            find_codex_session_id(&root, &worktree, None),
             Some("new-match".to_string())
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -190,7 +188,7 @@ mod tests {
         let canonical = std::fs::canonicalize(&worktree).unwrap();
         write_rollout(&root, "2026/07/20", "2026-07-20T10-00-00", "canon-id", &canonical);
         assert_eq!(
-            find_latest_codex_session_id(&root, &worktree),
+            find_codex_session_id(&root, &worktree, None),
             Some("canon-id".to_string())
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -206,10 +204,10 @@ mod tests {
         std::fs::create_dir_all(&day).unwrap();
         std::fs::write(day.join("rollout-2026-07-20T10-00-00-bad.jsonl"), "not json\n").unwrap();
         std::fs::write(day.join("unrelated.txt"), "ignored").unwrap();
-        assert_eq!(find_latest_codex_session_id(&root, &worktree), None);
+        assert_eq!(find_codex_session_id(&root, &worktree, None), None);
         // Missing root entirely (fresh install) is a clean None too.
         assert_eq!(
-            find_latest_codex_session_id(&dir.join("nope"), &worktree),
+            find_codex_session_id(&dir.join("nope"), &worktree, None),
             None
         );
         let _ = std::fs::remove_dir_all(&dir);

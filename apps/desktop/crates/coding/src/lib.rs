@@ -88,7 +88,7 @@ pub use action_prompt::{
 };
 pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
-pub use codex_sessions::{default_codex_sessions_root, find_latest_codex_session_id};
+pub use codex_sessions::default_codex_sessions_root;
 pub use doctor::{
     parse_claude_version, run_doctor, AgentAdvertisement, AgentLaunchDefaults, DoctorReport,
     Tool, ToolCheck, MIN_CLAUDE_VERSION,

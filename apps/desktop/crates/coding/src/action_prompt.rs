@@ -296,7 +296,9 @@ if you stopped)."
 /// and told to pick the work back up. Mirrors
 /// [`crate::prompt::render_resume_prompt`]'s shape for issue sessions.
 pub fn render_run_resume_prompt(record: &crate::run_registry::RunRecord) -> String {
-    let name = single_line(&record.action_name);
+    // EXP-662: the record's own name for itself — the action's name, or a
+    // batch's `EXP-42 +1`.
+    let name = single_line(&record.display_name());
     let mut prompt = format!(
         "You are RESUMING the run \"{name}\" — an earlier session already worked here and its \
 conversation could not be recovered, so start by INSPECTING what it left behind."

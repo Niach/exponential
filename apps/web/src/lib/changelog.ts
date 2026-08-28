@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-issue-session-resume`,
+    date: `2026-08-28`,
+    title: `Resume issue sessions exactly`,
+    summary: `Resume now works on finished issue and batch sessions too, and it reopens the agent's own transcript instead of whatever ran in that folder last.`,
+    body: `- **Resume an issue session**: the Resume button on a finished session now covers issue and batch runs, not just actions and chats, on the machine that ran them. It relaunches the exact conversation the agent had, rather than the folder's latest one.
+- **Start coding knows what it resumes**: the desktop Start-coding dialog's "Resume previous session" now reads the session record itself and names the agent it continues.`,
+  },
+  {
     id: `2026-08-agent-run-summaries`,
     date: `2026-08-27`,
     title: `Agents close out their own runs`,

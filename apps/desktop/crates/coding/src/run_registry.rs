@@ -1,7 +1,9 @@
-//! EXP-637 — the on-disk record of ACTION/CHAT runs this install launched
+//! EXP-637 — the on-disk record of the runs this install launched
 //! (`<data_dir>/runs.json`), so an ended run can be RESUMED: the row id
 //! alone says nothing about which agent ran, where, on what branch, or with
-//! which options.
+//! which options. EXP-662 widened it from action/chat runs to ISSUE and
+//! BATCH sessions, which is what made the cwd-scoped `--continue` machinery
+//! redundant — every resume now relaunches an exact recorded transcript.
 //!
 //! Deliberately its OWN file, not an extension of
 //! `coding-session-registry.json`: that one has a byte contract shared with
@@ -41,8 +43,10 @@ fn locked() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// Which program the recorded run executed — the resume path re-enters the
-/// same one. Mirrors `launcher::ActionRunKind` without its payloads (a
-/// fix-conflicts resume keeps its PR context in [`RunFix`]).
+/// same one. The first four mirror `launcher::ActionRunKind` without its
+/// payloads (a fix-conflicts resume keeps its PR context in [`RunFix`]);
+/// `Issue`/`Batch` (EXP-662) are the two SESSION shapes, whose subject rides
+/// in [`RunRecord::issue_id`] / [`RunRecord::issues`] instead of an action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RunKind {
@@ -50,6 +54,34 @@ pub enum RunKind {
     Chat,
     CreateAction,
     FixConflicts,
+    Issue,
+    Batch,
+}
+
+impl RunKind {
+    /// Whether this record is an action/chat RUN (as opposed to an issue or
+    /// batch session). Runs own their branch and worktree end-to-end; issue
+    /// and batch worktrees are the prune's business.
+    pub fn is_action(self) -> bool {
+        !matches!(self, Self::Issue | Self::Batch)
+    }
+
+    /// Whether the recorded run owns the worktree it spawned in — i.e. may
+    /// have it auto-removed when it ends ([`crate::run_cleanup`]). A
+    /// fix-conflicts run works in the PR branch's shared worktree, and
+    /// issue/batch worktrees survive their session by design.
+    pub fn owns_run_worktree(self) -> bool {
+        matches!(self, Self::Team | Self::Chat)
+    }
+}
+
+/// One issue a BATCH run covered — enough to name the run and re-render its
+/// fallback prompt without a sync store.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunIssue {
+    pub issue_id: String,
+    pub identifier: String,
 }
 
 /// The fix-conflicts run's PR context, kept so a resume lands back on the
@@ -74,7 +106,7 @@ pub struct RunInput {
     pub display: Option<String>,
 }
 
-/// Everything a resume needs about one finished (or running) action/chat run.
+/// Everything a resume needs about one finished (or running) run or session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunRecord {
@@ -83,10 +115,26 @@ pub struct RunRecord {
     pub account_id: String,
     pub agent: CodingAgent,
     pub kind: RunKind,
-    /// The action row id (or the builtin literal) this run executed.
+    /// The action row id (or the builtin literal) this run executed; empty
+    /// on issue/batch sessions (EXP-662), which have no action.
+    #[serde(default)]
     pub action_id: String,
+    #[serde(default)]
     pub action_name: String,
+    #[serde(default)]
     pub team_id: String,
+    /// EXP-662 — the issue this SESSION coded on, and its identifier
+    /// (`EXP-42`). Both `None` on every other kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue_identifier: Option<String>,
+    /// EXP-662 — the client-minted batch id (`exp/batch-<id8>`'s suffix) and
+    /// the issues the batch covered. `None`/empty on every other kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub batch_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub issues: Vec<RunIssue>,
     /// The spawn cwd — a run worktree, the trunk clone, or a scratch dir.
     pub cwd: PathBuf,
     /// The clone the worktree hangs off; `None` on repo-less scratch runs.
@@ -146,6 +194,27 @@ impl RunRecord {
         }
         true
     }
+
+    /// What this record is CALLED wherever a resume is offered or narrated
+    /// (tab titles, the fallback prompt, the ended strip): the issue's
+    /// identifier, the batch's `EXP-42 +2` shape, or the action's name.
+    pub fn display_name(&self) -> String {
+        match self.kind {
+            RunKind::Issue => self
+                .issue_identifier
+                .clone()
+                .unwrap_or_else(|| self.action_name.clone()),
+            RunKind::Batch => {
+                let first = self
+                    .issues
+                    .first()
+                    .map(|issue| issue.identifier.as_str())
+                    .unwrap_or("batch");
+                format!("{first} +{}", self.issues.len().saturating_sub(1))
+            }
+            _ => self.action_name.clone(),
+        }
+    }
 }
 
 pub fn now_secs() -> u64 {
@@ -199,6 +268,29 @@ pub fn get(data_dir: &Path, session_id: &str) -> Option<RunRecord> {
         .find(|record| record.session_id == session_id)
 }
 
+/// EXP-662 — the newest still-resumable ISSUE record for `issue_id` on this
+/// account. The Start-coding dialog's Resume offer and every remote
+/// `resume: true` start resolve through here: a hit becomes a
+/// `PrepareRequest::ResumeRun`, a miss a fresh launch. `record()` appends the
+/// newest last, so a resume-of-a-resume chain resolves to its tail even when
+/// two records share a second.
+pub fn latest_for_issue(
+    data_dir: &Path,
+    account_id: &str,
+    issue_id: &str,
+) -> Option<RunRecord> {
+    let _guard = locked();
+    load(data_dir)
+        .into_iter()
+        .filter(|record| {
+            record.kind == RunKind::Issue
+                && record.account_id == account_id
+                && record.issue_id.as_deref() == Some(issue_id)
+                && record.resumable()
+        })
+        .max_by_key(|record| record.recorded_at)
+}
+
 pub fn remove(data_dir: &Path, session_id: &str) {
     let _guard = locked();
     let mut records = load(data_dir);
@@ -211,12 +303,15 @@ pub fn remove(data_dir: &Path, session_id: &str) {
 
 /// Every recorded run branch on `clone` — the prune's nomination list
 /// (EXP-637: run worktrees are ours to reclaim, but git still has to confirm
-/// the branch landed before anything is removed).
+/// the branch landed before anything is removed). EXP-662: ACTION kinds only
+/// — issue and batch worktrees stay governed by the prune's own prefix/keep
+/// policy, which a nomination would bypass.
 pub fn branches_for_clone(data_dir: &Path, clone: &Path) -> Vec<String> {
     let _guard = locked();
     let mut branches: Vec<String> = load(data_dir)
         .into_iter()
         .filter(|record| record.clone.as_deref() == Some(clone))
+        .filter(|record| record.kind.is_action())
         .filter_map(|record| record.branch)
         .collect();
     branches.sort();
@@ -251,6 +346,10 @@ mod tests {
             action_id: "act-1".to_string(),
             action_name: "Code review".to_string(),
             team_id: "ws-1".to_string(),
+            issue_id: None,
+            issue_identifier: None,
+            batch_id: None,
+            issues: Vec::new(),
             cwd: PathBuf::from("/repos/owner/name.worktrees/code-review-1a2b3c4d"),
             clone: Some(PathBuf::from("/repos/owner/name")),
             repo: Some("owner/name".to_string()),
@@ -338,6 +437,125 @@ mod tests {
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-662: an issue record made from `sample`'s shape — a real worktree
+    /// so `resumable()` passes.
+    fn issue_sample(dir: &Path, session_id: &str, issue_id: &str) -> RunRecord {
+        let worktree = dir.join(format!("wt-{session_id}"));
+        std::fs::create_dir_all(&worktree).unwrap();
+        std::fs::write(worktree.join(".git"), "gitdir: /elsewhere").unwrap();
+        RunRecord {
+            kind: RunKind::Issue,
+            action_id: String::new(),
+            action_name: String::new(),
+            issue_id: Some(issue_id.to_string()),
+            issue_identifier: Some("EXP-42".to_string()),
+            cwd: worktree,
+            branch: Some("exp/EXP-42".to_string()),
+            ..sample(session_id)
+        }
+    }
+
+    #[test]
+    fn latest_for_issue_prefers_the_newest_resumable_record() {
+        let dir = temp_dir("latest-for-issue");
+        let mut older = issue_sample(&dir, "sess-1", "issue-1");
+        older.recorded_at = now_secs().saturating_sub(60);
+        record(&dir, older);
+        record(&dir, issue_sample(&dir, "sess-2", "issue-1"));
+        // Another issue, another account, and an ACTION record on the same
+        // account are all invisible to this lookup.
+        record(&dir, issue_sample(&dir, "sess-3", "issue-2"));
+        let mut foreign = issue_sample(&dir, "sess-4", "issue-1");
+        foreign.account_id = "acc-2".to_string();
+        record(&dir, foreign);
+        record(&dir, sample("sess-5"));
+
+        assert_eq!(
+            latest_for_issue(&dir, "acc-1", "issue-1")
+                .map(|record| record.session_id)
+                .as_deref(),
+            Some("sess-2")
+        );
+        // A record whose worktree is gone is not resumable — it must not
+        // shadow the older one that still is.
+        let mut gone = issue_sample(&dir, "sess-6", "issue-1");
+        gone.cwd = dir.join("vanished");
+        record(&dir, gone);
+        assert_eq!(
+            latest_for_issue(&dir, "acc-1", "issue-1")
+                .map(|record| record.session_id)
+                .as_deref(),
+            Some("sess-2")
+        );
+        assert_eq!(latest_for_issue(&dir, "acc-1", "issue-nope"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn issue_and_batch_branches_are_not_prune_nominations() {
+        // EXP-662: session worktrees stay governed by the prune's own
+        // prefix/keep policy — nominating them would hand the prune a
+        // worktree the user still expects to find.
+        let dir = temp_dir("prune-nominations");
+        record(&dir, sample("sess-1"));
+        record(&dir, issue_sample(&dir, "sess-2", "issue-1"));
+        let mut batch = issue_sample(&dir, "sess-3", "issue-1");
+        batch.kind = RunKind::Batch;
+        batch.issue_id = None;
+        batch.issue_identifier = None;
+        batch.batch_id = Some("a1b2c3d4".to_string());
+        batch.branch = Some("exp/batch-a1b2c3d4".to_string());
+        record(&dir, batch);
+
+        assert_eq!(
+            branches_for_clone(&dir, Path::new("/repos/owner/name")),
+            vec!["exp/code-review-1a2b3c4d".to_string()]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn display_name_names_each_kind() {
+        let dir = temp_dir("display-name");
+        assert_eq!(sample("sess-1").display_name(), "Code review");
+        assert_eq!(issue_sample(&dir, "sess-2", "issue-1").display_name(), "EXP-42");
+        let mut batch = sample("sess-3");
+        batch.kind = RunKind::Batch;
+        batch.issues = vec![
+            RunIssue {
+                issue_id: "issue-1".to_string(),
+                identifier: "EXP-42".to_string(),
+            },
+            RunIssue {
+                issue_id: "issue-2".to_string(),
+                identifier: "EXP-43".to_string(),
+            },
+        ];
+        assert_eq!(batch.display_name(), "EXP-42 +1");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_pre_exp662_action_record_still_parses() {
+        // The EXP-637 wire, byte-for-byte: no issue/batch fields at all. A
+        // record written by the previous build must keep resuming.
+        let json = r#"[{
+            "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"team",
+            "actionId":"act-1","actionName":"Code review","teamId":"ws-1",
+            "cwd":"/repos/owner/name.worktrees/code-review-1a2b3c4d",
+            "clone":"/repos/owner/name","repo":"owner/name","repositoryId":"repo-1",
+            "branch":"exp/code-review-1a2b3c4d","baseBranch":"main",
+            "claudeSessionId":"cs-1","model":"fable","effort":"high",
+            "ultracode":false,"skipPermissions":true,"recordedAt":1
+        }]"#;
+        let records: Vec<RunRecord> = serde_json::from_str(json).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].kind, RunKind::Team);
+        assert_eq!(records[0].issue_id, None);
+        assert!(records[0].issues.is_empty());
+        assert_eq!(records[0].display_name(), "Code review");
     }
 
     #[test]

@@ -58,7 +58,7 @@ use terminal::{TabId, TerminalManager};
 
 use coding::{
     prepare_with_hooks, BatchIssueSpec, BatchLaunchRequest, CodingAgent, LaunchOptions,
-    LaunchOrigin, Prepared, PrepareRequest, RepoGroup,
+    LaunchOrigin, Prepared, PrepareRequest, RepoGroup, ResumeRunRequest,
 };
 use steer::publisher::pty_writer_input_hook;
 use steer::{
@@ -558,8 +558,8 @@ fn device_caps(advertisement: &coding::AgentAdvertisement) -> Vec<String> {
                 "automations",
                 // EXP-615: this build runs the hidden `builtin:chat` action.
                 "chat",
-                // EXP-637: this build can RESUME an ended action/chat run
-                // out of its own run registry.
+                // EXP-637: this build can RESUME an ended run out of its own
+                // run registry — since EXP-662 issue and batch sessions too.
                 "resume-run",
             ]
             .iter()
@@ -632,9 +632,9 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
             inputs,
             ..
         } => remote_action_start(action_id, team_id, repo, inputs, &start, cx),
-        // EXP-637: resume an ended action/chat run out of the local run
-        // registry — no repo/inputs/options ride the frame (the record has
-        // them), so this is the shortest arm of the four.
+        // EXP-637: resume an ended run out of the local run registry (EXP-662:
+        // issue and batch sessions too) — no repo/inputs/options ride the
+        // frame (the record has them), so this is the shortest arm of the four.
         steer::RemoteStartSubject::Resume { session_id } => crate::action_run::resume_run(
             session_id,
             None,
@@ -862,12 +862,37 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
         start.plan_mode,
         start.skip_permissions,
     );
-    // EXP-481: honor the remote resume flag — the launcher's marker gate
-    // degrades a missing/foreign worktree to a fresh seeded session, so an
-    // optimistic flag is always safe.
-    let resume = start.resume;
-    let Some((request, deps)) = coding_flow::build_launch(&issue_id, origin, options, resume, cx)
-    else {
+    // EXP-481/EXP-662: honor the remote resume flag against the RUN REGISTRY
+    // — the newest resumable record for this issue on this account relaunches
+    // that exact transcript; with no record the flag degrades to a fresh
+    // session seeded with the resume prompt, so an optimistic flag is always
+    // safe.
+    let data_dir = coding_flow::coding_data_dir(cx);
+    let resume_record = start
+        .resume
+        .then(|| queries::active_account(cx))
+        .flatten()
+        .and_then(|account| {
+            coding::run_registry::latest_for_issue(&data_dir, &account.id, &issue_id)
+        });
+    let Some((prepare_request, deps)) = (match resume_record {
+        Some(record) => coding_flow::build_resume_deps(&record, cx).map(|deps| {
+            (
+                PrepareRequest::ResumeRun(ResumeRunRequest {
+                    record,
+                    device_label: coding::default_device_label(),
+                    origin,
+                    // The recorded run keeps its own agent and options
+                    // (D2) — a remote resume nudges neither.
+                    model: None,
+                    effort: None,
+                }),
+                deps,
+            )
+        }),
+        None => coding_flow::build_launch(&issue_id, origin, options, start.resume, cx)
+            .map(|(request, deps)| (PrepareRequest::Issue(request), deps)),
+    }) else {
         log::warn!("steer: remote start for {issue_id} ignored — not signed in / not synced");
         return;
     };
@@ -883,12 +908,7 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
         let prepared = cx
             .background_executor()
             .spawn(async move {
-                prepare_with_hooks(
-                    &PrepareRequest::Issue(request),
-                    &deps,
-                    hooks.as_ref(),
-                    observer.as_ref(),
-                )
+                prepare_with_hooks(&prepare_request, &deps, hooks.as_ref(), observer.as_ref())
             })
             .await;
         let _ = target.update(cx, |_, window, cx| match prepared {
