@@ -34,6 +34,7 @@ import {
 } from "@exp/view-catalog"
 import { launchContext, login, settle, shot, waitForAnchor } from "./lib/capture-web"
 import { RECIPES, recipeContext, type RecipeCtx } from "./lib/view-recipes"
+import type { NotificationReadState } from "./lib/demo-notifications"
 import {
   DEMO_EMAIL,
   DEMO_INVITE_TOKEN,
@@ -231,6 +232,33 @@ async function captureView(
   await shot(page, outPath, { fullPage: capture.fullPage })
 }
 
+/**
+ * Snapshot the demo user's notification read state, so every view can be
+ * photographed against it (EXP-666 — see `lib/demo-notifications.ts` for why).
+ *
+ * DYNAMIC import for the same reason as the support token: the helper pulls in
+ * `@/db/connection`, and a `--views board` run on a host without `DATABASE_URL`
+ * has no business opening a database. A host that cannot reach the database
+ * simply does not pin the badge — the capture is still taken.
+ */
+async function resolveNotificationBaseline(): Promise<
+  { snapshot: readonly NotificationReadState[]; restore: () => Promise<void> } | undefined
+> {
+  try {
+    const { snapshotDemoNotifications, restoreDemoNotifications } = await import(
+      `./lib/demo-notifications`
+    )
+    const snapshot = await snapshotDemoNotifications()
+    if (snapshot.length === 0) return undefined
+    return { snapshot, restore: () => restoreDemoNotifications(snapshot) }
+  } catch (err) {
+    console.warn(
+      `  not pinning the unread badge: ${err instanceof Error ? err.message : String(err)}`
+    )
+    return undefined
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   const ctx = recipeContext(args.baseUrl)
@@ -249,6 +277,9 @@ async function main() {
       : false
   )
   const supportToken = wantsToken ? await resolveSupportToken() : undefined
+  // Before the first view, so the baseline is the SEEDED state and not
+  // whatever the first few captures already cleared.
+  const notificationBaseline = await resolveNotificationBaseline()
 
   const browser = await chromium.launch()
   const results: Result[] = []
@@ -281,6 +312,12 @@ async function main() {
           const capture = captureFor(view, formFactor) as WebCapture
           const outPath = resolve(args.out, formFactor, `${view.id}.png`)
           const identity = identityFor(capture)
+
+          // Every view starts from the same unread badge (EXP-666). Restoring
+          // BEFORE navigating leaves the whole anchor + settle window for
+          // Electric to deliver it, so the badge is stable by the time the
+          // shutter opens.
+          await notificationBaseline?.restore()
 
           if (capture.route.includes(DB_PLACEHOLDER) && !supportToken) {
             // Skipped, not failed: without the token the route 404s and the shot

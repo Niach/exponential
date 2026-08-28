@@ -33,8 +33,10 @@ non-zero if any in-scope view failed, after finishing everything else.
 
 ## Only what the diff touched
 
-`--since <ref>` (or `--since auto`, meaning "the last commit that touched
-`shots/`") narrows the run to the `<view, platform>` pairs the changed files can
+`--since <ref>` (or `--since auto`, meaning "the last commit that CAPTURED the
+store" — the last `chore(shots): refresh app screenshots`, not merely the last
+commit to touch `shots/`, because a feature PR that deletes a retired lane's
+webps or lands one new view photographs nothing else, EXP-667) narrows the run to the `<view, platform>` pairs the changed files can
 actually have moved, and skips a whole lane whose set comes out empty — a
 web-only PR never launches the desktop app. When nothing is in scope the run
 prints "Nothing to capture" and exits before preflight, in seconds.
@@ -99,7 +101,11 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
   and `bundle install` under `apps/ios`. Run lanes with `LC_ALL=en_US.UTF-8`.
 - Android: an English-locale phone emulator booted, exactly one device attached.
   For the emulator the relay URL must be the host LAN IP — the orchestrator
-  resolves that itself via `ipconfig getifaddr en0`.
+  resolves that itself via `ipconfig getifaddr en0`. The run also disables the
+  device's `autofill_service` for the duration and restores it afterwards
+  (EXP-665): Android's "Save password to Google Password Manager?" dialog is a
+  SYSTEM window that steals focus the moment the lane signs in, and Espresso's
+  next interaction then dies somewhere unrelated to the cause.
 - Desktop: for the repo-backed views (`files`, `source-control`, `terminal`,
   `start-coding`, `settings-worktrees`) the machine needs the demo board's
   repository actually cloned, plus `git` and a signed-in agent CLI on PATH —
