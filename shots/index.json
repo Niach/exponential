@@ -509,8 +509,8 @@
         "file": "shots/issue-comments/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 66234,
-        "sha256": "eaf5e15cff76d83234ac5335e662606681500c0f6ea263f8cd638d81373f9183"
+        "bytes": 66806,
+        "sha256": "829cf9b3035914c9b2b3e987e01d0c1b10f43efe5ece49d1be27c4dfbe634c09"
       },
       "web-mobile": {
         "file": "shots/issue-comments/web-mobile.webp",
