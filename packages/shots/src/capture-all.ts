@@ -35,7 +35,7 @@ import {
   type NativeCapture,
   type Platform,
 } from "@exp/view-catalog"
-import { lastStoreCommit, scopeSince, type AffectedScope } from "./affected.ts"
+import { baselineSkipNote, scopeSince, storeBaseline, type AffectedScope } from "./affected.ts"
 import {
   captureDesktop,
   mintSessionToken,
@@ -156,7 +156,16 @@ async function resolveScope(
   let affected: AffectedScope | undefined
   let since: string | undefined
   if (options.since) {
-    since = options.since === `auto` ? await lastStoreCommit() : options.since
+    if (options.since === `auto`) {
+      // EXP-667: the baseline is the last CAPTURE, not the last commit that
+      // happened to touch shots/ — and when those differ, say so, because an
+      // empty scope for the wrong reason looks just like a quiet product.
+      const baseline = await storeBaseline()
+      since = baseline?.ref
+      if (baseline?.skipped) console.log(`shots: ${baselineSkipNote(baseline.skipped)}`)
+    } else {
+      since = options.since
+    }
     if (!since) {
       throw new Error(
         `--since auto needs a baseline, but nothing has ever been committed under shots/`
@@ -487,6 +496,48 @@ function laneShotIds(
     if (capture?.lane === lane) ids.add(capture.shot)
   }
   return [...ids]
+}
+
+/**
+ * Android's autofill service raises a SYSTEM "Save password to Google Password
+ * Manager?" dialog the moment the styleguide lane submits the login form. It is
+ * not the app's window, so `mCurrentFocus` leaves the activity and Espresso's
+ * very next interaction dies — as a `RootViewWithoutFocusException`, or, if the
+ * dialog happens to eat the frames the first Electric sync needed, as a
+ * `ComposeTimeoutException` on an assertion nowhere near the cause (EXP-665).
+ * Three consecutive lane failures on 2026-08-28 were all this one dialog.
+ *
+ * Disabling the autofill service for the run is the only reliable prevention:
+ * nothing in the test can dismiss a window it cannot see. Returns the previous
+ * value so the caller can put the device back the way it found it.
+ */
+async function disableAndroidAutofill(): Promise<string | undefined> {
+  const current = await run({
+    cmd: [`adb`, `shell`, `settings`, `get`, `secure`, `autofill_service`],
+    timeoutMs: 30_000,
+  })
+  const previous = current.stdout.trim()
+  if (previous === `` || previous === `null`) return undefined
+  await run({
+    cmd: [`adb`, `shell`, `settings`, `put`, `secure`, `autofill_service`, `null`],
+    timeoutMs: 30_000,
+  })
+  console.log(`[android] autofill disabled for the run (was ${previous})`)
+  return previous
+}
+
+/** Put `autofill_service` back — best effort; a failed restore must not fail the run. */
+async function restoreAndroidAutofill(previous: string | undefined): Promise<void> {
+  if (previous === undefined) return
+  try {
+    await run({
+      cmd: [`adb`, `shell`, `settings`, `put`, `secure`, `autofill_service`, previous],
+      timeoutMs: 30_000,
+    })
+    console.log(`[android] autofill restored (${previous})`)
+  } catch {
+    console.log(`[android] could not restore autofill to ${previous} — set it back by hand`)
+  }
 }
 
 async function captureFastlane(
@@ -978,7 +1029,9 @@ async function main(): Promise<number> {
 
       for (const platform of [`ios`, `android`] as const) {
         if (laneViews(scope, platform).length === 0) continue
+        let autofill: string | undefined
         try {
+          if (platform === `android`) autofill = await disableAndroidAutofill()
           await captureFastlane(platform, outcomes, scope, isScoped(options, scope))
         } catch (error) {
           outcomes.push({
@@ -986,6 +1039,8 @@ async function main(): Promise<number> {
             ok: false,
             detail: error instanceof Error ? error.message : String(error),
           })
+        } finally {
+          if (platform === `android`) await restoreAndroidAutofill(autofill)
         }
       }
     }

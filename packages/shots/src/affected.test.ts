@@ -11,8 +11,11 @@ import { describe, expect, test } from "bun:test"
 import { PLATFORMS, viewById, viewsFor } from "@exp/view-catalog"
 import {
   affectedScope,
+  baselineSkipNote,
+  CAPTURE_COMMIT_SUBJECT,
   inlineTestRegion,
   parseUnifiedHunks,
+  pickStoreBaseline,
   rustInlineTestOnly,
   versionOnlyChange,
 } from "./affected.ts"
@@ -654,5 +657,48 @@ describe(`content drops`, () => {
       const after = `${PROD}pub fn later() {}\n${TESTS(`assert_eq!(render(), 1);`)}`
       expect(rustInlineTestOnly(FILE(), after, [{ oldStart: 5, oldCount: 0, newStart: 6, newCount: 1 }])).toBe(false)
     })
+  })
+})
+
+describe(`--since auto baseline (EXP-667)`, () => {
+  const capture = (ref: string) => ({ ref, subject: CAPTURE_COMMIT_SUBJECT })
+
+  test(`is the newest capture when nothing newer touched the store`, () => {
+    const picked = pickStoreBaseline([capture(`aaa`), capture(`bbb`)])
+    expect(picked?.ref).toBe(`aaa`)
+    expect(picked?.skipped).toBeUndefined()
+  })
+
+  test(`steps OVER a feature PR that touched shots/ without capturing it`, () => {
+    // The exact shape that blinded the automation: EXP-654 dropped the ipad
+    // webps and landed `recent-runs/*`, so it touched shots/ — but it did not
+    // re-photograph the store, and taking it as the baseline reported every
+    // lane empty while the iOS create-sheet shot was stale.
+    const picked = pickStoreBaseline([
+      { ref: `6a6d3fe2`, subject: `EXP-654: a Rust inline mod tests change (#539)` },
+      { ref: `9c10f3da`, subject: `readme` },
+      capture(`9b352018`),
+    ])
+    expect(picked?.ref).toBe(`9b352018`)
+    expect(picked?.skipped?.ref).toBe(`6a6d3fe2`)
+  })
+
+  test(`the skip is reported, so an empty scope is never silently trusted`, () => {
+    const picked = pickStoreBaseline([
+      { ref: `6a6d3fe2`, subject: `EXP-654: something else entirely` },
+      capture(`9b352018`),
+    ])
+    expect(baselineSkipNote(picked!.skipped!)).toContain(`6a6d3fe2`)
+    expect(baselineSkipNote(picked!.skipped!)).toContain(`EXP-654`)
+  })
+
+  test(`falls back to the last touch when the store has never been refreshed`, () => {
+    const picked = pickStoreBaseline([{ ref: `aaa`, subject: `EXP-566: seed the store` }])
+    expect(picked?.ref).toBe(`aaa`)
+    expect(picked?.skipped).toBeUndefined()
+  })
+
+  test(`is undefined when nothing has ever been committed under shots/`, () => {
+    expect(pickStoreBaseline([])).toBeUndefined()
   })
 })

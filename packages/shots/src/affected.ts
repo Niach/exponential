@@ -1086,15 +1086,91 @@ export function rustInlineTestOnly(before: string, after: string, hunks: Hunk[])
 
 /* ---------------------------------------------------------------------- git */
 
-/** The last commit that touched the store — the automation's natural baseline. */
-export async function lastStoreCommit(): Promise<string | undefined> {
+/**
+ * The subject every refresh run commits under. It is the ONLY marker that says
+ * "the whole in-scope store was re-photographed at this tree".
+ */
+export const CAPTURE_COMMIT_SUBJECT = `chore(shots): refresh app screenshots`
+
+/** What `--since auto` resolved to, and whether anything newer touched the store. */
+export interface StoreBaseline {
+  /** The commit the scope is computed against. */
+  ref: string
+  /** Set when a NEWER commit touched `shots/` without being a capture. */
+  skipped?: { ref: string; subject: string }
+}
+
+/**
+ * The baseline `--since auto` computes against: the last commit that CAPTURED
+ * the store, not merely the last one that touched it.
+ *
+ * The difference is load-bearing (EXP-667). A code PR edits `shots/` for plenty
+ * of reasons that photograph nothing — deleting a retired lane's webps, landing
+ * one new view's shots alongside the feature — and taking such a commit as the
+ * baseline reports "0 changed files" for every lane while the rest of the store
+ * is stale. That happened: `6a6d3fe26` dropped the ipad webps and added
+ * `recent-runs/*`, so `--since auto` skipped all five lanes even though the same
+ * commit carried the iOS create-sheet fix whose shot was visibly wrong.
+ *
+ * Only the refresh automation captures everything in scope, and it commits under
+ * `CAPTURE_COMMIT_SUBJECT`, so that subject is the marker. Fail-safe in the same
+ * direction as the rest of this module: a partial capture bundled into a feature
+ * PR is re-photographed next run and diff-skips to `kept`, which costs seconds —
+ * whereas trusting it silently ships a stale image.
+ */
+export async function storeBaseline(): Promise<StoreBaseline | undefined> {
   const result = await run({
-    cmd: [`git`, `log`, `-1`, `--format=%H`, `--`, `shots/`],
+    cmd: [`git`, `log`, `--format=%H%x00%s`, `--`, `shots/`],
     cwd: repoRoot(),
     timeoutMs: 60_000,
   })
-  const sha = result.stdout.trim()
-  return sha === `` ? undefined : sha
+  const commits = result.stdout
+    .split(`\n`)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [ref, ...rest] = line.split(`\0`)
+      return { ref: ref!, subject: rest.join(`\0`) }
+    })
+  return pickStoreBaseline(commits)
+}
+
+/**
+ * The baseline-picking rule, split out from the git call so it can be tested on
+ * a history rather than on whatever this repo happens to look like today.
+ *
+ * `commits` is newest-first, as `git log` emits it.
+ */
+export function pickStoreBaseline(
+  commits: readonly { ref: string; subject: string }[]
+): StoreBaseline | undefined {
+  if (commits.length === 0) return undefined
+
+  const index = commits.findIndex((commit) => commit.subject === CAPTURE_COMMIT_SUBJECT)
+  // No capture commit in history at all (a fresh store): fall back to the last
+  // touch rather than refusing to scope, and say so by reporting no skip.
+  if (index === -1) return { ref: commits[0]!.ref }
+  return {
+    ref: commits[index]!.ref,
+    skipped: index === 0 ? undefined : { ref: commits[0]!.ref, subject: commits[0]!.subject },
+  }
+}
+
+/**
+ * The one-line warning both entry points print when `--since auto` stepped OVER
+ * a newer `shots/` commit. Without it the baseline is invisible and a scope that
+ * came out empty for the wrong reason reads exactly like a quiet product.
+ */
+export function baselineSkipNote(skipped: { ref: string; subject: string }): string {
+  return (
+    `baseline is the last capture; ${skipped.ref.slice(0, 8)} touched shots/ more ` +
+    `recently without capturing it (${skipped.subject})`
+  )
+}
+
+/** The baseline's sha alone, for callers that do not report the skip. */
+export async function lastStoreCommit(): Promise<string | undefined> {
+  return (await storeBaseline())?.ref
 }
 
 /**
@@ -1227,7 +1303,9 @@ async function main(): Promise<number> {
   if (unknown.length > 0) throw new Error(`unknown platform(s): ${unknown.join(`, `)}`)
 
   const sinceFlag = flag(`since`)
-  const ref = sinceFlag && sinceFlag !== `auto` ? sinceFlag : await lastStoreCommit()
+  const explicit = sinceFlag && sinceFlag !== `auto` ? sinceFlag : undefined
+  const baseline = explicit ? undefined : await storeBaseline()
+  const ref = explicit ?? baseline?.ref
   if (!ref) {
     throw new Error(`no --since given and nothing has ever been committed under shots/`)
   }
@@ -1238,6 +1316,7 @@ async function main(): Promise<number> {
       JSON.stringify(
         {
           since: ref,
+          skippedStoreCommit: baseline?.skipped,
           platforms: Object.fromEntries(scope.byPlatform),
           views: [...new Set([...scope.byPlatform.values()].flat())].sort(),
           changed: scope.changed.length,
@@ -1259,6 +1338,7 @@ async function main(): Promise<number> {
     `shots: ${scope.changed.length} changed file(s) since ${ref.slice(0, 8)}` +
       ` (${scope.ignored.length} ignored)`
   )
+  if (baseline?.skipped) console.log(`  ${baselineSkipNote(baseline.skipped)}`)
   for (const [platform, views] of scope.byPlatform) {
     console.log(
       `  ${platform.padEnd(12)}${views.length === 0 ? `(nothing — skip this lane)` : `${views.length}/${viewsFor(platform).length}: ${views.join(`, `)}`}`
