@@ -38,7 +38,7 @@ use gpui::{
     div, fill, outline, point, px, relative, App, BorderStyle, Bounds, ClipboardItem, ContentMask,
     Context, Corners, CursorStyle as GpuiCursorStyle, DispatchPhase, Element, ElementId, Entity,
     EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight, GlobalElementId, Hitbox,
-    HitboxBehavior, Hsla, InputHandler, InspectorElementId, InteractiveElement, IntoElement,
+    HitboxBehavior, Hsla, ImageId, InputHandler, InspectorElementId, InteractiveElement, IntoElement,
     KeyBinding, KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     NoAction, ParentElement, Pixels, Point as PixelPoint, Render, RenderImage, ScrollWheelEvent,
     ShapedLine, SharedString, StrikethroughStyle, Style, Styled, Task, TextAlign, TextRun,
@@ -894,6 +894,36 @@ pub(crate) fn graphic_to_frame(data: &GraphicData) -> Option<image::Frame> {
     Some(image::Frame::new(image::RgbaImage::from_raw(width, height, pixels)?))
 }
 
+/// A texture rio freed whose sprite-atlas tiles are still to be released:
+/// exactly what [`Window::drop_image`] keys on (gpui image id + frame
+/// count), never the pixels. EXP-675: the wake drain runs for a HIDDEN tab
+/// but prepaint does not, so parking the `Arc<RenderImage>` itself here
+/// kept every decoded BGRA frame of a background frame-per-image client
+/// alive until the tab was next shown; the Arc now drops at free time and
+/// this 16-byte record is all a hidden tab accumulates per freed texture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DroppedTexture {
+    pub(crate) id: ImageId,
+    pub(crate) frames: usize,
+}
+
+impl DroppedTexture {
+    fn of(image: &RenderImage) -> Self {
+        Self { id: image.id, frames: image.frame_count() }
+    }
+
+    /// A pixel-free stand-in [`Window::drop_image`] accepts in place of the
+    /// freed texture: the same id and frame count over 1×1 frames, so the
+    /// atlas removes the very keys the original's paints inserted.
+    pub(crate) fn tombstone(self) -> Arc<RenderImage> {
+        let frames: Vec<image::Frame> =
+            (0..self.frames).map(|_| image::Frame::new(image::RgbaImage::new(1, 1))).collect();
+        let mut tombstone = RenderImage::new(frames);
+        tombstone.id = self.id;
+        Arc::new(tombstone)
+    }
+}
+
 /// The paint side's texture store, keyed by rio texture key. Fed by
 /// [`GraphicsUpdate`]s (uploads + frees) and by kitty images the snapshot
 /// found missing; sized by rio's own image budget plus one BGRA copy each.
@@ -904,15 +934,16 @@ pub(crate) struct ImageCache {
     /// retransmit under the same id) that the sprite atlas still holds
     /// until [`Window::drop_image`] runs at the next prepaint. Without this
     /// hand-off a frame-per-image client (terminal-doom uploads a fresh id
-    /// ~35×/s and never deletes) grows the atlas without bound.
-    dropped: Vec<Arc<RenderImage>>,
+    /// ~35×/s and never deletes) grows the atlas without bound. Holds ids
+    /// only (see [`DroppedTexture`]) so a hidden tab retains no pixels.
+    dropped: Vec<DroppedTexture>,
 }
 
 impl ImageCache {
     pub(crate) fn apply(&mut self, update: GraphicsUpdate) {
         for key in update.removed {
             if let Some(image) = self.images.remove(&key) {
-                self.dropped.push(image);
+                self.dropped.push(DroppedTexture::of(&image));
             }
         }
         for (key, data) in &update.images {
@@ -921,7 +952,7 @@ impl ImageCache {
     }
 
     /// Textures to release from the sprite atlas, drained by the paint side.
-    pub(crate) fn take_dropped(&mut self) -> Vec<Arc<RenderImage>> {
+    pub(crate) fn take_dropped(&mut self) -> Vec<DroppedTexture> {
         std::mem::take(&mut self.dropped)
     }
 
@@ -931,7 +962,7 @@ impl ImageCache {
             return;
         };
         if let Some(previous) = self.images.insert(key, Arc::new(RenderImage::new(vec![frame]))) {
-            self.dropped.push(previous);
+            self.dropped.push(DroppedTexture::of(&previous));
         }
     }
 
@@ -942,6 +973,21 @@ impl ImageCache {
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.images.len()
+    }
+
+    /// Decoded pixel bytes this cache keeps alive — live textures only; the
+    /// dropped list holds none by construction.
+    #[cfg(test)]
+    pub(crate) fn retained_bytes(&self) -> usize {
+        self.images
+            .values()
+            .map(|image| (0..image.frame_count()).map(|i| image.as_bytes(i).map_or(0, <[u8]>::len)).sum::<usize>())
+            .sum()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_drops(&self) -> usize {
+        self.dropped.len()
     }
 
     pub(crate) fn get(&self, key: u64) -> Option<Arc<RenderImage>> {
@@ -1425,8 +1471,8 @@ impl Element for TerminalElement {
                 }
             }
             // Release atlas tiles for textures rio has freed since last frame.
-            for image in cache.take_dropped() {
-                if let Err(error) = window.drop_image(image) {
+            for dropped in cache.take_dropped() {
+                if let Err(error) = window.drop_image(dropped.tombstone()) {
                     log::debug!("terminal inline image drop failed: {error}");
                 }
             }
@@ -2236,9 +2282,46 @@ mod tests {
         assert_eq!(&bytes[..4], &[0, 0, 255, 255], "red arrives as BGRA");
         cache.apply(GraphicsUpdate { images: Vec::new(), removed: vec![kitty_image_key(1)] });
         assert_eq!(cache.len(), 0);
-        // The freed texture is handed to the paint side for `drop_image`.
-        assert_eq!(cache.take_dropped().len(), 1);
+        // The freed texture is handed to the paint side for `drop_image` as
+        // its atlas identity only — pixels go with the Arc.
+        let dropped = cache.take_dropped();
+        assert_eq!(dropped, vec![DroppedTexture { id: full.id, frames: 1 }]);
         assert!(cache.take_dropped().is_empty(), "drained once");
+        let tombstone = dropped[0].tombstone();
+        assert_eq!(tombstone.id, full.id, "drop_image keys the atlas on the original id");
+        assert_eq!(tombstone.frame_count(), full.frame_count());
+        assert_eq!(tombstone.as_bytes(0).map(<[u8]>::len), Some(4), "1×1 stand-in frame");
+    }
+
+    /// EXP-675: a HIDDEN tab's wake drain keeps feeding the cache while
+    /// prepaint (the only drain of the dropped list) never runs. A client
+    /// that retransmits a fresh frame every wake must not pile its old
+    /// frames up there — only the live texture's bytes stay resident.
+    #[test]
+    fn hidden_tab_wakes_retain_no_freed_pixels() {
+        let mut emulator = Emulator::new(20, 4);
+        emulator.enable_graphics();
+        let mut cache = ImageCache::default();
+        let wakes = 64;
+        for _ in 0..wakes {
+            // One wake: the child pushed a new frame under the same id
+            // (rio frees the old texture), the view applied the update.
+            emulator.advance_bytes(KITTY_RED_4X2_CELLS);
+            emulator.drain_events(&mut |_| {});
+            for update in emulator.take_graphics() {
+                cache.apply(update);
+            }
+        }
+        let one_frame = 2 * 2 * 4;
+        assert_eq!(cache.len(), 1, "one live texture");
+        assert_eq!(cache.retained_bytes(), one_frame, "old frames are not retained");
+        assert!(cache.pending_drops() >= wakes - 1, "every superseded texture still gets its atlas tiles freed");
+        // What a hidden tab accumulates per freed texture is the atlas key, not a frame.
+        assert_eq!(std::mem::size_of::<DroppedTexture>(), 16);
+        // Showing the tab drains the ids; each maps to a paintable tombstone.
+        let dropped = cache.take_dropped();
+        assert!(dropped.iter().all(|d| d.frames == 1));
+        assert_eq!(cache.pending_drops(), 0);
     }
 
     /// The PTY winsize carries the pixel extent pixel-aware TUIs read via
