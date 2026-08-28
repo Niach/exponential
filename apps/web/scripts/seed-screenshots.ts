@@ -66,6 +66,7 @@ import {
   DEMO_DEVICE_LABEL,
   DEMO_EMAIL,
   DEMO_INVITE_TOKEN,
+  DEMO_PENDING_INVITE_EXPIRY,
   DEMO_NAME,
   DEMO_PASSWORD,
   DEMO_SERVER_VERSION,
@@ -267,12 +268,18 @@ async function main() {
     .values({ name: `Acme`, slug: TEAM_SLUG, helpdeskEnabled: true })
     .returning()
 
-  await db.insert(teamMembers).values([
-    { teamId: ws.id, userId: demoId, role: `owner` },
-    { teamId: ws.id, userId: mira, role: `member` },
-    { teamId: ws.id, userId: jonas, role: `member` },
-    { teamId: ws.id, userId: sofia, role: `member` },
-  ])
+  // Staggered joins (EXP-668): one `values([...])` gives every row the same
+  // default `created_at`, and the members list is ordered by it — so the
+  // roster came back in a different order on every sync. Minutes apart, owner
+  // first, is both deterministic and how a real team reads.
+  await db.insert(teamMembers).values(
+    [demoId, mira, jonas, sofia].map((userId, index) => ({
+      teamId: ws.id,
+      userId,
+      role: index === 0 ? (`owner` as const) : (`member` as const),
+      createdAt: new Date(now - (4 - index) * 60_000),
+    }))
+  )
 
   // An unconsumed invite for the `invite-accept` view. Deterministic token, but
   // never a stale one: teardown drops the team, and this row with it.
@@ -282,7 +289,7 @@ async function main() {
     role: `member`,
     token: DEMO_INVITE_TOKEN,
     email: NEWCOMER_EMAIL,
-    expiresAt: new Date(now + 7 * 86_400_000),
+    expiresAt: DEMO_PENDING_INVITE_EXPIRY.demo,
   })
 
   // Two MORE unconsumed invites for the `settings-members` view — its pending
@@ -299,7 +306,7 @@ async function main() {
       token: `screenshots-demo-invite-priya`,
       email: `priya@northwind.dev`,
       createdAt: daysAgo(2),
-      expiresAt: new Date(now + 5 * 86_400_000),
+      expiresAt: DEMO_PENDING_INVITE_EXPIRY.mailed,
     },
     {
       teamId: ws.id,
@@ -307,7 +314,7 @@ async function main() {
       role: `member`,
       token: `screenshots-demo-invite-link`,
       createdAt: hoursAgo(20),
-      expiresAt: new Date(now + 6 * 86_400_000),
+      expiresAt: DEMO_PENDING_INVITE_EXPIRY.link,
     },
   ])
 
@@ -629,7 +636,13 @@ async function main() {
         creatorId: spec.creatorId,
         dueDate: spec.dueDate,
         sortOrder: i * 10,
-        createdAt: daysAgo(spec.createdDaysAgo),
+        // Staggered by index (EXP-668). Several specs share a
+        // `createdDaysAgo`, and `daysAgo` returns the SAME instant for the
+        // same number — so APP-15/APP-16 (both 1) and APP-6/APP-14/APP-17
+        // (all 2) tied exactly, and every list keyed on `createdAt` ordered
+        // them differently from one sync to the next. A minute per index
+        // keeps the day the reader sees while making the instant unique.
+        createdAt: new Date(daysAgo(spec.createdDaysAgo).getTime() - i * 60_000),
         completedAt:
           spec.completedDaysAgo === undefined
             ? undefined

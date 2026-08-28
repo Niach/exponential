@@ -46,7 +46,9 @@ export function IssueTimeline({
       query
         .from({ comments: commentCollection })
         .where(({ comments }) => eq(comments.issueId, issue.id))
-        .orderBy(({ comments }) => comments.createdAt),
+        .orderBy(({ comments }) => comments.createdAt)
+        // Equal timestamps must not reorder between syncs (EXP-668).
+        .orderBy(({ comments }) => comments.id),
     [issue.id]
   )
 
@@ -55,7 +57,8 @@ export function IssueTimeline({
       query
         .from({ e: issueEventCollection })
         .where(({ e }) => eq(e.issueId, issue.id))
-        .orderBy(({ e }) => e.createdAt),
+        .orderBy(({ e }) => e.createdAt)
+        .orderBy(({ e }) => e.id),
     [issue.id]
   )
 

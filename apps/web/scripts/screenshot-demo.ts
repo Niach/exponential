@@ -71,6 +71,31 @@ export const NEWCOMER_NAME = `Jordan Reyes`
 export const DEMO_INVITE_TOKEN = `screenshots-demo-invite`
 
 /**
+ * Fixed expiry for the two PENDING invites the `settings-members` view
+ * photographs (EXP-668).
+ *
+ * Every other seeded date is relative to "now", which is what makes the demo
+ * read like a live team — but the pending-invite rows render their expiry as an
+ * ABSOLUTE date (`Expires 9/1/2026`), so a relative offset moved it by a day
+ * every time the seed ran and rewrote the shot for nothing. These two rows are
+ * the only place an absolute future date reaches a pixel, so they are the only
+ * place worth pinning; `DEMO_INVITE_TOKEN` stays relative because the
+ * `invite-accept` view only tests whether it is expired and never prints it.
+ *
+ * Far enough out that it stays unexpired for a long time, and
+ * `screenshot-demo.test.ts` fails while there is still plenty of runway rather
+ * than the day the seed starts producing expired invites.
+ */
+export const DEMO_PENDING_INVITE_EXPIRY = {
+  /** `DEMO_INVITE_TOKEN` — the `invite-accept` view's invite, ALSO listed here. */
+  demo: new Date(`2027-06-05T12:00:00Z`),
+  /** The mailed invite (`priya@northwind.dev`). */
+  mailed: new Date(`2027-06-01T12:00:00Z`),
+  /** The bare shareable link, no email on the row. */
+  link: new Date(`2027-06-03T12:00:00Z`),
+} as const
+
+/**
  * The LAST event of the scripted steering transcript: the unanswered question
  * the steering screenshot is composed around.
  *

@@ -60,6 +60,8 @@ export function useBoardViewData({
             .from({ issues: issueCollection })
             .where(({ issues }) => eq(issues.boardId, board.id))
             .orderBy(({ issues }) => issues.createdAt)
+            // Equal timestamps must not reorder between syncs (EXP-668).
+            .orderBy(({ issues }) => issues.id)
         : undefined,
     [board?.id]
   )

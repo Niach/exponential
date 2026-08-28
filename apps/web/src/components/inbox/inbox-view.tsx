@@ -93,6 +93,8 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
     query
       .from({ n: notificationCollection })
       .orderBy(({ n }) => n.createdAt, `desc`)
+      // Equal timestamps must not reorder between syncs (EXP-668).
+      .orderBy(({ n }) => n.id)
   )
   // Only the issues the notifications actually reference — subscribing to the
   // whole collection re-fired the grouping memo on every issue change in any
