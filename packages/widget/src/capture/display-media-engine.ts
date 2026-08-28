@@ -53,7 +53,7 @@ export const displayMediaEngine: CaptureEngine = {
   // excludeSelectors/keepNode are accepted for interface compliance but
   // cannot apply — a display frame has no DOM to filter. The caller hides
   // the widget's own UI (FAB included) before invoking.
-  async capture(): Promise<HTMLCanvasElement> {
+  async capture({ beforeFrame }): Promise<HTMLCanvasElement> {
     const constraints: MediaStreamConstraints & DisplayMediaHints = {
       video: true,
       audio: false,
@@ -70,6 +70,10 @@ export const displayMediaEngine: CaptureEngine = {
       video.srcObject = stream
       await video.play()
       await waitForFrame(video)
+      // A delayed capture (FEED-18) waits HERE, with the stream live: the
+      // picker consumed the click's activation, so the delay can only run
+      // after the grant. The reporter opens their popup during this hold.
+      await beforeFrame()
 
       const canvas = document.createElement(`canvas`)
       canvas.width = video.videoWidth

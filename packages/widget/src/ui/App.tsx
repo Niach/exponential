@@ -33,7 +33,7 @@ import {
 } from "../launcher"
 import { Annotator } from "./Annotator"
 import { ownCustomValue } from "./custom-values"
-import { Panel } from "./Panel"
+import { Panel, captureDelayCycle, type CaptureDelay } from "./Panel"
 import type { PanelView } from "./Panel"
 import {
   isAcceptedUploadImageType,
@@ -122,6 +122,21 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   // recropping is possible right up to submit.
   const [crop, setCrop] = useState<NormalizedRect | null>(null)
   const [captureFailed, setCaptureFailed] = useState(false)
+  // Delayed capture (FEED-18): session-only hold picked on the panel, and
+  // the seconds left while it runs (null = no countdown showing). The ref
+  // keeps `capture` stable across cycles.
+  const [captureDelay, setCaptureDelay] = useState<CaptureDelay>(0)
+  const captureDelayRef = useRef<CaptureDelay>(0)
+  captureDelayRef.current = captureDelay
+  const [countdown, setCountdown] = useState<number | null>(null)
+  const cycleCaptureDelay = useCallback(
+    () =>
+      setCaptureDelay((current) => {
+        const index = captureDelayCycle.indexOf(current)
+        return captureDelayCycle[(index + 1) % captureDelayCycle.length]
+      }),
+    []
+  )
   // Reporter-attached pictures (FEED-5), independent of the screenshot slot.
   const [uploads, setUploads] = useState<UploadedImage[]>([])
   const [uploadError, setUploadError] = useState<string | null>(null)
@@ -220,13 +235,20 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   const capture = useCallback(
     async (engine: CaptureEngine): Promise<boolean> => {
       lastEngineRef.current = engine
-      let blob = await captureScreenshot(engine)
+      const options = {
+        delayMs: captureDelayRef.current * 1000,
+        onCountdown: (secondsLeft: number) =>
+          setCountdown(secondsLeft > 0 ? secondsLeft : null),
+      }
+      let blob = await captureScreenshot(engine, options)
       if (!blob && engine === displayMediaEngine) {
         // A denied/cancelled share picker must not strand the reporter — the
         // DOM raster needs no user activation, so it can still run here.
+        // The hold still applies: a dismissed picker never reached it.
         lastEngineRef.current = snapdomEngine
-        blob = await captureScreenshot(snapdomEngine)
+        blob = await captureScreenshot(snapdomEngine, options)
       }
+      setCountdown(null)
       if (blob) {
         replaceBase({ blob, objectUrl: URL.createObjectURL(blob) })
         setCaptureFailed(false)
@@ -678,9 +700,12 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     phase.kind === `open` ||
     phase.kind === `submitting` ||
     phase.kind === `success`
-  // Keep the Panel mounted (display:none) while annotating so the typed
-  // title/description survive the round-trip into the editor.
-  const panelMounted = panelVisible || phase.kind === `annotating`
+  // Keep the Panel mounted (display:none) while annotating and capturing so
+  // the typed title/description survive the round-trip into the editor and
+  // a delayed capture's multi-second hold (FEED-18).
+  const panelHidden =
+    phase.kind === `annotating` || phase.kind === `capturing`
+  const panelMounted = panelVisible || panelHidden
 
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -773,10 +798,24 @@ export function App({ state }: { state: WidgetRuntimeState }) {
         </div>
       )}
 
+      {countdown !== null && (
+        // Delayed capture (FEED-18): the seconds left, in the launcher's
+        // spot (the FAB is hidden while capturing). runCountdown clears it
+        // and lets a frame paint before the engine grabs the shot, so it is
+        // never in the picture.
+        <div style={`position:fixed;${launcherPlacementCss(launcher)}`}>
+          <div className="exp-countdown" role="status" aria-live="polite">
+            {countdown}
+          </div>
+        </div>
+      )}
+
       {panelMounted && (
         <Panel
-          phase={phase.kind === `annotating` ? `open` : phase.kind}
-          hidden={phase.kind === `annotating`}
+          phase={panelHidden ? `open` : phase.kind}
+          hidden={panelHidden}
+          captureDelay={captureDelay}
+          onCycleCaptureDelay={cycleCaptureDelay}
           view={view}
           canGoBack={effectiveModes(state.config).length > 1}
           onPickMode={(mode) => setView(mode)}

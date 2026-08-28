@@ -255,6 +255,14 @@ await ExponentialWidget.submit({
               page snapshot automatically.
             </p>
             <p>
+              Menus, dropdowns and popups that close on click can be captured
+              too: the small segment next to <strong>Take screenshot</strong>{" "}
+              holds the shot for <strong>3 or 5 seconds</strong> with a
+              countdown in the launcher&apos;s corner, so the visitor can open
+              whatever should be in the picture first. On desktop the
+              countdown starts once the share dialog is confirmed.
+            </p>
+            <p>
               Before submitting, the visitor can <strong>annotate</strong> the
               screenshot in a full-screen editor: rectangles, arrows, and
               freehand lines, with undo. Annotations are flattened into the

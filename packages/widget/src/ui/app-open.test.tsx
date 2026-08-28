@@ -8,10 +8,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render } from "preact"
 import type { WidgetRuntimeState } from "../types"
 
-const captureScreenshot = vi.fn<(engine: unknown) => Promise<Blob | null>>()
+interface CaptureOptions {
+  delayMs?: number
+  onCountdown?(secondsLeft: number): void
+}
+const captureScreenshot =
+  vi.fn<(engine: unknown, options: CaptureOptions) => Promise<Blob | null>>()
 
 vi.mock(`../capture/engine`, () => ({
-  captureScreenshot: (engine: unknown) => captureScreenshot(engine),
+  captureScreenshot: (engine: unknown, options: CaptureOptions) =>
+    captureScreenshot(engine, options),
 }))
 vi.mock(`../capture/snapdom-engine`, () => ({ snapdomEngine: {} }))
 
@@ -172,7 +178,10 @@ describe(`panel open → on-demand screenshot flow`, () => {
     await openPanel()
     await clickTakeScreenshot()
     expect(captureScreenshot).toHaveBeenCalledTimes(1)
-    expect(captureScreenshot).toHaveBeenCalledWith(snapdomEngine)
+    expect(captureScreenshot).toHaveBeenCalledWith(
+      snapdomEngine,
+      expect.anything()
+    )
   })
 
   it(`prefers native display capture where the browser has it`, async () => {
@@ -184,7 +193,10 @@ describe(`panel open → on-demand screenshot flow`, () => {
       await openPanel()
       await clickTakeScreenshot()
       expect(captureScreenshot).toHaveBeenCalledTimes(1)
-      expect(captureScreenshot).toHaveBeenCalledWith(displayMediaEngine)
+      expect(captureScreenshot).toHaveBeenCalledWith(
+        displayMediaEngine,
+        expect.anything()
+      )
       expect(container.querySelector(`[data-testid="annotator"]`)).toBeTruthy()
     } finally {
       restore()
@@ -200,11 +212,132 @@ describe(`panel open → on-demand screenshot flow`, () => {
       await openPanel()
       await clickTakeScreenshot()
       expect(captureScreenshot).toHaveBeenCalledTimes(2)
-      expect(captureScreenshot).toHaveBeenNthCalledWith(1, displayMediaEngine)
-      expect(captureScreenshot).toHaveBeenNthCalledWith(2, snapdomEngine)
+      expect(captureScreenshot).toHaveBeenNthCalledWith(
+        1,
+        displayMediaEngine,
+        expect.anything()
+      )
+      expect(captureScreenshot).toHaveBeenNthCalledWith(
+        2,
+        snapdomEngine,
+        expect.anything()
+      )
       expect(container.querySelector(`[data-testid="annotator"]`)).toBeTruthy()
     } finally {
       restore()
     }
+  })
+
+  // Delayed capture (FEED-18): the segment attached to Take screenshot
+  // cycles the hold; the hold rides into every capture (fallback and Retake
+  // included) and the countdown pill shows the seconds the engine reports.
+  const delayChip = () =>
+    container.querySelector<HTMLButtonElement>(`.exp-chip-delay`)
+
+  const clickDelayChip = async () => {
+    delayChip()!.click()
+    await flush()
+  }
+
+  it(`cycles the capture delay Off → 3s → 5s → Off`, async () => {
+    await openPanel()
+    expect(delayChip()?.textContent).toBe(`Off`)
+    expect(delayChip()?.getAttribute(`aria-pressed`)).toBe(`false`)
+    await clickDelayChip()
+    expect(delayChip()?.textContent).toBe(`3s`)
+    expect(delayChip()?.getAttribute(`aria-pressed`)).toBe(`true`)
+    await clickDelayChip()
+    expect(delayChip()?.textContent).toBe(`5s`)
+    await clickDelayChip()
+    expect(delayChip()?.textContent).toBe(`Off`)
+    // Cycling never captures by itself.
+    expect(captureScreenshot).not.toHaveBeenCalled()
+  })
+
+  it(`captures with the chosen delay, on the fallback and on Retake too`, async () => {
+    const restore = stubDisplayCapture()
+    try {
+      captureScreenshot
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(new Blob([`x`], { type: `image/png` }))
+      await openPanel()
+      await clickDelayChip()
+      await clickDelayChip()
+      await clickTakeScreenshot()
+      expect(captureScreenshot).toHaveBeenNthCalledWith(
+        1,
+        displayMediaEngine,
+        expect.objectContaining({ delayMs: 5_000 })
+      )
+      expect(captureScreenshot).toHaveBeenNthCalledWith(
+        2,
+        snapdomEngine,
+        expect.objectContaining({ delayMs: 5_000 })
+      )
+      annotatorProps?.onSave([], null)
+      await flush()
+      const retake = [
+        ...container.querySelectorAll<HTMLButtonElement>(`.exp-chip`),
+      ].find((chip) => chip.textContent === `Retake`)
+      retake!.click()
+      await flush()
+      expect(captureScreenshot).toHaveBeenCalledTimes(3)
+      expect(captureScreenshot).toHaveBeenNthCalledWith(
+        3,
+        snapdomEngine,
+        expect.objectContaining({ delayMs: 5_000 })
+      )
+    } finally {
+      restore()
+    }
+  })
+
+  it(`captures immediately while the delay is Off`, async () => {
+    captureScreenshot.mockResolvedValue(new Blob([`x`], { type: `image/png` }))
+    await openPanel()
+    await clickTakeScreenshot()
+    expect(captureScreenshot).toHaveBeenCalledWith(
+      snapdomEngine,
+      expect.objectContaining({ delayMs: 0 })
+    )
+  })
+
+  it(`shows the countdown pill while the hold runs and keeps the form mounted`, async () => {
+    let pending: {
+      options: CaptureOptions
+      resolve(blob: Blob | null): void
+    } | null = null
+    captureScreenshot.mockImplementation(
+      (_engine, options) =>
+        new Promise<Blob | null>((resolve) => {
+          pending = { options, resolve }
+        })
+    )
+    await openPanel()
+    await clickDelayChip()
+    await clickTakeScreenshot()
+    expect(pending).not.toBeNull()
+    // The panel is hidden, not unmounted: the typed fields must survive the
+    // multi-second hold. The launcher is gone (it would be in a display
+    // frame).
+    const panel = container.querySelector<HTMLElement>(`.exp-panel`)
+    expect(panel?.style.display).toBe(`none`)
+    expect(container.querySelector(`.exp-countdown`)).toBeNull()
+
+    pending!.options.onCountdown?.(3)
+    await flush()
+    expect(container.querySelector(`.exp-countdown`)?.textContent).toBe(`3`)
+    pending!.options.onCountdown?.(1)
+    await flush()
+    expect(container.querySelector(`.exp-countdown`)?.textContent).toBe(`1`)
+    // The 0 tick takes the pill away BEFORE the engine grabs the frame.
+    pending!.options.onCountdown?.(0)
+    await flush()
+    expect(container.querySelector(`.exp-countdown`)).toBeNull()
+
+    pending!.resolve(new Blob([`x`], { type: `image/png` }))
+    await flush()
+    expect(container.querySelector(`[data-testid="annotator"]`)).toBeTruthy()
+    expect(container.querySelector(`.exp-countdown`)).toBeNull()
   })
 })

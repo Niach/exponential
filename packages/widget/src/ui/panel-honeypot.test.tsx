@@ -45,6 +45,8 @@ const renderForm = (view: `feedback` | `support`) => {
       labels={[]}
       onClose={noop}
       onCapture={noop}
+      captureDelay={0}
+      onCycleCaptureDelay={noop}
       onRetake={noop}
       onAnnotate={noop}
       onRemoveScreenshot={noop}

@@ -110,9 +110,32 @@ export function WidgetPanelPreview({
             <div className="exp-shot-empty">
               <span>Attach a screenshot of this page.</span>
               <div className="exp-shot-empty-actions">
-                <button type="button" className="exp-chip">
-                  Take screenshot
-                </button>
+                <div className="exp-chip-group">
+                  <button type="button" className="exp-chip">
+                    Take screenshot
+                  </button>
+                  <button
+                    type="button"
+                    className="exp-chip exp-chip-delay"
+                    aria-pressed={false}
+                    aria-label="Screenshot delay: Off"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <line x1="10" x2="14" y1="2" y2="2" />
+                      <line x1="12" x2="15" y1="14" y2="11" />
+                      <circle cx="12" cy="14" r="8" />
+                    </svg>
+                    Off
+                  </button>
+                </div>
               </div>
             </div>
           </div>
