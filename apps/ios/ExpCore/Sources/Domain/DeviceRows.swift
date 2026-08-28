@@ -25,6 +25,32 @@ public enum DeviceLiveness {
     }
 }
 
+// MARK: - DeviceFreshness
+
+public enum DeviceFreshness {
+    /// EXP-656: may presence derived from the synced `devices` rows be
+    /// rendered at all? Only when OUR OWN devices shape completed a poll
+    /// within the contract window — after a suspension the rows still carry
+    /// the pre-sleep `last_seen_at`, and a machine that was online the whole
+    /// time renders "Paused" until the shape catches up.
+    ///
+    /// A stale cursor can only produce a false OFFLINE (`last_seen_at` only
+    /// moves forward), so an ONLINE verdict stays trustworthy either way and
+    /// callers only need this to decide whether an offline one is knowledge or
+    /// ignorance. Never polled (nil) is exactly as untrustworthy as stale.
+    public static func isTrustworthy(
+        devicesPolledAt: Date?,
+        now: Date = Date(),
+        window: TimeInterval = Double(DomainContract.deviceOnlineWindowMs) / 1000
+    ) -> Bool {
+        guard let devicesPolledAt else { return false }
+        let age = now.timeIntervalSince(devicesPolledAt)
+        // A poll stamped in the future is clock skew, not staleness.
+        if age < 0 { return true }
+        return age < window
+    }
+}
+
 // MARK: - WorktreeResume
 
 public enum WorktreeResume {

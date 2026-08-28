@@ -19,14 +19,21 @@ public struct SessionDevicePresentation: Equatable {
     /// The name to show: the live devices row's label when one matched, else
     /// the session's own snapshot. nil when neither exists.
     public let label: String?
-    /// The matched devices row stopped heartbeating (contract window). Always
-    /// false when no devices row matched — an unknown machine is not evidence
-    /// of an offline one.
-    public let offline: Bool
+    /// Whether the matched machine is heartbeating: true = inside the contract
+    /// window, false = outside it, nil = UNKNOWN. Unknown covers both "no
+    /// devices row matched" (an unknown machine is not evidence of an offline
+    /// one) and, since EXP-656, "our devices cursor is older than the window,
+    /// so a stale `last_seen_at` says nothing" — a phone that just woke up, or
+    /// one with no network at all, must not claim a running machine is gone.
+    public let online: Bool?
 
-    public init(label: String?, offline: Bool) {
+    /// Known to have stopped heartbeating. Unknown is NOT offline, so every
+    /// consumer (and `isPaused`) reads the safe side by construction.
+    public var offline: Bool { online == false }
+
+    public init(label: String?, online: Bool?) {
         self.label = label
-        self.offline = offline
+        self.online = online
     }
 
     /// Join the session to its live devices row and derive both fields.
@@ -38,19 +45,28 @@ public struct SessionDevicePresentation: Equatable {
     /// since drained, and matching on a mutable display name could claim the
     /// wrong machine is offline. A session without a stamped `device_id`
     /// resolves no row and simply keeps its own snapshot label.
+    ///
+    /// - Parameter devicesFresh: whether our own `devices` shape has polled
+    ///   within the contract window (EXP-656, `DeviceFreshness.isTrustworthy`).
+    ///   A stale `last_seen_at` we haven't refreshed is ignorance, not
+    ///   evidence, so it resolves to UNKNOWN instead of offline. Defaults to
+    ///   true so unrelated call sites keep their pre-EXP-656 reading; the
+    ///   surfaces that render presence pass it explicitly.
     public static func resolve(
         session: CodingSessionEntity,
         devices: [DeviceEntity],
-        now: Date = Date()
+        now: Date = Date(),
+        devicesFresh: Bool = true
     ) -> SessionDevicePresentation {
         let row = matchedRow(session: session, devices: devices)
         guard let row else {
-            return SessionDevicePresentation(label: session.deviceLabel, offline: false)
+            return SessionDevicePresentation(label: session.deviceLabel, online: nil)
         }
         let label = row.label.isEmpty ? session.deviceLabel : row.label
+        let live = DeviceLiveness.isOnline(lastSeenAt: row.lastSeenAt, now: now)
         return SessionDevicePresentation(
             label: label,
-            offline: !DeviceLiveness.isOnline(lastSeenAt: row.lastSeenAt, now: now)
+            online: live ? true : (devicesFresh ? false : nil)
         )
     }
 

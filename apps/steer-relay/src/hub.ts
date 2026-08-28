@@ -144,6 +144,8 @@ function frame(msg: ServerFrame): string {
 
 /** Serialized once: every tick fans the same bytes to every joined viewer. */
 const KEEPALIVE_FRAME = frame({ t: `keepalive` })
+/** EXP-656: end-of-join-replay marker (see `ServerFrame`). */
+const ACTIVITY_SYNCED_FRAME = frame({ t: `activity_synced` })
 
 export class Hub {
   private conns = new Map<RelaySocket, Conn>()
@@ -163,6 +165,10 @@ export class Hub {
   private activityFramesFanned = 0
   private startsRouted = 0
   private slowConsumerEvictions = 0
+  // EXP-656: churn diagnostics — a viewer that redials every ~30s shows up as
+  // a join rate, a desktop the idle detector keeps detaching as idle closes.
+  private viewerJoins = 0
+  private publisherIdleCloses = 0
 
   constructor() {
     // REV2-X: Start the idle publisher detector — checks every 30s for
@@ -378,6 +384,10 @@ export class Hub {
         // is always a complete, self-contained picture.
         conn.sock.send(frame({ t: `activity_reset` }))
         this.replayActivity(room, conn)
+        // EXP-656: unconditional — an empty log still ends with the marker,
+        // so a client never waits out its quiet fallback on a fresh room.
+        conn.sock.send(ACTIVITY_SYNCED_FRAME)
+        this.viewerJoins += 1
         return
       }
 
@@ -573,6 +583,8 @@ export class Hub {
       activityFramesFanned: this.activityFramesFanned,
       startsRouted: this.startsRouted,
       slowConsumerEvictions: this.slowConsumerEvictions,
+      viewerJoins: this.viewerJoins,
+      publisherIdleCloses: this.publisherIdleCloses,
     }
   }
 
@@ -657,6 +669,7 @@ export class Hub {
         // publisher reconnects within the grace window, re-hello resets
         // lastPublisherActivity so the next idle check won't re-fire; if it
         // doesn't reconnect, the grace timer closes the room.
+        this.publisherIdleCloses += 1
         room.publisher.sock.close(
           CLOSE_PUBLISHER_IDLE,
           `publisher_idle_${Math.floor(idleMs / 1000)}s`

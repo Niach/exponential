@@ -102,7 +102,7 @@ final class AgentSessionModel {
     /// EXP-549/550: the host machine as it presents right now — the LIVE
     /// `devices` row's label (renames land; the session's `device_label` is a
     /// start-time snapshot) and whether that machine stopped heartbeating.
-    private(set) var hostDevice = SessionDevicePresentation(label: nil, offline: false)
+    private(set) var hostDevice = SessionDevicePresentation(label: nil, online: nil)
     /// Kill-switch failure (EXP-268), surfaced as an inline banner — cleared
     /// on each attempt. Success needs no local state: the synced row flips to
     /// `ended` and the view already reacts.
@@ -274,6 +274,11 @@ final class AgentSessionModel {
     /// a machine going quiet writes nothing).
     private var deviceObservationTask: Task<Void, Never>?
     private var deviceLivenessTask: Task<Void, Never>?
+    /// EXP-656: wakes when our own `devices` shape completes a poll. Presence
+    /// is only as current as that cursor — after a suspension the rows still
+    /// carry the pre-sleep `last_seen_at`, and this is the edge that turns
+    /// "we don't know" back into knowledge.
+    private var deviceFreshnessTask: Task<Void, Never>?
     private var deviceRows: [DeviceEntity] = []
     /// One expiry timer PER locked card (EXP-334) — a single shared task used
     /// to be cancelled by every newer lock, so several pending locks then all
@@ -291,6 +296,18 @@ final class AgentSessionModel {
     /// Set while a flush applies its batch — the projections are rebuilt once
     /// at the end instead of after every frame.
     @ObservationIgnored private var applyingBatch = false
+    /// EXP-656: the activity events of an in-flight join replay. nil = not
+    /// staging; non-nil (even empty) = the visible feed is frozen and every
+    /// `activity` frame buffers here until the replay commits in ONE pass.
+    @ObservationIgnored private var stagedFrames: [[String: Any]]?
+    @ObservationIgnored private var stagingStartedAt: Date?
+    @ObservationIgnored private var lastStagedFrameAt: Date?
+    /// The one task that watches an in-flight staging window (quiet timeout +
+    /// hard cap, both decided by SteerReplayStaging.shouldCommit).
+    @ObservationIgnored private var stagingWatcherTask: Task<Void, Never>?
+    /// Messages this client sent WHILE a replay was staging: the replay
+    /// predates them, so the commit re-appends whatever it didn't carry back.
+    @ObservationIgnored private var stagedLocalEchoes: [String] = []
 
     // Relay rejects input frames > 8 KiB; chunk pastes well under that. The
     // cap is measured in UTF-16 code units (the relay validates against JS
@@ -306,6 +323,19 @@ final class AgentSessionModel {
     /// + PLAN_SUBMIT_PROBE 0.5s + ~1.5s tick/relay margin — move all three in
     /// lockstep.
     private static let answerLockSeconds: Double = 8
+    /// EXP-656: a join replay is STAGED, not applied — see SteerReplayStaging.
+    /// The relay's `activity_synced` marker ends it; these bound the fallback
+    /// for a publisher-driven republish that carries no marker. Quiet: the
+    /// replay arrives as one burst, so 400ms of silence means it is over. Cap:
+    /// a stalled republish commits what it has rather than holding the buffer.
+    /// Android parity (SteerTimings.replayQuietMs / replayMaxMs).
+    private static let replayQuietSeconds: Double = 0.4
+    private static let replayMaxSeconds: Double = 3
+    /// How often the staging watcher re-asks the pure rule whether the replay
+    /// is over — fine enough that the quiet window and the cap both land close
+    /// to their nominal times, coarse enough to be one task for the window
+    /// instead of one per replayed frame.
+    private static let replayWatchSeconds: Double = 0.1
     /// Redial cadence while the desktop's publisher socket is still starting.
     private static let startingRetrySeconds: Double = 3
     /// Auto-reconnect backoff after an unexpected drop (EXP-243): jittered
@@ -480,8 +510,11 @@ final class AgentSessionModel {
         deviceObservationTask = nil
         deviceLivenessTask?.cancel()
         deviceLivenessTask = nil
+        deviceFreshnessTask?.cancel()
+        deviceFreshnessTask = nil
         connected = false
         pendingFrames = []
+        discardStaging()
         // Reset to the pre-connection state so a later resume() can redial: the
         // socket is gone, so leaving phase at .live/.connecting would make
         // connect()'s guard early-return and the reopened view would show a
@@ -547,6 +580,9 @@ final class AgentSessionModel {
             recentEchoes.removeFirst(recentEchoes.count - Self.echoCap)
         }
         append(.userMessage(id: takeEventId(), text: text))
+        // EXP-656: sent while a replay stages — the replay predates it, so the
+        // commit re-appends it unless the replay happened to carry it back.
+        if isStaging { stagedLocalEchoes.append(text) }
         return true
     }
 
@@ -720,12 +756,30 @@ final class AgentSessionModel {
                 self.rebuildHostDevice()
             }
         }
+        // EXP-656: and the third input — our own devices cursor advancing,
+        // which is neither a row write nor a clock tick.
+        deviceFreshnessTask = Task { [weak self] in
+            for await polledAccountId in SyncFreshness.shared.updates() {
+                guard let self, !Task.isCancelled else { return }
+                guard polledAccountId == self.accountId else { continue }
+                self.rebuildHostDevice()
+            }
+        }
     }
 
     private func rebuildHostDevice() {
         guard let session else { return }
+        let now = Date()
+        // EXP-656: a `last_seen_at` we haven't refreshed since before the
+        // suspension is ignorance, not evidence — presence resolves to unknown
+        // (never "Paused") until the devices shape has polled inside its
+        // contract window.
         hostDevice = SessionDevicePresentation.resolve(
-            session: session, devices: deviceRows, now: Date()
+            session: session, devices: deviceRows, now: now,
+            devicesFresh: DeviceFreshness.isTrustworthy(
+                devicesPolledAt: SyncFreshness.shared.devicesPolledAt(accountId: accountId),
+                now: now
+            )
         )
     }
 
@@ -942,24 +996,37 @@ final class AgentSessionModel {
         guard let data = text.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let t = obj["t"] as? String else { return }
+        // EXP-656: the replay frames go through the pure staging rule first —
+        // an `activity_reset` no longer wipes anything, it opens a staging
+        // window, and the whole replay swaps in as one commit so the reader
+        // never sees the feed collapse to empty and get scrolled back down.
+        if let frame = SteerReplayStaging.Frame(wire: t) {
+            switch SteerReplayStaging.decide(staging: isStaging, frame: frame) {
+            case .beginStaging:
+                // Also the join's success signal (EXP-312 — the presence frame
+                // that used to confirm it is gone).
+                markLive()
+                beginStaging()
+            case .stage:
+                markLive()
+                stageFrame(obj["event"] as? [String: Any])
+            case .apply:
+                markLive()
+                handleActivityEvent(obj["event"] as? [String: Any])
+            case .commit:
+                // `activity_synced` is the relay's end-of-replay marker; a
+                // `keepalive` (its own 15s beat) proves the burst is over for
+                // a republish that carries no marker.
+                commitStaging(why: frame == .activitySynced ? "marker" : "keepalive")
+            case .ignore:
+                // A keepalive outside a replay (EXP-648) — already counted:
+                // `enqueue` stamped `lastFrameAt` before this ran. Never a
+                // phase change, never a feed change.
+                break
+            }
+            return
+        }
         switch t {
-        case "activity":
-            markLive()
-            handleActivityEvent(obj["event"] as? [String: Any])
-        case "activity_reset":
-            // The ONLY feed wipe (EXP-249): the relay sends one immediately
-            // before every join replay, and again whenever a publisher restarts
-            // its stream — so a replay rebuilds the feed instead of appending a
-            // duplicate copy of the whole history. Also the join's success
-            // signal (EXP-312 — the presence frame that used to confirm it is
-            // gone).
-            markLive()
-            resetFeed()
-        case "keepalive":
-            // The relay's liveness beat to joined viewers (EXP-648). Already
-            // counted: `enqueue` stamped `lastFrameAt` before this ran. Never
-            // a phase change, never a feed change.
-            break
         case "bye":
             let outcome = obj["outcome"] as? String
             if outcome == "publisher_lost" {
@@ -989,15 +1056,155 @@ final class AgentSessionModel {
     }
 
     /// Drop everything the room's activity log owns. Local echoes go too: the
-    /// replay that follows carries its own copy of every sent message.
+    /// replay carries its own copy of every sent message. Only `commitStaging`
+    /// calls this, and only inside its one batch — a bare reset is what used to
+    /// blank the screen mid-read (EXP-656).
     private func resetFeed() {
         feed = []
         latestDiff = nil
         recentEchoes = []
         answerTracker.reset()
         cancelAnswerExpiries()
-        // nextEventId keeps counting — reused render ids across a reset would
-        // hand SwiftUI a "same row, new content" identity.
+    }
+
+    // MARK: - Staged join replay (EXP-656)
+
+    private var isStaging: Bool { stagedFrames != nil }
+
+    /// Open (or restart) a staging window. The visible feed is untouched: a
+    /// second `activity_reset` means the relay superseded the replay we were
+    /// buffering, not that the reader should lose what is on screen.
+    private func beginStaging() {
+        stagedFrames = []
+        stagedLocalEchoes = []
+        let now = Date()
+        stagingStartedAt = now
+        lastStagedFrameAt = now
+        armStagingWatcher()
+    }
+
+    private func stageFrame(_ event: [String: Any]?) {
+        guard let event else { return }
+        stagedFrames?.append(event)
+        lastStagedFrameAt = Date()
+    }
+
+    /// The fallback that ends a markerless replay: one task per staging window,
+    /// asking the pure rule (quiet window, hard cap) on each tick. A task per
+    /// staged frame would mean thousands of cancel/create pairs per replay.
+    private func armStagingWatcher() {
+        stagingWatcherTask?.cancel()
+        stagingWatcherTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.replayWatchSeconds))
+                guard let self, !Task.isCancelled, self.isStaging else { return }
+                let now = Date()
+                let startedAt = self.stagingStartedAt ?? now
+                guard SteerReplayStaging.shouldCommit(
+                    now: now,
+                    lastFrameAt: self.lastStagedFrameAt ?? startedAt,
+                    startedAt: startedAt,
+                    quiet: Self.replayQuietSeconds,
+                    max: Self.replayMaxSeconds
+                ) else { continue }
+                let capped = now.timeIntervalSince(startedAt) >= Self.replayMaxSeconds
+                self.commitStaging(why: capped ? "deadline" : "quiet")
+                return
+            }
+        }
+    }
+
+    /// Swap the staged replay in as ONE feed change: the old feed and the
+    /// replayed one never coexist and the feed is never momentarily empty, so
+    /// no scroll observer ever sees the collapse that yanked the reader to the
+    /// bottom.
+    private func commitStaging(why: String) {
+        guard let staged = stagedFrames else { return }
+        stagingWatcherTask?.cancel()
+        stagingWatcherTask = nil
+        stagedFrames = nil
+        stagingStartedAt = nil
+        lastStagedFrameAt = nil
+        let echoes = stagedLocalEchoes
+        stagedLocalEchoes = []
+        // Locks that were still waiting for their `answer_ack` when the replay
+        // started: a tap made during the staging window must not be undone by
+        // the swap (the replay predates it and brings the card back unanswered).
+        let carriedLocks = answerTracker.pending
+        let carriedLabels = answerTracker.labels
+
+        // One batch (EXP-582): the projections are rebuilt once at the end, not
+        // per replayed frame. Nested when the commit runs inside a flush, which
+        // is the normal marker/keepalive path.
+        let nested = applyingBatch
+        applyingBatch = true
+        // The oldest visible item's id: replaying the same history from here
+        // hands the unchanged prefix the ids it already had, so SwiftUI keeps
+        // every row's identity (and the reader's anchor) across the swap. Safe
+        // BECAUSE the swap is one transaction — a bare reset used to leave the
+        // old rows on screen while the counter rewound, which is a "same row,
+        // new content" identity.
+        let anchorId = feed.first?.id
+        resetFeed()
+        if let anchorId { nextEventId = anchorId }
+        for event in staged { handleActivityEvent(event) }
+        for text in echoes where !tailCarriesEcho(text) {
+            // Not in the replay: re-show it, and re-arm the dedupe so its
+            // transcript-derived twin doesn't render a second copy (EXP-78).
+            recentEchoes.append((text: text.trimmingCharacters(in: .whitespacesAndNewlines), at: Date()))
+            append(.userMessage(id: takeEventId(), text: text))
+        }
+        for (key, sentAt) in carriedLocks where feedCarriesQuestion(key) {
+            restoreAnswerLock(key, labels: carriedLabels[key] ?? [], sentAt: sentAt)
+        }
+        applyingBatch = nested
+        if !nested { reproject() }
+        logger.info(
+            "replay committed why=\(why, privacy: .public) frames=\(staged.count) items=\(self.feed.count)"
+        )
+    }
+
+    /// Drop a staged replay and KEEP the visible feed (EXP-656): the socket
+    /// went away mid-burst, so the buffer is a partial history of a room this
+    /// client is no longer joined to. The next join replays from scratch.
+    private func discardStaging() {
+        guard isStaging else { return }
+        stagingWatcherTask?.cancel()
+        stagingWatcherTask = nil
+        stagedFrames = nil
+        stagingStartedAt = nil
+        lastStagedFrameAt = nil
+        stagedLocalEchoes = []
+        logger.info("staged replay discarded")
+    }
+
+    /// Whether the committed feed already ends with this echo — the replay is
+    /// authoritative, so anything it carried back must not be duplicated.
+    private func tailCarriesEcho(_ text: String) -> Bool {
+        let needle = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        for item in feed.suffix(Self.echoCap).reversed() {
+            guard case let .userMessage(_, existing) = item else { continue }
+            if existing.trimmingCharacters(in: .whitespacesAndNewlines) == needle { return true }
+        }
+        return false
+    }
+
+    private func feedCarriesQuestion(_ lockKey: String) -> Bool {
+        feed.contains { $0.question?.lockKey == lockKey }
+    }
+
+    /// Re-apply a lock the commit's `resetFeed` cleared, keeping its ORIGINAL
+    /// send time so the card expires when it always would have.
+    private func restoreAnswerLock(_ lockKey: String, labels: [String], sentAt: Date) {
+        answerTracker.markSent(lockKey, labels: labels, at: sentAt)
+        let remaining = max(0, Self.answerLockSeconds - Date().timeIntervalSince(sentAt))
+        answerExpiryTasks[lockKey]?.cancel()
+        answerExpiryTasks[lockKey] = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(remaining))
+            guard let self, !Task.isCancelled else { return }
+            self.answerExpiryTasks[lockKey] = nil
+            self.answerTracker.expire(lockKey)
+        }
     }
 
     private func handleActivityEvent(_ event: [String: Any]?) {
@@ -1170,6 +1377,7 @@ final class AgentSessionModel {
         joinAckTask?.cancel()
         joinAckTask = nil
         pendingFrames = []
+        discardStaging()
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
     }
@@ -1194,6 +1402,7 @@ final class AgentSessionModel {
         logger.info("socket closed code=\(closeCode ?? 0)")
         connected = false
         pendingFrames = []
+        discardStaging()
         task = nil
         if sawEnd {
             phase = .ended(detail: endDetail)

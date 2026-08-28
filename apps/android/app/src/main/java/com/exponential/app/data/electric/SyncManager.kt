@@ -41,16 +41,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.ConnectionPool
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -67,6 +66,10 @@ class SyncManager @Inject constructor(
     private val json: Json,
     private val stats: SyncStats,
     private val sessionInvalidator: SessionInvalidator,
+    // The pool every HTTP client shares (EXP-656) — evicted on the way back to
+    // the foreground so the resumed polls can't ride a socket the radio killed
+    // while we were away. See [setForeground].
+    private val connectionPool: ConnectionPool,
     @ApplicationContext private val context: Context,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -92,10 +95,12 @@ class SyncManager @Inject constructor(
     private val _syncActive = MutableStateFlow(false)
     val syncActive: StateFlow<Boolean> = _syncActive.asStateFlow()
 
-    // Pending park (see setForeground). Cancelled when we come back inside the
-    // grace window, so a quick app switch costs nothing.
-    private val parkLock = Any()
-    private var parkJob: Job? = null
+    // elapsedRealtime of the ON_STOP that parked us, null while foregrounded
+    // (EXP-656). SystemClock.elapsedRealtime, NOT a coroutine `delay`: the
+    // monotonic clock a delay runs on does not advance in deep sleep, which is
+    // why the old "park 30s after ON_STOP" timer frequently never fired on a
+    // phone that went to sleep right after leaving the app.
+    @Volatile private var backgroundedAtMs: Long? = null
 
     // Debounce gate for unforced kicks: foreground + network-available +
     // several pushes can land within the same second, and 19 shapes each
@@ -211,39 +216,55 @@ class SyncManager @Inject constructor(
      * The process moved between foreground and background
      * (ProcessLifecycleOwner ON_START / ON_STOP, wired in `ExponentialApp`).
      *
-     * Foreground reopens the gate immediately; background parks the shape loops
-     * after [BACKGROUND_PARK_DELAY_MS], so a quick app switch, a share-sheet
-     * hop or a configuration change never tears down 16 live connections per
-     * account. Parking cancels in-flight long-polls, so the process holds no
-     * shape connections while cached — resume is a catch-up poll from the
-     * per-shape Room offsets, never a re-snapshot.
+     * EXP-656, matching Electric's own client contract (electric-protocol
+     * README §4): background cancels the in-flight long-polls AT ONCE — the
+     * grace window is gone, because it was a `delay()` on a clock that stops in
+     * deep sleep, so the 19 live polls per account were regularly carried into
+     * suspension still "open". ProcessLifecycleOwner already debounces ON_STOP
+     * by 700ms, which is all the rotation/config-change cover this needs.
+     *
+     * Foreground evicts the idle pooled connections when we were away long
+     * enough for the radio to have killed them silently
+     * ([CONNECTION_STALE_AFTER_BACKGROUND_MS]) and only THEN reopens the gate.
+     * Order matters twice over: `evictAll()` closes idle connections only, so
+     * the immediate park is its prerequisite, and evicting after the gate
+     * opened would pull the socket out from under the catch-up polls it just
+     * started. There is deliberately NO kick fan-out here — the gate's
+     * false→true edge IS the kick (see [ShapeClient.run]), and a fan-out on top
+     * would cancel exactly those polls. The kick stamps are still written so
+     * `isCatchingUp` and the steer store's fan-out keep working.
      */
     fun setForeground(foreground: Boolean) {
-        synchronized(parkLock) {
-            parkJob?.cancel()
-            parkJob = if (foreground) {
-                if (!_syncActive.value) android.util.Log.i("SyncManager", "resuming shape loops")
-                _syncActive.value = true
-                null
-            } else {
-                scope.launch {
-                    delay(BACKGROUND_PARK_DELAY_MS)
-                    // Commit the park under the same lock the foreground path
-                    // cancels under, re-checking liveness inside it: once the
-                    // delay has resumed past the dispatcher's own cancellation
-                    // check, a `parkJob?.cancel()` racing at the grace deadline
-                    // can no longer stop this coroutine, and an unsynchronized
-                    // write here would clobber the ON_START `true` and leave
-                    // the gate stuck closed on a visible app (kicks and
-                    // pull-to-refresh would then find nothing to wake).
-                    synchronized(parkLock) {
-                        if (!isActive) return@launch
-                        android.util.Log.i("SyncManager", "parking shape loops (backgrounded)")
-                        _syncActive.value = false
-                    }
-                }
+        if (!foreground) {
+            backgroundedAtMs = SystemClock.elapsedRealtime()
+            if (_syncActive.value) {
+                android.util.Log.i("SyncManager", "parking shape loops (backgrounded)")
             }
+            _syncActive.value = false
+            return
         }
+        val now = SystemClock.elapsedRealtime()
+        val backgroundedFor = backgroundedAtMs?.let { now - it }
+        backgroundedAtMs = null
+        if (shouldDropPooledConnections(backgroundedFor)) {
+            // Main thread: closing a socket without SO_LINGER does no blocking
+            // I/O, so this is StrictMode-safe. Wrapped anyway — a failed
+            // eviction must never keep the app from resuming sync.
+            runCatching { connectionPool.evictAll() }
+                .onSuccess {
+                    android.util.Log.i(
+                        "SyncManager",
+                        "evicted pooled connections (backgrounded ${backgroundedFor}ms)",
+                    )
+                }
+                .onFailure {
+                    android.util.Log.w("SyncManager", "connection eviction failed: ${it.message}")
+                }
+        }
+        lastKickGate.set(now)
+        _lastKickAt.value = now
+        if (!_syncActive.value) android.util.Log.i("SyncManager", "resuming shape loops")
+        _syncActive.value = true
     }
 
     /**
@@ -682,11 +703,21 @@ class SyncManager @Inject constructor(
 // burst of pushes routinely coincide, and each kick drops 16 live long-polls.
 private const val KICK_DEBOUNCE_MS = 1_000L
 
-// Grace window between ON_STOP and parking the shape loops (REV2-38). Long
-// enough that leaving the app for a moment — a share sheet, the camera, a
-// rotation — costs no reconnects; short enough that a genuinely backgrounded
-// process stops polling long before Android's cached-app freezer would.
-private const val BACKGROUND_PARK_DELAY_MS = 30_000L
+// How long backgrounded before the pooled connections count as suspect
+// (EXP-656). A share-sheet hop, the photo picker or a rotation comes back on
+// the SAME warm connection and must not pay for 19 fresh handshakes; anything
+// longer and the radio may well have dropped the sockets without telling
+// OkHttp, which does not health-check a pooled connection before reusing it.
+internal const val CONNECTION_STALE_AFTER_BACKGROUND_MS = 5_000L
+
+/**
+ * Whether coming back to the foreground should evict the idle pooled
+ * connections first (EXP-656). [backgroundedForMs] is null when the process
+ * never parked (a cold launch's first ON_START), which has no stale pool to
+ * drop. Pure so the policy is unit-testable without a lifecycle.
+ */
+internal fun shouldDropPooledConnections(backgroundedForMs: Long?): Boolean =
+    backgroundedForMs != null && backgroundedForMs >= CONNECTION_STALE_AFTER_BACKGROUND_MS
 
 /** Per-shape diagnostics callbacks passed from [SyncManager] into [ShapeClient]. */
 private class ShapeReporter(

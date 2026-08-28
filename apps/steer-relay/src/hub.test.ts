@@ -651,6 +651,63 @@ describe(`session rooms`, () => {
     expect(member.events().at(-1)).toMatchObject({ kind: `tool`, name: `Edit` })
   })
 
+  // EXP-656: the replay ends with an explicit marker so a client can stage
+  // the whole reset+replay behind its visible feed and commit once.
+  test(`a join replay ends with activity_synced`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `narration`, text: `one` })
+    activity(hub, pub, { kind: `tool`, name: `Bash` })
+    activity(hub, pub, { kind: `narration`, text: `three` })
+    activity(hub, pub, { kind: `diff`, diff: `d` })
+
+    const member = connectMember(hub)
+    expect(member.frames().map((f) => f.t)).toEqual([
+      `activity_reset`,
+      `activity`,
+      `activity`,
+      `activity`,
+      `activity`,
+      `activity_synced`,
+    ])
+    expect(hub.counters().viewerJoins).toBe(1)
+    hub.destroy()
+  })
+
+  test(`an empty room still ends its join with activity_synced`, () => {
+    const hub = new Hub()
+    connectPublisher(hub)
+    const member = connectMember(hub)
+    expect(member.frames().map((f) => f.t)).toEqual([`activity_reset`, `activity_synced`])
+    hub.destroy()
+  })
+
+  test(`activity_synced goes only to the joining viewer`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const early = connectMember(hub)
+    activity(hub, pub, { kind: `narration`, text: `hi` })
+    const late = connectMember(hub)
+    expect(late.framesOf(`activity_synced`)).toHaveLength(1)
+    // The earlier member only ever saw its own join's marker.
+    expect(early.framesOf(`activity_synced`)).toHaveLength(1)
+    expect(pub.framesOf(`activity_synced`)).toHaveLength(0)
+    hub.destroy()
+  })
+
+  test(`a publisher-driven activity_reset does NOT emit activity_synced`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+    hub.onMessage(pub, JSON.stringify({ t: `activity_reset` }))
+    activity(hub, pub, { kind: `narration`, text: `republished` })
+    // Old desktops give the relay no end-of-republish signal, so the client
+    // owns that commit (quiet timer); the marker stays join-only.
+    expect(member.framesOf(`activity_synced`)).toHaveLength(1)
+    expect(member.frames().at(-1)).toMatchObject({ t: `activity` })
+    hub.destroy()
+  })
+
   test(`a pty/absent-channel join is refused with pty_removed and joins nothing`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
@@ -1269,6 +1326,9 @@ describe(`idle publisher detection (REV2-X)`, () => {
     // desktops treat 4001 as a remote kill and would tear down a live agent
     // that merely slept through the idle window (laptop suspend).
     expect(pub.closed?.code).toBe(CLOSE_PUBLISHER_IDLE)
+    // EXP-656: idle detaches are counted — a desktop the detector keeps
+    // dropping (and whose republish yanks every viewer) shows up in stats.
+    expect(hub.counters().publisherIdleCloses).toBe(1)
     hub.destroy()
   })
 
@@ -1319,6 +1379,8 @@ describe(`stats counters (EXP-553)`, () => {
       activityFramesFanned: 0,
       startsRouted: 0,
       slowConsumerEvictions: 0,
+      viewerJoins: 0,
+      publisherIdleCloses: 0,
     })
 
     const desktop = new FakeSocket()
@@ -1394,7 +1456,11 @@ describe(`viewer keepalive (EXP-648)`, () => {
     // Joining answers with activity_reset first; keepalives follow it.
     hub.onMessage(lurker, JSON.stringify({ t: `join`, channel: `activity` }))
     tick(hub)
-    expect(lurker.frames().map((f) => f.t)).toEqual([`activity_reset`, `keepalive`])
+    expect(lurker.frames().map((f) => f.t)).toEqual([
+      `activity_reset`,
+      `activity_synced`,
+      `keepalive`,
+    ])
     hub.destroy()
   })
 

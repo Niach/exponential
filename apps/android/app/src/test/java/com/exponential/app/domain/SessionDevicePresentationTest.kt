@@ -119,4 +119,59 @@ class SessionDevicePresentationTest {
         assertFalse(online.offline)
         assertFalse(online.isPaused(CodingSessionDisplayState.Running))
     }
+
+    // ── EXP-656: presence is unknown while our own devices cursor is stale ───
+
+    @Test
+    fun `an unrefreshed devices cursor never pauses a session`() {
+        // The exact report: back from the background, the devices shape has not
+        // caught up, and the pre-sleep last_seen_at reads as away. It isn't —
+        // we simply have not heard, so presence is unknown and nothing pauses.
+        val resolved = resolveSessionDevice(
+            session(deviceId = "dev-1", deviceLabel = "macbook"),
+            listOf(device("row-1", "dev-1", "macbook", lastSeenAt = iso(-10 * 60_000))),
+            nowMs,
+            devicesFresh = false,
+        )
+        assertEquals(null, resolved.online)
+        assertFalse(resolved.offline)
+        assertFalse(resolved.isPaused(CodingSessionDisplayState.Running))
+        assertFalse(resolved.isPaused(CodingSessionDisplayState.NeedsInput))
+        // The label still resolves off the live row — only presence is unknown.
+        assertEquals("macbook", resolved.label)
+    }
+
+    @Test
+    fun `a fresh heartbeat is online even on a stale cursor`() {
+        // last_seen_at only moves FORWARD, so a stale cursor can only produce a
+        // false OFFLINE — an online verdict off one is always sound.
+        val resolved = resolveSessionDevice(
+            session(deviceId = "dev-1", deviceLabel = "macbook"),
+            listOf(device("row-1", "dev-1", "macbook")),
+            nowMs,
+            devicesFresh = false,
+        )
+        assertEquals(true, resolved.online)
+        assertFalse(resolved.offline)
+    }
+
+    @Test
+    fun `a stale heartbeat on a FRESH cursor still pauses (EXP-550 guard)`() {
+        val resolved = resolveSessionDevice(
+            session(deviceId = "dev-1", deviceLabel = "macbook"),
+            listOf(device("row-1", "dev-1", "macbook", lastSeenAt = iso(-10 * 60_000))),
+            nowMs,
+            devicesFresh = true,
+        )
+        assertEquals(false, resolved.online)
+        assertTrue(resolved.offline)
+        assertTrue(resolved.isPaused(CodingSessionDisplayState.Running))
+    }
+
+    @Test
+    fun `no row at all is unknown, not online`() {
+        assertEquals(null, resolveSessionDevice(session(), emptyList(), nowMs).online)
+        assertEquals(null, SessionDevicePresentation.Unknown.online)
+        assertFalse(SessionDevicePresentation.Unknown.offline)
+    }
 }

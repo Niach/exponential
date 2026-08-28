@@ -34,4 +34,38 @@ final class DeviceLivenessTests: XCTestCase {
         // Electric delivers Postgres text timestamps (space separator).
         XCTAssertTrue(DeviceLiveness.isOnline(lastSeenAt: "2026-08-11 09:59:45+00", now: now))
     }
+
+    // MARK: - DeviceFreshness (EXP-656)
+
+    // Presence may only be rendered from rows whose shape we polled inside the
+    // contract window — after a suspension they still carry the pre-sleep
+    // stamp, and a machine that never went away would read "Paused".
+    func testAFreshDevicesCursorIsTrustworthy() {
+        XCTAssertTrue(DeviceFreshness.isTrustworthy(
+            devicesPolledAt: now.addingTimeInterval(-30), now: now
+        ))
+    }
+
+    func testAStaleOrNeverPolledCursorIsNotTrustworthy() {
+        XCTAssertFalse(DeviceFreshness.isTrustworthy(
+            devicesPolledAt: now.addingTimeInterval(-91), now: now
+        ))
+        // Nothing polled on this run at all — as blind as a stale cursor.
+        XCTAssertFalse(DeviceFreshness.isTrustworthy(devicesPolledAt: nil, now: now))
+    }
+
+    func testTrustBoundaryIsTheContractWindow() {
+        XCTAssertTrue(DeviceFreshness.isTrustworthy(
+            devicesPolledAt: now.addingTimeInterval(-89.999), now: now
+        ))
+        XCTAssertFalse(DeviceFreshness.isTrustworthy(
+            devicesPolledAt: now.addingTimeInterval(-90), now: now
+        ))
+    }
+
+    func testAFutureStampIsClockSkewNotStaleness() {
+        XCTAssertTrue(DeviceFreshness.isTrustworthy(
+            devicesPolledAt: now.addingTimeInterval(5), now: now
+        ))
+    }
 }

@@ -21,6 +21,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.client.statement.request
 import io.ktor.serialization.kotlinx.json.json
 import java.util.concurrent.TimeUnit
+import javax.inject.Named
 import javax.inject.Singleton
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
@@ -41,9 +42,54 @@ object HttpClientModule {
         encodeDefaults = true
     }
 
+    /**
+     * The ONE OkHttp connection pool every client shares (EXP-656).
+     *
+     * Exposed as its own binding because [com.exponential.app.data.electric.SyncManager]
+     * has to `evictAll()` it when the app comes back from a background trip
+     * long enough for the radio to have killed the pooled sockets silently:
+     * OkHttp does not health-check a pooled connection before reusing it for a
+     * GET, so the 19 resumed shape polls would otherwise ride a dead socket
+     * until the HTTP/2 ping noticed. ktor's OkHttp engine derives its
+     * per-request clients with `newBuilder()`, which SHARES this instance, so
+     * one eviction covers shapes, tRPC and Coil alike.
+     */
     @Provides
     @Singleton
-    fun provideHttpClient(json: Json, updateGate: UpdateGate): HttpClient =
+    fun provideConnectionPool(): ConnectionPool = ConnectionPool(32, 5, TimeUnit.MINUTES)
+
+    @Provides
+    @Singleton
+    fun provideHttpClient(json: Json, updateGate: UpdateGate, pool: ConnectionPool): HttpClient =
+        buildClient(json, updateGate, pool, keepAlivePings = true)
+
+    /**
+     * The steer viewer sockets' own client (EXP-656) — identical to the shared
+     * one except that it sets NO `pingInterval`.
+     *
+     * OkHttp applies that interval to a WebSocket as a PONG DEADLINE: a relay
+     * that misses one pong inside the window has its socket FAILED, which is
+     * exactly the "the chat reconnects every ~30s and yanks me to the bottom"
+     * report. The shape client keeps its ping (it is what earns the right to
+     * multiplex 19 long-polls onto one connection); steer liveness is already
+     * covered by the relay's own 15s `keepalive` frames plus
+     * [com.exponential.app.data.steer.SteerTimings.liveStaleMs].
+     */
+    @Provides
+    @Singleton
+    @Named(STEER_CLIENT)
+    fun provideSteerHttpClient(
+        json: Json,
+        updateGate: UpdateGate,
+        pool: ConnectionPool,
+    ): HttpClient = buildClient(json, updateGate, pool, keepAlivePings = false)
+
+    private fun buildClient(
+        json: Json,
+        updateGate: UpdateGate,
+        pool: ConnectionPool,
+        keepAlivePings: Boolean,
+    ): HttpClient =
         HttpClient(OkHttp) {
             expectSuccess = false
             // ENGINE CHOICE — OkHttp, not CIO (EXP-304). CIO is HTTP/1.1-only
@@ -78,15 +124,16 @@ object HttpClientModule {
                             maxRequestsPerHost = 80
                         }
                     )
-                    connectionPool(ConnectionPool(32, 5, TimeUnit.MINUTES))
+                    connectionPool(pool)
                     retryOnConnectionFailure(true)
                     // Putting every stream on one connection means one dead
                     // connection stalls everything, and a phone radio kills
                     // idle sockets silently. HTTP/2 keepalive pings surface
                     // that in ~30s instead of when each stream's 90s socket
                     // budget expires; this is what earns the right to
-                    // multiplex.
-                    pingInterval(30, TimeUnit.SECONDS)
+                    // multiplex. NOT set on the steer client: on a WebSocket
+                    // the same interval is a pong deadline (EXP-656).
+                    if (keepAlivePings) pingInterval(30, TimeUnit.SECONDS)
                 }
             }
             // Still required after the engine swap: an engine left to its own
@@ -108,8 +155,9 @@ object HttpClientModule {
                 socketTimeoutMillis = 30_000
             }
             install(ContentNegotiation) { json(json) }
-            // Steer viewer sockets (relay PTY mirror, masterplan §5c) ride the
-            // same client; the plugin is inert for plain HTTP calls.
+            // Steer viewer sockets (relay PTY mirror, masterplan §5c) dial
+            // through the @Named(STEER_CLIENT) variant; the plugin is inert
+            // for plain HTTP calls, so both clients install it.
             install(WebSockets)
             if (BuildConfig.DEBUG) {
                 install(Logging) {
@@ -153,3 +201,6 @@ object HttpClientModule {
             }
         }
 }
+
+/** Hilt qualifier for the ping-free steer WebSocket client (EXP-656). */
+const val STEER_CLIENT = "steer"

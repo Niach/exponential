@@ -59,6 +59,15 @@ internal const val KICK_FRESHNESS_MS = 1_500L
 // (ShapeClient.swift), desktop 90s (sync/client.rs LIVE_READ_TIMEOUT) — same
 // figure here. The socket timeout must match: an idle hold sends zero bytes.
 private const val REQUEST_TIMEOUT_MS = LIVE_TIMEOUT_MS + 30_000L
+// EXP-656: budget for the NON-LIVE confirm poll — the one request that can
+// land on a pooled socket the radio killed while the app was backgrounded, and
+// the only one whose answer the user is waiting on (it is what makes the
+// foreground state fresh). It holds nothing open server-side, so a 90s budget
+// only means 90s of stale content when the socket is dead; 15s fails fast into
+// the 500ms backoff and a fresh dial. This is our equivalent of the TS
+// client's live-request watchdog. Snapshots and live polls keep
+// [REQUEST_TIMEOUT_MS].
+internal const val CONFIRM_TIMEOUT_MS = 15_000L
 // Consecutive schema-class apply errors before a one-shot per-shape reset.
 private const val SCHEMA_RESET_THRESHOLD = 3
 // EXP-304: a DNS/connect-class failure means "the network isn't usable YET",
@@ -144,11 +153,12 @@ class ShapeClient<T : Any>(
     // JVM unit tests can drive the kick freshness window — the framework class
     // returns a constant 0 under `unitTests.isReturnDefaultValues`.
     private val nowMs: () -> Long = { SystemClock.elapsedRealtime() },
-    // App-lifecycle gate (REV2-38): false once the process has been in the
-    // background past SyncManager's grace window. While closed the loop parks
+    // App-lifecycle gate (REV2-38): false from the moment the process leaves
+    // the foreground (EXP-656 — no grace window). While closed the loop parks
     // instead of long-polling, and a poll already in flight is cancelled — a
     // cached (not yet frozen) process must not keep 16 shape connections per
-    // account alive for data nobody can see.
+    // account alive for data nobody can see. Reopening it wakes the loop
+    // wherever it is waiting; see [run].
     private val active: StateFlow<Boolean> = alwaysActive,
 ) {
     private val rawMessageSerializer = kotlinx.serialization.builtins.ListSerializer(
@@ -203,11 +213,55 @@ class ShapeClient<T : Any>(
         kicks.trySend(Unit)
     }
 
+    /**
+     * The `electric-cursor` value the server last handed back, echoed as the
+     * `cursor` query param on the next LIVE poll (desktop parity,
+     * `sync/client.rs`). Purely a cache-buster for intermediaries: our own
+     * proxy answers `no-store`, so it changes nothing today. TRANSIENT by
+     * design — never persisted next to the offset/handle, because a cursor
+     * resumed from disk describes a request that already happened.
+     */
+    @Volatile private var lastCursor: String? = null
+
     /** Waits [ms], or returns early when kicked. True = it was a kick. */
     private suspend fun delayOrKick(ms: Long): Boolean =
         withTimeoutOrNull(ms) { kicks.receive() } != null
 
-    suspend fun run() {
+    /**
+     * The run loop, plus the watcher that wakes it when the app-lifecycle gate
+     * reopens (EXP-656).
+     *
+     * Parking cancels the in-flight poll, but a loop sitting in a WAIT —
+     * anywhere on the backoff ladder, the DNS burst, the credentials wait, the
+     * no-progress pacing — only notices the gate again when that wait expires,
+     * which is up to 30s of visible staleness on a foregrounded app. The
+     * false→true edge is therefore a self-kick: it arms [confirmFreshness] (the
+     * resume must be a non-live catch-up, per the Electric client contract) and
+     * drops a token that interrupts every one of those waits. It bypasses
+     * [KICK_FRESHNESS_MS] deliberately — the gate edge is not a guess that we
+     * might be behind, it is the fact that we stopped polling. `pollOnce`
+     * drains queued kicks before its request, so a token queued while parked
+     * can never cancel the very poll it asked for.
+     */
+    suspend fun run() = coroutineScope {
+        val resumeWatcher = launch {
+            var previous = active.value
+            active.collect { open ->
+                if (open && !previous) {
+                    confirmFreshness = true
+                    kicks.trySend(Unit)
+                }
+                previous = open
+            }
+        }
+        try {
+            runLoop()
+        } finally {
+            resumeWatcher.cancel()
+        }
+    }
+
+    private suspend fun runLoop() {
         var backoffMs = 500L
         var consecutiveSchemaErrors = 0
         var consecutiveNetworkErrors = 0
@@ -451,7 +505,11 @@ class ShapeClient<T : Any>(
             wasLive -> "confirm"
             else -> "catchup"
         }
-        val response: HttpResponse = withTimeoutOrNull(REQUEST_TIMEOUT_MS + 30_000L) {
+        // The confirm poll gets the short budget (EXP-656) — it is the request
+        // that rides a possibly-dead pooled socket on resume, and it holds
+        // nothing open, so waiting 90s for it only prolongs stale content.
+        val budgetMs = if (kind == "confirm") CONFIRM_TIMEOUT_MS else REQUEST_TIMEOUT_MS
+        val response: HttpResponse = withTimeoutOrNull(budgetMs + 30_000L) {
             // Race the request against a kick. Cancelling mid-request loses
             // nothing: the offset is written only after a successful response
             // and the batch is applied in one db.withTransaction, so an
@@ -467,9 +525,9 @@ class ShapeClient<T : Any>(
                         // block replaces the whole per-request timeout config
                         // rather than overriding single fields (EXP-264).
                         timeout {
-                            requestTimeoutMillis = REQUEST_TIMEOUT_MS
+                            requestTimeoutMillis = budgetMs
                             connectTimeoutMillis = CONNECT_TIMEOUT_MS
-                            socketTimeoutMillis = REQUEST_TIMEOUT_MS
+                            socketTimeoutMillis = budgetMs
                         }
                         // Authenticate the shape request so the server scopes data to
                         // this user (not just public teams). Mirrors TrpcClient /
@@ -487,7 +545,13 @@ class ShapeClient<T : Any>(
                         } else {
                             parameter("offset", saved!!.offset)
                             parameter("handle", saved.handle)
-                            if (goLive) parameter("live", "true")
+                            if (goLive) {
+                                parameter("live", "true")
+                                // Echo the server's own cursor back (desktop
+                                // parity) so an intermediary can't answer a
+                                // live poll from cache.
+                                lastCursor?.let { parameter("cursor", it) }
+                            }
                         }
                     }
                 }
@@ -574,6 +638,9 @@ class ShapeClient<T : Any>(
 
         val handle = response.headers["electric-handle"]
         val offset = response.headers["electric-offset"]
+        // Absent on a response that carries none — an older cursor is no more
+        // useful than none at all.
+        lastCursor = response.headers["electric-cursor"]
         val body = response.bodyAsText()
         val decoded = decodeMessages(body)
 

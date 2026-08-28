@@ -657,6 +657,156 @@ class ShapeClientTest {
         job.join()
     }
 
+    /**
+     * EXP-656: the gate reopening wakes a loop that is WAITING, not just one
+     * that is polling.
+     *
+     * Parking cancels an in-flight request, but a loop sitting on the backoff
+     * ladder (or the DNS burst, or the pacing delay) used to notice the gate
+     * again only when that wait expired — up to 30s of stale content on an app
+     * the user is looking at, rescued only by a kick the 1s debounce could
+     * swallow. The gate's false→true edge is now itself the kick.
+     */
+    @Test
+    fun reopeningTheGateWakesALoopParkedInBackoff() = runBlocking {
+        val dao = FakeOffsetDao()
+        val active = MutableStateFlow(true)
+        val errors = CopyOnWriteArrayList<String?>()
+        val requestAt = CopyOnWriteArrayList<Long>()
+
+        val shapeClient = client(
+            dao = dao,
+            onMessages = {},
+            onError = { _, message, _ -> errors.add(message) },
+            active = active,
+            handler = {
+                requestAt.add(System.currentTimeMillis())
+                respond("boom", HttpStatusCode.InternalServerError)
+            },
+        )
+
+        val job = launch { shapeClient.run() }
+        // Three failures put the loop into a 2s wait (500 → 1000 → 2000).
+        withTimeout(10_000) {
+            while (errors.size < 3) kotlinx.coroutines.delay(10)
+        }
+        val parkedRequests = requestAt.size
+        active.value = false
+        // Nothing goes out while parked, however long the wait had left.
+        kotlinx.coroutines.delay(200)
+        assertEquals("a parked loop must not poll", parkedRequests, requestAt.size)
+
+        val reopenedAt = System.currentTimeMillis()
+        active.value = true
+        withTimeout(10_000) {
+            while (requestAt.size <= parkedRequests) kotlinx.coroutines.delay(10)
+        }
+        val afterResume = requestAt.last() - reopenedAt
+        job.cancel()
+        job.join()
+
+        assertTrue(
+            "the gate edge must cut the backoff short (was ${afterResume}ms)",
+            afterResume < 1_000,
+        )
+    }
+
+    /**
+     * EXP-656: the gate edge queues a self-kick, and a queued kick must never
+     * cancel the very poll it asked for — `pollOnce` drains pending kicks
+     * before its request. One resume, one request.
+     */
+    @Test
+    fun reopeningTheGateIssuesExactlyOneRequest() = runBlocking {
+        val dao = FakeOffsetDao()
+        val active = MutableStateFlow(true)
+        val started = CopyOnWriteArrayList<Int>()
+        val errors = CopyOnWriteArrayList<String?>()
+
+        val shapeClient = client(
+            dao = dao,
+            onMessages = {},
+            onError = { _, message, _ -> errors.add(message) },
+            active = active,
+            handler = {
+                started.add(started.size + 1)
+                // Everything after the first poll holds open like a live poll,
+                // so a self-cancel would show up as an extra request here.
+                if (started.size > 1) kotlinx.coroutines.delay(30_000)
+                respond(insertAndUpToDateBody, HttpStatusCode.OK, shapeHeaders())
+            },
+        )
+
+        val job = launch { shapeClient.run() }
+        withTimeout(10_000) {
+            while (started.size < 2) kotlinx.coroutines.delay(10)
+        }
+        active.value = false
+        kotlinx.coroutines.delay(100)
+        val parked = started.size
+
+        active.value = true
+        withTimeout(10_000) {
+            while (started.size <= parked) kotlinx.coroutines.delay(10)
+        }
+        kotlinx.coroutines.delay(400)
+        job.cancel()
+        job.join()
+
+        assertEquals("the resume must cost exactly one request", parked + 1, started.size)
+        assertTrue("a resume is not a failure, got $errors", errors.isEmpty())
+    }
+
+    /**
+     * EXP-656: the catch-up poll a resume issues is the one request that can
+     * land on a pooled socket the radio killed, and the only one the user is
+     * waiting on — so it carries the SHORT budget, not the 90s live-hold one.
+     */
+    @Test
+    fun theResumeCatchUpPollUsesTheConfirmTimeout() = runBlocking {
+        val dao = FakeOffsetDao()
+        val active = MutableStateFlow(true)
+        val requests = CopyOnWriteArrayList<HttpRequestData>()
+        val budgets = CopyOnWriteArrayList<Long?>()
+
+        val shapeClient = client(
+            dao = dao,
+            onMessages = {},
+            active = active,
+            handler = { request ->
+                requests.add(request)
+                budgets.add(request.getCapabilityOrNull(HttpTimeoutCapability)?.requestTimeoutMillis)
+                // Poll 2 is the live hold the park interrupts.
+                if (requests.size == 2) kotlinx.coroutines.delay(30_000)
+                respond(insertAndUpToDateBody, HttpStatusCode.OK, shapeHeaders())
+            },
+        )
+
+        val job = launch { shapeClient.run() }
+        withTimeout(10_000) {
+            while (requests.size < 2) kotlinx.coroutines.delay(10)
+        }
+        active.value = false
+        kotlinx.coroutines.delay(100)
+        active.value = true
+        withTimeout(10_000) {
+            while (requests.size < 3) kotlinx.coroutines.delay(10)
+        }
+        job.cancel()
+        job.join()
+
+        // The snapshot and the live hold keep the long budget…
+        assertTrue("the snapshot keeps the live-safe budget", budgets[0]!! >= 75_000)
+        assertEquals("true", requests[1].url.parameters["live"])
+        assertTrue("the live poll keeps the live-safe budget", budgets[1]!! >= 75_000)
+        // …and the resume's catch-up is non-live on the short one.
+        assertFalse(
+            "the resume must confirm freshness non-live",
+            requests[2].url.parameters.contains("live"),
+        )
+        assertEquals(CONFIRM_TIMEOUT_MS, budgets[2])
+    }
+
     @Test
     fun shapePollsCarryALongPollSafeTimeoutBudget() = runBlocking {
         val dao = FakeOffsetDao()

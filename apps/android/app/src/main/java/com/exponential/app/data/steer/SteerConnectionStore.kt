@@ -2,6 +2,7 @@ package com.exponential.app.data.steer
 
 import android.util.Log
 import com.exponential.app.data.api.IssueImagesApi
+import com.exponential.app.data.api.STEER_CLIENT
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CodingSessionEntity
@@ -11,6 +12,7 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncManager
 import io.ktor.client.HttpClient
 import javax.inject.Inject
+import javax.inject.Named
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,7 +38,11 @@ class SteerConnectionStore @Inject constructor(
     private val holder: DatabaseHolder,
     private val steerApi: SteerApi,
     private val issueImagesApi: IssueImagesApi,
-    private val client: HttpClient,
+    // The ping-free WebSocket client (EXP-656): OkHttp's 30s pingInterval on
+    // the shared client is a PONG DEADLINE for a socket, which failed the
+    // relay connection on a ~30s cadence and made every viewer replay its
+    // room log. Steer liveness rides the relay's own keepalive instead.
+    @Named(STEER_CLIENT) private val client: HttpClient,
     private val json: Json,
     private val syncManager: SyncManager,
 ) {
@@ -45,8 +51,7 @@ class SteerConnectionStore @Inject constructor(
     private val connections = mutableMapOf<String, SteerConnection>()
 
     // Pending park (see [setForeground]). Cancelled when we come back inside
-    // the grace window, so a quick app switch costs nothing — the SyncManager
-    // gate's shape, and the same 30s window.
+    // the grace window, so a quick app switch costs nothing.
     private var parkJob: Job? = null
 
     /// Whether the process is foregrounded, as [setForeground] last said. The
@@ -167,6 +172,9 @@ class SteerConnectionStore @Inject constructor(
     }
 }
 
-// Matches SyncManager's shape-loop park window: a quick app switch, a
-// share-sheet or the photo picker must not cost the live session anything.
+// A quick app switch, a share sheet or the photo picker must not cost the live
+// session anything. Deliberately NOT the shape loops' behaviour, which park
+// instantly since EXP-656: a shape loop resumes from a persisted cursor for the
+// price of one GET, while a relay socket resumes by re-minting a ticket and
+// taking a full room replay.
 private const val BACKGROUND_PARK_DELAY_MS = 30_000L

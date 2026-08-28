@@ -60,6 +60,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -253,6 +254,22 @@ fun AgentSessionScreen(
     var diffSheetOpen by remember { mutableStateOf(false) }
     var killDialogOpen by remember { mutableStateOf(false) }
 
+    // EXP-656: the reader's place in the feed lives at the SCREEN level, not
+    // inside ActivityFeed. Held there, a single frame of empty feed flipped the
+    // `when` below to a placeholder, which DISPOSED the LazyColumn's scroll
+    // state, the follow flag and the focused subagent tab — so a relay replay
+    // (every join gets one) came back with follow re-armed and dumped a reader
+    // parked mid-plan at the bottom. Rows carry stable keys, so hoisted state
+    // keeps the anchor across a whole feed swap.
+    val feedListState = rememberLazyListState()
+    var follow by rememberSaveable { mutableStateOf(true) }
+    var agentTab by rememberSaveable { mutableStateOf<String?>(null) }
+    // Belt-and-braces on top of the staged replay (SteerConnection): once the
+    // feed has rendered anything, a momentarily empty one holds the last frame
+    // instead of remounting the "Waiting for activity…" placeholder.
+    var everRendered by remember { mutableStateOf(false) }
+    LaunchedEffect(feed.isEmpty()) { if (feed.isNotEmpty()) everRendered = true }
+
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
@@ -342,7 +359,8 @@ fun AgentSessionScreen(
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                             )
                         }
-                    feed.isEmpty() && phase == AgentPhase.Live && latestDiff == null ->
+                    feed.isEmpty() && !everRendered && phase == AgentPhase.Live &&
+                        latestDiff == null ->
                         CenteredState {
                             Text(
                                 "Waiting for activity…",
@@ -366,6 +384,12 @@ fun AgentSessionScreen(
                         ActivityFeed(
                             feed = feed,
                             live = phase == AgentPhase.Live,
+                            // Hoisted (EXP-656) — see the declarations above.
+                            listState = feedListState,
+                            follow = follow,
+                            onFollowChange = { follow = it },
+                            agentTab = agentTab,
+                            onAgentTabChange = { agentTab = it },
                             // EXP-389: the agent is actively working — live and
                             // nothing waiting on the user (no active question
                             // card, synced needs_input clear; all three agents
@@ -693,6 +717,14 @@ private fun SessionStatusTitle(
 private fun ActivityFeed(
     feed: List<AgentFeedItem>,
     live: Boolean,
+    /** Hoisted to the screen (EXP-656): the reader's scroll anchor, whether
+     *  the feed auto-follows its tail, and the focused subagent tab. They
+     *  outlive this composable so no placeholder flip can reset them. */
+    listState: LazyListState,
+    follow: Boolean,
+    onFollowChange: (Boolean) -> Unit,
+    agentTab: String?,
+    onAgentTabChange: (String?) -> Unit,
     /** EXP-389: show the trailing "Working…" indicator — the session is live
      *  and nothing waits on the user. */
     working: Boolean,
@@ -708,8 +740,6 @@ private fun ActivityFeed(
      *  through [onAnswer] instead. */
     onSubmit: () -> Unit,
 ) {
-    val listState = rememberLazyListState()
-    var follow by remember { mutableStateOf(true) }
     // A card with a wire id stays answerable until it resolves; a legacy card
     // falls back to the trailing-run heuristic (EXP-78/EXP-174).
     val activeQuestionIds = remember(feed) { activeQuestionIds(feed) }
@@ -720,7 +750,6 @@ private fun ActivityFeed(
     // focuses that agent's stream. Falls back to Main whenever the id
     // vanishes from the feed (an activity_reset replay). EXP-387: the strip
     // only shows the still-running subagents (plus the focused tab).
-    var agentTab by remember { mutableStateOf<String?>(null) }
     val agents = remember(feed) { collectSubagents(feed) }
     val visibleTabs = remember(agents, agentTab) { visibleSubagentTabs(agents, agentTab) }
     val focused = visibleTabs.firstOrNull { it.subagentId == agentTab }
@@ -743,7 +772,7 @@ private fun ActivityFeed(
         snapshotFlow { listState.isScrollInProgress to listState.isNearBottom(followSlackPx) }
             .distinctUntilChanged()
             .collect { (dragging, nearBottom) ->
-                if (dragging) follow = nearBottom
+                if (dragging) onFollowChange(nearBottom)
             }
     }
     // Keyed on feed.size (not rows.size) — a growing trailing tool run adds
@@ -773,8 +802,8 @@ private fun ActivityFeed(
                 agents = visibleTabs,
                 selected = focused?.subagentId,
                 onSelect = { id ->
-                    agentTab = id
-                    follow = true
+                    onAgentTabChange(id)
+                    onFollowChange(true)
                 },
             )
         }
@@ -885,7 +914,7 @@ private fun ActivityFeed(
                     .padding(bottom = 8.dp)
                     // opaque: the feed scrolls beneath this pill (EXP-165).
                     .glassButton(active = true, opaque = true)
-                    .clickable { follow = true }
+                    .clickable { onFollowChange(true) }
                     .padding(horizontal = 14.dp, vertical = 8.dp),
             )
         }

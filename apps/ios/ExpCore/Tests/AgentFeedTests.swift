@@ -566,6 +566,39 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertFalse(tracker.isFailed("tu#1"))
     }
 
+    // MARK: - Staged replay ids (EXP-656)
+
+    // The model commits a staged join replay as ONE swap and rewinds its event
+    // counter to the id of the oldest visible item first, so the unchanged
+    // prefix of the replayed history comes back with the ids it already had —
+    // which is what keeps every SwiftUI row identity (and the reader's scroll
+    // anchor) across the commit. This locks the arithmetic that swap relies on.
+    func testAReplayWithARewoundCounterReproducesThePrefixIds() {
+        // A live feed whose first item is not id 0 (the relay's log wrapped, or
+        // an earlier replay already consumed ids).
+        var nextEventId = 5
+        func takeEventId() -> Int {
+            defer { nextEventId += 1 }
+            return nextEventId
+        }
+        let history = ["one", "two", "three"]
+        var feed: [AgentFeedItem] = history.map { .narration(id: takeEventId(), text: $0) }
+        XCTAssertEqual(feed.map(\.id), [5, 6, 7])
+        XCTAssertEqual(nextEventId, 8)
+
+        // Commit: rewind to the oldest visible id, drop the feed, fold the
+        // replay (the same history plus one event the client hadn't seen).
+        let anchorId = feed.first?.id
+        feed = []
+        if let anchorId { nextEventId = anchorId }
+        for text in history + ["four"] {
+            feed.append(.narration(id: takeEventId(), text: text))
+        }
+        XCTAssertEqual(feed.map(\.id), [5, 6, 7, 8])
+        // The prefix kept its identities; only the new tail row is new.
+        XCTAssertEqual(nextEventId, 9)
+    }
+
     // MARK: - Fixtures
 
     private func tool(_ id: Int, subagentId: String? = nil) -> AgentFeedItem {

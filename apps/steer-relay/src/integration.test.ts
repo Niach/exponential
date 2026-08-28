@@ -163,6 +163,8 @@ describe(`steer relay end-to-end`, () => {
       t: `activity`,
       event: { kind: `diff`, diff: `+ line` },
     })
+    // EXP-656: the join replay ends with an explicit marker.
+    expect(await memberIn.nextJson()).toEqual({ t: `activity_synced` })
 
     // Live activity — including the v2 kinds — reaches the member intact.
     const question = {
@@ -289,6 +291,7 @@ describe(`steer relay end-to-end`, () => {
     const memberIn = collector(member)
     member.send(JSON.stringify({ t: `join`, channel: `activity` }))
     expect(await memberIn.nextJson()).toEqual({ t: `activity_reset` })
+    expect(await memberIn.nextJson()).toEqual({ t: `activity_synced` })
 
     pub.send(new Uint8Array([0x01, ...new TextEncoder().encode(`pty bytes`)]))
     pub.send(JSON.stringify({ t: `resize`, cols: 200, rows: 50 }))

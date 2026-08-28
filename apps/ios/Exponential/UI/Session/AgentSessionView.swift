@@ -1866,25 +1866,31 @@ private struct FollowPinTracker: ViewModifier {
                     let below = geometry.contentSize.height - geometry.visibleRect.maxY
                     return FeedPinMetrics(
                         pinned: below <= slack,
-                        offset: geometry.contentOffset.y
+                        offset: geometry.contentOffset.y,
+                        height: geometry.contentSize.height
                     )
                 } action: { old, new in
                     lastPinned = new.pinned
-                    // Reaching the bottom always re-arms follow; LEAVING it is
-                    // the user's alone (Android parity: only drags flip
-                    // `follow`) — content growth un-pins the geometry without
-                    // any gesture, and the growth observer below re-pins
-                    // instead (EXP-272). "User's alone" additionally requires
-                    // the offset to have moved UP: content growing under a
-                    // finger resting at the bottom un-pins the geometry while
-                    // a scroll phase is active, and treating that as a scroll-
-                    // away stranded the pill on screen at the bottom — the
-                    // growth observer skips repins during user scrolls, and
-                    // once un-pinned nothing ever recovered (EXP-306).
-                    if new.pinned {
+                    // The rule itself is pure (ExpCore's FeedFollowPolicy):
+                    // reaching the bottom re-arms follow, LEAVING it is the
+                    // user's alone (Android parity: only drags flip `follow`),
+                    // and a pin the CONTENT produced under a stationary reader
+                    // holds — EXP-656, where a staged replay committing a
+                    // shorter history pulled the bottom edge into slack range
+                    // and scrolled a reader out of the plan they were reading.
+                    switch FeedFollowPolicy.decide(
+                        pinned: new.pinned,
+                        atBottom: atBottom,
+                        userScrolling: userScrolling,
+                        offsetDelta: Double(new.offset - old.offset),
+                        heightDelta: Double(new.height - old.height)
+                    ) {
+                    case .rearm:
                         if !atBottom { atBottom = true }
-                    } else if userScrolling, atBottom, new.offset < old.offset {
+                    case .unpin:
                         atBottom = false
+                    case .hold:
+                        break
                     }
                 }
                 .onScrollGeometryChange(for: FeedGrowthMetrics.self) { geometry in
@@ -1917,12 +1923,14 @@ private struct FollowPinTracker: ViewModifier {
 }
 
 /// Scroll-geometry sample the iOS 18+ pin tracker acts on: pinned-to-bottom
-/// plus the raw offset, so the action can tell a user scroll AWAY from the
-/// bottom (offset moved up) apart from content growth un-pinning the geometry
-/// under a stationary finger (EXP-306).
+/// plus the raw offset and content height, so the action can tell a user
+/// scroll AWAY from the bottom (offset moved up) apart from content growth
+/// un-pinning the geometry under a stationary finger (EXP-306) and from
+/// content SHRINKING into a pin nobody scrolled into (EXP-656).
 private struct FeedPinMetrics: Equatable {
     var pinned: Bool
     var offset: CGFloat
+    var height: CGFloat
 }
 
 /// Content height plus how far the content's bottom edge sits below the
