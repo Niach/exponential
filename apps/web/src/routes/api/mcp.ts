@@ -6,6 +6,7 @@ import { users } from "@/db/auth-schema"
 import { resolveSessionUserId } from "@/lib/auth/resolve-bearer"
 import { jsonResponse } from "@/lib/mcp/helpers"
 import { createExponentialMcpServer } from "@/lib/mcp/server"
+import { resolveMcpToolGates } from "@/lib/mcp/gates"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
 import {
   FULL_ACCESS,
@@ -86,11 +87,14 @@ async function handle(request: Request) {
 
   // EXP-637: parsed once per request; ownership is enforced per tool.
   const sessionId = parseMcpSessionHeader(request)
+  // EXP-660: which conditional tool families this caller gets to see.
+  const gates = await resolveMcpToolGates(user.id, resolved.access)
   const server = createExponentialMcpServer(
     user,
     request,
     resolved.access,
-    sessionId
+    sessionId,
+    gates
   )
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
