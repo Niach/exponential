@@ -5,6 +5,9 @@
 // (Merge → Confirm merge → Merging…). The phone beside the window shows the
 // REAL mobile issue detail: its coding/PR card flips "Ready for review" →
 // "Merged" and the status chip lands on Done as the merge completes.
+// PORTRAIT (FEED-20): the phone IS the clip — it shows the mobile Review
+// screen instead (diff cards + the × · Merge · ↗ bottom bar) and the merge
+// runs THERE: tap Merge → "Merge pull request?" → spinner → Merged.
 // All beats are LOCAL frames.
 
 import React from "react"
@@ -34,6 +37,7 @@ import {
 import { PrDiffPane } from "../../ships/surfaces/diffview"
 import { PhoneChassis } from "../surfaces/steerphone"
 import { IssueScreen } from "../surfaces/mobileui"
+import { ReviewPhoneScreen } from "../surfaces/reviewphone"
 import {
   CL,
   CL_DIFF_FILES,
@@ -66,8 +70,9 @@ const B = {
   statsRoll: 14,
   paint: 18, // the diff paints into the PrDiff screen
   mergeHover: 96,
-  confirmAt: 106, // click 1 → Confirm merge
-  mergingAt: 120, // click 2 → Merging…
+  mobileTap: 100, // portrait: the Merge capsule press on the phone's Review screen
+  confirmAt: 106, // click 1 → Confirm merge (portrait: the alert is up)
+  mergingAt: 120, // click 2 → Merging… (portrait: the alert's Merge tap)
   mergedAt: 138, // the phone card flips Merged · chip lands on Done
   rowFadeFrom: 148,
   rowFadeTo: 162,
@@ -83,18 +88,13 @@ const CAPTIONS = {
 // (EXP-388: no camera moves).
 const CAMERA_KEYS: CamKey[] = [{ f: 0, s: 1.12, x: 850, y: 470 }]
 
-// Portrait (EXP-482): the diff column, then the WHOLE phone. The desktop
-// two-stage merge button goes off-camera — deliberately. "Merge. Done." is a
-// STATE claim, and the phone states it in its chips where the review row
-// would state it in an 11px button. The diff pane is inherently wide, so
-// shot A frames the PR header plus a readable column of it and lets the
-// right edge crop. The cut is caption-free (rm1 is gone by 94, rm2 arrives
-// at 126) and lands before mergedAt, so the flip is on camera.
+// Portrait (FEED-20, replacing the EXP-482 diff-column cut): ONE framing of
+// the WHOLE phone for the whole clip. The phone renders the mobile Review
+// screen, so both the diff ("Review it in place.") and the merge buttons at
+// the bottom of the screen ("Merge. Done.") are on camera the entire time —
+// the desktop window stays a backdrop, no camera moves (EXP-388 rule).
 const CAMERA_KEYS_PT: CamKey[] = shotKeys([
-  // x sits so the pane's left edge (684) — tab title + filename — stays in
-  // frame; the split diff's right column crops instead.
-  { at: 0, s: 1.7, x: 1020, y: 420 }, // PR header + a tall diff column
-  { at: 100, s: 1.8, x: 1444, y: 569 }, // the WHOLE phone: review → Merged
+  { at: 0, s: 1.8, x: 1444, y: 569 }, // the WHOLE phone: review → Merged
 ])
 
 // ── Cursor ────────────────────────────────────────────────────────────────────
@@ -222,8 +222,9 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
             />
           </WindowChassis>
 
-          {/* the phone: the real mobile issue detail — the merge lands there
-              as "Merged" + Done, live */}
+          {/* the phone: wide — the real mobile issue detail, the merge lands
+              there as "Merged" + Done, live; portrait — the mobile Review
+              screen, the merge RUNS there (FEED-20) */}
           {phoneRise > 0.01 ? (
             <div
               style={{
@@ -241,33 +242,44 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
                 }}
               >
                 <PhoneChassis glass={{ x: PHONE_POS.x, y: PHONE_POS.y }}>
-                  <IssueScreen
-                    frame={frame}
-                    identifier={CL_ISSUE.id}
-                    title={CL_ISSUE.title}
-                    origin="Feedback widget"
-                    status="in_progress"
-                    statusLabel="In Progress"
-                    priorityLabel="No priority"
-                    assignee={{ name: CL.user, initials: CL.initials }}
-                    due={CL_ISSUE.due}
-                    labelChip={CL_LABELS.widget}
-                    description={REPORT.details}
-                    activity={[
-                      { text: "Feedback widget created the issue · 1 hr ago" },
-                      {
-                        status: "in_progress",
-                        text: "Riley Chen changed status from Todo to In Progress · 30 min ago",
-                      },
-                    ]}
-                    pr={{
-                      number: CL.pr,
-                      device: PHONE_START.device,
-                      user: CL.user.split(" ")[0],
-                      mergedAt: B.mergedAt,
-                    }}
-                    sessionLive
-                  />
+                  {portrait ? (
+                    <ReviewPhoneScreen
+                      frame={frame}
+                      paintAt={B.paint}
+                      mergeTapAt={B.mobileTap}
+                      confirmAt={B.confirmAt}
+                      mergingAt={B.mergingAt}
+                      mergedAt={B.mergedAt}
+                    />
+                  ) : (
+                    <IssueScreen
+                      frame={frame}
+                      identifier={CL_ISSUE.id}
+                      title={CL_ISSUE.title}
+                      origin="Feedback widget"
+                      status="in_progress"
+                      statusLabel="In Progress"
+                      priorityLabel="No priority"
+                      assignee={{ name: CL.user, initials: CL.initials }}
+                      due={CL_ISSUE.due}
+                      labelChip={CL_LABELS.widget}
+                      description={REPORT.details}
+                      activity={[
+                        { text: "Feedback widget created the issue · 1 hr ago" },
+                        {
+                          status: "in_progress",
+                          text: "Riley Chen changed status from Todo to In Progress · 30 min ago",
+                        },
+                      ]}
+                      pr={{
+                        number: CL.pr,
+                        device: PHONE_START.device,
+                        user: CL.user.split(" ")[0],
+                        mergedAt: B.mergedAt,
+                      }}
+                      sessionLive
+                    />
+                  )}
                 </PhoneChassis>
               </div>
             </div>

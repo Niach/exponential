@@ -5,7 +5,8 @@
 // detached compose circle, and the issue detail with its identifier pill,
 // property chip box and the icon-only play circle in the floating bottom bar.
 // Nothing invented: no filter-chip strips, no text labels under tab icons, no
-// visible "Start coding" label on the detail screen.
+// visible "Start coding" label on the detail screen. The mobile Review
+// screen (diff cards + the × · Merge · ↗ bar) lives in reviewphone.tsx.
 // All frame props are LOCAL to the segment that renders the surface.
 
 import React from "react"
