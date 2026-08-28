@@ -5,6 +5,10 @@ import { PgDialect } from "drizzle-orm/pg-core"
 // family registers at all. It must stay cheap (one indexed select at most)
 // and must intersect the caller's membership with the OAuth grant, because
 // the helpdesk tools themselves require a FULL team grant.
+//
+// EXP-679: it also decides whether exponential_sessions_end registers — only
+// for the caller's OWN run, and only when an automation or another agent
+// started it (started_reason set).
 
 const h = vi.hoisted(() => {
   const dbRows: { current: Array<unknown> } = { current: [] }
@@ -51,6 +55,7 @@ describe(`resolveMcpToolGates`, () => {
   it(`is off without a single member team, and never queries`, async () => {
     expect(await resolveMcpToolGates(`u`, FULL_ACCESS)).toEqual({
       helpdesk: false,
+      sessionsEnd: false,
     })
     expect(h.db.select).not.toHaveBeenCalled()
   })
@@ -60,6 +65,7 @@ describe(`resolveMcpToolGates`, () => {
     h.dbRows.current = [{ id: WS }]
     expect(await resolveMcpToolGates(`u`, FULL_ACCESS)).toEqual({
       helpdesk: true,
+      sessionsEnd: false,
     })
     const { sql, params } = renderWhere()
     expect(sql).toContain(`"id" in`)
@@ -71,6 +77,7 @@ describe(`resolveMcpToolGates`, () => {
     h.getUserTeamIds.mockResolvedValue([WS, OTHER])
     expect(await resolveMcpToolGates(`u`, FULL_ACCESS)).toEqual({
       helpdesk: false,
+      sessionsEnd: false,
     })
   })
 
@@ -83,7 +90,10 @@ describe(`resolveMcpToolGates`, () => {
       grantedBoardIds: new Set(),
       visibleTeamIds: new Set([WS, OTHER]),
     }
-    expect(await resolveMcpToolGates(`u`, scoped)).toEqual({ helpdesk: true })
+    expect(await resolveMcpToolGates(`u`, scoped)).toEqual({
+      helpdesk: true,
+      sessionsEnd: false,
+    })
     const { params } = renderWhere()
     expect(params).toContain(WS)
     // OTHER is only board-visible — the helpdesk tools would refuse it, so
@@ -99,7 +109,53 @@ describe(`resolveMcpToolGates`, () => {
       grantedBoardIds: new Set(),
       visibleTeamIds: new Set([WS, OTHER]),
     }
-    expect(await resolveMcpToolGates(`u`, scoped)).toEqual({ helpdesk: false })
+    expect(await resolveMcpToolGates(`u`, scoped)).toEqual({
+      helpdesk: false,
+      sessionsEnd: false,
+    })
     expect(h.db.select).not.toHaveBeenCalled()
+  })
+})
+
+describe(`resolveMcpToolGates — sessionsEnd (EXP-679)`, () => {
+  const RUN = `44444444-4444-4444-4444-444444444444`
+
+  it(`is off without a session header, and never queries`, async () => {
+    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, null)
+    expect(gates.sessionsEnd).toBe(false)
+    expect(h.db.select).not.toHaveBeenCalled()
+  })
+
+  it(`is off for a person-started run`, async () => {
+    h.dbRows.current = [
+      { userId: `u`, hostUserId: null, startedReason: null },
+    ]
+    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
+    expect(gates.sessionsEnd).toBe(false)
+  })
+
+  it(`is on for the caller's own automation-started run`, async () => {
+    h.dbRows.current = [
+      { userId: `u`, hostUserId: null, startedReason: `schedule` },
+    ]
+    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
+    expect(gates.sessionsEnd).toBe(true)
+    const { sql, params } = renderWhere()
+    expect(sql).toContain(`"id" =`)
+    expect(params).toContain(RUN)
+  })
+
+  it(`is off when the run is someone else's`, async () => {
+    h.dbRows.current = [
+      { userId: `other`, hostUserId: `other-host`, startedReason: `schedule` },
+    ]
+    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
+    expect(gates.sessionsEnd).toBe(false)
+  })
+
+  it(`is off when the header names no row at all`, async () => {
+    h.dbRows.current = []
+    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
+    expect(gates.sessionsEnd).toBe(false)
   })
 })

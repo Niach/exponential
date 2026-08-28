@@ -185,6 +185,8 @@ describe(`codingSessions.start — issue path`, () => {
       issueId: ISSUE_ID,
       teamId: `ws-issue`,
       boardId: `proj-1`,
+      // EXP-679: an issue start is a person's unless an agent asked for it.
+      startedReason: null,
       userId: `actor`,
       // EXP-432: an unattributed start is host-less — the row is the
       // caller's own.
@@ -222,6 +224,8 @@ describe(`codingSessions.start — batch path`, () => {
     expect(inserts[0]!.table).toBe(codingSessions)
     expect(inserts[0]!.values).toEqual({
       teamId: TEAM_ID,
+      // EXP-679: a batch start is a person's unless an agent asked for it.
+      startedReason: null,
       userId: `actor`,
       hostUserId: null,
       deviceId: null,
@@ -347,7 +351,64 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
         startedReason: `event`,
       })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    // `schedule` is the same story — only automations automate starts.
+    await expect(
+      caller.start({ issueId: ISSUE_ID, startedReason: `schedule` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
     expect(inserts).toHaveLength(0)
+  })
+
+  // EXP-679: a run started BY another coding session is unattended like an
+  // automation, but it has no automation row and no action row behind it —
+  // `agent` therefore rides EVERY subject.
+  it(`accepts startedReason 'agent' on any subject (EXP-679)`, async () => {
+    await caller.start({ issueId: ISSUE_ID, startedReason: `agent` })
+    expect(inserts[0]!.values.startedReason).toBe(`agent`)
+
+    await caller.start({ teamId: TEAM_ID, startedReason: `agent` })
+    expect(inserts[1]!.values.startedReason).toBe(`agent`)
+
+    await caller.start({
+      actionId: `builtin:create-action`,
+      teamId: TEAM_ID,
+      startedReason: `agent`,
+    })
+    expect(inserts[2]!.values.startedReason).toBe(`agent`)
+
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Code review` }])
+    await caller.start({ actionId: ACTION_ID, startedReason: `agent` })
+    expect(inserts[3]!.values.startedReason).toBe(`agent`)
+    expect(inserts[3]!.values.automationId).toBeNull()
+  })
+
+  it(`rejects automationId riding an agent start (EXP-679)`, async () => {
+    await expect(
+      caller.start({
+        actionId: ACTION_ID,
+        startedReason: `agent`,
+        automationId: `44444444-4444-4444-8444-444444444444`,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`heartbeat resurrects an agent-started run on any subject (EXP-679)`, async () => {
+    selectResults.push([]) // row swept
+    await caller.heartbeat({
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+      startedReason: `agent`,
+    })
+    expect(inserts[0]!.values.startedReason).toBe(`agent`)
+
+    // schedule/event still need a real action row to echo.
+    selectResults.push([])
+    await caller.heartbeat({
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+      startedReason: `schedule`,
+    })
+    expect(inserts[1]!.values.startedReason).toBeNull()
   })
 
   it(`404s a missing action before any membership check or insert`, async () => {
@@ -723,18 +784,26 @@ describe(`codingSessions.setNeedsInput — attention flag (EXP-214)`, () => {
     expect(updates[0]!.values).toEqual({ needsInput: true })
   })
 
-  it(`fences a true write to running rows (EXP-531)`, async () => {
-    // The fake db can't evaluate the where clause — assert its shape: the
-    // desktop's post-turn idle nudge lands AFTER the PR-open flip, and the
-    // fence is what keeps it from resurrecting "needs input" on a reviewed
-    // row.
-    selectResults.push([{ userId: `actor`, status: `running` }])
+  it(`accepts a true write on in_review too (EXP-679)`, async () => {
+    // The fake db can't evaluate the where clause — assert its shape. EXP-531
+    // fenced `true` to `running`, but since EXP-673 a person-started run stays
+    // live after its PR opens and the post-turn idle nudge there means exactly
+    // "your turn now"; the refusal pinned "Working…" forever. The list-badge
+    // masking lives in sessionDisplayState now.
+    selectResults.push([{ userId: `actor`, status: `in_review` }])
 
-    await caller.setNeedsInput({ id: SESSION_ID, needsInput: true })
+    const result = await caller.setNeedsInput({
+      id: SESSION_ID,
+      needsInput: true,
+    })
 
+    expect(result).toEqual({ updated: true })
+    expect(updates[0]!.values).toEqual({ needsInput: true })
     const shape = whereShape(updateWheres[0]).flat()
     expect(shape).toContain(`running`)
-    expect(shape).not.toContain(`in_review`)
+    expect(shape).toContain(`in_review`)
+    // `ended` stays final on both values.
+    expect(shape).not.toContain(`ended`)
   })
 
   it(`clears needs_input on every live status (EXP-531)`, async () => {

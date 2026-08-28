@@ -225,6 +225,12 @@ export type ClientFrame = z.infer<typeof clientFrame>
  * daemon echoes into codingSessions.start; absent on own-device starts. */
 export interface StartSessionOptions {
   startedBy?: string
+  /** EXP-679: the run was started by another coding session (through
+   * `exponential_sessions_start`) — the device writes it as
+   * `coding_sessions.started_reason` so the run is unattended, i.e. its own
+   * `exponential_sessions_end` close-out ends it. Absent on human starts;
+   * `agent` is the only value the relay accepts. */
+  startedReason?: `agent`
   agent?: string
   model?: string
   effort?: string
@@ -294,6 +300,10 @@ export type ServerFrame =
       actionName?: string
       branch?: string
       startedBy?: string
+      /** EXP-679: the resume was asked for by another coding session — the
+       * device writes it as `coding_sessions.started_reason` so the relaunched
+       * run is unattended. */
+      startedReason?: `agent`
     }
   | { t: `input`; data: string } // viewer keystrokes, relay → publisher
   | { t: `answer`; questionId: string; askId?: string; keys: string[]; text?: string } // relay → publisher

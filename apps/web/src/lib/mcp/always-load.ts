@@ -22,9 +22,14 @@ export const ALWAYS_LOAD_TOOLS = [
   `exponential_pr_open`,
   `exponential_pr_merge`,
   `exponential_pr_retarget`,
-  `exponential_sessions_end`,
   `exponential_actions_create`,
 ] as const
+
+// EXP-679: always-loaded WHEN registered. `exponential_sessions_end` only
+// registers for an unattended run (gates.sessionsEnd) — and that run needs it
+// on turn one, so it keeps the flag. It stays out of ALWAYS_LOAD_TOOLS
+// because most sessions never see the tool at all.
+export const GATED_ALWAYS_LOAD_TOOLS = [`exponential_sessions_end`] as const
 
 /** Spread into a `registerTool` config to mark it always-loaded. */
 export const ALWAYS_LOAD_META = { "anthropic/alwaysLoad": true } as const

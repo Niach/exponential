@@ -68,8 +68,15 @@ vi.stubEnv(`CLOUD_INSTANCE`, `true`)
 
 import { registerExponentialTools } from "@/lib/mcp/tools"
 import { FULL_ACCESS } from "@/lib/mcp/scope"
-import { ALWAYS_LOAD_TOOLS } from "@/lib/mcp/always-load"
-import { MCP_SERVER_INSTRUCTIONS } from "@/lib/mcp/instructions"
+import {
+  ALWAYS_LOAD_TOOLS,
+  GATED_ALWAYS_LOAD_TOOLS,
+} from "@/lib/mcp/always-load"
+import { ALL_MCP_TOOL_GATES } from "@/lib/mcp/gates"
+import {
+  MCP_SERVER_INSTRUCTIONS,
+  mcpServerInstructions,
+} from "@/lib/mcp/instructions"
 import type { McpUser } from "@/lib/mcp/server"
 
 type ToolDef = {
@@ -78,7 +85,7 @@ type ToolDef = {
   _meta?: Record<string, unknown>
 }
 
-function serializeToolDefs() {
+function serializeToolDefs(gates = ALL_MCP_TOOL_GATES) {
   const defs: Array<Record<string, unknown>> = []
   const fakeServer = {
     registerTool: (name: string, def: ToolDef) => {
@@ -99,7 +106,9 @@ function serializeToolDefs() {
     fakeServer as never,
     { id: `u` } as unknown as McpUser,
     new Request(`https://x.test/api/mcp`),
-    FULL_ACCESS
+    FULL_ACCESS,
+    null,
+    gates
   )
   return defs
 }
@@ -126,16 +135,35 @@ it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
         ] === true
     )
     .map((def) => def.name)
-  expect([...flagged].sort()).toEqual([...ALWAYS_LOAD_TOOLS].sort())
+  expect([...flagged].sort()).toEqual(
+    [...ALWAYS_LOAD_TOOLS, ...GATED_ALWAYS_LOAD_TOOLS].sort()
+  )
   // exponential_report_bug is deliberately NOT always-loaded: an agent that
   // needs it searches for it.
   expect(flagged).not.toContain(`exponential_report_bug`)
 })
 
+// EXP-679: the close-out tool is registered only for an unattended run, so a
+// person-started session must not even see the name.
+it(`registers exponential_sessions_end only behind its gate`, () => {
+  expect(
+    serializeToolDefs().some((def) => def.name === `exponential_sessions_end`)
+  ).toBe(true)
+  const person = serializeToolDefs({ helpdesk: true, sessionsEnd: false })
+  expect(person.some((def) => def.name === `exponential_sessions_end`)).toBe(
+    false
+  )
+})
+
 it(`keeps the serialized MCP tool context within budget`, () => {
   const defs = serializeToolDefs()
+  // The gated one counts too: an unattended run carries it from turn one.
+  const alwaysLoadedNames: readonly string[] = [
+    ...ALWAYS_LOAD_TOOLS,
+    ...GATED_ALWAYS_LOAD_TOOLS,
+  ]
   const alwaysLoaded = defs.filter((def) =>
-    (ALWAYS_LOAD_TOOLS as readonly string[]).includes(def.name as string)
+    alwaysLoadedNames.includes(def.name as string)
   )
   // What EVERY session pays, on every turn. Keep it lean — a tool added here
   // is a tool every agent carries whether it needs it or not.
@@ -158,7 +186,6 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
   expect(MCP_SERVER_INSTRUCTIONS.length).toBeLessThan(2_000)
   const opening = MCP_SERVER_INSTRUCTIONS.slice(0, 512)
   expect(opening).toContain(`exponential_pr_open`)
-  expect(opening).toContain(`exponential_sessions_end`)
   expect(opening).toContain(`Search for exponential_*`)
   // EXP-660: the deferred families an agent would never guess at by name.
   expect(opening).toContain(`helpdesk`)
@@ -168,6 +195,13 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
   expect(MCP_SERVER_INSTRUCTIONS.split(`\n\n`)[0].length).toBeLessThanOrEqual(
     512
   )
+  // EXP-679: the person-started variant must not mention a tool it does not
+  // get, and must stay inside the same two budgets.
+  const person = mcpServerInstructions({ sessionsEnd: false })
+  expect(person).not.toContain(`exponential_sessions_end`)
+  expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_end`)
+  expect(person.length).toBeLessThan(2_000)
+  expect(person.split(`\n\n`)[0].length).toBeLessThanOrEqual(512)
 })
 
 it(`keeps CLAUDE.md under Claude Code's 40k-char performance warning`, () => {

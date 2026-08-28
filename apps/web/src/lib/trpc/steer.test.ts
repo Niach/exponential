@@ -1205,6 +1205,121 @@ describe(`steer.startSession — resume (EXP-481)`, () => {
   })
 })
 
+// EXP-679: `parentSessionId` — this start was asked for by another coding
+// session (the MCP `exponential_sessions_start` tool passes its own session
+// id). Its only wire effect is `startedReason: 'agent'`, which the device
+// writes onto the new row so the run is unattended; the parent linkage itself
+// is stamped server-side by the MCP tool. Gated on the parent being one of the
+// caller's OWN live sessions.
+describe(`steer.startSession — agent-started runs (EXP-679)`, () => {
+  const PARENT = `88888888-8888-4888-8888-888888888888`
+
+  function queueParent(over: Record<string, unknown> = {}): void {
+    h.dbQueue.push([
+      { id: PARENT, userId: `actor`, hostUserId: null, status: `running`, ...over },
+    ])
+  }
+
+  it(`brands an issue start as agent-driven`, async () => {
+    queueParent()
+    queueOwnDevice()
+
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      parentSessionId: PARENT,
+    })
+
+    expect(lastStartBody()).toMatchObject({
+      issueId: ISSUE_A,
+      startedReason: `agent`,
+    })
+  })
+
+  it(`brands a batch start too`, async () => {
+    queueParent({ status: `in_review`, userId: `owner`, hostUserId: `actor` })
+    queueOwnDevice()
+
+    await caller.startSession({
+      issueIds: [ISSUE_A, ISSUE_B],
+      deviceId: `dev-1`,
+      parentSessionId: PARENT,
+    })
+
+    expect(lastStartBody()).toMatchObject({
+      issueIds: [ISSUE_A, ISSUE_B],
+      startedReason: `agent`,
+    })
+  })
+
+  it(`brands a resume too`, async () => {
+    queueParent()
+    h.dbQueue.push([
+      {
+        id: uuid(7),
+        userId: `actor`,
+        hostUserId: null,
+        teamId: `ws-1`,
+        status: `ended`,
+        deviceId: `dev-1`,
+        issueId: null,
+        actionId: null,
+        actionName: `Refresh screenshots`,
+        branch: null,
+      },
+    ])
+    queueOwnDevice({ caps: [`resume-run`] })
+
+    await caller.startSession({
+      resumeSessionId: uuid(7),
+      deviceId: `dev-1`,
+      parentSessionId: PARENT,
+    })
+
+    expect(lastStartBody()).toMatchObject({
+      resumeSessionId: uuid(7),
+      startedReason: `agent`,
+    })
+  })
+
+  it(`refuses a parent that is not the caller's own live session`, async () => {
+    for (const over of [
+      { userId: `someone-else`, hostUserId: null },
+      { status: `ended` },
+    ]) {
+      h.dbQueue.length = 0
+      queueParent(over)
+      queueOwnDevice()
+      const error = await rejectionOf(
+        caller.startSession({
+          issueId: ISSUE_A,
+          deviceId: `dev-1`,
+          parentSessionId: PARENT,
+        })
+      )
+      expect((error as TRPCError).code, JSON.stringify(over)).toBe(`FORBIDDEN`)
+    }
+    // A parent that no longer exists is the same refusal.
+    h.dbQueue.length = 0
+    queueOwnDevice()
+    const gone = await rejectionOf(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        parentSessionId: PARENT,
+      })
+    )
+    expect((gone as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`stays off the wire on a plain human start`, async () => {
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    expect(`startedReason` in lastStartBody()).toBe(false)
+  })
+})
+
 // EXP-637: resuming an ENDED run. A subject of its own — the device's run
 // registry already holds the agent, options and cwd, so naming any of them
 // here would just contradict it. Owner-only (a live session is owner-only

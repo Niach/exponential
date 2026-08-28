@@ -452,6 +452,13 @@ pub enum ServerFrame {
         /// every own-device start.
         #[serde(default)]
         started_by: Option<String>,
+        /// EXP-679: `"agent"` when ANOTHER coding session started this run
+        /// (the web server's MCP `exponential_sessions_start`). Echoed into
+        /// `codingSessions.start`, which makes the run unattended: it gets
+        /// the `exponential_sessions_end` tool, and that close-out ENDS it.
+        /// Absent = a person asked for the start, and the run stays open.
+        #[serde(default)]
+        started_reason: Option<String>,
         /// Launch options (EXP-149) — absent on frames from clients that
         /// don't send them yet; absent = desktop settings default.
         /// `agent`/`skip_permissions` are the EXP-201 additions (absent
@@ -1081,6 +1088,7 @@ mod tests {
                 repo: None,
                 inputs: None,
                 started_by: None,
+                started_reason: None,
                 agent: None,
                 model: None,
                 effort: None,
@@ -1175,6 +1183,7 @@ mod tests {
                 repo: None,
                 inputs: None,
                 started_by: Some("user-2".into()),
+                started_reason: None,
                 agent: None,
                 model: None,
                 effort: None,
@@ -1185,6 +1194,44 @@ mod tests {
                 resume_session_id: None,
             }
         );
+    }
+
+    #[test]
+    fn start_session_deserializes_started_reason() {
+        // EXP-679: `startedReason: "agent"` — another coding session started
+        // this run, so it is UNATTENDED (it gets the close-out tool, and
+        // that call ends it). Snake_case on the wire, beside `startedBy`.
+        assert_eq!(
+            ServerFrame::parse(
+                r#"{"t":"start_session","issueId":"issue-9","startedBy":"user-2","startedReason":"agent"}"#
+            )
+            .unwrap(),
+            ServerFrame::StartSession {
+                issue_id: Some("issue-9".into()),
+                issue_ids: None,
+                action_id: None,
+                action_name: None,
+                team_id: None,
+                repo: None,
+                inputs: None,
+                started_by: Some("user-2".into()),
+                started_reason: Some("agent".into()),
+                agent: None,
+                model: None,
+                effort: None,
+                ultracode: None,
+                plan_mode: None,
+                skip_permissions: None,
+                resume: false,
+                resume_session_id: None,
+            }
+        );
+        // Absent (every person-started frame, and every pre-EXP-679 sender)
+        // is simply None — the run stays attended.
+        match ServerFrame::parse(r#"{"t":"start_session","issueId":"issue-9"}"#).unwrap() {
+            ServerFrame::StartSession { started_reason, .. } => assert_eq!(started_reason, None),
+            other => panic!("expected StartSession, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1205,6 +1252,7 @@ mod tests {
                 repo: None,
                 inputs: None,
                 started_by: None,
+                started_reason: None,
                 agent: Some("codex".into()),
                 model: Some("opus".into()),
                 effort: Some(String::new()),
@@ -1238,6 +1286,7 @@ mod tests {
                 }),
                 inputs: None,
                 started_by: None,
+                started_reason: None,
                 agent: None,
                 model: Some("opus".into()),
                 effort: Some("high".into()),
@@ -1272,6 +1321,7 @@ mod tests {
                 }),
                 inputs: None,
                 started_by: None,
+                started_reason: None,
                 agent: None,
                 model: Some("opus".into()),
                 effort: Some("high".into()),
@@ -1319,6 +1369,7 @@ mod tests {
                     },
                 ]),
                 started_by: None,
+                started_reason: None,
                 agent: Some("codex".into()),
                 model: Some("gpt-5.6-sol".into()),
                 effort: None,
@@ -1353,6 +1404,7 @@ mod tests {
                 }),
                 inputs: None,
                 started_by: None,
+                started_reason: None,
                 agent: None,
                 model: None,
                 effort: None,

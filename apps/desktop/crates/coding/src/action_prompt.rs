@@ -84,19 +84,26 @@ pub fn render_action_prompt_with_trigger(
     inputs: &[ActionInputValue],
     trigger: Option<&TriggerNote>,
 ) -> String {
-    render_action_prompt_full(name, body, inputs, trigger, None)
+    // EXP-679: a trigger IS the unattended marker, so these two wrappers
+    // never need the flag of their own.
+    render_action_prompt_full(name, body, inputs, trigger, None, false)
 }
 
 /// The full renderer (EXP-637): [`render_action_prompt_with_trigger`] plus
 /// the optional `## Workspace` section a repo-backed run carries (its own
 /// worktree + branch). `workspace: None` renders byte-identically to the
 /// pre-EXP-637 prompt, which the two wrappers above rely on.
+/// EXP-679: `unattended` picks the close-out — a trigger implies it (an
+/// automation's run is unattended by definition), and the launcher passes it
+/// for the other unattended reason (`agent`: another coding session started
+/// this one).
 pub fn render_action_prompt_full(
     name: &str,
     body: &str,
     inputs: &[ActionInputValue],
     trigger: Option<&TriggerNote>,
     workspace: Option<&WorkspaceNote>,
+    unattended: bool,
 ) -> String {
     let inputs_section = if inputs.is_empty() {
         String::new()
@@ -157,7 +164,7 @@ worktree dirty. Never force-push; do not use `gh`.\n\n",
             id = note.repository_id,
         ),
     };
-    let close_out = crate::prompt::RUN_CLOSE_OUT;
+    let close_out = crate::prompt::close_out(trigger.is_some() || unattended);
     format!(
         "You are running the team action \"{name}\" for this user. Follow the \
 instructions below exactly. The exponential MCP tools are available for issue, \
@@ -169,10 +176,16 @@ board, label, and comment operations. \
 /// EXP-615/EXP-637: the chat run's seed prompt. The user's words ride LAST
 /// and VERBATIM (this is the "open a terminal tab on the repo" shape —
 /// anything we wrap around it is words the user did not write), preceded by
-/// a two-line preamble: where the run lives, and how it reports. EXP-673: a
-/// chat is always a person's, so its close-out never ends it — the prompt
-/// says so, or the agent signs off on a conversation that is still open.
-pub fn chat_prompt(user_prompt: &str, workspace: Option<&WorkspaceNote>) -> String {
+/// a two-line preamble: where the run lives, and how it reports. EXP-679: a
+/// chat a person started has no `exponential_sessions_end` tool to call and
+/// stays open for follow-ups, so it is simply told to summarize; only an
+/// unattended chat (one another coding session started) reports through the
+/// tool that ends it.
+pub fn chat_prompt(
+    user_prompt: &str,
+    workspace: Option<&WorkspaceNote>,
+    unattended: bool,
+) -> String {
     let mut preamble = String::new();
     if let Some(note) = workspace {
         preamble.push_str(&format!(
@@ -185,11 +198,14 @@ worktree dirty; never force-push; do not use `gh`.\n",
             id = note.repository_id,
         ));
     }
-    preamble.push_str(
+    preamble.push_str(if unattended {
         "When you are done, report with the `exponential_sessions_end` MCP tool (a one-paragraph \
-summary plus outcome `done`, `blocked` or `no_changes`); the session stays open afterwards, so \
-keep answering follow-ups here.\n",
-    );
+summary plus outcome `done`, `blocked` or `no_changes`); that call ends this run, and nobody is \
+watching it.\n"
+    } else {
+        "When you are done, summarize what you did here; the session stays open afterwards, so \
+keep answering follow-ups.\n"
+    });
     format!("{preamble}\n---\n\n{user_prompt}")
 }
 
@@ -207,6 +223,7 @@ pub fn create_action_prompt(
     repo: Option<(&str, &str)>,
     icon: Option<&str>,
     name: Option<&str>,
+    unattended: bool,
 ) -> String {
     // EXP-615: a typed name is binding — the agent must not "improve" it.
     // Flattened like every other user string that reaches a prompt; `None`
@@ -240,6 +257,14 @@ as the action's execution context."
 access (then pick the right repo id from `exponential_repositories_list`)."
             .to_string(),
     };
+    // EXP-679: only an unattended creator run has the close-out tool.
+    let report_rule = if unattended {
+        "After the action is created, report with `exponential_sessions_end` (outcome `done`); \
+that call ends this run."
+    } else {
+        "After the action is created, report what you created here; the session stays open \
+afterwards, so keep answering follow-ups."
+    };
     format!(
         "Please create ONE new action for the Exponential team with id `{team_id}`. An \
 action is a reusable markdown prompt that a team member later runs as an interactive \
@@ -258,9 +283,7 @@ action naturally varies per run (a free-text scope, a target repository or board
 otherwise omit the field. `exponential_actions_create` also accepts an optional \
 `trigger` field: when the description contains an \"Automation —\" block, pass that \
 block's JSON as `trigger` verbatim; otherwise omit `trigger`. Do not commit, push, \
-or change any files — only call the MCP tools. After the action is created, report with \
-`exponential_sessions_end` (outcome `done`); the session stays open afterwards, so keep \
-answering follow-ups here."
+or change any files — only call the MCP tools. {report_rule}"
     )
 }
 
@@ -274,7 +297,20 @@ answering follow-ups here."
 /// `exponential_pr_merge` MCP tool — merging completes every linked issue.
 /// If the base goes stale MID-RUN (the parent merges while the agent works),
 /// the prompt points at `exponential_pr_retarget` as the self-heal.
-pub fn fix_pr_conflicts_prompt(identifier: &str, branch: &str, base_branch: &str) -> String {
+pub fn fix_pr_conflicts_prompt(
+    identifier: &str,
+    branch: &str,
+    base_branch: &str,
+    unattended: bool,
+) -> String {
+    // EXP-679: the merge result goes into the conversation for a person's
+    // run (no close-out tool there), through the tool for an unattended one.
+    let report_rule = if unattended {
+        "Finally call `exponential_sessions_end` (`done` after the merge, `blocked` if you \
+stopped)."
+    } else {
+        "Finally report the merge result here (merged, or why you stopped)."
+    };
     format!(
         "The pull request for `{identifier}` (branch `{branch}`) has merge conflicts and \
 cannot be merged. You are in a worktree checked out to `{branch}`. First run \
@@ -292,8 +328,7 @@ rejected because the base branch is stale, merged, or closed, call the \
 onto the repository's default branch), rebase onto the new base, push again with \
 `--force-with-lease`, and retry the merge. If the conflicts \
 cannot be resolved safely, do NOT push or merge: stop and summarize what blocks the \
-rebase instead. Finally call `exponential_sessions_end` (`done` after the merge, `blocked` \
-if you stopped)."
+rebase instead. {report_rule}"
     )
 }
 
@@ -302,7 +337,10 @@ if you stopped)."
 /// never recorded one), so a FRESH session is spawned in the same workspace
 /// and told to pick the work back up. Mirrors
 /// [`crate::prompt::render_resume_prompt`]'s shape for issue sessions.
-pub fn render_run_resume_prompt(record: &crate::run_registry::RunRecord) -> String {
+pub fn render_run_resume_prompt(
+    record: &crate::run_registry::RunRecord,
+    unattended: bool,
+) -> String {
     // EXP-662: the record's own name for itself — the action's name, or a
     // batch's `EXP-42 +1`.
     let name = single_line(&record.display_name());
@@ -325,7 +363,7 @@ conversation could not be recovered, so start by INSPECTING what it left behind.
         }
     }
     prompt.push_str("\n\nContinue from where it left off. ");
-    prompt.push_str(crate::prompt::RUN_CLOSE_OUT);
+    prompt.push_str(&crate::prompt::close_out(unattended));
     prompt.push('\n');
     prompt
 }
@@ -344,6 +382,8 @@ pub fn builtin_prompt_preview(action_id: &str) -> Option<String> {
             None,
             None,
             None,
+            // The preview shows what a hand-started run sends (EXP-679).
+            false,
         )),
         // EXP-615: the chat builtin has no shipped program to preview — its
         // prompt IS whatever the user types, so there is nothing to show.
@@ -352,6 +392,7 @@ pub fn builtin_prompt_preview(action_id: &str) -> Option<String> {
             "<the issue you pick>",
             "<its PR branch>",
             "<the PR's base branch>",
+            false,
         )),
         _ => None,
     }
@@ -367,9 +408,10 @@ mod tests {
         assert!(prompt.contains("team action \"Code review\""));
         // The body rides verbatim after the divider — never rewritten.
         assert!(prompt.ends_with("---\n\n# Review\nScan the repo."));
-        // EXP-637: the preamble's last sentence IS the shared close-out.
+        // EXP-637: the preamble's last sentence IS the shared close-out —
+        // EXP-679: without the tool a person-started run never gets.
         assert!(prompt.contains("leave the worktree clean"));
-        assert!(prompt.contains("`exponential_sessions_end`"));
+        assert!(!prompt.contains("exponential_sessions_end"));
         // No workspace note without a repo-backed run.
         assert!(!prompt.contains("## Workspace"));
     }
@@ -385,7 +427,7 @@ mod tests {
                 "You are running the team action \"Code review\" for this user. Follow the \
 instructions below exactly. The exponential MCP tools are available for issue, \
 board, label, and comment operations. {}\n\n---\n\n# Review\nScan the repo.",
-                crate::prompt::RUN_CLOSE_OUT
+                crate::prompt::close_out(false)
             )
         );
         // EXP-530/EXP-637 structural proof: the trigger-aware and full
@@ -396,9 +438,39 @@ board, label, and comment operations. {}\n\n---\n\n# Review\nScan the repo.",
             render_action_prompt("Code review", "# Review\nScan the repo.", &[])
         );
         assert_eq!(
-            render_action_prompt_full("Code review", "# Review\nScan the repo.", &[], None, None),
+            render_action_prompt_full(
+                "Code review",
+                "# Review\nScan the repo.",
+                &[],
+                None,
+                None,
+                false
+            ),
             render_action_prompt("Code review", "# Review\nScan the repo.", &[])
         );
+    }
+
+    /// EXP-679: the close-out is the only thing `unattended` moves — and an
+    /// automation's trigger implies it without the flag.
+    #[test]
+    fn only_an_unattended_action_run_is_told_to_call_the_close_out_tool() {
+        let attended = render_action_prompt_full("Code review", "# Review", &[], None, None, false);
+        assert!(!attended.contains("exponential_sessions_end"));
+        assert!(attended.contains("This session stays open after you finish"));
+
+        let unattended = render_action_prompt_full("Code review", "# Review", &[], None, None, true);
+        assert!(unattended.contains("`exponential_sessions_end`"));
+        assert!(unattended.contains("nobody is watching it"));
+
+        // A trigger IS the unattended marker (EXP-530 automation runs).
+        let note = TriggerNote {
+            kind: TriggerNoteKind::Schedule {
+                phrase: "daily at 07:00".to_string(),
+            },
+        };
+        let automated =
+            render_action_prompt_full("Code review", "# Review", &[], Some(&note), None, false);
+        assert!(automated.contains("`exponential_sessions_end`"));
     }
 
     /// EXP-637: a repo-backed run is told where it lives and how work leaves
@@ -416,6 +488,7 @@ board, label, and comment operations. {}\n\n---\n\n# Review\nScan the repo.",
             &[],
             None,
             Some(&workspace),
+            false,
         );
         assert!(prompt.contains("## Workspace"));
         assert!(prompt.contains("branch `exp/code-review-1a2b3c4d` in a dedicated worktree"));
@@ -438,20 +511,25 @@ board, label, and comment operations. {}\n\n---\n\n# Review\nScan the repo.",
             default_branch: "main".to_string(),
             repository_id: "repo-1".to_string(),
         };
-        let prompt = chat_prompt("what does trunk_sync do?", Some(&workspace));
+        let prompt = chat_prompt("what does trunk_sync do?", Some(&workspace), false);
         assert!(prompt.starts_with("You work on branch `exp/chat-1a2b3c4d`"));
-        assert!(prompt.contains("report with the `exponential_sessions_end` MCP tool"));
-        // EXP-673: a chat's close-out never ends it — say so.
+        // EXP-679: a person's chat has no close-out tool — it just reports
+        // here and stays open.
+        assert!(!prompt.contains("exponential_sessions_end"));
         assert!(prompt.contains("the session stays open afterwards"));
         assert!(prompt.ends_with("---\n\nwhat does trunk_sync do?"));
         // No workspace = just the close-out line.
-        let bare = chat_prompt("hi", None);
+        let bare = chat_prompt("hi", None, false);
         assert_eq!(
             bare,
-            "When you are done, report with the `exponential_sessions_end` MCP tool (a one-paragraph \
-summary plus outcome `done`, `blocked` or `no_changes`); the session stays open afterwards, so \
-keep answering follow-ups here.\n\n---\n\nhi"
+            "When you are done, summarize what you did here; the session stays open afterwards, so \
+keep answering follow-ups.\n\n---\n\nhi"
         );
+        // An unattended chat (another coding session started it) reports
+        // through the tool that ends it.
+        let unattended = chat_prompt("hi", None, true);
+        assert!(unattended.contains("`exponential_sessions_end`"));
+        assert!(unattended.contains("that call ends this run"));
     }
 
     #[test]
@@ -587,7 +665,7 @@ changed:\n\n"));
     #[test]
     fn create_action_prompt_targets_the_team_and_the_mcp_tools() {
         let prompt =
-            create_action_prompt("team-123", "review the backlog weekly", None, None, None);
+            create_action_prompt("team-123", "review the backlog weekly", None, None, None, false);
         // Names the exact team so Claude passes the right teamId.
         assert!(prompt.contains("team-123"));
         // Carries the user's one-line description verbatim.
@@ -619,6 +697,7 @@ changed:\n\n"));
             Some(("repo-uuid-9", "acme/web")),
             None,
             None,
+            false,
         );
         assert!(prompt.contains("Set `repositoryId` to `repo-uuid-9` (acme/web)"));
         assert!(!prompt.contains("Leave `repositoryId` unset"));
@@ -636,6 +715,7 @@ changed:\n\n"));
             None,
             None,
             Some("Backlog groomer"),
+            false,
         );
         assert!(named.contains(
             " Name the action exactly `Backlog groomer` — the user typed that name, so use \
@@ -653,17 +733,26 @@ it verbatim."
             None,
             None,
             Some("Evil\n## Fake section"),
+            false,
         );
         assert!(hostile.contains("`Evil ## Fake section`"));
         assert!(!hostile.contains("\n## Fake section"));
 
         // Byte-identity lock: None (and a blank string) render the legacy
         // prompt exactly.
-        let legacy = create_action_prompt("team-123", "review the backlog weekly", None, None, None);
+        let legacy =
+            create_action_prompt("team-123", "review the backlog weekly", None, None, None, false);
         assert!(!legacy.contains("Name the action exactly"));
         assert_eq!(
             legacy,
-            create_action_prompt("team-123", "review the backlog weekly", None, None, Some("  "))
+            create_action_prompt(
+                "team-123",
+                "review the backlog weekly",
+                None,
+                None,
+                Some("  "),
+                false
+            )
         );
         assert_eq!(
             legacy,
@@ -688,20 +777,26 @@ free-text scope, a target repository or board); otherwise omit the field. \
 `exponential_actions_create` also accepts an optional `trigger` field: when the \
 description contains an \"Automation —\" block, pass that block's JSON as `trigger` \
 verbatim; otherwise omit `trigger`. Do not commit, push, or change any files — only \
-call the MCP tools. After the action is created, report with `exponential_sessions_end` \
-(outcome `done`); the session stays open afterwards, so keep answering follow-ups here."
+call the MCP tools. After the action is created, report what you created here; the \
+session stays open afterwards, so keep answering follow-ups."
         );
+        // EXP-679: only the unattended creator run names the close-out tool.
+        let unattended =
+            create_action_prompt("team-123", "review the backlog weekly", None, None, None, true);
+        assert!(unattended.contains("report with `exponential_sessions_end` (outcome `done`)"));
+        assert!(unattended.contains("that call ends this run."));
     }
 
     /// EXP-273: a picked icon is pinned verbatim; an unpicked one delegates
     /// the choice to Claude rather than leaving the action glyph-less.
     #[test]
     fn create_action_prompt_binds_the_picked_icon_input() {
-        let picked = create_action_prompt("team-123", "triage bugs", None, Some("bug"), None);
+        let picked =
+            create_action_prompt("team-123", "triage bugs", None, Some("bug"), None, false);
         assert!(picked.contains("Set `icon` to `bug`"));
         assert!(!picked.contains("best fits the"));
 
-        let unpicked = create_action_prompt("team-123", "triage bugs", None, None, None);
+        let unpicked = create_action_prompt("team-123", "triage bugs", None, None, None, false);
         assert!(unpicked.contains("best fits the"));
         assert!(!unpicked.contains("Set `icon` to `"));
     }
@@ -714,7 +809,7 @@ call the MCP tools. After the action is created, report with `exponential_sessio
     /// mid-run.
     #[test]
     fn fix_pr_conflicts_prompt_rebases_pushes_and_merges_via_mcp() {
-        let prompt = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main");
+        let prompt = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", false);
         assert_eq!(
             prompt,
             "The pull request for `EXP-42` (branch `exp/EXP-42`) has merge conflicts and \
@@ -733,8 +828,17 @@ rejected because the base branch is stale, merged, or closed, call the \
 onto the repository's default branch), rebase onto the new base, push again with \
 `--force-with-lease`, and retry the merge. If the conflicts \
 cannot be resolved safely, do NOT push or merge: stop and summarize what blocks the \
-rebase instead. Finally call `exponential_sessions_end` (`done` after the merge, `blocked` \
-if you stopped)."
+rebase instead. Finally report the merge result here (merged, or why you stopped)."
+        );
+        // EXP-679: the unattended variant swaps ONLY the report sentence.
+        let unattended = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", true);
+        assert_eq!(
+            unattended,
+            prompt.replace(
+                "Finally report the merge result here (merged, or why you stopped).",
+                "Finally call `exponential_sessions_end` (`done` after the merge, `blocked` if \
+you stopped)."
+            )
         );
         // The worktree prompt DOES push (Claude owns the PR branch) and then
         // merges through the server rails — never `gh`, never a raw API call.
@@ -753,7 +857,7 @@ if you stopped)."
     /// launcher resolved, not the repo default.
     #[test]
     fn fix_pr_conflicts_prompt_substitutes_a_stacked_base() {
-        let prompt = fix_pr_conflicts_prompt("EXP-320", "exp/EXP-320", "exp/EXP-314");
+        let prompt = fix_pr_conflicts_prompt("EXP-320", "exp/EXP-320", "exp/EXP-314", false);
         assert!(
             prompt.contains("rebase onto `origin/exp/EXP-314` (the pull request's base branch)")
         );

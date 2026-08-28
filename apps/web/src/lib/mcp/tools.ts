@@ -275,6 +275,7 @@ const sessionColumns = {
   outcome: codingSessions.outcome,
   endedBy: codingSessions.endedBy,
   resumedFromId: codingSessions.resumedFromId,
+  parentSessionId: codingSessions.parentSessionId,
   needsInput: codingSessions.needsInput,
   startedAt: codingSessions.startedAt,
   endedAt: codingSessions.endedAt,
@@ -1630,7 +1631,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end, except YOUR OWN session, which keeps running until exponential_sessions_end. Merges run sequentially with per-PR results; one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
+      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end, except YOUR OWN session, which keeps running (it ends on its own exit or close-out). Merges run sequentially with per-PR results; one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: {
         issueId: z.string().min(1).optional(),
@@ -1917,47 +1918,44 @@ export function registerExponentialTools(
   // Sessions (EXP-637)
   // -----------------------------------------------------------------------
 
-  server.registerTool(
-    `exponential_sessions_end`,
-    {
-      description: `Report your run's close-out, shown on the run to the team: a one-paragraph 'summary' of what you did and an 'outcome' of 'done' (PR open or work complete), 'blocked' (you stopped and a human is needed) or 'no_changes' (nothing needed changing). Leave the worktree clean first and call it after exponential_pr_open. It ENDS the session only when an automation started the run; a run a person started stays open afterwards so they can reply, so keep answering their follow-ups in this conversation. Merging your own PR never ends the session. Works only inside a session started by the Exponential launcher.`,
-      _meta: ALWAYS_LOAD_META,
-      inputSchema: {
-        summary: z.string().min(1).max(4_000),
-        outcome: z.enum(codingSessionOutcomeValues),
+  // EXP-679: only an UNATTENDED run gets the close-out tool (gates.sessionsEnd
+  // = the header's run is the caller's and carries a started_reason). A
+  // person-started run is a conversation — the call would not end it anyway,
+  // and offering it just invites the agent to sign off mid-chat.
+  if (gates.sessionsEnd) {
+    server.registerTool(
+      `exponential_sessions_end`,
+      {
+        description: `Report this run's close-out, shown on the run to the team: a one-paragraph 'summary' of what you did and an 'outcome' of 'done' (PR open or work complete), 'blocked' (you stopped and a human is needed) or 'no_changes'. Call it LAST, after exponential_pr_open, with the worktree clean: it ends this run. Merging your own PR never ends it; this call does.`,
+        _meta: ALWAYS_LOAD_META,
+        inputSchema: {
+          summary: z.string().min(1).max(4_000),
+          outcome: z.enum(codingSessionOutcomeValues),
+        },
       },
-    },
-    async ({ summary, outcome }) => {
-      try {
-        if (!sessionId) {
-          return err(
-            new Error(
-              `No coding session: exponential_sessions_end only works inside a session started by the Exponential launcher (missing X-Exp-Session-Id).`
+      async ({ summary, outcome }) => {
+        try {
+          if (!sessionId) {
+            return err(
+              new Error(
+                `No coding session: exponential_sessions_end only works inside a session started by the Exponential launcher (missing X-Exp-Session-Id).`
+              )
             )
-          )
+          }
+          // Ownership is enforced inside endSessionByAgent (owner or host),
+          // which also makes a repeated call idempotent instead of blanking
+          // an earlier close-out.
+          const result = await endSessionByAgent(db, sessionId, user.id, {
+            summary,
+            outcome,
+          })
+          return ok(result)
+        } catch (e) {
+          return err(e)
         }
-        // Ownership is enforced inside endSessionByAgent (owner or host),
-        // which also makes a repeated call idempotent instead of blanking an
-        // earlier close-out. EXP-673: it ends only an automation-started
-        // run — a person-started one stays live, and the agent is told so in
-        // words, not just a flag, so it keeps the conversation going.
-        const result = await endSessionByAgent(db, sessionId, user.id, {
-          summary,
-          outcome,
-        })
-        return ok(
-          result.keptOpen
-            ? {
-                ...result,
-                note: `Close-out recorded. A person started this run, so the session stays open: keep answering their follow-ups here rather than exiting.`,
-              }
-            : result
-        )
-      } catch (e) {
-        return err(e)
       }
-    }
-  )
+    )
+  }
 
   // EXP-660: the session read side. No tRPC list/get exists (clients read the
   // Electric shape), so these are direct reads over the SAME predicate the
@@ -2076,7 +2074,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_kill`,
     {
-      description: `Abort a live coding session you own or host: the row flips to ended (endedBy user) and the device tears the agent down. Idempotent. Never your own run — that reports via exponential_sessions_end.`,
+      description: `Abort a live coding session you own or host: the row flips to ended (endedBy user) and the device tears the agent down. Idempotent. Never your own run — it ends on its own exit or close-out.`,
       inputSchema: { id: uuidString },
     },
     async ({ id }) => {
@@ -2086,7 +2084,7 @@ export function registerExponentialTools(
         // close-out — refuse and point at the proper exit.
         if (sessionId && id === sessionId) {
           throw new Error(
-            `That is your own session: report with exponential_sessions_end instead of killing it.`
+            `That is your own session: finish your work and exit instead of killing it.`
           )
         }
         if (!access.full) {
@@ -2134,7 +2132,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_start`,
     {
-      description: `Start a coding session on a registered device (exponential_devices_list; online, agents includes the agent). Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs for its inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and opens its own PR; track it with exponential_sessions_get. sessionId null = the device has not reported the run yet.`,
+      description: `Start a coding session on a registered device (exponential_devices_list; online, agents includes the agent). Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs for its inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and opens its own PR; track it with exponential_sessions_get. sessionId null = the device has not reported the run yet. Started from inside a run, the child is unattended: it reports via exponential_sessions_end and ends; poll exponential_sessions_get for its summary and outcome.`,
       inputSchema: {
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
@@ -2222,6 +2220,8 @@ export function registerExponentialTools(
         await caller(user, request).steer.startSession({
           ...input,
           issueId,
+          // EXP-679: a run started from inside a run is that run's child.
+          ...(sessionId ? { parentSessionId: sessionId } : {}),
         })
 
         // The relay accepted the frame; the desktop registers the run via
@@ -2246,6 +2246,19 @@ export function registerExponentialTools(
             .orderBy(desc(codingSessions.createdAt))
             .limit(1)
           if (row) {
+            // EXP-679: the device creates the row, so the parent link is
+            // stamped here — history only, never worth failing the start.
+            if (sessionId && !row.parentSessionId) {
+              try {
+                await db
+                  .update(codingSessions)
+                  .set({ parentSessionId: sessionId })
+                  .where(eq(codingSessions.id, row.id))
+                row.parentSessionId = sessionId
+              } catch {
+                // ignored
+              }
+            }
             session = row
             break
           }

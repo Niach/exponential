@@ -146,6 +146,12 @@ pub struct RemoteStart {
     /// SHARED server device — echoed into `codingSessions.start` so the row
     /// is requester-owned. Absent on own-device starts.
     pub started_by: Option<String>,
+    /// EXP-679: the frame's `startedReason` — `agent` when another coding
+    /// session started this run (MCP `exponential_sessions_start`). Echoed
+    /// into `codingSessions.start`, which makes the run UNATTENDED: the
+    /// server registers `exponential_sessions_end` for it and that call ends
+    /// it. Absent = a person asked for the start.
+    pub started_reason: Option<String>,
     /// EXP-201: the agent the remote client picked (`claude`/`codex`/`pi`).
     /// Absent/unknown = claude (the pre-EXP-201 behavior).
     pub agent: Option<String>,
@@ -176,6 +182,7 @@ pub(crate) fn remote_start_from_frame(
     repo: Option<StartRepoGroup>,
     inputs: Option<Vec<StartInput>>,
     started_by: Option<String>,
+    started_reason: Option<String>,
     agent: Option<String>,
     model: Option<String>,
     effort: Option<String>,
@@ -197,6 +204,7 @@ pub(crate) fn remote_start_from_frame(
         return Some(RemoteStart {
             subject: RemoteStartSubject::Resume { session_id },
             started_by,
+            started_reason,
             agent: None,
             model: None,
             effort: None,
@@ -227,6 +235,7 @@ pub(crate) fn remote_start_from_frame(
     Some(RemoteStart {
         subject,
         started_by,
+        started_reason,
         agent,
         model,
         effort,
@@ -531,6 +540,7 @@ async fn connect_and_listen(
                             repo,
                             inputs,
                             started_by,
+                            started_reason,
                             agent,
                             model,
                             effort,
@@ -541,7 +551,8 @@ async fn connect_and_listen(
                             resume_session_id,
                         }) => match remote_start_from_frame(
                             issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
-                            started_by, agent, model, effort, ultracode, plan_mode,
+                            started_by, started_reason, agent, model, effort, ultracode,
+                            plan_mode,
                             skip_permissions, resume, resume_session_id,
                         ) {
                             Some(start) => {
@@ -623,6 +634,7 @@ mod tests {
             None,
             None,
             Some("user-2".into()),
+            None,
             Some("codex".into()),
             Some("opus".into()),
             None,
@@ -670,6 +682,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 false,
                 Some("sess-old".into()),
             )
@@ -689,6 +702,7 @@ mod tests {
                 None,
                 None,
                 Some("ws-1".into()),
+                None,
                 None,
                 None,
                 None,
@@ -718,6 +732,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 Some("codex".into()),
                 Some("opus".into()),
                 None,
@@ -730,6 +745,7 @@ mod tests {
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
                 started_by: None,
+                started_reason: None,
                 agent: Some("codex".into()),
                 model: Some("opus".into()),
                 effort: None,
@@ -755,6 +771,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 Some(false),
                 None,
                 false,
@@ -767,6 +784,7 @@ mod tests {
                     repo: repo(),
                 },
                 started_by: None,
+                started_reason: None,
                 agent: None,
                 model: None,
                 effort: None,
@@ -797,12 +815,14 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 false,
                 None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
                 started_by: Some("user-2".into()),
+                started_reason: None,
                 agent: None,
                 model: None,
                 effort: None,
@@ -812,6 +832,56 @@ mod tests {
                 resume: false,
             })
         );
+    }
+
+    /// EXP-679: `startedReason` rides through verbatim on EVERY subject,
+    /// the resume one included — the launcher echoes it into
+    /// `codingSessions.start`, which is what makes the run unattended.
+    #[test]
+    fn remote_start_from_frame_threads_started_reason() {
+        let issue = remote_start_from_frame(
+            Some("issue-9".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("agent".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+        )
+        .expect("issue frame");
+        assert_eq!(issue.started_reason.as_deref(), Some("agent"));
+
+        let resumed = remote_start_from_frame(
+            None,
+            None,
+            None,
+            None,
+            Some("ws-1".into()),
+            None,
+            None,
+            None,
+            Some("agent".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            Some("sess-old".into()),
+        )
+        .expect("resume frame");
+        assert_eq!(resumed.started_reason.as_deref(), Some("agent"));
     }
 
     #[test]
@@ -833,6 +903,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 false,
                 None,
             ),
@@ -841,7 +912,7 @@ mod tests {
         // Neither subject set.
         assert_eq!(
             remote_start_from_frame(
-                None, None, None, None, None, None, None, None, None, None, None, None, None,
+                None, None, None, None, None, None, None, None, None, None, None, None, None, None,
                 None, false, None,
             ),
             None
@@ -863,6 +934,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 false,
                 None,
             ),
@@ -876,6 +948,7 @@ mod tests {
                 None,
                 None,
                 Some("ws-7".into()),
+                None,
                 None,
                 None,
                 None,
@@ -907,6 +980,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 false,
                 None,
             ),
@@ -928,6 +1002,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 Some("opus".into()),
                 Some("high".into()),
                 None,
@@ -945,6 +1020,7 @@ mod tests {
                     inputs: Vec::new(),
                 },
                 started_by: None,
+                started_reason: None,
                 agent: None,
                 model: Some("opus".into()),
                 effort: Some("high".into()),
@@ -962,6 +1038,7 @@ mod tests {
                 Some("act-2".into()),
                 Some("Groom".into()),
                 Some("ws-7".into()),
+                None,
                 None,
                 None,
                 None,
@@ -1015,6 +1092,7 @@ mod tests {
                 None,
                 Some(inputs.clone()),
                 None,
+                None,
                 Some("codex".into()),
                 Some("gpt-5.6-sol".into()),
                 None,
@@ -1033,6 +1111,7 @@ mod tests {
                     inputs,
                 },
                 started_by: None,
+                started_reason: None,
                 agent: Some("codex".into()),
                 model: Some("gpt-5.6-sol".into()),
                 effort: None,
@@ -1054,6 +1133,7 @@ mod tests {
                 Some("act-1".into()),
                 Some("Code review".into()),
                 Some("ws-7".into()),
+                None,
                 None,
                 None,
                 None,
@@ -1085,6 +1165,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 false,
                 None,
             ),
@@ -1097,6 +1178,7 @@ mod tests {
                 None,
                 Some("act-1".into()),
                 Some("Code review".into()),
+                None,
                 None,
                 None,
                 None,

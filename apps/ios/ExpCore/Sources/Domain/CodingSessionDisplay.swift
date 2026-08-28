@@ -14,6 +14,9 @@ import Foundation
 /// EXP-531: `in_review` also outranks the needs-input flag — once the PR is
 /// open the run is done coding, and claude's idle-nudge notification (which
 /// the desktop forwards as needs_input) must not mask "Ready for review".
+/// EXP-679: the server accepts the flag on every live status now (a
+/// person-started run stays live after its PR, and the idle edge is "your
+/// turn"), so this ordering is the ONLY mask — the nav dot goes through it too.
 public enum CodingSessionDisplayState {
     case running
     case needsInput

@@ -955,6 +955,9 @@ fn handle_remote_start(
         device_id: device_id.to_string(),
         claimant: ctx.account.id.clone(),
         started_by: start.started_by.clone(),
+        // EXP-679: `agent` — another coding session asked for this start, so
+        // the run is unattended and its close-out ends it.
+        started_reason: start.started_reason.clone(),
     };
 
     // Errors and refusals are logged, never acked — the remote client

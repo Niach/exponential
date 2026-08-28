@@ -85,29 +85,51 @@ pub fn deliver_prompt_file(
     Ok(PromptDelivery::File)
 }
 
-/// EXP-637 — the close-out sentence EVERY launcher prompt ends with (issue,
-/// batch, action, chat and the two builtins), so a run always leaves a clean
-/// worktree and a summary the team can read on the run row.
-///
-/// EXP-673: the report is not a goodbye. The server ends the run on that
-/// call ONLY when an automation started it; a run a person started stays
-/// open for their replies — and an agent that was not told so signs off
-/// and sits there. The tool result says which happened, but the prompt
-/// sets the expectation up front. Decision 6 is spelled out on purpose: an
-/// agent that merges its own PR keeps running server-side, and would
-/// otherwise assume the merge ended it.
-pub const RUN_CLOSE_OUT: &str = "Before you finish, leave the worktree clean: commit and push \
+/// EXP-637 — the clean-worktree half of the close-out EVERY launcher prompt
+/// ends with (issue, batch, action, chat and the two builtins): a run always
+/// leaves the tree the way it found it.
+pub const WORKTREE_CLEAN: &str = "Before you finish, leave the worktree clean: commit and push \
 everything you keep, discard anything you don't (`git checkout -- .`, `git clean -fd` for files \
-you created). Then report with the `exponential_sessions_end` MCP tool: a one-paragraph summary \
-and outcome `done` (PR open or work complete), `blocked`, or `no_changes`. That call ends the \
-session only when an automation started this run; a run a person started stays open afterwards, \
-so keep answering their follow-ups here. Merging your own PR never ends the session.";
+you created).";
+
+/// EXP-679 — the second half, and it has TWO shapes because the server now
+/// registers the `exponential_sessions_end` tool only for UNATTENDED runs
+/// (`coding_sessions.started_reason` set: an automation's `schedule`/`event`,
+/// or `agent` — a run another coding session started). A person-started run
+/// never sees the tool and stays open afterwards (EXP-673), so telling it to
+/// call one it doesn't have is a dead end; an unattended run must call it
+/// last, because that call is what ends it and nobody is there to reply.
+/// Decision 6 is spelled out in both: an agent that merges its own PR keeps
+/// running server-side, and would otherwise assume the merge ended it.
+pub fn close_out(unattended: bool) -> String {
+    if unattended {
+        format!(
+            "{WORKTREE_CLEAN} Then report with the `exponential_sessions_end` MCP tool: a \
+one-paragraph summary and outcome `done` (PR open or work complete), `blocked`, or \
+`no_changes`. That call ends this run; nobody is watching it, so do not wait for replies. \
+Merging your own PR never ends the session."
+        )
+    } else {
+        format!(
+            "{WORKTREE_CLEAN} This session stays open after you finish: summarize what you did \
+here and keep answering follow-ups. Merging your own PR never ends the session."
+        )
+    }
+}
 
 /// Render the seed prompt: the §7.1 step-5 instruction paragraph, then the
 /// issue context block it tells Claude to read. No plan-gate sentence —
-/// native plan mode owns the approval gate.
-pub fn render_prompt(identifier: &str, title: &str, description: Option<&str>) -> String {
+/// native plan mode owns the approval gate. `unattended` (EXP-679) picks the
+/// close-out: only an unattended run is told to call
+/// `exponential_sessions_end`.
+pub fn render_prompt(
+    identifier: &str,
+    title: &str,
+    description: Option<&str>,
+    unattended: bool,
+) -> String {
     let body = issue_body(description);
+    let close_out = close_out(unattended);
     format!(
         "Please read the issue context below and work on **{identifier}: {title}** in this \
 repository. BEFORE implementing anything, read the issue's full comment thread by \
@@ -116,7 +138,7 @@ comments often refine or override the description and are part of the requiremen
 Implement the change, then commit and push your branch and open a pull \
 request by calling the `exponential_pr_open` MCP tool. Opening the PR \
 moves the issue to `in_review` automatically, and merging it later completes it to \
-`done` — you do not set the issue status yourself. Do not use `gh`. {RUN_CLOSE_OUT}
+`done` — you do not set the issue status yourself. Do not use `gh`. {close_out}
 
 ## Issue context
 
@@ -134,7 +156,13 @@ moves the issue to `in_review` automatically, and merging it later completes it 
 /// — [`crate::codex_sessions`] — found no rollout for the worktree, e.g. it
 /// was coded by another agent or the sessions were pruned); claude/pi always
 /// resume natively via cwd-scoped `--continue`.
-pub fn render_resume_prompt(identifier: &str, title: &str, default_branch: &str) -> String {
+pub fn render_resume_prompt(
+    identifier: &str,
+    title: &str,
+    default_branch: &str,
+    unattended: bool,
+) -> String {
+    let close_out = close_out(unattended);
     format!(
         "You are RESUMING work on **{identifier}: {title}** in this repository — a previous \
 coding session already worked on this branch. First inspect the existing work: run \
@@ -145,7 +173,7 @@ override the requirements. Then continue the implementation from where it left o
 done, commit and push this branch; if no pull request exists yet, open one by calling the \
 `exponential_pr_open` MCP tool — if one already exists, just push your commits to update it. \
 Opening the PR moves the issue to `in_review` automatically, and merging it later completes \
-it to `done` — you do not set the issue status yourself. Do not use `gh`. {RUN_CLOSE_OUT}
+it to `done` — you do not set the issue status yourself. Do not use `gh`. {close_out}
 "
     )
 }
@@ -170,7 +198,9 @@ pub fn write_rendered_prompt(worktree: &Path, content: &str) -> io::Result<PathB
 mod tests {
     use super::*;
 
-    /// The §7.1 step-5 template — exact bytes for a described issue.
+    /// The §7.1 step-5 template — exact bytes for a described issue a PERSON
+    /// started (EXP-679: no `exponential_sessions_end`, the tool that run
+    /// doesn't get).
     const EXPECTED: &str = "Please read the issue context below and work on **EXP-42: Fix login flicker** in this \
 repository. BEFORE implementing anything, read the issue's full comment thread by \
 calling the `exponential_comments_list` MCP tool with issueId `EXP-42` — \
@@ -180,11 +210,8 @@ request by calling the `exponential_pr_open` MCP tool. Opening the PR \
 moves the issue to `in_review` automatically, and merging it later completes it to \
 `done` — you do not set the issue status yourself. Do not use `gh`. Before you finish, leave the \
 worktree clean: commit and push everything you keep, discard anything you don't (`git checkout -- \
-.`, `git clean -fd` for files you created). Then report with the `exponential_sessions_end` MCP \
-tool: a one-paragraph summary and outcome `done` (PR open or work complete), `blocked`, or \
-`no_changes`. That call ends the session only when an automation started this run; a run a person \
-started stays open afterwards, so keep answering their follow-ups here. Merging your own PR never \
-ends the session.
+.`, `git clean -fd` for files you created). This session stays open after you finish: summarize \
+what you did here and keep answering follow-ups. Merging your own PR never ends the session.
 
 ## Issue context
 
@@ -215,14 +242,41 @@ The login page flickers on slow connections.
         let description =
             "The login page flickers on slow connections.\n\n- Reproduce with network throttling\n- Fix the flash of unstyled content";
         assert_eq!(
-            render_prompt("EXP-42", "Fix login flicker", Some(description)),
+            render_prompt("EXP-42", "Fix login flicker", Some(description), false),
             EXPECTED
+        );
+    }
+
+    /// EXP-679: the close-out is the ONLY difference between an attended and
+    /// an unattended run's prompt — and the `exponential_sessions_end`
+    /// sentence appears in exactly one of them (the server registers that
+    /// tool only for unattended runs).
+    #[test]
+    fn only_the_unattended_prompt_names_the_close_out_tool() {
+        let attended = render_prompt("EXP-42", "Fix login flicker", None, false);
+        assert!(!attended.contains("exponential_sessions_end"));
+        assert!(attended.contains("This session stays open after you finish"));
+
+        let unattended = render_prompt("EXP-42", "Fix login flicker", None, true);
+        assert!(unattended.contains("`exponential_sessions_end`"));
+        assert!(unattended.contains("That call ends this run; nobody is watching it"));
+        assert!(!unattended.contains("This session stays open after you finish"));
+
+        // Both leave the tree clean and both spell out decision 6.
+        for prompt in [&attended, &unattended] {
+            assert!(prompt.contains("leave the worktree clean"));
+            assert!(prompt.contains("Merging your own PR never ends the session."));
+        }
+        // Same prompt otherwise — only the close-out swaps.
+        assert_eq!(
+            attended.replace(&close_out(false), ""),
+            unattended.replace(&close_out(true), "")
         );
     }
 
     #[test]
     fn template_names_the_real_mcp_tools_and_carries_no_plan_gate() {
-        let prompt = render_prompt("EXP-1", "T", None);
+        let prompt = render_prompt("EXP-1", "T", None, true);
         assert!(prompt.contains("`exponential_pr_open`"));
         assert!(prompt.contains("`exponential_comments_list` MCP tool with issueId `EXP-1`"));
         assert!(prompt.contains("Do not use `gh`."));
@@ -243,7 +297,7 @@ The login page flickers on slow connections.
 
     #[test]
     fn resume_template_names_the_real_mcp_tools_and_inspects_existing_work() {
-        let prompt = render_resume_prompt("EXP-42", "Fix login flicker", "main");
+        let prompt = render_resume_prompt("EXP-42", "Fix login flicker", "main", true);
         assert!(prompt.contains("RESUMING work on **EXP-42: Fix login flicker**"));
         assert!(prompt.contains("`exponential_comments_list` MCP tool with issueId `EXP-42`"));
         assert!(prompt.contains("`exponential_pr_open`"));
@@ -261,14 +315,14 @@ The login page flickers on slow connections.
     #[test]
     fn missing_or_blank_description_gets_a_placeholder() {
         for description in [None, Some(""), Some("   \n  ")] {
-            let prompt = render_prompt("EXP-2", "Title", description);
+            let prompt = render_prompt("EXP-2", "Title", description, false);
             assert!(prompt.contains("(no description)"), "for {description:?}");
         }
     }
 
     #[test]
     fn trailing_whitespace_in_description_is_trimmed() {
-        let prompt = render_prompt("EXP-3", "T", Some("body text\n\n\n"));
+        let prompt = render_prompt("EXP-3", "T", Some("body text\n\n\n"), false);
         assert!(prompt.ends_with("body text\n"));
     }
 
@@ -339,7 +393,7 @@ The login page flickers on slow connections.
     fn writes_into_the_worktree_root() {
         let dir = temp_dir("write");
         let path =
-            write_rendered_prompt(&dir, &render_prompt("EXP-9", "Title", Some("Body"))).unwrap();
+            write_rendered_prompt(&dir, &render_prompt("EXP-9", "Title", Some("Body"), false)).unwrap();
         assert_eq!(path, dir.join("PROMPT.md"));
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("**EXP-9: Title**"));

@@ -262,10 +262,18 @@ const RELAY_START_TIMEOUT_MS = 3_000
  * Undefined option fields are dropped by JSON.stringify — never sent.
  * `startedBy` (EXP-432): the requesting teammate on a start targeting a
  * SHARED server device — `userId` is then the device OWNER (whose presence
- * bucket holds the socket). Absent on every own-device start. */
+ * bucket holds the socket). Absent on every own-device start.
+ * `startedReason` (EXP-679): `agent` when another coding session asked for
+ * this start — the device writes it onto `coding_sessions.started_reason` so
+ * the run is unattended (its close-out ends it). Absent otherwise. */
 export async function relayPostStart(
   config: SteerRelayConfig,
-  body: { userId: string; deviceId: string; startedBy?: string } &
+  body: {
+    userId: string
+    deviceId: string
+    startedBy?: string
+    startedReason?: `agent`
+  } &
     SteerStartSubject &
     SteerStartOptions,
   fetchImpl: RelayFetch = globalThis.fetch

@@ -88,7 +88,7 @@ async function handle(request: Request) {
   // EXP-637: parsed once per request; ownership is enforced per tool.
   const sessionId = parseMcpSessionHeader(request)
   // EXP-660: which conditional tool families this caller gets to see.
-  const gates = await resolveMcpToolGates(user.id, resolved.access)
+  const gates = await resolveMcpToolGates(user.id, resolved.access, sessionId)
   const server = createExponentialMcpServer(
     user,
     request,

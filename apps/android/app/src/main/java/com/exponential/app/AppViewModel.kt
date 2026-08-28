@@ -13,7 +13,9 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
 import com.exponential.app.data.steer.SteerConnectionStore
+import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.CodingSessionLiveness
+import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.defaultTeamId
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -287,11 +289,14 @@ class AppViewModel @Inject constructor(
                 auth.userId,
                 teamSelection.selectedId,
             ) { sessions, now, me, teamId ->
+                // EXP-679: the display state masks `needs_input` behind
+                // in_review (the server accepts the flag on every live status
+                // now), so the amber dot means "a running agent wants you".
                 me != null && teamId != null && sessions.any {
                     it.userId == me &&
                         it.teamId == teamId &&
                         CodingSessionLiveness.isLive(it, now) &&
-                        it.needsInput
+                        codingSessionDisplayState(it, null) == CodingSessionDisplayState.NeedsInput
                 }
             }
         }

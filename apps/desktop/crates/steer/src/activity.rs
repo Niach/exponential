@@ -2430,7 +2430,20 @@ impl SteerState {
                 }
                 // EXP-637: the turn is over — the graceful stop may proceed.
                 self.turn_idle = true;
-                self.attention = None;
+                // EXP-679: the `Stop` hook IS claude's end-of-turn edge — the
+                // one codex and pi already publish on their turn-complete
+                // events. The agent is parked on the input box, so the synced
+                // `needs_input` flag flips NOW instead of a minute later:
+                // claude's "waiting for your input" Notification
+                // ([`HookEventKind::Idle`]) fires ~60s in and stays only as
+                // the backstop for a missed/suppressed Stop. Viewers rendered
+                // a pulsing "Working…" for that whole window (forever when a
+                // late transcript flush kept the flag cleared). A SessionEnd
+                // is the process going away, not a human's turn: no parking.
+                self.attention = match kind {
+                    HookEventKind::SessionEnd { .. } => None,
+                    _ => Some(Attention::Idle),
+                };
                 // The turn is over ⇒ no picker can be on the grid, whatever
                 // the (possibly scroll-stuck) watcher last saw (EXP-347).
                 self.resolution_seen = true;
@@ -2787,7 +2800,8 @@ impl SteerState {
     }
 
     /// Watch what the transcript published: an ask resolution retires its
-    /// cards, and any progress at all clears a stale attention flag.
+    /// cards, progress clears a stale permission block, and a new turn's
+    /// first event un-parks an idle one (EXP-679).
     fn observe_published(&mut self, event: &ActivityEvent) {
         // EXP-529: remember the freshest tool headline — the tool-less
         // Notification's name fallback (see [`Self::recent_tool`]).
@@ -2804,7 +2818,29 @@ impl SteerState {
                 }
             }
         }
-        self.attention = None;
+        // EXP-679: transcript progress clears a `Permission` block as it
+        // always has — anything published means the blocking call is through.
+        // An `Idle` park is different now that the `Stop` hook sets it: the
+        // final assistant entry is often flushed AFTER the hook lands, and a
+        // blanket clear here silently un-idled the session for good (claude
+        // never re-sends its idle Notification for the same idle period).
+        // So `Idle` only lifts on evidence of a NEW turn: a human message, or
+        // the agent dispatching a tool. Assistant prose, narration, subagent
+        // cards, diffs and resolutions leave it parked.
+        // [`Self::note_agent_activity`] is the other clearing edge (tool
+        // dispatch + subagent lifecycle, EXP-355).
+        match self.attention {
+            Some(Attention::Permission) => self.attention = None,
+            Some(Attention::Idle) => {
+                if matches!(
+                    event,
+                    ActivityEvent::UserMessage { .. } | ActivityEvent::Tool { .. }
+                ) {
+                    self.attention = None;
+                }
+            }
+            None => {}
+        }
         // NOTE (EXP-455): a held `pending_permission` deliberately survives
         // transcript progress — the pending tool's own `tool_use` entry
         // flushes around the same moment the Notification fires, so clearing
@@ -7031,6 +7067,95 @@ mod tests {
                 ("2", "Yes, manually approve edits"),
             ]
         );
+    }
+
+    /// EXP-679: the `Stop` hook is the end-of-turn edge — the session parks
+    /// on `needs_input` immediately, not a minute later when claude's idle
+    /// Notification finally fires.
+    #[test]
+    fn stop_hook_parks_the_session_as_idle() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::Stop),
+            &sender,
+            &Redactor::new(vec![]),
+            &mut transcript,
+        );
+        assert!(
+            steer.attention == Some(Attention::Idle),
+            "the turn is over — your turn"
+        );
+        assert!(steer.turn_idle, "and the graceful stop may proceed");
+        // A SessionEnd is the process going away, not a human's turn.
+        let mut ending = SteerState::default();
+        ending.apply_hook(
+            hook(HookEventKind::SessionEnd { reason: None }),
+            &sender,
+            &Redactor::new(vec![]),
+            &mut transcript,
+        );
+        assert!(ending.attention.is_none(), "a teardown parks nothing");
+        drained(&rx);
+    }
+
+    /// EXP-679: claude flushes the turn's final assistant entry AFTER the
+    /// `Stop` hook — the blanket clear in `observe_published` used to un-idle
+    /// the session for good (the idle Notification never re-fires for the
+    /// same idle period), which is exactly the stuck "Working…" row.
+    #[test]
+    fn assistant_flush_after_stop_keeps_idle() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::Stop),
+            &sender,
+            &Redactor::new(vec![]),
+            &mut transcript,
+        );
+        steer.observe_published(&ActivityEvent::narration("Done — the tests pass."));
+        assert!(
+            steer.attention == Some(Attention::Idle),
+            "a late prose flush is not a new turn"
+        );
+        drained(&rx);
+    }
+
+    /// EXP-679: only evidence of a NEW turn un-parks an idle session — the
+    /// human's message, or the agent dispatching its first tool.
+    #[test]
+    fn user_message_after_stop_clears_idle() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut transcript = TranscriptState::default();
+
+        let mut steer = SteerState::default();
+        steer.apply_hook(hook(HookEventKind::Stop), &sender, &redactor, &mut transcript);
+        steer.observe_published(&ActivityEvent::UserMessage {
+            text: "and now the migration".to_string(),
+            at: None,
+        });
+        assert!(steer.attention.is_none(), "a human turn landed");
+
+        let mut steer = SteerState::default();
+        steer.apply_hook(hook(HookEventKind::Stop), &sender, &redactor, &mut transcript);
+        steer.observe_published(&ActivityEvent::tool("Read", None));
+        assert!(steer.attention.is_none(), "the agent is working again");
+        drained(&rx);
+    }
+
+    /// EXP-679 must not regress EXP-455: ANY transcript progress still
+    /// clears a permission block — the blocking call is through.
+    #[test]
+    fn transcript_progress_still_clears_a_permission_block() {
+        let mut steer = SteerState {
+            attention: Some(Attention::Permission),
+            ..Default::default()
+        };
+        steer.observe_published(&ActivityEvent::narration("running the command"));
+        assert!(steer.attention.is_none(), "progress clears the block");
     }
 
     #[test]
