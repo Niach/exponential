@@ -113,6 +113,12 @@ pub enum LaunchOrigin {
         device_id: String,
         claimant: String,
         started_by: Option<String>,
+        /// EXP-679: the frame's `startedReason` — `agent` when ANOTHER
+        /// coding session started this run (MCP `exponential_sessions_start`).
+        /// Echoed into `codingSessions.start`, which makes the run
+        /// unattended: the server registers `exponential_sessions_end` for
+        /// it and that call ends it. `None` = a person asked for this start.
+        started_reason: Option<String>,
     },
 }
 
@@ -140,6 +146,25 @@ fn attribution<'a>(
         // Only a `started_by` relay start re-owns the row (EXP-432).
         started_by_id,
         device_id: relay_device_id.or(deps.device_id.as_deref()),
+    }
+}
+
+/// EXP-679 — the run's `coding_sessions.started_reason`: an automation's
+/// trigger reason (`schedule`/`event`) when one fired it, else the reason
+/// the relay frame carried (`agent` — another coding session started this
+/// run). `None` = a person started it, and the run is ATTENDED: it stays
+/// open after the agent finishes (EXP-673), the server registers no
+/// `exponential_sessions_end` tool for it, and its prompt must not name one.
+fn started_reason<'a>(
+    origin: &'a LaunchOrigin,
+    trigger: Option<&'a TriggerNote>,
+) -> Option<&'a str> {
+    if let Some(note) = trigger {
+        return Some(note.started_reason());
+    }
+    match origin {
+        LaunchOrigin::Relay { started_reason, .. } => started_reason.as_deref(),
+        LaunchOrigin::Local => None,
     }
 }
 
@@ -1108,6 +1133,16 @@ pub fn prepare_with_hooks(
     // [`prepare_resume_run`], and a `resume_prompt` request is precisely the
     // case where no record could be resolved, so it gets a fresh session in
     // the reused worktree told to pick the branch work back up.
+    // EXP-679: only an unattended run (relay `startedReason`) is told to
+    // report through `exponential_sessions_end` — a person's run keeps its
+    // session open instead.
+    let run_reason = match req {
+        PrepareRequest::Issue(issue_req) => started_reason(&issue_req.origin, None),
+        PrepareRequest::Batch(batch_req) => started_reason(&batch_req.origin, None),
+        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
+            unreachable!("dispatched above")
+        }
+    };
     let rendered = match req {
         PrepareRequest::Issue(issue_req) if issue_req.resume_prompt => {
             let seed = (deps.issue_seed)(&issue_req.issue_id);
@@ -1115,7 +1150,12 @@ pub fn prepare_with_hooks(
                 .as_ref()
                 .map(|seed| seed.title.as_str())
                 .unwrap_or(issue_req.issue_identifier.as_str());
-            render_resume_prompt(&issue_req.issue_identifier, title, &minted.default_branch)
+            render_resume_prompt(
+                &issue_req.issue_identifier,
+                title,
+                &minted.default_branch,
+                run_reason.is_some(),
+            )
         }
         PrepareRequest::Issue(issue_req) => {
             // Title/description from the sync store.
@@ -1124,12 +1164,18 @@ pub fn prepare_with_hooks(
                 Some(seed) => (seed.title.as_str(), seed.description.as_deref()),
                 None => (issue_req.issue_identifier.as_str(), None),
             };
-            render_prompt(&issue_req.issue_identifier, title, description)
+            render_prompt(
+                &issue_req.issue_identifier,
+                title,
+                description,
+                run_reason.is_some(),
+            )
         }
         PrepareRequest::Batch(batch_req) => render_batch_prompt(&BatchPromptArgs {
             default_branch: &minted.default_branch,
             branch: &branch,
             issues: &batch_req.issues,
+            unattended: run_reason.is_some(),
         }),
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
             unreachable!("dispatched above")
@@ -1145,6 +1191,7 @@ pub fn prepare_with_hooks(
             &issue_req.issue_id,
             Some(&issue_req.device_label),
             attribution(&issue_req.origin, deps),
+            run_reason,
             // A resume is `prepare_resume_run`'s business (EXP-662); this
             // path always starts a run of its own.
             None,
@@ -1154,6 +1201,7 @@ pub fn prepare_with_hooks(
             &batch_req.team_id,
             Some(&batch_req.device_label),
             attribution(&batch_req.origin, deps),
+            run_reason,
             None,
         ),
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
@@ -1352,8 +1400,9 @@ pub fn prepare_with_hooks(
             ultracode: options.ultracode,
             skip_permissions: options.skip_permissions,
             fix: None,
-            // Only action runs automate (EXP-530).
-            started_reason: None,
+            // EXP-530/EXP-679: automations only fire action runs, but an
+            // `agent`-started issue/batch run is unattended too.
+            started_reason: run_reason.map(str::to_string),
             resumed_from_id: None,
             recorded_at: crate::run_registry::now_secs(),
             extra: BTreeMap::new(),
@@ -1412,8 +1461,10 @@ pub fn prepare_with_hooks(
                 device_label: Some(issue_req.device_label.clone()),
                 started_by_id: attribution.started_by_id.map(str::to_string),
                 device_id: attribution.device_id.map(str::to_string),
-                // Only action runs automate (EXP-530).
-                started_reason: None,
+                // EXP-530: only action runs AUTOMATE — but EXP-679's `agent`
+                // reason rides an issue start too, so the scope echoes
+                // whatever the start stamped.
+                started_reason: run_reason.map(str::to_string),
                 automation_id: None,
                 // The server refuses a branch beside an issueId.
                 branch: None,
@@ -1429,8 +1480,8 @@ pub fn prepare_with_hooks(
                 device_label: Some(batch_req.device_label.clone()),
                 started_by_id: attribution.started_by_id.map(str::to_string),
                 device_id: attribution.device_id.map(str::to_string),
-                // Only action runs automate (EXP-530).
-                started_reason: None,
+                // EXP-679: echoed like the issue scope above.
+                started_reason: run_reason.map(str::to_string),
                 automation_id: None,
                 // The batch branch is minted client-side and already
                 // recorded by `start_batch`; nothing to re-assert.
@@ -1759,6 +1810,11 @@ fn prepare_action(
         }),
         _ => None,
     };
+    // EXP-679: an automation's trigger or a relay `agent` reason makes this
+    // run unattended — the only shape whose prompt names
+    // `exponential_sessions_end` (the only shape the server registers it for).
+    let run_reason = started_reason(&req.origin, req.trigger.as_ref());
+    let unattended = run_reason.is_some();
     let rendered = match &req.kind {
         ActionRunKind::CreateAction => {
             let Some(description) = req
@@ -1796,14 +1852,25 @@ fn prepare_action(
                 .iter()
                 .find(|input| input.key == "name" && !input.value.trim().is_empty())
                 .map(|input| input.value.trim());
-            create_action_prompt(&req.team_id, description, repo_input, icon_input, name_input)
+            create_action_prompt(
+                &req.team_id,
+                description,
+                repo_input,
+                icon_input,
+                name_input,
+                unattended,
+            )
         }
         // EXP-615: the user's own words, verbatim — no preamble, no inputs
         // section (validated non-empty at the top of this function).
         // Everything else (trunk clone cwd, MCP wiring, session row,
         // steering) is the ordinary action-run path.
         ActionRunKind::Chat => {
-            chat_prompt(&chat_user_prompt.clone().unwrap_or_default(), workspace.as_ref())
+            chat_prompt(
+                &chat_user_prompt.clone().unwrap_or_default(),
+                workspace.as_ref(),
+                unattended,
+            )
         }
         ActionRunKind::FixConflicts {
             branch,
@@ -1816,6 +1883,7 @@ fn prepare_action(
             // The live base resolved above; the repo default only when the
             // server predates issues.prepareConflictFix (EXP-324).
             fix_rebase_onto.as_deref().unwrap_or(default_branch),
+            unattended,
         ),
         ActionRunKind::Team => render_action_prompt_full(
             &req.action_name,
@@ -1823,6 +1891,7 @@ fn prepare_action(
             &req.inputs,
             req.trigger.as_ref(),
             workspace.as_ref(),
+            unattended,
         ),
     };
     // EXP-637: the PROMPT.md exclude belongs in the CLONE's shared
@@ -1837,7 +1906,7 @@ fn prepare_action(
         coding_sessions::ActionStart {
             action_id: &req.action_id,
             team_id: req.kind.is_builtin().then_some(req.team_id.as_str()),
-            started_reason: req.trigger.as_ref().map(|note| note.started_reason()),
+            started_reason: run_reason,
             automation_id: req.automation_id.as_deref(),
             device_label: Some(&req.device_label),
             branch: run_branch.as_deref(),
@@ -2035,10 +2104,7 @@ fn prepare_action(
                 }),
                 _ => None,
             },
-            started_reason: req
-                .trigger
-                .as_ref()
-                .map(|note| note.started_reason().to_string()),
+            started_reason: run_reason.map(str::to_string),
             resumed_from_id: None,
             recorded_at: crate::run_registry::now_secs(),
             extra: BTreeMap::new(),
@@ -2070,11 +2136,9 @@ fn prepare_action(
             // EXP-530: the SAME reason the start stamped, echoed on every
             // ping so a swept row resurrects still badged Automated (both
             // hosts arrive here — the GUI automation host and the CLI
-            // daemon's worker both set `req.trigger`).
-            started_reason: req
-                .trigger
-                .as_ref()
-                .map(|note| note.started_reason().to_string()),
+            // daemon's worker both set `req.trigger`). EXP-679 adds the
+            // relay's `agent` reason to that set.
+            started_reason: run_reason.map(str::to_string),
             automation_id: req.automation_id.clone(),
             // EXP-637: the run branch, so a resurrected row still points at
             // the worktree the agent is working in.
@@ -2287,6 +2351,10 @@ fn prepare_resume_run(
     // thread, `origin/<default>` compare) — the same one a record-less
     // resume takes through [`prepare`]; everything else gets the run-shaped
     // one, named by [`RunRecord::display_name`].
+    // EXP-679: a resume is unattended only when the relay frame said so
+    // (`agent` — another coding session resumed this run); a person's resume
+    // stays open like any other person-started run.
+    let run_reason = started_reason(&req.origin, None);
     let delivery = if native_resume {
         let _ = std::fs::remove_file(cwd.join(PROMPT_FILE));
         None
@@ -2302,9 +2370,9 @@ fn prepare_resume_run(
                     .as_ref()
                     .map(|seed| seed.title.as_str())
                     .unwrap_or(identifier);
-                render_resume_prompt(identifier, title, &default_branch)
+                render_resume_prompt(identifier, title, &default_branch, run_reason.is_some())
             }
-            _ => render_run_resume_prompt(record),
+            _ => render_run_resume_prompt(record, run_reason.is_some()),
         };
         Some(
             deliver_prompt(&cwd, record.clone.as_deref().unwrap_or(&cwd), &rendered)
@@ -2325,6 +2393,7 @@ fn prepare_resume_run(
             record.issue_id.as_deref().unwrap_or_default(),
             Some(&req.device_label),
             attribution(&req.origin, deps),
+            run_reason,
             Some(&record.session_id),
         ),
         RunKind::Batch => coding_sessions::start_batch(
@@ -2332,6 +2401,7 @@ fn prepare_resume_run(
             &record.team_id,
             Some(&req.device_label),
             attribution(&req.origin, deps),
+            run_reason,
             Some(&record.session_id),
         ),
         _ => coding_sessions::start_action(
@@ -2339,8 +2409,9 @@ fn prepare_resume_run(
             coding_sessions::ActionStart {
                 action_id: &record.action_id,
                 team_id: (record.kind != RunKind::Team).then_some(record.team_id.as_str()),
-                // A resume is always a PERSON's doing, never an automation.
-                started_reason: None,
+                // A resume is never an AUTOMATION's doing — but EXP-679's
+                // `agent` reason (another coding session resumed it) is.
+                started_reason: run_reason,
                 automation_id: None,
                 device_label: Some(&req.device_label),
                 branch: record.branch.as_deref(),
@@ -2470,7 +2541,7 @@ fn prepare_resume_run(
             codex_originator: codex_originator.clone(),
             model: options.model.clone(),
             effort: options.effort.clone(),
-            started_reason: None,
+            started_reason: run_reason.map(str::to_string),
             resumed_from_id: Some(record.session_id.clone()),
             recorded_at: crate::run_registry::now_secs(),
             ..record.clone()
@@ -2490,7 +2561,7 @@ fn prepare_resume_run(
             device_label: Some(req.device_label.clone()),
             started_by_id: scope_attribution.started_by_id.map(str::to_string),
             device_id: scope_attribution.device_id.map(str::to_string),
-            started_reason: None,
+            started_reason: run_reason.map(str::to_string),
             automation_id: None,
             branch: None,
         },
@@ -2502,7 +2573,7 @@ fn prepare_resume_run(
             device_label: Some(req.device_label.clone()),
             started_by_id: scope_attribution.started_by_id.map(str::to_string),
             device_id: scope_attribution.device_id.map(str::to_string),
-            started_reason: None,
+            started_reason: run_reason.map(str::to_string),
             automation_id: None,
             branch: None,
         },
@@ -2514,7 +2585,7 @@ fn prepare_resume_run(
             device_label: Some(req.device_label.clone()),
             started_by_id: scope_attribution.started_by_id.map(str::to_string),
             device_id: scope_attribution.device_id.map(str::to_string),
-            started_reason: None,
+            started_reason: run_reason.map(str::to_string),
             automation_id: None,
             branch: record.branch.clone(),
         },
@@ -4060,7 +4131,9 @@ mod tests {
             "{prompt}"
         );
         assert!(prompt.starts_with("You work on branch `exp/chat-1a2b3c4d`"));
-        assert!(prompt.contains("`exponential_sessions_end`"));
+        // EXP-679: a person's chat has no close-out tool — it stays open.
+        assert!(!prompt.contains("exponential_sessions_end"), "{prompt}");
+        assert!(prompt.contains("the session stays open afterwards"));
         // Named after the repo (`owner/repo` → `repo`).
         assert_eq!(prepared.tab_title, "chat · web");
         assert_eq!(prepared.tab_title_prefix, "web");
@@ -4145,7 +4218,10 @@ mod tests {
         assert!(prompt.contains("## Workspace"), "{prompt}");
         assert!(prompt.contains("branch `exp/code-review-1a2b3c4d`"));
         assert!(prompt.contains("`repositoryId: \"repo-run-wt\"`"));
-        assert!(prompt.contains("`exponential_sessions_end`"));
+        // EXP-679: a hand-started action run keeps its session open, so the
+        // close-out tool (which it is not given) is never named.
+        assert!(!prompt.contains("exponential_sessions_end"), "{prompt}");
+        assert!(prompt.contains("This session stays open after you finish"));
         // The run is recorded so it can be resumed after it ends.
         let record = crate::run_registry::get(&dir.0, "sess-a").expect("run record");
         assert_eq!(record.branch.as_deref(), Some("exp/code-review-1a2b3c4d"));
@@ -4260,6 +4336,50 @@ mod tests {
         assert_eq!(fresh.started_reason, None);
     }
 
+    /// EXP-679: a resume ANOTHER coding session asked for is unattended —
+    /// the relay frame's reason rides the new row (the local resume above
+    /// locks the `None` a person's resume still sends).
+    #[test]
+    fn prepare_resume_run_carries_a_relay_started_reason() {
+        let dir = temp_dir("resume-agent");
+        let (base, captured) = canned_server_recording(vec![(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-new","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
+                .to_string(),
+        )]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
+        req.origin = LaunchOrigin::Relay {
+            device_id: "dev-1".to_string(),
+            claimant: "acct".to_string(),
+            started_by: None,
+            started_reason: Some("agent".to_string()),
+        };
+
+        let prepared = match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(
+            prepared.heartbeat_scope.started_reason.as_deref(),
+            Some("agent")
+        );
+        let prompt = prepared.spawn.args.last().unwrap();
+        assert!(prompt.contains("`exponential_sessions_end`"), "{prompt}");
+        let requests = captured.lock().unwrap();
+        assert!(
+            requests.iter().any(|r| r.contains(r#""startedReason":"agent""#)),
+            "{requests:?}"
+        );
+        drop(requests);
+        let fresh = crate::run_registry::get(&dir.0, "sess-new").expect("record");
+        assert_eq!(fresh.started_reason.as_deref(), Some("agent"));
+    }
+
     /// Claude caps long project directory names and appends a hash, so the
     /// munged-cwd fast path misses; the probe then finds the transcript by
     /// its uuid anywhere under the projects root.
@@ -4329,7 +4449,9 @@ mod tests {
         assert!(args.iter().any(|a| a == "--session-id"), "{args:?}");
         let prompt = args.last().unwrap();
         assert!(prompt.contains("RESUMING the run \"Code review\""), "{prompt}");
-        assert!(prompt.contains("`exponential_sessions_end`"));
+        // EXP-679: a LOCAL resume is a person's — attended close-out.
+        assert!(!prompt.contains("exponential_sessions_end"), "{prompt}");
+        assert!(prompt.contains("This session stays open after you finish"));
     }
 
     /// A workspace the prune (or the user) reclaimed has nothing to resume
@@ -4536,7 +4658,7 @@ mod tests {
                 "--permission-mode".to_string(),
                 "plan".to_string(),
                 "--allow-dangerously-skip-permissions".to_string(),
-                render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue.")),
+                render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), false),
             ]
         );
         assert_eq!(prepared.spawn.cwd.as_deref(), Some(worktree.as_path()));
@@ -4564,6 +4686,92 @@ mod tests {
         // Step 5: direct delivery — NO PROMPT.md on disk (the stale copy is
         // gone, no fresh one written).
         assert!(!worktree.join(PROMPT_FILE).exists());
+    }
+
+    /// EXP-679: an ISSUE start another coding session asked for (the relay
+    /// frame's `startedReason: "agent"`) is UNATTENDED — the reason rides the
+    /// start mutation and the heartbeat scope, and the prompt gets the
+    /// close-out that names `exponential_sessions_end`. One flag, three
+    /// seams, locked together (the automation twin of
+    /// `prepare_action_trigger_rides_the_start_and_the_prompt`).
+    #[test]
+    fn prepare_issue_relay_started_reason_rides_the_start_and_the_prompt() {
+        let dir = temp_dir("issue-agent-start");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let (base, captured) = canned_server_recording(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut req = request("EXP-42");
+        req.origin = LaunchOrigin::Relay {
+            device_id: "dev-1".to_string(),
+            claimant: "acct".to_string(),
+            started_by: None,
+            started_reason: Some("agent".to_string()),
+        };
+
+        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+
+        assert_eq!(
+            prepared.spawn.args.last().unwrap(),
+            &render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), true)
+        );
+        let prompt = prepared.spawn.args.last().unwrap();
+        assert!(prompt.contains("`exponential_sessions_end`"), "{prompt}");
+        // The heartbeat echoes it, so a swept row resurrects unattended.
+        assert_eq!(
+            prepared.heartbeat_scope.started_reason.as_deref(),
+            Some("agent")
+        );
+        // ... and so does the run record, for a later resume.
+        let record = crate::run_registry::get(&dir.0, "sess-1").expect("run record");
+        assert_eq!(record.started_reason.as_deref(), Some("agent"));
+
+        let requests = captured.lock().unwrap();
+        let start = requests
+            .iter()
+            .find(|r| r.contains("codingSessions.start"))
+            .expect("start mutation");
+        assert!(start.contains(r#""startedReason":"agent""#), "{start}");
+    }
+
+    /// EXP-679: a LOCAL issue start is a person's — no reason anywhere, and
+    /// the prompt must not name a tool that run never gets.
+    #[test]
+    fn prepare_issue_local_start_is_attended() {
+        let dir = temp_dir("issue-local-attended");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let (base, captured) = canned_server_recording(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+
+        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        let prompt = prepared.spawn.args.last().unwrap();
+        assert!(!prompt.contains("exponential_sessions_end"), "{prompt}");
+        assert_eq!(prepared.heartbeat_scope.started_reason, None);
+        let requests = captured.lock().unwrap();
+        assert!(!requests.iter().any(|r| r.contains("startedReason")));
     }
 
     /// EXP-662: `resume_prompt` is the DEGRADED half of resume — no record
@@ -4596,7 +4804,7 @@ mod tests {
 
         assert_eq!(
             prepared.spawn.args.last().unwrap(),
-            &render_resume_prompt("EXP-42", "Fix login flicker", "main")
+            &render_resume_prompt("EXP-42", "Fix login flicker", "main", false)
         );
         // The plan already happened in the work being picked back up (the
         // fixture request carries plan_mode: true).
@@ -4885,7 +5093,7 @@ mod tests {
         assert!(args.iter().any(|a| a == "--session-id"), "{args:?}");
         assert_eq!(
             args.last().unwrap(),
-            &render_resume_prompt("EXP-42", "Fix login flicker", "main")
+            &render_resume_prompt("EXP-42", "Fix login flicker", "main", false)
         );
     }
 

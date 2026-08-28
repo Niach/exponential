@@ -314,7 +314,11 @@ export const codingSessionStatusValues = [
 // server (`codingSessions.start`), set by the desktop/CLI automation hosts
 // when an action's trigger fires (EXP-530); powers the "Automated" badge and
 // the Automations tab run history on every client.
-export const startedReasonValues = [`schedule`, `event`] as const
+// `agent` (EXP-679) = started by another coding session through
+// `exponential_sessions_start` — unattended like an automation, so its
+// close-out (`exponential_sessions_end`) ENDS it; unlike schedule/event it
+// rides every subject (issue, batch, action, builtin, resume).
+export const startedReasonValues = [`schedule`, `event`, `agent`] as const
 
 // How a coding session finished, in the agent's own words
 // (coding_sessions.outcome, documented varchar — EXP-637). Written only by

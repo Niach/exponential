@@ -270,6 +270,52 @@ describe(`device presence + remote start`, () => {
     })
   })
 
+  // EXP-679: a start asked for by another coding session. Pure pass-through
+  // like startedBy — the device writes it as coding_sessions.started_reason,
+  // so the run is unattended and its own close-out ends it. It rides EVERY
+  // subject, the resume arm (which drops launch options) included.
+  test(`startSession passes startedReason through to the frame (EXP-679)`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
+
+    hub.startSession(
+      `owner`,
+      `dev-1`,
+      { issueId: `issue-9` },
+      { startedReason: `agent` }
+    )
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueId: `issue-9`,
+      startedReason: `agent`,
+    })
+
+    hub.startSession(
+      `owner`,
+      `dev-1`,
+      { resumeSessionId: `sess-1`, teamId: `team-1` },
+      // Launch options still die on a resume; the marker survives with the
+      // attribution.
+      { agent: `codex`, startedBy: `mate`, startedReason: `agent` }
+    )
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      resumeSessionId: `sess-1`,
+      teamId: `team-1`,
+      startedBy: `mate`,
+      startedReason: `agent`,
+    })
+
+    // Absent: the frame stays byte-identical to the human-start wire.
+    hub.startSession(`owner`, `dev-1`, { issueId: `issue-10` })
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueId: `issue-10`,
+    })
+  })
+
   test(`startSession passes launch options through to the frame`, () => {
     const hub = new Hub()
     const desktop = new FakeSocket()

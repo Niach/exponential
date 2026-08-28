@@ -639,7 +639,7 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
             session_id,
             None,
             true,
-            relay_origin(cx, start.started_by.clone()),
+            relay_origin(cx, start.started_by.clone(), start.started_reason.clone()),
             cx,
         ),
     }
@@ -766,7 +766,7 @@ fn remote_action_start(
             team_id,
             repo: crate::action_run::ActionRepo::Provided(repo_group),
             options,
-            origin: relay_origin(cx, start.started_by.clone()),
+            origin: relay_origin(cx, start.started_by.clone(), start.started_reason.clone()),
             inputs,
             target: None,
             activate_app: true,
@@ -786,8 +786,14 @@ fn remote_action_start(
 /// a branch key). `started_by` is the frame's EXP-432 requester attribution —
 /// only `server`-kind devices can be shared, so on a desktop it stays `None`
 /// today; the plumbing is parity with the daemon (and EXP-444's foreign-host
-/// login suppression consumes it wherever it does arrive).
-fn relay_origin(cx: &App, started_by: Option<String>) -> LaunchOrigin {
+/// login suppression consumes it wherever it does arrive). `started_reason`
+/// is EXP-679's: `agent` when another coding session asked for this start,
+/// which makes the run unattended (it gets the close-out tool that ends it).
+fn relay_origin(
+    cx: &App,
+    started_by: Option<String>,
+    started_reason: Option<String>,
+) -> LaunchOrigin {
     let device_id = steer::persistent_device_id(&AuthContext::global(cx).data_dir);
     let claimant = queries::active_account(cx)
         .map(|account| account.id)
@@ -796,6 +802,7 @@ fn relay_origin(cx: &App, started_by: Option<String>) -> LaunchOrigin {
         device_id,
         claimant,
         started_by,
+        started_reason,
     }
 }
 
@@ -846,7 +853,7 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
         return;
     }
 
-    let origin = relay_origin(cx, start.started_by.clone());
+    let origin = relay_origin(cx, start.started_by.clone(), start.started_reason.clone());
     // The remote client's Start-coding dialog choices (EXP-149), settings
     // defaults for anything it didn't send. Plan mode stays OFF unless the
     // client explicitly opted in (F7: an option-less start must never park
@@ -1037,7 +1044,7 @@ fn remote_batch_start(
         },
         issues,
         device_label: coding::default_device_label(),
-        origin: relay_origin(cx, start.started_by.clone()),
+        origin: relay_origin(cx, start.started_by.clone(), start.started_reason.clone()),
         options,
     };
 

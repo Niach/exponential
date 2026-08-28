@@ -797,8 +797,12 @@ struct MainNavigator: View {
             )
         }
         agentsRunning = mine.contains { CodingSessionLiveness.isLive($0) }
+        // EXP-679: the display state masks needsInput behind in_review (the
+        // server accepts the flag on every live status now), so the amber dot
+        // means "a running agent wants you".
         agentsNeedInput = mine.contains {
-            CodingSessionLiveness.isLive($0) && $0.needsInput
+            CodingSessionLiveness.isLive($0)
+                && CodingSessionDisplayState.of(session: $0, prState: nil) == .needsInput
         }
     }
 

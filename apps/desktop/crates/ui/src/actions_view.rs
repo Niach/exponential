@@ -1157,10 +1157,20 @@ fn automation_devices(cx: &App) -> Vec<AutomationDevice> {
         .collect()
 }
 
+/// EXP-679: `started_reason` is no longer automation-only — `agent` marks a
+/// run ANOTHER coding session started, unattended but nobody's automation.
+/// Only schedule/event may match an automation's own history; the
+/// "Recent automated runs" list below still takes every unattended run
+/// (`started_reason.is_some()`, byte-equal with web/iOS/Android — it is the
+/// ONLY finished-runs list, EXP-676).
+fn started_by_automation(session: &domain::rows::CodingSession) -> bool {
+    matches!(session.started_reason.as_deref(), Some("schedule" | "event"))
+}
+
 /// Whether `session` was started by `automation`. New rows carry the
 /// `automation_id` outright; a run started before EXP-583 (or by a client
 /// that predates it) only says WHICH action fired automatically, so the
-/// action id + a `started_reason` is the fallback.
+/// action id + an automation `started_reason` is the fallback.
 fn fired_by(
     session: &domain::rows::CodingSession,
     automation: &api::automations::Automation,
@@ -1169,7 +1179,7 @@ fn fired_by(
         Some(id) => id == automation.id,
         None => {
             session.action_id.as_deref() == Some(automation.action_id.as_str())
-                && session.started_reason.is_some()
+                && started_by_automation(session)
         }
     }
 }

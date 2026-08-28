@@ -234,6 +234,10 @@ export const codingSessionsRouter = router({
           // EXP-530: set by a device's automation host when an automation
           // fires. NULL/absent = a person started the run. EXP-583: the
           // firing automation's row id rides along for per-automation history.
+          // EXP-679: `agent` instead means another coding session asked for
+          // this run (via `exponential_sessions_start` → the relay frame) —
+          // equally unattended, and unlike schedule/event it rides EVERY
+          // subject, with no automation row behind it.
           startedReason: z.enum(startedReasonValues).optional(),
           automationId: z.string().uuid().optional(),
           // EXP-637: every repo-backed action/chat run now gets its own
@@ -267,14 +271,26 @@ export const codingSessionsRouter = router({
         .refine(
           (value) =>
             !value.startedReason ||
+            // EXP-679: an agent-started run has no automation behind it and
+            // no subject restriction — issue, batch, action, builtin and
+            // resume all qualify. Only schedule/event still need a real
+            // action row (an automation targets one).
+            value.startedReason === `agent` ||
             (Boolean(value.actionId) && !isBuiltinActionId(value.actionId!)),
           {
             message: `startedReason requires a real actionId — only automations automate starts`,
           }
         )
-        .refine((value) => !value.automationId || Boolean(value.startedReason), {
-          message: `automationId requires startedReason`,
-        })
+        .refine(
+          (value) =>
+            !value.automationId ||
+            (Boolean(value.startedReason) && value.startedReason !== `agent`),
+          {
+            // EXP-679: automationId belongs to schedule/event alone — an
+            // agent-started run is nobody's automation history.
+            message: `automationId requires startedReason`,
+          }
+        )
     )
     .mutation(async ({ ctx, input }) => {
       // A vanished predecessor (swept while the user was away) must never
@@ -306,6 +322,9 @@ export const codingSessionsRouter = router({
             teamId: input.teamId!,
             actionId: null,
             actionName: builtinActionName(input.actionId),
+            // EXP-679: only `agent` reaches a builtin (the refine keeps
+            // schedule/event on real action rows).
+            startedReason: input.startedReason ?? null,
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
             ...device,
@@ -396,6 +415,9 @@ export const codingSessionsRouter = router({
             // if the populate_* triggers aren't applied.
             teamId: issueCtx.teamId,
             boardId: issueCtx.boardId,
+            // EXP-679: an issue run can be agent-started (only `agent`
+            // reaches here — schedule/event need a real action row).
+            startedReason: input.startedReason ?? null,
             userId: attribution.userId,
             hostUserId: attribution.hostUserId,
             ...device,
@@ -427,6 +449,9 @@ export const codingSessionsRouter = router({
           // directly; board_id stays NULL, a batch run spans boards and
           // must never surface through the anonymous board-scoped clause.
           teamId: input.teamId!,
+          // EXP-679: a batch run can be agent-started (only `agent` reaches
+          // here — schedule/event need a real action row).
+          startedReason: input.startedReason ?? null,
           userId: attribution.userId,
           hostUserId: attribution.hostUserId,
           ...device,
@@ -478,7 +503,9 @@ export const codingSessionsRouter = router({
           deviceId: z.string().min(1).max(128).optional(),
           // EXP-530: automated runs echo their reason so a swept row
           // resurrects inside the Automations run history, not as a
-          // hand-started session.
+          // hand-started session. EXP-679: `agent` echoes on EVERY subject
+          // (it needs no action row), so an agent-started run stays
+          // unattended across a sweep.
           startedReason: z.enum(startedReasonValues).optional(),
           automationId: z.string().uuid().optional(),
           // EXP-637: run worktrees echo their branch so a swept row
@@ -544,6 +571,11 @@ export const codingSessionsRouter = router({
               issueId: input.issueId,
               teamId: issueCtx.teamId,
               boardId: issueCtx.boardId,
+              // EXP-679: an agent-started issue run echoes its reason so a
+              // swept row resurrects unattended (schedule/event never reach
+              // an issue subject — same rule as `start`).
+              startedReason:
+                input.startedReason === `agent` ? `agent` : null,
               userId: attribution.userId,
               hostUserId: attribution.hostUserId,
               ...device,
@@ -601,13 +633,21 @@ export const codingSessionsRouter = router({
                   ? (input.actionName ?? null)
                   : null,
               // Automated-run parity with `start`: only a real action row
-              // can carry a reason (builtins/batch never automate).
+              // can carry a schedule/event reason (builtins/batch never
+              // automate) — but EXP-679's `agent` rides every subject, so it
+              // echoes unconditionally.
               startedReason:
-                input.actionId && !builtin
-                  ? (input.startedReason ?? null)
-                  : null,
+                input.startedReason === `agent`
+                  ? `agent`
+                  : input.actionId && !builtin
+                    ? (input.startedReason ?? null)
+                    : null,
               automationId:
-                input.actionId && !builtin && input.automationId && actionId
+                input.startedReason !== `agent` &&
+                input.actionId &&
+                !builtin &&
+                input.automationId &&
+                actionId
                   ? await resolveAutomationId(ctx.db, input.automationId, actionId)
                   : null,
               userId: attribution.userId,
@@ -668,13 +708,15 @@ export const codingSessionsRouter = router({
   // resolves. Deliberately a separate boolean, not a status — running/
   // in_review stay server-owned and a ping can never race the PR-open flip.
   // Fire-and-forget on the client like heartbeat: failures are never thrown
-  // into the terminal path. EXP-531: `true` is accepted only while the row
-  // is still `running` — once the PR-open flip parks it in `in_review`, the
-  // desktop's post-turn idle nudge (which fires AFTER open_pr, so the flip's
-  // own needsInput reset can't absorb it) must not resurrect the amber
-  // badge. `false` still clears on every live status, and a refused write is
-  // a silent no-op (`updated: false`) the desktop forwarder treats as
-  // delivered — never an error it would retry.
+  // into the terminal path. EXP-679 retired EXP-531's `running`-only fence on
+  // `true`: since EXP-673 a person-started run stays LIVE after its PR opens,
+  // and the post-turn idle nudge there means exactly "your turn now" — the
+  // refusal pinned the clients' "Working…" indicator forever after pr_open.
+  // The list-badge masking EXP-531 wanted lives in `sessionDisplayState`
+  // (`in_review` beats `needsInput`), so the server no longer refuses the
+  // flag: both values are accepted on every LIVE status. `ended` stays final,
+  // and a refused write is a silent no-op (`updated: false`) the desktop
+  // forwarder treats as delivered — never an error it would retry.
   setNeedsInput: authedProcedure
     .input(z.object({ id: z.string().uuid(), needsInput: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
@@ -699,19 +741,16 @@ export const codingSessionsRouter = router({
         })
       }
 
-      // Status-conditioned like heartbeat: an ended row stays final and
-      // never re-surfaces as "needs input", and a reviewed row only
-      // ever accepts the CLEAR (EXP-531).
+      // Status-conditioned like heartbeat: an ended row stays final and never
+      // re-surfaces as "needs input". Every LIVE status takes both values
+      // (EXP-679 — an in_review run is still a run awaiting its human).
       const updated = await ctx.db
         .update(codingSessions)
         .set({ needsInput: input.needsInput })
         .where(
           and(
             eq(codingSessions.id, input.id),
-            inArray(
-              codingSessions.status,
-              input.needsInput ? [`running`] : [`running`, `in_review`]
-            )
+            inArray(codingSessions.status, [`running`, `in_review`])
           )
         )
         .returning({ id: codingSessions.id })

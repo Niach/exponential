@@ -304,8 +304,20 @@ app.post(`/start`, async (c) => {
     }
   }
 
+  // startedReason is OPTIONAL (EXP-679: this start was asked for by another
+  // coding session) — a PRESENT key must be exactly `agent`, the one value
+  // the wire carries; anything else is a 400, same stance as startedBy.
+  let startedReason: `agent` | undefined
+  if (body && `startedReason` in body) {
+    if (body.startedReason !== `agent`) {
+      return c.json({ error: `Bad request` }, 400)
+    }
+    startedReason = `agent`
+  }
+
   const options: StartSessionOptions = {
     ...(startedBy ? { startedBy } : {}),
+    ...(startedReason ? { startedReason } : {}),
     agent: asString(body?.agent),
     model: asString(body?.model),
     effort: asString(body?.effort),

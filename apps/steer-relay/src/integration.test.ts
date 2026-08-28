@@ -396,6 +396,43 @@ describe(`steer relay end-to-end`, () => {
     })
     expect(badStartedBy.status).toBe(400)
 
+    // EXP-679: an agent-started run rides startedReason end-to-end. `agent`
+    // is the only accepted value — anything else is a 400 rather than a frame
+    // the desktop would drop after /start already answered ok.
+    const agentStart = await fetch(`${base}/start`, {
+      method: `POST`,
+      headers: {
+        "x-relay-secret": `integration-secret`,
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify({
+        userId: `owner-1`,
+        deviceId: `dev-9`,
+        issueId: `issue-46`,
+        startedReason: `agent`,
+      }),
+    })
+    expect(agentStart.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      issueId: `issue-46`,
+      startedReason: `agent`,
+    })
+    const badStartedReason = await fetch(`${base}/start`, {
+      method: `POST`,
+      headers: {
+        "x-relay-secret": `integration-secret`,
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify({
+        userId: `owner-1`,
+        deviceId: `dev-9`,
+        issueId: `issue-47`,
+        startedReason: `bogus`,
+      }),
+    })
+    expect(badStartedReason.status).toBe(400)
+
     const offline = await fetch(`${base}/start`, {
       method: `POST`,
       headers: {

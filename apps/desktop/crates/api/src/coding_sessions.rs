@@ -95,6 +95,13 @@ pub struct Attribution<'a> {
 #[serde(rename_all = "camelCase")]
 struct StartInput<'a> {
     issue_id: &'a str,
+    /// EXP-679: `agent` when another coding session started this run (the
+    /// relay frame's `startedReason`) — it makes the row UNATTENDED, so the
+    /// server registers `exponential_sessions_end` for it and that call ends
+    /// it. Absent for every person-started run, so old servers never see the
+    /// field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started_reason: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_label: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -112,6 +119,9 @@ struct StartInput<'a> {
 #[serde(rename_all = "camelCase")]
 struct StartBatchInput<'a> {
     team_id: &'a str,
+    /// EXP-679 — same as [`StartInput::started_reason`], on the batch branch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started_reason: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_label: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -184,8 +194,9 @@ pub struct HeartbeatScope {
     pub device_id: Option<String>,
     /// EXP-530: the automation reason (`schedule`/`event`) echoed so a swept
     /// row resurrects inside the Automations run history instead of looking
-    /// hand-started. `None` for every user-started run (and for issue/batch
-    /// scopes, which never automate).
+    /// hand-started. `None` for every user-started run. EXP-679: an issue or
+    /// batch scope can carry one too — `agent`, a run another coding session
+    /// started.
     pub started_reason: Option<String>,
     /// EXP-583: the firing `automations` row, echoed for the same reason —
     /// a resurrected row keeps pointing at the automation that started it.
@@ -285,17 +296,21 @@ pub fn live_for_issue(
 /// disabled state with the server's upgrade copy.
 /// EXP-662: `resumed_from_id` links the new row to the ended session it
 /// continues; `None` on every fresh start.
+/// EXP-679: `started_reason` (`agent`) marks a run another coding session
+/// started — the server treats such a row as unattended.
 pub fn start(
     trpc: &TrpcClient,
     issue_id: &str,
     device_label: Option<&str>,
     attribution: Attribution,
+    started_reason: Option<&str>,
     resumed_from_id: Option<&str>,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
         &StartInput {
             issue_id,
+            started_reason,
             device_label,
             started_by_id: attribution.started_by_id,
             device_id: attribution.device_id,
@@ -314,12 +329,14 @@ pub fn start_batch(
     team_id: &str,
     device_label: Option<&str>,
     attribution: Attribution,
+    started_reason: Option<&str>,
     resumed_from_id: Option<&str>,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
         &StartBatchInput {
             team_id,
+            started_reason,
             device_label,
             started_by_id: attribution.started_by_id,
             device_id: attribution.device_id,
@@ -462,7 +479,7 @@ mod tests {
     #[test]
     fn start_decodes_session_envelope_and_posts_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default(), None).unwrap();
+        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default(), None, None).unwrap();
         assert_eq!(session.id, "sess-1");
         assert_eq!(session.status.as_deref(), Some("running"));
         assert_eq!(session.device_label.as_deref(), Some("testbox"));
@@ -489,7 +506,7 @@ mod tests {
     #[test]
     fn start_omits_absent_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let _ = start(&client(&base), "issue-1", None, Attribution::default(), None).unwrap();
+        let _ = start(&client(&base), "issue-1", None, Attribution::default(), None, None).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"issueId":"issue-1"}"#));
     }
@@ -502,7 +519,7 @@ mod tests {
                 "id":"sess-b","issueId":null,"teamId":"ws-1",
                 "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
         );
-        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None).unwrap();
+        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None, None).unwrap();
         assert_eq!(session.id, "sess-b");
         assert_eq!(session.team_id.as_deref(), Some("ws-1"));
         assert_eq!(session.issue_id, None);
@@ -522,6 +539,7 @@ mod tests {
             "issue-1",
             Some("testbox"),
             Attribution::default(),
+            None,
             Some("sess-old"),
         )
         .unwrap();
@@ -544,6 +562,7 @@ mod tests {
             "ws-1",
             Some("testbox"),
             Attribution::default(),
+            None,
             Some("sess-old"),
         )
         .unwrap();
@@ -562,7 +581,7 @@ mod tests {
             started_by_id: Some("user-2"),
             device_id: Some("dev-1"),
         };
-        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None).unwrap();
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"issueId":"issue-1","deviceLabel":"testbox","startedById":"user-2","deviceId":"dev-1"}"#
@@ -580,7 +599,7 @@ mod tests {
             started_by_id: None,
             device_id: Some("dev-1"),
         };
-        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None).unwrap();
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request
             .ends_with(r#"{"issueId":"issue-1","deviceLabel":"testbox","deviceId":"dev-1"}"#));
@@ -616,7 +635,7 @@ mod tests {
             412,
             r#"{"error":{"message":"Concurrent coding session limit reached — upgrade to run more.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
         );
-        match start(&client(&base), "issue-1", None, Attribution::default(), None) {
+        match start(&client(&base), "issue-1", None, Attribution::default(), None, None) {
             Err(ApiError::Http { status, message }) => {
                 assert_eq!(status, 412);
                 assert!(message.contains("limit"));
@@ -732,6 +751,52 @@ mod tests {
         assert!(request.ends_with(
             r#"{"actionId":"builtin:create-action","teamId":"ws-1","deviceLabel":"testbox"}"#
         ));
+    }
+
+    /// EXP-679: an issue run another coding session started (the relay
+    /// frame's `startedReason: "agent"`) stamps the reason on the ISSUE
+    /// start too — the server needs it to register the close-out tool. A
+    /// person's start omits the field entirely (locked by the two tests
+    /// above), so old servers never see it.
+    #[test]
+    fn start_posts_the_agent_started_reason() {
+        let (base, captured) = one_shot_server(200, SESSION_BODY);
+        let _ = start(
+            &client(&base),
+            "issue-1",
+            Some("testbox"),
+            Attribution::default(),
+            Some("agent"),
+            None,
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"issueId":"issue-1","startedReason":"agent","deviceLabel":"testbox"}"#
+        ));
+    }
+
+    /// EXP-679, the batch branch of the test above.
+    #[test]
+    fn start_batch_posts_the_agent_started_reason() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{
+                "id":"sess-b","issueId":null,"teamId":"ws-1",
+                "userId":"user-1","status":"running"}}}}"#,
+        );
+        let _ = start_batch(
+            &client(&base),
+            "ws-1",
+            Some("testbox"),
+            Attribution::default(),
+            Some("agent"),
+            None,
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request
+            .ends_with(r#"{"teamId":"ws-1","startedReason":"agent","deviceLabel":"testbox"}"#));
     }
 
     #[test]

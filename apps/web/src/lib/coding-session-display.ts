@@ -9,7 +9,11 @@ import type { CodingSession } from "@/db/schema"
  * EXP-531: `in_review` beats `needsInput` — once the PR is open the session
  * IS in review, and a stale flag (the desktop's post-turn idle nudge, or a
  * row written by an older server that never cleared it) must not mask "Ready
- * for review". Hand-mirrored on iOS (CodingSessionDisplay.swift), Android
+ * for review". EXP-679: this mask is now the ONLY place that arbitration
+ * happens — the server accepts `needsInput` on every live status (its
+ * `running`-only fence pinned "Working…" forever after pr_open), so the row
+ * carries the truthful flag and each client decides how to render it.
+ * Hand-mirrored on iOS (CodingSessionDisplay.swift), Android
  * (CodingSessionDisplay.kt) and desktop (queries.rs) — move all four in
  * lockstep. */
 export type SessionDisplayState = `needs_input` | `running` | `review` | `done`

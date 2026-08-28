@@ -479,8 +479,12 @@ export class Hub {
             ...(subject.actionId ? { actionId: subject.actionId } : {}),
             ...(subject.actionName ? { actionName: subject.actionName } : {}),
             ...(subject.branch ? { branch: subject.branch } : {}),
-            // A resume carries no launch options — only the attribution.
+            // A resume carries no launch options — only the attribution and
+            // (EXP-679) the agent-started marker.
             ...(options.startedBy ? { startedBy: options.startedBy } : {}),
+            ...(options.startedReason
+              ? { startedReason: options.startedReason }
+              : {}),
           }
         : `issueId` in subject
           ? { t: `start_session`, issueId: subject.issueId, ...options }

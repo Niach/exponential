@@ -20,6 +20,11 @@ pub struct BatchPromptArgs<'a> {
     /// The batch working branch (`exp/batch-<id8>`), already checked out.
     pub branch: &'a str,
     pub issues: &'a [BatchIssueSpec],
+    /// EXP-679: an UNATTENDED run (an automation's, or one another coding
+    /// session started) is the only one told to call
+    /// `exponential_sessions_end` — the server registers that tool for
+    /// nobody else.
+    pub unattended: bool,
 }
 
 /// Render the batch seed prompt: ground rules + workflow + one context
@@ -31,7 +36,7 @@ pub struct BatchPromptArgs<'a> {
 /// launch, opening the PR flips every issue to `in_review` server-side, and
 /// merging it completes them to `done`.
 pub fn render_batch_prompt(args: &BatchPromptArgs<'_>) -> String {
-    let close_out = crate::prompt::RUN_CLOSE_OUT;
+    let close_out = crate::prompt::close_out(args.unattended);
     let n = args.issues.len();
     let branch = args.branch;
     let default_branch = args.default_branch;
@@ -124,6 +129,7 @@ mod tests {
             default_branch: "main",
             branch: "exp/batch-a1b2c3d4",
             issues: &issues(),
+            unattended: false,
         })
     }
 
@@ -156,9 +162,17 @@ mod tests {
         assert!(!prompt.contains("pre-defined subagent"));
         assert!(!prompt.contains("wave"));
         assert!(!prompt.contains("per-issue worktree"));
-        // EXP-637: the shared close-out rides every prompt.
+        // EXP-637/EXP-679: the shared close-out rides every prompt — but a
+        // person-started batch is never told to call the tool it doesn't get.
         assert!(prompt.contains("leave the worktree clean"));
-        assert!(prompt.contains("`exponential_sessions_end`"));
+        assert!(!prompt.contains("exponential_sessions_end"));
+        let unattended = render_batch_prompt(&BatchPromptArgs {
+            default_branch: "main",
+            branch: "exp/batch-a1b2c3d4",
+            issues: &issues(),
+            unattended: true,
+        });
+        assert!(unattended.contains("`exponential_sessions_end`"));
     }
 
     /// Per-issue sections carry identifier, title, UUID, and the description

@@ -18,9 +18,10 @@ import com.exponential.app.data.db.CodingSessionEntity
 // EXP-531: `in_review` also wins over `needs_input` — once the PR is open the
 // session IS in review, and claude's idle notification (which trips the flag
 // ~60s after any turn ends, including the final one) must not mask "Ready for
-// review" with attention noise. The server refuses needs_input=true on
-// non-running rows for the same reason; this ordering also heals rows flagged
-// by older desktops.
+// review" with attention noise. EXP-679: the server ACCEPTS the flag on every
+// live status now (a person-started run stays live after its PR and the idle
+// edge is "your turn"), so this ordering is the ONLY mask — every consumer
+// goes through it, the nav dot included.
 enum class CodingSessionDisplayState { Running, NeedsInput, Review, Done }
 
 fun codingSessionDisplayState(

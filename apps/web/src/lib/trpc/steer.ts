@@ -241,6 +241,12 @@ export const steerRouter = router({
           // the device's run registry already holds the agent, options and
           // cwd, so naming any of them here would just contradict it.
           resumeSessionId: z.string().uuid().optional(),
+          // EXP-679: the live run asking for this start (MCP
+          // `exponential_sessions_start` passes its own session id). Its only
+          // wire effect is `startedReason: 'agent'` on the relay frame — the
+          // new run is unattended, so its close-out ends it. The parent
+          // linkage itself is stamped server-side by the MCP tool.
+          parentSessionId: z.string().uuid().optional(),
         })
         .refine(
           (value) =>
@@ -371,6 +377,38 @@ export const steerRouter = router({
         })
       }
       const userId = ctx.session.user.id
+
+      // EXP-679: a start requested BY another coding session. The parent must
+      // be one of the caller's own LIVE runs (owner or shared-device host,
+      // exactly the session-procedure rule) — otherwise anyone holding a uuid
+      // could brand their start as agent-driven. When it checks out the frame
+      // carries `startedReason: 'agent'` on every subject below, so the device
+      // writes the new row unattended (its close-out ends it).
+      const agentStarted: { startedReason?: `agent` } = {}
+      if (input.parentSessionId) {
+        const { db } = await import(`@/db/connection`)
+        const [parent] = await db
+          .select({
+            id: codingSessions.id,
+            userId: codingSessions.userId,
+            hostUserId: codingSessions.hostUserId,
+            status: codingSessions.status,
+          })
+          .from(codingSessions)
+          .where(eq(codingSessions.id, input.parentSessionId))
+          .limit(1)
+        const own =
+          parent &&
+          (parent.userId === userId || parent.hostUserId === userId) &&
+          (parent.status === `running` || parent.status === `in_review`)
+        if (!own) {
+          throw new TRPCError({
+            code: `FORBIDDEN`,
+            message: `parentSessionId must be one of your own live sessions`,
+          })
+        }
+        agentStarted.startedReason = `agent`
+      }
 
       // EXP-485: the persisted devices row (written by devices.register at
       // every daemon/control-channel start) is the ONLY source of a
@@ -520,6 +558,7 @@ export const steerRouter = router({
           userId: ownerId,
           deviceId: input.deviceId,
           ...(shared ? { startedBy: userId } : {}),
+          ...agentStarted,
           resumeSessionId: session.id,
           teamId: session.teamId!,
           ...(session.issueId ? { issueId: session.issueId } : {}),
@@ -772,6 +811,7 @@ export const steerRouter = router({
           userId: ownerId,
           deviceId: input.deviceId,
           ...(shared ? { startedBy: userId } : {}),
+          ...agentStarted,
           actionId: action.id,
           actionName: action.name,
           teamId: action.teamId,
@@ -878,6 +918,7 @@ export const steerRouter = router({
               userId: ownerId,
               deviceId: input.deviceId,
               ...(shared ? { startedBy: userId } : {}),
+              ...agentStarted,
               issueId: ids[0]!,
               ...options,
             })
@@ -885,6 +926,7 @@ export const steerRouter = router({
               userId: ownerId,
               deviceId: input.deviceId,
               ...(shared ? { startedBy: userId } : {}),
+              ...agentStarted,
               issueIds: ids,
               teamId,
               repo: repo!,

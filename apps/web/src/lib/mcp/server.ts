@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { users } from "@/db/auth-schema"
 import { registerExponentialTools } from "./tools"
-import { MCP_SERVER_INSTRUCTIONS } from "./instructions"
+import { mcpServerInstructions } from "./instructions"
 import type { McpAccess } from "./scope"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
 
@@ -27,7 +27,9 @@ export function createExponentialMcpServer(
     },
     // Loaded up front by every client even when tool definitions are
     // deferred behind tool search — see instructions.ts for the byte budget.
-    { instructions: MCP_SERVER_INSTRUCTIONS }
+    // EXP-679: the guidance follows the gates, so a person-started run is
+    // never told about a tool it does not have.
+    { instructions: mcpServerInstructions(gates) }
   )
   registerExponentialTools(server, user, request, access, sessionId, gates)
   return server

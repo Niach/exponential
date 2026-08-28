@@ -637,11 +637,14 @@ export const codingSessions = pgTable(
       onDelete: `set null`,
     }),
     actionName: varchar(`action_name`, { length: 255 }),
-    // EXP-530: why the session started — 'schedule' | 'event' (documented
-    // varchar, startedReasonValues in domain.ts; NULL = a person started it).
-    // Set only by codingSessions.start when a device's automation host fires
-    // an action trigger; powers the "Automated" badge + Automations run
-    // history on every client (synced via the shape).
+    // EXP-530: why the session started — 'schedule' | 'event' | 'agent'
+    // (documented varchar, startedReasonValues in domain.ts; NULL = a person
+    // started it). Set only by codingSessions.start: schedule/event when a
+    // device's automation host fires an action trigger, and 'agent'
+    // (EXP-679) when another coding session started this one through
+    // `exponential_sessions_start` — equally unattended, so its close-out
+    // ends it. Powers the "Automated" badge + Automations run history on
+    // every client (synced via the shape).
     startedReason: varchar(`started_reason`, { length: 16 }),
     // EXP-583: the automation that fired this run (SET NULL — history outlives
     // a deleted automation; NULL for every human start). Powers per-automation
@@ -649,6 +652,15 @@ export const codingSessions = pgTable(
     automationId: uuid(`automation_id`).references(() => automations.id, {
       onDelete: `set null`,
     }),
+    // EXP-679: the run that started this one via `exponential_sessions_start`
+    // (stamped by the MCP tool from its session header). SERVER-ONLY —
+    // exposed through tRPC / MCP `sessions_get`, NEVER in the shape
+    // allowlist; history only, so SET NULL keeps the child when the parent
+    // is purged.
+    parentSessionId: uuid(`parent_session_id`).references(
+      (): AnyPgColumn => codingSessions.id,
+      { onDelete: `set null` }
+    ),
     // The real user driving the session under their own auth — NOT a synthetic
     // agent identity. For a start on a teammate's shared server device
     // (EXP-432) this is the REQUESTER, so EXP-312 owner-only steering lets

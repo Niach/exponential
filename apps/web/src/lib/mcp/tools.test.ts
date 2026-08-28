@@ -1123,8 +1123,12 @@ describe(`exponential_pr_open batch session flip`, () => {
 const SESSION = `66666666-6666-4666-8666-666666666666`
 
 describe(`exponential_sessions_end`, () => {
+  // EXP-679: the tool only registers for an unattended run, so these cases
+  // hand in the gate the route would have resolved for one.
+  const UNATTENDED = { helpdesk: true, sessionsEnd: true }
+
   it(`refuses outside a launched session, naming the missing header`, async () => {
-    const result = await collectTools(USER, null).get(
+    const result = await collectTools(USER, null, UNATTENDED).get(
       `exponential_sessions_end`
     )!({ summary: `did the thing`, outcome: `done` })
 
@@ -1142,7 +1146,7 @@ describe(`exponential_sessions_end`, () => {
       keptOpen: false,
     })
 
-    const result = await collectTools(USER, SESSION).get(
+    const result = await collectTools(USER, SESSION, UNATTENDED).get(
       `exponential_sessions_end`
     )!({ summary: `Stuck on the migration.`, outcome: `blocked` })
 
@@ -1159,30 +1163,20 @@ describe(`exponential_sessions_end`, () => {
     })
   })
 
-  // EXP-673: a person-started run is NOT ended by its close-out — and the
-  // agent is told in prose, so it keeps answering instead of signing off.
-  it(`tells the agent when the close-out left the session open`, async () => {
-    vi.mocked(endSessionByAgent).mockResolvedValue({
-      sessionId: SESSION,
-      status: `running`,
-      outcome: `done`,
-      alreadyEnded: false,
-      keptOpen: true,
+  // EXP-679: a person-started run never gets the tool — the close-out is
+  // meaningless there (it would not end the run) and the human is present.
+  it(`is not registered for a person-started session`, async () => {
+    const tools = collectTools(USER, SESSION, {
+      helpdesk: true,
+      sessionsEnd: false,
     })
-
-    const result = await collectTools(USER, SESSION).get(
-      `exponential_sessions_end`
-    )!({ summary: `Shipped it.`, outcome: `done` })
-
-    const body = parseOk(result) as Record<string, unknown>
-    expect(body).toMatchObject({ status: `running`, keptOpen: true })
-    expect(body.note).toContain(`stays open`)
+    expect(tools.has(`exponential_sessions_end`)).toBe(false)
   })
 
   it(`surfaces a foreign session's refusal as a tool error`, async () => {
     vi.mocked(endSessionByAgent).mockRejectedValue(forbidden())
 
-    const result = await collectTools(USER, SESSION).get(
+    const result = await collectTools(USER, SESSION, UNATTENDED).get(
       `exponential_sessions_end`
     )!({ summary: `s`, outcome: `done` })
 
@@ -1995,7 +1989,7 @@ describe(`exponential_sessions_kill`, () => {
       id: RUN,
     })
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`exponential_sessions_end`)
+    expect(result.content[0].text).toContain(`your own session`)
     expect(caller.steer.killSession).not.toHaveBeenCalled()
   })
 
@@ -2203,6 +2197,32 @@ describe(`exponential_sessions_start`, () => {
     expect(params).toContain(`mac-1`)
   })
 
+  // EXP-679: a run started from inside a run records the parent, so a chain
+  // of agent-started runs is readable after the fact.
+  it(`links the child run to the calling session, and only then`, async () => {
+    caller.steer.startSession.mockResolvedValue({ ok: true })
+    dbRows.current = [{ ...startedRow }]
+
+    await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
+      deviceId: `mac-1`,
+      issueId: UUID,
+    })
+    expect(caller.steer.startSession).toHaveBeenCalledWith(
+      expect.objectContaining({ parentSessionId: RUN })
+    )
+    expect(db.update).toHaveBeenCalled()
+
+    caller.steer.startSession.mockClear()
+    dbRows.current = [{ ...startedRow }]
+    await collectTools(USER, null).get(`exponential_sessions_start`)!({
+      deviceId: `mac-1`,
+      issueId: UUID,
+    })
+    expect(caller.steer.startSession.mock.calls[0][0]).not.toHaveProperty(
+      `parentSessionId`
+    )
+  })
+
   it(`hands back sessionId null when the device never reports the run`, async () => {
     caller.steer.startSession.mockResolvedValue({ ok: true })
     dbRows.current = []
@@ -2368,7 +2388,7 @@ describe(`exponential_helpdesk_* gating`, () => {
 
   it(`registers the whole family under the default gates and none when off`, () => {
     for (const name of HELPDESK_TOOLS) expect(tools.has(name)).toBe(true)
-    const off = collectTools(USER, null, { helpdesk: false })
+    const off = collectTools(USER, null, { helpdesk: false, sessionsEnd: false })
     for (const name of [...off.keys()]) {
       expect(name.startsWith(`exponential_helpdesk_`)).toBe(false)
     }

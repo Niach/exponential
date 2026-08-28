@@ -945,9 +945,9 @@ pub(crate) fn session_is_paused(
 /// EXP-531: `in_review` beats `needs_input` — once the PR is open the run is
 /// done coding, and the flag remaining true is idle noise (claude's
 /// "waiting for your input" nudge lands AFTER `open_pr` flips the row, and
-/// old desktops keep writing it). The server refuses `needs_input = true` on
-/// non-running rows for the same reason; this ordering also heals rows the
-/// noise already stamped.
+/// old desktops keep writing it). EXP-679: the server ACCEPTS the flag on
+/// every live status now (a person-started run stays live after its PR and
+/// the idle edge is "your turn"), so this ordering is the ONLY mask.
 ///
 /// EXP-498/EXP-540: a merged PR now ENDS the session, and the session status
 /// `merged` is retired — so `in_review` + `pr_state = merged` is the only
