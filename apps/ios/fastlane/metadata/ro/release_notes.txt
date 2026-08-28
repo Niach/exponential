@@ -1,11 +1,21 @@
 Tot ce e nou de la 0.14.0:
 
+- Agenții îți dau de veste când se termină o rulare: citești rezumatul și rezultatul de oriunde și reiei o rulare încheiată de unde a rămas
+- Scrie # ca să inserezi un chip de task în comentarii și descrieri, cu un cursor care se poartă mai inteligent în jurul chipurilor
+- Sesiunile live stau liniștite în așteptările lungi în loc să se reconecteze și își revin mai repede când chiar cad
+- Sesiunile de cod live țin conexiunea la schimbări de rețea și la trecerea între aplicații și își revin singure când cad
+- Comutatoarele și lista de acțiuni arată mai curat
+- Pornește o discuție cu un agent direct din tabul Agents
+- Alege un calculator implicit și fiecare dialog de pornire a codării îl selectează din start
+- Sesiunile live transmit mai departe cât timp te plimbi prin aplicație, iar ciornele de îndrumare supraviețuiesc reconectărilor
+- Gata cu notificările despre propriile tale pull request-uri
 - Răspunde de pe telefon la cererile de permisiune ale agentului, fără să te întorci la calculator
 - Atașează capturi de ecran unei sesiuni de cod live și pornește lucrul la mai multe taskuri deodată
 - Sesiunile apar ca puse pe pauză cât timp calculatorul lor e offline și se reiau de oriunde
 - Dă-i unei acțiuni un program sau un declanșator și unul dintre calculatoarele tale o rulează singur
 - Gestionează fiecare calculator din aplicație: redenumește-l, partajează-l cu echipa, curăță-i worktree-urile
 - Selector de emoji, imagini și fișiere atașate la comentarii și o bară de formatare în editor
+- Listele de taskuri se grupează după status, cu titluri mai clare, un aspect împrospătat și meniuri de creare și selecție mai fluide
 - Scrie # ca să legi un task; referințele apar ca badge-uri de status live
 - Selector de asignat, board-uri arhivabile și un checklist de start
 - Conectează-ți propriile repo-uri GitHub și partajează-le cu echipa

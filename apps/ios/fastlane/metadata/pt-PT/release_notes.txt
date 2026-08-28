@@ -1,11 +1,21 @@
 Tudo desde a 0.14.0:
 
+- Os agentes dão notícias quando uma execução termina: lê o resumo e o resultado onde quer que estejas e retoma uma execução terminada onde ela parou
+- Escreve # para inserir um chip de issue nos comentários e nas descrições, com o cursor a comportar-se melhor à volta dos chips
+- As sessões em direto ficam sossegadas durante as esperas longas em vez de voltarem a ligar-se, e recuperam mais depressa quando caem
+- As sessões de código em direto aguentam mudanças de rede e de app e recuperam sozinhas quando caem
+- Os interruptores e a lista de ações ganharam um visual mais limpo
+- Começa uma conversa com um agente diretamente a partir do separador Agents
+- Escolhe uma máquina predefinida e todos os diálogos de começar a programar já a trazem escolhida
+- As sessões em direto continuam a transmitir enquanto andas pela app e os rascunhos de orientação sobrevivem às reconexões
+- Acabaram as notificações sobre os teus próprios pull requests
 - Responde aos pedidos de permissão do agente pelo telemóvel, sem voltar à máquina
 - Anexa capturas de ecrã a uma sessão de código em curso e começa a programar em vários issues de uma vez
 - As sessões aparecem em pausa enquanto a máquina está offline e retomam a partir de qualquer lado
 - Dá um horário ou um gatilho a uma ação e uma das tuas máquinas corre-a sozinha
 - Gere todas as máquinas na app: mudar o nome, partilhar com a equipa, arrumar os worktrees
 - Seletor de emojis, imagens e ficheiros nos comentários e uma barra de formatação no editor
+- As listas de issues agrupam-se por estado, com cabeçalhos mais claros, um visual renovado e menus de criar e selecionar mais fluidos
 - Escreve # para ligar um issue; as referências aparecem como chips de estado em direto
 - Seletor de responsável, boards arquiváveis e uma checklist para começar
 - Liga os teus próprios repositórios GitHub e partilha-os com a equipa

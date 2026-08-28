@@ -1,11 +1,21 @@
 Wszystko od wersji 0.14.0:
 
+- Agenci dają znać, gdy uruchomienie się kończy: podsumowanie i wynik przeczytasz wszędzie, a zakończone uruchomienie wznowisz w miejscu, w którym stanęło
+- Wpisz #, aby wstawić chip zadania w komentarzach i opisach, z mądrzejszym zachowaniem kursora wokół chipów
+- Sesje na żywo w trakcie długiego oczekiwania siedzą cicho zamiast łączyć się od nowa, a gdy już padną, wracają szybciej
+- Sesje kodowania na żywo trzymają połączenie przy zmianach sieci i przełączaniu aplikacji, a po zerwaniu wracają same
+- Przełączniki i lista akcji wyglądają czyściej
+- Zacznij czat z agentem prosto z zakładki Agents
+- Wybierz domyślną maszynę, a każde okno startu kodowania od razu ją podpowie
+- Sesje na żywo transmitują dalej, gdy poruszasz się po aplikacji, a szkice sterowania przeżywają ponowne połączenie
+- Koniec z powiadomieniami o Twoich własnych pull requestach
 - Odpowiadaj na pytania agenta o uprawnienia z telefonu, bez wracania do maszyny
 - Dodawaj zrzuty ekranu do trwającej sesji kodowania i startuj kodowanie na kilku zadaniach naraz
 - Sesje pokazują się jako wstrzymane, gdy ich maszyna jest offline, i wznawiasz je z dowolnego miejsca
 - Nadaj akcji harmonogram albo wyzwalacz, a jedna z Twoich maszyn odpali ją sama
 - Zarządzaj każdą maszyną z aplikacji: zmiana nazwy, udostępnienie zespołowi, porządki w worktree
 - Wybór emoji, obrazki i pliki w komentarzach oraz pasek formatowania w edytorze
+- Listy zadań grupują się według statusu, z czytelniejszymi nagłówkami, odświeżonym wyglądem i płynniejszymi menu tworzenia i wyboru
 - Wpisz #, aby podlinkować zadanie; odwołania renderują się jako żywe chipy statusu
 - Wybór osoby przypisanej, archiwizowanie tablic i checklista na start
 - Podłącz własne repozytoria GitHub i udostępnij je zespołowi

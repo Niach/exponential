@@ -1,11 +1,21 @@
 Všetko od verzie 0.14.0:
 
+- Agenti sa ozvú, keď beh skončí: zhrnutie a výsledok si prečítaš kdekoľvek a dokončený beh spustíš ďalej tam, kde prestal
+- Napíš # a vlož do komentárov aj popisov štítok úlohy, s chytrejším správaním kurzora okolo štítkov
+- Živé sessions počas dlhého čakania zostanú ticho namiesto opätovného pripájania a keď už spadnú, zotavia sa rýchlejšie
+- Živé kódovacie sessions vydržia zmenu siete aj prepnutie aplikácie a po výpadku sa obnovia samy
+- Prepínače a zoznam akcií dostali čistejší vzhľad
+- Spusti chat s agentom priamo zo záložky Agents
+- Vyber si predvolený počítač a každý dialóg na spustenie kódovania ho má rovno navolený
+- Živé sessions streamujú ďalej, aj keď sa presúvaš po aplikácii, a rozpísané pokyny prežijú opätovné pripojenie
+- Koniec notifikácií o tvojich vlastných pull requestoch
 - Odpovedaj na otázky agenta o povoleniach z mobilu, nemusíš bežať k počítaču
 - Pripoj screenshoty do bežiacej kódovacej session a spusti kódovanie na viacerých úlohách naraz
 - Session sa zobrazí ako pozastavená, kým je jej počítač offline, a pokračuje odkiaľkoľvek
 - Nastav akcii rozvrh alebo spúšťač a jeden z tvojich počítačov ju spustí sám
 - Spravuj každý počítač priamo v apke: premenuj ho, zdieľaj ho s tímom, uprac jeho worktree
 - Emoji picker, obrázky a súbory v komentároch a lišta formátovania v editore
+- Zoznamy úloh sa zoskupujú podľa stavu, s jasnejšími nadpismi, sviežim vzhľadom a plynulejšími ponukami na vytváranie a výber
 - Napíš # a prepoj úlohu; odkazy sa zobrazia ako živé stavové štítky
 - Výber riešiteľa, archivovateľné boardy a checklist na začiatok
 - Pripoj vlastné GitHub repozitáre a zdieľaj ich s tímom

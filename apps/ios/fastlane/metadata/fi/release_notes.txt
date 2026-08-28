@@ -1,11 +1,21 @@
 Kaikki 0.14.0:n jälkeen:
 
+- Agentit raportoivat, kun ajo päättyy: lue yhteenveto ja lopputulos mistä tahansa ja jatka päättynyttä ajoa siitä, mihin se jäi
+- Kirjoita #, niin upotat issue-merkin kommentteihin ja kuvauksiin, ja kohdistin käyttäytyy fiksummin merkkien ympärillä
+- Live-sessiot pysyvät hiljaa pitkien odotusten aikana sen sijaan, että yhdistäisivät uudelleen, ja toipuvat nopeammin, jos yhteys katkeaa
+- Live-koodaussessiot pysyvät yhdistettyinä verkon ja sovelluksen vaihtuessa ja toipuvat itsestään, jos yhteys katkeaa
+- Kytkimet ja Actions-lista näyttävät siistimmiltä
+- Aloita keskustelu agentin kanssa suoraan Agents-välilehdeltä
+- Valitse oletuskone, niin jokainen koodauksen aloitusdialogi ehdottaa sitä valmiiksi
+- Live-sessiot jatkavat suoratoistoa, kun liikut sovelluksessa, ja ohjausviestien luonnokset säilyvät uudelleenyhdistyksissä
+- Ei enää ilmoituksia omista pull requesteistasi
 - Vastaa agentin lupakysymyksiin puhelimesta sen sijaan, että palaisit koneen ääreen
 - Liitä kuvakaappauksia käynnissä olevaan koodaussessioon ja aloita koodaus useasta issuesta kerralla
 - Sessiot näkyvät tauolla olevina, kun kone on offline, ja jatkuvat mistä tahansa
 - Anna actionille aikataulu tai liipaisin, niin jokin koneistasi ajaa sen itsekseen
 - Hallitse jokaista konetta sovelluksessa: nimeä se uudelleen, jaa se tiimille, siivoa sen worktreet
 - Emoji-valitsin, kuva- ja tiedostoliitteet kommentteihin sekä muotoilupalkki editorissa
+- Issue-listat ryhmittyvät tilan mukaan, otsikot ovat selkeämmät, ilme raikkaampi ja luonti- ja valintavalikot sujuvammat
 - Kirjoita #, niin linkität issuen; viittaukset näkyvät live-statusmerkkeinä
 - Vastuuhenkilön valinta, arkistoitavat boardit ja aloitusmuistilista
 - Yhdistä omat GitHub-repositoriosi ja jaa ne tiimin kanssa
