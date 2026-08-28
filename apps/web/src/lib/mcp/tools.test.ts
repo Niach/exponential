@@ -172,7 +172,12 @@ vi.mock(`@/lib/billing`, () => ({
 }))
 
 // pr_open-only deps — mocked so the module import stays side-effect free.
-vi.mock(`@/lib/integrations/github-pr`, () => ({ createPullRequest: vi.fn() }))
+vi.mock(`@/lib/integrations/github-pr`, () => ({
+  createPullRequest: vi.fn(),
+  // EXP-639: pr_merge reads a chore PR's head ref to decide whether the
+  // caller is merging its OWN PR.
+  getPullRequest: vi.fn(),
+}))
 vi.mock(`@/lib/integrations/github-app`, () => ({
   resolveRepoInstallationToken: vi.fn(),
   resolveRepoInstallationTokenInfo: vi.fn(),
@@ -209,7 +214,10 @@ import { applyPrLifecycleStatusInTx } from "@/lib/integrations/pr-sync"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
 import { noteAgentIssueActivity } from "@/lib/integrations/pr-actor-claims"
 import { endSessionByAgent } from "@/lib/coding-session-end"
-import { createPullRequest } from "@/lib/integrations/github-pr"
+import {
+  createPullRequest,
+  getPullRequest,
+} from "@/lib/integrations/github-pr"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { registerExponentialTools } from "@/lib/mcp/tools"
@@ -1358,6 +1366,31 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
     return () => db.select.mockImplementation(() => builder)
   }
 
+  // The chore-PR own-merge test: repositoryId + prNumber names no branch, so
+  // the tool asks GitHub for the PR's head ref. `CHORE_BRANCH` is the branch
+  // the caller's own run sits on.
+  const CHORE_BRANCH = `exp/chore-1a2b3c4d`
+  function stageChorePr(headRef: string): void {
+    vi.mocked(loadRepositoryForTeam).mockResolvedValue({
+      repositoryId: REPO,
+      teamId: WS,
+      fullName: `acme/app`,
+      defaultBranch: `main`,
+    } as never)
+    vi.mocked(resolveRepoInstallationTokenInfo).mockResolvedValue({
+      token: `ghs_x`,
+      installationId: 1,
+    } as never)
+    vi.mocked(getPullRequest).mockResolvedValue({
+      state: `open`,
+      merged: false,
+      headRef,
+      baseRef: `main`,
+      mergeable: true,
+      mergeableState: `clean`,
+    })
+  }
+
   const runRow = (over: Record<string, unknown> = {}) => ({
     id: SESSION,
     teamId: WS,
@@ -1375,7 +1408,8 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
     const updates = captureUpdates()
     // An issue-less run parked on the chore branch it opened the PR from —
     // the only row shape the branch-keyed merge sweep can reach.
-    dbRows.current = [runRow({ branch: `exp/chore-1a2b3c4d` })]
+    dbRows.current = [runRow({ branch: CHORE_BRANCH })]
+    stageChorePr(CHORE_BRANCH)
     caller.repositories.mergePull.mockResolvedValue({ merged: true })
 
     await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({
@@ -1411,7 +1445,8 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
 
   it(`reverts the stamp when the chore merge fails (EXP-639)`, async () => {
     const updates = captureUpdates()
-    dbRows.current = [runRow({ branch: `exp/chore-1a2b3c4d` })]
+    dbRows.current = [runRow({ branch: CHORE_BRANCH })]
+    stageChorePr(CHORE_BRANCH)
     caller.repositories.mergePull.mockRejectedValue(
       new TRPCError({ code: `PRECONDITION_FAILED`, message: `not mergeable` })
     )
@@ -1438,6 +1473,44 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
       prNumber: 9,
     })
 
+    expect(updates).toHaveLength(0)
+    // No stampable row ⇒ no reason to ask GitHub anything.
+    expect(getPullRequest).not.toHaveBeenCalled()
+  })
+
+  // The durable spare filters EVERY merge-driven end, so a chat/batch/action
+  // run that lands somebody else's chore PR must not get one — it would also
+  // survive the merge of its own PR, and then nothing would ever end it.
+  it(`spares nothing when an issue-less run lands a FOREIGN chore PR`, async () => {
+    const updates = captureUpdates()
+    dbRows.current = [runRow({ branch: CHORE_BRANCH })]
+    stageChorePr(`exp/somebody-elses-branch`)
+    caller.repositories.mergePull.mockResolvedValue({ merged: true })
+
+    await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({
+      repositoryId: REPO,
+      prNumber: 9,
+    })
+
+    expect(caller.repositories.mergePull).toHaveBeenCalled()
+    expect(getPullRequest).toHaveBeenCalledWith(`acme/app`, 9, `ghs_x`)
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`leaves the stamp off when the head-ref lookup fails`, async () => {
+    const updates = captureUpdates()
+    dbRows.current = [runRow({ branch: CHORE_BRANCH })]
+    stageChorePr(CHORE_BRANCH)
+    vi.mocked(getPullRequest).mockRejectedValue(new Error(`GitHub returned 502`))
+    caller.repositories.mergePull.mockResolvedValue({ merged: true })
+
+    await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({
+      repositoryId: REPO,
+      prNumber: 9,
+    })
+
+    // Being ended by a merge is recoverable; a run nothing ends is not.
+    expect(caller.repositories.mergePull).toHaveBeenCalled()
     expect(updates).toHaveLength(0)
   })
 
@@ -1718,6 +1791,23 @@ describe(`exponential_sessions_list`, () => {
     expect(sql).not.toContain(`"board_id" in`)
   })
 
+  // The board-less arm: the runs a board grant can start must stay listable
+  // by the person who started them.
+  it(`admits the caller's own board-less runs under a board grant`, async () => {
+    dbRows.current = []
+    await collectTools(USER, null, ALL_MCP_TOOL_GATES, SCOPED_TO_BOARD).get(
+      `exponential_sessions_list`
+    )!({ teamId: WS, mine: false, limit: 50, offset: 0 })
+
+    const { sql, params } = renderWhere()
+    expect(sql).toContain(`"board_id" is null`)
+    expect(sql).toContain(`"user_id" =`)
+    expect(sql).toContain(`"host_user_id" =`)
+    expect(params).toContain(`user-1`)
+    // Still scoped to the teams the grant makes visible.
+    expect(params).toContain(WS)
+  })
+
   it(`returns [] without a query when the grant covers nothing`, async () => {
     const empty: McpAccess = {
       full: false,
@@ -1807,15 +1897,39 @@ describe(`exponential_sessions_get`, () => {
     expect(membership.resolveTeamAccess).toHaveBeenCalledWith(`user-1`, WS)
   })
 
-  it(`needs a whole-team grant for an issue-less run`, async () => {
-    const issueLess = {
-      id: RUN,
-      userId: `user-1`,
-      teamId: WS,
-      boardId: null,
-      status: `running`,
-    }
-    dbRows.current = [issueLess]
+  // EXP-639: a board grant may START a batch run (its issues all sit on the
+  // granted board) and such a row carries board_id NULL — so the caller's OWN
+  // board-less runs stay readable inside a visible team. A teammate's do not.
+  it(`serves the caller's own issue-less run under a board grant`, async () => {
+    dbRows.current = [
+      {
+        id: RUN,
+        userId: `user-1`,
+        teamId: WS,
+        boardId: null,
+        status: `running`,
+      },
+    ]
+    const result = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_BOARD
+    ).get(`exponential_sessions_get`)!({ id: RUN })
+    expect(parseOk(result)).toMatchObject({ id: RUN })
+  })
+
+  it(`hides a teammate's issue-less run from a board grant`, async () => {
+    dbRows.current = [
+      {
+        id: RUN,
+        userId: `user-2`,
+        hostUserId: `user-3`,
+        teamId: WS,
+        boardId: null,
+        status: `running`,
+      },
+    ]
     const denied = await collectTools(
       USER,
       null,
@@ -1823,8 +1937,18 @@ describe(`exponential_sessions_get`, () => {
       SCOPED_TO_BOARD
     ).get(`exponential_sessions_get`)!({ id: RUN })
     expect(denied.isError).toBe(true)
+    expect(denied.content[0].text).toContain(`Session not found`)
 
-    dbRows.current = [issueLess]
+    // A whole-team grant sees it (subject to membership, as ever).
+    dbRows.current = [
+      {
+        id: RUN,
+        userId: `user-2`,
+        teamId: WS,
+        boardId: null,
+        status: `running`,
+      },
+    ]
     const allowed = await collectTools(
       USER,
       null,
@@ -1832,6 +1956,14 @@ describe(`exponential_sessions_get`, () => {
       SCOPED_TO_WS
     ).get(`exponential_sessions_get`)!({ id: RUN })
     expect(parseOk(allowed)).toMatchObject({ id: RUN })
+  })
+
+  it(`never returns the server-only host_user_id`, async () => {
+    dbRows.current = [
+      { id: RUN, userId: `user-1`, teamId: WS, hostUserId: `user-9` },
+    ]
+    expect(parseOk(await tool(`exponential_sessions_get`)({ id: RUN })))
+      .not.toHaveProperty(`hostUserId`)
   })
 })
 
@@ -1882,6 +2014,34 @@ describe(`exponential_sessions_kill`, () => {
       session: { id: UUID, status: `ended`, endedAt: null },
     })
     dbRows.current = [{ teamId: WS, boardId: PROJ }]
+    const allowed = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_BOARD
+    ).get(`exponential_sessions_kill`)!({ id: UUID })
+    expect(parseOk(allowed)).toMatchObject({ ok: true, id: UUID })
+  })
+
+  it(`kills the caller's own board-less run, never a teammate's`, async () => {
+    dbRows.current = [
+      { teamId: WS, boardId: null, userId: `user-2`, hostUserId: `user-3` },
+    ]
+    const denied = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_BOARD
+    ).get(`exponential_sessions_kill`)!({ id: UUID })
+    expect(denied.isError).toBe(true)
+    expect(caller.steer.killSession).not.toHaveBeenCalled()
+
+    caller.steer.killSession.mockResolvedValue({
+      session: { id: UUID, status: `ended`, endedAt: null },
+    })
+    dbRows.current = [
+      { teamId: WS, boardId: null, userId: `user-1`, hostUserId: null },
+    ]
     const allowed = await collectTools(
       USER,
       null,
@@ -2069,6 +2229,85 @@ describe(`exponential_sessions_start`, () => {
     const result = await tool(`exponential_sessions_start`)({ deviceId: `mac-1` })
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`Exactly one of`)
+    expect(caller.steer.startSession).not.toHaveBeenCalled()
+  })
+
+  // EXP-639: start and read must agree. A board grant may batch the issues on
+  // its board — the row that produces carries board_id NULL, and the read side
+  // admits it because it is the caller's own (see sessions_get/list/kill).
+  it(`lets a board grant batch its own board's issues`, async () => {
+    membership.getIssueTeamContext.mockResolvedValue({
+      teamId: WS,
+      boardId: PROJ,
+    })
+    caller.steer.startSession.mockResolvedValue({ ok: true })
+    dbRows.current = [{ id: RUN, status: `running` }]
+
+    const result = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_BOARD
+    ).get(`exponential_sessions_start`)!({
+      deviceId: `mac-1`,
+      issueIds: [UUID, RUN],
+    })
+
+    expect(parseOk(result)).toMatchObject({ ok: true, sessionId: RUN })
+    expect(caller.steer.startSession).toHaveBeenCalled()
+  })
+
+  // The resume branch used to demand a WHOLE-team grant, which no board grant
+  // could ever satisfy for the very runs it had just started.
+  it(`resumes the caller's own board-less run under a board grant`, async () => {
+    caller.steer.startSession.mockResolvedValue({ ok: true })
+    dbRows.current = [
+      {
+        id: RUN,
+        status: `running`,
+        teamId: WS,
+        boardId: null,
+        userId: `user-1`,
+        hostUserId: null,
+      },
+    ]
+
+    const result = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_BOARD
+    ).get(`exponential_sessions_start`)!({
+      deviceId: `mac-1`,
+      resumeSessionId: RUN,
+    })
+
+    expect(parseOk(result)).toMatchObject({ ok: true, sessionId: RUN })
+  })
+
+  it(`refuses to resume a teammate's board-less run`, async () => {
+    dbRows.current = [
+      {
+        id: RUN,
+        teamId: WS,
+        boardId: null,
+        userId: `user-2`,
+        hostUserId: `user-3`,
+      },
+    ]
+
+    const denied = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_BOARD
+    ).get(`exponential_sessions_start`)!({
+      deviceId: `mac-1`,
+      resumeSessionId: RUN,
+    })
+
+    expect(denied.isError).toBe(true)
+    expect(denied.content[0].text).toContain(`Session not found`)
     expect(caller.steer.startSession).not.toHaveBeenCalled()
   })
 })

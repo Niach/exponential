@@ -647,10 +647,16 @@ internal fun atomizeChipEdit(
  * Whether this chip's source range still holds the `#IDENTIFIER` it was built
  * from in [text] — the cheap staleness check that keeps a one-frame-old chip
  * from atomizing a range that has since become something else.
+ *
+ * Case-INSENSITIVE, like [IssueRefHandler.resolve]: the token is chipped as
+ * typed (`#exp-238` matches [IssueRefs] too) while the resolved target always
+ * carries the canonical identifier, so a byte compare would call every
+ * lowercase chip stale.
  */
 private fun IssueChipTransform.Chip.stillSpellsItsToken(text: String): Boolean =
     sourceStart >= 0 && sourceEnd <= text.length && sourceStart < sourceEnd &&
-        text.substring(sourceStart, sourceEnd) == "#" + target.identifier
+        text.substring(sourceStart, sourceEnd)
+            .equals("#" + target.identifier, ignoreCase = true)
 
 /**
  * [newCaret], unless it lies strictly inside a chip — then that chip's edge

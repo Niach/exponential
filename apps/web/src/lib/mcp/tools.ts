@@ -16,7 +16,6 @@ import {
   isNotNull,
   isNull,
   lte,
-  ne,
   or,
   type SQL,
 } from "drizzle-orm"
@@ -27,7 +26,6 @@ import {
   automations,
   codingSessions,
   comments,
-  devices,
   issueLabels,
   issues,
   issueStatuses,
@@ -76,7 +74,7 @@ import { getImageDimensions } from "@/lib/storage/image-dimensions"
 import { assertWithinStorageLimit } from "@/lib/billing"
 import { appRouter } from "@/routes/api/trpc/$"
 import type { Context } from "@/lib/trpc"
-import { createPullRequest } from "@/lib/integrations/github-pr"
+import { createPullRequest, getPullRequest } from "@/lib/integrations/github-pr"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { recordIssueEvent } from "@/lib/integrations/activity"
@@ -93,6 +91,7 @@ import { buildRuntimeConfig } from "@/lib/runtime-config"
 import { createAgentBugReport } from "@/lib/widget/agent-report"
 import { TokenBucketLimiter } from "@/lib/widget/rate-limit"
 import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
+import { visibleDeviceRows } from "@/lib/trpc/devices"
 import { endSessionByAgent } from "@/lib/coding-session-end"
 import { codingSessionOutcomeValues } from "@exp/db-schema/domain"
 import { err, ok } from "./helpers"
@@ -105,9 +104,11 @@ import {
   assertTeamFullyGranted,
   assertTeamVisible,
   filterVisibleTeamIds,
+  grantScopeFilter,
   isBoardGranted,
-  isTeamFullyGranted,
+  isRowGranted,
   isTeamVisible,
+  GRANT_MATCHES_NOTHING,
   type McpAccess,
 } from "./scope"
 
@@ -365,21 +366,6 @@ export function registerExponentialTools(
       needsInput: Boolean(row.needsInput),
       mergedOwnPr: Boolean(row.mergedOwnPr),
     }
-  }
-
-  // EXP-639: the grant predicate for ONE coding_sessions row, the row-level
-  // twin of the SQL filter exponential_sessions_list applies. An issue-less
-  // row (batch, action and chat runs carry board_id NULL) is reachable only
-  // under a whole-team grant — no board can vouch for it.
-  function isSessionGranted(row: {
-    teamId: string | null
-    boardId: string | null
-  }): boolean {
-    if (access.full) return true
-    if (!row.teamId) return false
-    return row.boardId
-      ? isBoardGranted(access, row.boardId, row.teamId)
-      : isTeamFullyGranted(access, row.teamId)
   }
 
   // Park the run that just opened a PR in `in_review` and stamp the PR's head
@@ -1742,17 +1728,37 @@ export function registerExponentialTools(
         // guards (membership, App config, installation link-gate) and the
         // merge itself; there is no issue row to sync.
         if (repositoryId) {
-          // Own-PR test without a second GitHub round-trip: repositoryId +
-          // prNumber names no branch and the session row carries no PR url,
-          // but the ONLY merge-driven end that can reach an issue-less row is
-          // the webhook's endSessionsOnMergedBranch — keyed on the very
-          // `branch` exponential_pr_open stamped when it parked this run on
-          // the chore PR it opened. So the spare is for exactly that row
-          // shape: an issue-less run sitting on a branch of its own. An
-          // issue-scoped run landing a chore PR is never its own.
-          const ownChorePr = Boolean(
-            stampable && !stampable.issueId && stampable.branch
-          )
+          // Own-PR test. The ONLY merge-driven end that can reach an
+          // issue-less row is the webhook's endSessionsOnMergedBranch, keyed
+          // on the `branch` exponential_pr_open stamped when it parked this
+          // run on the PR it opened — so the spare is for exactly that row
+          // shape: an issue-less run sitting on a branch of its own. But
+          // "issue-less run with a branch" is not enough: `repositoryId +
+          // prNumber` names no branch, and a chat/batch/action run landing
+          // SOMEBODY ELSE'S chore PR would stamp a DURABLE spare that also
+          // filters the later merge of its own PR, leaving a run nothing
+          // ends. So read the PR's head ref from GitHub and stamp only when
+          // it IS the caller's branch. A lookup that cannot answer leaves the
+          // stamp off: being ended by a merge is recoverable, a run that
+          // never ends is not.
+          let ownChorePr = false
+          if (stampable && !stampable.issueId && stampable.branch) {
+            try {
+              const choreRepo = await loadRepositoryForTeam(repositoryId)
+              await resolveTeamAccess(user.id, choreRepo.teamId)
+              const resolvedRepo = await resolveRepoInstallationTokenInfo(
+                choreRepo.fullName
+              )
+              const pull = await getPullRequest(
+                choreRepo.fullName,
+                prNumber!,
+                resolvedRepo?.token
+              )
+              ownChorePr = pull.headRef === stampable.branch
+            } catch {
+              ownChorePr = false
+            }
+          }
           if (ownChorePr) await stampMergedOwnPr()
           try {
             await caller(user, request).repositories.mergePull({
@@ -1971,28 +1977,18 @@ export function registerExponentialTools(
           if (teamIds.length === 0) return ok([])
         }
         // EXP-639: a board-confined grant sees THAT board's runs, not the
-        // team's other boards' — team visibility alone is the host-team
-        // read the grant hands out for aux lookups, never a licence to list.
-        // Same SQL-side shape as exponential_notifications_list: granted
-        // boards OR whole-team grants, filtered BEFORE limit/offset (a
-        // post-limit JS filter under-fills pages and makes offset skip
-        // in-scope rows). Issue-less rows (board_id NULL: batch, action and
-        // chat runs) count only under a whole-team grant.
-        let grantFilter: SQL | undefined
-        if (!access.full) {
-          const grantedBoardIds = [...access.grantedBoardIds]
-          const fullTeamIds = [...access.fullTeamIds]
-          const grantClauses = [
-            ...(grantedBoardIds.length > 0
-              ? [inArray(codingSessions.boardId, grantedBoardIds)]
-              : []),
-            ...(fullTeamIds.length > 0
-              ? [inArray(codingSessions.teamId, fullTeamIds)]
-              : []),
-          ]
-          if (grantClauses.length === 0) return ok([])
-          grantFilter = or(...grantClauses)!
-        }
+        // team's other boards' — team visibility alone is the host-team read
+        // the grant hands out for aux lookups, never a licence to list. The
+        // ONE encoding lives in scope.ts (grantScopeFilter/isRowGranted); the
+        // owner columns are what keeps the board-less runs such a grant may
+        // START (a batch spanning its boards) readable by their starter.
+        const grantFilter = grantScopeFilter(access, {
+          boardCol: codingSessions.boardId,
+          teamCol: codingSessions.teamId,
+          ownerCols: [codingSessions.userId, codingSessions.hostUserId],
+          userId: user.id,
+        })
+        if (grantFilter === GRANT_MATCHES_NOTHING) return ok([])
         const rows = await db
           .select(sessionColumns)
           .from(codingSessions)
@@ -2030,8 +2026,13 @@ export function registerExponentialTools(
     },
     async ({ id }) => {
       try {
+        // `hostUserId` is read for the grant predicate only — it is a
+        // server-only column and never reaches the response.
         const [row] = await db
-          .select(sessionColumns)
+          .select({
+            ...sessionColumns,
+            hostUserId: codingSessions.hostUserId,
+          })
           .from(codingSessions)
           .leftJoin(issues, eq(issues.id, codingSessions.issueId))
           .where(
@@ -2043,16 +2044,20 @@ export function registerExponentialTools(
           )
           .limit(1)
         if (!row) throw new Error(`Session not found`)
-        // EXP-639: the grant confines every read, the caller's OWN runs
-        // included — a connection consented to one board must not read the
-        // run its teammate (or it, from another client) started on a sibling
-        // board. Denied reads as not-found, like a trashed board's row.
-        if (!isSessionGranted(row)) throw new Error(`Session not found`)
+        // EXP-639: the grant confines every read — a connection consented to
+        // one board must not read the run its teammate (or it, from another
+        // client) started on a sibling board. Board-less runs of the caller's
+        // own stay readable inside a visible team, because such a grant can
+        // START them. Denied reads as not-found, like a trashed board's row.
+        if (!isRowGranted(access, row, user.id)) {
+          throw new Error(`Session not found`)
+        }
+        const { hostUserId: _hostUserId, ...session } = row
         if (row.userId !== user.id) {
           if (!row.teamId) throw new Error(`Session not found`)
           await resolveTeamAccess(user.id, row.teamId)
         }
-        return ok(row)
+        return ok(session)
       } catch (e) {
         return err(e)
       }
@@ -2083,12 +2088,16 @@ export function registerExponentialTools(
             .select({
               teamId: codingSessions.teamId,
               boardId: codingSessions.boardId,
+              userId: codingSessions.userId,
+              hostUserId: codingSessions.hostUserId,
             })
             .from(codingSessions)
             .where(eq(codingSessions.id, id))
             .limit(1)
           if (!row) throw new Error(`Session not found`)
-          if (!isSessionGranted(row)) throw new Error(`Session not found`)
+          if (!isRowGranted(access, row, user.id)) {
+            throw new Error(`Session not found`)
+          }
         }
         // Owner-or-host, idempotency and the best-effort relay kill all live
         // in steer.killSession; its row is projected — never returned raw.
@@ -2176,13 +2185,24 @@ export function registerExponentialTools(
             match = eq(codingSessions.actionId, input.actionId)
           }
         } else if (input.resumeSessionId) {
+          // Same predicate as the read side: a board-confined grant may
+          // relaunch a run it can also get/list/kill — including the
+          // board-less ones it started itself (steer.startSession keeps the
+          // resume owner-only on top).
           const [row] = await db
-            .select({ teamId: codingSessions.teamId })
+            .select({
+              teamId: codingSessions.teamId,
+              boardId: codingSessions.boardId,
+              userId: codingSessions.userId,
+              hostUserId: codingSessions.hostUserId,
+            })
             .from(codingSessions)
             .where(eq(codingSessions.id, input.resumeSessionId))
             .limit(1)
           if (!row) throw new Error(`Session not found`)
-          if (row.teamId) assertTeamFullyGranted(access, row.teamId)
+          if (!isRowGranted(access, row, user.id)) {
+            throw new Error(`Session not found`)
+          }
           match = eq(codingSessions.resumedFromId, input.resumeSessionId)
         } else {
           throw new Error(
@@ -2255,46 +2275,17 @@ export function registerExponentialTools(
           await assertTeamMember(user.id, teamId)
         }
 
-        const ownRows = await db
-          .select()
-          .from(devices)
-          .where(eq(devices.userId, user.id))
-
-        // Teammates' server devices shared with the team (EXP-432). The
-        // team_members join drops ghost shares whose owner has since left
-        // the team — the share column survives membership changes, but an
-        // ex-member's box must neither list nor start.
-        const sharedRows = teamId
-          ? await db
-              .select({ device: devices, ownerName: users.name })
-              .from(devices)
-              .innerJoin(users, eq(users.id, devices.userId))
-              .innerJoin(
-                teamMembers,
-                and(
-                  eq(teamMembers.userId, devices.userId),
-                  eq(teamMembers.teamId, teamId)
-                )
-              )
-              .where(
-                and(
-                  eq(devices.sharedTeamId, teamId),
-                  eq(devices.kind, `server`),
-                  ne(devices.userId, user.id)
-                )
-              )
-          : []
-
-        const ownerNames = new Map(
-          sharedRows.map((row) => [
-            row.device.userId,
-            { id: row.device.userId, name: row.ownerName },
-          ])
+        // Own rows plus the team's shared servers — the ONE encoding of
+        // that query lives in the devices router (visibleDeviceRows).
+        const { rows, ownerNames } = await visibleDeviceRows(
+          db,
+          user.id,
+          teamId
         )
         // `online` is last_seen_at freshness (contract onlineWindowSeconds),
         // not relay presence — the same rule every synced client applies.
         const list = composeDeviceList(
-          [...ownRows, ...sharedRows.map((row) => row.device)],
+          rows,
           ownerNames,
           new Date(),
           user.id,
@@ -2460,18 +2451,14 @@ export function registerExponentialTools(
         // without an issue stay private). The grant filter runs in SQL,
         // BEFORE limit/offset — a post-limit JS filter under-fills pages and
         // makes offset pagination skip in-scope notifications.
-        const grantedBoardIds = [...access.grantedBoardIds]
-        const fullTeamIds = [...access.fullTeamIds]
-        const grantClauses = [
-          ...(grantedBoardIds.length > 0
-            ? [inArray(issues.boardId, grantedBoardIds)]
-            : []),
-          ...(fullTeamIds.length > 0
-            ? [inArray(boards.teamId, fullTeamIds)]
-            : []),
-        ]
-        if (grantClauses.length === 0) return ok([])
-        conditions.push(or(...grantClauses)!)
+        // No owner columns: the inner join already drops issue-less rows,
+        // so there is no board-less arm to admit here.
+        const grantFilter = grantScopeFilter(access, {
+          boardCol: issues.boardId,
+          teamCol: boards.teamId,
+        })
+        if (grantFilter === GRANT_MATCHES_NOTHING) return ok([])
+        if (grantFilter) conditions.push(grantFilter)
         const rows = await db
           .select({ notification: notifications })
           .from(notifications)

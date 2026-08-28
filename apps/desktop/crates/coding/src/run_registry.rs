@@ -18,6 +18,7 @@
 //! Everything here is best-effort: a corrupt or missing file simply means
 //! "no resumable runs", never a failed launch.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -179,6 +180,13 @@ pub struct RunRecord {
     pub resumed_from_id: Option<String>,
     /// Unix seconds — the TTL prune's key.
     pub recorded_at: u64,
+    /// Every field of this entry this build does not know — the desktop app
+    /// and the CLI daemon share the file and update independently, so a
+    /// record a NEWER build widened must survive an older host's
+    /// load-modify-save byte-for-byte instead of being re-serialized without
+    /// it. Sorted so the rewritten JSON stays stable.
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 impl RunRecord {
@@ -234,8 +242,12 @@ fn registry_path(data_dir: &Path) -> PathBuf {
 /// the record shape) writes entries this one cannot deserialize — as a
 /// whole-file parse they would take every sibling record down with them, and
 /// the next `record()` would rewrite the file with its single entry. Unknown
-/// entries are instead carried verbatim through every load-modify-save, so an
-/// older host never deletes a newer host's records.
+/// entries are instead carried verbatim in [`Registry::unknown`] through every
+/// load-modify-save, so an older host never deletes a newer host's records.
+///
+/// The other half of that promise is [`RunRecord::extra`]: an entry this build
+/// CAN parse but which carries fields it has never heard of keeps them too, so
+/// a rewrite is not a silent downgrade of the newer host's record.
 #[derive(Default)]
 struct Registry {
     records: Vec<RunRecord>,
@@ -435,6 +447,7 @@ mod tests {
             started_reason: None,
             resumed_from_id: None,
             recorded_at: now_secs(),
+            extra: BTreeMap::new(),
         }
     }
 
@@ -669,6 +682,59 @@ mod tests {
         let entries: Vec<serde_json::Value> =
             serde_json::from_str(&std::fs::read_to_string(registry_path(&dir)).unwrap()).unwrap();
         assert_eq!(entries.len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_known_entry_keeps_the_fields_this_build_never_heard_of() {
+        // The half [`RunRecord::extra`] covers: a NEWER build's record whose
+        // `kind` this one already knows parses fine, so the lenient per-entry
+        // load cannot save it — without the flattened catch-all the next
+        // `record()` would rewrite it stripped of `worktreeMode`, silently
+        // downgrading the other host's record.
+        let dir = temp_dir("unknown-field");
+        let now = now_secs();
+        let json = format!(
+            r#"[{{
+                "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"team",
+                "actionId":"act-1","actionName":"Code review","teamId":"ws-1",
+                "cwd":"/repos/owner/name.worktrees/code-review-1a2b3c4d",
+                "clone":"/repos/owner/name","repo":"owner/name","repositoryId":"repo-1",
+                "branch":"exp/code-review-1a2b3c4d","baseBranch":"main",
+                "claudeSessionId":"cs-1","model":"fable","effort":"high",
+                "ultracode":false,"skipPermissions":true,"recordedAt":{now},
+                "worktreeMode":"scratch"
+            }}]"#
+        );
+        std::fs::write(registry_path(&dir), json).unwrap();
+
+        // It loads as an ordinary record, unknown field and all.
+        let loaded = get(&dir, "sess-1").expect("a known kind still parses");
+        assert_eq!(loaded.action_name, "Code review");
+        assert_eq!(
+            loaded.extra.get("worktreeMode"),
+            Some(&serde_json::json!("scratch"))
+        );
+
+        // ... and a neighbour's write carries it back out verbatim.
+        record(&dir, sample("sess-2"));
+        let entries: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(registry_path(&dir)).unwrap()).unwrap();
+        assert_eq!(entries.len(), 2);
+        let kept = entries
+            .iter()
+            .find(|entry| entry["sessionId"] == "sess-1")
+            .expect("the record survives");
+        assert_eq!(kept["worktreeMode"], "scratch");
+        assert_eq!(kept["kind"], "team");
+        // A record with nothing extra serializes exactly as before — no
+        // empty object, no stray key.
+        let plain = entries
+            .iter()
+            .find(|entry| entry["sessionId"] == "sess-2")
+            .expect("the neighbour");
+        assert_eq!(plain.get("extra"), None);
+        assert_eq!(plain.get("worktreeMode"), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

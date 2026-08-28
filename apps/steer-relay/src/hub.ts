@@ -64,7 +64,8 @@ interface DeviceEntry {
   deviceLabel: string
   connectedAt: number
   /** EXP-253: feature capabilities (`actions`) the device advertised.
-   * Absent ⇒ [] — the web server strictly gates action starts on this. */
+   * Absent ⇒ []. Presence listings only: the web server gates starts on the
+   * persisted `devices` row, never on what rode the online frame. */
   caps: string[]
 }
 

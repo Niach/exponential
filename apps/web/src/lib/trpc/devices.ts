@@ -17,13 +17,20 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, ne, sql } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
-import { router, authedProcedure, generateTxId } from "@/lib/trpc"
+import {
+  router,
+  authedProcedure,
+  generateTxId,
+  type Context,
+} from "@/lib/trpc"
 import {
   automations,
   deviceCommands,
   deviceLaunchDefaultsSchema,
   devices,
   deviceWorktrees,
+  teamMembers,
+  users,
   type DeviceAgentLaunchDefaults,
   type DeviceLaunchDefaults,
 } from "@/db/schema"
@@ -115,6 +122,51 @@ function nudgeDevice(ownerId: string, deviceId: string): void {
 // compare on the echoed string; never `>`, no clock-skew semantics).
 function stampOf(value: Date | null): string | null {
   return value ? value.toISOString() : null
+}
+
+// EXP-639: the ONE "which device rows may this user see" read — their own
+// registrations (any kind), plus the SERVER devices teammates shared with
+// `teamId` (EXP-432). The team_members join drops ghost shares whose owner has
+// since left the team: `shared_team_id` survives membership changes, but an
+// ex-member's box must neither list nor run. Owner names ride along for the
+// shared rows only — own rows never render one.
+export async function visibleDeviceRows(
+  db: Context[`db`],
+  userId: string,
+  teamId?: string
+): Promise<{
+  rows: Array<typeof devices.$inferSelect>
+  ownerNames: Map<string, { id: string; name: string }>
+}> {
+  const own = await db.select().from(devices).where(eq(devices.userId, userId))
+  if (!teamId) return { rows: own, ownerNames: new Map() }
+  const shared = await db
+    .select({ device: devices, ownerName: users.name })
+    .from(devices)
+    .innerJoin(users, eq(users.id, devices.userId))
+    .innerJoin(
+      teamMembers,
+      and(
+        eq(teamMembers.userId, devices.userId),
+        eq(teamMembers.teamId, teamId)
+      )
+    )
+    .where(
+      and(
+        eq(devices.sharedTeamId, teamId),
+        eq(devices.kind, `server`),
+        ne(devices.userId, userId)
+      )
+    )
+  return {
+    rows: [...own, ...shared.map((row) => row.device)],
+    ownerNames: new Map(
+      shared.map((row) => [
+        row.device.userId,
+        { id: row.device.userId, name: row.ownerName },
+      ])
+    ),
+  }
 }
 
 export const devicesRouter = router({

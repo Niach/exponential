@@ -18,9 +18,9 @@ export const onlineFrame = z.object({
   t: z.literal(`online`),
   deviceId: z.string().min(1).max(128),
   deviceLabel: z.string().max(255).optional(),
-  // EXP-253: feature capabilities (`actions`). The relay is a dumb pipe —
-  // the web server interprets them and strictly gates action starts on the
-  // capability.
+  // EXP-253: feature capabilities (`actions`). The relay is a dumb pipe, and
+  // these ride along for presence listings only — the web server gates starts
+  // on the persisted `devices` row.
   caps: z.array(z.string().min(1).max(32)).max(16).optional(),
 })
 

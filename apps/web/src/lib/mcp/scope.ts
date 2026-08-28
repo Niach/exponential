@@ -1,4 +1,13 @@
-import { and, eq, gt, inArray } from "drizzle-orm"
+import {
+  and,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  or,
+  type Column,
+  type SQL,
+} from "drizzle-orm"
 import { db } from "@/db/connection"
 import { mcpGrants, oauthAccessTokens, boards } from "@/db/schema"
 import { boardVisible } from "@/lib/board-visibility"
@@ -197,4 +206,102 @@ export function filterVisibleTeamIds(
 ): string[] {
   if (access.full) return teamIds
   return teamIds.filter((id) => access.visibleTeamIds.has(id))
+}
+
+// ── Row scoping (EXP-639) ────────────────────────────────────────────────────
+// ONE encoding of "which rows may this connection touch", in the two forms the
+// tools need: a SQL filter for list queries and its row-level twin for
+// single-row reads. Both answer the same three questions — is the row's board
+// granted, is its whole team granted, or is it a BOARD-LESS row of the
+// caller's own inside a visible team. That last arm exists because batch,
+// action and chat runs carry `board_id` NULL: without it a board-confined
+// grant could start a batch run it could never read back, list or kill.
+
+/** `grantScopeFilter` found no clause at all: the grant reaches nothing, so
+ *  the caller returns an empty list WITHOUT querying. */
+export const GRANT_MATCHES_NOTHING = false
+
+/** A grant that selected no board and no team reaches nothing at all — the
+ *  board-less arm below EXTENDS a grant, it never stands in for one. */
+function grantsNothing(access: McpAccess): boolean {
+  return (
+    !access.full &&
+    access.grantedBoardIds.size === 0 &&
+    access.fullTeamIds.size === 0
+  )
+}
+
+export interface GrantScopeColumns {
+  /** The row's board — NULLABLE on coding_sessions (issue-less runs). */
+  boardCol: Column
+  /** The row's team. */
+  teamCol: Column
+  /**
+   * Owner columns (`user_id` / `host_user_id`). Passed WITH `userId` they
+   * admit the caller's own board-less rows inside a visible team; omitted,
+   * board-less rows need a whole-team grant (the notifications encoding,
+   * whose join already drops issue-less rows).
+   */
+  ownerCols?: readonly Column[]
+  userId?: string
+}
+
+/**
+ * The grant as a WHERE fragment. `undefined` = unrestricted (full access);
+ * `GRANT_MATCHES_NOTHING` = the grant covers nothing, so skip the query.
+ * Filtering in SQL is deliberate: a post-limit JS filter under-fills pages and
+ * makes offset pagination skip in-scope rows.
+ */
+export function grantScopeFilter(
+  access: McpAccess,
+  cols: GrantScopeColumns
+): SQL | undefined | typeof GRANT_MATCHES_NOTHING {
+  if (access.full) return undefined
+  if (grantsNothing(access)) return GRANT_MATCHES_NOTHING
+  const clauses: SQL[] = []
+  const grantedBoardIds = [...access.grantedBoardIds]
+  if (grantedBoardIds.length > 0) {
+    clauses.push(inArray(cols.boardCol, grantedBoardIds))
+  }
+  const fullTeamIds = [...access.fullTeamIds]
+  if (fullTeamIds.length > 0) {
+    clauses.push(inArray(cols.teamCol, fullTeamIds))
+  }
+  const visibleTeamIds = [...access.visibleTeamIds]
+  const { ownerCols, userId } = cols
+  if (ownerCols?.length && userId && visibleTeamIds.length > 0) {
+    clauses.push(
+      and(
+        isNull(cols.boardCol),
+        inArray(cols.teamCol, visibleTeamIds),
+        or(...ownerCols.map((col) => eq(col, userId)))!
+      )!
+    )
+  }
+  if (clauses.length === 0) return GRANT_MATCHES_NOTHING
+  return or(...clauses)!
+}
+
+export interface GrantScopeRow {
+  teamId: string | null
+  boardId: string | null
+  userId?: string | null
+  hostUserId?: string | null
+}
+
+/** The row-level twin of `grantScopeFilter` — same three arms, same order. */
+export function isRowGranted(
+  access: McpAccess,
+  row: GrantScopeRow,
+  callerUserId?: string
+): boolean {
+  if (access.full) return true
+  if (grantsNothing(access)) return false
+  if (!row.teamId) return false
+  if (row.boardId) return isBoardGranted(access, row.boardId, row.teamId)
+  if (isTeamFullyGranted(access, row.teamId)) return true
+  if (!callerUserId) return false
+  const own =
+    row.userId === callerUserId || row.hostUserId === callerUserId
+  return own && isTeamVisible(access, row.teamId)
 }

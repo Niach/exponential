@@ -81,13 +81,18 @@ async function resolveStartAttribution(
 // user's RENAME, `devices.rename`) whenever the caller — the hosting account
 // in both self-hosted and shared-device runs — owns a row for that deviceId.
 // Clients prefer the live devices row via `device_id`; the snapshot renders
-// historical rows. EXP-560 retired the label-only pre-EXP-549 wire and
-// EXP-639 the `deviceLabel` input itself: the registry row is the ONE label
-// source.
+// historical rows. EXP-560 retired the label-only pre-EXP-549 wire.
+// `deviceLabel` on `start` is a FALLBACK, not compat: `devices.register` is
+// fire-and-forget on the desktop and the CLI daemon, so a start fired
+// immediately after launch can beat the registration and find no row at all —
+// without the sent hostname that run's snapshot would be NULL forever
+// (heartbeats only refresh rows the registry can answer for). Heartbeat never
+// takes one: by then the registry has answered, and a label that could ride
+// alone would let a client overwrite the user's rename.
 async function resolveSessionDevice(
   db: Context[`db`],
   callerId: string,
-  input: { deviceId?: string }
+  input: { deviceId?: string; deviceLabel?: string }
 ): Promise<{ deviceId: string | null; deviceLabel: string | null }> {
   if (!input.deviceId) {
     return { deviceId: null, deviceLabel: null }
@@ -101,7 +106,7 @@ async function resolveSessionDevice(
     .limit(1)
   return {
     deviceId: input.deviceId,
-    deviceLabel: device?.label ?? null,
+    deviceLabel: device?.label ?? input.deviceLabel ?? null,
   }
 }
 
@@ -220,6 +225,9 @@ export const codingSessionsRouter = router({
           issueId: z.string().uuid().optional(),
           teamId: z.string().uuid().optional(),
           actionId: actionIdInput.optional(),
+          // Label fallback for a start that outran `devices.register` — see
+          // resolveSessionDevice. Never used when the registry has a row.
+          deviceLabel: z.string().max(255).optional(),
           // EXP-432 shared-device attribution (see resolveStartAttribution).
           startedById: z.string().min(1).max(128).optional(),
           deviceId: z.string().min(1).max(128).optional(),

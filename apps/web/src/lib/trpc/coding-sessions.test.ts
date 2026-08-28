@@ -966,13 +966,18 @@ describe(`codingSessions.start — shared-device attribution (EXP-432)`, () => {
 
 // EXP-549: the session row carries the host machine's steer deviceId, and
 // its `device_label` snapshot comes from the registry row's label (the user's
-// RENAME) — resolved among the CALLER's own device rows. EXP-639 dropped the
-// client-sent label, so no deviceId means no stamp at all.
+// RENAME) — resolved among the CALLER's own device rows. The sent label is
+// the fallback for a start that outran the fire-and-forget `devices.register`;
+// no deviceId still means no stamp at all.
 describe(`codingSessions — device stamp (EXP-549)`, () => {
   it(`start stamps deviceId and prefers the registry label over the sent hostname`, async () => {
     selectResults.push([{ label: `macbook` }])
 
-    await caller.start({ issueId: ISSUE_ID, deviceId: DEVICE_ID })
+    await caller.start({
+      issueId: ISSUE_ID,
+      deviceId: DEVICE_ID,
+      deviceLabel: `MacBook-Pro-von-Danny.local`,
+    })
 
     expect(whereShape(selectWheres[0])).toEqual([
       `col:user_id`,
@@ -986,7 +991,25 @@ describe(`codingSessions — device stamp (EXP-549)`, () => {
     })
   })
 
-  it(`start stamps a NULL label when the caller has no registry row for the device`, async () => {
+  // `devices.register` is fire-and-forget on the desktop and the CLI daemon,
+  // so the very first start after a launch can beat it — the sent hostname is
+  // all there is, and without it the row's snapshot stays NULL forever.
+  it(`start falls back to the sent label when the caller has no registry row`, async () => {
+    selectResults.push([])
+
+    await caller.start({
+      teamId: TEAM_ID,
+      deviceId: DEVICE_ID,
+      deviceLabel: `fresh-box`,
+    })
+
+    expect(inserts[0]!.values).toMatchObject({
+      deviceId: DEVICE_ID,
+      deviceLabel: `fresh-box`,
+    })
+  })
+
+  it(`start stamps a NULL label with no registry row and no sent label`, async () => {
     selectResults.push([])
 
     await caller.start({ teamId: TEAM_ID, deviceId: DEVICE_ID })
@@ -998,7 +1021,7 @@ describe(`codingSessions — device stamp (EXP-549)`, () => {
   })
 
   it(`start without a deviceId stamps NULL and never probes the registry`, async () => {
-    await caller.start({ issueId: ISSUE_ID })
+    await caller.start({ issueId: ISSUE_ID, deviceLabel: `old-host` })
 
     expect(selectWheres).toHaveLength(0)
     expect(inserts[0]!.values).toMatchObject({
