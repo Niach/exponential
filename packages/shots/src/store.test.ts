@@ -9,7 +9,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import sharp from "sharp"
-import { NEAR_MISS_SHARE, formatDiffReport, indexStore, writeShot } from "./store.ts"
+import {
+  NEAR_MISS_SHARE,
+  WRITE_ANY_CHANGE_FLOOR,
+  formatDiffReport,
+  indexStore,
+  writeShot,
+} from "./store.ts"
 import { storeShotPath } from "./paths.ts"
 
 let dir: string
@@ -92,6 +98,51 @@ describe(`writeShot`, () => {
     expect(result.state).toBe(`new`)
     expect(() => readFileSync(storeShotPath(`board`, `web`))).toThrow()
   })
+
+  test(`writeAnyChange writes a sub-tolerance change but still keeps an identical one`, async () => {
+    // EXP-670: a compact real change (a queue reorder, a section that
+    // appeared) sits inside the tolerance just as comfortably as timestamp
+    // churn does, so a hand-narrowed `--views` run must not drop it.
+    await writeShot(`board`, `web`, await png(400, 300))
+    const before = sha(storeShotPath(`board`, `web`))
+
+    const tiny = await writeShot(`board`, `web`, await png(400, 300, 0.002), {
+      writeAnyChange: true,
+    })
+    expect(tiny.state).toBe(`updated`)
+    expect(tiny.changedRatio ?? 0).toBeLessThanOrEqual(0.005)
+    expect(sha(storeShotPath(`board`, `web`))).not.toBe(before)
+
+    // …and it is not `force`: an unchanged re-render still leaves the file be,
+    // so the flag can never manufacture a diff.
+    const after = sha(storeShotPath(`board`, `web`))
+    const same = await writeShot(`board`, `web`, await png(400, 300, 0.002), {
+      writeAnyChange: true,
+    })
+    expect(same.state).toBe(`kept`)
+    expect(sha(storeShotPath(`board`, `web`))).toBe(after)
+  })
+
+  test(`writeAnyChange floors at encoder noise, so it cannot churn every run`, async () => {
+    // A 1-in-10,000 patch is below WRITE_ANY_CHANGE_FLOOR: at that scale the
+    // lossy encoder is the only thing talking.
+    await writeShot(`board`, `web`, await png(400, 300))
+    const before = sha(storeShotPath(`board`, `web`))
+    const result = await writeShot(`board`, `web`, await png(400, 300, 0.0001), {
+      writeAnyChange: true,
+    })
+    expect(result.state).toBe(`kept`)
+    expect(result.changedRatio ?? 0).toBeLessThan(WRITE_ANY_CHANGE_FLOOR)
+    expect(sha(storeShotPath(`board`, `web`))).toBe(before)
+  })
+
+  test(`without writeAnyChange the same sub-tolerance change is kept`, async () => {
+    await writeShot(`board`, `web`, await png(400, 300))
+    const before = sha(storeShotPath(`board`, `web`))
+    const result = await writeShot(`board`, `web`, await png(400, 300, 0.002))
+    expect(result.state).toBe(`kept`)
+    expect(sha(storeShotPath(`board`, `web`))).toBe(before)
+  })
 })
 
 describe(`indexStore`, () => {
@@ -140,6 +191,19 @@ describe(`formatDiffReport`, () => {
     expect(lines[2]).toContain(`inbox/web`)
     expect(lines[2]).toContain(`(10%)`)
     expect(lines[2]).not.toContain(`near miss`)
+  })
+
+  test(`an updated shot under its tolerance is flagged for the reviewer's eye`, () => {
+    // EXP-670: only a --views run produces these, and they are the ones most
+    // likely to be churn — so they say so instead of hiding among real moves.
+    const lines = formatDiffReport([
+      { viewId: `reviews`, platform: `web`, state: `updated`, changedRatio: 0.0029, tolerance: 0.005 },
+      { viewId: `board`, platform: `web`, state: `updated`, changedRatio: 0.031, tolerance: 0.005 },
+    ])
+    expect(lines[0]).toContain(`board/web`)
+    expect(lines[0]).not.toContain(`under tolerance`)
+    expect(lines[1]).toContain(`reviews/web`)
+    expect(lines[1]).toContain(`under tolerance, eyeball it`)
     expect(NEAR_MISS_SHARE).toBeGreaterThan(0)
     expect(NEAR_MISS_SHARE).toBeLessThan(1)
   })

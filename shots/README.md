@@ -54,6 +54,14 @@ the whole platform for shared code (ExpCore/ExpUI, themes, icons, the fastlane
 lanes). A changed `views.json` entry and a view with no stored image yet are always in
 scope.
 
+The one carve-out inside that shared-code rule is the native DATA layer —
+shape polling, socket reconnect, replay staging, follow-pin policy (EXP-670).
+It cannot draw, because every capture photographs a freshly synced client, so
+`IGNORED` drops it instead of widening two simulator lanes. Presence
+RENDERING (`SessionDevicePresentation`, `DeviceRows`) and the three files that
+keep rendered copy beside the socket lifecycle are deliberately excluded from
+that carve-out and still widen; the list in `affected.ts` says which and why.
+
 Ask without capturing anything:
 
 ```bash
@@ -208,6 +216,20 @@ subject is a small element carry a tighter per-view `diffTolerance` in
 the run log before trusting a `kept`; `--force` rewrites a shot the tolerance
 swallowed.
 
+**A `--views` run writes every shot that differs at all** (EXP-670). The share
+of a tolerance is a weak signal and must not be read as one: in a single run a
+reviews-queue reorder read 95% of its tolerance, a whole new "Pending invites"
+section read 50%, and a page of nothing but drifting timestamps read 74%.
+Bounding box and pixel density were measured as tie-breakers and rejected —
+they overlap just as badly. So when you name the views yourself the tolerance
+stops deciding: anything that moved a pixel is written, written shots under
+tolerance are marked `← under tolerance, eyeball it`, and YOU revert what the
+diff cannot explain. That is the trade the narrowed path wants — one extra
+`git checkout` beats a stale screenshot nobody notices. `--since` alone does
+NOT do this (it routinely resolves to forty views, and writing every timestamp
+flicker across all of them is the 200-file diff this writer exists to prevent),
+and `--force` differs too: it rewrites even byte-identical shots.
+
 `SCREENSHOT_FREEZE_NOW` (epoch ms or an ISO timestamp) pins the seed's clock so
 absolute dates and ordering stop moving between runs. It is opt-in and `bun run
 shots` never sets it: it does nothing for the relative labels each CLIENT renders
@@ -268,7 +290,15 @@ The action may narrow further with `--views` when a BROAD rule widened a lane
 more than the change warrants (a tRPC router touched by a one-line fix widens
 every web view), and it states its reasoning when it does. Narrowing is a
 judgement call about a fail-safe default, so it is written down rather than
-silently applied.
+silently applied. Because it narrowed by hand, that run also writes every shot
+that differs at all rather than trusting the tolerance — see the diff-skip
+section.
+
+**The action files no issues.** It runs on every merge, so anything it filed
+per-run arrived at merge cadence and outran what anyone could fix; a rule that
+belongs in `affected.ts` or a tolerance that needs tuning is a PR, not a
+ticket. When a run hits something it cannot decide, it says so in its summary
+and stops — a human reading that summary can open an issue if it deserves one.
 
 If `bun run test:shots` fails after a merge, the just-merged PR added a
 route/view the catalog does not know: add the `views.json` entry (or an

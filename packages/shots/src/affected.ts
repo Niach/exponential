@@ -162,6 +162,38 @@ const IGNORED: RegExp[] = [
   // instance.") alongside the socket lifecycle, so a change there really can
   // move pixels. That judgement stays manual until the two are separated.
   /^apps\/ios\/ExpCore\/Sources\/SteerReconnectPolicy\.swift$/,
+  // The native DATA layer: how and when we poll a shape, reconnect a socket,
+  // stage a replay, or decide the reader is still pinned to the bottom. It
+  // lives under ExpCore / `data/`, so NATIVE_SHARED widened BOTH simulator
+  // lanes — 66 shots — for EXP-656, which moved no pixel on either (verified:
+  // the two iOS views that render a device presence badge, `agents` and
+  // `recent-runs`, were captured against it and came back 0.0000 and 0.0001 of
+  // a 0.0050 tolerance).
+  //
+  // The reason it cannot draw is structural, not incidental: every capture
+  // photographs a FRESHLY SYNCED client, so the cursor is always current and
+  // the freshness/reconnect branches resolve the same way they did before.
+  // What these files decide is WHEN a value arrives, never what it says.
+  //
+  // Named file by file on the Android side rather than by directory, because
+  // `data/` there is NOT uniformly plumbing: `data/api/` is a folder of real
+  // API clients (`ActionsApi` builds the two builtin actions' rendered names,
+  // `UpdateGate` raises the blocking update screen), and `data/push/` carries
+  // the deep-link routing that decides which screen opens. Only the files
+  // below were read and confirmed to hold no rendered copy. Three neighbours
+  // are deliberately NOT here, each holding copy beside the lifecycle:
+  //   `data/electric/SyncStats.kt`         → "Syncing…"
+  //   `data/steer/SteerConnectionStore.kt` → "Connecting…"
+  //   `data/steer/SteerConnection.kt`      → "Connection lost", and more
+  // Splitting the copy out of those three would let them join this list.
+  //
+  // iOS `ExpCore/Sources/Electric/` IS taken wholesale: every string in all
+  // six files is an HTTP header, a shape path, SQL or a comment.
+  /^apps\/ios\/ExpCore\/Sources\/Electric\//,
+  /^apps\/ios\/ExpCore\/Sources\/(FeedFollowPolicy|SteerReplayStaging)\.swift$/,
+  /^apps\/android\/app\/src\/main\/java\/com\/exponential\/app\/data\/electric\/(ShapeClient|SyncManager)\.kt$/,
+  /^apps\/android\/app\/src\/main\/java\/com\/exponential\/app\/data\/api\/HttpClientProvider\.kt$/,
+  /^apps\/android\/app\/src\/main\/java\/com\/exponential\/app\/data\/push\/FcmService\.kt$/,
   // Static assets no photographed screen renders: the service worker, the PWA
   // manifest, the licence dump, and the icons that live in a browser chrome the
   // capture crops away. (`logo-*.svg` is NOT here — the sidebar draws it.)
