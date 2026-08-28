@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-terminal-inline-images`,
+    date: `2026-08-28`,
+    title: `Inline images in the terminal`,
+    summary: `Full-screen terminal programs that draw with images now render in the right place, stay sharp, and no longer grow the app's memory while they run.`,
+    body: `- **Placed where you put them**: an image drawn by a full-screen program used to land below the visible area once that program had scrolled its own output, showing a black pane instead. Images now anchor to the row they were placed on.
+- **Steady memory**: programs that push a fresh image every frame release the old one, so a long-running one no longer grows the app's texture memory without bound.
+- **Correctly scaled**: the terminal now tells programs the pixel size of a character cell, which is what image-aware tools read to scale their output. Without it they drew unscaled.`,
+  },
+  {
     id: `2026-08-compat-retirement`,
     date: `2026-08-28`,
     title: `Older app builds retire`,
