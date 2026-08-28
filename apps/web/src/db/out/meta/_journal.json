@@ -624,6 +624,13 @@
       "when": 1787941731714,
       "tag": "0088_windy_triathlon",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1787945949756,
+      "tag": "0089_remarkable_paladin",
+      "breakpoints": true
     }
   ]
 }
