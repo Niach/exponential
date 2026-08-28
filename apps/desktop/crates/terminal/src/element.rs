@@ -806,7 +806,14 @@ fn snapshot_content(
         cell_height: f32::from(geometry.line_height),
         origin_x: f32::from(geometry.origin.x),
         origin_y: f32::from(geometry.origin.y),
-        history_size: term.history_size() as i64,
+        // Placements anchor in rio's ABSOLUTE row space, which starts at
+        // the lines the grid has EVICTED (scrolled past its scrollback cap
+        // or, on the alt screen with no scrollback at all, scrolled off),
+        // not at the live history: `dest_row = lines_evicted + history +
+        // row`. Feeding history alone put a full-screen TUI's image
+        // `lines_evicted` rows below the viewport once its startup log had
+        // scrolled the alt screen (terminal-doom → black pane).
+        history_size: term.grid.lines_evicted() as i64 + term.history_size() as i64,
         display_offset: display_offset as i64,
         screen_lines: rows as i64,
     };
@@ -893,16 +900,29 @@ pub(crate) fn graphic_to_frame(data: &GraphicData) -> Option<image::Frame> {
 #[derive(Default)]
 pub(crate) struct ImageCache {
     images: HashMap<u64, Arc<RenderImage>>,
+    /// Textures rio freed (its 320MB kitty quota evicting, `a=d,d=I`, a
+    /// retransmit under the same id) that the sprite atlas still holds
+    /// until [`Window::drop_image`] runs at the next prepaint. Without this
+    /// hand-off a frame-per-image client (terminal-doom uploads a fresh id
+    /// ~35×/s and never deletes) grows the atlas without bound.
+    dropped: Vec<Arc<RenderImage>>,
 }
 
 impl ImageCache {
     pub(crate) fn apply(&mut self, update: GraphicsUpdate) {
         for key in update.removed {
-            self.images.remove(&key);
+            if let Some(image) = self.images.remove(&key) {
+                self.dropped.push(image);
+            }
         }
         for (key, data) in &update.images {
             self.insert(*key, data);
         }
+    }
+
+    /// Textures to release from the sprite atlas, drained by the paint side.
+    pub(crate) fn take_dropped(&mut self) -> Vec<Arc<RenderImage>> {
+        std::mem::take(&mut self.dropped)
     }
 
     pub(crate) fn insert(&mut self, key: u64, data: &GraphicData) {
@@ -910,7 +930,9 @@ impl ImageCache {
             log::debug!("terminal image {key}: unexpected pixel buffer, skipped");
             return;
         };
-        self.images.insert(key, Arc::new(RenderImage::new(vec![frame])));
+        if let Some(previous) = self.images.insert(key, Arc::new(RenderImage::new(vec![frame]))) {
+            self.dropped.push(previous);
+        }
     }
 
     pub(crate) fn contains(&self, key: u64) -> bool {
@@ -1400,6 +1422,12 @@ impl Element for TerminalElement {
                     let layer = if placement.above_text { &mut above } else { &mut below };
                     let image_bounds = full_image_bounds(placement.bounds, placement.source_rect);
                     layer.push((placement.bounds, image_bounds, image));
+                }
+            }
+            // Release atlas tiles for textures rio has freed since last frame.
+            for image in cache.take_dropped() {
+                if let Err(error) = window.drop_image(image) {
+                    log::debug!("terminal inline image drop failed: {error}");
                 }
             }
             (below, above)
@@ -2168,6 +2196,29 @@ mod tests {
         assert_eq!(snapshot.missing_images[0].0, kitty_image_key(1));
     }
 
+    /// A placement made after the alt screen scrolled (no scrollback, so
+    /// every scrolled line is EVICTED) must still land at its viewport row:
+    /// rio anchors `dest_row` at `lines_evicted + history + row`.
+    #[test]
+    fn kitty_placement_survives_evicted_alt_screen_lines() {
+        let mut emulator = Emulator::new(20, 4);
+        emulator.enable_graphics();
+        // Enter the alt screen, scroll ten lines off it, then place at home.
+        emulator.advance_bytes(b"\x1b[?1049h");
+        emulator.advance_bytes(b"1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8\r\n9\r\n10\r\n11\r\n12\r\n13\r\n14\r\n");
+        emulator.advance_bytes(b"\x1b[1;1H");
+        emulator.advance_bytes(KITTY_RED_4X2_CELLS);
+        {
+            let term = emulator.term();
+            let term = term.lock();
+            assert!(term.grid.lines_evicted() >= 10, "fixture must evict lines");
+            assert_eq!(term.history_size(), 0, "alt screen keeps no history");
+        }
+        let snapshot = snapshot(&emulator);
+        assert_eq!(snapshot.images.len(), 1, "placement dropped: {:?}", snapshot.images);
+        assert_eq!(snapshot.images[0].bounds.origin, point(px(0.0), px(0.0)));
+    }
+
     #[test]
     fn image_cache_uploads_bgra_frames_and_frees_on_remove() {
         let mut emulator = Emulator::new(20, 4);
@@ -2185,6 +2236,20 @@ mod tests {
         assert_eq!(&bytes[..4], &[0, 0, 255, 255], "red arrives as BGRA");
         cache.apply(GraphicsUpdate { images: Vec::new(), removed: vec![kitty_image_key(1)] });
         assert_eq!(cache.len(), 0);
+        // The freed texture is handed to the paint side for `drop_image`.
+        assert_eq!(cache.take_dropped().len(), 1);
+        assert!(cache.take_dropped().is_empty(), "drained once");
+    }
+
+    /// The PTY winsize carries the pixel extent pixel-aware TUIs read via
+    /// `TIOCGWINSZ` (libvaxis scales kitty images by it).
+    #[test]
+    fn pty_winsize_reports_pixel_extent() {
+        let size = crate::pty::winsize(120, 40, (7, 15));
+        assert_eq!((size.cols, size.rows), (120, 40));
+        assert_eq!((size.pixel_width, size.pixel_height), (840, 600));
+        let huge = crate::pty::winsize(u16::MAX, u16::MAX, (1000, 1000));
+        assert_eq!((huge.pixel_width, huge.pixel_height), (u16::MAX, u16::MAX), "clamped");
     }
 
     #[test]

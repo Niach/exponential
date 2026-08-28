@@ -517,7 +517,7 @@ fn supervise(
             }
             Event::Control(Control::Resize(cols, rows)) => {
                 if cols > 0 && rows > 0 {
-                    let _ = pty.resize(cols, rows);
+                    let _ = pty.resize(cols, rows, emulator.cell_px());
                     emulator.resize(cols, rows);
                 }
             }

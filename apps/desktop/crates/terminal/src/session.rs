@@ -82,7 +82,7 @@ impl Terminal {
         // TIOCSWINSZ fails (master gone after child exit): the element retries
         // on every prepaint until `size()` matches, so leaving the emulator
         // stale would warn-log every frame forever.
-        let pty_result = self.pty.resize(cols, rows);
+        let pty_result = self.pty.resize(cols, rows, self.emulator.cell_px());
         self.emulator.resize(cols, rows);
         pty_result
     }
@@ -91,7 +91,16 @@ impl Terminal {
     /// size so CSI 14t/16t answer in pixels and sixel/kitty placements size
     /// correctly. A no-op when unchanged.
     pub fn set_cell_px(&mut self, width: u32, height: u32) {
+        let before = self.emulator.cell_px();
         self.emulator.set_cell_px(width, height);
+        let after = self.emulator.cell_px();
+        if after != before {
+            // The child's `TIOCGWINSZ` pixel pair must track the real
+            // metrics too (pixel-aware TUIs scale images by it); a failed
+            // TIOCSWINSZ here means the master is gone — nothing to inform.
+            let (cols, rows) = self.emulator.size();
+            let _ = self.pty.resize(cols, rows, after);
+        }
     }
 
     /// Retain decoded image pixels for painting (EXP-636). Off by default so
