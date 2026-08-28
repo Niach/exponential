@@ -673,7 +673,7 @@ struct ActionsListView: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 // EXP-583: what "Use suggestion" will set up.
-                Text(suggestion.automation == nil ? "Action" : "Action + automation")
+                Text(suggestion.automation == nil ? "Action" : "Automation")
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .padding(.horizontal, 6)
