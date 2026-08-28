@@ -96,18 +96,29 @@ pub struct Pty {
     process_id: Option<u32>,
 }
 
-/// Open a PTY at `cols`×`rows` and spawn `spec` with the slave as its
-/// controlling tty (§6.3).
-pub fn open(spec: &SpawnSpec, cols: u16, rows: u16) -> anyhow::Result<Pty> {
-    let cmd = build_command(spec);
-    let pair = native_pty_system().openpty(PtySize {
+/// The winsize the kernel hands a `TIOCGWINSZ` caller: cells plus the pixel
+/// extent those cells cover. Pixel-aware TUIs (libvaxis, chafa, timg, …)
+/// read `ws_xpixel`/`ws_ypixel` to size and scale inline images — with the
+/// pixel pair left at 0 they never learn the cell size (rio-vt has no
+/// in-band resize) and either fall back to unscaled output or divide by
+/// zero. The emulator's `cell_px` is the source of truth (§6.3).
+pub fn winsize(cols: u16, rows: u16, cell_px: (u32, u32)) -> PtySize {
+    let clamp = |px: u32| px.min(u16::MAX as u32) as u16;
+    PtySize {
         rows,
         cols,
-        // Character cells only — TUIs wanting pixel geometry (sixel) are out
-        // of scope for v1 (§6.3).
-        pixel_width: 0,
-        pixel_height: 0,
-    })?;
+        pixel_width: clamp(cols as u32 * cell_px.0),
+        pixel_height: clamp(rows as u32 * cell_px.1),
+    }
+}
+
+/// Open a PTY at `cols`×`rows` and spawn `spec` with the slave as its
+/// controlling tty (§6.3). The pixel extent starts at the emulator's
+/// default cell size; the paint side corrects it via [`Pty::resize`] once
+/// it knows the real metrics.
+pub fn open(spec: &SpawnSpec, cols: u16, rows: u16) -> anyhow::Result<Pty> {
+    let cmd = build_command(spec);
+    let pair = native_pty_system().openpty(winsize(cols, rows, crate::emulator::DEFAULT_CELL_PX))?;
     let child = pair
         .slave
         .spawn_command(cmd)
@@ -152,8 +163,9 @@ impl Pty {
 
     /// Resize the PTY winsize — portable-pty issues TIOCSWINSZ, which delivers
     /// **SIGWINCH** to the child so `claude`/`vim` reflow (§6.10 step 1).
-    pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
-        self.master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })?;
+    /// `cell_px` fills the pixel pair (see [`winsize`]).
+    pub fn resize(&self, cols: u16, rows: u16, cell_px: (u32, u32)) -> anyhow::Result<()> {
+        self.master.resize(winsize(cols, rows, cell_px))?;
         Ok(())
     }
 
