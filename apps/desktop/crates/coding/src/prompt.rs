@@ -89,13 +89,19 @@ pub fn deliver_prompt_file(
 /// batch, action, chat and the two builtins), so a run always leaves a clean
 /// worktree and a summary the team can read on the run row.
 ///
-/// Decision 6 is spelled out on purpose: an agent that merges its own PR
-/// keeps running server-side, and would otherwise assume the merge ended it.
+/// EXP-673: the report is not a goodbye. The server ends the run on that
+/// call ONLY when an automation started it; a run a person started stays
+/// open for their replies — and an agent that was not told so signs off
+/// and sits there. The tool result says which happened, but the prompt
+/// sets the expectation up front. Decision 6 is spelled out on purpose: an
+/// agent that merges its own PR keeps running server-side, and would
+/// otherwise assume the merge ended it.
 pub const RUN_CLOSE_OUT: &str = "Before you finish, leave the worktree clean: commit and push \
 everything you keep, discard anything you don't (`git checkout -- .`, `git clean -fd` for files \
-you created). Then call the `exponential_sessions_end` MCP tool with a one-paragraph summary and \
-outcome `done` (PR open or work complete), `blocked`, or `no_changes`. Merging your own PR does \
-not end the session; `exponential_sessions_end` does.";
+you created). Then report with the `exponential_sessions_end` MCP tool: a one-paragraph summary \
+and outcome `done` (PR open or work complete), `blocked`, or `no_changes`. That call ends the \
+session only when an automation started this run; a run a person started stays open afterwards, \
+so keep answering their follow-ups here. Merging your own PR never ends the session.";
 
 /// Render the seed prompt: the §7.1 step-5 instruction paragraph, then the
 /// issue context block it tells Claude to read. No plan-gate sentence —
@@ -174,9 +180,11 @@ request by calling the `exponential_pr_open` MCP tool. Opening the PR \
 moves the issue to `in_review` automatically, and merging it later completes it to \
 `done` — you do not set the issue status yourself. Do not use `gh`. Before you finish, leave the \
 worktree clean: commit and push everything you keep, discard anything you don't (`git checkout -- \
-.`, `git clean -fd` for files you created). Then call the `exponential_sessions_end` MCP tool with \
-a one-paragraph summary and outcome `done` (PR open or work complete), `blocked`, or `no_changes`. \
-Merging your own PR does not end the session; `exponential_sessions_end` does.
+.`, `git clean -fd` for files you created). Then report with the `exponential_sessions_end` MCP \
+tool: a one-paragraph summary and outcome `done` (PR open or work complete), `blocked`, or \
+`no_changes`. That call ends the session only when an automation started this run; a run a person \
+started stays open afterwards, so keep answering their follow-ups here. Merging your own PR never \
+ends the session.
 
 ## Issue context
 

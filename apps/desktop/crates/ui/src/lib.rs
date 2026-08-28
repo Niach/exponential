@@ -52,7 +52,6 @@ mod file_tree;
 mod file_viewer;
 mod filter_bar;
 mod filter_popover;
-mod ended_runs;
 mod getting_started;
 mod graceful_stop;
 mod github_connect;

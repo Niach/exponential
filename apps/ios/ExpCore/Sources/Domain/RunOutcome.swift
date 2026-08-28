@@ -1,8 +1,9 @@
 import Foundation
 
-/// EXP-637: how an ENDED coding session reads once the agent closed it out
-/// itself (`exponential_sessions_end` stamps `summary` + `outcome` and
-/// `ended_by = agent`).
+/// EXP-637: how an ENDED coding session reads once the agent reported its
+/// close-out (`exponential_sessions_end` stamps `summary` + `outcome`; since
+/// EXP-673 it ENDS only an automation-started run — a person-started one
+/// reports first and ends later, with its tab).
 ///
 /// The labels are byte-identical across web (`lib/coding-session-display.ts`
 /// `sessionOutcomeLabel`), desktop (`ended_runs.rs`), Android
@@ -22,11 +23,15 @@ public enum RunOutcomePresentation {
         }
     }
 
-    /// Whether the row carries an agent-declared close-out — the rule the runs
+    /// Whether an ENDED row carries the agent's close-out — the rule the runs
     /// lists filter on. Those are the rows with a summary worth expanding.
-    public static func isAgentEnded(_ session: CodingSessionEntity) -> Bool {
+    /// Keyed on `outcome` (its only writer is `exponential_sessions_end`),
+    /// NOT on `ended_by` (EXP-673): a person-started run's end is the tab
+    /// close or kill that came after its report. Mirrored on web
+    /// (`use-agents-data.ts`) and Android (`recentRunRows`).
+    public static func hasCloseOut(_ session: CodingSessionEntity) -> Bool {
         session.status == DomainContract.codingSessionStatusEnded
-            && session.endedBy == DomainContract.codingSessionEndedByAgent
+            && session.outcome != nil
     }
 }
 

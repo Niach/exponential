@@ -131,15 +131,17 @@ final class AgentsViewModel {
             } catch {}
         }
 
-        // EXP-637: the finished runs behind "Recent runs" — only the ones the
-        // AGENT closed out itself (`exponential_sessions_end`), which are the
-        // rows carrying a summary and an outcome. A run killed from the phone,
-        // closed with its tab or ended by a merge has neither and would list
-        // as a bare "Ended".
+        // EXP-637: the finished runs behind "Recent runs" — only the ones
+        // carrying the AGENT's close-out (`exponential_sessions_end` is the
+        // sole writer of `outcome`). A run killed from the phone, closed with
+        // its tab or ended by a merge WITHOUT a report has none and would list
+        // as a bare "Ended". Keyed on the outcome, not `ended_by` (EXP-673):
+        // a person-started run reports first and ends later, with its tab.
+        // Same rule as `RunOutcomePresentation.hasCloseOut`.
         let endedObservation = ValueObservation.tracking { db in
             try CodingSessionEntity
                 .filter(Column("status") == DomainContract.codingSessionStatusEnded)
-                .filter(Column("ended_by") == DomainContract.codingSessionEndedByAgent)
+                .filter(Column("outcome") != nil)
                 .fetchAll(db)
         }
         endedTask = Task { [weak self] in

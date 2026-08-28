@@ -1920,7 +1920,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_end`,
     {
-      description: `End your coding session with a close-out the team sees on the run: a one-paragraph 'summary' of what you did and an 'outcome' of 'done' (PR open or work complete), 'blocked' (you stopped and a human is needed) or 'no_changes' (nothing needed changing). Leave the worktree clean first, then call this LAST, after exponential_pr_open. Merging your own PR does not end the session; this does. Works only inside a session started by the Exponential launcher.`,
+      description: `Report your run's close-out, shown on the run to the team: a one-paragraph 'summary' of what you did and an 'outcome' of 'done' (PR open or work complete), 'blocked' (you stopped and a human is needed) or 'no_changes' (nothing needed changing). Leave the worktree clean first and call it after exponential_pr_open. It ENDS the session only when an automation started the run; a run a person started stays open afterwards so they can reply, so keep answering their follow-ups in this conversation. Merging your own PR never ends the session. Works only inside a session started by the Exponential launcher.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: {
         summary: z.string().min(1).max(4_000),
@@ -1938,12 +1938,21 @@ export function registerExponentialTools(
         }
         // Ownership is enforced inside endSessionByAgent (owner or host),
         // which also makes a repeated call idempotent instead of blanking an
-        // earlier close-out.
+        // earlier close-out. EXP-673: it ends only an automation-started
+        // run — a person-started one stays live, and the agent is told so in
+        // words, not just a flag, so it keeps the conversation going.
         const result = await endSessionByAgent(db, sessionId, user.id, {
           summary,
           outcome,
         })
-        return ok(result)
+        return ok(
+          result.keptOpen
+            ? {
+                ...result,
+                note: `Close-out recorded. A person started this run, so the session stays open: keep answering their follow-ups here rather than exiting.`,
+              }
+            : result
+        )
       } catch (e) {
         return err(e)
       }
@@ -2067,7 +2076,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_kill`,
     {
-      description: `Abort a live coding session you own or host: the row flips to ended (endedBy user) and the device tears the agent down. Idempotent. Never your own run — that ends via exponential_sessions_end.`,
+      description: `Abort a live coding session you own or host: the row flips to ended (endedBy user) and the device tears the agent down. Idempotent. Never your own run — that reports via exponential_sessions_end.`,
       inputSchema: { id: uuidString },
     },
     async ({ id }) => {
@@ -2077,7 +2086,7 @@ export function registerExponentialTools(
         // close-out — refuse and point at the proper exit.
         if (sessionId && id === sessionId) {
           throw new Error(
-            `That is your own session: finish it with exponential_sessions_end instead of killing it.`
+            `That is your own session: report with exponential_sessions_end instead of killing it.`
           )
         }
         if (!access.full) {

@@ -28,6 +28,7 @@ class AgentRowsTest {
         endedBy: String? = null,
         endedAt: String? = null,
         startedAt: String = "2026-07-17T09:00:00Z",
+        outcome: String? = null,
     ) = CodingSessionEntity(
         id = id,
         issueId = issueId,
@@ -37,12 +38,13 @@ class AgentRowsTest {
         branch = branch,
         endedBy = endedBy,
         endedAt = endedAt,
+        outcome = outcome,
         startedAt = startedAt,
         createdAt = startedAt,
         updatedAt = updatedAt,
     )
 
-    // An ENDED run the agent closed out itself — what "Recent runs" lists.
+    // An ENDED run carrying the agent's close-out — what "Recent runs" lists.
     private fun endedRun(
         id: String,
         userId: String = "me",
@@ -51,6 +53,7 @@ class AgentRowsTest {
         endedBy: String? = "agent",
         endedAt: String? = "2026-07-17T11:00:00Z",
         startedAt: String = "2026-07-17T09:00:00Z",
+        outcome: String? = "done",
     ) = session(
         id = id,
         userId = userId,
@@ -60,6 +63,7 @@ class AgentRowsTest {
         endedBy = endedBy,
         endedAt = endedAt,
         startedAt = startedAt,
+        outcome = outcome,
     )
 
     private fun issue(
@@ -342,30 +346,35 @@ class AgentRowsTest {
     // ── EXP-637: the "Recent runs" list ────────────────────────────────────
 
     @Test
-    fun `lists only the caller's own agent-closed runs in this team`() {
+    fun `lists only the caller's own reported runs in this team`() {
         val rows = recentRunRows(
             sessions = listOf(
                 endedRun("mine"),
+                // EXP-673: a person-started run reports, then ends with its
+                // tab (or a kill) — the report still lists.
+                endedRun("mine-closed-later", endedBy = "client"),
                 endedRun("theirs", userId = "teammate"),
                 endedRun("elsewhere", teamId = "team-2"),
-                // Killed, merged or swept — not a report the agent wrote.
-                endedRun("killed", endedBy = "user"),
-                endedRun("merged", endedBy = "merge"),
-                // Pre-EXP-637 rows carry no ended_by at all.
-                endedRun("legacy", endedBy = null),
+                // Killed, merged or swept WITHOUT a report the agent wrote.
+                endedRun("killed", endedBy = "user", outcome = null),
+                endedRun("merged", endedBy = "merge", outcome = null),
+                // Pre-EXP-637 rows carry neither.
+                endedRun("legacy", endedBy = null, outcome = null),
             ),
             issues = emptyList(),
             currentUserId = "me",
             teamId = "team-1",
         )
-        assertEquals(listOf("mine"), rows.map { it.session.id })
+        assertEquals(listOf("mine", "mine-closed-later"), rows.map { it.session.id })
     }
 
     @Test
     fun `a still-live run is never a recent run`() {
         val rows = recentRunRows(
             sessions = listOf(
-                session("running", userId = "me", endedBy = "agent"),
+                // EXP-673: a person-started run that has reported but is
+                // still open for replies.
+                session("running", userId = "me", outcome = "done"),
                 endedRun("done"),
             ),
             issues = emptyList(),

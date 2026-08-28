@@ -235,14 +235,17 @@ export function useAgentsData(
       )
       .map(toRow)
 
-    // EXP-637: the caller's own runs that the AGENT closed out — the only
-    // ended rows with a summary and an outcome to show. Rows killed, exited
-    // or swept carry nothing worth a "Recent runs" entry, so they stay out.
-    // Newest-ended first, capped at ten.
+    // EXP-637: the caller's own ended runs that carry the AGENT's close-out
+    // (`outcome`, written only by `exponential_sessions_end`). Rows killed,
+    // exited or swept without one carry nothing worth a "Recent runs" entry,
+    // so they stay out. Keyed on the outcome, not `endedBy` (EXP-673): a
+    // person-started run reports first and ends later, with its tab — that
+    // end is `client`, and the report must still list. Newest-ended first,
+    // capped at ten. Mirrored on iOS (`RunOutcomePresentation.hasCloseOut`)
+    // and Android (`recentRunRows`).
     const recent = sessions
       .filter(
-        (session) =>
-          session.status === `ended` && session.endedBy === `agent`
+        (session) => session.status === `ended` && session.outcome !== null
       )
       .sort(
         (a, b) =>
