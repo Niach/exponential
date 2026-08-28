@@ -6,6 +6,7 @@ import {
   useTeamUsers,
 } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
+import { byCreatedAtDesc } from "@/lib/ordering"
 import type { OpenPull } from "@/lib/integrations/github-pr"
 import type { Issue, Board, Team } from "@/db/schema"
 
@@ -126,10 +127,7 @@ export function useReviewsData(team: Team | null | undefined) {
 
     const byBoard = new Map<string, ReviewEntry[]>()
     for (const entry of entriesByKey.values()) {
-      entry.issues.sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      )
+      entry.issues.sort(byCreatedAtDesc)
       entry.issue = entry.issues[0]
       // A batch PR's issues may span boards sharing one repo — the entry
       // lives under the representative (newest) issue's board.
@@ -146,11 +144,7 @@ export function useReviewsData(team: Team | null | undefined) {
     for (const board of boards) {
       const bucket = byBoard.get(board.id)
       if (!bucket) continue
-      bucket.sort(
-        (a, b) =>
-          new Date(b.issue.createdAt).getTime() -
-          new Date(a.issue.createdAt).getTime()
-      )
+      bucket.sort((a, b) => byCreatedAtDesc(a.issue, b.issue))
       groups.push({ board, entries: bucket })
     }
 

@@ -52,6 +52,7 @@ import { ActionsPane } from "@/components/launch-dialog/actions-pane"
 import { ChatPane } from "@/components/launch-dialog/chat-pane"
 import { LaunchOptionsPane } from "@/components/launch-dialog/launch-options-pane"
 import { useLaunchOptions } from "@/components/launch-dialog/use-launch-options"
+import { byCreatedAtDesc } from "@/lib/ordering"
 
 // The unified launch dialog (EXP-257) — Issues | Actions | Chat tabs over ONE
 // shared options cluster, the web twin of the desktop IDE's launcher.
@@ -279,10 +280,7 @@ export function LaunchDialog({
             CODEABLE_STATUSES.has(issue.status) &&
             !runningIssueIds.has(issue.id)
         )
-        .sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        ),
+        .sort(byCreatedAtDesc),
     [issueRows, runningIssueIds]
   )
 
@@ -292,10 +290,7 @@ export function LaunchDialog({
       [...selected]
         .map((id) => allById.get(id))
         .filter((i): i is Issue => Boolean(i))
-        .sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        ),
+        .sort(byCreatedAtDesc),
     [selected, allById]
   )
 

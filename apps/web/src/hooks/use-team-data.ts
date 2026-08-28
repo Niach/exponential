@@ -167,12 +167,24 @@ export function useTeamUsers(teamId?: string) {
         ? query
             .from({ members: teamMemberCollection })
             .where(({ members }) => eq(members.teamId, teamId))
+            // Join order, then id (EXP-668). Without an ORDER BY at all this
+            // list came back in whatever order Electric happened to hold the
+            // rows in, so the team roster reshuffled itself between syncs —
+            // the members settings screenshot was observed listing the same
+            // four people in exactly reversed order on consecutive runs.
+            .orderBy(({ members }) => members.createdAt)
+            .orderBy(({ members }) => members.id)
         : undefined,
     [teamId]
   )
 
   const { data: allUsers } = useLiveQuery((query) =>
-    query.from({ users: userCollection })
+    // Name, then id (EXP-668) — `users` feeds the assignee and mention
+    // pickers, which have no order of their own to fall back on.
+    query
+      .from({ users: userCollection })
+      .orderBy(({ users }) => users.name)
+      .orderBy(({ users }) => users.id)
   )
 
   const users = useMemo(() => {
@@ -203,6 +215,10 @@ export function useTeamInvites(teamId?: string) {
         ? query
             .from({ invites: teamInviteCollection })
             .where(({ invites }) => eq(invites.teamId, teamId))
+            // Newest invite first, then id (EXP-668) — unordered, the pending
+            // list reshuffled on every sync exactly like the roster did.
+            .orderBy(({ invites }) => invites.createdAt, `desc`)
+            .orderBy(({ invites }) => invites.id)
         : undefined,
     [teamId]
   )

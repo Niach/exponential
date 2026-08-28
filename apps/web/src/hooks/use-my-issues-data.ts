@@ -58,6 +58,8 @@ export function useMyIssuesData({
               )
             )
             .orderBy(({ issues }) => issues.createdAt)
+            // Equal timestamps must not reorder between syncs (EXP-668).
+            .orderBy(({ issues }) => issues.id)
         : undefined,
     [assignee, boardIds.join(`,`)]
   )
