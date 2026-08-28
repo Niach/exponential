@@ -60,7 +60,18 @@
         In the editor, pick the <b>Crop</b> tool and drag a rectangle: the
         dimmed region is trimmed on submit, annotations stay editable and
         offset correctly, and <b>Remove crop</b> undoes it. Cancelling straight
-        out of a fresh capture discards it.</p>
+        out of a fresh capture discards it. Set the delay segment next to
+        <b>Take screenshot</b> to 3s or 5s, then open the popup below during
+        the countdown: it must be in the shot, the countdown pill must not.</p>
+      </div>
+      <div style="position:relative;display:inline-block;margin-bottom:16px">
+        <button id="open-popup" style="position:relative;z-index:5;padding:8px 12px">
+          Open a popup (closes on outside click)
+        </button>
+        <div id="popup" hidden class="card" style="position:absolute;top:100%;left:0;margin-top:6px;min-width:220px;z-index:6">
+          <p style="margin:0 0 8px"><b>Transient popup</b></p>
+          <p style="margin:0">Only a delayed capture can catch this.</p>
+        </div>
       </div>
       <button id="open-above" style="position:relative;z-index:5;padding:8px 12px">
         Simulate a modal (pointer-events:none on body). Launcher must stay clickable.
@@ -133,6 +144,17 @@
         themeIndex = (themeIndex + 1) % themeCycle.length
         ExponentialWidget.setTheme(themeCycle[themeIndex])
         this.textContent = 'setTheme("' + themeCycle[themeIndex] + '") applied'
+      })
+
+      // A click-to-open popup that any outside click closes — the delayed
+      // capture (FEED-18) exists for exactly this kind of UI.
+      var popup = document.getElementById("popup")
+      document.getElementById("open-popup").addEventListener("click", function (event) {
+        event.stopPropagation()
+        popup.hidden = !popup.hidden
+      })
+      document.addEventListener("click", function () {
+        popup.hidden = true
       })
 
       // Prove the launcher works while the host page disables body pointer

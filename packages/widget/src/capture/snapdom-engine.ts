@@ -16,7 +16,8 @@ function pageBackgroundColor(): string {
 
 export const snapdomEngine: CaptureEngine = {
   name: `snapdom`,
-  async capture({ excludeSelectors, keepNode, dpr }) {
+  async capture({ excludeSelectors, keepNode, dpr, beforeFrame }) {
+    await beforeFrame()
     return await snapdom.toCanvas(document.body, {
       fast: true,
       dpr,

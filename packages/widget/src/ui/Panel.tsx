@@ -27,6 +27,18 @@ function PoweredBy() {
 }
 const checkIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>`
 const backIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>`
+// Lucide `timer`, inlined like the rest (the widget bundles no icon set).
+const timerIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>`
+
+// Capture delay (FEED-18): the seconds the shot is held so the reporter can
+// open a menu/popup first; 0 = capture immediately. Cycled by the segment
+// attached to the Take screenshot chip.
+export type CaptureDelay = 0 | 3 | 5
+export const captureDelayCycle: CaptureDelay[] = [0, 3, 5]
+
+function captureDelayLabel(delay: CaptureDelay): string {
+  return delay === 0 ? `Off` : `${delay}s`
+}
 
 // Which pane the panel shows: the card home (only when both modes are
 // enabled) or one of the two forms directly.
@@ -89,6 +101,10 @@ export function Panel(props: {
   // The engine (native display capture vs snapDOM raster) is the caller's
   // concern (EXP-488); the panel shows one chip either way.
   onCapture(): void
+  // Delayed capture (FEED-18): the current hold and the cycle control's
+  // handler. Retake reuses the same delay.
+  captureDelay: CaptureDelay
+  onCycleCaptureDelay(): void
   onRetake(): void
   onAnnotate(): void
   onRemoveScreenshot(): void
@@ -560,13 +576,30 @@ export function Panel(props: {
                     : `Attach a screenshot of this page.`}
                 </span>
                 <div className="exp-shot-empty-actions">
-                  <button
-                    type="button"
-                    className="exp-chip"
-                    onClick={props.onCapture}
-                  >
-                    {props.captureFailed ? `Try again` : `Take screenshot`}
-                  </button>
+                  <div className="exp-chip-group">
+                    <button
+                      type="button"
+                      className="exp-chip"
+                      onClick={props.onCapture}
+                    >
+                      {props.captureFailed ? `Try again` : `Take screenshot`}
+                    </button>
+                    <button
+                      type="button"
+                      className="exp-chip exp-chip-delay"
+                      aria-pressed={props.captureDelay > 0}
+                      aria-label={`Screenshot delay: ${captureDelayLabel(props.captureDelay)}`}
+                      title="Delay the capture to catch menus and popups"
+                      onClick={props.onCycleCaptureDelay}
+                    >
+                      <span
+                        style={{ display: `flex` }}
+                        // eslint-disable-next-line react/no-danger
+                        dangerouslySetInnerHTML={{ __html: timerIconSvg }}
+                      />
+                      {captureDelayLabel(props.captureDelay)}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

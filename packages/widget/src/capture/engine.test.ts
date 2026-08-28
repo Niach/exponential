@@ -54,6 +54,17 @@ describe(`captureScreenshot`, () => {
     await expect(captureScreenshot(engine)).resolves.toBeNull()
   })
 
+  it(`resolves null when the engine's beforeFrame hold is followed by a throw`, async () => {
+    const engine: CaptureEngine = {
+      name: `boom-after-hold`,
+      capture: async ({ beforeFrame }) => {
+        await beforeFrame()
+        throw new Error(`boom`)
+      },
+    }
+    await expect(captureScreenshot(engine)).resolves.toBeNull()
+  })
+
   it(`resolves null when the engine hangs past the timeout`, async () => {
     vi.useFakeTimers()
     try {
@@ -94,6 +105,52 @@ describe(`captureScreenshot`, () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  // FEED-18: the reporter's hold is added on top of the engine's budget, and
+  // the engine receives it as the beforeFrame hook it awaits at the last
+  // moment (so display-media can run it after the picker).
+  it(`extends the timeout by the capture delay and hands the hold to the engine`, async () => {
+    vi.useFakeTimers()
+    try {
+      const onCountdown = vi.fn()
+      let resolveCapture: (canvas: HTMLCanvasElement) => void = () => {}
+      const capture = vi.fn(
+        async (opts: Parameters<CaptureEngine[`capture`]>[0]) => {
+          await opts.beforeFrame()
+          return new Promise<HTMLCanvasElement>((resolve) => {
+            resolveCapture = resolve
+          })
+        }
+      )
+      const engine: CaptureEngine = { name: `held`, capture }
+      const result = captureScreenshot(engine, {
+        delayMs: 3_000,
+        onCountdown,
+      })
+      // The hold runs inside the engine call: 3 → 2 → 1 → 0.
+      await vi.advanceTimersByTimeAsync(3_500)
+      expect(onCountdown.mock.calls.map(([n]) => n)).toEqual([3, 2, 1, 0])
+      // 8s in: past the 6s default budget, inside 6s + 3s.
+      await vi.advanceTimersByTimeAsync(4_500)
+      resolveCapture(fakeCanvas())
+      await expect(result).resolves.toBeDefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`resolves beforeFrame at once when no delay is set`, async () => {
+    const onCountdown = vi.fn()
+    const capture = vi.fn(
+      async (opts: Parameters<CaptureEngine[`capture`]>[0]) => {
+        await opts.beforeFrame()
+        return fakeCanvas()
+      }
+    )
+    await captureScreenshot({ name: `plain`, capture }, { onCountdown })
+    expect(capture).toHaveBeenCalledTimes(1)
+    expect(onCountdown).not.toHaveBeenCalled()
   })
 
   // EXP-435: a precropped engine's frame is already the visible surface —

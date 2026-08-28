@@ -4,6 +4,7 @@ import {
   scaleToMaxEdge,
 } from "./image"
 import { isReadableIframe } from "./pii-mask"
+import { runCountdown } from "./countdown"
 
 // Engine abstraction: snapDOM and native display capture today, a marker.io
 // style server-side renderer can slot in later without touching the UI.
@@ -16,11 +17,24 @@ export interface CaptureEngine {
   // Interactive engines (surface picker) need far longer than the 6s
   // default a DOM raster gets.
   readonly captureTimeoutMs?: number
-  capture(opts: {
-    excludeSelectors: string[]
-    keepNode(el: Element): boolean
-    dpr: number
-  }): Promise<HTMLCanvasElement>
+  capture(opts: CaptureOptions): Promise<HTMLCanvasElement>
+}
+
+export interface CaptureOptions {
+  excludeSelectors: string[]
+  keepNode(el: Element): boolean
+  dpr: number
+  // Awaited at the last moment before the frame is taken — after any
+  // interactive step (the display-media picker) so a delayed capture
+  // (FEED-18) never outlives the click's transient user activation.
+  beforeFrame(): Promise<void>
+}
+
+export interface CaptureScreenshotOptions {
+  // Hold the frame this long so the reporter can open a menu/popup first.
+  delayMs?: number
+  // Whole seconds left, once per second, then 0 right before the frame.
+  onCountdown?(secondsLeft: number): void
 }
 
 const defaultCaptureTimeoutMs = 6_000
@@ -62,11 +76,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 // content, timeout, encoder trouble) resolves null and the form simply
 // proceeds without a screenshot.
 export async function captureScreenshot(
-  engine: CaptureEngine
+  engine: CaptureEngine,
+  options: CaptureScreenshotOptions = {}
 ): Promise<Blob | null> {
   try {
     const tainted = findTaintedCanvases()
     const bodyRect = document.body.getBoundingClientRect()
+    const delayMs = Math.max(0, options.delayMs ?? 0)
 
     const canvas = await withTimeout(
       engine.capture({
@@ -77,8 +93,11 @@ export async function captureScreenshot(
         // the pii-mask plugin can walk their text (see isReadableIframe).
         keepNode: (el) => !tainted.has(el) && !isReadableIframe(el),
         dpr: Math.min(window.devicePixelRatio || 1, 2),
+        beforeFrame: () => runCountdown(delayMs, options.onCountdown),
       }),
-      engine.captureTimeoutMs ?? defaultCaptureTimeoutMs
+      // The hold is the reporter's own time, not capture work — it must
+      // never eat into the engine's budget.
+      (engine.captureTimeoutMs ?? defaultCaptureTimeoutMs) + delayMs
     )
 
     // A precropped engine's frame IS the visible surface — cropping it with

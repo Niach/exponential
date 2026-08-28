@@ -229,6 +229,53 @@
 .exp-chip:hover { background: rgba(0, 0, 0, 0.85); }
 .exp-chip:focus-visible { outline: 2px solid var(--exp-foreground); }
 
+/* Split chip (FEED-18): Take screenshot + the attached delay segment. */
+.exp-chip-group {
+  display: inline-flex;
+}
+.exp-chip-group .exp-chip:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.exp-chip-delay {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 6px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 0;
+  color: rgba(250, 250, 250, 0.75);
+}
+.exp-chip-delay svg { width: 12px; height: 12px; }
+.exp-chip-delay[aria-pressed="true"] {
+  background: rgba(0, 0, 0, 0.9);
+  color: #fff;
+}
+
+/* Delayed-capture countdown (FEED-18): sits where the launcher was. */
+.exp-countdown {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-family: var(--exp-font);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  animation: exp-countdown-in 0.18s ease-out;
+}
+@keyframes exp-countdown-in {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: none; }
+}
+
 /* Reporter-attached pictures (FEED-5): thumbnail strip + add tile. */
 .exp-images {
   display: flex;
