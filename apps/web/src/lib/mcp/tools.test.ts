@@ -1139,6 +1139,7 @@ describe(`exponential_sessions_end`, () => {
       status: `ended`,
       outcome: `blocked`,
       alreadyEnded: false,
+      keptOpen: false,
     })
 
     const result = await collectTools(USER, SESSION).get(
@@ -1150,11 +1151,32 @@ describe(`exponential_sessions_end`, () => {
       status: `ended`,
       outcome: `blocked`,
       alreadyEnded: false,
+      keptOpen: false,
     })
     expect(endSessionByAgent).toHaveBeenCalledWith(db, SESSION, `user-1`, {
       summary: `Stuck on the migration.`,
       outcome: `blocked`,
     })
+  })
+
+  // EXP-673: a person-started run is NOT ended by its close-out — and the
+  // agent is told in prose, so it keeps answering instead of signing off.
+  it(`tells the agent when the close-out left the session open`, async () => {
+    vi.mocked(endSessionByAgent).mockResolvedValue({
+      sessionId: SESSION,
+      status: `running`,
+      outcome: `done`,
+      alreadyEnded: false,
+      keptOpen: true,
+    })
+
+    const result = await collectTools(USER, SESSION).get(
+      `exponential_sessions_end`
+    )!({ summary: `Shipped it.`, outcome: `done` })
+
+    const body = parseOk(result) as Record<string, unknown>
+    expect(body).toMatchObject({ status: `running`, keptOpen: true })
+    expect(body.note).toContain(`stays open`)
   })
 
   it(`surfaces a foreign session's refusal as a tool error`, async () => {

@@ -30,9 +30,6 @@ use terminal::{TabId, TerminalManager, TerminalManagerEvent};
 use crate::undock;
 
 pub(crate) struct UndockedTerminalWindow {
-    /// EXP-637: the ended strip's per-window "Show summary" toggle
-    /// (collapsed by default, decision 5).
-    summary_expanded: bool,
     manager: Entity<TerminalManager>,
     tab_id: TabId,
     /// The shell window whose dock owns the tab (reattach target).
@@ -97,7 +94,6 @@ impl UndockedTerminalWindow {
         }
 
         Self {
-            summary_expanded: false,
             manager,
             tab_id,
             origin,
@@ -186,31 +182,8 @@ impl Render for UndockedTerminalWindow {
         } else {
             body = body.child(div().flex_1());
         }
-        // EXP-637: the ended strip wins over the exit strip here too — an
-        // undocked run that its agent closed out shows the same close-out.
-        // The summary toggle keeps its own per-window state; Resume is
-        // offered from the docked strip (the resumed run opens a DOCKED tab,
-        // and moving the window under the user would be worse than the
-        // one extra click).
-        match crate::ended_runs::EndedRuns::get(self.tab_id, cx) {
-            Some(run) => {
-                let expanded = self.summary_expanded;
-                body = body.child(crate::terminal_dock::ended_strip(
-                    &run,
-                    expanded,
-                    cx.listener(|this, _, _, cx| {
-                        this.summary_expanded = !this.summary_expanded;
-                        cx.notify();
-                    }),
-                    |_, _, _| {},
-                    cx,
-                ));
-            }
-            None => {
-                if let Some(code) = exit_code {
-                    body = body.child(crate::terminal_dock::exit_strip(code, cx));
-                }
-            }
+        if let Some(code) = exit_code {
+            body = body.child(crate::terminal_dock::exit_strip(code, cx));
         }
 
         crate::window_frame::window_frame().child(

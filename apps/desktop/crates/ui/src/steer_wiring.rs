@@ -1466,33 +1466,29 @@ fn apply_steer_event(
     }
 }
 
-/// EXP-637 — what to do when a watched session's row flips to `ended`.
+/// EXP-637/EXP-673 — what to do when a watched session's row flips to
+/// `ended`. Every ended row closes its tab: an open tab under a run the
+/// server already ended is a leftover (EXP-673), and there are many of them
+/// once automations run unattended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EndPolicy {
-    /// Tear the tab down at once — the pre-EXP-637 behavior for every kill.
+    /// Tear the tab down at once — a kill, a client end, a merge, the sweep.
     CloseNow,
-    /// The agent declared its own run over on a machine nobody is watching
-    /// (an automation fired it): let the turn finish, then close the tab.
+    /// The agent declared its own run over (`exponential_sessions_end`): let
+    /// the turn finish (it is still writing the close-out that call was
+    /// about), then close the tab. Since EXP-673 the server ends a row on
+    /// that call ONLY for an automation-started run — a person-started run
+    /// stays live for their replies and never reaches here — so this is
+    /// always a tab nobody is watching.
     CloseAfterTurn,
-    /// The agent declared its own run over on a tab a PERSON opened: let the
-    /// turn finish, then keep the tab and show the ended strip (summary +
-    /// Resume). Closing it would throw away exactly what they asked for.
-    KeepStripAfterTurn,
 }
 
-/// The policy for one ended row. `automated` = the run was started by an
-/// automation (`coding_sessions.started_reason`), i.e. nobody is looking at
-/// the tab.
-pub(crate) fn ended_policy(ended_by: Option<&str>, automated: bool) -> EndPolicy {
-    if ended_by != Some(domain::contract::CODING_SESSION_ENDED_BY_AGENT) {
-        // A kill, a client end, a merge, the sweep — all of them mean "this
-        // run is over, now", exactly as before.
-        return EndPolicy::CloseNow;
-    }
-    if automated {
+/// The policy for one ended row.
+pub(crate) fn ended_policy(ended_by: Option<&str>) -> EndPolicy {
+    if ended_by == Some(domain::contract::CODING_SESSION_ENDED_BY_AGENT) {
         EndPolicy::CloseAfterTurn
     } else {
-        EndPolicy::KeepStripAfterTurn
+        EndPolicy::CloseNow
     }
 }
 
@@ -1505,10 +1501,7 @@ fn apply_ended(
     facts: sync::kill_watch::EndedFacts,
     cx: &mut App,
 ) -> bool {
-    let automated = crate::coding_flow::LocalSessions::global_ref(cx)
-        .map(|sessions| sessions.read(cx).is_automated(session_id))
-        .unwrap_or(false);
-    let policy = ended_policy(facts.ended_by.as_deref(), automated);
+    let policy = ended_policy(facts.ended_by.as_deref());
     log::info!("steer [{session_id}]: row ended ({:?}) → {policy:?}", facts.ended_by);
     let signal = PublisherRegistry::global_ref(cx).and_then(|registry| {
         registry
@@ -1528,37 +1521,6 @@ fn apply_ended(
                 &session_id.clone(),
                 signal,
                 move |cx| teardown_session(&session_id, &manager, tab, cx),
-                cx,
-            );
-        }
-        EndPolicy::KeepStripAfterTurn => {
-            // The strip goes up NOW (the run IS over server-side), while the
-            // child gets its turn to finish writing.
-            let resumable = crate::coding_flow::run_is_resumable(session_id, cx);
-            crate::ended_runs::EndedRuns::insert(
-                tab,
-                crate::ended_runs::EndedRun {
-                    session_id: session_id.to_string(),
-                    outcome: facts.outcome.clone(),
-                    summary: facts.summary.clone(),
-                    resumable,
-                    left_dirty: None,
-                },
-                cx,
-            );
-            // Detach the steer side immediately — the row is ended, so the
-            // publisher has nothing left to say — but KEEP the tab.
-            detach_publisher(session_id, Some("ended".to_string()), cx);
-            let session_id = session_id.to_string();
-            let manager = manager.clone();
-            crate::graceful_stop::after_turn(
-                &session_id.clone(),
-                signal,
-                move |cx| {
-                    if let Some(manager) = manager.upgrade() {
-                        manager.update(cx, |manager, cx| manager.kill_tab(tab, cx));
-                    }
-                },
                 cx,
             );
         }
@@ -1629,6 +1591,17 @@ pub fn detach_publisher(session_id: &str, outcome: Option<String>, cx: &mut App)
 
 #[cfg(test)]
 mod tests {
+    /// EXP-673: every ended row closes its tab. The agent's own close-out
+    /// waits out the turn (it is still writing); every other end is now.
+    #[test]
+    fn every_ended_row_closes_the_tab() {
+        use super::{ended_policy, EndPolicy};
+        assert_eq!(ended_policy(Some("agent")), EndPolicy::CloseAfterTurn);
+        for ended_by in [Some("user"), Some("client"), Some("merge"), Some("system"), None] {
+            assert_eq!(ended_policy(ended_by), EndPolicy::CloseNow, "{ended_by:?}");
+        }
+    }
+
     use super::*;
 
     fn subscriber(

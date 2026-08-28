@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TRPCError } from "@trpc/server"
 
-// EXP-637: the agent's own close-out. A structural fake db (recording the SET
-// values and the where clause) is enough — the where clause is asserted by
-// SHAPE, since a fake db cannot execute it (the coding-session-kill pattern).
+// EXP-637: the agent's own close-out; EXP-673: it ends only an
+// automation-started run. A structural fake db (recording the SET values and
+// the where clause) is enough — the where clause is asserted by SHAPE, since a
+// fake db cannot execute it (the coding-session-kill pattern).
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 
 import { endSessionByAgent } from "@/lib/coding-session-end"
@@ -60,7 +61,7 @@ beforeEach(() => {
 })
 
 describe(`endSessionByAgent`, () => {
-  it(`stamps the close-out, the agent end path and clears needsInput`, async () => {
+  it(`ends an automation-started run: stamps the close-out, the agent end path and clears needsInput`, async () => {
     selectResults.push([
       {
         id: SESSION,
@@ -68,6 +69,7 @@ describe(`endSessionByAgent`, () => {
         hostUserId: null,
         status: `running`,
         outcome: null,
+        startedReason: `schedule`,
       },
     ])
 
@@ -78,6 +80,7 @@ describe(`endSessionByAgent`, () => {
       status: `ended`,
       outcome: `done`,
       alreadyEnded: false,
+      keptOpen: false,
     })
     expect(updates[0]!.values).toMatchObject({
       status: `ended`,
@@ -96,7 +99,53 @@ describe(`endSessionByAgent`, () => {
     ])
   })
 
-  it(`closes an in_review run (its PR is already open)`, async () => {
+  // EXP-673: a person is (or may come back to be) on the other side of a
+  // run they started — the report lands, the conversation stays open.
+  it(`records the close-out but keeps a person-started run live`, async () => {
+    selectResults.push([
+      {
+        id: SESSION,
+        userId: `actor`,
+        hostUserId: null,
+        status: `running`,
+        outcome: null,
+        startedReason: null,
+      },
+    ])
+    updateReturning = [{ id: SESSION, status: `running`, outcome: `done` }]
+
+    const result = await endSessionByAgent(fakeDb, SESSION, `actor`, close)
+
+    expect(result).toEqual({
+      sessionId: SESSION,
+      status: `running`,
+      outcome: `done`,
+      alreadyEnded: false,
+      keptOpen: true,
+    })
+    // Summary + outcome only: no status flip, no ended stamp, no end path,
+    // and needsInput is left for the idle nudge to own.
+    expect(Object.keys(updates[0]!.values).sort()).toEqual([
+      `outcome`,
+      `summary`,
+      `updatedAt`,
+    ])
+    expect(updates[0]!.values).toMatchObject({
+      summary: `Shipped the fix.`,
+      outcome: `done`,
+    })
+    // Still status-fenced: a close-out racing a kill must not stamp a
+    // summary onto a row that just ended.
+    expect(whereShape(updates[0]!.where)).toEqual([
+      `col:id`,
+      SESSION,
+      `col:status`,
+      `running`,
+      `in_review`,
+    ])
+  })
+
+  it(`closes an automation-started in_review run (its PR is already open)`, async () => {
     selectResults.push([
       {
         id: SESSION,
@@ -104,12 +153,15 @@ describe(`endSessionByAgent`, () => {
         hostUserId: null,
         status: `in_review`,
         outcome: null,
+        startedReason: `event`,
       },
     ])
 
     const result = await endSessionByAgent(fakeDb, SESSION, `actor`, close)
     expect(result.alreadyEnded).toBe(false)
+    expect(result.keptOpen).toBe(false)
     expect(updates).toHaveLength(1)
+    expect(updates[0]!.values).toMatchObject({ status: `ended` })
   })
 
   it(`is idempotent and never overwrites an earlier close-out`, async () => {
@@ -120,6 +172,7 @@ describe(`endSessionByAgent`, () => {
         hostUserId: null,
         status: `ended`,
         outcome: `blocked`,
+        startedReason: null,
       },
     ])
 
@@ -130,6 +183,7 @@ describe(`endSessionByAgent`, () => {
       status: `ended`,
       outcome: `blocked`,
       alreadyEnded: true,
+      keptOpen: false,
     })
     expect(updates).toHaveLength(0)
   })
@@ -142,12 +196,14 @@ describe(`endSessionByAgent`, () => {
         hostUserId: null,
         status: `running`,
         outcome: null,
+        startedReason: `schedule`,
       },
     ])
     updateReturning = []
 
     const result = await endSessionByAgent(fakeDb, SESSION, `actor`, close)
     expect(result.alreadyEnded).toBe(true)
+    expect(result.keptOpen).toBe(false)
   })
 
   it(`lets the HOST end a run it operates for a teammate (EXP-432)`, async () => {
@@ -158,6 +214,7 @@ describe(`endSessionByAgent`, () => {
         hostUserId: `actor`,
         status: `running`,
         outcome: null,
+        startedReason: null,
       },
     ])
 
@@ -173,6 +230,7 @@ describe(`endSessionByAgent`, () => {
         hostUserId: null,
         status: `running`,
         outcome: null,
+        startedReason: null,
       },
     ])
     await expect(

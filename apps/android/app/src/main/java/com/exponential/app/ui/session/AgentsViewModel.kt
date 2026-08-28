@@ -574,9 +574,13 @@ const val RECENT_RUN_LIMIT = 10
 
 /**
  * EXP-637: the "Recent runs" list — the caller's OWN finished runs in the
- * SELECTED team that the AGENT closed out itself (`ended_by = agent`, so a
- * killed, merged or swept row never poses as a report), newest first by when
- * they ended, capped at [limit]. The DAO already scopes and orders; the rules
+ * SELECTED team that carry the AGENT's close-out (`outcome`, written only by
+ * `exponential_sessions_end`, so a killed, merged or swept row without a
+ * report never poses as one), newest first by when they ended, capped at
+ * [limit]. Keyed on the outcome, not `ended_by` (EXP-673): a person-started
+ * run reports first and ends later, with its tab — that end is `client`, and
+ * the report must still list. Mirrored on web (`use-agents-data.ts`) and iOS
+ * (`RunOutcomePresentation.hasCloseOut`). The DAO already scopes and orders; the rules
  * live here so they are testable and so a wider query can't leak a foreign or
  * still-live row into the list. Signed out or no team selected lists nothing.
  */
@@ -603,7 +607,7 @@ fun recentRunRows(
             it.userId == currentUserId &&
                 it.teamId == teamId &&
                 it.status == DomainContract.codingSessionStatusEnded &&
-                it.endedBy == DomainContract.codingSessionEndedByAgent
+                it.outcome != null
         }
         // ISO-8601 UTC stamps order lexicographically; a row swept before it
         // stamped `ended_at` still sorts off its start time.

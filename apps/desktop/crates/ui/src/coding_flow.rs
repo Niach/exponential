@@ -353,15 +353,6 @@ impl LocalSessions {
         self.all().find(|session| holds_branch(&session.branch, branch))
     }
 
-    /// EXP-637: was this session started by an AUTOMATION? An unknown id
-    /// reads as `false` — the safe answer, since it only decides whether an
-    /// agent-declared end closes the tab or leaves an ended strip.
-    pub fn is_automated(&self, session_id: &str) -> bool {
-        self.all()
-            .find(|session| session.session_id == session_id)
-            .is_some_and(|session| session.started_reason.is_some())
-    }
-
     /// Whether a live fix-conflicts run (EXP-259) is already working
     /// `branch` — the ONLY case the "Fix conflicts" buttons park as
     /// "Fixing…". Any other session holding the branch (its own coding
@@ -439,12 +430,10 @@ impl LocalSessions {
         if let Some(entry) = removed {
             // EXP-637: reclaim the run's own worktree — but ONLY when it is
             // provably clean and carries no commits ([`coding::run_cleanup`]).
-            // Background, because it shells out to git; the ended strip's
-            // amber "left uncommitted changes" warning is stamped from the
-            // verdict when it lands.
+            // Background, because it shells out to git; a worktree left
+            // dirty stays, and shows as dirty in Worktrees.
             if let Some(cleanup) = entry.run_cleanup.clone() {
                 let session_id = entry.session_id.clone();
-                let tab = entry.tab;
                 let data_dir = crate::window_size::app_data_dir();
                 cx.spawn(async move |cx| {
                     let verdict = cx
@@ -455,25 +444,12 @@ impl LocalSessions {
                         })
                         .await;
                     let _ = cx.update(|cx| {
-                        match &verdict {
-                            coding::CleanupOutcome::Removed => {
-                                // The workspace is gone: nothing left to
-                                // resume, so the record goes too.
-                                if let Some(dir) = &data_dir {
-                                    coding::run_registry::remove(dir, &session_id);
-                                }
-                                // The summary stays on the strip — only the
-                                // Resume offer goes with the workspace.
-                                crate::ended_runs::EndedRuns::note_not_resumable(tab, cx);
+                        if matches!(verdict, coding::CleanupOutcome::Removed) {
+                            // The workspace is gone: nothing left to resume,
+                            // so the record goes too.
+                            if let Some(dir) = &data_dir {
+                                coding::run_registry::remove(dir, &session_id);
                             }
-                            outcome if outcome.left_dirty() => {
-                                crate::ended_runs::EndedRuns::note_left_dirty(
-                                    tab,
-                                    cleanup.branch.clone(),
-                                    cx,
-                                );
-                            }
-                            _ => {}
                         }
                         log::info!(
                             "run cleanup [{session_id}] on {}: {verdict:?}",
@@ -539,8 +515,6 @@ impl LocalSessions {
                         if *event != TerminalManagerEvent::TabClosed(watch_tab) {
                             return;
                         }
-                        // EXP-637: the ended strip never outlives its tab.
-                        crate::ended_runs::EndedRuns::remove(watch_tab, cx);
                         // End the row off the foreground (idempotent
                         // server-side — a normal exit already ended it
                         // before the close).
@@ -1132,15 +1106,8 @@ pub fn build_batch_deps(cx: &mut App) -> Option<CodingDeps> {
     })
 }
 
-/// EXP-637: does the run registry still hold a resumable workspace for this
-/// session? Drives the Resume affordance on the ended strip and in the
-/// Actions run rows — a run whose worktree the prune reclaimed must not
-/// offer a button that can only fail.
-pub fn run_is_resumable(session_id: &str, _cx: &mut App) -> bool {
-    run_is_resumable_now(session_id)
-}
-
-/// [`run_is_resumable`] from a render pass (`&App`).
+/// EXP-637: does the run registry still hold a resumable workspace for
+/// `session_id`? Callable from a render pass (`&App`).
 pub fn run_is_resumable_ref(session_id: &str, _cx: &App) -> bool {
     run_is_resumable_now(session_id)
 }

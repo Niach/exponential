@@ -169,7 +169,9 @@ board, label, and comment operations. \
 /// EXP-615/EXP-637: the chat run's seed prompt. The user's words ride LAST
 /// and VERBATIM (this is the "open a terminal tab on the repo" shape —
 /// anything we wrap around it is words the user did not write), preceded by
-/// a two-line preamble: where the run lives, and how it ends.
+/// a two-line preamble: where the run lives, and how it reports. EXP-673: a
+/// chat is always a person's, so its close-out never ends it — the prompt
+/// says so, or the agent signs off on a conversation that is still open.
 pub fn chat_prompt(user_prompt: &str, workspace: Option<&WorkspaceNote>) -> String {
     let mut preamble = String::new();
     if let Some(note) = workspace {
@@ -183,7 +185,11 @@ worktree dirty; never force-push; do not use `gh`.\n",
             id = note.repository_id,
         ));
     }
-    preamble.push_str("End the session by calling `exponential_sessions_end`.\n");
+    preamble.push_str(
+        "When you are done, report with the `exponential_sessions_end` MCP tool (a one-paragraph \
+summary plus outcome `done`, `blocked` or `no_changes`); the session stays open afterwards, so \
+keep answering follow-ups here.\n",
+    );
     format!("{preamble}\n---\n\n{user_prompt}")
 }
 
@@ -252,8 +258,9 @@ action naturally varies per run (a free-text scope, a target repository or board
 otherwise omit the field. `exponential_actions_create` also accepts an optional \
 `trigger` field: when the description contains an \"Automation —\" block, pass that \
 block's JSON as `trigger` verbatim; otherwise omit `trigger`. Do not commit, push, \
-or change any files — only call the MCP tools. After the action is created, call \
-`exponential_sessions_end` with outcome `done`."
+or change any files — only call the MCP tools. After the action is created, report with \
+`exponential_sessions_end` (outcome `done`); the session stays open afterwards, so keep \
+answering follow-ups here."
     )
 }
 
@@ -433,13 +440,17 @@ board, label, and comment operations. {}\n\n---\n\n# Review\nScan the repo.",
         };
         let prompt = chat_prompt("what does trunk_sync do?", Some(&workspace));
         assert!(prompt.starts_with("You work on branch `exp/chat-1a2b3c4d`"));
-        assert!(prompt.contains("End the session by calling `exponential_sessions_end`."));
+        assert!(prompt.contains("report with the `exponential_sessions_end` MCP tool"));
+        // EXP-673: a chat's close-out never ends it — say so.
+        assert!(prompt.contains("the session stays open afterwards"));
         assert!(prompt.ends_with("---\n\nwhat does trunk_sync do?"));
         // No workspace = just the close-out line.
         let bare = chat_prompt("hi", None);
         assert_eq!(
             bare,
-            "End the session by calling `exponential_sessions_end`.\n\n---\n\nhi"
+            "When you are done, report with the `exponential_sessions_end` MCP tool (a one-paragraph \
+summary plus outcome `done`, `blocked` or `no_changes`); the session stays open afterwards, so \
+keep answering follow-ups here.\n\n---\n\nhi"
         );
     }
 
@@ -677,8 +688,8 @@ free-text scope, a target repository or board); otherwise omit the field. \
 `exponential_actions_create` also accepts an optional `trigger` field: when the \
 description contains an \"Automation —\" block, pass that block's JSON as `trigger` \
 verbatim; otherwise omit `trigger`. Do not commit, push, or change any files — only \
-call the MCP tools. After the action is created, call `exponential_sessions_end` with \
-outcome `done`."
+call the MCP tools. After the action is created, report with `exponential_sessions_end` \
+(outcome `done`); the session stays open afterwards, so keep answering follow-ups here."
         );
     }
 
