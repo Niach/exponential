@@ -161,11 +161,39 @@ async function recipeOpenFilterPopover(page: Page): Promise<void> {
  * instead, so the Activity header is the fallback target.
  */
 async function recipeScrollToComments(page: Page): Promise<void> {
-  const composer = page.getByPlaceholder(`Leave a reply…`)
-  const target = (await appears(composer, 10_000))
-    ? composer.first()
+  const hasComposer = await appears(page.getByPlaceholder(`Leave a reply…`), 10_000)
+  const target = hasComposer
+    ? page.getByPlaceholder(`Leave a reply…`).first()
     : page.getByText(/^Activity/).first()
   await target.scrollIntoViewIfNeeded({ timeout: 15_000 })
+  // …then align it to the BOTTOM of the frame (EXP-670).
+  // `scrollIntoViewIfNeeded` moves the MINIMUM distance that makes the target
+  // visible and does nothing at all when it already is, so where it comes to
+  // rest depends on where the page happened to be — and this view carries a
+  // deliberately tight 0.001 diffTolerance, so a ~15px difference in resting
+  // offset rewrote all three of its shots with nothing behind it.
+  // Scrolling the CONTAINER to its end is absolute rather than relative: the
+  // composer is the last thing in the timeline, so its scroller's bottom is
+  // both the frame this view wants (whole thread, composer and its toolbar)
+  // and a fixed point every run lands on identically. Which ancestor actually
+  // scrolls is not knowable from the styles alone — the walk tries each
+  // candidate and only accepts one whose `scrollTop` actually moved.
+  //
+  // ONLY on the composer path. The phone layout keeps its composer in a
+  // floating bottom bar, so the fallback target is the Activity header, and
+  // "scroll its container to the end" would mean something quite different
+  // there — it reframes the shot past the header it was asked to reach.
+  if (hasComposer) {
+    await target.evaluate((node) => {
+      for (let el = node.parentElement; el; el = el.parentElement) {
+        if (el.scrollHeight <= el.clientHeight + 1) continue
+        const before = el.scrollTop
+        el.scrollTop = el.scrollHeight
+        if (el.scrollTop !== before) return
+      }
+      window.scrollTo(0, document.documentElement.scrollHeight)
+    })
+  }
   // Let the smooth-scroll land before the anchor wait starts measuring.
   await page.waitForTimeout(400)
 }

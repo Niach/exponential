@@ -498,6 +498,57 @@ describe(`fail-safe`, () => {
     expect((web.byPlatform.get(`web`) ?? []).length).toBeGreaterThan(0)
   })
 
+  test(`the native data layer draws nothing; the three files holding copy still do`, () => {
+    // EXP-670: EXP-656 changed only shape polling, socket reconnect, replay
+    // staging and follow-pin policy, and widened BOTH simulator lanes — 66
+    // shots — for a change no capture can see, because every capture
+    // photographs a freshly synced client.
+    const dataLayer = affectedScope({
+      changedFiles: [
+        `apps/ios/ExpCore/Sources/Electric/ShapeClient.swift`,
+        `apps/ios/ExpCore/Sources/Electric/SyncManager.swift`,
+        `apps/ios/ExpCore/Sources/Electric/SyncFreshness.swift`,
+        `apps/ios/ExpCore/Sources/Electric/SyncLifecycle.swift`,
+        `apps/ios/ExpCore/Sources/FeedFollowPolicy.swift`,
+        `apps/ios/ExpCore/Sources/SteerReplayStaging.swift`,
+        `apps/android/app/src/main/java/com/exponential/app/data/electric/ShapeClient.kt`,
+        `apps/android/app/src/main/java/com/exponential/app/data/electric/SyncManager.kt`,
+        `apps/android/app/src/main/java/com/exponential/app/data/api/HttpClientProvider.kt`,
+        `apps/android/app/src/main/java/com/exponential/app/data/push/FcmService.kt`,
+      ],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    for (const platform of PLATFORMS) expect(dataLayer.byPlatform.get(platform)).toEqual([])
+    expect(dataLayer.broad).toEqual([])
+
+    // The exclusions, each holding rendered copy beside the lifecycle:
+    // "Syncing…", "Connecting…", "Connection lost". They keep widening.
+    for (const path of [
+      `apps/android/app/src/main/java/com/exponential/app/data/electric/SyncStats.kt`,
+      `apps/android/app/src/main/java/com/exponential/app/data/steer/SteerConnectionStore.kt`,
+      `apps/android/app/src/main/java/com/exponential/app/data/steer/SteerConnection.kt`,
+    ]) {
+      const scope = affectedScope({
+        changedFiles: [path],
+        platforms: [`android`],
+        includeMissing: false,
+      })
+      expect(scope.ignored).toEqual([])
+      expect(scope.byPlatform.get(`android`)).toHaveLength(viewsFor(`android`).length)
+    }
+
+    // Presence RENDERING is not the data layer: these decide what the badge
+    // says, so they must keep widening too.
+    const presence = affectedScope({
+      changedFiles: [`apps/ios/ExpCore/Sources/Domain/SessionDevicePresentation.swift`],
+      platforms: [`ios`],
+      includeMissing: false,
+    })
+    expect(presence.ignored).toEqual([])
+    expect(presence.byPlatform.get(`ios`)).toHaveLength(viewsFor(`ios`).length)
+  })
+
   test(`a changed catalog entry is in scope on every platform that shoots it`, () => {
     const result = affectedScope({
       changedFiles: [`packages/view-catalog/views.json`],

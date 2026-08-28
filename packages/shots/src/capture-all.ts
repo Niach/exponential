@@ -240,6 +240,26 @@ async function gateSignIn(scope: Scope): Promise<void> {
  * the whole catalog — which would photograph exactly the view the gate just
  * removed.
  */
+/**
+ * Does this run write every shot that differs at all, tolerance or not?
+ *
+ * Only when the operator named the views themselves (EXP-670). `--views` is
+ * the deliberate, small, hand-reviewed set — the refresh automation's narrowed
+ * lane, a re-run of one view — and there the tolerance is a liability: it is
+ * tuned to absorb the seed's drifting relative timestamps, and a compact real
+ * change (a queue reorder, a section that appeared) occupies about the same
+ * pixel area. Twice in one run it kept a stale shot with only a percentage in
+ * the log to hint at it.
+ *
+ * `--since` alone does NOT qualify: it routinely resolves to forty views, and
+ * writing every timestamp flicker across all of them is the 200-file binary
+ * diff the store writer exists to prevent. `--force` already writes
+ * unconditionally, so it does not need this.
+ */
+function writesAnyChange(options: Options): boolean {
+  return Boolean(options.viewIds) && !options.force
+}
+
 function isScoped(options: Options, scope: Scope): boolean {
   if (options.viewIds || options.since) return true
   return options.platforms.some(
@@ -804,6 +824,7 @@ async function writeStore(
         const before = existingBytes(view.id, platform)
         const result = await writeShot(view.id, platform, readFileSync(raw), {
           force: options.force,
+          writeAnyChange: writesAnyChange(options),
           dryRun: options.dryRun,
         })
         tally[result.state]++
@@ -903,6 +924,12 @@ async function main(): Promise<number> {
       (options.viewIds ? ` · views ${options.viewIds.join(`, `)}` : ``) +
       (options.dryRun ? ` · DRY RUN (nothing is written)` : ``)
   )
+  if (writesAnyChange(options)) {
+    console.log(
+      `  --views run: writing every shot that differs AT ALL — the tolerance only advises here (EXP-670).\n` +
+        `  Expect timestamp churn among the results; eyeball each one and \`git checkout HEAD --\` what the diff cannot explain.`
+    )
+  }
 
   if (affected && since) {
     console.log(`\n── affected since ${since.slice(0, 8)} ──────────────────────`)

@@ -46,6 +46,17 @@ export type ShotState = `new` | `updated` | `kept`
 export interface WriteShotOptions {
   /** Rewrite even when the diff is inside tolerance. */
   force?: boolean
+  /**
+   * Write whenever ANY pixel differs, ignoring the tolerance but not skipping
+   * the comparison (EXP-670). For a run the operator narrowed by hand with
+   * `--views`: they are going to open every changed file anyway, so a shot the
+   * tolerance would have swallowed costs them one revert, while a swallowed
+   * REAL change costs a stale screenshot nobody notices. Unlike `force` this
+   * still leaves a byte-identical shot alone, so it never manufactures a diff.
+   *
+   * "Any" is floored at `WRITE_ANY_CHANGE_FLOOR` rather than at zero.
+   */
+  writeAnyChange?: boolean
   /** Overrides the view's `diffTolerance` and `STORE_DEFAULT_TOLERANCE`. */
   tolerance?: number
   /** Decide the state, touch nothing on disk. */
@@ -91,6 +102,21 @@ export interface ShotDiffReport {
 export const NEAR_MISS_SHARE = 0.5
 
 /**
+ * The floor `writeAnyChange` uses instead of zero — 2 changed pixels in 10,000.
+ *
+ * Below this is not a change, it is the lossy encoder: re-encoding the SAME
+ * screen and diffing it against the stored webp measured under 0.00005, and a
+ * re-render of an unchanged view landed at 0.0002. Above it sits every real
+ * change EXP-670 was written for — the smallest was a whole "Pending invites"
+ * section appearing, at 0.0025, an order of magnitude clear.
+ *
+ * Without a floor a narrowed run rewrites every view it names on every run,
+ * which is the churn the store writer exists to prevent, only wearing a
+ * different hat.
+ */
+export const WRITE_ANY_CHANGE_FLOOR = 0.0002
+
+/**
  * The per-view lines of the diff-skip report (EXP-658).
  *
  * The tolerance exists to absorb the seed's drifting relative timestamps, but
@@ -101,6 +127,15 @@ export const NEAR_MISS_SHARE = 0.5
  * `NEAR_MISS_SHARE` is marked, so a reviewer sees "0.0041 of 0.0050" instead of
  * a silent `kept`. Updated shots list their fraction too, so the log shows how
  * far each one moved. Identical keeps — the common case — print nothing.
+ *
+ * The share is a WEAK signal and must not be read as one (EXP-670). It measures
+ * area, and area does not separate a real change from churn: a queue reorder
+ * read 95% of its tolerance while a whole new "Pending invites" section read
+ * 50%, and a page of drifting relative timestamps read 74%. Spatial refinements
+ * were measured and rejected — bounding box and pixel density overlap just as
+ * badly. So under `writeAnyChange` the tolerance stops gating the WRITE and
+ * becomes advice: a written shot below it is flagged for the reviewer's eye
+ * rather than silently dropped.
  */
 export function formatDiffReport(results: ShotDiffReport[]): string[] {
   const share = (entry: ShotDiffReport): number => (entry.changedRatio ?? 0) / entry.tolerance
@@ -112,8 +147,10 @@ export function formatDiffReport(results: ShotDiffReport[]): string[] {
     .sort((a, b) => share(b) - share(a))
   const lines: string[] = []
   for (const entry of updated) {
+    const under = entry.changedRatio! <= entry.tolerance
     lines.push(
-      `  updated  ${`${entry.viewId}/${entry.platform}`.padEnd(32)}${entry.changedRatio!.toFixed(4)} (tolerance ${entry.tolerance.toFixed(4)})`
+      `  updated  ${`${entry.viewId}/${entry.platform}`.padEnd(32)}${entry.changedRatio!.toFixed(4)} (tolerance ${entry.tolerance.toFixed(4)})` +
+        (under ? `  ← under tolerance, eyeball it` : ``)
     )
   }
   for (const entry of kept) {
@@ -183,7 +220,9 @@ export async function writeShot(
     PIXELMATCH_OPTIONS
   )
   const changedRatio = changed / (before.width * before.height)
-  if (changedRatio > toleranceFor(viewId, opts.tolerance)) return updated(changedRatio)
+  const tolerance = toleranceFor(viewId, opts.tolerance)
+  const limit = opts.writeAnyChange ? Math.min(WRITE_ANY_CHANGE_FLOOR, tolerance) : tolerance
+  if (changedRatio > limit) return updated(changedRatio)
 
   return {
     state: `kept`,
