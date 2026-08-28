@@ -7,12 +7,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.AgentUsageWindowPrefs
 import com.exponential.app.data.api.AgentUsage
+import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
+import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
@@ -60,6 +63,7 @@ class AgentSessionViewModel @Inject constructor(
     holder: DatabaseHolder,
     private val auth: AuthRepository,
     private val steerApi: SteerApi,
+    private val issuesApi: IssuesApi,
     private val store: SteerConnectionStore,
     private val usageWindowPrefs: AgentUsageWindowPrefs,
     stats: SyncStats,
@@ -213,6 +217,65 @@ class AgentSessionViewModel @Inject constructor(
     /** The composer's typed text — held by the connection, so it survives a
      *  reconnect, a back-tap and a rotation alike. */
     val draft: StateFlow<String> = connection.draft
+
+    /**
+     * EXP-678: the issue whose PR the Merge pill above the composer merges —
+     * this run's own issue, or, for an issueless batch run in review, the
+     * batch PR's representative issue resolved client-side (EXP-535: batch
+     * sessions carry no issue linkage, only the branch). An action run merges
+     * nothing, so [isBatchInReview] excludes it and the pill stays hidden.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val mergeIssue: StateFlow<IssueEntity?> = session
+        .flatMapLatest { row ->
+            when {
+                row == null -> flowOf(null)
+                row.issueId != null ->
+                    dbFlow.scopedQuery(null) { it.issueDao().observeById(row.issueId) }
+                row.isBatchInReview -> combine(
+                    dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
+                    dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
+                ) { issues, boards ->
+                    resolveBatchPrIssue(
+                        openBatchPrRepresentatives(issues, boards, row.teamId),
+                        row.branch,
+                    )
+                }
+                else -> flowOf(null)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    private val _merging = MutableStateFlow(false)
+    val merging: StateFlow<Boolean> = _merging
+
+    /** A failed merge's message (EXP-678) — the same banner shape as
+     *  [killError]; cleared by the next attempt. */
+    private val _mergeError = MutableStateFlow<String?>(null)
+    val mergeError: StateFlow<String?> = _mergeError
+
+    /**
+     * Squash-merge [mergeIssue]'s PR. The server merges AND ends this session
+     * (EXP-498), so there is nothing to change locally: the row flips to
+     * `ended` and the PR to `merged` via Electric, and the screen reacts.
+     */
+    fun merge() {
+        val issueId = mergeIssue.value?.id ?: return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _mergeError.value = null
+            _merging.value = true
+            runCatching { issuesApi.mergePr(accountId, issueId) }
+                .onFailure { t ->
+                    if (t is CancellationException) throw t
+                    // Conflicts, branch protection and GitHub App errors are the
+                    // common, persistent failures — same copy as Agents/Reviews.
+                    _mergeError.value =
+                        trpcErrorMessage(t, "The pull request could not be merged")
+                }
+            _merging.value = false
+        }
+    }
 
     /** A failed [killSession] call's message (EXP-268) — rendered as a banner. */
     private val _killError = MutableStateFlow<String?>(null)

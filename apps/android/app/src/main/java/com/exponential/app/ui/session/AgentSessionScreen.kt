@@ -17,11 +17,13 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -99,6 +101,7 @@ import com.exponential.app.domain.locksCard
 import com.exponential.app.domain.questionLockKey
 import com.exponential.app.domain.visibleSubagentTabs
 import com.exponential.app.ui.components.BottomBarPillFill
+import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.components.TopBarActionButton
@@ -178,6 +181,11 @@ fun AgentSessionScreen(
     val latestDiff = activity.latestDiff
     val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
     val killError by viewModel.killError.collectAsStateWithLifecycle()
+    // EXP-678: the issue whose open PR the Merge pill above the composer
+    // merges — null for a run with nothing to merge (see the VM).
+    val mergeIssue by viewModel.mergeIssue.collectAsStateWithLifecycle()
+    val merging by viewModel.merging.collectAsStateWithLifecycle()
+    val mergeError by viewModel.mergeError.collectAsStateWithLifecycle()
     val attachmentDims by viewModel.attachmentDims.collectAsStateWithLifecycle()
     val answerStates = activity.answerLocks
     // EXP-588: per locked card, what this client picked — joined for display.
@@ -258,6 +266,7 @@ fun AgentSessionScreen(
 
     var diffSheetOpen by remember { mutableStateOf(false) }
     var killDialogOpen by remember { mutableStateOf(false) }
+    var mergeConfirmOpen by remember { mutableStateOf(false) }
 
     // EXP-656: the reader's place in the feed lives at the SCREEN level, not
     // inside ActivityFeed. Held there, a single frame of empty feed flipped the
@@ -539,50 +548,97 @@ fun AgentSessionScreen(
                 }
             }
 
-            // ── Pinned "Latest changes" chip (directly above the input bar) ──
+            // A failed merge (EXP-678) — like the kill banner, success needs
+            // none: the server ends the session and the flip syncs back.
+            val mergeFailure = mergeError
+            if (mergeFailure != null) {
+                BannerRow {
+                    Text(
+                        mergeFailure,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+
+            // ── Pinned "Latest changes" chip + Merge pill (directly above the
+            // input bar). EXP-678: the pill is offered while the run's PR is
+            // open and the composer is still there; the merge ends the session
+            // server-side (EXP-498), so it retires itself.
             val diff = latestDiff
-            if (diff != null) {
-                val stats = remember(diff) { unifiedDiffStats(diff) }
+            val canMerge = mergeIssue?.prState == DomainContract.prStateOpen &&
+                !sessionEnded && phase !is AgentPhase.Ended
+            if (diff != null || canMerge) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 6.dp)
-                        .glassRow()
-                        .clickable { diffSheetOpen = true }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        // Both children measure to the taller one's height, so
+                        // the pill lines up with the chip whatever it says.
+                        .height(IntrinsicSize.Min),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Icon(
-                        ExpIcons.codingDiff,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                    Text(
-                        "Latest changes",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        "+${stats.additions}",
-                        color = DiffAddColor,
-                        fontFamily = FontFamily.Monospace,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                    Text(
-                        "−${stats.deletions}",
-                        color = DiffDelColor,
-                        fontFamily = FontFamily.Monospace,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                    Icon(
-                        ExpIcons.uiChevronUp,
-                        contentDescription = "Show diff",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
+                    if (diff != null) {
+                        val stats = remember(diff) { unifiedDiffStats(diff) }
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .glassRow()
+                                .clickable { diffSheetOpen = true }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                ExpIcons.codingDiff,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            )
+                            Text(
+                                "Latest changes",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                "+${stats.additions}",
+                                color = DiffAddColor,
+                                fontFamily = FontFamily.Monospace,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                            Text(
+                                "−${stats.deletions}",
+                                color = DiffDelColor,
+                                fontFamily = FontFamily.Monospace,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                            Icon(
+                                ExpIcons.uiChevronUp,
+                                contentDescription = "Show diff",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            )
+                        }
+                    } else {
+                        // No diff yet: the pill still sits on the right.
+                        Spacer(Modifier.weight(1f))
+                    }
+                    if (canMerge) {
+                        GlassPillButton(
+                            "Merge",
+                            onClick = { mergeConfirmOpen = true },
+                            icon = ExpIcons.prMerged,
+                            enabled = !merging,
+                            loading = merging,
+                            // Matches the chip's 10dp — same label style, same
+                            // 14dp glyph, so both measure the same height.
+                            verticalPadding = 10.dp,
+                            modifier = Modifier.fillMaxHeight(),
+                        )
+                    }
                 }
             }
 
@@ -659,6 +715,29 @@ fun AgentSessionScreen(
             },
             dismissButton = {
                 TextButton(onClick = { killDialogOpen = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    // EXP-498: merging always closes the session too, so the merge is
+    // confirm-gated — same copy as Agents and Reviews.
+    if (mergeConfirmOpen) {
+        AlertDialog(
+            onDismissRequest = { mergeConfirmOpen = false },
+            title = { Text("Merge pull request?") },
+            text = {
+                Text("Merges the pull request, completes every linked issue, and closes the coding session.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        mergeConfirmOpen = false
+                        viewModel.merge()
+                    },
+                ) { Text("Merge") }
+            },
+            dismissButton = {
+                TextButton(onClick = { mergeConfirmOpen = false }) { Text("Cancel") }
             },
         )
     }

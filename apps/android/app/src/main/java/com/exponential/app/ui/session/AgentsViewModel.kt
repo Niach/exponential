@@ -479,8 +479,9 @@ fun agentRows(
 }
 
 // An issueless, actionless in-review session — the only row shape whose merge
-// shortcut needs the client-resolved batch PR (EXP-535).
-private val CodingSessionEntity.isBatchInReview: Boolean
+// shortcut needs the client-resolved batch PR (EXP-535). Internal since
+// EXP-678: the steer screen's Merge pill resolves its target the same way.
+internal val CodingSessionEntity.isBatchInReview: Boolean
     get() = issueId == null &&
         actionName == null &&
         status == DomainContract.codingSessionStatusInReview

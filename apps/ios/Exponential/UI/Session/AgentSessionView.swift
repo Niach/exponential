@@ -58,6 +58,12 @@ struct AgentSessionView: View {
     @State private var model: AgentSessionModel?
     @State private var showDiffSheet = false
     @State private var showKillConfirm = false
+    /// EXP-678: the Merge pill's confirm + in-flight call. No success state:
+    /// the server ends the run and flips `pr_state`, and the pill disappears
+    /// when that echo syncs back.
+    @State private var showMergeConfirm = false
+    @State private var merging = false
+    @State private var mergeError: String?
     /// Whether the feed is scrolled to (within slack of) its bottom —
     /// auto-scroll only while pinned; scrolling up pauses follow and surfaces
     /// the "Jump to bottom" pill.
@@ -140,6 +146,16 @@ struct AgentSessionView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This force-terminates the agent's terminal on the desktop and ends the session.")
+        }
+        // EXP-678: merging from the steering screen — same confirm-gated flow
+        // as the Agents list and Reviews.
+        .alert("Merge pull request?", isPresented: $showMergeConfirm) {
+            Button("Merge", role: .destructive) {
+                if let model { merge(model) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Merges the pull request, completes every linked issue, and closes the coding session.")
         }
         .photosPicker(
             isPresented: $showPhotoPicker,
@@ -612,6 +628,15 @@ struct AgentSessionView: View {
                     .foregroundStyle(DesignTokens.Semantic.red)
             }
         }
+        // A refused merge (conflicts, branch protection) — same shape
+        // (EXP-678); cleared on the next attempt.
+        if let mergeError {
+            bannerRow {
+                Text(mergeError)
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Semantic.red)
+            }
+        }
         // EXP-550: an offline host outranks every reconnect/starting banner —
         // the redial loops keep running underneath (untouched), they just
         // stop being what the viewer is told about.
@@ -694,8 +719,20 @@ struct AgentSessionView: View {
         let inputVisible = !model.isOver
         if model.latestDiff != nil || inputVisible {
             VStack(alignment: .leading, spacing: 8) {
-                if let diff = model.latestDiff {
-                    diffChip(diff)
+                if model.latestDiff != nil || model.canMerge {
+                    HStack(spacing: 8) {
+                        if let diff = model.latestDiff {
+                            diffChip(diff)
+                        } else {
+                            Spacer()
+                        }
+                        // EXP-678: merge this run's PR without leaving the
+                        // steering screen — same height as the chip it sits
+                        // beside.
+                        if model.canMerge {
+                            mergePill(model)
+                        }
+                    }
                 }
                 if inputVisible {
                     // Steering is fully seamless (EXP-312) — no captions, no
@@ -737,6 +774,43 @@ struct AgentSessionView: View {
         }
         .buttonStyle(.plain)
         .glassRow()
+    }
+
+    /// The Merge pill beside the diff chip — merging always ends the run too
+    /// (EXP-498), so it only shows while there IS an open PR (`model.canMerge`,
+    /// which resolves a batch run's PR through EXP-535's representative issue).
+    private func mergePill(_ model: AgentSessionModel) -> some View {
+        Button {
+            showMergeConfirm = true
+        } label: {
+            GlassPillLabel("Merge", enabled: !merging, verticalPadding: 10) {
+                if merging {
+                    ProgressView().controlSize(.mini).tint(.white)
+                } else {
+                    AppIcon(AppIcons.prMerged, size: 14)
+                }
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(merging)
+        .accessibilityLabel("Merge pull request")
+    }
+
+    /// Merge the session's PR. No local surgery on success: the server ends
+    /// the session and flips `pr_state`, and both land here through sync.
+    private func merge(_ model: AgentSessionModel) {
+        guard let issueId = model.mergeIssue?.id else { return }
+        mergeError = nil
+        merging = true
+        Task {
+            do {
+                try await deps.issuesApi.mergePr(accountId: accountId, issueId: issueId)
+            } catch {
+                mergeError = error.localizedDescription
+            }
+            merging = false
+        }
     }
 
     /// EXP-554: the steer composer now wears the comment composer's chrome — ONE

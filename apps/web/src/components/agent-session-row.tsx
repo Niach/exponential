@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
-import { ChevronDown, GitMerge, LoaderCircle } from "lucide-react"
+import { ChevronDown, LoaderCircle } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import type { AgentSessionRow } from "@/hooks/use-agents-data"
 import type { CodingSession } from "@/db/schema"
@@ -13,14 +13,7 @@ import { relativeTime } from "@/components/comment-rows/format"
 import { trpc } from "@/lib/trpc-client"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { SessionMergeButton } from "@/components/session-merge-button"
 import { GlassRow } from "@/components/ui/glass-rows"
 
 // EXP-616: the trailing bare glyph that opens the linked issue — the iOS
@@ -97,96 +90,6 @@ export function RunningIndicator({
       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
       <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
     </span>
-  )
-}
-
-// Merge always closes (EXP-498): merges the PR, completes every linked
-// issue, and ends the session server-side. Spinner held until the Electric
-// echo flips the issue's prState away from `open` (mirrors IssueMergeButton).
-function SessionMergeButton({
-  prState,
-  prNumber,
-  issueId,
-}: {
-  prState: string | null
-  prNumber: number | null
-  issueId: string
-}) {
-  const [confirmOpen, setConfirmOpen] = useState(false)
-  const [merging, setMerging] = useState(false)
-
-  useEffect(() => {
-    if (prState !== `open`) {
-      setMerging(false)
-      setConfirmOpen(false)
-    }
-  }, [prState])
-
-  if (prState !== `open`) return null
-
-  const merge = async () => {
-    setMerging(true)
-    try {
-      // Failures surface via the global mutation-error toast.
-      await trpc.issues.mergePr.mutate({ issueId })
-      setConfirmOpen(false) // keep `merging` until the echo flips prState
-    } catch {
-      setMerging(false)
-    }
-  }
-
-  return (
-    <>
-      <Button
-        variant="outline"
-        size="icon"
-        className="size-8"
-        disabled={merging}
-        aria-label={merging ? `Merging…` : `Merge pull request`}
-        title={merging ? `Merging…` : `Merge`}
-        onClick={(e) => {
-          e.stopPropagation()
-          setConfirmOpen(true)
-        }}
-      >
-        {merging ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
-      </Button>
-      <Dialog
-        open={confirmOpen}
-        onOpenChange={(next) => {
-          if (!merging) setConfirmOpen(next)
-        }}
-      >
-        <DialogContent
-          className="sm:max-w-sm"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <DialogHeader>
-            <DialogTitle>Merge pull request?</DialogTitle>
-            <DialogDescription>
-              {`Merge PR #${prNumber ?? ``} into the default branch? Every issue linked to it completes, and its coding session closes.`}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setConfirmOpen(false)}
-              disabled={merging}
-            >
-              Cancel
-            </Button>
-            <Button onClick={merge} disabled={merging}>
-              {merging ? (
-                <LoaderCircle className="animate-spin" />
-              ) : (
-                <GitMerge />
-              )}
-              Merge
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
   )
 }
 

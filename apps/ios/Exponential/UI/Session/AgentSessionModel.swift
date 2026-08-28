@@ -110,6 +110,11 @@ final class AgentSessionModel {
     /// freshness window (all decided by `AgentUsagePresentation.sessionUsage`).
     /// Recomputed on the same three inputs as `hostDevice`.
     private(set) var agentUsage: SessionAgentUsage?
+    /// EXP-678: the issue whose PR the Merge pill merges — this session's own
+    /// issue, or, for an issueless + actionless batch run in review, the
+    /// representative issue of the batch PR its branch names (EXP-535). Nil
+    /// for action runs and whenever there is nothing to merge through.
+    private(set) var mergeIssue: IssueEntity?
     /// Kill-switch failure (EXP-268), surfaced as an inline banner — cleared
     /// on each attempt. Success needs no local state: the synced row flips to
     /// `ended` and the view already reacts.
@@ -182,6 +187,14 @@ final class AgentSessionModel {
         guard !sessionEnded else { return false }
         guard let currentUserId else { return false }
         return session?.userId == currentUserId
+    }
+
+    /// EXP-678: whether the Merge pill shows — merging always ends the run too
+    /// (EXP-498), so it only offers while there IS an open PR on a session
+    /// this screen still considers live. The button then vanishes on its own
+    /// when the merged `pr_state` and the ended row sync back.
+    var canMerge: Bool {
+        mergeIssue?.prState == DomainContract.prStateOpen && !isOver
     }
 
     /// Recompute the cached projections (ids of the still-answerable question
@@ -287,6 +300,11 @@ final class AgentSessionModel {
     /// "we don't know" back into knowledge.
     private var deviceFreshnessTask: Task<Void, Never>?
     private var deviceRows: [DeviceEntity] = []
+    /// EXP-678: the rows behind `mergeIssue` — the session's own issue, or
+    /// (batch runs) every issue + board the batch PR resolution scopes over.
+    private var mergeObservationTask: Task<Void, Never>?
+    private var mergeIssueRows: [IssueEntity] = []
+    private var mergeBoardRows: [BoardEntity] = []
     /// One expiry timer PER locked card (EXP-334) — a single shared task used
     /// to be cancelled by every newer lock, so several pending locks then all
     /// expired together and the stepper rolled back more than one step.
@@ -395,6 +413,7 @@ final class AgentSessionModel {
     func start() {
         startObservingSession()
         startObservingHostDevice()
+        startObservingMergeIssue()
         if phase == .idle { connect() }
     }
 
@@ -495,6 +514,7 @@ final class AgentSessionModel {
         guard stopped else { return }
         startObservingSession()
         startObservingHostDevice()
+        startObservingMergeIssue()
         connect()
     }
 
@@ -519,6 +539,8 @@ final class AgentSessionModel {
         deviceLivenessTask = nil
         deviceFreshnessTask?.cancel()
         deviceFreshnessTask = nil
+        mergeObservationTask?.cancel()
+        mergeObservationTask = nil
         connected = false
         pendingFrames = []
         discardStaging()
@@ -714,6 +736,10 @@ final class AgentSessionModel {
                         // never report.
                         self.session = row
                         self.rebuildHostDevice()
+                        // EXP-678: a batch run's Merge target only appears
+                        // once THIS row flips to in_review (the pr_open
+                        // transaction), long after its issue rows landed.
+                        self.rebuildMergeIssue()
                     }
                     // The sequence only finishes cleanly on cancellation.
                     return
@@ -790,6 +816,86 @@ final class AgentSessionModel {
         )
         agentUsage = AgentUsagePresentation.sessionUsage(
             session: session, devices: deviceRows, now: now
+        )
+    }
+
+    // MARK: - Merge target (EXP-678)
+
+    /// Watch whatever the Merge pill would merge through. WHICH query that is
+    /// is decided once, off the row the model was constructed with: a
+    /// session's `issue_id` and `action_name` never change over its life.
+    /// Action runs merge nothing (EXP-253) — they observe nothing at all.
+    private func startObservingMergeIssue() {
+        guard mergeObservationTask == nil else { return }
+        guard let session else { return }
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
+        if let issueId = session.issueId {
+            let observation = ValueObservation.tracking { db in
+                try IssueEntity.filter(Column("id") == issueId).fetchOne(db)
+            }
+            mergeObservationTask = Task { [weak self] in
+                // Same one-shot re-subscribe loop as the session observation
+                // (EXP-410): a dead stream would freeze the PR state at its
+                // last value, leaving a Merge button up over a merged PR.
+                while !Task.isCancelled {
+                    do {
+                        for try await row in observation.values(in: pool) {
+                            guard let self else { return }
+                            self.mergeIssue = row
+                        }
+                        return
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        try? await Task.sleep(for: .seconds(1))
+                    }
+                }
+            }
+        } else if session.actionName == nil {
+            // A batch run carries no issue linkage, so its PR resolves
+            // client-side off the team's open batch PRs, keyed on the branch
+            // the pr_open flip stamped (EXP-535/545, BatchPrResolution).
+            let observation = ValueObservation.tracking { db -> ([IssueEntity], [BoardEntity]) in
+                (try IssueEntity.fetchAll(db), try BoardEntity.fetchAll(db))
+            }
+            mergeObservationTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    do {
+                        for try await (issues, boards) in observation.values(in: pool) {
+                            guard let self else { return }
+                            self.mergeIssueRows = issues
+                            self.mergeBoardRows = boards
+                            self.rebuildMergeIssue()
+                        }
+                        return
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        try? await Task.sleep(for: .seconds(1))
+                    }
+                }
+            }
+        }
+    }
+
+    /// Re-derive a BATCH run's merge target. Two inputs move independently —
+    /// the issue/board rows and the session's own status (the pr_open
+    /// transaction flips it to in_review) — so both observers call this.
+    /// Issue-linked and action runs never route through here.
+    private func rebuildMergeIssue() {
+        guard let session, session.issueId == nil, session.actionName == nil else { return }
+        guard session.status == DomainContract.codingSessionStatusInReview else {
+            mergeIssue = nil
+            return
+        }
+        // Issues don't sync `team_id` — the team's synced board ids are the
+        // scope, same as AgentsViewModel's rebuild.
+        let teamBoardIds = Set(mergeBoardRows.filter { $0.teamId == session.teamId }.map(\.id))
+        mergeIssue = BatchPrResolution.resolve(
+            sessionBranch: session.branch,
+            openBatchPrs: BatchPrResolution.openBatchPrs(
+                issues: mergeIssueRows, teamBoardIds: teamBoardIds
+            )
         )
     }
 
