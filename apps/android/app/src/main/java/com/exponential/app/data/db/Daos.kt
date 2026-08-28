@@ -239,20 +239,6 @@ interface CodingSessionDao {
     @Query("SELECT * FROM coding_sessions WHERE status IN (:statuses) ORDER BY started_at DESC")
     fun observeByStatuses(statuses: List<String>): Flow<List<CodingSessionEntity>>
 
-    // EXP-637: the "Recent runs" feed — one user's finished sessions in one
-    // team, newest first. A row swept before it ever stamped `ended_at` still
-    // orders sensibly off its start time, hence the COALESCE.
-    @Query(
-        "SELECT * FROM coding_sessions WHERE team_id = :teamId AND user_id = :userId " +
-            "AND status = :status ORDER BY COALESCE(ended_at, started_at) DESC LIMIT :limit",
-    )
-    fun observeRecentByTeamAndUser(
-        teamId: String,
-        userId: String,
-        status: String,
-        limit: Int,
-    ): Flow<List<CodingSessionEntity>>
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: CodingSessionEntity)
 

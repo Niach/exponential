@@ -17,7 +17,7 @@ import XCTest
 ///   sg_sign-in · sg_board-switcher · sg_board-filters · sg_board-empty ·
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
-///   sg_recent-runs · sg_start-coding-actions · sg_start-coding-chat ·
+///   sg_start-coding-actions · sg_start-coding-chat ·
 ///   sg_machine-settings · sg_action-create · sg_automations-list ·
 ///   sg_automations · sg_action-suggestions · sg_reviews ·
 ///   sg_support-thread · sg_settings-root · sg_settings-team ·
@@ -74,9 +74,6 @@ final class StyleguideScreenshots: XCTestCase {
     /// The seeded helpdesk thread from Emma Fischer, and the last inbound
     /// message on it — proof the thread body actually loaded over tRPC.
     private static let supportThreadTitle = "Can't sign in on the iPad app"
-    /// The close-out the seed's freshest agent-ended run carries (EXP-637) —
-    /// only the EXPANDED row shows it, so it is the post-tap gate (EXP-663).
-    private static let recentRunSummary = "Triaged 4 failing specs"
     private static let supportReporter = "Emma Fischer"
     private static let supportReplyFragment = "thank you for the quick turnaround"
     /// A seeded board — the anchor that says we are on TEAM settings rather
@@ -315,48 +312,6 @@ final class StyleguideScreenshots: XCTestCase {
             "No \(Self.demoDeviceName) row — is `bun run screenshots:desktop` running?"
         )
         snapshot("sg_agents", settle: 2)
-
-        // ── sg_recent-runs: the EXP-637 close-out ────────────────────────────
-        // The seed's two action runs end with ended_by='agent' + an outcome +
-        // the agent's summary (seed-screenshots.ts) — the trio "Recent runs"
-        // gates on. Collapsed, a row shows only the outcome, so the shot is
-        // taken EXPANDED: the summary the agent wrote plus the Resume pill the
-        // stub device's `resume-run` cap enables.
-        // The section sits below the machines and Running in a LazyVStack, so
-        // the row is not even in the accessibility tree until it scrolls on
-        // screen: swipe first, assert after. Matched by identifier on ANY
-        // element type — the row carries `recent-run-row` on its container and
-        // `ended-run-row` on the toggle button, and SwiftUI decides which one
-        // the hit-testable element ends up exposing.
-        let endedRun = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier IN {'ended-run-row', 'recent-run-row'}")
-        ).firstMatch
-        var swipesDown = 0
-        while !endedRun.exists && swipesDown < 8 {
-            app.swipeUp()
-            swipesDown += 1
-        }
-        XCTAssertTrue(
-            scrollUntilVisible(app, endedRun),
-            "No Recent runs row — the seed needs runs the AGENT closed out (ended_by 'agent')"
-        )
-        endedRun.tap()
-        XCTAssertTrue(
-            anyElement(app, containing: Self.recentRunSummary).waitForExistence(timeout: 15),
-            "The Recent runs row expanded without its summary — is `summary` seeded?"
-        )
-        snapshot("sg_recent-runs", settle: 2)
-        // Collapse again and scroll back up, so the start-coding steps below
-        // see the same surface they always did (scrollUntilVisible only swipes
-        // up; the machines list sits ABOVE Recent runs).
-        endedRun.tap()
-        let deviceRow = app.staticTexts[Self.demoDeviceName].firstMatch
-        var swipesBack = 0
-        while !deviceRow.isHittable && swipesBack < 6 {
-            app.swipeDown()
-            swipesBack += 1
-        }
-        settle(1)
 
         // ── sg_start-coding-actions / -chat: the unified launch sheet ────────
         // The machine row's play glyph opens the sheet the Agents surface owns;

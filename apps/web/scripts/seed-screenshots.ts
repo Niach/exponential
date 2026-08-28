@@ -1079,9 +1079,9 @@ async function main() {
   // lookup. Ended, so they never join the live agents list.
   //
   // EXP-663: both rows are a full EXP-637 close-out — `ended_by: 'agent'` plus
-  // an outcome and the summary the agent wrote. That trio is what every
-  // client's "Recent runs" section gates on, and the two outcomes differ on
-  // purpose so a capture photographs both the done tint and the blocked glyph.
+  // an outcome and the summary the agent wrote — so the "Recent automated
+  // runs" rows expand into a summary, and the two outcomes differ on purpose
+  // so a capture photographs both the done tint and the blocked glyph.
   await db.insert(codingSessions).values([
     {
       teamId: ws.id,

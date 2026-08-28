@@ -65,18 +65,6 @@ final class RunOutcomeTests: XCTestCase {
         XCTAssertEqual(RunOutcomePresentation.label("something_new"), "Ended")
     }
 
-    func testCloseOutIsEndedStatusWithAnOutcome() {
-        XCTAssertTrue(RunOutcomePresentation.hasCloseOut(session()))
-        // EXP-673: a person-started run reports, then ends with its tab —
-        // the end path does not decide whether the report lists.
-        XCTAssertTrue(RunOutcomePresentation.hasCloseOut(session(endedBy: "client")))
-        XCTAssertTrue(RunOutcomePresentation.hasCloseOut(session(endedBy: nil)))
-        // Still live (a person-started run that has reported but not ended).
-        XCTAssertFalse(RunOutcomePresentation.hasCloseOut(session(status: "running")))
-        // Killed, merged or swept without a report.
-        XCTAssertFalse(RunOutcomePresentation.hasCloseOut(session(outcome: nil, endedBy: "user")))
-    }
-
     // MARK: - Resume gates
 
     func testResumeTargetsTheMachineThatRanIt() {

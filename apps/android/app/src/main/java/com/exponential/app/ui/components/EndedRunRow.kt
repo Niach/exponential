@@ -37,9 +37,8 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 
 /**
- * EXP-637: one FINISHED run, everywhere a runs list shows them — the Agents
- * tab's "Recent runs" and the Actions screen's "Recent automated runs" share
- * this single row.
+ * EXP-637: one FINISHED run in the Actions screen's "Recent automated runs"
+ * (the Agents tab's own "Recent runs" list was dropped in EXP-676).
  *
  * The row is EXPANDABLE, and the summary is deliberately NOT inline: a
  * close-out paragraph on every collapsed row would drown the list. Collapsed

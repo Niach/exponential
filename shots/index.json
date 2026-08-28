@@ -774,36 +774,6 @@
         "sha256": "d2cb0784836bce4c4bf8a372d674b15f9d66263266f7e7d20573b10ca3044d65"
       }
     },
-    "recent-runs": {
-      "android": {
-        "file": "shots/recent-runs/android.webp",
-        "width": 810,
-        "height": 1800,
-        "bytes": 48840,
-        "sha256": "eea9807f35b605d10bbbe17ba56632a5fefea26e9ee1df15e063eefea356d76f"
-      },
-      "ios": {
-        "file": "shots/recent-runs/ios.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 49526,
-        "sha256": "012231205f4902b2cf711fa32a9d8494221858bbd2e317e732079b9f02a0fffd"
-      },
-      "web": {
-        "file": "shots/recent-runs/web.webp",
-        "width": 1800,
-        "height": 1200,
-        "bytes": 55102,
-        "sha256": "748a90f97abfd3f8f15447948631ef58471e3f4748387df8d2be656f526c3f93"
-      },
-      "web-mobile": {
-        "file": "shots/recent-runs/web-mobile.webp",
-        "width": 832,
-        "height": 1800,
-        "bytes": 51906,
-        "sha256": "85f060ca64bce16203a2a357c8691e02b677ff2da149d87a34d9b539a5975a9f"
-      }
-    },
     "review-diff": {
       "android": {
         "file": "shots/review-diff/android.webp",

@@ -5,7 +5,7 @@ import {
   useNavigate,
 } from "@tanstack/react-router"
 import { MyMachines } from "@/components/my-machines"
-import { EndedSessionRow, SessionRow } from "@/components/agent-session-row"
+import { SessionRow } from "@/components/agent-session-row"
 import { GlassSectionHeader } from "@/components/ui/glass-rows"
 import { useSteerConfig } from "@/components/agent-session"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
@@ -64,7 +64,7 @@ function AgentsPage() {
   const teamId = team?.id
   // Own sessions only (EXP-312 follow-up): a teammate's live session can
   // never be watched from here, so listing it only read as "not online".
-  const { running, recent, isLoading } = useAgentsData(teamId, currentUserId)
+  const { running, isLoading } = useAgentsData(teamId, currentUserId)
   // Steer tickets require team membership and a configured relay; the
   // server enforces both at mint time, this only decides whether the
   // interactive affordances render.
@@ -142,22 +142,6 @@ function AgentsPage() {
               </div>
             </div>
           ) : null)}
-
-        {/* EXP-637: runs the agent closed out itself, with the summary it
-            wrote. Collapsed rows show only the outcome — expanding one
-            reveals the summary and the Resume button (decision 5). Nothing
-            renders until a run has actually ended. On mobile this sits under
-            Running; on desktop between the machines and the actions panel. */}
-        {recent.length > 0 && (
-          <div className="mb-6">
-            <GlassSectionHeader label="Recent runs" count={recent.length} />
-            <div className="flex flex-col gap-2">
-              {recent.map((row) => (
-                <EndedSessionRow key={row.session.id} row={row} />
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* EXP-574: on mobile the actions surface is its own page behind the
             topbar's "Actions" entry — native-app parity. */}

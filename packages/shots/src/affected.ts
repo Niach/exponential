@@ -167,7 +167,7 @@ const IGNORED: RegExp[] = [
   // lives under ExpCore / `data/`, so NATIVE_SHARED widened BOTH simulator
   // lanes — 66 shots — for EXP-656, which moved no pixel on either (verified:
   // the two iOS views that render a device presence badge, `agents` and
-  // `recent-runs`, were captured against it and came back 0.0000 and 0.0001 of
+  // `recent-runs` (since retired, EXP-676), were captured against it and came back 0.0000 and 0.0001 of
   // a 0.0050 tolerance).
   //
   // The reason it cannot draw is structural, not incidental: every capture

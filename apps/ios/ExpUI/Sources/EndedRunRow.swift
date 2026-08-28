@@ -1,8 +1,8 @@
 import ExpCore
 import SwiftUI
 
-/// EXP-637: the ONE row every runs list draws — the Agents tab's "Recent runs"
-/// and the Actions tab's "Recent automated runs".
+/// EXP-637: the ONE row a runs list draws — the Actions tab's "Recent
+/// automated runs" (EXP-676 dropped the Agents tab's "Recent runs").
 ///
 /// Rows are EXPANDABLE, and the summary is deliberately NOT shown inline: a
 /// close-out is a paragraph, and a list of paragraphs is unreadable. Collapsed

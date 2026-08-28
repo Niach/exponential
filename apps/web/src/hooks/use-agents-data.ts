@@ -15,7 +15,6 @@ import {
   sessionIsPaused,
   type SessionDevice,
 } from "@/lib/session-device"
-import { deviceCanResumeRun, deviceRowIsOnline } from "@/lib/steer-devices"
 
 export interface AgentSessionRow {
   session: CodingSession
@@ -35,9 +34,6 @@ export interface AgentSessionRow {
   /** EXP-550: running/needs-input on an OFFLINE machine — the agent is
    * parked and resumes when the device returns; render grey, never live. */
   paused: boolean
-  /** EXP-637: the run can be relaunched where it ran — its device is known,
-   * online, and advertises `resume-run`. Only meaningful on ENDED rows. */
-  canResume: boolean
 }
 
 // Team Agents page + dock data: the caller's OWN live coding sessions in the
@@ -198,27 +194,7 @@ export function useAgentsData(
           sessionDisplayState(session, issue?.prState),
           device
         ),
-        canResume: resolvesToResumableDevice(session),
       }
-    }
-
-    // EXP-637: Resume relaunches the run on the machine that still holds its
-    // worktree, so the row's own device has to be online AND advertise
-    // `resume-run` (steer.startSession refuses otherwise — hiding the button
-    // beats failing after the tap).
-    const resolvesToResumableDevice = (session: CodingSession): boolean => {
-      if (!session.deviceId) return false
-      const matches = devices.filter((d) => d.deviceId === session.deviceId)
-      const row = matches.find((d) => d.userId === session.userId) ?? matches[0]
-      if (!row) return false
-      return (
-        deviceRowIsOnline(row.lastSeenAt, now) &&
-        deviceCanResumeRun({
-          deviceId: row.deviceId,
-          deviceLabel: row.label,
-          caps: row.caps,
-        })
-      )
     }
 
     // Staleness guard (EXP-153): heartbeat-dead rows render as absent
@@ -235,29 +211,8 @@ export function useAgentsData(
       )
       .map(toRow)
 
-    // EXP-637: the caller's own ended runs that carry the AGENT's close-out
-    // (`outcome`, written only by `exponential_sessions_end`). Rows killed,
-    // exited or swept without one carry nothing worth a "Recent runs" entry,
-    // so they stay out. Keyed on the outcome, not `endedBy` (EXP-673): a
-    // person-started run reports first and ends later, with its tab — that
-    // end is `client`, and the report must still list. Newest-ended first,
-    // capped at ten. Mirrored on iOS (`RunOutcomePresentation.hasCloseOut`)
-    // and Android (`recentRunRows`).
-    const recent = sessions
-      .filter(
-        (session) => session.status === `ended` && session.outcome !== null
-      )
-      .sort(
-        (a, b) =>
-          new Date(b.endedAt ?? b.startedAt).getTime() -
-          new Date(a.endedAt ?? a.startedAt).getTime()
-      )
-      .slice(0, 10)
-      .map(toRow)
-
     return {
       running,
-      recent,
       // Without a team id or a signed-in user the query is skipped and can
       // never deliver a snapshot — treat that as ready-empty instead of
       // loading forever.

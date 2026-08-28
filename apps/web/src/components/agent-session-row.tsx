@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router"
 import { ChevronDown, GitMerge, LoaderCircle } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import type { AgentSessionRow } from "@/hooks/use-agents-data"
-import type { CodingSession, Issue } from "@/db/schema"
+import type { CodingSession } from "@/db/schema"
 import {
   sessionDisplayState,
   type SessionDisplayState,
@@ -296,10 +296,12 @@ export function SessionRow({
 // ── Ended runs (EXP-637) ─────────────────────────────────────────────────────
 // A run that closed itself through `exponential_sessions_end` carries the
 // agent's own account of it: an outcome and a one-paragraph summary. Decision
-// 5: the summary is NEVER inline. Collapsed shows name/title, the outcome
-// glyph + label and the time; expanding reveals the summary and Resume. Same
-// row on the Agents page's "Recent runs" and the Automations tab's "Recent
-// automated runs", and mirrored on desktop, iOS and Android.
+// 5: the summary is NEVER inline. Collapsed shows the title, the outcome
+// glyph + label and the time; expanding reveals the summary and Resume. This
+// is the Automations tab's "Recent automated runs" row (EXP-676 dropped the
+// Agents page's "Recent runs" list — only automated runs are listed now, so
+// every row is an action run and no "Action" kind label is drawn), mirrored
+// on desktop, iOS and Android.
 
 const OUTCOME_ICON = {
   done: conceptIcon(`run-outcome-done`),
@@ -327,36 +329,26 @@ function OutcomeBadge({ outcome }: { outcome: string | null }) {
   )
 }
 
-/** What an ended-run row needs — a structural subset of `AgentSessionRow`, so
- * the Agents page hands its rows straight over while the Automations tab
- * builds the three fields itself off the synced session + device rows. */
+/** What an ended-run row needs — the Automations tab builds both fields off
+ * the synced session + device rows. */
 export interface EndedRunRow {
   session: CodingSession
-  issue?: Issue
   /** EXP-637: the run's machine is online and advertises `resume-run`. */
   canResume: boolean
 }
 
 export function EndedSessionRow({
   row,
-  /** Overrides the title line — the Automations tab labels its rows by the
-   * action that fired, not by an issue that never existed. */
+  /** The title line — the action that fired (the row's `actionName`
+   * snapshot, or the live action's name when the snapshot is missing). */
   title,
 }: {
   row: EndedRunRow
-  title?: string
+  title: string
 }) {
-  const { session, issue, canResume } = row
+  const { session, canResume } = row
   const [expanded, setExpanded] = useState(false)
   const [resuming, setResuming] = useState(false)
-
-  const isAction = session.actionName != null
-  const kind = isAction ? `Action` : issue ? issue.identifier : `Batch`
-  const heading =
-    title ??
-    (isAction
-      ? session.actionName
-      : (issue?.title ?? `Batch session`))
 
   // The resumed run arrives as a NEW row over Electric; the button only has
   // to send the command, so it settles as soon as the relay accepted it.
@@ -384,11 +376,8 @@ export function EndedSessionRow({
     >
       <div className="flex min-w-0 items-center gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5 text-sm">
-            <span className="shrink-0 font-mono text-xs text-muted-foreground">
-              {kind}
-            </span>
-            <span className="truncate font-medium">{heading}</span>
+          <div className="flex min-w-0 items-center text-sm">
+            <span className="truncate font-medium">{title}</span>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2 text-xs">
