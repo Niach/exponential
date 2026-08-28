@@ -157,14 +157,27 @@ async function recipeOpenFilterPopover(page: Page): Promise<void> {
 /**
  * Bring the issue's comment thread into frame. The composer is the last thing
  * in the timeline, so scrolling it into view puts the whole conversation on
- * screen; on the phone layout the composer lives in the floating bottom bar
- * instead, so the Activity header is the fallback target.
+ * screen; the phone layout keeps its composer in a floating bottom bar
+ * instead, so there the Activity header is the target.
+ *
+ * Which of the two applies is decided by the VIEWPORT, not by racing the
+ * composer against a timeout (EXP-669). It used to be the race, and the race
+ * was losable: on a cold-synced run the reply box needed longer than its 10s
+ * to mount, the recipe quietly took the phone branch, and
+ * `scrollIntoViewIfNeeded` on an Activity header that was already on screen
+ * did nothing at all — so the shot came back framed on the issue header, a
+ * different picture under the same filename, roughly one run in three. A
+ * missing composer at md+ is now a failure rather than a silent second frame.
  */
 async function recipeScrollToComments(page: Page): Promise<void> {
-  const hasComposer = await appears(page.getByPlaceholder(`Leave a reply…`), 10_000)
+  const width = page.viewportSize()?.width ?? 0
+  const hasComposer = width >= 768
   const target = hasComposer
     ? page.getByPlaceholder(`Leave a reply…`).first()
     : page.getByText(/^Activity/).first()
+  // Deliberately the same 20s the other recipes give a control they know is
+  // mounted: long enough for a first Electric sync, and loud when it is not.
+  await target.waitFor({ timeout: 20_000 })
   await target.scrollIntoViewIfNeeded({ timeout: 15_000 })
   // …then align it to the BOTTOM of the frame (EXP-670).
   // `scrollIntoViewIfNeeded` moves the MINIMUM distance that makes the target
@@ -180,9 +193,9 @@ async function recipeScrollToComments(page: Page): Promise<void> {
   // candidate and only accepts one whose `scrollTop` actually moved.
   //
   // ONLY on the composer path. The phone layout keeps its composer in a
-  // floating bottom bar, so the fallback target is the Activity header, and
-  // "scroll its container to the end" would mean something quite different
-  // there — it reframes the shot past the header it was asked to reach.
+  // floating bottom bar, so its target is the Activity header, and "scroll its
+  // container to the end" would mean something quite different there — it
+  // reframes the shot past the header it was asked to reach.
   if (hasComposer) {
     await target.evaluate((node) => {
       for (let el = node.parentElement; el; el = el.parentElement) {

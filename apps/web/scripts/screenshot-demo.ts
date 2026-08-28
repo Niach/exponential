@@ -96,6 +96,83 @@ export const DEMO_PENDING_INVITE_EXPIRY = {
 } as const
 
 /**
+ * The due dates on the four issues that carry one (EXP-669).
+ *
+ * A due date renders as an ABSOLUTE `MMM d` chip on all five clients, so a
+ * relative offset moved it every calendar day and rewrote `board`,
+ * `issue-detail`, `issue-comments` and `my-issues` on the first refresh after
+ * midnight. Unlike a comment's relative label there is no bucket wide enough
+ * to hide in: the only stable absolute date is a fixed one.
+ *
+ * Spaced 1 / 2 / 4 / 7 days apart the way the relative offsets were, so the
+ * board's due column keeps the same order and spread, and parked in the same
+ * era as `DEMO_PENDING_INVITE_EXPIRY` so ONE bump moves every pinned date in
+ * this file. No client prints a year (web `formatDate`, iOS/Android `MMM d`,
+ * desktop `format_short_date` discards it outright), so a date two years out
+ * is pixel-identical in shape to next week's.
+ *
+ * They must all stay in the FUTURE: `dueDateTone` is a three-way rule and an
+ * upcoming date is the muted one every current shot shows. `screenshot-demo.test.ts`
+ * fails on `MIN_RUNWAY_DAYS` of headroom, long before one goes overdue and
+ * reddens a row.
+ *
+ * Note this deliberately costs one thing: at `inDays(1)` the deep-links issue
+ * rendered the literal "Tomorrow" on iOS and Android, which those two
+ * special-case. A fixed date cannot say that, so the mobile chip now reads
+ * `Jun 8` like everywhere else. Churning `board` on web and desktop every
+ * night was the worse trade.
+ */
+export const DEMO_DUE_DATES = {
+  /** `Push notification deep links open the wrong tab` — the soonest. */
+  deepLinks: `2027-06-08`,
+  /** `Dark mode contrast pass across settings`. */
+  darkMode: `2027-06-09`,
+  /** `Reduce cold start below 800 ms` — APP-5, the showcase issue. */
+  coldStart: `2027-06-11`,
+  /** `Improve empty states with illustrations` — the furthest out. */
+  emptyStates: `2027-06-14`,
+} as const
+
+/**
+ * How long ago each comment on the showcase issue (APP-5) was posted, in hours
+ * (EXP-669).
+ *
+ * These are pinned for the same reason as the invite expiries above, but
+ * against a different mechanism. A comment renders a RELATIVE label the client
+ * computes against its own clock, so what reaches the pixel is not the seeded
+ * offset — it is the offset PLUS however long passed between the seed and the
+ * shutter. That gap is not a constant: it is a minute or two for a narrowed
+ * `--views issue-comments` run, most of an hour by the time the web-mobile
+ * lane reaches this view in a full refresh, and longer still for the native
+ * styleguide lanes that run last. With the old sub-day offsets the label was
+ * hour-granular and a bucket is one hour wide, so the same unchanged thread
+ * photographed "22 hours ago" one run and "23 hours ago" the next, rewriting
+ * every issue-comments shot for nothing.
+ *
+ * A DAY-granular label is the fix, because that bucket is wide enough to
+ * swallow the gap. It is only 12 hours wide across the fleet, though, not 24:
+ * web rounds (date-fns `formatDistanceToNowStrict`, so "1 day" is 24-36h)
+ * while iOS, Android and desktop floor on calendar boundaries ("1 day" is
+ * 24-48h). Their boundaries therefore fall every 12 hours, and an offset only
+ * survives the gap if it sits just ABOVE one — which is also where the two
+ * rules agree on what to print, so the same thread reads the same on all five
+ * platforms in the gallery.
+ *
+ * `screenshot-demo.test.ts` checks both rules against
+ * `COMMENT_LABEL_RUNWAY_HOURS`; edit these numbers only if it still passes.
+ */
+export const DEMO_SHOWCASE_COMMENT_HOURS_AGO = {
+  /** Mira opens with the profiling numbers. */
+  mira: 50,
+  /** Jonas picks up the snapshot cache. */
+  jonas: 49,
+  /** The demo user (Alex) posts the CI results. */
+  demo: 26,
+  /** Sofia's @mention + #issue-ref reply, the newest in the thread. */
+  sofia: 25,
+} as const
+
+/**
  * The LAST event of the scripted steering transcript: the unanswered question
  * the steering screenshot is composed around.
  *
