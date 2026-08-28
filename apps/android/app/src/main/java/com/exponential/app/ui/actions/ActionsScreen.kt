@@ -865,11 +865,14 @@ private fun SuggestionRow(suggestion: ActionSuggestion, onUse: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    // EXP-677: yield to the chip instead of pushing it off the row.
+                    modifier = Modifier.weight(1f, fill = false),
                 )
                 // EXP-583: what "Use suggestion" will set up — an action, or
-                // an action plus the automation that runs it.
+                // the automation that runs one (EXP-677: short labels, the
+                // chip was cut off).
                 SuggestionKindChip(
-                    if (suggestion.automation != null) "Action + automation" else "Action",
+                    if (suggestion.automation != null) "Automation" else "Action",
                 )
             }
             Text(
@@ -890,7 +893,7 @@ private fun SuggestionRow(suggestion: ActionSuggestion, onUse: () -> Unit) {
     }
 }
 
-// The small "Action" / "Action + automation" pill on a suggestion row.
+// The small "Action" / "Automation" pill on a suggestion row.
 @Composable
 private fun SuggestionKindChip(label: String) {
     Text(

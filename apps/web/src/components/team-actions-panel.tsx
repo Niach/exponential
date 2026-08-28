@@ -235,7 +235,7 @@ function SuggestionRow({
             {suggestion.automation && (
               <ActionAutomationIcon className="h-3 w-3" />
             )}
-            {suggestion.automation ? `Action + automation` : `Action`}
+            {suggestion.automation ? `Automation` : `Action`}
           </Badge>
         </div>
         <div className="line-clamp-3 text-xs text-muted-foreground">

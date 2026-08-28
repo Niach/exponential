@@ -783,11 +783,7 @@ impl ActionsView {
         let automation = suggestion
             .automation
             .map(crate::action_suggestions::SuggestedAutomation::to_trigger);
-        let chip = if automation.is_some() {
-            "Action + automation"
-        } else {
-            "Action"
-        };
+        let chip = if automation.is_some() { "Automation" } else { "Action" };
         let no_agent = crate::coding_flow::no_agent_reason(cx);
         crate::surface::glass_row_card()
             .flex()
