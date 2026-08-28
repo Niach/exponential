@@ -180,24 +180,27 @@ impl LoginProgress {
     }
 
     /// Serialize for `devices.completeCommand`, inside its 2000-char cap.
-    /// Over the cap the MESSAGE is trimmed — never the URL, which is the
-    /// whole point of the answer.
+    /// The cap is measured the way the server measures it (zod `.max` counts
+    /// UTF-16 units) on the SERIALIZED text, and over it the MESSAGE shrinks
+    /// until the whole thing fits — never the URL, which is the whole point
+    /// of the answer, and never by cutting the JSON itself.
     pub fn to_result_text(&self) -> String {
+        let fits = |text: &str| text.encode_utf16().count() <= RESULT_TEXT_MAX;
         let rendered = serde_json::to_string(self).unwrap_or_default();
-        if rendered.chars().count() <= RESULT_TEXT_MAX {
+        if fits(&rendered) {
             return rendered;
         }
         let mut trimmed = self.clone();
-        trimmed.message = None;
-        let bare = serde_json::to_string(&trimmed).unwrap_or_default();
-        let room = RESULT_TEXT_MAX.saturating_sub(bare.chars().count() + 16);
-        trimmed.message = self
-            .message
-            .as_ref()
-            .filter(|_| room > 0)
-            .map(|message| message.chars().take(room).collect());
-        let rendered = serde_json::to_string(&trimmed).unwrap_or_default();
-        rendered.chars().take(RESULT_TEXT_MAX).collect()
+        let mut message: Vec<char> = self.message.as_deref().unwrap_or_default().chars().collect();
+        loop {
+            let cut = message.len().saturating_sub((message.len() / 4).max(16));
+            message.truncate(cut);
+            trimmed.message = (!message.is_empty()).then(|| message.iter().collect());
+            let rendered = serde_json::to_string(&trimmed).unwrap_or_default();
+            if fits(&rendered) || message.is_empty() {
+                return rendered;
+            }
+        }
     }
 
     /// Read one back off a `device_commands.result`. `None` = a result from

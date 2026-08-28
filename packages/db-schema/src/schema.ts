@@ -911,38 +911,39 @@ export type DeviceAgentUsageMap = Record<string, DeviceAgentUsage>
 // invisible. Structural bounds only — `clampAgentAccounts`/`clampAgentUsage`
 // (lib/trpc/devices.ts) own the vocabulary and the stored copies stay
 // null-free.
-export const deviceAgentAccountsSchema = z
-  .record(
-    z.string().min(1).max(32),
-    z.object({
+export const deviceAgentAccountsSchema = z.record(
+  z.string(),
+  z
+    .object({
       signedIn: z.boolean().nullish(),
       email: z.string().max(320).nullish(),
       plan: z.string().max(64).nullish(),
       checkedAt: z.string().max(64).nullish(),
     })
-  )
-  .refine((agents) => Object.keys(agents).length <= 16)
+    .nullish()
+)
 
-export const deviceAgentUsageSchema = z
-  .record(
-    z.string().min(1).max(32),
-    z.object({
+export const deviceAgentUsageSchema = z.record(
+  z.string(),
+  z
+    .object({
       fetchedAt: z.string().max(64).nullish(),
       stale: z.boolean().nullish(),
       windows: z
         .array(
-          z.object({
-            key: z.string().max(64).nullish(),
-            label: z.string().max(64).nullish(),
-            percent: z.number().nullish(),
-            resetsAt: z.string().max(64).nullish(),
-          })
+          z
+            .object({
+              key: z.string().max(64).nullish(),
+              label: z.string().max(64).nullish(),
+              percent: z.number().nullish(),
+              resetsAt: z.string().max(64).nullish(),
+            })
+            .nullish()
         )
-        .max(32)
         .nullish(),
     })
-  )
-  .refine((agents) => Object.keys(agents).length <= 16)
+    .nullish()
+)
 
 // EXP-403 registered devices — since EXP-481 an Electric shape (own rows plus
 // team-shared server rows; devices router `list` retained for old clients).

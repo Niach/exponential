@@ -86,6 +86,14 @@ pub struct CodingHub {
     pub settings: Settings,
     settings_path: PathBuf,
     pub doctor: DoctorState,
+    /// EXP-484: this machine's OWN latest agent status (who each CLI is
+    /// signed in as + its rate-limit windows), mirrored here from the
+    /// device-sync beat so the per-tab toolbar and the own-device settings
+    /// dialog read the numbers without a round trip through the row. `None`
+    /// until the first beat lands. Never collected on the foreground — the
+    /// collector blocks on keychain reads, an HTTPS GET and a `codex
+    /// app-server` spawn.
+    pub agent_status: Option<coding::agent_usage::AgentStatusPayload>,
 }
 
 struct CodingHubGlobal(Entity<CodingHub>);
@@ -110,6 +118,7 @@ impl CodingHub {
             settings: Settings::load(&settings_path),
             settings_path,
             doctor: DoctorState::default(),
+            agent_status: None,
         });
         cx.set_global(CodingHubGlobal(hub.clone()));
         Self::refresh_doctor(&hub, cx);
@@ -149,6 +158,12 @@ impl CodingHub {
                 // or the first one appearing) touches the socket.
                 let _ = cx.update(|cx| {
                     crate::steer_wiring::refresh_device_advertisement(cx);
+                    // EXP-484: the agent-status collector's INPUT is this
+                    // report, so the beat is nudged here — once the fresh
+                    // one has landed. Nudging from the caller (a finished
+                    // login, say) would race the probe and ship the old
+                    // report's accounts.
+                    crate::device_sync::beat_soon(cx);
                 });
             }
         })
@@ -215,6 +230,28 @@ impl CodingHub {
         }
     }
 
+    /// EXP-484: re-collect this machine's agent status (who each CLI is
+    /// signed in as + its usage windows).
+    ///
+    /// The collector is BLOCKING (keychain, an HTTPS GET, a `codex
+    /// app-server` spawn), so it only ever runs inside the device-sync beat
+    /// on the background executor — and its INPUT is the doctor report. So
+    /// this re-probes, and [`Self::refresh_doctor`]'s completion nudges the
+    /// beat once the fresh report is in place: a nudge from here would race
+    /// the probe and ship the stale accounts.
+    pub fn refresh_agent_usage(hub: &Entity<CodingHub>, cx: &mut App) {
+        Self::refresh_doctor(hub, cx);
+    }
+
+    /// EXP-484: this machine's own usage snapshot for `agent`, or `None`
+    /// when the collector has not reported it (yet).
+    pub fn own_agent_usage(&self, agent: coding::CodingAgent) -> Option<&coding::agent_usage::AgentUsage> {
+        self.agent_status
+            .as_ref()?
+            .usage
+            .get(agent.id())
+    }
+
     /// The §7.1-step-1 gate half the button ANDs in: git green + at least
     /// one usable agent CLI (EXP-201 — the dialog gates the SELECTED agent).
     pub fn doctor_ok(&self) -> bool {
@@ -257,6 +294,9 @@ pub struct LocalCodingSession {
     pub manager: WeakEntity<TerminalManager>,
     /// The team action this run executes (`None` for issue/batch sessions).
     pub action_id: Option<String>,
+    /// EXP-484: the agent CLI this session runs — the per-tab toolbar reads
+    /// its usage windows off THIS machine's own snapshot.
+    pub agent: coding::CodingAgent,
     /// EXP-637: `schedule`/`event` when an AUTOMATION started this run —
     /// nobody is watching its tab, so an agent-declared end closes it
     /// instead of leaving an ended strip. `None` = a person started it.
@@ -995,6 +1035,31 @@ pub fn window_terminal_dock(window: &Window, cx: &App) -> Option<Entity<Terminal
     find_terminal_dock(bottom.read(cx).panel())
 }
 
+/// EXP-484: ANY window that owns a terminal dock, preferring the active one.
+///
+/// The device-settings dialog and the alert windows are windows of their own
+/// with no dock at all, so a login started from one cannot resolve its dock
+/// through `navigation::on_active_window` — it would land on the dialog and
+/// silently do nothing. Probing each window instead is also the re-entrancy
+/// guard: a window already inside an `update` (the caller's own) answers
+/// `Err` and is skipped, so callers DEFER before asking.
+pub fn any_terminal_dock(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
+    let mut candidates: Vec<gpui::AnyWindowHandle> = Vec::new();
+    if let Some(active) = cx.active_window() {
+        candidates.push(active);
+    }
+    candidates.extend(cx.windows());
+    for handle in candidates {
+        let has_dock = handle
+            .update(cx, |_, window, cx| window_terminal_dock(window, cx).is_some())
+            .unwrap_or(false);
+        if has_dock {
+            return Some(handle);
+        }
+    }
+    None
+}
+
 /// Walk a `DockItem` tree for the terminal dock panel (the bottom dock is a
 /// single `Tabs` today, but a user-rearranged layout may nest it in splits).
 pub(crate) fn find_terminal_dock(item: &DockItem) -> Option<Entity<TerminalDockPanel>> {
@@ -1276,6 +1341,8 @@ pub fn spawn_into_window(
     // policy) and the run worktree to reclaim at exit.
     let started_reason = prepared.heartbeat_scope.started_reason.clone();
     let run_cleanup = prepared.run_cleanup.clone();
+    // EXP-484: which agent this tab is running (the usage bar's key).
+    let agent = prepared.agent;
 
     let sessions = LocalSessions::global(cx);
     let notify_sessions = sessions.downgrade();
@@ -1332,6 +1399,7 @@ pub fn spawn_into_window(
                     tab: terminal_tab,
                     manager: manager.downgrade(),
                     action_id,
+                    agent,
                     started_reason,
                     run_cleanup,
                 },

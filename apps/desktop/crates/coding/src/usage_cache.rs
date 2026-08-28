@@ -188,6 +188,17 @@ pub fn save(data_dir: &Path, cache: &UsageCache) {
     }
 }
 
+/// A login just ended on this machine for `agent`: drop its cached identity
+/// and numbers so the next beat polls afresh and names the NEW account,
+/// instead of the old email riding out its backoff (up to 10 min).
+pub fn forget(data_dir: &Path, agent: &str) {
+    let mut cache = load(data_dir);
+    let removed = cache.entries.remove(agent).is_some() | cache.unknown.remove(agent).is_some();
+    if removed {
+        save(data_dir, &cache);
+    }
+}
+
 /// Whether this agent may be polled right now: past its scheduled next poll,
 /// past the machine-wide shared TTL, and not inside a credential-refusal
 /// backoff.
@@ -303,6 +314,24 @@ fn earliest_maxed_reset(windows: &[UsageWindow]) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forget_drops_one_agent_and_makes_its_poll_due() {
+        let dir = std::env::temp_dir().join(format!("exp-usage-cache-forget-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut cache = UsageCache::default();
+        let mut entry = AgentCacheEntry::default();
+        entry.next_poll_at_secs = 10_000;
+        cache.insert("codex".to_string(), entry.clone());
+        cache.insert("claude".to_string(), entry);
+        save(&dir, &cache);
+        forget(&dir, "codex");
+        let reloaded = load(&dir);
+        assert!(reloaded.get("codex").is_none());
+        assert!(reloaded.get("claude").is_some());
+        assert!(poll_due(&AgentCacheEntry::default(), 5_000));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn window(key: &str, percent: u8, resets_at: Option<&str>) -> UsageWindow {
         UsageWindow {

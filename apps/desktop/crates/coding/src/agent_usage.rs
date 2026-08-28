@@ -270,7 +270,7 @@ pub fn parse_codex_rate_limits(value: &Value) -> Vec<UsageWindow> {
         let minutes = ["windowDurationMins", "window_duration_mins", "windowMinutes", "window_minutes", "durationMins"]
             .into_iter()
             .find_map(|name| entry.get(name).and_then(Value::as_i64));
-        let (key, label) = codex_window_identity(minutes);
+        let (key, label) = codex_window_identity(minutes, field);
         windows.push(UsageWindow {
             key,
             label,
@@ -282,13 +282,21 @@ pub fn parse_codex_rate_limits(value: &Value) -> Vec<UsageWindow> {
     windows
 }
 
-fn codex_window_identity(minutes: Option<i64>) -> (String, String) {
+fn codex_window_identity(minutes: Option<i64>, field: &str) -> (String, String) {
     match minutes {
         Some(300) => ("session".to_string(), "5h".to_string()),
         Some(10080) => ("weekly".to_string(), "Week".to_string()),
         Some(43200) => ("43200".to_string(), "Month".to_string()),
         Some(mins) => (mins.to_string(), format!("{mins}m")),
-        None => ("session".to_string(), "5h".to_string()),
+        // No duration reported: key by the slot so primary and secondary
+        // never collide (a shared key would break per-window selection).
+        None => (
+            field.to_string(),
+            match field {
+                "primary" => "Primary".to_string(),
+                _ => "Secondary".to_string(),
+            },
+        ),
     }
 }
 
@@ -566,11 +574,26 @@ pub fn collect_if_due(
         if check.version.is_none() || check.signed_out() {
             continue;
         }
+        // An API-key / Bedrock / Vertex claude has no subscription windows:
+        // the account row still ships, but a stale OAuth item left in the
+        // keychain must never be polled on its behalf.
+        if agent == CodingAgent::Claude && !check.usage_eligible {
+            continue;
+        }
         let mut entry = cache.get(&id).cloned().unwrap_or_default();
         if usage_cache::poll_due(&entry, now) {
             changed = true;
+            // Claim the slot BEFORE the (slow) fetch and persist it, so the
+            // sibling process sharing this token (IDE vs daemon) sees the
+            // poll as taken instead of spending a second request.
+            entry.next_poll_at_secs = now + usage_cache::MIN_POLL_SECS;
+            cache.insert(id.clone(), entry.clone());
+            usage_cache::save(data_dir, &cache);
             let probe = probe_agent(agent, settings, check.version.as_deref(), &mut entry, now);
             if let Some(account) = probe.account {
+                // Persist the identity: the not-due beats in between re-use it
+                // instead of dropping back to the doctor's presence-only row.
+                entry.account = Some(account.clone());
                 accounts.insert(id.clone(), account);
             }
             usage_cache::apply_outcome(&mut entry, probe.outcome, probe.windows, now, &stamp);

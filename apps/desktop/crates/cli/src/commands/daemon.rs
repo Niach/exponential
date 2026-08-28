@@ -47,7 +47,12 @@ const ADVERT_CONFIRM_RECHECK: Duration = Duration::from_secs(30);
 /// `launch-defaults` (server-authoritative defaults convergence + the
 /// `check_in` nudge frame). EXP-490 split them off [`ACTION_CAPS`]: these
 /// three are BUILD capabilities and ride even with zero runnable agents.
-pub const DEVICE_CAPS: [&str; 3] = ["resume", "worktrees", "launch-defaults"];
+/// EXP-484 adds `agent-login`: this build executes the `agent_login` device
+/// command (run the agent's own sign-in in a PTY, report the link back).
+/// It is deliberately a BUILD cap — signing IN is exactly what a machine
+/// with no runnable agent needs. Hand-synced with the desktop's
+/// `steer_wiring::device_caps` vec.
+pub const DEVICE_CAPS: [&str; 4] = ["resume", "worktrees", "launch-defaults", "agent-login"];
 
 /// The action-run capabilities — advertised only while at least one agent is
 /// RUNNABLE (EXP-409: a machine whose only agents are signed out cannot run
@@ -360,10 +365,25 @@ fn run_daemon(args: &[String]) -> CommandResult {
     let personal_key = context::ensure_personal_key(&ctx).ok();
     let sessions: Sessions = Arc::new(Mutex::new(Vec::new()));
     let reservations = StartReservations::default();
+    // EXP-484: the collected agent status (accounts + usage windows), filled
+    // OFF the 1Hz loop by the device worker and drained by the next
+    // heartbeat. `collect_if_due` can block for ~10s (a codex app-server
+    // spawn) — it must never sit on this loop.
+    let agent_status: Arc<Mutex<Option<coding::AgentStatusPayload>>> = Arc::new(Mutex::new(None));
+    // EXP-484: raised by a finished `agent_login` — the doctor re-probe (and
+    // with it the accounts map) must not wait out a full DOCTOR_RECHECK
+    // before the machine rows learn who just signed in.
+    let doctor_soon = Arc::new(AtomicBool::new(false));
     // EXP-481: the serialized device-state worker (defaults convergence,
     // worktree commands, inventory reports) + the relay check_in flag that
     // forces an immediate heartbeat (the beat IS the work pull).
-    let device_worker = spawn_device_worker(Arc::clone(&ctx), Arc::clone(&sessions), device_id.clone());
+    let device_worker = spawn_device_worker(
+        Arc::clone(&ctx),
+        Arc::clone(&sessions),
+        device_id.clone(),
+        Arc::clone(&agent_status),
+        Arc::clone(&doctor_soon),
+    );
     let check_in = Arc::new(AtomicBool::new(false));
     // EXP-530: the automation host — this daemon's own Electric pipeline (a
     // 6-shape subset in `sync-cli.sqlite`, never the GUI's store), ONE delta
@@ -391,12 +411,26 @@ fn run_daemon(args: &[String]) -> CommandResult {
         worker
     });
 
-    let mut advertised = probe_agents(&ctx);
+    let (mut advertised, mut doctor) = probe_agents(&ctx);
+    // What the two jsonb columns last SENT said: a beat attaches a map only
+    // when it actually changed, so the steady-state body stays tiny and
+    // `agent_usage_at` (which the server stamps on every write) does not move
+    // on every beat. Accounts compare on `accounts_key` — their IDENTITY —
+    // because every collection pass restamps `checkedAt`, so a JSON compare
+    // would call an unchanged map "changed" on every single beat.
+    let mut sent_accounts: Option<String> = None;
+    let mut sent_usage: Option<String> = None;
     // EXP-414: a failed register (network not up yet at boot) is retried on
     // the heartbeat cadence — otherwise the registry row goes stale (old
     // version/agents, a never-cleared update request) until the next restart.
-    let mut registered_ok =
-        register_device(&ctx, &device_id, &device_label, &advertised, &device_worker);
+    let mut registered_ok = register_device(
+        &ctx,
+        &device_id,
+        &device_label,
+        &advertised,
+        &doctor,
+        &device_worker,
+    );
     device_worker.send(DeviceWork::ReportWorktrees).ok();
     // `register` only SEEDS the label (it never stomps a rename); an
     // explicit --label is an intentional write and goes through `rename` —
@@ -530,13 +564,41 @@ fn run_daemon(args: &[String]) -> CommandResult {
             let synced_at =
                 coding::read_marker(&coding::Settings::default_path(&ctx.data_dir), &device_id)
                     .synced_at;
+            // EXP-484: whatever the worker collected since the last beat.
+            // A map rides only when it CHANGED — the server stamps
+            // `agent_usage_at` on every write, and a stamp that moves every
+            // 30s would be pure sync noise. "Changed" is the accounts
+            // IDENTITY (`accounts_key`, `checked_at` excluded — the
+            // collector restamps it every pass) and the usage JSON.
+            let status = agent_status.lock().ok().and_then(|slot| slot.clone());
+            let accounts_json = status.as_ref().and_then(|status| status.accounts_json());
+            let usage_json = status.as_ref().and_then(|status| status.usage_json());
+            let accounts_key = status
+                .as_ref()
+                .filter(|_| accounts_json.is_some())
+                .map(|status| coding::agent_accounts::accounts_key(&status.accounts));
+            let usage_text = usage_json.as_ref().map(|value| value.to_string());
+            let send_accounts = accounts_key.is_some() && accounts_key != sent_accounts;
+            let send_usage = usage_text.is_some() && usage_text != sent_usage;
             match api::devices::heartbeat(
                 &ctx.trpc,
-                &device_id,
-                live_now as u32,
-                synced_at.as_deref(),
+                &api::devices::HeartbeatInput {
+                    device_id: &device_id,
+                    active_sessions: live_now as u32,
+                    defaults_synced_at: synced_at.as_deref(),
+                    agent_accounts: send_accounts.then_some(accounts_json.as_ref()).flatten(),
+                    agent_usage: send_usage.then_some(usage_json.as_ref()).flatten(),
+                },
             ) {
                 Ok(result) => {
+                    // Only an ACCEPTED beat updates the last-sent copies: a
+                    // failed one must resend on the next tick.
+                    if send_accounts {
+                        sent_accounts = accounts_key.clone();
+                    }
+                    if send_usage {
+                        sent_usage = usage_text.clone();
+                    }
                     // EXP-641: a beat the server ACCEPTS means the gate is
                     // gone (a rolled-back floor, or we already updated past
                     // it) — clear it, or the daemon polls GitHub every 5 min
@@ -548,7 +610,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     // register never landed (EXP-414) — re-register.
                     if !result.ok || !registered_ok {
                         registered_ok = register_device(
-                            &ctx, &device_id, &device_label, &advertised, &device_worker,
+                            &ctx,
+                            &device_id,
+                            &device_label,
+                            &advertised,
+                            &doctor,
+                            &device_worker,
                         );
                     }
                     if result.update_requested && pending_update.is_none() {
@@ -591,6 +658,14 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 }
                 Err(err) => log::debug!("devices.heartbeat failed: {err}"),
             }
+            // EXP-484: collect for the NEXT beat, on the worker — never
+            // here (a codex app-server probe blocks for seconds, and this
+            // loop also owns remote starts).
+            device_worker
+                .send(DeviceWork::CollectAgentStatus {
+                    report: Box::new(doctor.clone()),
+                })
+                .ok();
         }
         // Session start/end changes the inventory's busy flags.
         if session_change {
@@ -658,7 +733,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
                             // Consume the web request even when there was
                             // nothing to install.
                             registered_ok = register_device(
-                                &ctx, &device_id, &device_label, &advertised, &device_worker,
+                                &ctx,
+                                &device_id,
+                                &device_label,
+                                &advertised,
+                                &doctor,
+                                &device_worker,
                             );
                         }
                     }
@@ -672,7 +752,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         }
                         if matches!(trigger, UpdateTrigger::Requested) {
                             registered_ok = register_device(
-                                &ctx, &device_id, &device_label, &advertised, &device_worker,
+                                &ctx,
+                                &device_id,
+                                &device_label,
+                                &advertised,
+                                &doctor,
+                                &device_worker,
                             );
                         }
                     }
@@ -692,13 +777,17 @@ fn run_daemon(args: &[String]) -> CommandResult {
         } else {
             DOCTOR_RECHECK
         };
-        if last_doctor.elapsed() >= doctor_due {
+        // EXP-484: a finished `agent_login` re-probes NOW — the accounts
+        // map (and the row's signed-in flip) is the whole point of the
+        // command, and it must not wait out the slow cadence.
+        if doctor_soon.swap(false, Ordering::SeqCst) || last_doctor.elapsed() >= doctor_due {
             last_doctor = Instant::now();
             // EXP-481: the slow cadence also picks up hand-edited
             // settings.json defaults and re-checks the inventory.
             device_worker.send(DeviceWork::ReconcileLocal).ok();
             device_worker.send(DeviceWork::ReportWorktrees).ok();
-            let agents = probe_agents(&ctx);
+            let (agents, report) = probe_agents(&ctx);
+            doctor = report;
             match advert_transition(&advertised, &agents, &mut pending_advert) {
                 AdvertStep::Keep => {}
                 AdvertStep::AwaitConfirmation => log::info!(
@@ -727,7 +816,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         });
                     }
                     registered_ok = register_device(
-                        &ctx, &device_id, &device_label, &advertised, &device_worker,
+                        &ctx,
+                        &device_id,
+                        &device_label,
+                        &advertised,
+                        &doctor,
+                        &device_worker,
                     );
                 }
             }
@@ -766,9 +860,15 @@ fn run_daemon(args: &[String]) -> CommandResult {
     Ok(ExitCode::SUCCESS)
 }
 
-fn probe_agents(ctx: &Ctx) -> coding::AgentAdvertisement {
+/// One doctor pass → what the relay/registry hears, plus the report itself.
+/// EXP-484: the accounts map and the usage collector both read the REPORT
+/// (which binaries exist, who is signed in), so the daemon keeps the last
+/// one beside the advertisement instead of re-probing for it.
+fn probe_agents(ctx: &Ctx) -> (coding::AgentAdvertisement, coding::DoctorReport) {
     let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
-    coding::run_doctor(&settings).agent_advertisement(&settings)
+    let report = coding::run_doctor(&settings);
+    let advertisement = report.agent_advertisement(&settings);
+    (advertisement, report)
 }
 
 /// What a doctor re-probe should do to the live advertisement (EXP-414).
@@ -809,6 +909,7 @@ fn register_device(
     device_id: &str,
     device_label: &str,
     advertised: &coding::AgentAdvertisement,
+    doctor: &coding::DoctorReport,
     device_worker: &flume::Sender<DeviceWork>,
 ) -> bool {
     let caps = device_caps(advertised);
@@ -818,6 +919,10 @@ fn register_device(
     let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
     let launch_defaults = serde_json::to_value(coding::defaults_wire(&settings))
         .expect("defaults serialize cannot fail");
+    let accounts = doctor.agent_accounts(&coding::now_iso());
+    let agent_accounts = (!accounts.is_empty())
+        .then(|| serde_json::to_value(&accounts).ok())
+        .flatten();
     let result = api::devices::register(
         &ctx.trpc,
         &api::devices::RegisterDevice {
@@ -829,6 +934,11 @@ fn register_device(
             unauthed_agents: &advertised.unauthed_agents,
             caps: &caps,
             launch_defaults: Some(&launch_defaults),
+            // EXP-484 (A3): who is signed in where, straight off the last
+            // doctor pass — the usage windows are a heartbeat concern (they
+            // need the collector), the accounts map is not, and a
+            // just-registered machine should already say "signed in as …".
+            agent_accounts: agent_accounts.as_ref(),
             version: Some(crate::cli_version()),
         },
     );
@@ -1380,16 +1490,29 @@ enum DeviceWork {
     Commands(Vec<api::devices::PendingCommand>),
     /// Re-scan the worktrees and report when the fingerprint moved.
     ReportWorktrees,
+    /// EXP-484: collect the agent accounts + usage windows for the NEXT
+    /// heartbeat. Runs here because `collect_if_due` blocks (keychain read,
+    /// an HTTP fetch, a codex app-server spawn — up to ~10s) and the daemon
+    /// loop must stay at 1Hz. `report` is the loop's last doctor pass: the
+    /// collector reads it for which binaries exist and who is signed in
+    /// (boxed — it dwarfs every other variant).
+    CollectAgentStatus { report: Box<coding::DoctorReport> },
 }
 
 fn spawn_device_worker(
     ctx: Arc<Ctx>,
     sessions: Sessions,
     device_id: String,
+    agent_status: Arc<Mutex<Option<coding::AgentStatusPayload>>>,
+    doctor_soon: Arc<AtomicBool>,
 ) -> flume::Sender<DeviceWork> {
     let (tx, rx) = flume::unbounded::<DeviceWork>();
     std::thread::spawn(move || {
         let mut last_inventory_fp: Option<u64> = None;
+        // EXP-484: `agent_login` runs on its own thread (a PTY that lives
+        // for minutes must not block this worker) — the set is what makes a
+        // REDELIVERED command id a no-op instead of a second sign-in.
+        let logins_inflight: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
         while let Ok(work) = rx.recv() {
             match work {
                 DeviceWork::ServerDefaults { defaults, stamp } => {
@@ -1412,12 +1535,31 @@ fn spawn_device_worker(
                 }
                 DeviceWork::Commands(commands) => {
                     for command in commands {
-                        run_device_command(&ctx, &sessions, &command);
+                        run_device_command(
+                            &ctx,
+                            &sessions,
+                            &command,
+                            &logins_inflight,
+                            &doctor_soon,
+                        );
                     }
                     report_worktrees(&ctx, &sessions, &device_id, &mut last_inventory_fp);
                 }
                 DeviceWork::ReportWorktrees => {
                     report_worktrees(&ctx, &sessions, &device_id, &mut last_inventory_fp);
+                }
+                DeviceWork::CollectAgentStatus { report } => {
+                    let settings =
+                        coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
+                    let payload = coding::collect_if_due(
+                        &ctx.data_dir,
+                        &settings,
+                        &report,
+                        coding::run_registry::now_secs(),
+                    );
+                    if let Ok(mut slot) = agent_status.lock() {
+                        *slot = Some(payload);
+                    }
                 }
             }
         }
@@ -1550,7 +1692,13 @@ fn push_local_defaults(
 
 /// Execute one pulled command and report its outcome. `ok: false` from
 /// completeCommand means a redelivered duplicate raced us — fine.
-fn run_device_command(ctx: &Ctx, sessions: &Sessions, command: &api::devices::PendingCommand) {
+fn run_device_command(
+    ctx: &Ctx,
+    sessions: &Sessions,
+    command: &api::devices::PendingCommand,
+    logins_inflight: &Arc<Mutex<HashSet<String>>>,
+    doctor_soon: &Arc<AtomicBool>,
+) {
     let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
     let repos_root = settings.repos_root_path();
     let held: std::collections::HashSet<String> = lock_sessions(sessions)
@@ -1573,6 +1721,19 @@ fn run_device_command(ctx: &Ctx, sessions: &Sessions, command: &api::devices::Pe
             }
         }
         "worktree_prune" => run_prune(&settings, &repos_root, &ctx.data_dir, held),
+        // EXP-484: a sign-in on this machine, requested from anywhere. The
+        // PTY lives for minutes, so the host owns its own thread and its own
+        // completion — this arm never falls through to the one below.
+        "agent_login" => {
+            crate::agent_login_host::run(
+                ctx,
+                settings,
+                command.clone(),
+                Arc::clone(logins_inflight),
+                Arc::clone(doctor_soon),
+            );
+            return;
+        }
         other => {
             log::info!("device command {other:?} unsupported — reported back");
             (false, "This machine's app doesn't support that command yet.".to_string())
@@ -3181,6 +3342,18 @@ mod tests {
         assert!(ACTION_CAPS.contains(&"chat"));
         assert!(caps.contains(&"chat".to_string()));
         assert!(!device_caps(&advert(&[])).contains(&"chat".to_string()));
+    }
+
+    /// EXP-484: signing IN is exactly what a machine with no runnable agent
+    /// needs, so `agent-login` is a BUILD cap — it rides even when nothing
+    /// is signed in, alongside the desktop's hand-synced `steer_wiring` vec.
+    #[test]
+    fn device_caps_include_agent_login_without_runnable_agents() {
+        assert!(DEVICE_CAPS.contains(&"agent-login"));
+        assert!(!ACTION_CAPS.contains(&"agent-login"));
+        let signed_out = device_caps(&advert(&[]));
+        assert!(signed_out.contains(&"agent-login".to_string()));
+        assert!(device_caps(&advert(&["claude"])).contains(&"agent-login".to_string()));
     }
 
     #[test]

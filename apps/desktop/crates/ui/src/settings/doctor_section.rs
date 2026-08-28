@@ -92,16 +92,16 @@ pub(crate) fn install_hint(tool: Tool) -> (&'static str, &'static str) {
 }
 
 /// EXP-409: guidance for an INSTALLED agent that is signed out — the fix is
-/// a login, not an install, so the install hint would mislead.
+/// a login, not an install, so the install hint would mislead. EXP-484 put a
+/// Login button beside it (which runs exactly this in a terminal tab), so the
+/// hint no longer spells the command out.
 pub(crate) fn sign_in_hint(tool: Tool) -> &'static str {
     match tool {
-        Tool::Claude => {
-            "Sign in: run `claude` in a terminal and complete the login (works over ssh too)."
-        }
-        Tool::Codex => "Sign in: run `codex login` in a terminal.",
+        Tool::Claude => "Signed out — sign in to use Claude Code.",
+        Tool::Codex => "Signed out — sign in to use the Codex CLI.",
         Tool::Pi => {
-            "Give pi a credential: run `pi` and sign in with /login, or set a provider \
-             API key (e.g. ANTHROPIC_API_KEY)."
+            "pi has no credential — sign in with /login, or set a provider API key \
+             (e.g. ANTHROPIC_API_KEY)."
         }
         Tool::Git => "",
     }
@@ -264,12 +264,30 @@ impl DoctorPanel {
         let tool = check.tool;
         let muted = cx.theme().muted_foreground;
         if check.signed_out() {
-            return v_flex().pl_7().gap_1p5().child(
+            // EXP-484: the fix is one click — the login runs the agent's own
+            // sign-in command in a terminal tab, and the exit re-probes.
+            let mut block = v_flex().pl_7().gap_1p5().child(
                 div()
                     .text_xs()
                     .text_color(muted.opacity(0.9))
                     .child(sign_in_hint(tool)),
             );
+            if let Some(agent) = tool.agent() {
+                block = block.child(
+                    h_flex().child(
+                        Button::new(SharedString::from(format!("doctor-login-{}", agent.id())))
+                            .outline()
+                            .cursor_pointer()
+                            .web_xs()
+                            .icon(registry::UI_SIGN_IN)
+                            .label("Login")
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                crate::agent_login::open_login_tab(agent, false, cx);
+                            })),
+                    ),
+                );
+            }
+            return block;
         }
         let (hint, url) = install_hint(tool);
         let mut block = v_flex()
@@ -381,6 +399,8 @@ mod tests {
             version: Some("1.0.0".to_string()),
             error: None,
             authed: None,
+            account: None,
+            usage_eligible: false,
         }
     }
 
@@ -391,6 +411,8 @@ mod tests {
             version: None,
             error: Some(format!("{} not found on PATH", tool.label())),
             authed: None,
+            account: None,
+            usage_eligible: false,
         }
     }
 
@@ -452,6 +474,8 @@ mod tests {
             version: Some("1.0.0".to_string()),
             error: Some("signed out".to_string()),
             tool,
+            account: None,
+            usage_eligible: false,
         };
         let one_ok = DoctorReport {
             claude: green(Tool::Claude),

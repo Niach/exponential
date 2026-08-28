@@ -114,8 +114,101 @@ pub fn open(window: &mut Window, cx: &mut App, device_row_id: String) {
 /// One queued command the dialog tracks until terminal.
 struct TrackedCommand {
     id: String,
-    /// `prune`, or `"{repo} {branch}"` for a removal — the inline error slot.
+    /// `prune`, `"{repo} {branch}"` for a removal, or `"login {agent}"` for
+    /// an EXP-484 sign-in — the inline error/result slot.
     key: String,
+}
+
+/// EXP-484: the key an agent's queued login is tracked under.
+fn login_key(agent: CodingAgent) -> String {
+    format!("login {}", agent.id())
+}
+
+/// EXP-484: what a finished `agent_login` command handed back — the CLI's
+/// own sign-in URL (open it anywhere) plus, for Codex's device-code flow,
+/// the code to type on the machine.
+struct LoginNote {
+    url: String,
+    code: Option<String>,
+}
+
+/// EXP-484: the Login / Switch-account affordance for one agent row, or
+/// `None` when this client cannot start that machine's sign-in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LoginAffordance {
+    pub label: &'static str,
+    /// Whether the run signs OUT first (an account SWITCH).
+    pub switch: bool,
+}
+
+/// Who may start a sign-in, and how it is labelled.
+///
+/// The OWN machine always can — the login runs in a terminal tab right here,
+/// online or not. A REMOTE machine needs to be online (the command rides its
+/// heartbeat), to run a build that executes `agent_login` (the cap), and not
+/// to be pi: pi's sign-in is an interactive prompt inside its TUI with no
+/// device-code flow to hand back, so remote sign-in refuses it outright (the
+/// server does too). Mirrors the web `canLogin` rule exactly.
+pub(crate) fn login_affordance(
+    agent: CodingAgent,
+    own: bool,
+    online: bool,
+    caps: &[String],
+    signed_in: bool,
+) -> Option<LoginAffordance> {
+    let allowed = own
+        || (online
+            && agent != CodingAgent::Pi
+            && caps.iter().any(|cap| cap == "agent-login"));
+    allowed.then_some(LoginAffordance {
+        label: if signed_in { "Switch account" } else { "Login" },
+        switch: signed_in,
+    })
+}
+
+/// EXP-484: one agent's caption — `claude · signed in as a@b.c · max`,
+/// `codex · signed out`, `pi · anthropic (oauth)`, `<agent> · unknown`.
+/// Byte-identical to the web `accountRow` (`lib/agent-usage.ts`) and its
+/// iOS/Android twins.
+pub(crate) fn account_label(
+    agent: CodingAgent,
+    account: Option<&coding::agent_accounts::AgentAccount>,
+) -> String {
+    let caption = match account {
+        // Never probed is NOT "signed out".
+        None => "unknown".to_string(),
+        Some(account) if !account.signed_in => "signed out".to_string(),
+        Some(account) => {
+            let email = account.email.as_deref().filter(|value| !value.is_empty());
+            let plan = account.plan.as_deref().filter(|value| !value.is_empty());
+            match (email, plan) {
+                (Some(email), Some(plan)) => format!("signed in as {email} · {plan}"),
+                (Some(email), None) => format!("signed in as {email}"),
+                // pi reports a provider, never an address.
+                (None, Some(plan)) => plan.to_string(),
+                (None, None) => "signed in".to_string(),
+            }
+        }
+    };
+    format!("{} · {caption}", agent.id())
+}
+
+/// EXP-484: tolerant parse of a `{ agent: T }` jsonb column. Entries that do
+/// not parse are DROPPED — a client must never brick on a newer (or a
+/// corrupt) device's payload.
+pub(crate) fn parse_agent_map<T: serde::de::DeserializeOwned>(
+    value: Option<&serde_json::Value>,
+) -> std::collections::BTreeMap<String, T> {
+    let mut out = std::collections::BTreeMap::new();
+    let Some(object) = value.and_then(|value| value.as_object()) else {
+        return out;
+    };
+    for (agent, entry) in object {
+        if let Ok(parsed) = serde_json::from_value::<T>(entry.clone()) {
+            out.insert(agent.clone(), parsed);
+        }
+    }
+    out
 }
 
 pub struct DeviceSettingsView {
@@ -157,6 +250,10 @@ pub struct DeviceSettingsView {
     section_errors: HashMap<String, SharedString>,
     tracked: Vec<TrackedCommand>,
     polling: bool,
+    /// EXP-484: which agent's usage rows are expanded, and the sign-in links
+    /// finished logins handed back (keyed by agent id).
+    usage_expanded: Option<CodingAgent>,
+    login_notes: HashMap<String, LoginNote>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -181,6 +278,9 @@ impl DeviceSettingsView {
                 unauthed_agents: None,
                 launch_defaults: None,
                 launch_defaults_updated_at: None,
+                agent_accounts: None,
+                agent_usage: None,
+                agent_usage_at: None,
                 active_sessions: None,
                 last_seen_at: None,
                 shared_team_id: None,
@@ -331,6 +431,8 @@ impl DeviceSettingsView {
             section_errors: HashMap::new(),
             tracked: Vec::new(),
             polling: false,
+            usage_expanded: None,
+            login_notes: HashMap::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -686,6 +788,42 @@ impl DeviceSettingsView {
         .detach();
     }
 
+    /// EXP-484: queue a REMOTE sign-in on this machine. The device opens the
+    /// agent's own login command and completes the row the moment the
+    /// sign-in URL is up, which the poll below renders as a link.
+    fn queue_agent_login(&mut self, agent: CodingAgent, switch: bool, cx: &mut gpui::Context<Self>) {
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        let key = login_key(agent);
+        let device_id = self.device_id.clone();
+        self.set_error(key.clone(), None);
+        self.login_notes.remove(agent.id());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::devices::create_agent_login_command(&trpc, &device_id, agent.id(), switch)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(created) => {
+                        this.tracked.push(TrackedCommand {
+                            id: created.id,
+                            key,
+                        });
+                        this.ensure_polling(cx);
+                    }
+                    Err(err) => this.set_error(key, Some(user_error(&err))),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// Poll queued commands until terminal — the durable outcome (a worktree
     /// vanishing) additionally streams in via sync when the machine
     /// re-reports. Retires itself when nothing is tracked; dialog close
@@ -744,6 +882,37 @@ impl DeviceSettingsView {
                                             || "The machine reported a failure.".to_string(),
                                         ))),
                                     );
+                                } else if let Some(agent) = key.strip_prefix("login ") {
+                                    // EXP-484: a login completes EARLY, the
+                                    // moment its sign-in URL is on the
+                                    // machine's grid — that link IS the
+                                    // result. The signed-in flip follows on
+                                    // the synced row after the re-probe.
+                                    let progress = row
+                                        .result
+                                        .as_deref()
+                                        .and_then(coding::LoginProgress::parse);
+                                    match progress {
+                                        Some(progress) => match progress.url {
+                                            Some(url) => {
+                                                this.login_notes.insert(
+                                                    agent.to_string(),
+                                                    LoginNote {
+                                                        url,
+                                                        code: progress.code,
+                                                    },
+                                                );
+                                            }
+                                            None => this.set_error(
+                                                key.clone(),
+                                                progress.message.map(SharedString::from),
+                                            ),
+                                        },
+                                        None => this.set_error(
+                                            key.clone(),
+                                            row.result.map(SharedString::from),
+                                        ),
+                                    }
                                 }
                             }
                             // Pending / transient error — keep polling.
@@ -964,6 +1133,261 @@ impl DeviceSettingsView {
             body = body.child(error);
         }
         body
+    }
+
+    /// EXP-484: the "Agents" section — who each agent CLI on this machine is
+    /// signed in as, how much of its rate-limit windows is spent, and the
+    /// Login / Switch-account button.
+    ///
+    /// Rows render only for the agents the machine actually REPORTED
+    /// (accounts ∪ usage), never the full contract set — an uninstalled
+    /// agent has nothing to say — and the whole section is omitted when that
+    /// is empty (an older build, or a machine that has not beaten yet). The
+    /// OWN device reads the live hub snapshot instead of the row: the
+    /// collector's numbers are right here and fresher.
+    fn render_agents_section(
+        &mut self,
+        online: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::Div> {
+        let row = self.row(cx);
+        let caps: Vec<String> = row
+            .as_ref()
+            .map(|row| row.cap_ids())
+            .unwrap_or_default();
+        let now = chrono::Utc::now().timestamp();
+        let hub = CodingHub::global(cx);
+        let (accounts, usage, settings) = {
+            let hub = hub.read(cx);
+            if self.own {
+                let status = hub.agent_status.clone().unwrap_or_default();
+                let mut accounts = status.accounts;
+                if accounts.is_empty() {
+                    // Before the first beat the collector has reported
+                    // nothing — the doctor probe already knows who is signed
+                    // in, so the section is never blank on a machine that
+                    // has agents installed.
+                    if let Some(report) = hub.doctor.report.as_ref() {
+                        accounts = report.agent_accounts(&coding::agent_accounts::now_iso());
+                    }
+                }
+                (accounts, status.usage, hub.settings.clone())
+            } else {
+                let accounts = parse_agent_map::<coding::agent_accounts::AgentAccount>(
+                    row.as_ref().and_then(|row| row.agent_accounts.as_ref()),
+                );
+                let usage = row
+                    .as_ref()
+                    .and_then(|row| row.agent_usage.as_ref())
+                    .and_then(|value| value.as_object().cloned())
+                    .map(|entries| {
+                        entries
+                            .iter()
+                            .filter_map(|(agent, entry)| {
+                                crate::usage_bar::parse_agent_usage(entry)
+                                    .map(|usage| (agent.clone(), usage))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                (accounts, usage, hub.settings.clone())
+            }
+        };
+        let agents: Vec<CodingAgent> = CodingAgent::ALL
+            .into_iter()
+            .filter(|agent| {
+                accounts.contains_key(agent.id()) || usage.contains_key(agent.id())
+            })
+            .collect();
+        if agents.is_empty() {
+            return None;
+        }
+
+        let muted = cx.theme().muted_foreground;
+        let agent_usage_at = row.as_ref().and_then(|row| row.agent_usage_at.clone());
+        let mut body = v_flex()
+            .gap_2()
+            .child(Self::section_title("Agents", cx));
+        for agent in agents {
+            let account = accounts.get(agent.id());
+            let signed_in = account.map(|account| account.signed_in).unwrap_or(false);
+            let affordance = login_affordance(agent, self.own, online, &caps, signed_in);
+            let key = login_key(agent);
+            let pending = self.command_pending(&key);
+
+            let mut header = h_flex()
+                .w_full()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(SharedString::from(account_label(agent, account))),
+                );
+            if let Some(affordance) = affordance {
+                header = header.child(
+                    Button::new(SharedString::from(format!("device-login-{}", agent.id())))
+                        .outline()
+                        .web_xs()
+                        .icon(if affordance.switch {
+                            registry::UI_SWAP
+                        } else {
+                            registry::UI_SIGN_IN
+                        })
+                        .label(affordance.label)
+                        .disabled(pending)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.start_login(agent, affordance.switch, cx);
+                        })),
+                );
+            }
+            body = body.child(header);
+
+            // The usage bar renders only while the numbers are FRESH — stale
+            // limits beside a live machine read as current ones.
+            if let Some(usage) = usage.get(agent.id()) {
+                if !usage.windows.is_empty()
+                    && crate::usage_bar::is_fresh(&usage.fetched_at, now)
+                {
+                    let expanded = self.usage_expanded == Some(agent);
+                    let selected = crate::usage_bar::preferred_window(&settings, agent);
+                    let props = crate::usage_bar::UsageBarProps {
+                        id: SharedString::from(format!("device-usage-{}", agent.id())),
+                        usage,
+                        selected: selected.as_deref(),
+                        expanded,
+                        now_epoch: now,
+                    };
+                    let toggle = cx.entity().downgrade();
+                    let select = cx.entity().downgrade();
+                    body = body.child(crate::usage_bar::render_usage_bar(
+                        props,
+                        move |_, cx| {
+                            let _ = toggle.update(cx, |this, cx| {
+                                this.usage_expanded =
+                                    (this.usage_expanded != Some(agent)).then_some(agent);
+                                cx.notify();
+                            });
+                        },
+                        move |key, _, cx| {
+                            crate::usage_bar::persist_window(agent, key, cx);
+                            let _ = select.update(cx, |this, cx| {
+                                this.usage_expanded = None;
+                                cx.notify();
+                            });
+                        },
+                        cx,
+                    ));
+                }
+            }
+
+            // Offline (or a build that cannot run the command): say when the
+            // numbers were taken instead of pretending they are current.
+            if !online || affordance.is_none() {
+                let stamp = account
+                    .map(|account| account.checked_at.clone())
+                    .or_else(|| agent_usage_at.clone())
+                    .unwrap_or_default();
+                let as_of = crate::usage_bar::as_of_label(&stamp, now);
+                if !as_of.is_empty() {
+                    body = body.child(
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(as_of)),
+                    );
+                }
+            }
+
+            if pending {
+                body = body.child(
+                    div().text_xs().text_color(muted).child(if online {
+                        "Waiting for the sign-in link…"
+                    } else {
+                        "This machine is offline — the sign-in runs when it comes online."
+                    }),
+                );
+            }
+            if let Some(note) = self.login_notes.get(agent.id()) {
+                body = body.child(self.render_login_note(agent, note, cx));
+            }
+            if let Some(error) = self.error_line(&key, cx) {
+                body = body.child(error);
+            }
+        }
+        Some(body)
+    }
+
+    /// The link a finished login handed back (plus Codex's device code).
+    fn render_login_note(
+        &self,
+        agent: CodingAgent,
+        note: &LoginNote,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::Div {
+        let muted = cx.theme().muted_foreground;
+        let url = note.url.clone();
+        let copy = url.clone();
+        let caption = if note.code.is_some() {
+            "Open the link on any device and enter the code on the machine."
+        } else {
+            "Open the link on any device."
+        };
+        let mut line = h_flex().w_full().items_center().gap_2().child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_xs()
+                .font_family(theme::terminal::FONT_FAMILY)
+                .child(SharedString::from(url)),
+        );
+        if let Some(code) = note.code.clone() {
+            line = line.child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(muted)
+                    .font_family(theme::terminal::FONT_FAMILY)
+                    .child(SharedString::from(format!("· code {code}"))),
+            );
+        }
+        line = line.child(
+            Button::new(SharedString::from(format!("device-login-copy-{}", agent.id())))
+                .ghost()
+                .web_xs()
+                .icon(registry::UI_COPY)
+                .label("Copy link")
+                .on_click(move |_, _, cx| {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
+                }),
+        );
+        v_flex()
+            .gap_0p5()
+            .child(line)
+            .child(div().text_xs().text_color(muted).child(caption))
+    }
+
+    /// Start a sign-in for `agent`: locally in a terminal tab on the OWN
+    /// machine, remotely as an `agent_login` device command otherwise. A
+    /// switch confirms first where the sign-out is destructive (codex).
+    fn start_login(&mut self, agent: CodingAgent, switch: bool, cx: &mut gpui::Context<Self>) {
+        if self.own {
+            crate::agent_login::open_login_tab(agent, switch, cx);
+            return;
+        }
+        if !switch {
+            self.queue_agent_login(agent, false, cx);
+            return;
+        }
+        let view = cx.entity().downgrade();
+        crate::agent_login::confirm_switch_then(agent, cx, move |cx| {
+            let _ = view.update(cx, |this, cx| this.queue_agent_login(agent, true, cx));
+        });
     }
 
     fn render_worktrees_section(
@@ -1218,6 +1642,7 @@ impl Render for DeviceSettingsView {
         }
 
         let defaults_section = self.render_defaults_section(online, cx);
+        let agents_section = self.render_agents_section(online, cx);
         let worktrees_section = self.render_worktrees_section(online, cx);
 
         let mut body = v_flex()
@@ -1229,7 +1654,9 @@ impl Render for DeviceSettingsView {
         if server {
             body = body.child(sharing_section);
         }
-        body.child(defaults_section).child(worktrees_section)
+        body.child(defaults_section)
+            .children(agents_section)
+            .child(worktrees_section)
     }
 }
 
@@ -1257,6 +1684,106 @@ mod tests {
         // Unparseable / absent stamps fail closed.
         assert!(!row_is_online(Some("garbage"), now_ms));
         assert!(!row_is_online(None, now_ms));
+    }
+
+    /// EXP-484: the caption, byte-identical to the web `accountRow`.
+    #[test]
+    fn account_label_variants() {
+        let account = |signed_in: bool, email: Option<&str>, plan: Option<&str>| {
+            coding::agent_accounts::AgentAccount {
+                signed_in,
+                email: email.map(str::to_string),
+                plan: plan.map(str::to_string),
+                checked_at: "2026-08-28T10:00:00.000Z".to_string(),
+            }
+        };
+        assert_eq!(
+            account_label(
+                CodingAgent::Claude,
+                Some(&account(true, Some("a@b.c"), Some("max")))
+            ),
+            "claude · signed in as a@b.c · max"
+        );
+        assert_eq!(
+            account_label(CodingAgent::Codex, Some(&account(false, None, None))),
+            "codex · signed out"
+        );
+        // pi names a provider, never an address.
+        assert_eq!(
+            account_label(
+                CodingAgent::Pi,
+                Some(&account(true, None, Some("anthropic (oauth)")))
+            ),
+            "pi · anthropic (oauth)"
+        );
+        // Email without a plan, and a signed-in account naming neither.
+        assert_eq!(
+            account_label(CodingAgent::Claude, Some(&account(true, Some("a@b.c"), None))),
+            "claude · signed in as a@b.c"
+        );
+        assert_eq!(
+            account_label(CodingAgent::Claude, Some(&account(true, None, None))),
+            "claude · signed in"
+        );
+        // Never probed is NOT signed out.
+        assert_eq!(account_label(CodingAgent::Claude, None), "claude · unknown");
+    }
+
+    /// EXP-484: who may start a sign-in. The own machine always can; a
+    /// remote one needs to be online, to run a build with the cap, and not
+    /// to be pi.
+    #[test]
+    fn login_affordance_matrix() {
+        let caps = vec!["resume".to_string(), "agent-login".to_string()];
+        let none: Vec<String> = Vec::new();
+
+        // Own device: always, offline and cap-less included — the login runs
+        // in a terminal tab right here.
+        let own = login_affordance(CodingAgent::Claude, true, false, &none, false).unwrap();
+        assert_eq!(own.label, "Login");
+        assert!(!own.switch);
+        // Signed in → the switch wording, and the run signs out first.
+        let own = login_affordance(CodingAgent::Codex, true, false, &none, true).unwrap();
+        assert_eq!(own.label, "Switch account");
+        assert!(own.switch);
+        // pi is fine locally.
+        assert!(login_affordance(CodingAgent::Pi, true, true, &caps, false).is_some());
+
+        // Remote: online + cap + not pi.
+        assert!(login_affordance(CodingAgent::Claude, false, true, &caps, false).is_some());
+        assert!(login_affordance(CodingAgent::Claude, false, false, &caps, false).is_none());
+        assert!(login_affordance(CodingAgent::Claude, false, true, &none, false).is_none());
+        assert!(login_affordance(CodingAgent::Pi, false, true, &caps, false).is_none());
+    }
+
+    /// EXP-484: a newer (or corrupt) device's payload drops the bad entries,
+    /// never the row.
+    #[test]
+    fn parse_agent_map_tolerates_garbage() {
+        let value = serde_json::json!({
+            "claude": {
+                "signedIn": true,
+                "email": "dev@acme.test",
+                "plan": "max",
+                "checkedAt": "2026-08-28T10:00:00.000Z",
+            },
+            // Unknown fields ride along unread.
+            "codex": { "signedIn": false, "checkedAt": "x", "future": 1 },
+            // Wrong shape entirely — dropped, not fatal.
+            "pi": "signed in",
+        });
+        let accounts =
+            parse_agent_map::<coding::agent_accounts::AgentAccount>(Some(&value));
+        assert_eq!(accounts.len(), 2);
+        assert_eq!(accounts["claude"].email.as_deref(), Some("dev@acme.test"));
+        assert!(!accounts["codex"].signed_in);
+        assert!(!accounts.contains_key("pi"));
+        // A missing / non-object column is simply nothing to render.
+        assert!(parse_agent_map::<coding::agent_accounts::AgentAccount>(None).is_empty());
+        assert!(parse_agent_map::<coding::agent_accounts::AgentAccount>(Some(
+            &serde_json::json!("nope")
+        ))
+        .is_empty());
     }
 
     #[test]

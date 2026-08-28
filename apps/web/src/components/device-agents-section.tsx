@@ -157,7 +157,7 @@ function AgentAccountRow({
           }}
         />
       )}
-      {(!online || !canAgentLogin) && asOf && (
+      {!canLogin && asOf && (
         <p className="text-[11px] text-muted-foreground">
           as of {relativeTime(asOf)}
         </p>

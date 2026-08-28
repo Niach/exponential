@@ -117,25 +117,13 @@ fun parseLaunchDefaults(raw: String?): DeviceLaunchDefaults? =
  * status; null/bad = null (the Agents section then reads "unknown").
  */
 fun parseAgentAccounts(raw: String?): Map<String, AgentAccount>? =
-    raw?.let {
-        runCatching {
-            deviceJson.decodeFromString(
-                MapSerializer(String.serializer(), AgentAccount.serializer()),
-                it,
-            )
-        }.getOrNull()
-    }
+    AgentUsagePresentation.parseAccounts(raw)
 
 /** The stored `agent_usage` jsonb object → per-agent usage; null/bad = null. */
 fun parseAgentUsage(raw: String?): Map<String, AgentUsage>? =
-    raw?.let {
-        runCatching {
-            deviceJson.decodeFromString(
-                MapSerializer(String.serializer(), AgentUsage.serializer()),
-                it,
-            )
-        }.getOrNull()
-    }
+    // The tolerant presentation parser: one malformed window drops that
+    // window, never the whole map (the session view already parses this way).
+    AgentUsagePresentation.parseUsageMap(raw)
 
 /**
  * One synced devices row as the [SteerDevice] every picker/list renders.

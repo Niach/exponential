@@ -115,6 +115,9 @@ struct AgentUsageWindowRows: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         }
+        // Numbers the machine could not refresh render dimmed, like the strip
+        // (and web/Android's rows).
+        .opacity(usage.stale == true ? 0.5 : 1)
     }
 
     /// Numbers the machine could not refresh say so, in the same words the

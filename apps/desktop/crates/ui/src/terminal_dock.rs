@@ -19,6 +19,10 @@
 //!   ctrl-tab / ctrl-shift-tab to switch; tabs that don't fit the strip
 //!   collapse into a trailing "+N" dropdown exactly like the center tab
 //!   strip (EXP-497 — no cut-off horizontal scroll);
+//! - a **per-tab toolbar** under the strip (EXP-484): for the ACTIVE session
+//!   tab only, what it works on (issue chip / batch label / action name),
+//!   this machine's usage bar for the agent it runs, and the "Merge" button —
+//!   which used to live on the chip and squeeze its title;
 //! - **empty state** (EXP-369): an expanded, tab-less dock NEVER spawns
 //!   anything by itself — it renders the tab bar over a row of launch cards
 //!   (`render_empty_dock_options`), one per doctor-installed agent plus "New
@@ -305,6 +309,10 @@ pub struct TerminalDockPanel {
     /// a progress line; cleared when the tab opens or the attempt fails (the
     /// cards come back).
     pending_launch: Option<SharedString>,
+    /// EXP-484: which tab's usage bar is expanded into its per-window rows,
+    /// if any. One at a time (the toolbar only ever renders the ACTIVE tab),
+    /// and cleared when that tab closes.
+    usage_expanded: Option<TabId>,
     /// EXP-523: the open/close slide, `None` at rest. See [`DockSlide`].
     dock_slide: Option<DockSlide>,
     /// Dropping the task cancels the slide — same cancellation semantics as
@@ -346,6 +354,11 @@ impl TerminalDockPanel {
                         // token-refresher hold with the tab.
                         if let Some(clone) = this.agent_shell_holds.remove(id) {
                             TokenRefreshers::release(&clone, cx);
+                        }
+                        // EXP-484: the toolbar's expanded usage rows belong
+                        // to a tab — they must not survive it.
+                        if this.usage_expanded == Some(*id) {
+                            this.usage_expanded = None;
                         }
                         // §8.8b: closing the last tab collapses the bottom dock
                         // (mirror of the TabOpened expand); otherwise focus the
@@ -429,6 +442,7 @@ impl TerminalDockPanel {
             agent_shell_holds: HashMap::new(),
             chips_slot_width: None,
             pending_launch: None,
+            usage_expanded: None,
             dock_slide: None,
             _dock_slide_task: None,
             _subscription: subscription,
@@ -873,16 +887,18 @@ impl TerminalDockPanel {
         // EXP-277: hand-rolled rounded chips (crate::surface::tab_chip), same
         // treatment as the center tab strip — gpui-component's TabBar is
         // square with a strip-wide bottom border.
-        // EXP-325: the shared merge state drives the hover merge button —
-        // materialized here (needs `&mut App`), read inside the chip closure.
-        let merge_state = crate::pr_merge::MergeState::global(cx);
+        //
+        // EXP-484: the chip has no merge button any more — Merge moved to the
+        // per-tab toolbar under the strip ([`Self::render_session_toolbar`]),
+        // where it has room for a label and cannot squeeze the titles. Every
+        // chip renders its close button again.
 
         // EXP-497: partition the chips against the slot's painted width. The
         // `+` new-session menu rides INSIDE the slot right after the chips —
         // an xsmall icon button (`size_5`) plus one gap comes off the budget.
         let widths: Vec<f32> = metas
             .iter()
-            .map(|meta| measure_tab_chip_width(meta, &merge_state, window, cx))
+            .map(|meta| measure_tab_chip_width(meta, window))
             .collect();
         let plus_reserve = 1.25 * f32::from(window.rem_size()) + crate::screens::chip_gap(window);
         let available = self
@@ -903,11 +919,6 @@ impl TerminalDockPanel {
             let meta = &metas[ix];
             let id = meta.id;
             let manager_ix = meta.manager_ix;
-            let merge_button = meta
-                .merge
-                .as_ref()
-                .map(|merge| self.tab_merge_button(ix, id, merge, &merge_state, cx));
-            let has_merge = merge_button.is_some();
             let chip = crate::surface::tab_chip(ix == selected_ix, cx)
                 .id(("terminal-tab", ix))
                 .group(TAB_GROUP)
@@ -988,29 +999,19 @@ impl TerminalDockPanel {
                                         )),
                                 ),
                         )
-                        // EXP-498: the always-visible "Merge" shortcut for a
-                        // session (issue OR batch) with an open PR — it takes
-                        // the close button's slot (merging closes the
-                        // session, so the one affordance does both). Undock +
-                        // middle-click keep a close-without-merging escape
-                        // hatch.
-                        .when_some(merge_button, |this, button| this.child(button))
-                        .when(!has_merge, |this| {
-                            this.child(
-                                Button::new(("close-terminal-tab", ix))
-                                    .ghost().cursor_pointer()
-                                    .xsmall()
-                                    .icon(registry::UI_CLOSE)
-                                    .on_click(cx.listener(
-                                        move |this, _: &ClickEvent, _window, cx| {
-                                            cx.stop_propagation();
-                                            this.manager.update(cx, |manager, cx| {
-                                                manager.close_tab(id, cx)
-                                            });
-                                        },
-                                    )),
-                            )
-                        }),
+                        .child(
+                            Button::new(("close-terminal-tab", ix))
+                                .ghost().cursor_pointer()
+                                .xsmall()
+                                .icon(registry::UI_CLOSE)
+                                .on_click(cx.listener(
+                                    move |this, _: &ClickEvent, _window, cx| {
+                                        cx.stop_propagation();
+                                        this.manager
+                                            .update(cx, |manager, cx| manager.close_tab(id, cx));
+                                    },
+                                )),
+                        ),
                 )
         });
         // EXP-497: the hidden tabs collapse into a "+N" dropdown; clicking
@@ -1153,10 +1154,11 @@ impl TerminalDockPanel {
             )
     }
 
-    /// The merge button on a session tab whose PR is open (issue AND batch
-    /// since EXP-498): always visible, reads "Merge", and REPLACES the tab's
-    /// close button — merging always closes the session, so the one
-    /// affordance does both. Two-click confirm via the shared `pr_merge`
+    /// The merge button for the ACTIVE session tab whose PR is open (issue
+    /// AND batch since EXP-498). EXP-484 moved it off the chip into the
+    /// per-tab toolbar: a labeled button never squeezes a title there, and
+    /// the chip got its close button back (merging still closes the
+    /// session). Two-click confirm via the shared `pr_merge`
     /// state ("Merge" → "Confirm merge", ~5s auto-disarm). A failed merge
     /// (typically conflicts) jumps to the Reviews tool window, where the
     /// shared error caption + Fix-conflicts button render exactly as a
@@ -1170,7 +1172,6 @@ impl TerminalDockPanel {
     /// ends the user's live sessions on OTHER devices after the merge.
     fn tab_merge_button(
         &self,
-        ix: usize,
         tab: TabId,
         merge: &MergeTabMeta,
         merge_state: &Entity<crate::pr_merge::MergeState>,
@@ -1180,7 +1181,9 @@ impl TerminalDockPanel {
             let state = merge_state.read(cx);
             (state.armed(&merge.issue_id), state.merging(&merge.issue_id))
         };
-        let mut button = Button::new(("merge-terminal-tab", ix)).xsmall();
+        // EXP-484: one button per dock (the toolbar renders the ACTIVE tab
+        // only), so the id no longer carries a strip index.
+        let mut button = Button::new("merge-session-toolbar").xsmall();
         if merging {
             button = button
                 .outline().cursor_pointer()
@@ -1479,6 +1482,162 @@ impl TerminalDockPanel {
         .detach();
     }
 
+    /// EXP-484: the per-tab session toolbar — a 24px row under the tab strip
+    /// carrying, for the ACTIVE tab only: what the session works on (the
+    /// issue chip's content, a batch label, or the action name), this
+    /// machine's usage bar for the agent the session runs, and the Merge
+    /// button that used to squeeze the chip.
+    ///
+    /// `None` for shell / agent-shell / login tabs — they have no session,
+    /// so there is nothing to say and no row is painted at all.
+    fn render_session_toolbar(
+        &self,
+        tab: TabId,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let now = chrono::Utc::now().timestamp();
+        let meta = toolbar_meta(tab, now, cx)?;
+        let muted = cx.theme().muted_foreground;
+        let expanded = self.usage_expanded == Some(tab);
+
+        let context = match &meta.context {
+            ToolbarContext::Issue {
+                status,
+                identifier,
+                title,
+            } => h_flex()
+                .gap_1p5()
+                .items_center()
+                .min_w_0()
+                .child(crate::icons::resolved_status_icon(status, cx).xsmall())
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .whitespace_nowrap()
+                        .child(identifier.clone()),
+                )
+                .when_some(title.clone(), |this, title| {
+                    this.child(div().text_xs().min_w_0().truncate().child(title))
+                }),
+            ToolbarContext::Batch { label } | ToolbarContext::Action { name: label } => h_flex()
+                .items_center()
+                .min_w_0()
+                .child(div().text_xs().min_w_0().truncate().child(label.clone())),
+        };
+
+        let mut row = h_flex()
+            .w_full()
+            .h(px(24.))
+            .px_2()
+            .gap_2()
+            .items_center()
+            .child(context);
+
+        // The spacer that also hosts the collapsed bar — capped so a wide
+        // dock does not turn a hairline into a banner.
+        let mut spacer = h_flex().flex_1().min_w_0().justify_end();
+        if let Some(usage) = meta.usage.as_ref() {
+            let panel = cx.entity().downgrade();
+            let props = crate::usage_bar::UsageBarProps {
+                id: SharedString::from("terminal-toolbar-usage"),
+                usage: &usage.usage,
+                selected: usage.selected.as_deref(),
+                expanded,
+                now_epoch: now,
+            };
+            spacer = spacer.child(
+                div().w_full().max_w(px(220.)).child(
+                    crate::usage_bar::render_usage_track(
+                        &props,
+                        move |_, cx| {
+                            let _ = panel.update(cx, |this, cx| {
+                                this.usage_expanded =
+                                    (this.usage_expanded != Some(tab)).then_some(tab);
+                                cx.notify();
+                            });
+                        },
+                        cx,
+                    ),
+                ),
+            );
+        }
+        row = row.child(spacer);
+
+        if let Some(merge) = meta.merge.as_ref() {
+            let merge_state = crate::pr_merge::MergeState::global(cx);
+            row = row.child(self.tab_merge_button(tab, merge, &merge_state, cx));
+        }
+
+        let mut toolbar = v_flex()
+            .w_full()
+            .flex_shrink_0()
+            .border_b_1()
+            .border_color(cx.theme().border.opacity(0.6))
+            .child(row);
+        if expanded {
+            if let Some(usage) = meta.usage.as_ref() {
+                let panel = cx.entity().downgrade();
+                let agent = usage.agent;
+                let props = crate::usage_bar::UsageBarProps {
+                    id: SharedString::from("terminal-toolbar-usage"),
+                    usage: &usage.usage,
+                    selected: usage.selected.as_deref(),
+                    expanded,
+                    now_epoch: now,
+                };
+                toolbar = toolbar.child(
+                    div().px_2().pb_1().child(crate::usage_bar::render_usage_windows(
+                        &props,
+                        move |key, _, cx| {
+                            // The pick is a LOCAL reading habit: persisted
+                            // through the ui-prefs path (no doctor re-run,
+                            // and outside the launch-defaults wire).
+                            crate::usage_bar::persist_window(agent, key, cx);
+                            let _ = panel.update(cx, |this, cx| {
+                                this.usage_expanded = None;
+                                cx.notify();
+                            });
+                        },
+                        cx,
+                    )),
+                );
+            }
+        }
+        Some(toolbar.into_any_element())
+    }
+
+    /// EXP-484 (C1): open one agent-LOGIN tab — `claude auth login
+    /// --claudeai`, `codex login --device-auth`, or pi's bare TUI with
+    /// `/login` typed at its prompt.
+    ///
+    /// A plain [`TerminalManager::open_tab`], deliberately NOT the
+    /// [`Self::launch_agent_shell`] path: `coding::prepare_agent_shell`
+    /// refuses a signed-out agent, which is exactly who needs to sign in.
+    /// No `coding_sessions` row, no token hold, no MCP wiring — just the
+    /// CLI's own login command in a visible tab. The caller (
+    /// [`crate::agent_login`]) owns the logout-first switch, the pi typing
+    /// and the exit hook.
+    pub(crate) fn launch_agent_login(
+        &mut self,
+        agent: coding::CodingAgent,
+        plan: &coding::LoginPlan,
+        on_exit: Option<terminal::tab::ExitHook>,
+        cx: &mut gpui::Context<Self>,
+    ) -> anyhow::Result<TabId> {
+        self.manager.update(cx, |manager, cx| {
+            manager.open_tab(
+                TabKind::AgentLogin(agent.id().to_string()),
+                SharedString::from(plan.title.clone()),
+                Some(SharedString::from(agent.label().to_string())),
+                &plan.spawn,
+                on_exit,
+                cx,
+            )
+        })
+    }
+
     /// The collapsed-dock strip: the bottom dock keeps a 29px band
     /// when closed, and a chrome-less panel renders its full content clipped
     /// into it — instead render this compact one-line strip. Clicking it (or
@@ -1764,12 +1923,6 @@ struct TabMeta {
     /// the plain terminal title. Batch/action/shell tabs (and unsynced
     /// issues) stay `None`.
     issue: Option<IssueTabMeta>,
-    /// EXP-498: present when this tab's session — issue OR batch — has an
-    /// open PR. The chip then swaps its close button for the "Merge" button
-    /// (merging always closes the session). Deliberately separate from
-    /// `issue` so batch tabs gain the merge affordance without inheriting
-    /// the issue-chip content.
-    merge: Option<MergeTabMeta>,
 }
 
 /// The issue-chip snapshot of one issue-session terminal tab (EXP-325).
@@ -1779,6 +1932,122 @@ struct IssueTabMeta {
     /// `None` for a blank issue title — the identifier already labels the
     /// chip (the EXP-310 center-tab rule).
     title: Option<SharedString>,
+}
+
+/// EXP-484: what the per-tab toolbar renders for one session tab.
+struct ToolbarMeta {
+    context: ToolbarContext,
+    /// The open-PR merge target, when the session has one (EXP-498's rule,
+    /// unchanged — only the button's home moved off the chip).
+    merge: Option<MergeTabMeta>,
+    /// This machine's OWN usage for the agent the session runs. Absent when
+    /// the collector has nothing, or when its numbers are not fresh — stale
+    /// limits beside a live agent read as current ones.
+    usage: Option<ToolbarUsage>,
+}
+
+/// What the session works on, in the toolbar's own words.
+enum ToolbarContext {
+    Issue {
+        status: domain::statuses::ResolvedStatus,
+        identifier: SharedString,
+        title: Option<SharedString>,
+    },
+    Batch {
+        label: SharedString,
+    },
+    Action {
+        name: SharedString,
+    },
+}
+
+struct ToolbarUsage {
+    agent: coding::CodingAgent,
+    usage: coding::agent_usage::AgentUsage,
+    /// The pinned window key (`Settings.usage_window[agent]`).
+    selected: Option<String>,
+}
+
+/// `Batch · 3 issues` — a batch tab's context line. Pure (unit-tested); a
+/// batch whose issues have not synced yet still names itself.
+fn batch_label(issue_count: usize) -> String {
+    match issue_count {
+        0 => "Batch".to_string(),
+        1 => "Batch · 1 issue".to_string(),
+        count => format!("Batch · {count} issues"),
+    }
+}
+
+/// Resolve a tab to its toolbar row: the session's subject, its merge
+/// target, and this machine's usage for the agent it runs. `None` for
+/// anything that is not a local session tab.
+fn toolbar_meta(tab_id: TabId, now_epoch: i64, cx: &mut App) -> Option<ToolbarMeta> {
+    let sessions = crate::coding_flow::LocalSessions::global_ref(cx)?;
+    let (subject, branch, agent, session_id) = {
+        let sessions = sessions.read(cx);
+        let session = sessions.session_for_tab(tab_id)?;
+        (
+            session.subject.clone(),
+            session.branch.clone(),
+            session.agent,
+            session.session_id.clone(),
+        )
+    };
+    let store = sync::Store::try_global(cx)?;
+    let context = match &subject {
+        crate::coding_flow::SessionSubject::Issue(issue_id) => {
+            let issue = store.collections().issues.read(cx).get(issue_id).cloned()?;
+            let title = issue.title.trim().to_string();
+            ToolbarContext::Issue {
+                status: crate::queries::resolve_issue_status(cx, &issue),
+                identifier: SharedString::from(issue.identifier.clone()),
+                title: (!title.is_empty()).then(|| SharedString::from(title)),
+            }
+        }
+        crate::coding_flow::SessionSubject::Batch(_) => {
+            let count = store
+                .collections()
+                .issues
+                .read(cx)
+                .iter()
+                .filter(|issue| !branch.is_empty() && issue.branch.as_deref() == Some(branch.as_str()))
+                .count();
+            ToolbarContext::Batch {
+                label: SharedString::from(batch_label(count)),
+            }
+        }
+        crate::coding_flow::SessionSubject::Action(_) => {
+            // The run's own `coding_sessions` row carries the action-name
+            // SNAPSHOT (it survives the action's deletion).
+            let name = store
+                .collections()
+                .coding_sessions
+                .read(cx)
+                .get(&session_id)
+                .and_then(|row| row.action_name.clone())
+                .unwrap_or_else(|| "Action run".to_string());
+            ToolbarContext::Action {
+                name: SharedString::from(name),
+            }
+        }
+    };
+    let hub = CodingHub::global(cx);
+    let hub = hub.read(cx);
+    let usage = hub
+        .own_agent_usage(agent)
+        .filter(|usage| {
+            !usage.windows.is_empty() && crate::usage_bar::is_fresh(&usage.fetched_at, now_epoch)
+        })
+        .map(|usage| ToolbarUsage {
+            agent,
+            usage: usage.clone(),
+            selected: crate::usage_bar::preferred_window(&hub.settings, agent),
+        });
+    Some(ToolbarMeta {
+        context,
+        merge: merge_tab_meta(tab_id, cx),
+        usage,
+    })
 }
 
 /// The tab's merge affordance (EXP-498): the representative synced issue
@@ -1793,12 +2062,7 @@ struct MergeTabMeta {
 /// `screens::measure_chip_width` mirrors the center chips (EXP-326: spacing
 /// helpers resolve against the rem size and labels are SHAPED with the
 /// window's text system, so "fits" means fits).
-fn measure_tab_chip_width(
-    meta: &TabMeta,
-    merge_state: &Entity<crate::pr_merge::MergeState>,
-    window: &Window,
-    cx: &App,
-) -> f32 {
+fn measure_tab_chip_width(meta: &TabMeta, window: &Window) -> f32 {
     /// `tab_chip`'s `px_2`, both sides.
     const CHIP_PADDING_REMS: f32 = 0.5 * 2.;
     /// `Icon::xsmall()` — `size_3` (the issue chip's status glyph).
@@ -1809,9 +2073,6 @@ fn measure_tab_chip_width(
     const CLUSTER_GAP_REMS: f32 = 0.125;
     /// The exit badge's `px_1`, both sides.
     const BADGE_PADDING_REMS: f32 = 0.25 * 2.;
-    /// A labeled xsmall `Button`'s `px_1` (both sides) plus its outline
-    /// border — the armed/merging merge button.
-    const LABEL_BUTTON_CHROME: f32 = 0.5;
     /// `.max_w(px(180.)).truncate()` on the title child — a real pixel
     /// value, so it does NOT scale with the rem.
     const TITLE_MAX_W: f32 = 180.;
@@ -1850,11 +2111,11 @@ fn measure_tab_chip_width(
         ),
     }
 
-    // The trailing cluster: exit badge, merge button (EXP-498: always a
-    // LABELED button — idle "Merge" carries the GitMerge icon, armed
-    // "Confirm merge" / "Merging…" drop it), undock slot (`invisible` keeps
-    // its box), and close — which the merge button REPLACES when present.
-    let mut cluster: Vec<f32> = Vec::with_capacity(4);
+    // The trailing cluster: exit badge, the undock slot (`invisible` keeps
+    // its box) and close. EXP-484 removed the merge button from the chip —
+    // it lives in the per-tab toolbar now, so nothing here reserves a
+    // variable-width labeled button any more.
+    let mut cluster: Vec<f32> = Vec::with_capacity(3);
     if let Some(code) = meta.exit_code {
         cluster.push(
             BADGE_PADDING_REMS * rem
@@ -1866,29 +2127,8 @@ fn measure_tab_chip_width(
                 ),
         );
     }
-    if let Some(merge) = meta.merge.as_ref() {
-        let state = merge_state.read(cx);
-        let (label, icon) = if state.merging(&merge.issue_id) {
-            ("Merging…", false)
-        } else if state.armed(&merge.issue_id) {
-            ("Confirm merge", false)
-        } else {
-            ("Merge", true)
-        };
-        // Labeled xsmall button: px_1 chrome (+2px outline border slack) +
-        // shaped label, plus the size_3 icon and the button's gap_1 when the
-        // idle state renders the GitMerge glyph next to the text.
-        cluster.push(
-            LABEL_BUTTON_CHROME * rem
-                + 2.
-                + crate::screens::measure_text(window, label, base_font.clone(), gpui::rems(0.75))
-                + if icon { (0.75 + 0.25) * rem } else { 0. },
-        );
-    }
     cluster.push(XSMALL_BUTTON_REMS * rem);
-    if meta.merge.is_none() {
-        cluster.push(XSMALL_BUTTON_REMS * rem);
-    }
+    cluster.push(XSMALL_BUTTON_REMS * rem);
     let cluster_width = cluster.iter().sum::<f32>()
         + CLUSTER_GAP_REMS * rem * cluster.len().saturating_sub(1) as f32;
     children.push(cluster_width);
@@ -2033,7 +2273,6 @@ impl Render for TerminalDockPanel {
                     title: tab.title().clone(),
                     exit_code: tab.exit_code(),
                     issue: issue_tab_meta(tab.id, cx),
-                    merge: merge_tab_meta(tab.id, cx),
                 })
                 .collect();
             let active = manager
@@ -2097,9 +2336,13 @@ impl Render for TerminalDockPanel {
         let selected_ix = active_id
             .and_then(|id| metas.iter().position(|meta| meta.id == id))
             .unwrap_or(0);
+        // EXP-484: the ACTIVE session tab's toolbar (context · usage ·
+        // Merge), between the strip and the grid.
+        let toolbar = active_id.and_then(|id| self.render_session_toolbar(id, cx));
         outer.child(
             self.pin_content(
                 root.child(self.render_tab_bar(&metas, selected_ix, window, cx))
+                    .children(toolbar)
                     // min_h(0) so the flex child can shrink with the dock; the
                     // grid element itself guards the 0-height collapsed case
                     // (§6.9).
@@ -2118,6 +2361,17 @@ mod tests {
     use gpui_component::dock::{DockAreaState, PanelInfo};
 
     use super::*;
+
+    /// EXP-484: the batch tab's toolbar context line.
+    #[test]
+    fn batch_label_counts_issues() {
+        assert_eq!(batch_label(3), "Batch · 3 issues");
+        assert_eq!(batch_label(2), "Batch · 2 issues");
+        // Singular reads as one issue, not "1 issues".
+        assert_eq!(batch_label(1), "Batch · 1 issue");
+        // Nothing synced yet — the tab still names itself.
+        assert_eq!(batch_label(0), "Batch");
+    }
 
     /// EXP-498: the batch tab's merge target — any synced OPEN-PR issue on
     /// the session's branch; nothing else qualifies.
