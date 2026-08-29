@@ -217,7 +217,12 @@ enum UpdateTrigger {
     /// RESPONSE) can no longer reach it — and its only way back is the new
     /// binary. Acts like `Requested` (auto-update off is not a reason to
     /// stay unusable) and bypasses the persisted check throttle; re-armed
-    /// every [`GATED_UPDATE_RETRY`] while the gate holds.
+    /// every [`GATED_UPDATE_RETRY`] while the gate holds. Like every
+    /// trigger it still waits for idle — but a gated daemon does not stay
+    /// busy forever: since EXP-681 each hosted run's kill poll ends the run
+    /// itself once the gate has outlasted the server sweep window
+    /// (`session_host::GATED_KILL_AFTER`), so a forgotten person-started
+    /// run (EXP-674: no idle reaper) can no longer pin a gated build.
     Gated,
 }
 
@@ -711,7 +716,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
             let live = lock_sessions(&sessions).len();
             if live > 0 {
                 log::info!(
-                    "server rejected this build (426) — updating once {live} live session(s) close"
+                    "server rejected this build (426) — updating once {live} live session(s) close (a gated run ends itself once the server has swept its row, EXP-681)"
                 );
             } else {
                 log::info!("server rejected this build (426) — updating now");
