@@ -1,22 +1,9 @@
-Alles sinds 0.14.0:
-
-- Agents melden zich als een run klaar is: lees de samenvatting en de uitkomst waar je ook bent, en hervat een afgeronde run waar hij stopte
-- Typ # om een issue-chip in reacties en beschrijvingen te zetten, met slimmer cursorgedrag rond chips
-- Live sessies blijven rustig tijdens lange wachttijden in plaats van opnieuw te verbinden, en herstellen sneller als ze toch wegvallen
-- Live codeersessies houden hun verbinding bij netwerkwissels en appwissels, en herstellen vanzelf als ze wegvallen
-- Schakelaars en de Actions-lijst zien er strakker uit
-- Start een chat met een agent direct vanaf het Agents-tabblad
-- Kies een standaardmachine en elk start-coding-venster heeft die al geselecteerd
-- Live sessies blijven streamen terwijl je door de app beweegt, en concepten voor bijsturing overleven een herverbinding
-- Geen meldingen meer over je eigen pull requests
-- Beantwoord permissievragen van je agent vanaf je telefoon, zonder terug naar je machine te lopen
-- Voeg screenshots toe aan een lopende codeersessie en start coding op meerdere issues tegelijk
-- Sessies staan op pauze zolang hun machine offline is, en hervatten waar je ook bent
-- Geef een actie een schema of een trigger en een van je machines draait hem vanzelf
-- Beheer al je machines in de app: hernoemen, delen met je team, worktrees opruimen
-- Emoji-kiezer, afbeeldingen en bestanden bij reacties, en een opmaakbalk in de editor
-- Issuelijsten groeperen op status, met duidelijkere kopjes, een fris uiterlijk en soepelere menu's om te maken en te kiezen
-- Typ # om een issue te linken; verwijzingen tonen live statuschips
-- Kiezer voor toegewezen persoon, archiveerbare boards en een checklist om te starten
-- Koppel je eigen GitHub-repo's en deel ze met je team
-- Opgelost: uitgelogd worden bij elke herstart, plus een reeks stabiliteits- en prestatiefixes
+- Als je offline bent zegt de app dat duidelijk, met een knop Opnieuw proberen, in plaats van een kale netwerkfout
+- Voeg een pull request samen rechtstreeks vanuit de stuurweergave van een lopende sessie
+- Zie met welk account elke agent-CLI is aangemeld en hoeveel van zijn limieten over is, en start een aanmelding op elk van je machines vanaf je telefoon
+- Een agent kan werk overdragen aan een tweede run en op het rapport wachten
+- Een run die jij startte blijft open voor vervolgvragen; geautomatiseerde runs leveren een samenvatting en uitkomst die je overal kunt lezen, en een afgeronde run kan hervat worden waar hij stopte
+- Typ # om een issue-chip in opmerkingen en beschrijvingen te plaatsen
+- Live sessies blijven verbonden bij netwerk- en app-wisselingen, blijven stil tijdens lang wachten en herstellen zichzelf als ze wegvallen
+- „Conflicten oplossen“ wordt alleen aangeboden bij een echt merge-conflict
+- Schakelaars en de actielijst zien er strakker uit

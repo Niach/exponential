@@ -1,22 +1,9 @@
-Todo desde la 0.14.0:
-
-- Los agentes te avisan cuando termina una ejecución: lee el resumen y el resultado desde donde estés, y retoma una ejecución terminada donde se quedó
-- Escribe # para insertar un chip de issue en comentarios y descripciones, con un cursor que se comporta mejor alrededor de los chips
-- Las sesiones en directo se quedan tranquilas durante las esperas largas en vez de reconectarse, y se recuperan antes cuando se caen
-- Las sesiones de código en directo aguantan los cambios de red y de app, y se recuperan solas cuando se caen
-- Los interruptores y la lista de acciones tienen un aspecto más limpio
-- Empieza un chat con un agente directamente desde la pestaña Agents
-- Elige una máquina por defecto y cada diálogo de empezar a programar la trae ya seleccionada
-- Las sesiones en directo siguen transmitiendo mientras te mueves por la app, y los borradores de instrucciones sobreviven a las reconexiones
-- Se acabaron las notificaciones sobre tus propias pull requests
-- Responde a las peticiones de permiso del agente desde el móvil, sin volver a la máquina
-- Adjunta capturas a una sesión de código en curso y empieza a programar varios issues a la vez
-- Las sesiones salen en pausa mientras su máquina está sin conexión, y siguen desde cualquier sitio
-- Dale a una acción un horario o un disparador y una de tus máquinas la ejecuta sola
-- Gestiona cada máquina desde la app: renómbrala, compártela con el equipo, limpia sus worktrees
-- Selector de emojis, imágenes y archivos adjuntos en comentarios y barra de formato en el editor
-- Las listas de issues se agrupan por estado, con encabezados más claros, un aspecto renovado y menús de crear y seleccionar más fluidos
-- Escribe # para enlazar un issue; las referencias se muestran como chips de estado en directo
-- Selector de asignado, boards archivables y una checklist para empezar
-- Conecta tus propios repositorios de GitHub y compártelos con el equipo
-- Arreglado el cierre de sesión en cada reinicio, más una tanda de mejoras de estabilidad y rendimiento
+- Cuando estás sin conexión, la app lo dice claramente con un botón Reintentar, en lugar de un error de red en bruto
+- Fusiona una pull request directamente desde la vista de dirección de una sesión en curso
+- Mira con qué cuenta está iniciada la sesión de cada CLI de agente y cuánto queda de sus límites, e inicia sesión en cualquiera de tus máquinas desde el móvil
+- Un agente puede delegar trabajo a una segunda ejecución y esperar su informe
+- Una ejecución que iniciaste tú sigue abierta para continuar; las automatizadas entregan un resumen y un resultado que puedes leer en cualquier parte, y una ejecución terminada puede reanudarse donde se detuvo
+- Escribe # para insertar un chip de issue en comentarios y descripciones
+- Las sesiones en vivo siguen conectadas al cambiar de red o de app, se mantienen en silencio en las esperas largas y se recuperan solas si se cortan
+- «Resolver conflictos» solo se ofrece ante un conflicto de fusión real
+- Los interruptores y la lista de acciones lucen más limpios

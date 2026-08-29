@@ -1,22 +1,9 @@
-Alt siden 0.14.0:
-
-- Agenter melder tilbage, når en kørsel er færdig: læs opsummeringen og resultatet hvor som helst, og genoptag en afsluttet kørsel, hvor den slap
-- Skriv # for at indsætte en issue-chip i kommentarer og beskrivelser, med klogere håndtering af markøren omkring chips
-- Live-sessioner holder sig i ro under lange ventetider i stedet for at genforbinde, og kommer hurtigere tilbage, hvis de alligevel falder ud
-- Live-kodesessioner bevarer forbindelsen gennem netværksskift og appskift, og henter sig selv ind igen, hvis de falder ud
-- Til/fra-knapper og Actions-listen har fået et renere look
-- Start en chat med en agent direkte fra Agents-fanen
-- Vælg en standardcomputer, så er den valgt på forhånd i hver Start coding-dialog
-- Live-sessioner bliver ved med at streame, mens du bevæger dig rundt i appen, og styringsudkast overlever genforbindelser
-- Ikke flere notifikationer om dine egne pull requests
-- Svar på agentens tilladelsesspørgsmål fra telefonen i stedet for at gå tilbage til computeren
-- Vedhæft skærmbilleder til en kørende kodesession, og start kodning på flere issues på én gang
-- Sessioner vises som sat på pause, mens computeren er offline, og kan genoptages hvor som helst
-- Giv en action en tidsplan eller en trigger, så kører en af dine computere den helt selv
-- Styr alle dine computere fra appen: omdøb dem, del dem med teamet, ryd op i deres worktrees
-- Emoji-vælger, billed- og filvedhæftninger på kommentarer og en formateringsbjælke i editoren
-- Issue-lister grupperes efter status med tydeligere overskrifter, et friskere look og mere glidende opret- og vælg-menuer
-- Skriv # for at linke et issue; referencer vises som live statuschips
-- Tildel issues direkte, boards der kan arkiveres, og en kom-godt-i-gang-tjekliste
-- Forbind dine egne GitHub-repos, og del dem med teamet
-- Rettet at du blev logget ud ved hver genstart, plus en stribe stabilitets- og ydelsesrettelser
+- Når du er offline, siger appen det tydeligt med en Prøv igen-knap i stedet for en rå netværksfejl
+- Merge en pull request direkte fra styringsvisningen i en kørende session
+- Se hvilken konto hver agent-CLI er logget ind med, og hvor meget der er tilbage af dens grænser, og start et login på enhver af dine maskiner fra telefonen
+- En agent kan give arbejde videre til en anden kørsel og vente på dens rapport
+- En kørsel, du startede, forbliver åben til opfølgning; automatiserede kørsler afleverer et resumé og et resultat, du kan læse overalt, og en afsluttet kørsel kan genoptages, hvor den stoppede
+- Skriv # for at indsætte en issue-chip i kommentarer og beskrivelser
+- Live-sessioner forbliver forbundet ved netværks- og appskift, holder sig i ro under lange ventetider og kommer sig selv, hvis de falder ud
+- "Løs konflikter" tilbydes kun ved en ægte merge-konflikt
+- Kontakter og handlingslisten har fået et renere udseende

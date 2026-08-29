@@ -1,22 +1,9 @@
-Alles seit 0.14.0:
-
-- Agents melden sich zurück, wenn ein Lauf fertig ist: Zusammenfassung und Ergebnis überall nachlesen und einen fertigen Lauf da fortsetzen, wo er aufgehört hat
-- Tippe #, um einen Issue-Chip in Kommentare und Beschreibungen einzufügen, mit klügerem Cursor-Verhalten rund um Chips
-- Live-Sessions bleiben in langen Wartepausen ruhig, statt neu zu verbinden, und erholen sich schneller, wenn sie doch abreißen
-- Live-Coding-Sessions bleiben bei Netz- und App-Wechseln verbunden und stellen sich nach einem Abbruch von selbst wieder her
-- Toggles und die Actions-Liste sehen jetzt aufgeräumter aus
-- Starte einen Chat mit einem Agent direkt im Agents-Tab
-- Wähle einen Standard-Rechner, und jeder Start-coding-Dialog hat ihn schon vorausgewählt
-- Live-Sessions streamen weiter, während du dich in der App bewegst, und Steering-Entwürfe überleben Reconnects
-- Keine Benachrichtigungen mehr über deine eigenen Pull Requests
-- Beantworte Berechtigungsfragen deines Agents vom Handy, statt zum Rechner zu laufen
-- Häng Screenshots an eine laufende Coding-Session und starte mehrere Issues auf einmal
-- Sessions gelten als pausiert, solange ihr Rechner offline ist, und laufen überall weiter
-- Gib einer Action einen Zeitplan oder Trigger, und einer deiner Rechner führt sie selbst aus
-- Verwalte jeden Rechner in der App: umbenennen, mit dem Team teilen, Worktrees aufräumen
-- Emoji-Picker, Bild- und Dateianhänge in Kommentaren und eine Formatierungsleiste im Editor
-- Issue-Listen gruppieren nach Status, mit klareren Überschriften, frischem Look und flüssigeren Menüs zum Anlegen und Auswählen
-- Tippe #, um ein Issue zu verlinken; Referenzen werden zu Live-Status-Chips
-- Zuweisungs-Picker, archivierbare Boards und eine Checkliste für den Einstieg
-- Verbinde eigene GitHub-Repos und teile sie mit dem Team
-- Behoben: Logout bei jedem Neustart, dazu viele Stabilitäts- und Performance-Fixes
+- Wenn du offline bist, sagt die App das klar und bietet „Erneut versuchen“ an, statt einen rohen Netzwerkfehler zu zeigen
+- Pull Requests direkt aus der Steuerungsansicht einer laufenden Session mergen
+- Sieh, mit welchem Konto jedes Agent-CLI angemeldet ist und wie viel von seinen Limits übrig ist, und starte eine Anmeldung auf jedem deiner Rechner vom Handy aus
+- Ein Agent kann Arbeit an einen zweiten Lauf übergeben und auf dessen Bericht warten
+- Ein von dir gestarteter Lauf bleibt für Rückfragen offen; automatisierte Läufe melden Zusammenfassung und Ergebnis, die du überall nachlesen kannst, und ein beendeter Lauf lässt sich dort fortsetzen, wo er aufgehört hat
+- Mit # fügst du einen Issue-Chip in Kommentare und Beschreibungen ein
+- Live-Sessions bleiben bei Netzwerk- und App-Wechseln verbunden, bleiben bei langen Wartezeiten ruhig und erholen sich von selbst, wenn sie abbrechen
+- „Konflikte beheben“ wird nur bei einem echten Merge-Konflikt angeboten
+- Schalter und die Aktionsliste sehen aufgeräumter aus

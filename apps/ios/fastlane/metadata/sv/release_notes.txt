@@ -1,22 +1,9 @@
-Allt sedan 0.14.0:
-
-- Agenter hör av sig när en körning är klar: läs sammanfattningen och resultatet var du än är, och återuppta en avslutad körning där den stannade
-- Skriv # för att lägga in ett ärendechip i kommentarer och beskrivningar, med smartare markörhantering runt chipsen
-- Livesessioner håller sig lugna under långa väntetider i stället för att återansluta, och hämtar sig snabbare när de faktiskt tappar kontakten
-- Live-kodsessioner håller kontakten genom nätverksbyten och appbyten, och hämtar sig själva när de tappar den
-- Reglagen och Actions-listan har fått ett renare uttryck
-- Starta en chatt med en agent direkt från Agents-fliken
-- Välj en standarddator, så är den förvald i varje dialog för att starta kodning
-- Livesessioner fortsätter strömma medan du rör dig runt i appen, och utkast till styrning överlever återanslutningar
-- Slut på notiser om dina egna pull requests
-- Svara på agentens behörighetsfrågor från mobilen i stället för att gå tillbaka till datorn
-- Bifoga skärmbilder till en pågående kodsession och starta kodning på flera ärenden samtidigt
-- Sessioner visas som pausade medan datorn är offline och återupptas var du än är
-- Ge en action ett schema eller en trigger, så kör en av dina datorer den helt själv
-- Sköt varje dator i appen: byt namn, dela den med teamet, rensa dess worktrees
-- Emojiväljare, bild- och filbilagor i kommentarer och en formateringsrad i editorn
-- Ärendelistor grupperas efter status, med tydligare rubriker, ett uppfräschat utseende och smidigare menyer för att skapa och välja
-- Skriv # för att länka ett ärende, referenser visas som live statuschips
-- Tilldela ärenden direkt, arkiverbara boards och en kom-igång-checklista
-- Koppla dina egna GitHub-repon och dela dem med teamet
-- Fixat att du loggades ut vid varje omstart, plus en rad stabilitets- och prestandafixar
+- När du är offline säger appen det tydligt med en Försök igen-knapp i stället för ett rått nätverksfel
+- Merga en pull request direkt från styrvyn i en pågående session
+- Se vilket konto varje agent-CLI är inloggat med och hur mycket som återstår av dess gränser, och starta en inloggning på vilken som helst av dina maskiner från telefonen
+- En agent kan lämna över arbete till en andra körning och vänta på dess rapport
+- En körning du startade förblir öppen för uppföljning; automatiserade körningar lämnar en sammanfattning och ett utfall som du kan läsa var som helst, och en avslutad körning kan återupptas där den stannade
+- Skriv # för att infoga en ärendechip i kommentarer och beskrivningar
+- Livesessioner förblir anslutna vid nätverks- och appbyten, håller sig tysta under långa väntetider och återhämtar sig själva om de tappas
+- "Lös konflikter" erbjuds bara vid en riktig merge-konflikt
+- Reglage och åtgärdslistan har fått ett renare utseende

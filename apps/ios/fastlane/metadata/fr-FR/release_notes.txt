@@ -1,22 +1,9 @@
-Tout depuis la 0.14.0 :
-
-- Les agents vous font un retour à la fin d'un run : lisez le résumé et le résultat où que vous soyez, et reprenez un run terminé là où il s'est arrêté
-- Tapez # pour insérer une puce d'issue dans les commentaires et les descriptions, avec un curseur mieux géré autour des puces
-- Les sessions en direct restent tranquilles pendant les longues attentes au lieu de se reconnecter, et repartent plus vite quand elles tombent
-- Les sessions de code en direct gardent la connexion lors des changements de réseau et d'app, et se rétablissent toutes seules quand elles tombent
-- Les interrupteurs et la liste des actions ont un rendu plus net
-- Lancez un chat avec un agent directement depuis l'onglet Agents
-- Choisissez une machine par défaut : chaque dialogue de lancement de code la présélectionne
-- Les sessions en direct continuent de diffuser pendant que vous circulez dans l'app, et les brouillons de pilotage survivent aux reconnexions
-- Fini les notifications sur vos propres pull requests
-- Répondez aux demandes d'autorisation de l'agent depuis votre téléphone, sans retourner à la machine
-- Ajoutez des captures à une session de code en cours et lancez plusieurs issues à la fois
-- Les sessions passent en pause quand leur machine est hors ligne, et reprennent de partout
-- Donnez un horaire ou un déclencheur à une action : une de vos machines l'exécute toute seule
-- Gérez chaque machine depuis l'app : renommer, partager avec l'équipe, nettoyer ses worktrees
-- Sélecteur d'emoji, images et fichiers joints aux commentaires, barre de mise en forme dans l'éditeur
-- Les listes d'issues se regroupent par statut, avec des en-têtes plus clairs, un look rafraîchi et des menus de création et de sélection plus fluides
-- Tapez # pour lier une issue ; les références s'affichent en puces de statut en direct
-- Sélecteur d'assigné, boards archivables et une checklist de démarrage
-- Connectez vos propres dépôts GitHub et partagez-les avec l'équipe
-- Correction de la déconnexion à chaque lancement, plus de nombreux correctifs de stabilité et de performance
+- Quand vous êtes hors ligne, l'app le dit clairement avec un bouton Réessayer, au lieu d'une erreur réseau brute
+- Fusionnez une pull request directement depuis la vue de pilotage d'une session en cours
+- Voyez avec quel compte chaque CLI d'agent est connecté et ce qu'il reste de ses limites, et lancez une connexion sur n'importe laquelle de vos machines depuis votre téléphone
+- Un agent peut confier du travail à un second run et attendre son rapport
+- Un run que vous avez lancé reste ouvert pour la suite ; les runs automatisés remettent un résumé et un résultat lisibles partout, et un run terminé peut reprendre là où il s'est arrêté
+- Tapez # pour insérer une puce d'issue dans les commentaires et les descriptions
+- Les sessions en direct restent connectées lors des changements de réseau et d'app, restent silencieuses pendant les longues attentes et se rétablissent d'elles-mêmes en cas de coupure
+- « Résoudre les conflits » n'est proposé que pour un vrai conflit de fusion
+- Les interrupteurs et la liste des actions ont un look plus net

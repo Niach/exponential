@@ -1,22 +1,9 @@
-Alt siden 0.14.0:
-
-- Agenter melder fra når en kjøring er ferdig: les sammendraget og resultatet hvor som helst, og gjenoppta en ferdig kjøring der den stoppet
-- Skriv # for å sette inn en sak-brikke i kommentarer og beskrivelser, med smartere markørhåndtering rundt brikkene
-- Live-økter holder seg rolige under lange ventepauser i stedet for å koble til på nytt, og henter seg raskere inn når de først faller ut
-- Live-kodeøkter holder koblingen gjennom nettverksbytter og appbytter, og henter seg inn av seg selv når de faller ut
-- Brytere og Actions-listen har fått et renere uttrykk
-- Start en chat med en agent rett fra Agents-fanen
-- Velg en standardmaskin, så er den forhåndsvalgt i hver dialog for å starte koding
-- Live-økter fortsetter å strømme mens du beveger deg rundt i appen, og utkast til styring overlever gjenoppkobling
-- Slutt på varsler om dine egne pull requests
-- Svar på agentens spørsmål om tillatelser fra mobilen i stedet for å gå tilbake til maskinen
-- Legg ved skjermbilder i en pågående kodeøkt, og start koding på flere saker samtidig
-- Økter vises som satt på pause mens maskinen er offline, og kan gjenopptas hvor som helst
-- Gi en action en tidsplan eller en trigger, så kjører en av maskinene dine den helt selv
-- Styr hver maskin fra appen: gi den nytt navn, del den med teamet, rydd i worktreene
-- Emoji-velger, bilde- og filvedlegg i kommentarer og en formateringsrad i editoren
-- Saklister grupperes etter status, med tydeligere overskrifter, et friskere uttrykk og smidigere menyer for å opprette og velge
-- Skriv # for å lenke en sak; referanser vises som live statusbrikker
-- Tildel saker direkte, tavler som kan arkiveres, og en kom-i-gang-sjekkliste
-- Koble til dine egne GitHub-repoer, og del dem med teamet
-- Fikset at du ble logget ut ved hver omstart, pluss en rekke stabilitets- og ytelsesfikser
+- Når du er frakoblet, sier appen det tydelig med en Prøv igjen-knapp i stedet for en rå nettverksfeil
+- Merge en pull request direkte fra styringsvisningen i en pågående økt
+- Se hvilken konto hver agent-CLI er logget inn med, og hvor mye som gjenstår av grensene dens, og start en innlogging på hvilken som helst av maskinene dine fra telefonen
+- En agent kan gi arbeid videre til en annen kjøring og vente på rapporten dens
+- En kjøring du startet, forblir åpen for oppfølging; automatiserte kjøringer leverer et sammendrag og et utfall du kan lese overalt, og en avsluttet kjøring kan gjenopptas der den stoppet
+- Skriv # for å sette inn en issue-brikke i kommentarer og beskrivelser
+- Live-økter forblir tilkoblet ved nettverks- og appbytter, holder seg rolige under lange ventetider og henter seg inn selv hvis de faller ut
+- «Løs konflikter» tilbys bare ved en ekte merge-konflikt
+- Brytere og handlingslisten har fått et renere utseende

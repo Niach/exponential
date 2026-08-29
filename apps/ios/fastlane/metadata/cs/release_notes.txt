@@ -1,22 +1,9 @@
-Vše od verze 0.14.0:
-
-- Agenti se ozvou, když běh skončí: shrnutí a výsledek si přečtete kdekoli a dokončený běh spustíte znovu tam, kde přestal
-- Napište # a vložte do komentářů i popisů chip úkolu, s chytřejším chováním kurzoru kolem chipů
-- Živé sessions při dlouhém čekání zůstanou v klidu místo znovupřipojování a po výpadku se zotaví rychleji
-- Živé coding sessions vydrží připojené i při změně sítě a přepnutí aplikace a po výpadku se samy obnoví
-- Přepínače a seznam akcí dostaly čistší vzhled
-- Spusťte chat s agentem přímo ze záložky Agents
-- Vyberte výchozí počítač a každý dialog pro spuštění kódování ho předvyplní
-- Živé sessions streamují dál, i když se pohybujete po aplikaci, a rozepsané pokyny přežijí znovupřipojení
-- Konec notifikací o vašich vlastních pull requestech
-- Odpovídejte na dotazy agenta na oprávnění z telefonu, bez běhání zpátky k počítači
-- Přidávejte snímky obrazovky do běžící coding session a spusťte kódování na několika úkolech naráz
-- Sessions se zobrazují jako pozastavené, když je jejich počítač offline, a pokračují odkudkoli
-- Dejte akci rozvrh nebo spouštěč a jeden z vašich počítačů ji spustí sám
-- Spravujte každý počítač z aplikace: přejmenování, sdílení s týmem, úklid worktree
-- Výběr emoji, obrázky a soubory v komentářích a lišta formátování v editoru
-- Seznamy úkolů se seskupují podle stavu, s jasnějšími nadpisy, svěžím vzhledem a plynulejšími nabídkami pro vytváření a výběr
-- Napište # a propojte úkol; odkazy se vykreslí jako živé stavové chipy
-- Výběr řešitele, archivovatelné boardy a checklist pro první kroky
-- Připojte vlastní GitHub repozitáře a sdílejte je s týmem
-- Opraveno odhlašování při každém spuštění a řada oprav stability a výkonu
+- Když jste offline, aplikace to řekne jasně s tlačítkem Zkusit znovu místo surové chyby sítě
+- Slučte pull request přímo z řídicího pohledu běžící relace
+- Podívejte se, pod jakým účtem je přihlášeno každé CLI agenta a kolik zbývá z jeho limitů, a spusťte přihlášení na kterémkoli ze svých strojů z telefonu
+- Agent může předat práci druhému běhu a počkat na jeho zprávu
+- Běh, který jste spustili, zůstává otevřený pro doplňující otázky; automatické běhy odevzdají shrnutí a výsledek, které si přečtete kdekoli, a dokončený běh lze obnovit tam, kde skončil
+- Napište # pro vložení čipu issue do komentářů a popisů
+- Živé relace zůstávají připojené při změně sítě nebo aplikace, během dlouhého čekání mlčí a po výpadku se samy zotaví
+- „Vyřešit konflikty“ se nabízí jen při skutečném konfliktu sloučení
+- Přepínače a seznam akcí vypadají čistěji

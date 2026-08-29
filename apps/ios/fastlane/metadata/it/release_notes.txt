@@ -1,22 +1,9 @@
-Tutto dalla 0.14.0:
-
-- Gli agenti ti aggiornano quando un run finisce: leggi riepilogo ed esito da qualsiasi punto e riprendi un run concluso da dove si era fermato
-- Digita # per inserire un chip di issue in commenti e descrizioni, con il cursore che si comporta meglio attorno ai chip
-- Le sessioni live restano tranquille durante le attese lunghe invece di riconnettersi, e si riprendono più in fretta quando cadono
-- Le sessioni di coding live reggono i cambi di rete e di app, e si riprendono da sole quando cadono
-- Gli interruttori e la lista delle azioni hanno un aspetto più pulito
-- Avvia una chat con un agente direttamente dalla scheda Agents
-- Scegli una macchina predefinita e ogni finestra di avvio del coding la propone già selezionata
-- Le sessioni live continuano a trasmettere mentre ti muovi nell'app, e le bozze delle indicazioni sopravvivono alle riconnessioni
-- Basta notifiche sulle tue pull request
-- Rispondi alle richieste di permesso dell'agente dal telefono, senza tornare alla macchina
-- Allega screenshot a una sessione di coding in corso e lavora su più issue insieme
-- Le sessioni risultano in pausa mentre la loro macchina è offline, e riprendono da ovunque
-- Dai a un'azione una pianificazione o un trigger e una delle tue macchine la esegue da sola
-- Gestisci ogni macchina dall'app: rinominala, condividila con il team, ripulisci i suoi worktree
-- Selettore di emoji, immagini e file allegati ai commenti e una barra di formattazione nell'editor
-- Le liste di issue si raggruppano per stato, con intestazioni più chiare, un look rinfrescato e menu di creazione e selezione più fluidi
-- Digita # per collegare una issue; i riferimenti diventano chip di stato in tempo reale
-- Selettore di assegnatario, board archiviabili e una checklist per iniziare
-- Collega i tuoi repository GitHub e condividili con il team
-- Risolto il logout a ogni riavvio, più tanti fix di stabilità e prestazioni
+- Quando sei offline l'app lo dice chiaramente con un pulsante Riprova, invece di un errore di rete grezzo
+- Unisci una pull request direttamente dalla vista di guida di una sessione in corso
+- Vedi con quale account è connessa ogni CLI agente e quanto resta dei suoi limiti, e avvia un accesso su qualsiasi tua macchina dal telefono
+- Un agente può affidare lavoro a una seconda esecuzione e attenderne il rapporto
+- Un'esecuzione avviata da te resta aperta per i seguiti; quelle automatiche consegnano riepilogo ed esito leggibili ovunque, e un'esecuzione terminata può riprendere da dove si era fermata
+- Digita # per inserire un chip di issue in commenti e descrizioni
+- Le sessioni live restano connesse al cambio di rete o di app, restano silenziose nelle attese lunghe e si riprendono da sole se cadono
+- «Risolvi conflitti» viene proposto solo per un vero conflitto di merge
+- Interruttori ed elenco delle azioni hanno un aspetto più pulito

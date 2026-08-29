@@ -1,22 +1,9 @@
-Kaikki 0.14.0:n jälkeen:
-
-- Agentit raportoivat, kun ajo päättyy: lue yhteenveto ja lopputulos mistä tahansa ja jatka päättynyttä ajoa siitä, mihin se jäi
-- Kirjoita #, niin upotat issue-merkin kommentteihin ja kuvauksiin, ja kohdistin käyttäytyy fiksummin merkkien ympärillä
-- Live-sessiot pysyvät hiljaa pitkien odotusten aikana sen sijaan, että yhdistäisivät uudelleen, ja toipuvat nopeammin, jos yhteys katkeaa
-- Live-koodaussessiot pysyvät yhdistettyinä verkon ja sovelluksen vaihtuessa ja toipuvat itsestään, jos yhteys katkeaa
-- Kytkimet ja Actions-lista näyttävät siistimmiltä
-- Aloita keskustelu agentin kanssa suoraan Agents-välilehdeltä
-- Valitse oletuskone, niin jokainen koodauksen aloitusdialogi ehdottaa sitä valmiiksi
-- Live-sessiot jatkavat suoratoistoa, kun liikut sovelluksessa, ja ohjausviestien luonnokset säilyvät uudelleenyhdistyksissä
-- Ei enää ilmoituksia omista pull requesteistasi
-- Vastaa agentin lupakysymyksiin puhelimesta sen sijaan, että palaisit koneen ääreen
-- Liitä kuvakaappauksia käynnissä olevaan koodaussessioon ja aloita koodaus useasta issuesta kerralla
-- Sessiot näkyvät tauolla olevina, kun kone on offline, ja jatkuvat mistä tahansa
-- Anna actionille aikataulu tai liipaisin, niin jokin koneistasi ajaa sen itsekseen
-- Hallitse jokaista konetta sovelluksessa: nimeä se uudelleen, jaa se tiimille, siivoa sen worktreet
-- Emoji-valitsin, kuva- ja tiedostoliitteet kommentteihin sekä muotoilupalkki editorissa
-- Issue-listat ryhmittyvät tilan mukaan, otsikot ovat selkeämmät, ilme raikkaampi ja luonti- ja valintavalikot sujuvammat
-- Kirjoita #, niin linkität issuen; viittaukset näkyvät live-statusmerkkeinä
-- Vastuuhenkilön valinta, arkistoitavat boardit ja aloitusmuistilista
-- Yhdistä omat GitHub-repositoriosi ja jaa ne tiimin kanssa
-- Korjattu uloskirjautuminen jokaisella käynnistyksellä sekä joukko vakaus- ja suorituskykykorjauksia
+- Kun olet offline-tilassa, sovellus sanoo sen selvästi Yritä uudelleen -painikkeella raa'an verkkovirheen sijaan
+- Yhdistä pull request suoraan käynnissä olevan istunnon ohjausnäkymästä
+- Näe, millä tilillä kukin agentti-CLI on kirjautuneena ja paljonko sen rajoista on jäljellä, ja käynnistä kirjautuminen millä tahansa koneellasi puhelimesta
+- Agentti voi siirtää työtä toiselle ajolle ja odottaa sen raporttia
+- Itse käynnistämäsi ajo pysyy auki jatkokysymyksille; automaattiset ajot toimittavat yhteenvedon ja tuloksen, jotka voit lukea missä tahansa, ja päättyneen ajon voi jatkaa siitä, mihin se jäi
+- Kirjoita # lisätäksesi issue-sirun kommentteihin ja kuvauksiin
+- Live-istunnot pysyvät yhteydessä verkon ja sovelluksen vaihtuessa, pysyvät hiljaa pitkien odotusten aikana ja palautuvat itsestään, jos yhteys katkeaa
+- ”Ratkaise konfliktit” tarjotaan vain aidossa yhdistämiskonfliktissa
+- Kytkimet ja toimintoluettelo näyttävät siistimmiltä

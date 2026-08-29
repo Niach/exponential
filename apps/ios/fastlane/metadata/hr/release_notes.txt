@@ -1,22 +1,9 @@
-Sve od verzije 0.14.0:
-
-- Agenti se jave kad izvođenje završi: sažetak i ishod pročitaj bilo gdje, a završeno izvođenje nastavi ondje gdje je stalo
-- Upiši # da ugradiš oznaku zadatka u komentare i opise, uz pametnije ponašanje pokazivača oko oznaka
-- Žive sesije tijekom dugih čekanja ostaju mirne umjesto da se ponovno spajaju, a kad ipak padnu, brže se oporave
-- Žive sesije kodiranja ostaju spojene kroz promjene mreže i prebacivanje aplikacija te se same oporave kad padnu
-- Prekidači i lista Actions dobili su čišći izgled
-- Pokreni chat s agentom izravno iz kartice Agents
-- Odaberi zadano računalo i svaki dijalog za pokretanje kodiranja ga već ima odabranog
-- Žive sesije nastavljaju prenositi dok se krećeš po aplikaciji, a skice uputa prežive ponovno spajanje
-- Nema više obavijesti o tvojim vlastitim pull requestovima
-- Odgovaraj na agentova pitanja o dopuštenjima s mobitela umjesto da se vraćaš računalu
-- Priloži screenshotove živoj sesiji kodiranja i pokreni kodiranje na više zadataka odjednom
-- Sesije se prikazuju kao pauzirane dok im je računalo offline i nastavljaju se bilo gdje
-- Dodaj akciji raspored ili okidač i jedno od tvojih računala pokreće je samo
-- Upravljaj svakim računalom iz aplikacije: preimenuj ga, podijeli ga s timom, počisti mu worktreeove
-- Emoji picker, slike i datoteke u komentarima te traka za formatiranje u editoru
-- Liste zadataka grupiraju se po statusu, s jasnijim zaglavljima, osvježenim izgledom i tečnijim izbornicima za stvaranje i odabir
-- Upiši # da povežeš zadatak; reference se prikazuju kao žive oznake statusa
-- Odabir izvršitelja, boardovi koji se mogu arhivirati i checklista za početak
-- Poveži vlastite GitHub repozitorije i podijeli ih s timom
-- Popravljeno odjavljivanje pri svakom pokretanju plus val popravaka stabilnosti i performansi
+- Kad ste offline, aplikacija to jasno kaže s gumbom Pokušaj ponovno umjesto sirove mrežne pogreške
+- Spojite pull request izravno iz upravljačkog prikaza tekuće sesije
+- Pogledajte s kojim je računom prijavljen svaki agentov CLI i koliko mu je ostalo od ograničenja te pokrenite prijavu na bilo kojem svom računalu s telefona
+- Agent može predati posao drugom pokretanju i pričekati njegov izvještaj
+- Pokretanje koje ste vi započeli ostaje otvoreno za nastavak; automatska pokretanja predaju sažetak i ishod koje možete pročitati bilo gdje, a završeno pokretanje može se nastaviti ondje gdje je stalo
+- Upišite # za umetanje čipa issuea u komentare i opise
+- Sesije uživo ostaju povezane pri promjeni mreže ili aplikacije, miruju tijekom dugih čekanja i same se oporave ako ispadnu
+- „Riješi sukobe” nudi se samo za stvarni sukob spajanja
+- Prekidači i popis radnji izgledaju urednije

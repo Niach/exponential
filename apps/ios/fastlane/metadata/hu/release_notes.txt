@@ -1,22 +1,9 @@
-Minden újdonság a 0.14.0 óta:
-
-- Az ügynökök jelentkeznek, ha egy futás véget ér: az összefoglalót és az eredményt bárhonnan elolvasod, a befejezett futást pedig onnan folytatod, ahol abbamaradt
-- Írj #-et, és beszúrsz egy feladatcímkét a kommentekbe és a leírásokba, a kurzor pedig okosabban viselkedik a címkék körül
-- Az élő munkamenetek hosszú várakozás alatt csendben maradnak ahelyett, hogy újracsatlakoznának, és gyorsabban térnek magukhoz, ha mégis megszakadnak
-- Az élő kódolási munkamenetek átvészelik a hálózatváltást és az appváltást, és megszakadás után maguktól állnak helyre
-- A kapcsolók és az Actions lista letisztultabb lett
-- Indíts csevegést egy ügynökkel egyenesen az Agents fülről
-- Válassz alapértelmezett gépet, és minden kódolásindító ablak eleve azt kínálja
-- Az élő munkamenetek akkor is streamelnek, amikor az appban mozogsz, az irányítási piszkozatok pedig túlélik az újracsatlakozást
-- Nincs több értesítés a saját pull requestjeidről
-- Válaszolj az ügynök engedélykéréseire a telefonodról, ne kelljen visszamenned a géphez
-- Csatolj képernyőképet élő kódolási munkamenethez, és indíts kódolást több feladaton egyszerre
-- A munkamenetek szüneteltetettként látszanak, amíg a gépük offline, és bárhonnan folytathatók
-- Adj egy akciónak ütemezést vagy triggert, és az egyik géped magától lefuttatja
-- Kezeld minden gépedet az appból: nevezd át, oszd meg a csapattal, takarítsd a worktree-jeit
-- Emoji-választó, kép- és fájlcsatolás a kommentekhez, és formázósáv a szerkesztőben
-- A feladatlisták állapot szerint csoportosulnak, tisztább fejlécekkel, felfrissített külsővel és gördülékenyebb létrehozó és választó menükkel
-- Írj #-et egy feladat hivatkozásához; a hivatkozások élő állapotcímkeként jelennek meg
-- Felelősválasztó, archiválható boardok és egy kezdéshez való checklist
-- Kösd be a saját GitHub-repóidat, és oszd meg őket a csapattal
-- Javítva a minden indításkori kijelentkezés, plusz egy csomó stabilitási és teljesítménybeli javítás
+- Ha offline vagy, az app ezt egyértelműen közli egy Újra gombbal a nyers hálózati hiba helyett
+- Pull requestet egyesíthetsz közvetlenül egy futó munkamenet irányítónézetéből
+- Láthatod, melyik fiókkal van bejelentkezve az egyes ügynök-CLI-k, és mennyi maradt a limitjeikből, és bármelyik gépeden elindíthatsz egy bejelentkezést a telefonodról
+- Egy ügynök átadhat munkát egy második futásnak, és megvárhatja annak jelentését
+- Az általad indított futás nyitva marad a folytatáshoz; az automatikus futások összefoglalót és eredményt adnak, amit bárhol elolvashatsz, és egy befejezett futás onnan folytatható, ahol megállt
+- Írj #-et, hogy issue-chipet szúrj be kommentekbe és leírásokba
+- Az élő munkamenetek hálózat- és appváltáskor is kapcsolatban maradnak, hosszú várakozás alatt csendben maradnak, és maguktól helyreállnak, ha megszakadnak
+- A „Konfliktusok feloldása” csak valódi egyesítési konfliktusnál jelenik meg
+- A kapcsolók és a műveletlista letisztultabb lett
