@@ -10,7 +10,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use coding::{CodingAgent, PreparedLaunch, SESSION_HEARTBEAT_INTERVAL};
@@ -318,7 +318,12 @@ pub fn launch(
     // reply, exactly like in a desktop tab or an attached terminal, until a
     // web/mobile "Kill session", a merge or the sweep ends the row.
     // Unattended runs (schedule/event/agent-started) do get the tool, and
-    // their close-out ends the row and reaps right away. -----
+    // their close-out ends the row and reaps right away.
+    // EXP-681: the ONE exception to "vanished row ≠ kill" — a SUSTAINED 426
+    // min-version gate. This build can no longer read the edge (the poll is
+    // rejected) nor keep the row alive (so is the heartbeat), so once the
+    // server sweep has provably deleted it ([`GATED_KILL_AFTER`]) nothing
+    // remote can end the run any more and the watcher ends it itself. -----
     let watch_done = Arc::new(AtomicBool::new(false));
     {
         let trpc = Arc::clone(&env.ctx.trpc);
@@ -328,12 +333,21 @@ pub fn launch(
         let kill_turn_signal = Arc::clone(&turn_signal);
         let watch_done = Arc::clone(&watch_done);
         std::thread::spawn(move || {
+            // EXP-681: when the CURRENT run of consecutive 426 polls began.
+            let mut first_gated_at: Option<Instant> = None;
             while !watch_done.load(Ordering::SeqCst) {
                 std::thread::sleep(KILL_POLL_INTERVAL);
                 if watch_done.load(Ordering::SeqCst) {
                     return;
                 }
-                match api::coding_sessions::get(&trpc, &session_id) {
+                let result = api::coding_sessions::get(&trpc, &session_id);
+                if !matches!(result, Err(api::ApiError::UpgradeRequired)) {
+                    // Any answer but the gate (a row, a vanished row, a
+                    // transport blip) means the server talks to this build
+                    // again — a lifted gate resets the clock.
+                    first_gated_at = None;
+                }
+                match result {
                     Ok(Some(row)) => match kill_poll_decision(&row, &own_user) {
                         PollDecision::Kill { graceful } => {
                             if graceful {
@@ -353,6 +367,24 @@ pub fn launch(
                         PollDecision::StopWatching => return,
                         PollDecision::Continue => {}
                     },
+                    // EXP-681: the min-version gate — see [`GATED_KILL_AFTER`].
+                    Err(api::ApiError::UpgradeRequired) => {
+                        let now = Instant::now();
+                        if first_gated_at.is_none() {
+                            log::warn!(
+                                "coding session {session_id}: HTTP 426 on the kill poll — the server no longer accepts this build; the run ends itself in {}s unless the gate lifts",
+                                GATED_KILL_AFTER.as_secs()
+                            );
+                        }
+                        if gated_poll_kills(&mut first_gated_at, now) {
+                            log::warn!(
+                                "coding session {session_id}: gated for {}s — its row is swept and no remote kill can reach it, ending the run",
+                                GATED_KILL_AFTER.as_secs()
+                            );
+                            let _ = kill_tx.send(Control::Kill { outcome: "killed" });
+                            return;
+                        }
+                    }
                     // Swept/foreign row or a transport blip: never a kill.
                     Ok(None) | Err(_) => {}
                 }
@@ -425,6 +457,34 @@ enum PollDecision {
 /// How long an agent-declared end waits for the turn to finish before the
 /// kill lands anyway. Mirrors the desktop's `graceful_stop::STOP_GRACE`.
 const STOP_GRACE: Duration = Duration::from_secs(60);
+
+/// EXP-681: how long the kill poll tolerates the 426 min-version gate before
+/// it ends the run ITSELF. While the gate holds the server rejects every
+/// call from this build — the session heartbeat included — so the row's
+/// `updated_at` froze at the first gated poll and the server sweep
+/// (`coding-session-sweep.ts`: `CODING_SESSION_STALE_MS` from `updated_at`,
+/// checked every 30 minutes) has DELETED it by the end of this window. From
+/// then on a web/mobile "Kill session" has nothing to kill and the poll can
+/// never see an `ended` edge: the run is unreachable from every product
+/// surface, and the only useful thing the gated host can still do is stop
+/// hosting it — which also un-parks the daemon's own update (daemon.rs
+/// waits for idle before it swaps the binary), the day
+/// `CLIENT_MIN_VERSION_CLI` is raised past a build holding a forgotten
+/// person-started run. Deliberately the server's window plus its sweep
+/// cadence, not a shorter guess: a gate that lifts sooner (a rolled-back
+/// deploy) simply resumes the normal poll.
+const GATED_KILL_AFTER: Duration = Duration::from_millis(
+    domain::contract::CODING_SESSION_STALE_MS as u64 + 30 * 60 * 1000,
+);
+
+/// EXP-681: one gated (426) poll → whether the watcher gives up on the run.
+/// `first_gated_at` is the watcher's memory of the first CONSECUTIVE 426
+/// (the caller clears it on any other result); pure so the bound is
+/// unit-testable.
+fn gated_poll_kills(first_gated_at: &mut Option<Instant>, now: Instant) -> bool {
+    let since = *first_gated_at.get_or_insert(now);
+    now.saturating_duration_since(since) >= GATED_KILL_AFTER
+}
 
 /// The kill-poll's ownership rule. Owner-or-host (EXP-445): a shared-device
 /// row carries the REQUESTER as `user_id` while this daemon is only its
@@ -704,6 +764,31 @@ mod tests {
             domain::contract::CODING_SESSION_ENDED_BY_VALUES.len(),
             5,
             "a new endedBy value needs a decision here"
+        );
+    }
+
+    /// EXP-681: a sustained 426 ends the run only once the server's sweep
+    /// window (plus its cadence) has passed since the FIRST gated poll —
+    /// never on the first one — and the bound never undercuts the window,
+    /// or the watcher would kill a run whose row a fixed deploy could still
+    /// have ended remotely.
+    #[test]
+    fn a_sustained_gate_kills_only_past_the_sweep_window() {
+        let now = Instant::now();
+        let mut first_gated_at = None;
+        assert!(!gated_poll_kills(&mut first_gated_at, now));
+        assert_eq!(first_gated_at, Some(now));
+        assert!(!gated_poll_kills(
+            &mut first_gated_at,
+            now + GATED_KILL_AFTER - Duration::from_secs(1)
+        ));
+        assert!(gated_poll_kills(&mut first_gated_at, now + GATED_KILL_AFTER));
+        // A lifted gate (the caller cleared the memory) starts over.
+        let mut cleared = None;
+        assert!(!gated_poll_kills(&mut cleared, now + GATED_KILL_AFTER * 2));
+        assert!(
+            GATED_KILL_AFTER
+                >= Duration::from_millis(domain::contract::CODING_SESSION_STALE_MS as u64)
         );
     }
 }
