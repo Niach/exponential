@@ -46,6 +46,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.MergeFailure
+import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
@@ -141,7 +143,7 @@ private fun ReviewsListContent(
                 items(group.entries, key = { it.groupKey }) { entry ->
                     ReviewRow(
                         entry = entry,
-                        errorMessage = mergeErrors[entry.groupKey],
+                        failure = mergeErrors[entry.groupKey],
                         merging = entry.groupKey in merging,
                         onClick = { onOpenChanges(entry.representative.id) },
                         onOpenIssue = { onOpenIssue(entry.representative.id) },
@@ -210,7 +212,7 @@ private fun BoardHeader(board: BoardEntity, count: Int) {
 @Composable
 private fun ReviewRow(
     entry: ReviewEntry,
-    errorMessage: String?,
+    failure: MergeFailure?,
     merging: Boolean,
     onClick: () -> Unit,
     onOpenIssue: () -> Unit,
@@ -219,9 +221,10 @@ private fun ReviewRow(
 ) {
     val context = LocalContext.current
     var showActions by remember { mutableStateOf(false) }
-    // The recovery run rebases the PR's branch, so it needs one recorded
-    // (desktop applies the same guard on its Reviews rows).
-    val canFixConflicts = errorMessage != null && !entry.branch.isNullOrBlank()
+    // Only a REAL conflict is something the recovery run can fix (EXP-533),
+    // and it rebases the PR's branch, so it needs one recorded — desktop
+    // applies the same guard on its Reviews rows.
+    val canFixConflicts = canOfferFixConflicts(failure, entry.branch)
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -339,11 +342,11 @@ private fun ReviewRow(
             )
         }
 
-        // A refused merge (conflicts, branch protection, GitHub App errors)
-        // captions THIS row (EXP-323) — inside the list, which already clears
-        // the floating nav pill, so the reason is always readable. A conflict
-        // is the common case, so the recovery run sits right next to it.
-        if (errorMessage != null) {
+        // A refused merge (conflicts, branch protection, GitHub App errors, an
+        // unreachable server) captions THIS row (EXP-323) — inside the list,
+        // which already clears the floating nav pill, so the reason is always
+        // readable. The recovery run sits next to it for a conflict only.
+        if (failure != null) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -352,7 +355,7 @@ private fun ReviewRow(
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 Text(
-                    errorMessage,
+                    failure.message,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.error,
                 )

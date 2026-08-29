@@ -509,6 +509,20 @@ export async function resolvePrBaseState(opts: {
   }
 }
 
+// Only these two base kinds mean the two trees actually disagree; every other
+// kind is a stale/dead base, which a rebase-and-resolve run cannot fix
+// (EXP-533: it is also what gates the clients' "Fix conflicts" button).
+export function isContentConflictKind(kind: PrBaseKind): boolean {
+  return kind === `default` || kind === `custom-branch`
+}
+
+export interface UnmergeableDiagnosis {
+  /** The actionable sentence shown to the user (and to MCP agents). */
+  message: string
+  /** True only for a real content conflict, i.e. rebase-and-resolve helps. */
+  conflict: boolean
+}
+
 // Turn GitHub's bare "Pull Request is not mergeable" into an actionable
 // diagnosis (EXP-324 criterion 3): a stale/merged base is NOT a content
 // conflict, and telling the agent to rebase harder sends it in circles
@@ -520,23 +534,41 @@ export async function diagnoseUnmergeablePr(opts: {
   token: string | null
   defaultBranch: string
   fetchImpl?: GitHubFetch
-}): Promise<string | null> {
+}): Promise<UnmergeableDiagnosis | null> {
   try {
     const state = await resolvePrBaseState(opts)
     const base = state.baseRef
     const fallback = opts.defaultBranch
+    const conflict = isContentConflictKind(state.kind)
+    // Message strings are byte-locked: MCP agents read them, and
+    // `issues-pr-base.test.ts` keys on them.
     switch (state.kind) {
       case `merged-parent`:
-        return `Pull Request is not mergeable: its base branch '${base}' is the head of already-merged PR #${state.parentPrNumber}. Retarget this PR to '${fallback}' (call exponential_pr_retarget), rebase onto origin/${fallback} if needed, then retry the merge.`
+        return {
+          conflict,
+          message: `Pull Request is not mergeable: its base branch '${base}' is the head of already-merged PR #${state.parentPrNumber}. Retarget this PR to '${fallback}' (call exponential_pr_retarget), rebase onto origin/${fallback} if needed, then retry the merge.`,
+        }
       case `closed-parent`:
-        return `Pull Request is not mergeable: its base branch '${base}' is the head of closed, unmerged PR #${state.parentPrNumber}. Reopen the parent, or retarget this PR to '${fallback}' (call exponential_pr_retarget) and rebase onto origin/${fallback}.`
+        return {
+          conflict,
+          message: `Pull Request is not mergeable: its base branch '${base}' is the head of closed, unmerged PR #${state.parentPrNumber}. Reopen the parent, or retarget this PR to '${fallback}' (call exponential_pr_retarget) and rebase onto origin/${fallback}.`,
+        }
       case `missing-branch`:
-        return `Pull Request is not mergeable: its base branch '${base}' no longer exists. Retarget this PR to '${fallback}' (call exponential_pr_retarget), then retry the merge.`
+        return {
+          conflict,
+          message: `Pull Request is not mergeable: its base branch '${base}' no longer exists. Retarget this PR to '${fallback}' (call exponential_pr_retarget), then retry the merge.`,
+        }
       case `open-parent`:
-        return `Pull Request is not mergeable: it is stacked on open PR #${state.parentPrNumber} (base '${base}'). Merge the parent first, or rebase onto origin/${base} and resolve the conflicts.`
+        return {
+          conflict,
+          message: `Pull Request is not mergeable: it is stacked on open PR #${state.parentPrNumber} (base '${base}'). Merge the parent first, or rebase onto origin/${base} and resolve the conflicts.`,
+        }
       case `default`:
       case `custom-branch`:
-        return `Pull Request has merge conflicts with '${base}': rebase onto origin/${base}, resolve the conflicts, push with --force-with-lease, then retry the merge.`
+        return {
+          conflict,
+          message: `Pull Request has merge conflicts with '${base}': rebase onto origin/${base}, resolve the conflicts, push with --force-with-lease, then retry the merge.`,
+        }
     }
   } catch {
     return null

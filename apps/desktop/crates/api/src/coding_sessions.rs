@@ -511,7 +511,7 @@ mod tests {
     #[test]
     fn start_decodes_session_envelope_and_posts_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default(), None, None).unwrap();
+        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default(), None, None, None).unwrap();
         assert_eq!(session.id, "sess-1");
         assert_eq!(session.status.as_deref(), Some("running"));
         assert_eq!(session.device_label.as_deref(), Some("testbox"));
@@ -538,7 +538,7 @@ mod tests {
     #[test]
     fn start_omits_absent_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let _ = start(&client(&base), "issue-1", None, Attribution::default(), None, None).unwrap();
+        let _ = start(&client(&base), "issue-1", None, Attribution::default(), None, None, None).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"issueId":"issue-1"}"#));
     }
@@ -551,7 +551,7 @@ mod tests {
                 "id":"sess-b","issueId":null,"teamId":"ws-1",
                 "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
         );
-        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None, None).unwrap();
+        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None, None, None).unwrap();
         assert_eq!(session.id, "sess-b");
         assert_eq!(session.team_id.as_deref(), Some("ws-1"));
         assert_eq!(session.issue_id, None);
@@ -615,7 +615,7 @@ mod tests {
             started_by_id: Some("user-2"),
             device_id: Some("dev-1"),
         };
-        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None).unwrap();
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"issueId":"issue-1","deviceLabel":"testbox","startedById":"user-2","deviceId":"dev-1"}"#
@@ -633,7 +633,7 @@ mod tests {
             started_by_id: None,
             device_id: Some("dev-1"),
         };
-        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None).unwrap();
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request
             .ends_with(r#"{"issueId":"issue-1","deviceLabel":"testbox","deviceId":"dev-1"}"#));
@@ -670,7 +670,7 @@ mod tests {
             412,
             r#"{"error":{"message":"Concurrent coding session limit reached — upgrade to run more.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
         );
-        match start(&client(&base), "issue-1", None, Attribution::default(), None, None) {
+        match start(&client(&base), "issue-1", None, Attribution::default(), None, None, None) {
             Err(ApiError::Http { status, message }) => {
                 assert_eq!(status, 412);
                 assert!(message.contains("limit"));
@@ -805,6 +805,7 @@ mod tests {
             Attribution::default(),
             Some("agent"),
             None,
+            None,
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -828,6 +829,7 @@ mod tests {
             Some("testbox"),
             Attribution::default(),
             Some("agent"),
+            None,
             None,
         )
         .unwrap();
@@ -985,6 +987,7 @@ mod tests {
             Some("testbox"),
             Attribution::default(),
             None,
+            None,
             Some("codex"),
         )
         .unwrap();
@@ -1001,6 +1004,7 @@ mod tests {
             "ws-1",
             None,
             Attribution::default(),
+            None,
             None,
             Some("pi"),
         )

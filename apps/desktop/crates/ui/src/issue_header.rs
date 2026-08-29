@@ -582,10 +582,14 @@ impl IssueHeader {
         let mut controls = h_flex().w_full().flex_wrap().gap_2().items_center();
         if pr_open {
             controls = controls.child(self.merge_button(issue, cx));
-            let (error, failed_op) = {
+            let (error, failed_op, is_conflict) = {
                 let state = crate::pr_merge::MergeState::global(cx);
                 let state = state.read(cx);
-                (state.error(&issue.id), state.failed_op(&issue.id))
+                (
+                    state.error(&issue.id),
+                    state.failed_op(&issue.id),
+                    state.is_conflict(&issue.id),
+                )
             };
             if let Some(error) = error {
                 // EXP-313: a failed merge (typically conflicts) offers the
@@ -596,7 +600,12 @@ impl IssueHeader {
                 // Reviews rail) must never offer it. Needs the PR's recorded
                 // branch (the run rebases it); parks only while a fix run
                 // already works it.
-                if failed_op == Some(crate::pr_merge::FailedOp::Merge) && issue.branch.is_some() {
+                // EXP-533: and only a REAL content conflict (409) — an
+                // offline or policy-refused merge has nothing to rebase.
+                if failed_op == Some(crate::pr_merge::FailedOp::Merge)
+                    && is_conflict
+                    && issue.branch.is_some()
+                {
                     controls = controls.child(self.fix_conflicts_button(issue, cx));
                 }
                 controls = controls.child(

@@ -147,4 +147,110 @@ final class TrpcErrorInfoTests: XCTestCase {
         XCTAssertFalse(error.isPlanLimitError)
         XCTAssertEqual(error.trpcUserMessage, "boom")
     }
+
+    // EXP-533: a request that never reached the server must read as "you are
+    // offline", not as Apple's URLError copy ("A server with the specified
+    // hostname could not be found."). The sentence is byte-identical on web,
+    // Android and desktop.
+
+    private static let offlineCodes: [URLError.Code] = [
+        .notConnectedToInternet,
+        .dnsLookupFailed,
+        .cannotFindHost,
+        .cannotConnectToHost,
+        .networkConnectionLost,
+        .timedOut,
+        .internationalRoamingOff,
+        .dataNotAllowed,
+    ]
+
+    func testTransportFailuresReadAsTheOfflineSentence() {
+        for code in Self.offlineCodes {
+            let error = URLError(code)
+            XCTAssertTrue(error.isOfflineError, "\(code) should count as offline")
+            XCTAssertEqual(error.userFacingMessage, offlineErrorMessage)
+            // The 38 legacy call sites go through the alias and get it too.
+            XCTAssertEqual(error.trpcUserMessage, offlineErrorMessage)
+        }
+    }
+
+    func testOfflineSentenceIsTheLockedCopy() {
+        XCTAssertEqual(offlineErrorMessage, "You're offline. Check your connection and try again.")
+    }
+
+    func testNonTransportUrlErrorKeepsItsDescription() {
+        let error = URLError(.badServerResponse)
+        XCTAssertFalse(error.isOfflineError)
+        XCTAssertEqual(error.userFacingMessage, error.localizedDescription)
+        XCTAssertNotEqual(error.userFacingMessage, offlineErrorMessage)
+    }
+
+    func testTrpcFailureIsNeverOffline() {
+        // The server answered — that proves it was reachable.
+        let error = TrpcError.httpError(500, envelope(message: "Internal server error", code: "INTERNAL_SERVER_ERROR"))
+        XCTAssertFalse(error.isOfflineError)
+        XCTAssertEqual(error.userFacingMessage, "Internal server error")
+    }
+
+    func testServerMessagesStillWinOverTheOfflineSentence() {
+        // The 412 surfaces (plan caps, preconditions) are unchanged by EXP-533.
+        let planCap = TrpcError.httpError(
+            412,
+            envelope(message: "Your plan allows up to 1 seat. Add seats or upgrade to invite more teammates.", code: "PRECONDITION_FAILED")
+        )
+        XCTAssertEqual(planCap.userFacingMessage, planLimitNeutralMessage)
+        let precondition = TrpcError.httpError(
+            412, envelope(message: "No repository linked to this board", code: "PRECONDITION_FAILED")
+        )
+        XCTAssertEqual(precondition.userFacingMessage, "No repository linked to this board")
+    }
+
+    // The "Fix conflicts" recovery run rebases and re-merges, so it is only
+    // offered for a REAL content conflict: the server answers CONFLICT / 409
+    // for that and PRECONDITION_FAILED for every other refusal.
+
+    func testConflictIsRecognizedOn409() {
+        let error = TrpcError.httpError(
+            409, envelope(message: "This pull request has merge conflicts with the base branch.", code: "CONFLICT")
+        )
+        XCTAssertTrue(error.isMergeConflict)
+    }
+
+    func testNonConflictRefusalsAreNotConflicts() {
+        let stale = TrpcError.httpError(
+            412, envelope(message: "Head branch changed on GitHub. Refresh and try again.", code: "PRECONDITION_FAILED")
+        )
+        XCTAssertFalse(stale.isMergeConflict)
+        let policy = TrpcError.httpError(
+            412, envelope(message: "Squash merges are disabled for this repository", code: "PRECONDITION_FAILED")
+        )
+        XCTAssertFalse(policy.isMergeConflict)
+        XCTAssertFalse(TrpcError.httpError(404, envelope(message: "Not found", code: "NOT_FOUND")).isMergeConflict)
+        XCTAssertFalse(TrpcError.httpError(500, "<html>bad gateway</html>").isMergeConflict)
+        XCTAssertFalse(URLError(.notConnectedToInternet).isMergeConflict)
+        XCTAssertFalse(NSError(domain: "test", code: 1).isMergeConflict)
+    }
+
+    // TRANSITIONAL (EXP-533): remove once every server answers a real conflict with 409
+    func testLegacy412ConflictMessageStillCountsAsAConflict() {
+        let error = TrpcError.httpError(
+            412,
+            envelope(message: "This pull request has merge conflicts with the base branch.", code: "PRECONDITION_FAILED")
+        )
+        XCTAssertTrue(error.isMergeConflict)
+    }
+
+    func testMergeFailureCarriesMessageAndConflictFlag() {
+        let conflict = MergeFailure(
+            error: TrpcError.httpError(
+                409, envelope(message: "This pull request has merge conflicts with the base branch.", code: "CONFLICT")
+            )
+        )
+        XCTAssertTrue(conflict.isConflict)
+        XCTAssertEqual(conflict.message, "This pull request has merge conflicts with the base branch.")
+
+        let offline = MergeFailure(error: URLError(.notConnectedToInternet))
+        XCTAssertFalse(offline.isConflict)
+        XCTAssertEqual(offline.message, offlineErrorMessage)
+    }
 }

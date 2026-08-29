@@ -65,6 +65,10 @@ class SyncManager @Inject constructor(
     private val client: HttpClient,
     private val json: Json,
     private val stats: SyncStats,
+    // EXP-533: the aggregate per-account poll health behind the offline
+    // banner. Fed from the same reporter that feeds [stats], cleared wherever
+    // an account's stats are.
+    private val health: SyncHealthTracker,
     private val sessionInvalidator: SessionInvalidator,
     // The pool every HTTP client shares (EXP-656) — evicted on the way back to
     // the foreground so the resumed polls can't ride a socket the radio killed
@@ -321,6 +325,7 @@ class SyncManager @Inject constructor(
     suspend fun signOut(accountId: String) {
         cancelPipeline(accountId)
         stats.clearAccount(accountId)
+        health.clearAccount(accountId)
     }
 
     /// Sign out the ACTIVE account. Used by AppViewModel's active-account
@@ -347,6 +352,7 @@ class SyncManager @Inject constructor(
             for (accountId in running - signedIn) {
                 pipelines.remove(accountId)?.jobs?.forEach { it.cancel() }
                 stats.clearAccount(accountId)
+                health.clearAccount(accountId)
                 android.util.Log.i("SyncManager", "Cancelled shape pipeline for $accountId")
             }
 
@@ -374,8 +380,12 @@ class SyncManager @Inject constructor(
             onApplied = { n -> stats.addRows(accountId, shape, n) },
             onError = { authFailure, message, schema ->
                 stats.incError(accountId, shape, authFailure = authFailure, message = message, schema = schema)
+                health.recordFailure(accountId, message ?: "sync poll failed")
             },
-            onSuccess = { stats.clearError(accountId, shape) },
+            onSuccess = {
+                stats.clearError(accountId, shape)
+                health.recordSuccess(accountId)
+            },
             onPollTiming = { kind, ms, rows ->
                 stats.recordPoll(accountId, shape, kind, ms, rows)
                 // Only the interesting ones reach Logcat: a live hold returning

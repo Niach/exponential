@@ -26,6 +26,7 @@ import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.StartedRunKey
 import com.exponential.app.domain.StartedRunMatch
@@ -393,8 +394,8 @@ class AgentsViewModel @Inject constructor(
 
     // Rendered INLINE on the failing row (EXP-323 pattern — a snackbar hides
     // behind the floating bottom nav pill). Cleared by the next attempt.
-    private val _mergeErrors = MutableStateFlow<Map<String, String>>(emptyMap())
-    val mergeErrors: StateFlow<Map<String, String>> = _mergeErrors
+    private val _mergeErrors = MutableStateFlow<Map<String, MergeFailure>>(emptyMap())
+    val mergeErrors: StateFlow<Map<String, MergeFailure>> = _mergeErrors
 
     /**
      * Squash-merge the row's PR — the server always ends its coding session
@@ -411,9 +412,10 @@ class AgentsViewModel @Inject constructor(
                     if (t is CancellationException) throw t
                     // Conflicts, branch protection and GitHub App errors are the
                     // common, persistent failures of a squash merge — same copy
-                    // as Reviews and the issue Changes tab.
+                    // as Reviews and the issue Changes tab, and the same
+                    // conflict-only gate on the recovery run (EXP-533).
                     _mergeErrors.value = _mergeErrors.value +
-                        (issueId to trpcErrorMessage(t, "The pull request could not be merged"))
+                        (issueId to MergeFailure.from(t, "The pull request could not be merged"))
                 }
             _merging.value = _merging.value - issueId
         }

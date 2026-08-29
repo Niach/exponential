@@ -419,18 +419,20 @@ describe(`diagnoseUnmergeablePr`, () => {
         body: [{ number: 240, state: `closed`, merged_at: `2026-07-20T00:00:00Z` }],
       },
     ])
-    const message = await diagnoseUnmergeablePr({
+    const diagnosis = await diagnoseUnmergeablePr({
       repo: `owner/repo`,
       prNumber: 241,
       token: `tok`,
       defaultBranch: `master`,
       fetchImpl,
     })
-    expect(message).toContain(`'exp/EXP-314'`)
-    expect(message).toContain(`#240`)
-    expect(message).toContain(`already-merged`)
-    expect(message).toContain(`exponential_pr_retarget`)
-    expect(message).toContain(`'master'`)
+    expect(diagnosis?.message).toContain(`'exp/EXP-314'`)
+    expect(diagnosis?.message).toContain(`#240`)
+    expect(diagnosis?.message).toContain(`already-merged`)
+    expect(diagnosis?.message).toContain(`exponential_pr_retarget`)
+    expect(diagnosis?.message).toContain(`'master'`)
+    // A dead base is not a content conflict: no rebase-and-resolve run helps.
+    expect(diagnosis?.conflict).toBe(false)
   })
 
   it(`reports real content conflicts for a default-based PR`, async () => {
@@ -446,15 +448,71 @@ describe(`diagnoseUnmergeablePr`, () => {
         },
       },
     ])
-    const message = await diagnoseUnmergeablePr({
+    const diagnosis = await diagnoseUnmergeablePr({
       repo: `owner/repo`,
       prNumber: 7,
       token: `tok`,
       defaultBranch: `master`,
       fetchImpl,
     })
-    expect(message).toContain(`merge conflicts with 'master'`)
-    expect(message).toContain(`--force-with-lease`)
+    expect(diagnosis?.message).toContain(`merge conflicts with 'master'`)
+    expect(diagnosis?.message).toContain(`--force-with-lease`)
+    expect(diagnosis?.conflict).toBe(true)
+  })
+
+  it(`reports a content conflict for a custom-branch base too`, async () => {
+    const fetchImpl = routedFetch([
+      {
+        match: `/pulls/9`,
+        status: 200,
+        body: {
+          state: `open`,
+          merged: false,
+          head: { ref: `exp/EXP-42` },
+          base: { ref: `release/1.x` },
+        },
+      },
+      { match: `state=all&head=`, status: 200, body: [] },
+      { match: `/branches/`, status: 200, body: {} },
+    ])
+    const diagnosis = await diagnoseUnmergeablePr({
+      repo: `owner/repo`,
+      prNumber: 9,
+      token: `tok`,
+      defaultBranch: `master`,
+      fetchImpl,
+    })
+    expect(diagnosis?.message).toContain(`merge conflicts with 'release/1.x'`)
+    expect(diagnosis?.conflict).toBe(true)
+  })
+
+  it(`does not call an open-parent stack a conflict`, async () => {
+    const fetchImpl = routedFetch([
+      {
+        match: `/pulls/241`,
+        status: 200,
+        body: {
+          state: `open`,
+          merged: false,
+          head: { ref: `exp/EXP-320` },
+          base: { ref: `exp/EXP-314` },
+        },
+      },
+      {
+        match: `state=all&head=`,
+        status: 200,
+        body: [{ number: 240, state: `open`, merged_at: null }],
+      },
+    ])
+    const diagnosis = await diagnoseUnmergeablePr({
+      repo: `owner/repo`,
+      prNumber: 241,
+      token: `tok`,
+      defaultBranch: `master`,
+      fetchImpl,
+    })
+    expect(diagnosis?.message).toContain(`stacked on open PR #240`)
+    expect(diagnosis?.conflict).toBe(false)
   })
 
   it(`returns null when the diagnosis itself fails (caller keeps GitHub's message)`, async () => {

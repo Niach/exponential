@@ -61,7 +61,7 @@ final class SupportThreadViewModel {
         } catch is CancellationError {
             // Expected on stopPolling.
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
         }
     }
 
@@ -81,7 +81,7 @@ final class SupportThreadViewModel {
             await load()
             return true
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
             return false
         }
     }
@@ -91,7 +91,7 @@ final class SupportThreadViewModel {
             try await helpdeskApi.close(accountId: accountId, threadId: threadId)
             await load()
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
         }
     }
 
@@ -100,7 +100,7 @@ final class SupportThreadViewModel {
             try await helpdeskApi.reopen(accountId: accountId, threadId: threadId)
             await load()
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
         }
     }
 
@@ -111,7 +111,7 @@ final class SupportThreadViewModel {
             )
             await load()
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
         }
     }
 

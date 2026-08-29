@@ -38,6 +38,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.UsersApi
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.DatabaseHolder
@@ -105,7 +106,7 @@ class ServerDetailViewModel @Inject constructor(
             try {
                 usersApi.deleteAccount(accountId)
             } catch (e: Exception) {
-                deleteAccountError = e.message ?: "Account deletion failed"
+                deleteAccountError = trpcErrorMessage(e, "Account deletion failed")
                 deletingAccount = false
                 return@launch
             }

@@ -534,7 +534,20 @@ fn snapshot_then_live_then_warm_start_resumes_cursor() {
     let resumed = &server.requests()[before];
     assert_eq!(resumed.param("offset"), Some("0_5"));
     assert_eq!(resumed.param("handle"), Some("h-1"));
-    assert!(resumed.is_live(), "warm start resumes straight into live");
+    // EXP-533: the FIRST request after a (re)start is a plain catch-up — a
+    // held live long-poll here would ride the connection the restart exists
+    // to escape (a dead h2 socket after suspend) and learn nothing for 90s.
+    assert!(
+        !resumed.is_live(),
+        "the first poll after a warm start is a catch-up, not a held long-poll"
+    );
+    // …and the very next one resumes the live long-poll from the same cursor.
+    assert!(wait_until(Duration::from_secs(5), || {
+        server.requests().len() > before + 1
+    }));
+    let live_again = &server.requests()[before + 1];
+    assert!(live_again.is_live(), "the second poll goes back to live");
+    assert_eq!(live_again.param("handle"), Some("h-1"));
     harness.stop();
 }
 
@@ -847,6 +860,7 @@ fn restart_account_rebuilds_a_live_pipeline() {
 
     let dir = TempDir::new("restart");
     let manager = SyncManager::new();
+    let deltas = manager.deltas();
     let started = manager
         .start_account(AccountSyncConfig {
             account_id: "acct-1".into(),
@@ -877,7 +891,69 @@ fn restart_account_rebuilds_a_live_pipeline() {
         server.requests().len() > polls_before
     }));
 
+    // EXP-533: the MANAGER announces the restart — exactly once, for the
+    // account that actually restarted (the unknown-account no-op above
+    // announced nothing). The catching-up spinner is stamped off this.
+    assert_eq!(drain_restarts(&deltas), vec!["acct-1".to_string()]);
+
     assert!(manager.stop_account("acct-1"));
+}
+
+// ---------------------------------------------------------------------------
+// EXP-533: a wake restarts EVERY live pipeline — after a suspend all of them
+// are parked in reads on an h2 connection that died with the machine.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn wake_jump_restarts_every_live_pipeline() {
+    let _serial = serial();
+    let server = MockShapeServer::start(live_idle("h-1", "0_0", Duration::from_millis(50)));
+
+    let dir_a = TempDir::new("wake-a");
+    let dir_b = TempDir::new("wake-b");
+    let manager = SyncManager::new();
+    let deltas = manager.deltas();
+    for (account_id, dir) in [("acct-a", &dir_a), ("acct-b", &dir_b)] {
+        assert!(manager
+            .start_account(AccountSyncConfig {
+                account_id: account_id.into(),
+                base_url: server.base_url.clone(),
+                db_path: dir.db_path(),
+                token: Arc::new(|| Some("token".to_string())),
+                shapes: None,
+            })
+            .unwrap());
+    }
+    assert!(wait_until(Duration::from_secs(5), || {
+        !server.requests().is_empty()
+    }));
+
+    manager.on_wake_jump();
+
+    let mut restarted = drain_restarts(&deltas);
+    restarted.sort();
+    assert_eq!(restarted, vec!["acct-a".to_string(), "acct-b".to_string()]);
+    assert_eq!(manager.running_accounts().len(), 2);
+
+    // With nothing running it is a no-op (and announces nothing).
+    manager.stop_all();
+    manager.on_wake_jump();
+    assert!(drain_restarts(&deltas).is_empty());
+}
+
+/// Every `PipelineRestarted` account id currently queued, ignoring the
+/// `Applied`/`PollFailed` traffic the running pipelines interleave.
+fn drain_restarts(deltas: &flume::Receiver<ShapeDelta>) -> Vec<String> {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut out = Vec::new();
+    while Instant::now() < deadline {
+        match deltas.recv_timeout(Duration::from_millis(200)) {
+            Ok(ShapeDelta::PipelineRestarted { account_id }) => out.push(account_id),
+            Ok(_) => continue,
+            Err(_) => break,
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------

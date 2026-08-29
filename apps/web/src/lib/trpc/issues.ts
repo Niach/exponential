@@ -43,6 +43,7 @@ import {
 import { recordConversionEvent } from "@/lib/conversion/events"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { repoBranchOverride } from "@/lib/trpc/repositories"
+import { isNotMergeable, prMergeFailureError } from "@/lib/trpc/pr-merge-error"
 import { escapeLikePattern } from "@/lib/like-pattern"
 import { applyStatusDerivations } from "@/lib/status-derivations"
 import {
@@ -1323,49 +1324,26 @@ export const issuesRouter = router({
         // a later out-of-band merge of the same PR.
         releasePrMergeClaim(repoFullName, row.prNumber)
         if (err instanceof GitHubMergeError) {
-          // 405 covers "not mergeable" and "squash merges not allowed" —
-          // GitHub's message is shown verbatim, EXCEPT for "not mergeable",
-          // where it is actively misleading on a stacked PR whose base is
-          // stale (EXP-324): the real fix is a retarget, not another rebase.
-          // The diagnosis names the cause; on any failure it degrades to
-          // GitHub's original message.
-          if (err.status === 405) {
-            let message = err.message
-            if (/not mergeable/i.test(err.message)) {
-              const defaultBranch =
-                (await repoBranchOverride(teamId, repoFullName)) ??
-                (await resolveRepoDefaultBranchCached(repoFullName))
-              const diagnosed = defaultBranch
-                ? await diagnoseUnmergeablePr({
-                    repo: repoFullName,
-                    prNumber: row.prNumber,
-                    token: resolved.token,
-                    defaultBranch,
-                  })
-                : null
-              if (diagnosed) message = diagnosed
-            }
-            throw new TRPCError({
-              code: `PRECONDITION_FAILED`,
-              message,
-            })
+          // "Not mergeable" is actively misleading on a stacked PR whose base
+          // is stale (EXP-324): the real fix is a retarget, not another
+          // rebase. The diagnosis names the cause AND says whether this is a
+          // real content conflict, which decides the error code clients gate
+          // their recovery run on (EXP-533).
+          let diagnosis = null
+          if (isNotMergeable(err)) {
+            const defaultBranch =
+              (await repoBranchOverride(teamId, repoFullName)) ??
+              (await resolveRepoDefaultBranchCached(repoFullName))
+            diagnosis = defaultBranch
+              ? await diagnoseUnmergeablePr({
+                  repo: repoFullName,
+                  prNumber: row.prNumber,
+                  token: resolved.token,
+                  defaultBranch,
+                })
+              : null
           }
-          if (err.status === 409) {
-            throw new TRPCError({
-              code: `CONFLICT`,
-              message: `Head branch changed on GitHub. Refresh and try again.`,
-            })
-          }
-          if (err.status === 404) {
-            throw new TRPCError({
-              code: `NOT_FOUND`,
-              message: `Pull request not found on GitHub`,
-            })
-          }
-          throw new TRPCError({
-            code: `INTERNAL_SERVER_ERROR`,
-            message: `GitHub merge failed: ${err.message}`,
-          })
+          throw prMergeFailureError(err, diagnosis)
         }
         throw err
       }

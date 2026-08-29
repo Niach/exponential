@@ -32,6 +32,18 @@ public let teamDeleteSubscriptionMessagePrefix = "This team has an active subscr
 public let teamDeleteSubscriptionMessage =
     "This team has an active subscription. Cancel the subscription on the web before deleting the team."
 
+/// The ONE sentence every client shows when a request never reached the
+/// server (EXP-533). Byte-identical on web, iOS, Android and desktop: a
+/// transport failure must read as "you are offline", never as Apple's
+/// `URLError` text ("A server with the specified hostname could not be
+/// found."), Chrome's "Failed to fetch" or reqwest's URL dump.
+public let offlineErrorMessage = "You're offline. Check your connection and try again."
+
+/// Clause of the server's pre-EXP-533 merge-conflict refusal, which shipped as
+/// `PRECONDITION_FAILED` (HTTP 412) instead of a real `CONFLICT`. Only used by
+/// the transitional sniff in `isMergeConflict`.
+private let legacyMergeConflictClause = "has merge conflicts with"
+
 struct TrpcErrorBody {
     let message: String
     let code: String?
@@ -88,18 +100,59 @@ struct TrpcErrorBody {
 }
 
 public extension Error {
-    /// A clean, user-facing message. For `TrpcError.httpError` it extracts the
-    /// tRPC error `message` from the JSON body; otherwise the localized
+    /// True when the request never reached the server: DNS, connect, TLS-less
+    /// connectivity and roaming/data failures from `URLSession`, which
+    /// `HTTPClient.perform` rethrows unwrapped. A `TrpcError` is NEVER offline
+    /// — it means the server answered.
+    var isOfflineError: Bool {
+        guard let urlError = self as? URLError else { return false }
+        switch urlError.code {
+        case .notConnectedToInternet,
+             .dnsLookupFailed,
+             .cannotFindHost,
+             .cannotConnectToHost,
+             .networkConnectionLost,
+             .timedOut,
+             .internationalRoamingOff,
+             .dataNotAllowed:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// A clean, user-facing message (EXP-533). A transport failure reads as the
+    /// shared offline sentence; for `TrpcError.httpError` the tRPC error
+    /// `message` is extracted from the JSON body; otherwise the localized
     /// description. Plan-cap and team-delete billing-gate messages are replaced
     /// with native copy — the server's wording is written for the web, where
     /// billing lives.
-    var trpcUserMessage: String {
+    var userFacingMessage: String {
+        if isOfflineError { return offlineErrorMessage }
         guard let trpcError = self as? TrpcError,
               case let .httpError(_, body) = trpcError,
               let parsed = TrpcErrorBody.parse(body),
               !parsed.message.isEmpty
         else { return localizedDescription }
         return parsed.presentableMessage
+    }
+
+    /// Historical name for `userFacingMessage`, kept so the existing call sites
+    /// pick the offline sentence up unchanged.
+    var trpcUserMessage: String { userFacingMessage }
+
+    /// True only for a REAL content conflict on a PR merge (EXP-533): the
+    /// server answers `CONFLICT` / HTTP 409 for a conflict it diagnosed, and
+    /// `PRECONDITION_FAILED` for everything else it refused (stale head,
+    /// branch protection, GitHub App misconfiguration) — offering the
+    /// "Fix conflicts" recovery run there would only waste an agent run.
+    var isMergeConflict: Bool {
+        guard let trpcError = self as? TrpcError,
+              case let .httpError(status, body) = trpcError else { return false }
+        if status == 409 { return true }
+        // TRANSITIONAL (EXP-533): remove once every server answers a real conflict with 409
+        guard status == 412, let parsed = TrpcErrorBody.parse(body) else { return false }
+        return parsed.message.contains(legacyMergeConflictClause)
     }
 
     /// The tRPC error `code` (`NOT_FOUND`, `FORBIDDEN`, `PRECONDITION_FAILED`,
@@ -120,5 +173,24 @@ public extension Error {
               case let .httpError(_, body) = trpcError,
               let parsed = TrpcErrorBody.parse(body) else { return false }
         return parsed.isPlanLimit
+    }
+}
+
+/// A failed PR merge, as every merge surface renders it (EXP-533): the caption
+/// text plus whether the refusal was a real content conflict, which is the only
+/// case where the "Fix conflicts" recovery run can help. Mirrors web
+/// `lib/merge-failure.ts`, Android `domain/MergeFailure.kt` and desktop
+/// `ui/src/pr_merge.rs`.
+public struct MergeFailure: Sendable, Equatable {
+    public let message: String
+    public let isConflict: Bool
+
+    public init(message: String, isConflict: Bool) {
+        self.message = message
+        self.isConflict = isConflict
+    }
+
+    public init(error: Error) {
+        self.init(message: error.userFacingMessage, isConflict: error.isMergeConflict)
     }
 }

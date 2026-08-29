@@ -179,7 +179,7 @@ impl ActionEditorDialogView {
                             state.set_value(action.body, window, cx);
                         });
                     }
-                    Err(err) => view.error = Some(format!("{err}").into()),
+                    Err(err) => view.error = Some(err.user_message().into()),
                 }
                 view.body_loading = false;
                 cx.notify();

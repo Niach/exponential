@@ -25,7 +25,7 @@ import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
-import { trpcErrorMessage } from "@/lib/trpc-error"
+import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 import {
@@ -211,10 +211,9 @@ function ReviewDetailPage() {
   // run rebases, force-pushes and then MERGES the PR, so it may only be
   // offered after a failed MERGE — a user who asked to CLOSE a PR must never
   // be handed a button that merges it.
-  const [actionError, setActionError] = useState<{
-    action: `merge` | `close`
-    message: string
-  } | null>(null)
+  const [actionError, setActionError] = useState<
+    ({ action: `merge` | `close` } & MergeFailure) | null
+  >(null)
 
   // "Fix conflicts" (EXP-323, desktop parity). Presence is fetched only once
   // an action has actually failed — opening a review must not poll for
@@ -226,8 +225,10 @@ function ReviewDetailPage() {
   const { isMember } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
+  // Only a REAL conflict can be fixed by the recovery run (EXP-533), so only a
+  // real conflict is worth polling for an online desktop.
   const remote = useRemoteStart({
-    enabled: steerEnabled && actionError !== null,
+    enabled: steerEnabled && actionError?.conflict === true,
     currentUserId,
     teamId: team?.id,
   })
@@ -243,10 +244,7 @@ function ReviewDetailPage() {
       .catch((error: unknown) => {
         setActionError({
           action: `merge`,
-          message: trpcErrorMessage(
-            error,
-            `The pull request could not be merged`
-          ),
+          ...mergeFailure(error, `The pull request could not be merged`),
         })
         setMerging(false)
       })
@@ -262,10 +260,7 @@ function ReviewDetailPage() {
       .catch((error: unknown) => {
         setActionError({
           action: `close`,
-          message: trpcErrorMessage(
-            error,
-            `The pull request could not be closed`
-          ),
+          ...mergeFailure(error, `The pull request could not be closed`),
         })
         setClosing(false)
       })
@@ -399,6 +394,7 @@ function ReviewDetailPage() {
         <div className="hidden flex-wrap items-center gap-2 border-b border-border px-4 py-2 md:flex">
           <span className="text-destructive text-xs">{actionError.message}</span>
           {actionError.action === `merge` &&
+            actionError.conflict &&
             isOpen &&
             issue.branch &&
             steerEnabled && (
@@ -454,11 +450,14 @@ function ReviewDetailPage() {
               <span className="text-destructive text-xs">
                 {actionError.message}
               </span>
-              {/* Merge failures only: the run ends in a MERGE, which is the
-                  opposite of what a failed close was asked to do. The recovery
-                  run rebases the PR's branch, so it needs one recorded — the
+              {/* Merge failures only, and only REAL conflicts (EXP-533): the
+                  run ends in a MERGE, which is the opposite of what a failed
+                  close was asked to do, and rebase-and-resolve fixes nothing
+                  when the refusal was a stale base or an unreachable server.
+                  It rebases the PR's branch, so it needs one recorded — the
                   same guards the desktop applies. */}
               {actionError.action === `merge` &&
+                actionError.conflict &&
                 isOpen &&
                 issue.branch &&
                 steerEnabled && (

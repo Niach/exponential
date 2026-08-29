@@ -643,7 +643,7 @@ impl DeviceSettingsView {
             let _ = this.update(cx, |this, cx| {
                 this.busy_section = None;
                 if let Err(err) = result {
-                    this.set_error(section, Some(user_error(&err)));
+                    this.set_error(section, Some(err.user_message().into()));
                 }
                 cx.notify();
             });
@@ -780,7 +780,7 @@ impl DeviceSettingsView {
                         });
                         this.ensure_polling(cx);
                     }
-                    Err(err) => this.set_error(key, Some(user_error(&err))),
+                    Err(err) => this.set_error(key, Some(err.user_message().into())),
                 }
                 cx.notify();
             });
@@ -816,7 +816,7 @@ impl DeviceSettingsView {
                         });
                         this.ensure_polling(cx);
                     }
-                    Err(err) => this.set_error(key, Some(user_error(&err))),
+                    Err(err) => this.set_error(key, Some(err.user_message().into())),
                 }
                 cx.notify();
             });
@@ -1532,12 +1532,6 @@ impl DeviceSettingsView {
         }
         body
     }
-}
-
-/// Surface an ApiError as a section line the way the web dialog surfaces
-/// tRPC messages — the server's own message when it carried one.
-fn user_error(err: &api::ApiError) -> SharedString {
-    SharedString::from(format!("{err}"))
 }
 
 impl Render for DeviceSettingsView {

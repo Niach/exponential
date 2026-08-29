@@ -72,6 +72,12 @@ pub type UpgradeRequiredFn = Arc<dyn Fn() + Send + Sync>;
 /// Read timeout for the blocking socket — MUST exceed the server's ~60s
 /// long-poll hold window (§5.3; the `long-poll-canary.md` contract).
 pub const LIVE_READ_TIMEOUT: Duration = Duration::from_secs(90);
+/// EXP-533: read timeout for a NON-live poll (initial snapshot, post-refetch
+/// re-snapshot, and the catch-up poll every (re)started thread opens first).
+/// The server answers these immediately — holding 90s on one is pure dead
+/// time after a suspend, where the h2 connection the request rode out on is
+/// already gone and only the timeout will tell us.
+pub const CATCH_UP_TIMEOUT: Duration = Duration::from_secs(30);
 /// TCP/TLS connect timeout.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Error backoff base / cap (§5.3).
@@ -125,10 +131,17 @@ impl std::error::Error for TransportError {}
 /// [`HttpTransport`]; tests inject an in-process server or a scripted impl.
 ///
 /// Contract for implementors: **no caching of any kind** (§5.6a) — every
-/// `fetch` must hit the network; and the read timeout must exceed the ~60s
-/// live hold window (§5.3).
+/// `fetch` must hit the network; and `timeout` must be honoured as given (the
+/// caller passes [`LIVE_READ_TIMEOUT`] for a held long-poll, which MUST
+/// exceed the server's ~60s hold window, and [`CATCH_UP_TIMEOUT`] for a poll
+/// the server answers immediately).
 pub trait ShapeTransport: Send + Sync {
-    fn fetch(&self, url: &str, bearer: &str) -> Result<TransportResponse, TransportError>;
+    fn fetch(
+        &self,
+        url: &str,
+        bearer: &str,
+        timeout: Duration,
+    ) -> Result<TransportResponse, TransportError>;
 }
 
 /// Production transport: the app's ONE shared blocking `reqwest` client over
@@ -159,15 +172,21 @@ impl Default for HttpTransport {
 }
 
 impl ShapeTransport for HttpTransport {
-    fn fetch(&self, url: &str, bearer: &str) -> Result<TransportResponse, TransportError> {
+    fn fetch(
+        &self,
+        url: &str,
+        bearer: &str,
+        timeout: Duration,
+    ) -> Result<TransportResponse, TransportError> {
         let result = self
             .client
             .get(url)
             // The shared client's 30s default is for ordinary calls; a live
             // long-poll MUST outlast the server's ~60s hold or every idle poll
             // times out client-side and the loop degrades into a hammering
-            // short-poll (the long-poll-canary.md failure mode).
-            .timeout(LIVE_READ_TIMEOUT)
+            // short-poll (the long-poll-canary.md failure mode). The caller
+            // picks LIVE_READ_TIMEOUT or CATCH_UP_TIMEOUT per poll.
+            .timeout(timeout)
             .header("Authorization", format!("Bearer {bearer}"))
             .header("Accept", "application/json")
             // Explicit no-cache discipline (§5.6a) — belt to the proxy's
@@ -250,6 +269,12 @@ pub enum ShapeDelta {
         /// The [`ShapeError`] display string, for diagnostics.
         error: String,
     },
+    /// EXP-533: the account's pipeline was torn down and rebuilt
+    /// ([`crate::SyncManager::restart_account`]) — by the wake watchdog, the
+    /// offline banner's Retry, a window activation, or a membership change.
+    /// Emitted by the MANAGER, not a shape thread, so every restart path
+    /// stamps the catch-up exactly once.
+    PipelineRestarted { account_id: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -358,6 +383,15 @@ impl ShapeClient {
         // Transient `electric-cursor` echo (§5.2) — per-loop memory, never
         // persisted.
         let mut cursor: Option<String> = None;
+        // EXP-533: `is_live` is PERSISTED, so a thread that starts against an
+        // already-live shape would open a 90s held long-poll as its FIRST
+        // request. After a suspend (or any restart) that request rides the
+        // dead h2 connection this pipeline was just rebuilt to escape, and we
+        // learn nothing until it times out. The first poll of every
+        // (re)started thread is therefore a plain catch-up: non-live, short
+        // timeout, answered immediately. Nothing is persisted — `after_apply`
+        // re-derives liveness from `up-to-date` exactly as before.
+        let mut catch_up_first = true;
         while !stop.load(Ordering::Relaxed) {
             let Some(token) = (self.cfg.token)() else {
                 // Signed out / token not yet resolved: park, NEVER go
@@ -366,10 +400,11 @@ impl ShapeClient {
                 continue;
             };
             let started = Instant::now();
-            match self.poll_once(&token, &mut cursor, stop) {
+            match self.poll_once(&token, &mut cursor, stop, catch_up_first) {
                 Ok(outcome) => {
                     backoff = BACKOFF_BASE; // reset on success (§5.3)
                     unauthorized_since = None;
+                    catch_up_first = false;
                     if outcome.pause {
                         sleep_with_stop(stop, REFETCH_PAUSE);
                     } else if outcome.idle_live {
@@ -435,13 +470,25 @@ impl ShapeClient {
         token: &str,
         cursor: &mut Option<String>,
         stop: &Arc<AtomicBool>,
+        catch_up: bool,
     ) -> Result<PollOutcome, ShapeError> {
         let spec = self.cfg.spec;
-        let saved = self
+        let mut saved = self
             .cfg
             .store
             .shape_state(spec.name)
             .map_err(ShapeError::Store)?;
+        if catch_up {
+            // EXP-533: force THIS poll non-live. In-memory only — the store
+            // keeps its persisted `is_live`, and `after_apply` below reads
+            // the same (cleared) value, so a catch-up that reaches
+            // `up-to-date` goes live immediately and one that doesn't stays
+            // in catch-up. Nothing else observes the flag.
+            if let Some(state) = saved.as_mut() {
+                state.is_live = false;
+            }
+        }
+        let saved = saved;
         let refetching = saved.as_ref().is_some_and(|s| s.needs_refetch);
         let was_live = saved.as_ref().is_some_and(|s| s.is_live) && !refetching;
 
@@ -460,10 +507,17 @@ impl ShapeClient {
                 .as_millis();
             eprintln!("[sync-log {ts}] {} GET {url}", spec.name);
         }
+        // Only a live poll is HELD by the server; everything else is answered
+        // straight away and must not sit on a 90s timeout (EXP-533).
+        let timeout = if was_live {
+            LIVE_READ_TIMEOUT
+        } else {
+            CATCH_UP_TIMEOUT
+        };
         let response = self
             .cfg
             .transport
-            .fetch(&url, token)
+            .fetch(&url, token, timeout)
             .map_err(ShapeError::Transport)?;
 
         // Stopped while the read was in flight (sign-out/quit): discard the
@@ -730,5 +784,10 @@ mod tests {
         // short-poll (the long-poll-canary failure).
         assert!(LIVE_READ_TIMEOUT >= Duration::from_secs(75));
         assert!(MIN_LIVE_REPOLL >= Duration::from_secs(1));
+        // EXP-533: a catch-up poll is answered immediately — it must NOT
+        // inherit the hold-window timeout, or a restart after a suspend waits
+        // 90s on the dead connection it was meant to escape.
+        assert!(CATCH_UP_TIMEOUT < LIVE_READ_TIMEOUT);
+        assert!(CATCH_UP_TIMEOUT > CONNECT_TIMEOUT);
     }
 }

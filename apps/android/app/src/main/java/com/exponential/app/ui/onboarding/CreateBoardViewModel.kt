@@ -76,7 +76,11 @@ class CreateBoardViewModel @Inject constructor(
                 if (selection.selectedId.value == null) selection.select(team.id)
                 team.id
             }.onSuccess { _teamId.value = it }
-                .onFailure { _state.value = _state.value.copy(error = it.message ?: "Failed to prepare team") }
+                .onFailure {
+                    _state.value = _state.value.copy(
+                        error = trpcErrorMessage(it, "Failed to prepare team"),
+                    )
+                }
         }
     }
 

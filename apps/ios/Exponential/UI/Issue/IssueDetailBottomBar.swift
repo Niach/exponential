@@ -487,7 +487,7 @@ struct IssueDetailBottomBar: View {
             resetComposer()
             collapse()
         } catch {
-            attachmentError = error.localizedDescription
+            attachmentError = error.userFacingMessage
         }
     }
 

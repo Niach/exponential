@@ -651,7 +651,7 @@ impl CreateIssueDialogView {
                 }
                 Err(err) => {
                     let _ = this.update_in(window, |this, _, cx| {
-                        this.error = Some(format!("{err}").into());
+                        this.error = Some(err.user_message().into());
                         this.submitting = false;
                         cx.notify();
                     });

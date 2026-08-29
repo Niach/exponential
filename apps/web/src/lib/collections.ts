@@ -2,6 +2,10 @@ import { createCollection } from "@tanstack/react-db"
 import { electricCollectionOptions } from "@tanstack/electric-db-collection"
 import { snakeCamelMapper } from "@electric-sql/client"
 import {
+  reportTransportFailure,
+  reportTransportSuccess,
+} from "@/lib/connectivity"
+import {
   selectSyncedActionSchema,
   selectAutomationSchema,
   selectAttachmentSchema,
@@ -39,14 +43,48 @@ function getShapeUrl(path: string) {
   return new URL(path, baseUrl).toString()
 }
 
+// EXP-533: the continuous connectivity signal. `fetchClient` is forwarded
+// verbatim into `ShapeStream` and sits UNDERNEATH its infinite backoff
+// wrapper, so this sees EVERY attempt including the live long-polls — which
+// is what makes it a heartbeat rather than a one-shot. (`onError` is no use
+// here: the stream swallows network errors into its retry loop and never
+// calls it.) Any Response at all proves the server answered; only a thrown
+// error counts against reachability, and an aborted request is not an outage.
+// (Typed structurally and asserted at the use site: `typeof fetch` here
+// resolves to Bun's, which carries a `preconnect` a plain wrapper has no
+// business implementing.)
+const shapeFetch = async (
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> => {
+  try {
+    const response = await fetch(input, init)
+    reportTransportSuccess()
+    return response
+  } catch (error) {
+    if (!(error instanceof Error) || error.name !== `AbortError`) {
+      reportTransportFailure(error)
+    }
+    throw error
+  }
+}
+
+// The per-collection shape wiring, identical for all 20 of them: the proxy URL,
+// the timestamp parser and the snake→camel mapper `useLiveQuery` where clauses
+// depend on.
+function shapeOptions(path: string) {
+  return {
+    url: getShapeUrl(path),
+    parser: shapeParser,
+    columnMapper,
+    fetchClient: shapeFetch as typeof fetch,
+  }
+}
+
 export const teamCollection = createCollection(
   electricCollectionOptions({
     id: `teams`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/teams`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/teams`),
     schema: selectTeamSchema,
     getKey: (item) => item.id,
   })
@@ -55,11 +93,7 @@ export const teamCollection = createCollection(
 export const teamMemberCollection = createCollection(
   electricCollectionOptions({
     id: `team_members`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/team-members`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/team-members`),
     schema: selectTeamMemberSchema,
     getKey: (item) => item.id,
   })
@@ -68,11 +102,7 @@ export const teamMemberCollection = createCollection(
 export const boardCollection = createCollection(
   electricCollectionOptions({
     id: `boards`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/boards`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/boards`),
     schema: selectBoardSchema,
     getKey: (item) => item.id,
   })
@@ -81,11 +111,7 @@ export const boardCollection = createCollection(
 export const issueCollection = createCollection(
   electricCollectionOptions({
     id: `issues`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/issues`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/issues`),
     schema: selectIssueSchema,
     getKey: (item) => item.id,
   })
@@ -94,11 +120,7 @@ export const issueCollection = createCollection(
 export const labelCollection = createCollection(
   electricCollectionOptions({
     id: `labels`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/labels`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/labels`),
     schema: selectLabelSchema,
     getKey: (item) => item.id,
   })
@@ -109,11 +131,7 @@ export const labelCollection = createCollection(
 export const issueStatusCollection = createCollection(
   electricCollectionOptions({
     id: `issue_statuses`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/issue-statuses`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/issue-statuses`),
     schema: selectIssueStatusRowSchema,
     getKey: (item) => item.id,
   })
@@ -124,11 +142,7 @@ export const issueStatusCollection = createCollection(
 export const actionCollection = createCollection(
   electricCollectionOptions({
     id: `actions`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/actions`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/actions`),
     schema: selectSyncedActionSchema,
     getKey: (item) => item.id,
   })
@@ -140,11 +154,7 @@ export const actionCollection = createCollection(
 export const automationCollection = createCollection(
   electricCollectionOptions({
     id: `automations`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/automations`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/automations`),
     schema: selectAutomationSchema,
     getKey: (item) => item.id,
   })
@@ -153,10 +163,7 @@ export const automationCollection = createCollection(
 export const issueLabelCollection = createCollection(
   electricCollectionOptions({
     id: `issue_labels`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/issue-labels`),
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/issue-labels`),
     schema: selectIssueLabelSchema,
     getKey: (item) => `${item.issueId}:${item.labelId}`,
   })
@@ -165,11 +172,7 @@ export const issueLabelCollection = createCollection(
 export const teamInviteCollection = createCollection(
   electricCollectionOptions({
     id: `team_invites`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/team-invites`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/team-invites`),
     schema: selectTeamInviteSchema,
     getKey: (item) => item.id,
   })
@@ -178,11 +181,7 @@ export const teamInviteCollection = createCollection(
 export const userCollection = createCollection(
   electricCollectionOptions({
     id: `users`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/users`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/users`),
     schema: selectUserSchema,
     getKey: (item) => item.id,
   })
@@ -191,11 +190,7 @@ export const userCollection = createCollection(
 export const commentCollection = createCollection(
   electricCollectionOptions({
     id: `comments`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/comments`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/comments`),
     schema: selectCommentSchema,
     getKey: (item) => item.id,
   })
@@ -207,11 +202,7 @@ export const commentCollection = createCollection(
 export const attachmentCollection = createCollection(
   electricCollectionOptions({
     id: `attachments`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/attachments`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/attachments`),
     schema: selectAttachmentSchema,
     getKey: (item) => item.id,
   })
@@ -221,11 +212,7 @@ export const attachmentCollection = createCollection(
 export const notificationCollection = createCollection(
   electricCollectionOptions({
     id: `notifications`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/notifications`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/notifications`),
     schema: selectNotificationSchema,
     getKey: (item) => item.id,
   })
@@ -235,11 +222,7 @@ export const notificationCollection = createCollection(
 export const issueEventCollection = createCollection(
   electricCollectionOptions({
     id: `issue_events`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/issue-events`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/issue-events`),
     schema: selectIssueEventSchema,
     getKey: (item) => item.id,
   })
@@ -249,11 +232,7 @@ export const issueEventCollection = createCollection(
 export const issueSubscriberCollection = createCollection(
   electricCollectionOptions({
     id: `issue_subscribers`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/issue-subscribers`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/issue-subscribers`),
     schema: selectIssueSubscriberSchema,
     getKey: (item) => item.id,
   })
@@ -265,11 +244,7 @@ export const issueSubscriberCollection = createCollection(
 export const codingSessionCollection = createCollection(
   electricCollectionOptions({
     id: `coding_sessions`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/coding-sessions`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/coding-sessions`),
     schema: selectCodingSessionSchema,
     getKey: (item) => item.id,
   })
@@ -281,11 +256,7 @@ export const codingSessionCollection = createCollection(
 export const deviceCollection = createCollection(
   electricCollectionOptions({
     id: `devices`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/devices`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/devices`),
     schema: selectDeviceSchema,
     getKey: (item) => item.id,
   })
@@ -297,11 +268,7 @@ export const deviceCollection = createCollection(
 export const deviceWorktreeCollection = createCollection(
   electricCollectionOptions({
     id: `device_worktrees`,
-    shapeOptions: {
-      url: getShapeUrl(`/api/shapes/device-worktrees`),
-      parser: shapeParser,
-      columnMapper,
-    },
+    shapeOptions: shapeOptions(`/api/shapes/device-worktrees`),
     schema: selectSyncedDeviceWorktreeSchema,
     getKey: (item) => item.id,
   })

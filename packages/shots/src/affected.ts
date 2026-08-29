@@ -186,12 +186,14 @@ const IGNORED: RegExp[] = [
   //   `data/steer/SteerConnectionStore.kt` → "Connecting…"
   //   `data/steer/SteerConnection.kt`      → "Connection lost", and more
   // Splitting the copy out of those three would let them join this list.
+  // `SyncHealth.kt` (EXP-533) IS here: it is the pure offline/ok decision, and
+  // the banner sentence it drives lives in `navigation/AppNavHost.kt`.
   //
   // iOS `ExpCore/Sources/Electric/` IS taken wholesale: every string in all
   // six files is an HTTP header, a shape path, SQL or a comment.
   /^apps\/ios\/ExpCore\/Sources\/Electric\//,
   /^apps\/ios\/ExpCore\/Sources\/(FeedFollowPolicy|SteerReplayStaging)\.swift$/,
-  /^apps\/android\/app\/src\/main\/java\/com\/exponential\/app\/data\/electric\/(ShapeClient|SyncManager)\.kt$/,
+  /^apps\/android\/app\/src\/main\/java\/com\/exponential\/app\/data\/electric\/(ShapeClient|SyncHealth|SyncManager)\.kt$/,
   /^apps\/android\/app\/src\/main\/java\/com\/exponential\/app\/data\/api\/HttpClientProvider\.kt$/,
   /^apps\/android\/app\/src\/main\/java\/com\/exponential\/app\/data\/push\/FcmService\.kt$/,
   // Static assets no photographed screen renders: the service worker, the PWA

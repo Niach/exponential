@@ -2,6 +2,8 @@ package com.exponential.app.navigation
 
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +16,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -37,6 +40,7 @@ import com.exponential.app.AppConstants
 import com.exponential.app.AppViewModel
 import com.exponential.app.ExponentialApp
 import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.electric.SyncHealth
 import androidx.browser.customtabs.CustomTabsIntent
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.data.push.WebLinkResolver
@@ -219,11 +223,13 @@ fun AppNavHost() {
             val supportUnread by viewModel.supportUnread.collectAsStateWithLifecycle()
             val currentBoardId by viewModel.currentBoardId.collectAsStateWithLifecycle()
             val gatedOtherServers by viewModel.gatedOtherServers.collectAsStateWithLifecycle()
+            val syncHealth by viewModel.syncHealth.collectAsStateWithLifecycle()
             AuthenticatedNav(
                 navController = navController,
                 cloudAlreadyAdded = cloudAlreadyAdded,
                 activeAccountId = state.activeAccountId,
                 gatedOtherServers = gatedOtherServers,
+                syncHealth = syncHealth,
                 needsOnboarding = needsOnboarding,
                 unreadCount = unreadCount,
                 agentsRunning = agentsRunning,
@@ -233,6 +239,7 @@ fun AppNavHost() {
                 supportUnread = supportUnread,
                 currentBoardId = currentBoardId,
                 onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
+                onRetrySync = { viewModel.retrySync() },
             )
         }
         }
@@ -274,6 +281,7 @@ private fun AuthenticatedNav(
     cloudAlreadyAdded: Boolean,
     activeAccountId: String?,
     gatedOtherServers: List<String>,
+    syncHealth: SyncHealth,
     needsOnboarding: Boolean,
     unreadCount: Int,
     agentsRunning: Boolean,
@@ -283,6 +291,7 @@ private fun AuthenticatedNav(
     supportUnread: Boolean,
     currentBoardId: String?,
     onSetInstanceUrl: (String) -> Unit,
+    onRetrySync: () -> Unit,
 ) {
     val teamSelection = applicationTeamSelection()
 
@@ -593,14 +602,31 @@ private fun AuthenticatedNav(
     // say so rather than let it read as frozen sync. Dismissable for this app
     // run; sign-out lives on the server's row in Settings.
     var gatedBannerDismissed by remember(gatedOtherServers) { mutableStateOf(false) }
-    if (gatedOtherServers.isNotEmpty() && !gatedBannerDismissed && !needsOnboarding) {
-        GatedServersBanner(
-            servers = gatedOtherServers,
-            onDismiss = { gatedBannerDismissed = true },
+    val showsGatedBanner =
+        gatedOtherServers.isNotEmpty() && !gatedBannerDismissed && !needsOnboarding
+    // EXP-533: the active account can't reach its server. Unlike iOS (whose
+    // navigator owns a root inset slot) this floats at the BOTTOM: a top strip
+    // here would cover or reflow every screen's own header. Never during
+    // onboarding, which has no cached data to explain.
+    val showsOfflineBanner = syncHealth == SyncHealth.Offline && !needsOnboarding
+    if (showsGatedBanner || showsOfflineBanner) {
+        // One stack, so the two never overlap. The gated banner stays last —
+        // its position is unchanged from when it was the only one.
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
                 .padding(bottom = if (barVisible) BottomBarInset else 0.dp),
-        )
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (showsOfflineBanner) OfflineBanner(onRetry = onRetrySync)
+            if (showsGatedBanner) {
+                GatedServersBanner(
+                    servers = gatedOtherServers,
+                    onDismiss = { gatedBannerDismissed = true },
+                )
+            }
+        }
     }
 
     if (barVisible) {
@@ -694,8 +720,9 @@ private fun GatedServersBanner(
     modifier: Modifier = Modifier,
 ) {
     Row(
+        // navigationBarsPadding lives on the banner stack in AuthenticatedNav
+        // (EXP-533) — applying it per banner would inset each one again.
         modifier = modifier
-            .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .glassButton(opaque = true)
             .padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
@@ -726,6 +753,44 @@ private fun GatedServersBanner(
                 modifier = Modifier.size(14.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
+        }
+    }
+}
+
+/**
+ * The floating "can't reach the server" notice (EXP-533). Copy and icon are
+ * the iOS/desktop banner's, byte-for-byte; only the placement differs (see
+ * AuthenticatedNav). No dismiss: it disappears the moment a poll succeeds, and
+ * a dismissed one would leave stale boards looking live.
+ */
+@Composable
+private fun OfflineBanner(
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .glassButton(opaque = true)
+            .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            ExpIcons.uiOffline,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = DesignTokens.Semantic.Yellow,
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            "Can't reach the server, showing cached data",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Spacer(Modifier.width(4.dp))
+        TextButton(onClick = onRetry, contentPadding = PaddingValues(horizontal = 12.dp)) {
+            Text("Retry", style = MaterialTheme.typography.labelMedium)
         }
     }
 }

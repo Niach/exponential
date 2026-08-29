@@ -620,7 +620,7 @@ class IssueListViewModel @Inject constructor(
                 )
             }.onFailure { error ->
                 if (error is CancellationException) throw error
-                _error.value = error.message ?: "Failed to update status"
+                _error.value = trpcErrorMessage(error, "Failed to update status")
             }
         }
     }
@@ -633,7 +633,7 @@ class IssueListViewModel @Inject constructor(
                 issuesApi.update(accountId, UpdateIssueInput(id = issueId, priority = priority.wire))
             }.onFailure { error ->
                 if (error is CancellationException) throw error
-                _error.value = error.message ?: "Failed to update priority"
+                _error.value = trpcErrorMessage(error, "Failed to update priority")
             }
         }
     }
@@ -689,7 +689,7 @@ class IssueListViewModel @Inject constructor(
             for (chunk in issueIds.toList().chunked(BULK_CHUNK_SIZE)) {
                 runCatching { write(accountId, chunk) }.onFailure { error ->
                     if (error is CancellationException) throw error
-                    _error.value = error.message ?: errorMessage
+                    _error.value = trpcErrorMessage(error, errorMessage)
                     return@launch
                 }
             }
@@ -767,7 +767,7 @@ class IssueListViewModel @Inject constructor(
             // Electric re-delivers the same row, so this is only a head-start).
             runCatching { holder.database(forAccountId = accountId).labelDao().upsert(created) }
         }.onFailure { error ->
-            _error.value = error.message ?: "Failed to create label"
+            _error.value = trpcErrorMessage(error, "Failed to create label")
         }.getOrNull()
     }
 
@@ -851,7 +851,7 @@ class IssueListViewModel @Inject constructor(
             }
             created.id
         } catch (error: Throwable) {
-            _error.value = error.message ?: "Failed to create issue"
+            _error.value = trpcErrorMessage(error, "Failed to create issue")
             null
         } finally {
             _busy.value = false

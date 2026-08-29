@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.InlineKind
 import com.exponential.app.ui.markdown.model.ListType
@@ -676,7 +677,7 @@ class EditorModel {
         uploadStates[rowId] = ImageUploadState.Uploading
         uploadErrors.remove(rowId)
         val newUrl = runCatching { upload() }
-            .onFailure { error -> uploadErrors[rowId] = error.message ?: "Upload failed" }
+            .onFailure { error -> uploadErrors[rowId] = trpcErrorMessage(error, "Upload failed") }
             .getOrNull()
         val current = rows.firstOrNull { it.id == rowId } as? EditorRow.Image
         if (current == null) {
@@ -765,7 +766,7 @@ class EditorModel {
                         // Keep the reason so the Failed badge can explain WHY
                         // (e.g. the neutral storage-full message) instead of a
                         // bare retry state.
-                        .onFailure { error -> uploadErrors[d.id] = error.message ?: "Upload failed" }
+                        .onFailure { error -> uploadErrors[d.id] = trpcErrorMessage(error, "Upload failed") }
                         .getOrNull()
                 }
             }.awaitAll()

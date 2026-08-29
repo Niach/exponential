@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::client::{
     ShapeClient, ShapeClientConfig, ShapeDelta, ShapeTransport, TokenFn, UnauthorizedFn,
@@ -32,6 +32,7 @@ use crate::client::{
 };
 use crate::shapes::SHAPES;
 use crate::store::{ShapeStore, StoreError};
+use crate::wake::WakeWatchdog;
 
 /// How long `stop_account` waits for the shape threads to exit before
 /// detaching them. Threads check their stop flag between every sleep slice
@@ -245,11 +246,38 @@ impl SyncManager {
         };
         self.stop_account(account_id);
         match self.start_account(config) {
-            Ok(_) => true,
+            Ok(_) => {
+                // EXP-533: emitted HERE, not by a shape thread, so every
+                // restart path (wake watchdog, offline-banner Retry, window
+                // activation, team create/join) stamps the catch-up exactly
+                // once. Best-effort like every other delta send.
+                let _ = self.deltas_tx.send(ShapeDelta::PipelineRestarted {
+                    account_id: account_id.to_string(),
+                });
+                true
+            }
             Err(err) => {
                 log::warn!("[sync {account_id}] restart failed: {err}");
                 false
             }
+        }
+    }
+
+    /// EXP-533: the machine woke from suspend — every live pipeline's threads
+    /// are parked in reads on an h2 connection that died with the lid. Restart
+    /// them all so the first fresh poll is a short catch-up instead of a 90s
+    /// wait on a dead socket.
+    pub fn on_wake_jump(&self) {
+        let accounts = self.running_accounts();
+        if accounts.is_empty() {
+            return;
+        }
+        log::info!(
+            "[sync] wake detected — restarting {} pipeline(s)",
+            accounts.len()
+        );
+        for account_id in accounts {
+            self.restart_account(&account_id);
         }
     }
 
@@ -365,6 +393,36 @@ impl Drop for SyncManager {
         self.stop_all();
     }
 }
+
+/// EXP-533: start the detached suspend watchdog for a manager. One 1s-tick
+/// thread per manager, holding only a [`Weak`] — quit never waits on it, and
+/// it exits on its own once the manager is dropped. Call once, right after
+/// the manager is wrapped in its `Arc` (the desktop's `Store::open`, the CLI
+/// daemon's sync setup).
+pub fn spawn_wake_watchdog(manager: &Arc<SyncManager>) {
+    let weak = Arc::downgrade(manager);
+    let spawned = std::thread::Builder::new()
+        .name("sync-wake".to_string())
+        .spawn(move || {
+            let mut watchdog = WakeWatchdog::new(SystemTime::now(), Instant::now());
+            loop {
+                std::thread::sleep(WAKE_TICK);
+                let Some(manager) = weak.upgrade() else {
+                    return;
+                };
+                if watchdog.tick(SystemTime::now(), Instant::now()) {
+                    manager.on_wake_jump();
+                }
+            }
+        });
+    if let Err(err) = spawned {
+        log::warn!("[sync] wake watchdog failed to spawn: {err}");
+    }
+}
+
+/// How often the watchdog samples the two clocks. Cheap enough to be
+/// invisible and fine-grained enough that a wake is noticed within a second.
+const WAKE_TICK: Duration = Duration::from_secs(1);
 
 /// Flip the stop flag, then join each thread within the shared grace window;
 /// stragglers (blocked in an in-flight live read, up to the 90s timeout) are

@@ -6,6 +6,7 @@ import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.AuthConfig
 import com.exponential.app.data.api.AuthConfigApi
 import com.exponential.app.data.api.SignInResult
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -62,7 +63,7 @@ class LoginViewModel @Inject constructor(
                 onFailure = { err ->
                     _state.value = _state.value.copy(
                         configLoading = false,
-                        configError = err.message ?: "Failed to load auth config",
+                        configError = trpcErrorMessage(err, "Failed to load auth config"),
                     )
                 },
             )

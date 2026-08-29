@@ -121,7 +121,7 @@ class AuthApi @Inject constructor(
                 SignInResult.Failure("Sign-in succeeded but no session token returned")
             }
         } catch (e: Exception) {
-            SignInResult.Failure(e.message ?: "Network error")
+            SignInResult.Failure(trpcErrorMessage(e, "Network error"))
         }
     }
 

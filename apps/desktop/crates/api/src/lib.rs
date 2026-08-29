@@ -87,7 +87,7 @@ pub mod widgets;
 mod encode;
 
 pub use accounts::{Account, AuthEvent, AuthStore};
-pub use error::ApiError;
+pub use error::{ApiError, OFFLINE_MESSAGE};
 pub use login::{AuthClient, AuthConfig, AuthUser, OidcProvider, SignInSuccess};
 pub use patch::Patch;
 pub use token_store::{SecretKind, TokenStore};

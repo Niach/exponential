@@ -21,6 +21,7 @@
 //! the §5 session state machine (SignedOut → SigningIn → Synced /
 //! AuthExpired — a dead token routes to login, never an empty board).
 
+pub mod activity;
 pub mod client;
 #[cfg(feature = "gpui")]
 pub mod collections;
@@ -30,7 +31,11 @@ pub mod manager;
 pub mod protocol;
 pub mod shapes;
 pub mod store;
+pub mod wake;
 
+pub use activity::{
+    not_ready_names, CatchUp, ShapeStatus, ShapeSyncPhase, CATCHING_UP_WINDOW, CORE_SHAPES,
+};
 pub use client::{
     ShapeClient, ShapeClientConfig, ShapeDelta, ShapeError, ShapeTransport, TokenFn,
     HttpTransport, TransportError, TransportResponse, UnauthorizedFn, UpgradeRequiredFn,
@@ -38,10 +43,11 @@ pub use client::{
 #[cfg(feature = "gpui")]
 pub use collections::{
     cmp_identifiers, derive_active_health, ActiveSyncStatus, Collection, Collections, SessionPhase,
-    ShapeRow, ShapeStatus, ShapeSyncPhase, SharedState, Store,
+    ShapeRow, SharedState, Store,
 };
 pub use health::{AccountHealth, SyncHealth, ERROR_STALENESS_WINDOW, FAILURE_STREAK_GRACE};
 pub use kill_watch::{session_row_fires_kill, session_row_is_ended};
 #[cfg(feature = "gpui")]
 pub use kill_watch::{KillWatch, OnSessionEnded};
-pub use manager::{AccountSyncConfig, SyncManager};
+pub use manager::{spawn_wake_watchdog, AccountSyncConfig, SyncManager};
+pub use wake::{WakeWatchdog, WAKE_JUMP};

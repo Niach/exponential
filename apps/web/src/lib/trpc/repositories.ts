@@ -26,6 +26,7 @@ import {
   mergePullRequest,
   type OpenPull,
 } from "@/lib/integrations/github-pr"
+import { isNotMergeable, prMergeFailureError } from "@/lib/trpc/pr-merge-error"
 import {
   assertRepoInstallationAccess,
   isInstallationLinkedToTeam,
@@ -599,47 +600,25 @@ export const repositoriesRouter = router({
       } catch (err) {
         releasePrMergeClaim(repo.fullName, input.prNumber)
         if (err instanceof GitHubMergeError) {
-          if (err.status === 405) {
-            // "Not mergeable" is misleading on a stacked PR whose base is
-            // stale (EXP-324) — diagnose the base's real state; degrade to
-            // GitHub's message when the diagnosis can't run (same treatment
-            // as issues.mergePr).
-            let message = err.message
-            if (/not mergeable/i.test(err.message)) {
-              const defaultBranch =
-                effectiveDefaultBranch(repo) ??
-                (await resolveRepoDefaultBranchCached(repo.fullName))
-              const diagnosed = defaultBranch
-                ? await diagnoseUnmergeablePr({
-                    repo: repo.fullName,
-                    prNumber: input.prNumber,
-                    token,
-                    defaultBranch,
-                  })
-                : null
-              if (diagnosed) message = diagnosed
-            }
-            throw new TRPCError({
-              code: `PRECONDITION_FAILED`,
-              message,
-            })
+          // "Not mergeable" is misleading on a stacked PR whose base is stale
+          // (EXP-324) — diagnose the base's real state; degrade to GitHub's
+          // message when the diagnosis can't run (same treatment as
+          // issues.mergePr, same conflict signal, EXP-533).
+          let diagnosis = null
+          if (isNotMergeable(err)) {
+            const defaultBranch =
+              effectiveDefaultBranch(repo) ??
+              (await resolveRepoDefaultBranchCached(repo.fullName))
+            diagnosis = defaultBranch
+              ? await diagnoseUnmergeablePr({
+                  repo: repo.fullName,
+                  prNumber: input.prNumber,
+                  token,
+                  defaultBranch,
+                })
+              : null
           }
-          if (err.status === 409) {
-            throw new TRPCError({
-              code: `CONFLICT`,
-              message: `Head branch changed on GitHub. Refresh and try again.`,
-            })
-          }
-          if (err.status === 404) {
-            throw new TRPCError({
-              code: `NOT_FOUND`,
-              message: `Pull request not found on GitHub`,
-            })
-          }
-          throw new TRPCError({
-            code: `INTERNAL_SERVER_ERROR`,
-            message: `GitHub merge failed: ${err.message}`,
-          })
+          throw prMergeFailureError(err, diagnosis)
         }
         throw err
       }

@@ -554,12 +554,3 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
         )
     }
 }
-
-/**
- * The tRPC failure's user-presentable message, or [fallback] for anything
- * that isn't a [TrpcException]. Sanitization (server `message` extraction +
- * EXP-216 plan-cap neutralization) happens at the throw site in TrpcClient
- * (EXP-219), so the exception message is already safe to render.
- */
-fun trpcErrorMessage(error: Throwable, fallback: String): String =
-    (error as? TrpcException)?.message?.takeIf { it.isNotBlank() } ?: fallback

@@ -69,6 +69,7 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.BottomBarPillFill
@@ -186,6 +187,12 @@ class ChangesViewModel @Inject constructor(
     private val _actionErrorFrom = MutableStateFlow<PrAction?>(null)
     val actionErrorFrom: StateFlow<PrAction?> = _actionErrorFrom
 
+    // EXP-533: and only for a REAL conflict — a merge refused by branch
+    // protection, a stale base or a dead connection is not something a rebase
+    // run can resolve, so the button must stay away.
+    private val _actionErrorIsConflict = MutableStateFlow(false)
+    val actionErrorIsConflict: StateFlow<Boolean> = _actionErrorIsConflict
+
     // ── Remote start (EXP-323) ───────────────────────────────────────────────
     // A refused merge is usually a conflict, so the bar offers the builtin
     // "Fix merge conflicts" run right under the error — desktop parity.
@@ -231,7 +238,7 @@ class ChangesViewModel @Inject constructor(
                 _load.value = ChangesLoadState.Loaded(files)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                _load.value = ChangesLoadState.Failed(t.message ?: "Failed to load changes")
+                _load.value = ChangesLoadState.Failed(trpcErrorMessage(t, "Failed to load changes"))
             }
         }
     }
@@ -244,11 +251,14 @@ class ChangesViewModel @Inject constructor(
             _merging.value = true
             _actionError.value = null
             _actionErrorFrom.value = null
+            _actionErrorIsConflict.value = false
             runCatching { issuesApi.mergePr(accountId, issueId) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
-                    _actionError.value = trpcErrorMessage(t, "The pull request could not be merged")
+                    val failure = MergeFailure.from(t, "The pull request could not be merged")
+                    _actionError.value = failure.message
                     _actionErrorFrom.value = PrAction.Merge
+                    _actionErrorIsConflict.value = failure.isConflict
                 }
             _merging.value = false
         }
@@ -262,6 +272,9 @@ class ChangesViewModel @Inject constructor(
             _closing.value = true
             _actionError.value = null
             _actionErrorFrom.value = null
+            // Never a conflict offer: the recovery run ends in a MERGE, the
+            // opposite of what a failed close asked for.
+            _actionErrorIsConflict.value = false
             runCatching { issuesApi.closePr(accountId, issueId) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
@@ -287,6 +300,7 @@ fun ChangesScreen(
     val closing by viewModel.closing.collectAsStateWithLifecycle()
     val actionError by viewModel.actionError.collectAsStateWithLifecycle()
     val actionErrorFrom by viewModel.actionErrorFrom.collectAsStateWithLifecycle()
+    val actionErrorIsConflict by viewModel.actionErrorIsConflict.collectAsStateWithLifecycle()
 
     // "Fix conflicts" (EXP-323): the launcher, its start feedback, and the
     // jump into the session the desktop reports back.
@@ -401,11 +415,12 @@ fun ChangesScreen(
                 closing = closing,
                 actionError = actionError,
                 runState = runState,
-                // A refused merge is usually a conflict; the recovery run
-                // rebases the PR's branch, so it needs one recorded (EXP-323).
-                // MERGE failures only — the run ends in a merge, the opposite
-                // of what a failed close asked for.
-                canFixConflicts = actionErrorFrom == ChangesViewModel.PrAction.Merge &&
+                // A REAL conflict only (EXP-533); the recovery run rebases the
+                // PR's branch, so it needs one recorded (EXP-323). MERGE
+                // failures only — the run ends in a merge, the opposite of what
+                // a failed close asked for.
+                canFixConflicts = actionErrorIsConflict &&
+                    actionErrorFrom == ChangesViewModel.PrAction.Merge &&
                     steerEnabled == true &&
                     permissions.isMember &&
                     issue?.prState == DomainContract.prStateOpen &&

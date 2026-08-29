@@ -648,6 +648,9 @@ const BOARD_ROW_GROUP: &str = "rail-board-row";
 /// inner layout with no `Styled` reach into it (the settings-nav rows set the
 /// same precedent), and a centered label would defeat the whole point of the
 /// labelled rail. Handlers are the caller's job.
+/// EXP-533: the rail spinner's label and tooltip.
+const SYNCING_LABEL: &str = "Syncing\u{2026}";
+
 /// A rail entry's status badge (EXP-509 — the Source Control entry outgrew
 /// the plain dot): the classic colored dot (Reviews green, Support amber), a
 /// small status ICON (SC attention triangle / error cross), or the spinning
@@ -770,6 +773,10 @@ impl RailView {
             // entry is done — the shared progress entity re-notifies on the
             // synced collections it reads AND on its tRPC one-shots.
             cx.observe(&getting_started, |_, _, cx| cx.notify()),
+            // EXP-533: the footer's sync spinner rides the sync engine's
+            // shared state (health + the post-restart catch-up stamp), which
+            // the rail did not observe before.
+            cx.observe(&Store::global(cx).state(), |_, _, cx| cx.notify()),
         ];
         Self {
             nav,
@@ -779,6 +786,51 @@ impl RailView {
             should_move: false,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// EXP-533: the rail footer's "still catching up" spinner. It answers
+    /// the "did the app notice I was asleep?" question the offline banner
+    /// cannot: the banner means "can't reach the server", this means "we ARE
+    /// talking to the server and the boards are still filling in". Nothing
+    /// renders when everything is at head — a permanently visible sync glyph
+    /// would say nothing at all.
+    ///
+    /// Deliberately NOT [`RailBadge::Syncing`]: that badge is the Source
+    /// Control tool's vocabulary (a git pull), a different thing entirely.
+    fn render_sync_indicator(
+        &self,
+        expanded: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        if !Store::global(cx).sync_status(cx).catching_up {
+            return None;
+        }
+        let spinner = Spinner::new()
+            .icon(registry::UI_REFRESH)
+            .with_size(px(12.))
+            .color(cx.theme().muted_foreground);
+        let row = h_flex()
+            .id("rail-sync-indicator")
+            .w_full()
+            .h(px(24.))
+            .flex_shrink_0()
+            .items_center()
+            .gap_2()
+            .when(!expanded, |this| this.justify_center())
+            .when(expanded, |this| this.px_2())
+            .child(spinner)
+            .when(expanded, |this| {
+                this.child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(SYNCING_LABEL),
+                )
+            })
+            .tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new(SYNCING_LABEL).build(window, cx)
+            });
+        Some(row.into_any_element())
     }
 
     /// One tool-window icon: a ghost icon button, `selected` while its tool
@@ -1618,6 +1670,7 @@ impl Render for RailView {
             // Settings/Account, exactly where the web sidebar footer keeps
             // it — above the account row, outside the scrolling middle zone.
             .children(getting_started_icon)
+            .children(self.render_sync_indicator(expanded, cx))
             .map(|this| {
                 if expanded {
                     // EXP-340: one bottom row — the account button fills the
@@ -2556,7 +2609,7 @@ impl SidebarPanel {
         // app-global merge state — a merge driven from the issue-detail
         // sidebar or a terminal tab renders here identically.
         let close_key = close_pr_key(&issue.id);
-        let (merging, armed, closing, close_armed, error, failed_op) = {
+        let (merging, armed, closing, close_armed, error, failed_op, is_conflict) = {
             let state = MergeState::global(cx);
             let state = state.read(cx);
             (
@@ -2566,6 +2619,7 @@ impl SidebarPanel {
                 state.armed(&close_key),
                 state.error(&issue.id),
                 state.failed_op(&issue.id),
+                state.is_conflict(&issue.id),
             )
         };
         // EXP-259: a failed merge (typically "not mergeable" — conflicts)
@@ -2583,6 +2637,10 @@ impl SidebarPanel {
         let fix_button = error
             .as_ref()
             .filter(|_| failed_op == Some(crate::pr_merge::FailedOp::Merge))
+            // EXP-533: only a REAL content conflict (409). A merge that
+            // failed because the machine is offline, the base is stale or no
+            // GitHub App is installed offers nothing an agent could rebase.
+            .filter(|_| is_conflict)
             .filter(|_| issue.branch.is_some())
             .map(|_| {
                 let mut button =
