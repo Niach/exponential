@@ -424,6 +424,19 @@ export const steerRouter = router({
       // No row at all refuses (EXP-542): every supported desktop/CLI
       // registers at startup, so an unregistered target is a build too old
       // to serve the start.
+      // EXP-679: an agent-started child may only land on a host that knows
+      // the brand. An older desktop/CLI drops `startedReason` off the frame
+      // and writes an ATTENDED run — one that never reports and never ends
+      // itself while the parent polls it for an outcome forever.
+      const requireAgentStart = (caps: string[]) => {
+        if (!agentStarted.startedReason) return
+        if (caps.includes(`agent-start`)) return
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `That machine's app is too old to run an agent-started session. Update it and try again.`,
+        })
+      }
+
       const targetDeviceColumns = {
         agents: devicesTable.agents,
         unauthedAgents: devicesTable.unauthedAgents,
@@ -448,6 +461,7 @@ export const steerRouter = router({
           )
           .limit(1)
         if (own) {
+          requireAgentStart(own.caps)
           return { ownerId: userId, device: own, shared: false }
         }
         const [row] = await db
@@ -474,6 +488,7 @@ export const steerRouter = router({
             message: `That machine hasn't registered with this server yet. Open (or restart) the Exponential app on it.`,
           })
         }
+        requireAgentStart(row.caps)
         return {
           ownerId: row.userId,
           device: {

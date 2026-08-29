@@ -235,18 +235,29 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   const capture = useCallback(
     async (engine: CaptureEngine): Promise<boolean> => {
       lastEngineRef.current = engine
+      // Whether the hold actually ran. The display-media engine awaits it
+      // only after the grant, so a dismissed picker never reaches it — the
+      // first tick is the only reliable evidence either way.
+      let held = false
       const options = {
         delayMs: captureDelayRef.current * 1000,
-        onCountdown: (secondsLeft: number) =>
-          setCountdown(secondsLeft > 0 ? secondsLeft : null),
+        onCountdown: (secondsLeft: number) => {
+          held = true
+          setCountdown(secondsLeft > 0 ? secondsLeft : null)
+        },
       }
       let blob = await captureScreenshot(engine, options)
       if (!blob && engine === displayMediaEngine) {
         // A denied/cancelled share picker must not strand the reporter — the
-        // DOM raster needs no user activation, so it can still run here.
-        // The hold still applies: a dismissed picker never reached it.
+        // DOM raster needs no user activation, so it can still run here. The
+        // hold still applies to a dismissed picker (it never reached it), but
+        // a grant that failed AFTER the hold must not make the reporter sit
+        // through the countdown a second time.
         lastEngineRef.current = snapdomEngine
-        blob = await captureScreenshot(snapdomEngine, options)
+        blob = await captureScreenshot(
+          snapdomEngine,
+          held ? { ...options, delayMs: 0 } : options
+        )
       }
       setCountdown(null)
       if (blob) {
@@ -372,16 +383,29 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     }
   }, [state, close])
 
+  // A close() — or a config that resolved the widget disabled — during a
+  // multi-second hold (FEED-18) unmounts the panel while the capture is still
+  // running. The shot landing afterwards must not reopen the panel or drop
+  // the reporter into the annotator; it is discarded the way close() discards
+  // the screenshot it had.
+  const captureStillWanted = useCallback(() => {
+    if (phaseRef.current.kind === `capturing`) return true
+    replaceBase(null)
+    setCaptureFailed(false)
+    return false
+  }, [replaceBase])
+
   const retake = useCallback(() => {
     // Close the panel, recapture (with whatever engine took the current
     // shot) without it, reopen.
     setPhase({ kind: `capturing` })
     requestAnimationFrame(() => {
-      void capture(lastEngineRef.current).then(() =>
+      void capture(lastEngineRef.current).then(() => {
+        if (!captureStillWanted()) return
         setPhase({ kind: `open` })
-      )
+      })
     })
-  }, [capture])
+  }, [capture, captureStillWanted])
 
   const takeScreenshotWith = useCallback(
     (engine: CaptureEngine) => {
@@ -392,12 +416,13 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       setPhase({ kind: `capturing` })
       requestAnimationFrame(() => {
         void capture(engine).then((captured) => {
+          if (!captureStillWanted()) return
           freshCaptureRef.current = captured
           setPhase(captured ? { kind: `annotating` } : { kind: `open` })
         })
       })
     },
-    [capture]
+    [capture, captureStillWanted]
   )
 
   // One button, engine picked by capability (EXP-488): native display capture

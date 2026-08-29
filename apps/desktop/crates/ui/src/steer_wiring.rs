@@ -542,16 +542,27 @@ pub fn refresh_device_advertisement(cx: &mut App) {
 /// stopped being Claude-only — plus `action-inputs` for builtin +
 /// inputs-carrying starts and `fix-conflicts` for the EXP-259 builtin, whose
 /// ids a pre-EXP-259 desktop would treat as real actions and fail to fetch).
-/// EXP-481's `resume`/`worktrees`/`launch-defaults` and EXP-484's
-/// `agent-login` are BUILD capabilities and ride even with zero runnable
-/// agents (a machine with nothing signed in is exactly the one a remote
-/// Login button targets). Hand-synced with the CLI daemon's `DEVICE_CAPS` +
-/// `ACTION_CAPS`.
+/// EXP-481's `resume`/`worktrees`/`launch-defaults`, EXP-484's `agent-login`
+/// and EXP-679's `agent-start` are BUILD capabilities and ride even with zero
+/// runnable agents (a machine with nothing signed in is exactly the one a
+/// remote Login button targets; `agent-start` is a property of the FRAME
+/// parser, not of the agent list). Hand-synced with the CLI daemon's
+/// `DEVICE_CAPS` + `ACTION_CAPS`.
 fn device_caps(advertisement: &coding::AgentAdvertisement) -> Vec<String> {
-    let mut caps: Vec<String> = ["resume", "worktrees", "launch-defaults", "agent-login"]
-        .iter()
-        .map(|cap| cap.to_string())
-        .collect();
+    let mut caps: Vec<String> = [
+        "resume",
+        "worktrees",
+        "launch-defaults",
+        "agent-login",
+        // EXP-679: this build reads `started_reason` off a `StartSession`
+        // frame and forwards it into `codingSessions.start`, so an
+        // agent-parented start (MCP `exponential_sessions_start`) lands
+        // UNATTENDED. The server refuses one against a device lacking it.
+        "agent-start",
+    ]
+    .iter()
+    .map(|cap| cap.to_string())
+    .collect();
     if !advertisement.agents.is_empty() {
         caps.extend(
             [

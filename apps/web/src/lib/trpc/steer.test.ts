@@ -1222,7 +1222,7 @@ describe(`steer.startSession — agent-started runs (EXP-679)`, () => {
 
   it(`brands an issue start as agent-driven`, async () => {
     queueParent()
-    queueOwnDevice()
+    queueOwnDevice({ caps: [`agent-start`] })
 
     await caller.startSession({
       issueId: ISSUE_A,
@@ -1238,7 +1238,7 @@ describe(`steer.startSession — agent-started runs (EXP-679)`, () => {
 
   it(`brands a batch start too`, async () => {
     queueParent({ status: `in_review`, userId: `owner`, hostUserId: `actor` })
-    queueOwnDevice()
+    queueOwnDevice({ caps: [`agent-start`] })
 
     await caller.startSession({
       issueIds: [ISSUE_A, ISSUE_B],
@@ -1268,7 +1268,7 @@ describe(`steer.startSession — agent-started runs (EXP-679)`, () => {
         branch: null,
       },
     ])
-    queueOwnDevice({ caps: [`resume-run`] })
+    queueOwnDevice({ caps: [`resume-run`, `agent-start`] })
 
     await caller.startSession({
       resumeSessionId: uuid(7),
@@ -1310,6 +1310,28 @@ describe(`steer.startSession — agent-started runs (EXP-679)`, () => {
       })
     )
     expect((gone as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  // A host that doesn't know the brand drops `startedReason` off the frame
+  // and writes an ATTENDED run: it would never report and never end while
+  // the parent polls it forever. Refuse instead of starting it.
+  it(`refuses a device without the agent-start cap`, async () => {
+    queueParent()
+    queueOwnDevice({ caps: [`resume-run`] })
+
+    const error = await rejectionOf(
+      caller.startSession({
+        issueId: ISSUE_A,
+        deviceId: `dev-1`,
+        parentSessionId: PARENT,
+      })
+    )
+
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toBe(
+      `That machine's app is too old to run an agent-started session. Update it and try again.`
+    )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 

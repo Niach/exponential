@@ -91,6 +91,12 @@ pub struct SyncManager {
     deltas_tx: flume::Sender<ShapeDelta>,
     deltas_rx: flume::Receiver<ShapeDelta>,
     pipelines: Mutex<HashMap<String, AccountPipeline>>,
+    /// EXP-533: when [`SyncManager::restart_account`] last rebuilt ANY
+    /// pipeline. The wake watchdog and the window-activation kick both restart
+    /// on the same wake; without a stamp the second one stops threads the first
+    /// just spawned and respawns all 19. Read via
+    /// [`SyncManager::restarted_within`].
+    last_restart_at: Mutex<Option<Instant>>,
 }
 
 impl SyncManager {
@@ -111,6 +117,7 @@ impl SyncManager {
             deltas_tx,
             deltas_rx,
             pipelines: Mutex::new(HashMap::new()),
+            last_restart_at: Mutex::new(None),
         }
     }
 
@@ -247,6 +254,13 @@ impl SyncManager {
         self.stop_account(account_id);
         match self.start_account(config) {
             Ok(_) => {
+                // EXP-533: stamped for every restart path so a second kicker
+                // (watchdog vs. window activation, both fired by one wake) can
+                // see that the pipeline is already fresh and stand down.
+                *self
+                    .last_restart_at
+                    .lock()
+                    .expect("last_restart_at poisoned") = Some(Instant::now());
                 // EXP-533: emitted HERE, not by a shape thread, so every
                 // restart path (wake watchdog, offline-banner Retry, window
                 // activation, team create/join) stamps the catch-up exactly
@@ -261,6 +275,16 @@ impl SyncManager {
                 false
             }
         }
+    }
+
+    /// EXP-533: did a [`SyncManager::restart_account`] succeed within `window`?
+    /// The debounce every other restart trigger consults, so the wake watchdog
+    /// and the window-activation kick don't both rebuild the same pipeline.
+    pub fn restarted_within(&self, window: Duration) -> bool {
+        self.last_restart_at
+            .lock()
+            .expect("last_restart_at poisoned")
+            .is_some_and(|at| at.elapsed() < window)
     }
 
     /// EXP-533: the machine woke from suspend — every live pipeline's threads

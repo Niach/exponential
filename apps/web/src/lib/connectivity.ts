@@ -163,6 +163,15 @@ export function reportTransportSuccess(): void {
   refresh()
 }
 
+/** A completed HTTP round trip whose STATUS still decides: a 5xx is the app
+ *  or its reverse proxy failing (a 502/503 held for minutes while a container
+ *  or Electric is down), an outage the banner owns exactly like an
+ *  unreachable host; anything below that proves reachability. */
+export function reportTransportResponse(status: number, label: string): void {
+  if (status >= 500) reportTransportFailure(`${label} returned ${status}`)
+  else reportTransportSuccess()
+}
+
 export function reportTransportFailure(error?: unknown): void {
   const message =
     error instanceof Error ? error.message : error === undefined ? `` : String(error)

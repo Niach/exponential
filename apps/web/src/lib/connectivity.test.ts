@@ -10,6 +10,7 @@ import {
   recordFailure,
   recordSuccess,
   reportTransportFailure,
+  reportTransportResponse,
   reportTransportSuccess,
   resetConnectivityForTests,
   subscribeConnectivity,
@@ -167,6 +168,20 @@ describe(`the connectivity store`, () => {
     expect(getConnectivitySnapshot()).toBe(`offline`)
 
     reportTransportSuccess()
+    expect(getConnectivitySnapshot()).toBe(`ok`)
+    unsubscribe()
+  })
+
+  it(`counts a 5xx response as a failure and anything below it as a success`, () => {
+    const unsubscribe = subscribeConnectivity(() => {})
+    // A proxy answering 502 while the app or Electric is down must alarm,
+    // even though the round trip itself completed.
+    reportTransportResponse(502, `shape request`)
+    vi.advanceTimersByTime(FAILURE_STREAK_GRACE_MS)
+    expect(getConnectivitySnapshot()).toBe(`offline`)
+
+    // A 401 or a 409 still proves the server answered.
+    reportTransportResponse(401, `shape request`)
     expect(getConnectivitySnapshot()).toBe(`ok`)
     unsubscribe()
   })

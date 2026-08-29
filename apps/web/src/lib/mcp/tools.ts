@@ -2136,7 +2136,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_start`,
     {
-      description: `Start a coding session on a registered device (exponential_devices_list; online, agents includes the agent). Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs for its inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and opens its own PR; track it with exponential_sessions_get. sessionId null = the device has not reported the run yet. Started from inside a run, the child is unattended: it reports via exponential_sessions_end and ends; poll exponential_sessions_get for its summary and outcome.`,
+      description: `Start a coding session on a registered device (exponential_devices_list; online, agents includes the agent). Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs for its inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and opens its own PR; track it with exponential_sessions_get. sessionId null = the device has not reported the run yet. Started from inside a run, the child is unattended: it reports via exponential_sessions_end and ends; poll exponential_sessions_get for its summary and outcome. Wait for status=ended and read that report before merging the child's PR — merging first ends the run with nothing reported.`,
       inputSchema: {
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
@@ -2269,11 +2269,22 @@ export function registerExponentialTools(
           if (Date.now() >= deadline) break
           await sleep(SESSION_START_POLL_STEP_MS)
         }
+        // EXP-679: only a branded child is unattended. An old relay or device
+        // drops `startedReason` off the frame and writes an ATTENDED run —
+        // say so, or the parent polls forever for an outcome nobody will
+        // ever write.
+        const unbranded =
+          Boolean(sessionId) && session !== null && session.startedReason !== `agent`
         return ok({
           ok: true,
           deviceId: input.deviceId,
           sessionId: (session?.id as string | undefined) ?? null,
           session,
+          ...(unbranded
+            ? {
+                note: `The device did not brand this child as agent-started (old relay or device); it stays open and will not report via exponential_sessions_end.`,
+              }
+            : {}),
         })
       } catch (e) {
         return err(e)

@@ -3,7 +3,7 @@ import { electricCollectionOptions } from "@tanstack/electric-db-collection"
 import { snakeCamelMapper } from "@electric-sql/client"
 import {
   reportTransportFailure,
-  reportTransportSuccess,
+  reportTransportResponse,
 } from "@/lib/connectivity"
 import {
   selectSyncedActionSchema,
@@ -48,8 +48,10 @@ function getShapeUrl(path: string) {
 // wrapper, so this sees EVERY attempt including the live long-polls — which
 // is what makes it a heartbeat rather than a one-shot. (`onError` is no use
 // here: the stream swallows network errors into its retry loop and never
-// calls it.) Any Response at all proves the server answered; only a thrown
-// error counts against reachability, and an aborted request is not an outage.
+// calls it.) A thrown error counts against reachability (an aborted request
+// is not an outage), and so does a 5xx: a reverse proxy answering 502/503 for
+// minutes while the app or Electric is down is an outage the banner owns, not
+// a healthy round trip. Every other status still proves the server answered.
 // (Typed structurally and asserted at the use site: `typeof fetch` here
 // resolves to Bun's, which carries a `preconnect` a plain wrapper has no
 // business implementing.)
@@ -59,7 +61,7 @@ const shapeFetch = async (
 ): Promise<Response> => {
   try {
     const response = await fetch(input, init)
-    reportTransportSuccess()
+    reportTransportResponse(response.status, `shape request`)
     return response
   } catch (error) {
     if (!(error instanceof Error) || error.name !== `AbortError`) {

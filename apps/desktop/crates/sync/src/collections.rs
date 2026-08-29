@@ -744,8 +744,9 @@ pub struct Store {
     health_recheck_pending: Arc<AtomicBool>,
     /// EXP-533: the same CAS guard for the catching-up window expiry.
     catch_up_recheck_pending: Arc<AtomicBool>,
-    /// EXP-533: when [`Store::kick_if_stale`] last restarted the pipeline —
-    /// window activation can fire in bursts (focus follows every alt-tab).
+    /// EXP-533: when [`Store::kick_if_stale`] last ATTEMPTED a restart — window
+    /// activation can fire in bursts (focus follows every alt-tab), and the
+    /// manager stamps nothing when it had no live pipeline to rebuild.
     last_kick_at: Arc<Mutex<Option<Instant>>>,
 }
 
@@ -952,8 +953,11 @@ impl Store {
     /// the watchdog's window (or simply sat idle behind a dead connection)
     /// gets one restart here so the user's first look at the app is at fresh
     /// data. No-op unless `Synced`, the last successful poll is genuinely old
-    /// ([`ACTIVATION_STALE`]), and we did not just kick ([`KICK_DEBOUNCE`] —
-    /// activation fires on every alt-tab).
+    /// ([`ACTIVATION_STALE`]), and the pipeline was not restarted inside
+    /// [`KICK_DEBOUNCE`] — by us (activation fires on every alt-tab) or by
+    /// anyone else, notably the wake watchdog, which fires on the SAME wake
+    /// that brings the window to the front and leaves `last_success_at` stale
+    /// until its first fresh poll lands.
     pub fn kick_if_stale(&self, cx: &App) {
         let state = self.state.read(cx);
         let SessionPhase::Synced { account_id } = &state.session else {
@@ -975,6 +979,9 @@ impl Store {
             return;
         }
         let account_id = account_id.clone();
+        if self.manager.restarted_within(KICK_DEBOUNCE) {
+            return;
+        }
         {
             let mut last = self.last_kick_at.lock().expect("last_kick_at poisoned");
             if last.is_some_and(|at| at.elapsed() < KICK_DEBOUNCE) {

@@ -928,12 +928,23 @@ fn wake_jump_restarts_every_live_pipeline() {
         !server.requests().is_empty()
     }));
 
+    // Spawning a pipeline is not a restart — nothing to debounce yet.
+    assert!(!manager.restarted_within(Duration::from_secs(60)));
+
     manager.on_wake_jump();
 
     let mut restarted = drain_restarts(&deltas);
     restarted.sort();
     assert_eq!(restarted, vec!["acct-a".to_string(), "acct-b".to_string()]);
     assert_eq!(manager.running_accounts().len(), 2);
+
+    // EXP-533: the wake stamps the manager, so the window-activation kick that
+    // rides the SAME wake (`Store::kick_if_stale`, whose `last_success_at` is
+    // still stale until the fresh threads' first poll lands) sees a
+    // just-rebuilt pipeline and stands down instead of stopping the 19 threads
+    // `on_wake_jump` only just spawned.
+    assert!(manager.restarted_within(Duration::from_secs(60)));
+    assert!(!manager.restarted_within(Duration::ZERO));
 
     // With nothing running it is a no-op (and announces nothing).
     manager.stop_all();

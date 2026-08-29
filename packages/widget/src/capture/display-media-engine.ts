@@ -74,6 +74,12 @@ export const displayMediaEngine: CaptureEngine = {
       // picker consumed the click's activation, so the delay can only run
       // after the grant. The reporter opens their popup during this hold.
       await beforeFrame()
+      // The reporter can end the share during that hold (the browser's "Stop
+      // sharing" bar): the track is dead and drawImage would paint a blank
+      // frame, so fail instead and let the caller's snapDOM fallback run.
+      if (!stream.active) {
+        throw new Error(`display capture stream ended during the hold`)
+      }
 
       const canvas = document.createElement(`canvas`)
       canvas.width = video.videoWidth

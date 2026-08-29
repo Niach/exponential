@@ -18,10 +18,11 @@ const captureOpts = {
 
 function fakeStream() {
   const stop = vi.fn()
-  return {
-    stream: { getTracks: () => [{ stop }, { stop }] },
-    stop,
+  const stream = {
+    active: true,
+    getTracks: () => [{ stop }, { stop }],
   }
+  return { stream, stop }
 }
 
 afterEach(() => {
@@ -114,6 +115,33 @@ describe(`displayMediaEngine`, () => {
     releaseHold()
     // happy-dom yields no frame, so the grab throws — after the hold.
     await expect(result).rejects.toThrow()
+    expect(stop).toHaveBeenCalledTimes(2)
+  })
+
+  // FEED-18: the reporter can hit the browser's "Stop sharing" bar during a
+  // multi-second hold. The stream is dead by then, so drawing it would attach
+  // a blank picture — throw instead so App's snapDOM fallback takes over.
+  it(`fails when the stream ends during the hold`, async () => {
+    const { stream, stop } = fakeStream()
+    vi.stubGlobal(`navigator`, {
+      mediaDevices: { getDisplayMedia: vi.fn(async () => stream) },
+    })
+    acceptFakeSrcObject()
+    ;(
+      HTMLVideoElement.prototype as {
+        requestVideoFrameCallback?: (callback: () => void) => void
+      }
+    ).requestVideoFrameCallback = (callback) => callback()
+    HTMLVideoElement.prototype.play = vi.fn(async () => undefined)
+
+    await expect(
+      displayMediaEngine.capture({
+        ...captureOpts,
+        beforeFrame: async () => {
+          stream.active = false
+        },
+      })
+    ).rejects.toThrow(`ended during the hold`)
     expect(stop).toHaveBeenCalledTimes(2)
   })
 

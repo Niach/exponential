@@ -50,9 +50,21 @@ const ADVERT_CONFIRM_RECHECK: Duration = Duration::from_secs(30);
 /// EXP-484 adds `agent-login`: this build executes the `agent_login` device
 /// command (run the agent's own sign-in in a PTY, report the link back).
 /// It is deliberately a BUILD cap — signing IN is exactly what a machine
-/// with no runnable agent needs. Hand-synced with the desktop's
-/// `steer_wiring::device_caps` vec.
-pub const DEVICE_CAPS: [&str; 4] = ["resume", "worktrees", "launch-defaults", "agent-login"];
+/// with no runnable agent needs. EXP-679 adds `agent-start`: this build
+/// understands the `started_reason` field on a `StartSession` frame and
+/// forwards it into `codingSessions.start`, so a run another coding session
+/// asked for (MCP `exponential_sessions_start`, which sends the parent's id)
+/// lands UNATTENDED here instead of silently degrading to a person-started
+/// run that nothing ever closes out. It is a PROTOCOL cap, so build-level:
+/// the server refuses an agent-parented start against a device without it.
+/// Hand-synced with the desktop's `steer_wiring::device_caps` vec.
+pub const DEVICE_CAPS: [&str; 5] = [
+    "resume",
+    "worktrees",
+    "launch-defaults",
+    "agent-login",
+    "agent-start",
+];
 
 /// The action-run capabilities — advertised only while at least one agent is
 /// RUNNABLE (EXP-409: a machine whose only agents are signed out cannot run
@@ -3360,6 +3372,18 @@ mod tests {
         let signed_out = device_caps(&advert(&[]));
         assert!(signed_out.contains(&"agent-login".to_string()));
         assert!(device_caps(&advert(&["claude"])).contains(&"agent-login".to_string()));
+    }
+
+    /// EXP-679: `agent-start` asserts this build understands a start frame's
+    /// `started_reason` — a PROTOCOL property of the binary, not of what it
+    /// can run, so it rides with the build caps and the server may gate an
+    /// agent-parented start on it.
+    #[test]
+    fn device_caps_include_agent_start_as_a_build_cap() {
+        assert!(DEVICE_CAPS.contains(&"agent-start"));
+        assert!(!ACTION_CAPS.contains(&"agent-start"));
+        assert!(device_caps(&advert(&[])).contains(&"agent-start".to_string()));
+        assert!(device_caps(&advert(&["claude"])).contains(&"agent-start".to_string()));
     }
 
     #[test]

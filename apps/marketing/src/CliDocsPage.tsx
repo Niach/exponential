@@ -195,13 +195,14 @@ exponential daemon install
               and the built-in <em>Fix merge conflicts</em> action work too.
             </p>
             <p>
-              A run you start on the daemon stays open after the agent
-              reports its summary, exactly like a run in the desktop app or
-              an attached terminal: the agent waits for your replies, and the
-              daemon keeps its process and worktree alive with no idle
-              timeout. Hit <strong>Kill session</strong> in the web or mobile
-              session view when you are done with it. Only runs started by an{` `}
-              <a href="/docs/actions/">automation</a> end on their own report.
+              A run you start on the daemon makes no report, exactly like a
+              run in the desktop app or an attached terminal: when the agent
+              finishes its turn it waits for your next reply, and the daemon
+              keeps its process and worktree alive with no idle timeout. Hit{` `}
+              <strong>Kill session</strong> in the web or mobile session view
+              when you are done with it. Runs started by an{` `}
+              <a href="/docs/actions/">automation</a> are the ones that report
+              a summary, and they end on it.
             </p>
             <p>
               Sessions belong to you, not to the box — the agent runs under

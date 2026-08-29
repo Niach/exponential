@@ -340,4 +340,118 @@ describe(`panel open → on-demand screenshot flow`, () => {
     expect(container.querySelector(`[data-testid="annotator"]`)).toBeTruthy()
     expect(container.querySelector(`.exp-countdown`)).toBeNull()
   })
+
+  // A hold is multi-second: the host can call close() (or the config can
+  // resolve the widget disabled) while it runs. The capture that lands
+  // afterwards must not reopen the panel, drop the visitor into the
+  // annotator, or leave its shot waiting for the next open.
+  const pendingCapture = () => {
+    let pending: { resolve(blob: Blob | null): void } | null = null
+    captureScreenshot.mockImplementation(
+      () =>
+        new Promise<Blob | null>((resolve) => {
+          pending = { resolve }
+        })
+    )
+    return () => pending
+  }
+
+  it(`drops a capture that lands after the panel closed`, async () => {
+    const held = pendingCapture()
+    await openPanel()
+    await clickDelayChip()
+    await clickTakeScreenshot()
+    expect(held()).not.toBeNull()
+    state.bundle?.close()
+    await flush()
+
+    held()!.resolve(new Blob([`x`], { type: `image/png` }))
+    await flush()
+    expect(container.querySelector(`[data-testid="annotator"]`)).toBeNull()
+    expect(container.querySelector(`.exp-panel`)).toBeNull()
+
+    await openPanel()
+    expect(container.querySelector(`.exp-shot img`)).toBeNull()
+    expect(container.textContent).toContain(`Take screenshot`)
+  })
+
+  it(`drops a Retake that lands after the panel closed`, async () => {
+    captureScreenshot.mockResolvedValue(new Blob([`x`], { type: `image/png` }))
+    await openPanel()
+    await clickTakeScreenshot()
+    annotatorProps?.onSave([], null)
+    await flush()
+    expect(container.querySelector(`.exp-shot img`)).toBeTruthy()
+
+    const held = pendingCapture()
+    const retake = [
+      ...container.querySelectorAll<HTMLButtonElement>(`.exp-chip`),
+    ].find((chip) => chip.textContent === `Retake`)
+    retake!.click()
+    await flush()
+    state.bundle?.close()
+    await flush()
+
+    held()!.resolve(new Blob([`y`], { type: `image/png` }))
+    await flush()
+    expect(container.querySelector(`.exp-panel`)).toBeNull()
+
+    await openPanel()
+    expect(container.querySelector(`.exp-shot img`)).toBeNull()
+  })
+
+  // The display-media hold runs after the grant, so a frame that fails
+  // afterwards (zero-size, or "Stop sharing" mid-hold) has already cost the
+  // reporter the countdown — the snapDOM fallback must not charge it twice.
+  it(`skips the fallback hold when the granted capture already held`, async () => {
+    const restore = stubDisplayCapture()
+    try {
+      captureScreenshot
+        .mockImplementationOnce((_engine, options) => {
+          options.onCountdown?.(3)
+          options.onCountdown?.(0)
+          return Promise.resolve(null)
+        })
+        .mockResolvedValue(new Blob([`x`], { type: `image/png` }))
+      await openPanel()
+      await clickDelayChip()
+      await clickTakeScreenshot()
+      expect(captureScreenshot).toHaveBeenNthCalledWith(
+        1,
+        displayMediaEngine,
+        expect.objectContaining({ delayMs: 3_000 })
+      )
+      expect(captureScreenshot).toHaveBeenNthCalledWith(
+        2,
+        snapdomEngine,
+        expect.objectContaining({ delayMs: 0 })
+      )
+      expect(container.querySelector(`[data-testid="annotator"]`)).toBeTruthy()
+      expect(container.querySelector(`.exp-countdown`)).toBeNull()
+    } finally {
+      restore()
+    }
+  })
+
+  // The other half of that rule: a dismissed picker never reached the hold,
+  // so the fallback still runs it — exactly once.
+  it(`still holds once when the picker was dismissed`, async () => {
+    const restore = stubDisplayCapture()
+    try {
+      captureScreenshot
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(new Blob([`x`], { type: `image/png` }))
+      await openPanel()
+      await clickDelayChip()
+      await clickTakeScreenshot()
+      expect(captureScreenshot).toHaveBeenCalledTimes(2)
+      expect(captureScreenshot).toHaveBeenNthCalledWith(
+        2,
+        snapdomEngine,
+        expect.objectContaining({ delayMs: 3_000 })
+      )
+    } finally {
+      restore()
+    }
+  })
 })

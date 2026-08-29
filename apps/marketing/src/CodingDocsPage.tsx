@@ -278,15 +278,18 @@ export function CodingDocsPage() {
               picks them up mid-run.
             </p>
             <p>
-              When the agent is done it <strong>reports back</strong>: a
-              one-paragraph summary and an outcome (done, blocked, or no
-              changes) that show on the session. A run you started stays open
-              after that report so you can keep replying — in the desktop
-              app, in a terminal, and on a daemon alike, with no idle timeout.
-              End it yourself with <strong>Stop</strong> in the desktop
-              terminal or <strong>Kill session</strong> in the web and mobile
-              session view. Only runs an automation started end on their own
-              report.
+              A run you started makes no report. When the agent finishes its
+              turn it waits for your next reply, in the desktop app, in a
+              terminal, and on a daemon alike, with no idle timeout. End it
+              yourself with <strong>Stop</strong> in the desktop terminal or{` `}
+              <strong>Kill session</strong> in the web and mobile session
+              view.
+            </p>
+            <p>
+              Runs an automation started are the ones that{` `}
+              <strong>report back</strong>: a one-paragraph summary and an
+              outcome (done, blocked, or no changes) that show on the session.
+              Those runs end on that report.
             </p>
 
             <DocShot

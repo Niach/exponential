@@ -937,13 +937,21 @@ pub(crate) struct ImageCache {
     /// ~35×/s and never deletes) grows the atlas without bound. Holds ids
     /// only (see [`DroppedTexture`]) so a hidden tab retains no pixels.
     dropped: Vec<DroppedTexture>,
+    /// The highest [`ImageId`] this cache held at the LAST prepaint drain —
+    /// the newest texture the paint side can possibly have given atlas tiles.
+    /// gpui ids come off one global monotonic counter, so anything above it
+    /// was uploaded AFTER that prepaint; freed before the next one, it was
+    /// never painted and its tombstone would remove nothing. Skipping those
+    /// is what BOUNDS `dropped` on a hidden tab, where the wake drain keeps
+    /// feeding uploads and frees while prepaint never runs (EXP-675).
+    painted_max: Option<ImageId>,
 }
 
 impl ImageCache {
     pub(crate) fn apply(&mut self, update: GraphicsUpdate) {
         for key in update.removed {
             if let Some(image) = self.images.remove(&key) {
-                self.dropped.push(DroppedTexture::of(&image));
+                self.free(&image);
             }
         }
         for (key, data) in &update.images {
@@ -951,8 +959,21 @@ impl ImageCache {
         }
     }
 
+    /// Bank a freed texture's atlas identity for the paint side — unless it
+    /// cannot have one: an id above [`Self::painted_max`] was uploaded since
+    /// the last prepaint, so no paint ever inserted an atlas key for it.
+    fn free(&mut self, image: &RenderImage) {
+        if self.painted_max.is_some_and(|max| image.id <= max) {
+            self.dropped.push(DroppedTexture::of(image));
+        }
+    }
+
     /// Textures to release from the sprite atlas, drained by the paint side.
+    /// Called once per prepaint, AFTER that frame's late uploads and
+    /// placement lookups — so the live set's high-water id is exactly the
+    /// newest texture the frame can have painted ([`Self::painted_max`]).
     pub(crate) fn take_dropped(&mut self) -> Vec<DroppedTexture> {
+        self.painted_max = self.images.values().map(|image| image.id).max();
         std::mem::take(&mut self.dropped)
     }
 
@@ -962,7 +983,7 @@ impl ImageCache {
             return;
         };
         if let Some(previous) = self.images.insert(key, Arc::new(RenderImage::new(vec![frame]))) {
-            self.dropped.push(DroppedTexture::of(&previous));
+            self.free(&previous);
         }
     }
 
@@ -2280,6 +2301,9 @@ mod tests {
         let bytes = full.as_bytes(0).expect("frame 0");
         assert_eq!(bytes.len(), 2 * 2 * 4);
         assert_eq!(&bytes[..4], &[0, 0, 255, 255], "red arrives as BGRA");
+        // A prepaint painted it — from here the sprite atlas holds keys for
+        // it, so a free must hand them back.
+        assert!(cache.take_dropped().is_empty(), "nothing freed yet");
         cache.apply(GraphicsUpdate { images: Vec::new(), removed: vec![kitty_image_key(1)] });
         assert_eq!(cache.len(), 0);
         // The freed texture is handed to the paint side for `drop_image` as
@@ -2302,10 +2326,20 @@ mod tests {
         let mut emulator = Emulator::new(20, 4);
         emulator.enable_graphics();
         let mut cache = ImageCache::default();
+        // One VISIBLE frame first, so there is a painted texture whose atlas
+        // tiles a later free genuinely has to release.
+        emulator.advance_bytes(KITTY_RED_4X2_CELLS);
+        emulator.drain_events(&mut |_| {});
+        for update in emulator.take_graphics() {
+            cache.apply(update);
+        }
+        assert!(cache.take_dropped().is_empty(), "prepaint: nothing freed yet");
+
         let wakes = 64;
         for _ in 0..wakes {
             // One wake: the child pushed a new frame under the same id
             // (rio frees the old texture), the view applied the update.
+            // Prepaint — the only drain — never runs; the tab is hidden.
             emulator.advance_bytes(KITTY_RED_4X2_CELLS);
             emulator.drain_events(&mut |_| {});
             for update in emulator.take_graphics() {
@@ -2315,13 +2349,40 @@ mod tests {
         let one_frame = 2 * 2 * 4;
         assert_eq!(cache.len(), 1, "one live texture");
         assert_eq!(cache.retained_bytes(), one_frame, "old frames are not retained");
-        assert!(cache.pending_drops() >= wakes - 1, "every superseded texture still gets its atlas tiles freed");
+        // Only the texture that was on screen at that prepaint can hold atlas
+        // keys; the other 63 were uploaded AND freed while hidden, so their
+        // tombstones would remove nothing. The list stays BOUNDED instead of
+        // growing once per wake.
+        assert_eq!(
+            cache.pending_drops(),
+            1,
+            "only the painted texture is banked; {wakes} hidden wakes add nothing"
+        );
         // What a hidden tab accumulates per freed texture is the atlas key, not a frame.
         assert_eq!(std::mem::size_of::<DroppedTexture>(), 16);
         // Showing the tab drains the ids; each maps to a paintable tombstone.
         let dropped = cache.take_dropped();
         assert!(dropped.iter().all(|d| d.frames == 1));
         assert_eq!(cache.pending_drops(), 0);
+    }
+
+    /// EXP-675: a texture freed before ANY prepaint saw it was never painted,
+    /// so no atlas key exists to remove — banking a tombstone for it would
+    /// only grow the hand-off list.
+    #[test]
+    fn a_never_painted_texture_banks_no_tombstone() {
+        let mut emulator = Emulator::new(20, 4);
+        emulator.enable_graphics();
+        let mut cache = ImageCache::default();
+        emulator.advance_bytes(KITTY_RED_4X2_CELLS);
+        emulator.drain_events(&mut |_| {});
+        for update in emulator.take_graphics() {
+            cache.apply(update);
+        }
+        assert_eq!(cache.len(), 1);
+        cache.apply(GraphicsUpdate { images: Vec::new(), removed: vec![kitty_image_key(1)] });
+        assert_eq!(cache.len(), 0);
+        assert_eq!(cache.pending_drops(), 0, "no paint inserted a key to remove");
     }
 
     /// The PTY winsize carries the pixel extent pixel-aware TUIs read via

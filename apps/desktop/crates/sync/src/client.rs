@@ -72,11 +72,15 @@ pub type UpgradeRequiredFn = Arc<dyn Fn() + Send + Sync>;
 /// Read timeout for the blocking socket — MUST exceed the server's ~60s
 /// long-poll hold window (§5.3; the `long-poll-canary.md` contract).
 pub const LIVE_READ_TIMEOUT: Duration = Duration::from_secs(90);
-/// EXP-533: read timeout for a NON-live poll (initial snapshot, post-refetch
-/// re-snapshot, and the catch-up poll every (re)started thread opens first).
-/// The server answers these immediately — holding 90s on one is pure dead
-/// time after a suspend, where the h2 connection the request rode out on is
-/// already gone and only the timeout will tell us.
+/// EXP-533: read timeout for the catch-up poll a (re)started thread opens for
+/// a shape that was ALREADY live — an offset-tail request the server answers
+/// immediately, so holding 90s on one is pure dead time after a suspend, where
+/// the h2 connection the request rode out on is already gone and only the
+/// timeout will tell us. It does NOT cover snapshot-class polls (initial
+/// snapshot, post-409 refetch): those are answered as fast as the bytes flow
+/// and on a slow link legitimately outlast 30s, so they keep
+/// [`LIVE_READ_TIMEOUT`] — cutting one short re-requests the same chunk
+/// forever and the shape never progresses.
 pub const CATCH_UP_TIMEOUT: Duration = Duration::from_secs(30);
 /// TCP/TLS connect timeout.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -478,6 +482,13 @@ impl ShapeClient {
             .store
             .shape_state(spec.name)
             .map_err(ShapeError::Store)?;
+        // Read BEFORE the catch-up override below clears `is_live`: was this
+        // shape already live (and not mid-refetch) when the thread (re)started?
+        // Only then is the first poll a plain offset-tail the server answers
+        // immediately, and only then may it take the short timeout.
+        let saved_was_live = saved
+            .as_ref()
+            .is_some_and(|s| s.is_live && !s.needs_refetch);
         if catch_up {
             // EXP-533: force THIS poll non-live. In-memory only — the store
             // keeps its persisted `is_live`, and `after_apply` below reads
@@ -507,13 +518,11 @@ impl ShapeClient {
                 .as_millis();
             eprintln!("[sync-log {ts}] {} GET {url}", spec.name);
         }
-        // Only a live poll is HELD by the server; everything else is answered
-        // straight away and must not sit on a 90s timeout (EXP-533).
-        let timeout = if was_live {
-            LIVE_READ_TIMEOUT
-        } else {
-            CATCH_UP_TIMEOUT
-        };
+        // EXP-533: only the catch-up poll of an already-live shape is a
+        // guaranteed-immediate answer; everything else (a live long-poll the
+        // server HOLDS, and every snapshot-class transfer) needs the full read
+        // window.
+        let timeout = poll_timeout(catch_up, saved_was_live);
         let response = self
             .cfg
             .transport
@@ -744,6 +753,23 @@ fn row_keys(msgs: &[ShapeMessage]) -> Vec<RowKey> {
         .collect()
 }
 
+/// EXP-533: which read timeout one poll takes. The short [`CATCH_UP_TIMEOUT`]
+/// is ONLY for the first poll of a (re)started thread whose shape was already
+/// live and is not refetching — an offset-tail request the server answers at
+/// once, where a stale post-suspend connection would otherwise burn 90s. Every
+/// other poll takes [`LIVE_READ_TIMEOUT`]: a live long-poll because the server
+/// HOLDS it ~60s, and a snapshot-class poll (initial snapshot, post-409
+/// refetch chunk) because it streams for as long as the link needs — timing
+/// one out leaves the store untouched and the next poll re-requests the very
+/// same chunk, so a bandwidth-bound shape would never progress.
+pub(crate) fn poll_timeout(catch_up: bool, saved_was_live: bool) -> Duration {
+    if catch_up && saved_was_live {
+        CATCH_UP_TIMEOUT
+    } else {
+        LIVE_READ_TIMEOUT
+    }
+}
+
 /// Sleep `total` in short slices, returning early the moment `stop` flips —
 /// keeps sign-out/quit teardown inside ~100ms even mid-backoff (§5.3).
 pub(crate) fn sleep_with_stop(stop: &Arc<AtomicBool>, total: Duration) {
@@ -789,5 +815,21 @@ mod tests {
         // 90s on the dead connection it was meant to escape.
         assert!(CATCH_UP_TIMEOUT < LIVE_READ_TIMEOUT);
         assert!(CATCH_UP_TIMEOUT > CONNECT_TIMEOUT);
+    }
+
+    #[test]
+    fn only_an_already_live_catch_up_takes_the_short_timeout() {
+        // The one case the short timeout exists for: a (re)started thread's
+        // first poll on a shape that was live before the suspend.
+        assert_eq!(poll_timeout(true, true), CATCH_UP_TIMEOUT);
+        // A cold initial snapshot and a post-409 refetch are catch-up polls
+        // too, but they TRANSFER — cutting them at 30s re-requests the same
+        // chunk forever (and the failure streak flips the offline banner on a
+        // perfectly reachable server).
+        assert_eq!(poll_timeout(true, false), LIVE_READ_TIMEOUT);
+        // Steady-state polls are unchanged: held long-polls and mid-snapshot
+        // continuations alike keep the full read window.
+        assert_eq!(poll_timeout(false, true), LIVE_READ_TIMEOUT);
+        assert_eq!(poll_timeout(false, false), LIVE_READ_TIMEOUT);
     }
 }
