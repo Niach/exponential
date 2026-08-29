@@ -1141,7 +1141,8 @@ pub(crate) fn team_delete_error_message(err: &api::ApiError) -> SharedString {
             TEAM_DELETE_SUBSCRIPTION_MESSAGE.into()
         }
         api::ApiError::Http { message, .. } => message.clone().into(),
-        other => format!("Couldn't delete the team: {other}").into(),
+        // EXP-533: a plain sentence (offline says so), never a reqwest dump.
+        other => format!("Couldn't delete the team: {}", other.user_message()).into(),
     }
 }
 
@@ -1267,7 +1268,7 @@ mod tests {
 
     #[test]
     fn transport_failures_get_a_generic_prefix() {
-        let err = api::ApiError::Transport("connection reset".to_string());
+        let err = api::ApiError::transport("connection reset".to_string());
         assert!(team_delete_error_message(&err).starts_with("Couldn't delete the team:"));
     }
 

@@ -40,13 +40,12 @@ pub fn close_pr_key(issue_id: &str) -> String {
     format!("close:{issue_id}")
 }
 
-/// The server's user-facing failure message when there is one;
-/// transport-level errors keep the full rendering.
+/// The server's user-facing failure message when there is one; everything
+/// else gets [`api::ApiError::user_message`]'s plain sentence (EXP-533 — an
+/// offline machine says so instead of leaking reqwest's
+/// `error sending request for url …`).
 pub fn user_message(err: api::ApiError) -> String {
-    match err {
-        api::ApiError::Http { message, .. } => message,
-        other => other.to_string(),
-    }
+    err.user_message()
 }
 
 /// Which op produced a failure caption. The "Fix conflicts" recovery run
@@ -168,12 +167,27 @@ pub struct MergeState {
     /// issues-collection observer sees `pr_state` leave `open`; pull ops
     /// clear on completion.
     merging: HashSet<String>,
-    /// The last failure, `(row_key, message, failed_op)` — one caption at a
-    /// time, cleared on the next confirmed attempt anywhere (the pre-EXP-325
-    /// reviews-rail semantic). `failed_op` says whether merge or close
-    /// produced it, so only a merge failure offers the recovery run.
-    error: Option<(String, SharedString, FailedOp)>,
+    /// The last failure — one caption at a time, cleared on the next
+    /// confirmed attempt anywhere (the pre-EXP-325 reviews-rail semantic).
+    error: Option<MergeFailure>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// One merge/close failure, everything a surface needs to caption the row and
+/// decide whether to offer the recovery run.
+#[derive(Clone, Debug)]
+pub struct MergeFailure {
+    /// The ROW the caption renders under (an issue id or a pull key).
+    pub row_key: String,
+    pub message: SharedString,
+    /// Whether MERGE or CLOSE produced it — the recovery run ends in a merge,
+    /// so only a merge failure may offer it.
+    pub op: FailedOp,
+    /// EXP-533: the server said this is a REAL content conflict (tRPC
+    /// `CONFLICT` / HTTP 409). A failed merge with no internet, a stale base
+    /// or an unconfigured GitHub App is NOT one, and "Fix merge conflicts"
+    /// would send an agent to rebase a branch over a problem it cannot fix.
+    pub conflict: bool,
 }
 
 struct MergeStateGlobal(Entity<MergeState>);
@@ -216,21 +230,28 @@ impl MergeState {
         self.merging.contains(key)
     }
 
+    /// This ROW key's failure, if the last one was its (an issue id or a
+    /// pull key).
+    pub fn failure(&self, row_key: &str) -> Option<&MergeFailure> {
+        self.error.as_ref().filter(|f| f.row_key == row_key)
+    }
+
     /// The failure caption for a ROW key (an issue id or a pull key).
     pub fn error(&self, row_key: &str) -> Option<SharedString> {
-        self.error
-            .as_ref()
-            .filter(|(key, _, _)| key == row_key)
-            .map(|(_, message, _)| message.clone())
+        self.failure(row_key).map(|f| f.message.clone())
     }
 
     /// Which action produced this row's caption — the "Fix conflicts"
     /// recovery run is offered on [`FailedOp::Merge`] only.
     pub fn failed_op(&self, row_key: &str) -> Option<FailedOp> {
-        self.error
-            .as_ref()
-            .filter(|(key, _, _)| key == row_key)
-            .map(|(_, _, op)| *op)
+        self.failure(row_key).map(|f| f.op)
+    }
+
+    /// EXP-533: whether this row's failure was a REAL content conflict — the
+    /// second half of the "Fix conflicts" gate (the first is
+    /// [`Self::failed_op`]).
+    pub fn is_conflict(&self, row_key: &str) -> bool {
+        self.failure(row_key).is_some_and(|f| f.conflict)
     }
 
     /// First click of the two-click confirm: arm `key` and start the ~5s
@@ -279,7 +300,7 @@ impl MergeState {
             self.arm_seq += 1;
             changed = true;
         }
-        if self.error.as_ref().is_some_and(|(key, _, _)| dead(key)) {
+        if self.error.as_ref().is_some_and(|f| dead(&f.row_key)) {
             self.error = None;
             changed = true;
         }
@@ -317,7 +338,7 @@ impl MergeState {
                 self.arm_seq += 1;
                 changed = true;
             }
-            if self.error.as_ref().is_some_and(|(key, _, _)| settled(key)) {
+            if self.error.as_ref().is_some_and(|f| settled(&f.row_key)) {
                 self.error = None;
                 changed = true;
             }
@@ -405,11 +426,15 @@ pub fn two_click(
                     Err(err) => {
                         log::warn!("[ui] {} failed: {err}", call_op.describe());
                         this.merging.remove(&key);
-                        this.error = Some((
-                            call_op.row_key(),
-                            SharedString::from(user_message(err)),
-                            call_op.failed_op(),
-                        ));
+                        // EXP-533: classify BEFORE the message is consumed —
+                        // only a real 409 conflict may offer the recovery run.
+                        let conflict = err.is_conflict();
+                        this.error = Some(MergeFailure {
+                            row_key: call_op.row_key(),
+                            message: SharedString::from(user_message(err)),
+                            op: call_op.failed_op(),
+                            conflict,
+                        });
                         cx.notify();
                         if let Some(on_failure) = on_failure {
                             on_failure(cx);
@@ -469,7 +494,42 @@ mod tests {
             message: "Pull request is not mergeable".to_string(),
         };
         assert_eq!(user_message(err), "Pull request is not mergeable");
-        // Transport-level errors keep their full rendering.
+        // EXP-533: an offline merge attempt reads as offline, never as
+        // reqwest's internals.
+        let offline = api::ApiError::Transport {
+            message: "error sending request for url (https://app.exponential.at)".to_string(),
+            offline: true,
+        };
+        assert_eq!(user_message(offline), api::OFFLINE_MESSAGE);
         assert!(!user_message(api::ApiError::Unauthorized).is_empty());
+    }
+
+    /// EXP-533: "Fix conflicts" needs BOTH a failed merge and a real 409 —
+    /// an offline merge attempt caption offers nothing to click.
+    #[test]
+    fn only_a_real_conflict_arms_the_recovery_run() {
+        let failure = |conflict, op| MergeFailure {
+            row_key: "i1".to_string(),
+            message: SharedString::from("nope"),
+            op,
+            conflict,
+        };
+        let state = |error| MergeState {
+            arm: None,
+            arm_seq: 0,
+            merging: HashSet::new(),
+            error: Some(error),
+            _subscriptions: Vec::new(),
+        };
+        let conflicted = state(failure(true, FailedOp::Merge));
+        assert!(conflicted.is_conflict("i1"));
+        assert_eq!(conflicted.failed_op("i1"), Some(FailedOp::Merge));
+        // Another row's failure never leaks into this one.
+        assert!(!conflicted.is_conflict("i2"));
+        // Offline / stale-base / no-GitHub-App merge failure: caption only.
+        assert!(!state(failure(false, FailedOp::Merge)).is_conflict("i1"));
+        // A failed CLOSE never offers a run that merges, conflict or not.
+        let closed = state(failure(true, FailedOp::Close));
+        assert_eq!(closed.failed_op("i1"), Some(FailedOp::Close));
     }
 }

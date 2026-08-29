@@ -38,6 +38,10 @@ final class ChangesViewModel {
     /// asked to CLOSE a PR must never be handed a button that merges it.
     enum PrAction { case merge, close }
     private(set) var actionErrorFrom: PrAction?
+    /// Whether `actionError` is a REAL content conflict (EXP-533): the server
+    /// answers `CONFLICT` / HTTP 409 only for a conflict it diagnosed, and a
+    /// rebase-and-merge run cannot fix any of the other refusals.
+    private(set) var actionErrorIsConflict = false
 
     private let accountId: String
     private let issueId: String
@@ -111,7 +115,7 @@ final class ChangesViewModel {
             expanded = []
             load = .loaded(files)
         } catch {
-            load = .failed(error.localizedDescription)
+            load = .failed(error.userFacingMessage)
         }
     }
 
@@ -148,12 +152,14 @@ final class ChangesViewModel {
         merging = true
         actionError = nil
         actionErrorFrom = nil
+        actionErrorIsConflict = false
         Task {
             do {
                 try await issuesApi.mergePr(accountId: accountId, issueId: issueId)
             } catch {
-                actionError = error.localizedDescription
+                actionError = error.userFacingMessage
                 actionErrorFrom = .merge
+                actionErrorIsConflict = error.isMergeConflict
             }
             merging = false
         }
@@ -166,11 +172,12 @@ final class ChangesViewModel {
         closing = true
         actionError = nil
         actionErrorFrom = nil
+        actionErrorIsConflict = false
         Task {
             do {
                 try await issuesApi.closePr(accountId: accountId, issueId: issueId)
             } catch {
-                actionError = error.localizedDescription
+                actionError = error.userFacingMessage
                 actionErrorFrom = .close
             }
             closing = false
@@ -431,13 +438,15 @@ struct ChangesView: View {
                             .foregroundStyle(DesignTokens.Semantic.red)
                             .multilineTextAlignment(.center)
 
-                        // A conflict is the common refusal, so the recovery
-                        // run sits where the failure was reported (EXP-323).
+                        // The recovery run sits where the failure was
+                        // reported (EXP-323), but only for a REAL conflict
+                        // (EXP-533) — nothing else it does would help.
                         // MERGE failures only — the run ends in a merge, the
                         // opposite of what a failed close asked for. It
                         // rebases the PR's branch, so one must be recorded.
                         if steerEnabled,
                             vm.actionErrorFrom == .merge,
+                            vm.actionErrorIsConflict,
                             canReview,
                             !(vm.issue?.branch ?? "").isEmpty {
                             GlassPillButton("Fix conflicts", icon: AppIcons.uiBranch) {
@@ -578,7 +587,7 @@ struct ChangesView: View {
                     accountId: accountId
                 )
             } catch {
-                startWatcher.failed(error.localizedDescription)
+                startWatcher.failed(error.userFacingMessage)
             }
         }
     }
@@ -612,7 +621,7 @@ struct ChangesView: View {
                     accountId: accountId
                 )
             } catch {
-                startWatcher.failed(error.localizedDescription)
+                startWatcher.failed(error.userFacingMessage)
             }
         }
     }

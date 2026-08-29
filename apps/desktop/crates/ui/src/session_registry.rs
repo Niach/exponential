@@ -546,9 +546,7 @@ mod tests {
             status: 500,
             message: String::new(),
         })));
-        assert!(!end_outcome_resolves(&Err(api::ApiError::Transport(
-            "refused".into()
-        ))));
+        assert!(!end_outcome_resolves(&Err(api::ApiError::transport("refused"))));
         assert!(!end_outcome_resolves(&Err(api::ApiError::Unauthorized)));
         // EXP-640: the min-version gate rejects the CALL, not the session —
         // the row is still `running` and must stay recorded.
@@ -567,7 +565,7 @@ mod tests {
         on_end_outcome(
             &dir.path,
             "sess-1",
-            &Err(api::ApiError::Transport("refused".into())),
+            &Err(api::ApiError::transport("refused")),
         );
         assert_eq!(session_ids_for_account(&dir.path, "acct-1"), vec!["sess-1"]);
 

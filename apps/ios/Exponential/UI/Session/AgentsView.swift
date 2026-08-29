@@ -59,7 +59,7 @@ struct AgentsView: View {
     // cover).
     @State private var mergeTarget: MergeTarget?
     @State private var merging: Set<String> = []
-    @State private var mergeErrors: [String: String] = [:]
+    @State private var mergeErrors: [String: MergeFailure] = [:]
     // "Fix conflicts" (EXP-486, Reviews parity EXP-323): a refused merge is
     // usually a conflict, so the failing row's caption offers the builtin
     // recovery run on any reachable machine.
@@ -613,7 +613,7 @@ struct AgentsView: View {
             do {
                 try await deps.devicesApi.remove(accountId: accountId, deviceId: device.deviceId)
             } catch {
-                deviceError = error.localizedDescription
+                deviceError = error.userFacingMessage
             }
         }
     }
@@ -630,7 +630,7 @@ struct AgentsView: View {
                     accountId: accountId, deviceId: device.deviceId
                 )
             } catch {
-                deviceError = error.localizedDescription
+                deviceError = error.userFacingMessage
             }
             updatingIds.remove(device.deviceId)
         }
@@ -659,8 +659,8 @@ struct AgentsView: View {
     private func sessionRow(_ row: AgentsViewModel.Row) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             sessionRowBody(row)
-            if let message = mergeErrors[row.id] {
-                mergeErrorCaption(row, message: message)
+            if let failure = mergeErrors[row.id] {
+                mergeErrorCaption(row, failure: failure)
             }
         }
         .padding(.horizontal, 12)
@@ -739,9 +739,9 @@ struct AgentsView: View {
     /// recovery run sits right next to the reason (EXP-486, the same shape as
     /// the Reviews rows, EXP-323).
     @ViewBuilder
-    private func mergeErrorCaption(_ row: AgentsViewModel.Row, message: String) -> some View {
+    private func mergeErrorCaption(_ row: AgentsViewModel.Row, failure: MergeFailure) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(message)
+            Text(failure.message)
                 .font(.caption)
                 .foregroundStyle(DesignTokens.Semantic.red)
                 .fixedSize(horizontal: false, vertical: true)
@@ -749,7 +749,7 @@ struct AgentsView: View {
             // EXP-535: a batch row's refused merge recovers through the same
             // representative issue its Merge button used — the sheet's PR
             // picker normalizes any linked issue id to its option.
-            if let issue = row.issue ?? row.batchPrIssue, canFixConflicts(issue) {
+            if failure.isConflict, let issue = row.issue ?? row.batchPrIssue, canFixConflicts(issue) {
                 GlassPillButton("Fix conflicts", icon: AppIcons.uiBranch) {
                     fixTarget = FixConflictsTarget(rowId: row.id, issueId: issue.id)
                 }
@@ -760,7 +760,8 @@ struct AgentsView: View {
 
     /// The recovery run rebases the PR's branch, so it needs one recorded —
     /// the same gate the Reviews rows apply. The caption already implies a
-    /// failed merge, so only steer + branch remain to check.
+    /// failed merge and the caller already checked it was a REAL conflict
+    /// (EXP-533), so only steer + branch remain to check.
     private func canFixConflicts(_ issue: IssueEntity) -> Bool {
         steerEnabled && !(issue.branch ?? "").isEmpty
     }
@@ -780,7 +781,7 @@ struct AgentsView: View {
                     issueId: target.issueId
                 )
             } catch {
-                mergeErrors[target.rowId] = error.localizedDescription
+                mergeErrors[target.rowId] = MergeFailure(error: error)
             }
             merging.remove(target.rowId)
         }
@@ -926,7 +927,7 @@ struct AgentsView: View {
                     accountId: accountId
                 )
             } catch {
-                startWatcher.failed(error.localizedDescription)
+                startWatcher.failed(error.userFacingMessage)
             }
         }
     }
@@ -960,7 +961,7 @@ struct AgentsView: View {
                     accountId: accountId
                 )
             } catch {
-                startWatcher.failed(error.localizedDescription)
+                startWatcher.failed(error.userFacingMessage)
             }
         }
     }

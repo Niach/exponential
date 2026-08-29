@@ -17,7 +17,9 @@ const h = vi.hoisted(() => ({
   })),
   resolvePrBaseState: vi.fn(),
   retargetPullRequest: vi.fn(async () => {}),
-  diagnoseUnmergeablePr: vi.fn(async (): Promise<string | null> => null),
+  diagnoseUnmergeablePr: vi.fn(
+    async (): Promise<{ message: string; conflict: boolean } | null> => null
+  ),
   mergePullRequest: vi.fn(async () => ({ merged: true, sha: `abc` })),
   resolveRepoDefaultBranchCached: vi.fn(async (): Promise<string | null> => `master`),
   resolveRepoInstallationTokenInfo: vi.fn(async () => ({
@@ -302,14 +304,15 @@ describe(`issues.mergePr 405 diagnosis (EXP-324)`, () => {
     title: `Stacked child`,
   }
 
-  it(`replaces GitHub's bare "not mergeable" with the stale-base diagnosis`, async () => {
+  it(`replaces GitHub's bare "not mergeable" with the stale-base diagnosis (412, not a conflict)`, async () => {
     h.selectQueue.push([mergeRow])
     h.mergePullRequest.mockRejectedValueOnce(
       new GitHubMergeError(405, `Pull Request is not mergeable`)
     )
-    h.diagnoseUnmergeablePr.mockResolvedValueOnce(
-      `Pull Request is not mergeable: its base branch 'exp/EXP-314' is the head of already-merged PR #240. Retarget this PR to 'master' (call exponential_pr_retarget), rebase onto origin/master if needed, then retry the merge.`
-    )
+    h.diagnoseUnmergeablePr.mockResolvedValueOnce({
+      conflict: false,
+      message: `Pull Request is not mergeable: its base branch 'exp/EXP-314' is the head of already-merged PR #240. Retarget this PR to 'master' (call exponential_pr_retarget), rebase onto origin/master if needed, then retry the merge.`,
+    })
 
     await expect(
       caller.mergePr({ issueId: ISSUE_ID })
@@ -325,7 +328,25 @@ describe(`issues.mergePr 405 diagnosis (EXP-324)`, () => {
     })
   })
 
-  it(`keeps GitHub's message when the diagnosis cannot run`, async () => {
+  // EXP-533: a real content conflict is the ONE case a rebase-and-resolve run
+  // fixes, so it (and only it) answers CONFLICT/409.
+  it(`answers CONFLICT for a real content conflict`, async () => {
+    h.selectQueue.push([mergeRow])
+    h.mergePullRequest.mockRejectedValueOnce(
+      new GitHubMergeError(405, `Pull Request is not mergeable`)
+    )
+    h.diagnoseUnmergeablePr.mockResolvedValueOnce({
+      conflict: true,
+      message: `Pull Request has merge conflicts with 'master': rebase onto origin/master, resolve the conflicts, push with --force-with-lease, then retry the merge.`,
+    })
+
+    await expect(caller.mergePr({ issueId: ISSUE_ID })).rejects.toMatchObject({
+      code: `CONFLICT`,
+      message: expect.stringContaining(`has merge conflicts with`),
+    })
+  })
+
+  it(`keeps GitHub's message and offers the recovery run when the diagnosis cannot run`, async () => {
     h.selectQueue.push([mergeRow])
     h.mergePullRequest.mockRejectedValueOnce(
       new GitHubMergeError(405, `Pull Request is not mergeable`)
@@ -335,7 +356,7 @@ describe(`issues.mergePr 405 diagnosis (EXP-324)`, () => {
     await expect(
       caller.mergePr({ issueId: ISSUE_ID })
     ).rejects.toMatchObject({
-      code: `PRECONDITION_FAILED`,
+      code: `CONFLICT`,
       message: `Pull Request is not mergeable`,
     })
   })
@@ -351,6 +372,20 @@ describe(`issues.mergePr 405 diagnosis (EXP-324)`, () => {
       message: `Squash merges are not allowed on this repository`,
     })
     expect(h.diagnoseUnmergeablePr).not.toHaveBeenCalled()
+  })
+
+  // Inversion (EXP-533): GitHub's 409 is "the head branch moved under us",
+  // which no conflict-recovery run addresses.
+  it(`maps GitHub's 409 head-changed onto PRECONDITION_FAILED`, async () => {
+    h.selectQueue.push([mergeRow])
+    h.mergePullRequest.mockRejectedValueOnce(
+      new GitHubMergeError(409, `Head branch was modified. Review and try the merge again.`)
+    )
+
+    await expect(caller.mergePr({ issueId: ISSUE_ID })).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: `Head branch changed on GitHub. Refresh and try again.`,
+    })
   })
 })
 

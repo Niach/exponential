@@ -493,7 +493,7 @@ impl CreateBoardDialogView {
                             });
                             return;
                         }
-                        this.error = Some(format!("{err}").into());
+                        this.error = Some(err.user_message().into());
                         this.submitting = false;
                         cx.notify();
                     });

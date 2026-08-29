@@ -29,8 +29,10 @@ struct ReviewsListContent: View {
     @State private var mergeTarget: ReviewEntry?
     /// Merge failures keyed by `ReviewEntry.id` — rendered INLINE under the
     /// failing row (EXP-323). An alert made the reason modal and gave the
-    /// conflict-recovery run nowhere to live.
-    @State private var mergeErrors: [String: String] = [:]
+    /// conflict-recovery run nowhere to live. Each failure also records whether
+    /// the server diagnosed a REAL content conflict (EXP-533), which is the
+    /// only case the recovery run can fix.
+    @State private var mergeErrors: [String: MergeFailure] = [:]
     @State private var merging: Set<String> = []
 
     // "Fix conflicts" (EXP-323, desktop parity): a failed merge is usually a
@@ -192,8 +194,8 @@ struct ReviewsListContent: View {
         // control inside the link's label has its tap swallowed by the link.
         VStack(alignment: .leading, spacing: 6) {
             entryLink(entry)
-            if let message = mergeErrors[entry.id] {
-                mergeErrorCaption(entry, message: message)
+            if let failure = mergeErrors[entry.id] {
+                mergeErrorCaption(entry, failure: failure)
             }
         }
     }
@@ -317,9 +319,9 @@ struct ReviewsListContent: View {
     /// the tab bar can cover. A conflict is the common case, so the builtin
     /// recovery run sits right next to the reason.
     @ViewBuilder
-    private func mergeErrorCaption(_ entry: ReviewEntry, message: String) -> some View {
+    private func mergeErrorCaption(_ entry: ReviewEntry, failure: MergeFailure) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(message)
+            Text(failure.message)
                 .font(.caption)
                 .foregroundStyle(DesignTokens.Semantic.red)
                 .fixedSize(horizontal: false, vertical: true)
@@ -348,10 +350,13 @@ struct ReviewsListContent: View {
     }
 
     /// The recovery run rebases the PR's branch, so it needs one recorded —
-    /// the same guard the desktop applies on its Reviews rows.
+    /// the same guard the desktop applies on its Reviews rows. EXP-533: only a
+    /// REAL conflict (the server's `CONFLICT` / HTTP 409) is offered the run; a
+    /// stale head, branch protection or an unreachable server refused the merge
+    /// for a reason no rebase can fix.
     private func canFixConflicts(_ entry: ReviewEntry) -> Bool {
         steerEnabled &&
-            mergeErrors[entry.id] != nil &&
+            mergeErrors[entry.id]?.isConflict == true &&
             !(entry.branch ?? "").isEmpty
     }
 
@@ -379,7 +384,7 @@ struct ReviewsListContent: View {
             do {
                 try await deps.issuesApi.mergePr(accountId: accountId, issueId: issueId)
             } catch {
-                mergeErrors[key] = error.localizedDescription
+                mergeErrors[key] = MergeFailure(error: error)
             }
             merging.remove(key)
         }
@@ -431,7 +436,7 @@ struct ReviewsListContent: View {
                     accountId: accountId
                 )
             } catch {
-                startWatcher.failed(error.localizedDescription)
+                startWatcher.failed(error.userFacingMessage)
             }
         }
     }
@@ -465,7 +470,7 @@ struct ReviewsListContent: View {
                     accountId: accountId
                 )
             } catch {
-                startWatcher.failed(error.localizedDescription)
+                startWatcher.failed(error.userFacingMessage)
             }
         }
     }

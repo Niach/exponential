@@ -2,6 +2,11 @@ import { createTRPCProxyClient, httpBatchLink, TRPCClientError } from "@trpc/cli
 import type { TRPCLink } from "@trpc/client"
 import { observable } from "@trpc/server/observable"
 import { toast } from "sonner"
+import {
+  reportTransportFailure,
+  reportTransportSuccess,
+} from "@/lib/connectivity"
+import { isTransportError, OFFLINE_ERROR_MESSAGE } from "@/lib/trpc-error"
 import type { AppRouter } from "@/routes/api/trpc/$"
 
 // Short human nouns per router, used to build "Couldn't update the issue"-style
@@ -41,6 +46,9 @@ function mutationErrorTitle(path: string): string {
 // authz layer writes human messages such as "Not a member of this team").
 // Zod validation errors serialize as a JSON array — skip those.
 function serverErrorDetail(error: unknown): string | undefined {
+  // EXP-533: a request that never reached the server reads as "you're
+  // offline", not as Chrome's "Failed to fetch".
+  if (isTransportError(error)) return OFFLINE_ERROR_MESSAGE
   if (!(error instanceof TRPCClientError)) return undefined
   const message = error.message?.trim()
   if (!message || message.length > 120) return undefined
@@ -72,8 +80,31 @@ const mutationErrorToastLink: TRPCLink<AppRouter> = () => {
     )
 }
 
+// EXP-533: the tRPC half of the connectivity signal. Every COMPLETED round
+// trip proves the server is reachable (a 403 or a 409 just as well as a 200);
+// only a transport failure counts against it. Outermost so it observes the
+// batch's final outcome, whatever the links below it did with it.
+const connectivityLink: TRPCLink<AppRouter> = () => {
+  return ({ next, op }) =>
+    observable((observer) =>
+      next(op).subscribe({
+        next: (value) => {
+          reportTransportSuccess()
+          observer.next(value)
+        },
+        error: (error) => {
+          if (isTransportError(error)) reportTransportFailure(error)
+          else reportTransportSuccess()
+          observer.error(error)
+        },
+        complete: () => observer.complete(),
+      })
+    )
+}
+
 export const trpc = createTRPCProxyClient<AppRouter>({
   links: [
+    connectivityLink,
     mutationErrorToastLink,
     httpBatchLink({
       url: `/api/trpc`,

@@ -308,7 +308,7 @@ mod tests {
             status: 500,
             message: String::new(),
         })));
-        assert!(!end_outcome_resolves(&Err(api::ApiError::Transport("refused".into()))));
+        assert!(!end_outcome_resolves(&Err(api::ApiError::transport("refused"))));
         assert!(!end_outcome_resolves(&Err(api::ApiError::Unauthorized)));
         assert!(!end_outcome_resolves(&Err(api::ApiError::UpgradeRequired)));
     }

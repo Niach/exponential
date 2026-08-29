@@ -47,7 +47,9 @@ import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.SessionDevicePresentation
+import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.GlassDropdownMenu
@@ -262,7 +264,7 @@ fun AgentsScreen(
                                 device = row.device,
                                 mergeIssue = mergeIssue,
                                 merging = mergeIssue?.id in merging,
-                                errorMessage = mergeIssue?.id?.let(mergeErrors::get),
+                                failure = mergeIssue?.id?.let(mergeErrors::get),
                                 onClick = {
                                     // Every listed row is the caller's own
                                     // (EXP-312), so steer availability alone
@@ -276,11 +278,15 @@ fun AgentsScreen(
                                 },
                                 onInfo = { row.session.issueId?.let(onOpenIssue) },
                                 onMerge = { mergeTarget = row },
-                                // The recovery run rebases the PR's branch, so
-                                // it needs one recorded — the same gate as the
-                                // Reviews rows (EXP-323), plus a reachable
-                                // machine to run on.
-                                canFixConflicts = steerOn && !mergeIssue?.branch.isNullOrBlank(),
+                                // A REAL conflict only (EXP-533); the recovery
+                                // run rebases the PR's branch, so it needs one
+                                // recorded — the same gate as the Reviews rows
+                                // (EXP-323), plus a reachable machine to run on.
+                                canFixConflicts = canOfferFixConflicts(
+                                    mergeIssue?.id?.let(mergeErrors::get),
+                                    mergeIssue?.branch,
+                                    steerEnabled = steerOn,
+                                ),
                                 onFixConflicts = { fixTargetIssueId = mergeIssue?.id },
                             )
                         }
@@ -709,7 +715,7 @@ private fun AgentSessionRow(
     // The label/status rendering keeps reading [issue] alone.
     mergeIssue: IssueEntity?,
     merging: Boolean,
-    errorMessage: String?,
+    failure: MergeFailure?,
     onClick: () -> Unit,
     onInfo: () -> Unit,
     onMerge: () -> Unit,
@@ -839,7 +845,7 @@ private fun AgentSessionRow(
         // clears the floating nav pill, so the reason is always readable. A
         // conflict is the common case, so the recovery run sits right next to
         // it (EXP-486, same shape as the Reviews rows).
-        if (errorMessage != null) {
+        if (failure != null) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -848,7 +854,7 @@ private fun AgentSessionRow(
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 Text(
-                    errorMessage,
+                    failure.message,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.error,
                 )

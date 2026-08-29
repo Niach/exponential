@@ -936,7 +936,7 @@ public final class IssueEditorModel {
                         return (draft.blockId, draft.draftUrl, .success(url))
                     } catch {
                         return (draft.blockId, draft.draftUrl, .failure(
-                            message: error.localizedDescription,
+                            message: error.userFacingMessage,
                             reason: uploadFailureReason(error)
                         ))
                     }

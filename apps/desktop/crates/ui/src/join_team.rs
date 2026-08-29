@@ -315,7 +315,7 @@ impl JoinTeamView {
                     let _ = this.update_in(window, |this, _, cx| {
                         // Web surfaces the server message (expired/used).
                         this.accepting = false;
-                        this.error = Some(format!("{err}").into());
+                        this.error = Some(err.user_message().into());
                         cx.notify();
                     });
                 }

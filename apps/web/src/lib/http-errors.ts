@@ -10,6 +10,8 @@ function getStatusCode(error: TRPCError) {
       return 403
     case `NOT_FOUND`:
       return 404
+    case `CONFLICT`:
+      return 409
     case `PRECONDITION_FAILED`:
       return 412
     default:

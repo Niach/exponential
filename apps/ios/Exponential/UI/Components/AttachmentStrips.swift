@@ -469,7 +469,7 @@ enum CommentAttachmentUploads {
                     contentType: item.contentType
                 ).id
             } catch {
-                return Outcome(items: result, failure: error.localizedDescription)
+                return Outcome(items: result, failure: error.userFacingMessage)
             }
         }
         return Outcome(items: result, failure: nil)

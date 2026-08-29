@@ -10,6 +10,8 @@ import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.electric.SyncHealth
+import com.exponential.app.data.electric.SyncHealthTracker
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
 import com.exponential.app.data.steer.SteerConnectionStore
@@ -56,6 +58,7 @@ class AppViewModel @Inject constructor(
     private val updateGate: UpdateGate,
     private val authApi: AuthApi,
     private val steerConnectionStore: SteerConnectionStore,
+    private val syncHealthTracker: SyncHealthTracker,
 ) : ViewModel() {
 
     init {
@@ -207,6 +210,14 @@ class AppViewModel @Inject constructor(
             .map { it.displayName }
             .distinct()
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    // EXP-533: is the ACTIVE account's sync reaching its server? Drives the
+    // floating offline banner. WhileSubscribed, because the model re-evaluates
+    // on a 2s timer while a failure streak is open and nothing off-screen
+    // needs that.
+    val syncHealth: StateFlow<SyncHealth> =
+        syncHealthTracker.activeHealth(auth.activeAccountId)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncHealth.Ok)
 
     // Unread notifications for the active account — drives the bottom bar's
     // inbox dot. Re-scopes reactively on account switch like the feature VMs.
@@ -390,6 +401,15 @@ class AppViewModel @Inject constructor(
             steerConnectionStore.closeAll()
             auth.clearToken()
         }
+    }
+
+    /**
+     * The offline banner's Retry: poll every shape of every account NOW.
+     * Forced, so the kick debounce can never make a user-initiated retry
+     * silently do nothing.
+     */
+    fun retrySync() {
+        syncManager.kick("offline-banner", force = true)
     }
 
     fun switchAccount(id: String) {

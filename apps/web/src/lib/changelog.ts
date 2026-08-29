@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-offline-and-conflicts`,
+    date: `2026-08-29`,
+    title: `Honest offline handling`,
+    summary: `Every client now tells you when it cannot reach the server instead of showing a raw network error, the desktop catches up faster after a sleep, and "Fix conflicts" only appears when there really are conflicts.`,
+    body: `- **Offline banner**: the web app and Android now show the same "showing cached data" banner iOS and the desktop already had, with a Retry button. Your boards keep working from what is already synced.
+- **Plain language**: a failed action used to surface whatever the browser or the OS said, things like "Failed to fetch" or "Unable to resolve host". Every client now says "You're offline. Check your connection and try again." instead.
+- **Faster catch up after sleep**: the desktop app notices when the machine has been asleep and restarts its sync straight away, with a small spinner next to your account while it catches up, so you can tell stale data from live data.
+- **Fix conflicts when it helps**: the recovery run is now offered only for a real merge conflict. A stale base branch, a branch protection rule or a dropped connection no longer hand you a button that cannot fix them.`,
+  },
+  {
     id: `2026-08-agent-usage-and-accounts`,
     date: `2026-08-28`,
     title: `Agent usage and accounts on every machine`,

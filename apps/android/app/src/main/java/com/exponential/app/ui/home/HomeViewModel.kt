@@ -115,7 +115,7 @@ class HomeViewModel @Inject constructor(
                 // by retrying, and TrpcClient has already reported the 401 to
                 // SessionInvalidator — which clears that account's token and
                 // routes it back to login. Nothing to do here but show why.
-                _error.value = error.message ?: "Failed to load team"
+                _error.value = trpcErrorMessage(error, "Failed to load team")
             } finally {
                 // Always clear the spinner — the success path, the
                 // null-accountId early `return@launch`, and the catch block

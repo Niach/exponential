@@ -110,7 +110,7 @@ class OnboardingViewModel @Inject constructor(
                 team?.id
             }.onSuccess { teamId ->
                 if (teamId != null) _teamId.value = teamId else _needsTeamChoice.value = true
-            }.onFailure { _error.value = it.message ?: "Failed to prepare team" }
+            }.onFailure { _error.value = trpcErrorMessage(it, "Failed to prepare team") }
             _preparing.value = false
         }
     }

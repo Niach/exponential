@@ -72,7 +72,7 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
             configLoading = false
         } catch {
             configLoading = false
-            configError = error.localizedDescription
+            configError = error.userFacingMessage
         }
     }
 
@@ -343,7 +343,7 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
                        nsError.code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
                         self.error = nil
                     } else {
-                        self.error = authError.localizedDescription
+                        self.error = authError.userFacingMessage
                     }
                     self.webAuthSession = nil
                     return

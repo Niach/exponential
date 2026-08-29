@@ -15,6 +15,7 @@ import { TeamMobileTopbar } from "@/components/team/mobile-topbar"
 import { MobileTabBar } from "@/components/team/mobile-tab-bar"
 import { TeamSidebar } from "@/components/team/sidebar"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
+import { OfflineBanner } from "@/components/offline-banner"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
 import { WebMcpProvider } from "@/components/webmcp-provider"
 import { IssueRefProvider } from "@/components/issue-ref-provider"
@@ -154,6 +155,11 @@ function TeamLayout() {
                 (flex children default to min-width:auto); `overflow-x-clip`
                 contains stragglers inside the content region. */}
             <main className="flex-1 flex flex-col min-h-screen min-w-0">
+              {/* EXP-533: above the mobile topbar (which is `md:hidden` and
+                  hides itself on detail routes), so the "showing cached data"
+                  notice is the first thing in the content column on every
+                  breakpoint. Renders nothing while the server is reachable. */}
+              <OfflineBanner />
               <TeamMobileTopbar
                 teamSlug={teamSlug}
                 team={team}

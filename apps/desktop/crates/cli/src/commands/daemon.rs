@@ -1897,7 +1897,13 @@ fn start_automation_sync(ctx: &Ctx, gated: &Arc<AtomicBool>) -> Option<Arc<sync:
         shapes: Some(AUTOMATION_SHAPES),
     };
     match manager.start_account(config) {
-        Ok(_) => Some(manager),
+        Ok(_) => {
+            // EXP-533: a suspended (or hibernated) host leaves every shape
+            // thread parked in a read on a connection that died with it —
+            // the daemon has the same bug the GUI had, and the same fix.
+            sync::spawn_wake_watchdog(&manager);
+            Some(manager)
+        }
         Err(err) => {
             log::warn!("automations: sync store failed to open ({err}) — automations disabled");
             None

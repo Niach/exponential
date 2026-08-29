@@ -132,7 +132,7 @@ public final class AuthApi: Sendable {
 
             return .failure(message: "Sign-in succeeded but no session token returned")
         } catch {
-            return .failure(message: error.localizedDescription)
+            return .failure(message: error.userFacingMessage)
         }
     }
 
@@ -177,7 +177,7 @@ public final class AuthApi: Sendable {
 
             return .failure(message: "Sign-in succeeded but no session token returned")
         } catch {
-            return .failure(message: error.localizedDescription)
+            return .failure(message: error.userFacingMessage)
         }
     }
 

@@ -12,7 +12,7 @@ import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
-import { trpcErrorMessage } from "@/lib/trpc-error"
+import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -75,7 +75,9 @@ function ReviewsPage() {
   // A refused merge (conflicts, branch protection, GitHub App errors) captions
   // ITS row, keyed by entry.key (EXP-323) — the global toast is transient and
   // gave the conflict-recovery run nowhere to live.
-  const [mergeErrors, setMergeErrors] = useState<Record<string, string>>({})
+  const [mergeErrors, setMergeErrors] = useState<
+    Record<string, MergeFailure>
+  >({})
 
   // "Fix conflicts" (EXP-323, desktop parity): the launch dialog opened on the
   // builtin action with THIS pull request already picked. Presence is fetched
@@ -88,8 +90,13 @@ function ReviewsPage() {
   const { isMember } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
+  // Only a REAL conflict can be fixed by the recovery run (EXP-533), so only a
+  // real conflict is worth polling for an online desktop.
+  const hasConflict = Object.values(mergeErrors).some(
+    (failure) => failure.conflict
+  )
   const remote = useRemoteStart({
-    enabled: steerEnabled && Object.keys(mergeErrors).length > 0,
+    enabled: steerEnabled && hasConflict,
     currentUserId,
     teamId: team?.id,
   })
@@ -124,7 +131,7 @@ function ReviewsPage() {
         // and unstick the spinner so the merge can be retried.
         setMergeErrors((prev) => ({
           ...prev,
-          [entry.key]: trpcErrorMessage(
+          [entry.key]: mergeFailure(
             error,
             `The pull request could not be merged`
           ),
@@ -212,8 +219,12 @@ function ReviewsPage() {
                     const mergeError = mergeErrors[entry.key]
                     // The recovery run rebases the PR's branch, so it needs one
                     // recorded — the same guard the desktop applies.
+                    // EXP-533: only for a real content conflict. A stale base,
+                    // a branch-protection refusal or an unreachable server all
+                    // fail the merge too, and a rebase-and-resolve run fixes
+                    // none of them.
                     const canFixConflicts = Boolean(
-                      mergeError && issue.branch && steerEnabled
+                      mergeError?.conflict && issue.branch && steerEnabled
                     )
                     return (
                       <div
@@ -276,7 +287,7 @@ function ReviewsPage() {
                         {mergeError && (
                           <div className="col-span-4 flex flex-wrap items-center gap-2 pt-2">
                             <span className="text-destructive text-xs">
-                              {mergeError}
+                              {mergeError.message}
                             </span>
                             {canFixConflicts && (
                               <Button

@@ -469,7 +469,7 @@ struct CreateIssueSheet: View {
                 labels.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             }
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
         }
     }
 
@@ -719,7 +719,7 @@ struct CreateIssueSheet: View {
                 onCreated(createdId)
             }
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
         }
         loading = false
     }

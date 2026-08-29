@@ -291,7 +291,7 @@ impl StatusesPane {
                     log::warn!("[ui] statuses.create failed: {err}");
                     // The started cap and the duplicate-name CONFLICT both
                     // arrive here — show their clean message inline.
-                    this.create_error = Some(error_message(err));
+                    this.create_error = Some(err.user_message());
                 } else {
                     this.creating = None;
                     this.reset_form();
@@ -340,7 +340,7 @@ impl StatusesPane {
             let _ = this.update(cx, |this, cx| {
                 if let Err(err) = &result {
                     log::warn!("[ui] statuses.delete failed: {err}");
-                    this.row_error = Some((status_id.clone(), error_message(err)));
+                    this.row_error = Some((status_id.clone(), err.user_message()));
                     cx.notify();
                 }
             });
@@ -1069,16 +1069,6 @@ impl Render for DeleteStatusContent {
                             }),
                     ),
             )
-    }
-}
-
-/// An `ApiError`'s user-facing text: the server's clean tRPC message when it
-/// has one (the duplicate-name CONFLICT, the started cap, the
-/// reassign-required PRECONDITION_FAILED), else the transport error.
-fn error_message(err: &api::ApiError) -> String {
-    match err {
-        api::ApiError::Http { message, .. } => message.clone(),
-        other => other.to_string(),
     }
 }
 

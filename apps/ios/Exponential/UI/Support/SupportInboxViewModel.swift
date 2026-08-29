@@ -74,7 +74,7 @@ final class SupportInboxViewModel {
             // Expected on stopPolling.
         } catch {
             guard requestGeneration == generation else { return }
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
         }
     }
 }

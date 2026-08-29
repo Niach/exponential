@@ -593,6 +593,19 @@ impl Shell {
             .detach();
         }
 
+        // EXP-533: bringing a window forward is exactly when stale data is
+        // most visible — a lid closed for hours leaves every shape thread
+        // parked on a dead connection. One debounced restart, only when the
+        // last successful poll is genuinely old (`Store::kick_if_stale`);
+        // mirrors the trunk-sync engine's own activation trigger.
+        cx.observe_window_activation(window, |_, window, cx| {
+            if window.is_window_active() {
+                let store = Store::global(cx).clone();
+                store.kick_if_stale(cx);
+            }
+        })
+        .detach();
+
         // The rail lives OUTSIDE the dock area. Built after the fixed chrome
         // so the dock already exists.
         let rail = cx.new(|cx| RailView::new(window, cx));
@@ -1377,14 +1390,28 @@ impl Shell {
                 .when_some(ago, |banner, ago| {
                     banner.child(div().text_sm().text_color(cx.theme().muted_foreground).child(ago))
                 })
-                .child(Button::new("sync-retry").ghost().cursor_pointer().small().label("Retry").on_click(
-                    move |_: &ClickEvent, _, cx| {
-                        // Restart the account pipeline: parked backoffs and
-                        // held long-polls re-poll immediately (EXP-470 rails).
-                        let store = Store::global(cx).clone();
-                        store.resync_active(cx);
-                    },
-                ))
+                .child(
+                    // EXP-533: Retry is not fire-and-forget — while the
+                    // restarted pipeline works its way back to head the
+                    // button says so, so a second click isn't the only way to
+                    // learn the first one did something.
+                    Button::new("sync-retry")
+                        .ghost()
+                        .cursor_pointer()
+                        .small()
+                        .label(if status.catching_up {
+                            "Retrying\u{2026}"
+                        } else {
+                            "Retry"
+                        })
+                        .loading(status.catching_up)
+                        .on_click(move |_: &ClickEvent, _, cx| {
+                            // Restart the account pipeline: parked backoffs and
+                            // held long-polls re-poll immediately (EXP-470 rails).
+                            let store = Store::global(cx).clone();
+                            store.resync_active(cx);
+                        }),
+                )
                 .into_any_element(),
         )
     }

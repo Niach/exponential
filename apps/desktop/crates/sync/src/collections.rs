@@ -26,12 +26,16 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime};
 
 use gpui::{App, AppContext as _, AsyncApp, Entity, Global, Subscription};
 use serde_json::{Map, Value};
 
+use crate::activity::{not_ready_names, CatchUp, CATCHING_UP_WINDOW};
+// Re-exported so `sync::collections::ShapeSyncPhase` keeps resolving after
+// EXP-533 moved the model into the gpui-free `activity` module.
+pub use crate::activity::{ShapeStatus, ShapeSyncPhase};
 use crate::client::{ShapeDelta, UnauthorizedFn, UpgradeRequiredFn};
 use crate::health::{AccountHealth, SyncHealth, FAILURE_STREAK_GRACE};
 use crate::manager::{AccountSyncConfig, SyncManager};
@@ -97,6 +101,15 @@ pub struct SharedState {
     /// each, and re-rendering every `SharedState` observer on each would be
     /// pure churn — observers wake only on an Ok ⇄ Offline transition.
     pub published_health: SyncHealth,
+    /// EXP-533: the in-flight pipeline-restart stamp behind the rail's sync
+    /// spinner. Not per-account: only the active account's pipeline is ever
+    /// restarted from a user-visible path, and the spinner speaks for the
+    /// window.
+    pub catch_up: CatchUp,
+    /// Dedupe for the spinner exactly like [`Self::published_health`] — the
+    /// per-shape success reports would otherwise wake every observer on every
+    /// batch.
+    pub published_catching_up: bool,
 }
 
 /// The active account's sync health, snapshot for render paths.
@@ -105,7 +118,19 @@ pub struct ActiveSyncStatus {
     pub health: SyncHealth,
     pub last_success_at: Option<SystemTime>,
     pub last_error: Option<String>,
+    /// EXP-533: a restart is still working its way back to head, or a core
+    /// shape has not reached it — the rail shows its sync spinner.
+    pub catching_up: bool,
 }
+
+/// EXP-533: how stale the last successful poll must be before a window
+/// activation restarts the pipeline. Comfortably past the server's ~60s hold
+/// window, so a healthy idle app (one heartbeat per hold) never kicks.
+pub const ACTIVATION_STALE: Duration = Duration::from_secs(90);
+
+/// EXP-533: minimum spacing between activation kicks — window focus fires on
+/// every alt-tab, and a restart is not free.
+pub const KICK_DEBOUNCE: Duration = Duration::from_secs(5);
 
 /// EXP-501: derive the banner-driving health for the CURRENT session. Only a
 /// `Synced` session can be `Offline`: `AuthExpired` routes to login (which
@@ -128,32 +153,6 @@ pub fn derive_active_health(
 // ---------------------------------------------------------------------------
 // Per-shape reactive collections
 // ---------------------------------------------------------------------------
-
-/// Where a shape stands in its sync lifecycle — drives the debug board's
-/// status line and the §4.1 `is_ready` skeleton-vs-empty distinction.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ShapeSyncPhase {
-    /// No pipeline yet / no persisted cursor state.
-    Waiting,
-    /// Initial snapshot in progress (rows may be arriving).
-    Snapshot,
-    /// Caught up to head (`up-to-date` seen) — long-polling live.
-    Live,
-    /// A 409 / must-refetch was seen; the atomic re-snapshot is pending.
-    /// Stale rows stay visible until it lands (§5.6c).
-    Refetching,
-}
-
-impl ShapeSyncPhase {
-    pub fn label(&self) -> &'static str {
-        match self {
-            ShapeSyncPhase::Waiting => "waiting",
-            ShapeSyncPhase::Snapshot => "snapshot",
-            ShapeSyncPhase::Live => "live",
-            ShapeSyncPhase::Refetching => "refetching",
-        }
-    }
-}
 
 /// A typed row hydratable from the store's snake_case JSON objects. The 19
 /// impls below bind each `domain::rows` struct to its [`ShapeSpec`].
@@ -340,31 +339,6 @@ pub fn decode_rows<T: ShapeRow>(maps: Vec<Map<String, Value>>) -> Vec<(RowKey, T
                 }
             },
         )
-        .collect()
-}
-
-/// One entry of the per-shape status line (the Phase-2 gate's "renders a
-/// board" evidence surface).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ShapeStatus {
-    pub name: &'static str,
-    pub phase: ShapeSyncPhase,
-    pub rows: usize,
-}
-
-/// The not-yet-live shapes of a [`Store::shape_statuses`] snapshot, in the
-/// snapshot's own (stable) order. Split out from [`Store::shapes_not_ready`]
-/// so the predicate is unit-testable without an `App`.
-fn not_ready_names(statuses: &[ShapeStatus]) -> Vec<&'static str> {
-    statuses
-        .iter()
-        .filter(|status| {
-            !matches!(
-                status.phase,
-                ShapeSyncPhase::Live | ShapeSyncPhase::Refetching
-            )
-        })
-        .map(|status| status.name)
         .collect()
 }
 
@@ -768,6 +742,11 @@ pub struct Store {
     /// EXP-501: CAS guard so at most one grace-expiry recheck timer is in
     /// flight (see [`Store::record_sync`]).
     health_recheck_pending: Arc<AtomicBool>,
+    /// EXP-533: the same CAS guard for the catching-up window expiry.
+    catch_up_recheck_pending: Arc<AtomicBool>,
+    /// EXP-533: when [`Store::kick_if_stale`] last restarted the pipeline —
+    /// window activation can fire in bursts (focus follows every alt-tab).
+    last_kick_at: Arc<Mutex<Option<Instant>>>,
 }
 
 impl Global for Store {}
@@ -792,6 +771,8 @@ impl Store {
             session: SessionPhase::SignedOut,
             sync_health: HashMap::new(),
             published_health: SyncHealth::Ok,
+            catch_up: CatchUp::default(),
+            published_catching_up: false,
         });
         let collections = Collections::new(cx);
         let mut manager = SyncManager::new();
@@ -806,8 +787,14 @@ impl Store {
             collections,
             manager: Arc::new(manager),
             health_recheck_pending: Arc::new(AtomicBool::new(false)),
+            catch_up_recheck_pending: Arc::new(AtomicBool::new(false)),
+            last_kick_at: Arc::new(Mutex::new(None)),
         };
         store.spawn_delta_drain(cx);
+        // EXP-533: a closed lid parks every shape thread in a read on an h2
+        // connection that dies with the machine; the watchdog notices the
+        // wake and restarts the pipeline instead of waiting out the timeout.
+        crate::manager::spawn_wake_watchdog(&store.manager);
         store
     }
 
@@ -946,16 +933,56 @@ impl Store {
     /// EXP-501: the active account's sync health, derived fresh — render
     /// paths call this per frame (pure read, mirrors iOS `health()`).
     pub fn sync_status(&self, cx: &App) -> ActiveSyncStatus {
+        let statuses = self.collections.statuses(cx);
         let state = self.state.read(cx);
         let SessionPhase::Synced { account_id } = &state.session else {
             return ActiveSyncStatus::default();
         };
+        let now = SystemTime::now();
         let health = state.sync_health.get(account_id);
         ActiveSyncStatus {
-            health: health.map_or(SyncHealth::Ok, |h| h.health(SystemTime::now())),
+            health: health.map_or(SyncHealth::Ok, |h| h.health(now)),
             last_success_at: health.and_then(|h| h.last_success_at),
             last_error: health.and_then(|h| h.last_error.clone()),
+            catching_up: state.catch_up.is_catching_up(&statuses, now),
         }
+    }
+
+    /// EXP-533: the window came to the front. A machine that slept through
+    /// the watchdog's window (or simply sat idle behind a dead connection)
+    /// gets one restart here so the user's first look at the app is at fresh
+    /// data. No-op unless `Synced`, the last successful poll is genuinely old
+    /// ([`ACTIVATION_STALE`]), and we did not just kick ([`KICK_DEBOUNCE`] —
+    /// activation fires on every alt-tab).
+    pub fn kick_if_stale(&self, cx: &App) {
+        let state = self.state.read(cx);
+        let SessionPhase::Synced { account_id } = &state.session else {
+            return;
+        };
+        let stale = state
+            .sync_health
+            .get(account_id)
+            .and_then(|health| health.last_success_at)
+            // No success recorded at all = a pipeline that has not reported
+            // yet (cold start); restarting THAT would only set it back.
+            .is_some_and(|at| {
+                SystemTime::now()
+                    .duration_since(at)
+                    .unwrap_or(Duration::ZERO)
+                    >= ACTIVATION_STALE
+            });
+        if !stale {
+            return;
+        }
+        let account_id = account_id.clone();
+        {
+            let mut last = self.last_kick_at.lock().expect("last_kick_at poisoned");
+            if last.is_some_and(|at| at.elapsed() < KICK_DEBOUNCE) {
+                return;
+            }
+            *last = Some(Instant::now());
+        }
+        self.manager.restart_account(&account_id);
     }
 
     // -- the single foreground drain (§5.8 / §3.5) ---------------------------
@@ -1027,6 +1054,9 @@ impl Store {
                 if active.as_deref() != Some(account_id.as_str()) {
                     return;
                 }
+                // EXP-533: this core shape is back at head — shrink the
+                // post-restart stamp (and repaint only on a real shrink).
+                self.record_catch_up(shape, cx);
                 let Some(sqlite) = self.manager.store(&account_id) else {
                     return;
                 };
@@ -1040,7 +1070,66 @@ impl Store {
             } => {
                 self.record_sync(&account_id, Err(error), cx);
             }
+            ShapeDelta::PipelineRestarted { account_id } => {
+                // EXP-533: only the ACTIVE account's restart drives the rail
+                // spinner (a background account's resync is invisible).
+                let active = self
+                    .state
+                    .read_with(cx, |state, _| state.session.account_id().map(String::from));
+                if active.as_deref() != Some(account_id.as_str()) {
+                    return;
+                }
+                self.begin_catch_up(cx);
+            }
         }
+    }
+
+    /// EXP-533: stamp a fresh restart and arm the window-expiry recheck, so
+    /// the spinner stops on its own when nothing ever reports back (an
+    /// offline machine — the banner owns that story).
+    fn begin_catch_up(&self, cx: &mut AsyncApp) {
+        self.state.update(cx, |state, cx| {
+            state.catch_up.begin(SystemTime::now());
+            if !state.published_catching_up {
+                state.published_catching_up = true;
+            }
+            cx.notify();
+        });
+        if !self.catch_up_recheck_pending.swap(true, Ordering::SeqCst) {
+            let store = self.clone();
+            cx.spawn(async move |cx| {
+                cx.background_executor()
+                    .timer(CATCHING_UP_WINDOW + Duration::from_millis(500))
+                    .await;
+                store.catch_up_recheck_pending.store(false, Ordering::SeqCst);
+                store.publish_catching_up(cx);
+            })
+            .detach();
+        }
+    }
+
+    /// One core shape reported back after a restart.
+    fn record_catch_up(&self, shape: &str, cx: &mut AsyncApp) {
+        let shrank = self
+            .state
+            .update(cx, |state, _| state.catch_up.record_success(shape));
+        if shrank {
+            self.publish_catching_up(cx);
+        }
+    }
+
+    /// Republish the derived spinner flag, notifying only on a flip.
+    fn publish_catching_up(&self, cx: &mut AsyncApp) {
+        let statuses = cx.update(|cx| self.collections.statuses(cx));
+        self.state.update(cx, |state, cx| {
+            let derived = state
+                .catch_up
+                .is_catching_up(&statuses, SystemTime::now());
+            if state.published_catching_up != derived {
+                state.published_catching_up = derived;
+                cx.notify();
+            }
+        });
     }
 
     /// EXP-501: fold one poll outcome into the account's health, publishing
@@ -1114,34 +1203,6 @@ mod tests {
         health.record_failure(now - Duration::from_secs(1), "http 500".into());
         assert_eq!(health.health(now), SyncHealth::Offline);
         HashMap::from([(account_id.to_string(), health)])
-    }
-
-    /// EXP-633: the ready predicate IS `Collection::is_ready` — Live and
-    /// Refetching count as ready (a refetch replays rows the collection
-    /// already has), Waiting and Snapshot do not.
-    #[test]
-    fn not_ready_names_lists_shapes_before_their_first_up_to_date() {
-        let status = |name, phase| ShapeStatus {
-            name,
-            phase,
-            rows: 0,
-        };
-        let statuses = [
-            status("issues", ShapeSyncPhase::Live),
-            status("comments", ShapeSyncPhase::Waiting),
-            status("labels", ShapeSyncPhase::Refetching),
-            status("issue_events", ShapeSyncPhase::Snapshot),
-        ];
-        assert_eq!(
-            not_ready_names(&statuses),
-            vec!["comments", "issue_events"]
-        );
-        let all_live = [
-            status("issues", ShapeSyncPhase::Live),
-            status("labels", ShapeSyncPhase::Refetching),
-        ];
-        assert!(not_ready_names(&all_live).is_empty());
-        assert!(not_ready_names(&[]).is_empty());
     }
 
     #[test]

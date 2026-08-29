@@ -355,7 +355,7 @@ final class IssueListViewModel {
         do {
             try await issuesApi.update(accountId: accountId, UpdateIssueInput(id: issueId, status: status.rawValue))
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
         }
     }
 
@@ -368,7 +368,7 @@ final class IssueListViewModel {
                 ?? UpdateIssueInput(id: issueId, status: resolved.anchor.rawValue)
             try await issuesApi.update(accountId: accountId, input)
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
         }
     }
 
@@ -376,7 +376,7 @@ final class IssueListViewModel {
         do {
             try await issuesApi.update(accountId: accountId, UpdateIssueInput(id: issueId, priority: priority.rawValue))
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
         }
     }
 
@@ -392,7 +392,7 @@ final class IssueListViewModel {
                 try await issuesApi.update(accountId: accountId, input)
             }
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
         }
     }
 
@@ -463,7 +463,7 @@ final class IssueListViewModel {
             do {
                 try await write(Array(issueIds[start..<end]))
             } catch {
-                self.error = error.localizedDescription
+                self.error = error.userFacingMessage
                 return
             }
             start = end

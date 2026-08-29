@@ -7,12 +7,12 @@ import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
-import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.sortableTimestamp
 import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.steer.ActionRunState
@@ -161,7 +161,7 @@ class ReviewsViewModel @Inject constructor(
                     // drop left the row sitting there unexplained (REV2-50).
                     // Same copy as the issue Changes tab's merge.
                     _mergeErrors.value = _mergeErrors.value +
-                        (groupKey to trpcErrorMessage(t, "The pull request could not be merged"))
+                        (groupKey to MergeFailure.from(t, "The pull request could not be merged"))
                 }
             _merging.value = _merging.value - groupKey
         }
@@ -171,14 +171,14 @@ class ReviewsViewModel @Inject constructor(
     // Scaffold snackbar landed behind the floating bottom nav pill, which is
     // drawn over the whole NavHost, so the reason a merge failed was
     // unreadable). Cleared by the next attempt on that row.
-    private val _mergeErrors = MutableStateFlow<Map<String, String>>(emptyMap())
-    val mergeErrors: StateFlow<Map<String, String>> = _mergeErrors
+    private val _mergeErrors = MutableStateFlow<Map<String, MergeFailure>>(emptyMap())
+    val mergeErrors: StateFlow<Map<String, MergeFailure>> = _mergeErrors
 
     private val _merging = MutableStateFlow<Set<String>>(emptySet())
     val merging: StateFlow<Set<String>> = _merging
 
     // ── Remote start (EXP-323) ───────────────────────────────────────────────
-    // A failed merge is usually a conflict, so the row offers the builtin "Fix
+    // A merge refused for a REAL conflict (EXP-533) offers the builtin "Fix
     // merge conflicts" run — desktop parity (its Reviews list has the same
     // button). The launcher plumbing is the shared delegate's.
     val steerDevices: StateFlow<List<SteerDevice>?> get() = steerLaunch.devices

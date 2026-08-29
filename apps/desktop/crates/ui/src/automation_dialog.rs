@@ -215,7 +215,7 @@ impl AutomationDialogView {
                 Ok(()) => native_dialog::close_dialog_window(window, cx),
                 Err(err) => {
                     view.submitting = false;
-                    view.error = Some(format!("{err}").into());
+                    view.error = Some(err.user_message().into());
                     cx.notify();
                 }
             });

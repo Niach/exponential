@@ -63,6 +63,80 @@ const val TEAM_DELETE_SUBSCRIPTION_MESSAGE =
     "This team has an active subscription. Cancel the subscription on the web before deleting the team."
 
 /**
+ * EXP-533: the ONE sentence every client shows when a request never reached
+ * the server. Byte-identical to the web `OFFLINE_ERROR_MESSAGE`, iOS
+ * `offlineErrorMessage` and desktop `api::error::OFFLINE_MESSAGE` — a
+ * transport failure must read as "you are offline", never as the platform's
+ * raw text (the Android leak this issue opened on was
+ * `Unable to resolve host "app.exponential.at"`).
+ */
+const val OFFLINE_MESSAGE = "You're offline. Check your connection and try again."
+
+/**
+ * Whether [error] is a transport failure — the request never got an answer.
+ * Walks the cause chain, since ktor wraps engine exceptions (same shape as
+ * `ShapeClient.isNetworkUnready`).
+ *
+ * A [TrpcException] is NEVER offline: it is thrown only after a response came
+ * back, which proves the server was reachable.
+ */
+fun isOfflineError(error: Throwable?): Boolean {
+    var t: Throwable? = error
+    var depth = 0
+    while (t != null && depth < 16) {
+        if (t is TrpcException) return false
+        val offline = when (t) {
+            is java.nio.channels.UnresolvedAddressException,
+            is java.net.UnknownHostException,
+            is java.net.ConnectException,
+            is java.net.NoRouteToHostException,
+            is java.net.PortUnreachableException,
+            // ktor's SocketTimeoutException is a JVM typealias for java.net's;
+            // only ConnectTimeoutException is a distinct class.
+            is java.net.SocketTimeoutException,
+            is io.ktor.client.network.sockets.ConnectTimeoutException,
+            -> true
+            // Everything else the engine can raise on a dead radio, a dropped
+            // VPN or a closed socket mid-body is an IOException.
+            else -> t is java.io.IOException
+        }
+        if (offline) return true
+        val next = t.cause
+        t = if (next === t) null else next
+        depth++
+    }
+    return false
+}
+
+/**
+ * Whether [error] is a REAL merge conflict — the only failure the builtin
+ * "Fix merge conflicts" recovery run can do anything about. Everything else a
+ * merge can fail with (branch protection, a stale base, an unreachable server)
+ * must not offer it.
+ */
+fun isConflictError(error: Throwable?): Boolean {
+    val trpc = error as? TrpcException ?: return false
+    if (trpc.status == HttpStatusCode.Conflict) return true
+    // TRANSITIONAL (EXP-533): remove once every server answers a real conflict with 409
+    return trpc.status == HttpStatusCode.PreconditionFailed &&
+        trpc.message?.contains("has merge conflicts with") == true
+}
+
+/**
+ * The tRPC failure's user-presentable message, or [fallback] for anything
+ * that isn't a [TrpcException]. Sanitization (server `message` extraction +
+ * EXP-216 plan-cap neutralization) happens at the throw site in TrpcClient
+ * (EXP-219), so the exception message is already safe to render.
+ *
+ * A transport failure answers [OFFLINE_MESSAGE] before anything else: its
+ * `message` is the engine's own text, which is never presentable.
+ */
+fun trpcErrorMessage(error: Throwable, fallback: String): String {
+    if (isOfflineError(error)) return OFFLINE_MESSAGE
+    return (error as? TrpcException)?.message?.takeIf { it.isNotBlank() } ?: fallback
+}
+
+/**
  * Extract the user-presentable `message` from a tRPC error body
  * (`{"error":{"message":…}}`, tolerating the nested `error.json` payload).
  * Plan-cap messages are replaced with neutral copy and the team-delete

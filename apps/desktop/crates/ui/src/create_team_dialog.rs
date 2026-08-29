@@ -174,7 +174,7 @@ impl CreateTeamDialogView {
                         // Web keeps the dialog open and shows the message —
                         // including the free-tier owned-teams-cap FORBIDDEN
                         // (the server's message says "upgrade" itself).
-                        this.error = Some(format!("{err}").into());
+                        this.error = Some(err.user_message().into());
                         this.submitting = false;
                         cx.notify();
                     });

@@ -335,7 +335,7 @@ impl BoardDetailPane {
             if let Err(err) = result {
                 log::warn!("[ui] boards.setRepository failed: {err}");
                 let _ = this.update(cx, |this, cx| {
-                    this.link_error = Some(format!("{err}").into());
+                    this.link_error = Some(err.user_message().into());
                     cx.notify();
                 });
             }

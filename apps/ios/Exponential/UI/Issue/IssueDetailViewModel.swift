@@ -397,7 +397,7 @@ final class IssueDetailViewModel {
                 try await subscriptionsApi.subscribe(accountId: accountId, issueId: issueId)
             }
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
         }
     }
 
@@ -585,8 +585,8 @@ final class IssueDetailViewModel {
                 }
             } catch {
                 startPending = false
-                startWatcher.failed(error.localizedDescription)
-                self.error = error.localizedDescription
+                startWatcher.failed(error.userFacingMessage)
+                self.error = error.userFacingMessage
             }
         }
     }
@@ -622,8 +622,8 @@ final class IssueDetailViewModel {
                     accountId: accountId
                 )
             } catch {
-                startWatcher.failed(error.localizedDescription)
-                self.error = error.localizedDescription
+                startWatcher.failed(error.userFacingMessage)
+                self.error = error.userFacingMessage
             }
         }
     }
@@ -648,7 +648,7 @@ final class IssueDetailViewModel {
         do {
             try await issuesApi.move(accountId: accountId, id: issue.id, boardId: boardId)
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
         }
     }
 
@@ -905,7 +905,7 @@ final class IssueDetailViewModel {
             }
         } catch {
             guard let index = pendingFileUploads.firstIndex(where: { $0.id == pendingId }) else { return }
-            pendingFileUploads[index].failure = error.localizedDescription
+            pendingFileUploads[index].failure = error.userFacingMessage
         }
     }
 
@@ -918,7 +918,7 @@ final class IssueDetailViewModel {
         do {
             try await attachmentsApi.delete(accountId: accountId, attachmentId: id)
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
         }
     }
 
@@ -945,7 +945,7 @@ final class IssueDetailViewModel {
             try data.write(to: destination, options: .atomic)
             return destination
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
             return nil
         }
     }
@@ -1034,7 +1034,7 @@ final class IssueDetailViewModel {
             )
             try await labelsApi.addToIssue(accountId: accountId, issueId: issue.id, labelId: labelId)
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
         }
     }
 
@@ -1047,7 +1047,7 @@ final class IssueDetailViewModel {
                 try await labelsApi.addToIssue(accountId: accountId, issueId: issue.id, labelId: labelId)
             }
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
         }
     }
 
@@ -1186,7 +1186,7 @@ final class IssueDetailViewModel {
             try await issuesApi.delete(accountId: accountId, id: issue.id)
             return true
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
             return false
         }
     }
@@ -1200,7 +1200,7 @@ final class IssueDetailViewModel {
             try await issuesApi.update(accountId: accountId, input)
             return true
         } catch {
-            self.error = error.localizedDescription
+            self.error = error.userFacingMessage
             return false
         }
     }
