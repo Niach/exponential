@@ -27,22 +27,3 @@ export function sessionDisplayState(
   if (session.needsInput && !merged) return `needs_input`
   return `running`
 }
-
-/** EXP-637: how an ENDED run reads in the runs lists. `outcome` is written
- * only by the agent's own `exponential_sessions_end`; every other end path
- * (client exit, kill, merge, sweep) leaves it NULL and the run is simply
- * "Ended". Hand-mirrored on iOS (`RunOutcome.swift`), Android
- * (`domain/RunOutcome.kt`) and desktop (`ended_runs.rs`) — the strings are
- * byte-equal across all four, move them in lockstep. */
-export function sessionOutcomeLabel(outcome: string | null | undefined): string {
-  switch (outcome) {
-    case `done`:
-      return `Done`
-    case `blocked`:
-      return `Blocked`
-    case `no_changes`:
-      return `No changes`
-    default:
-      return `Ended`
-  }
-}

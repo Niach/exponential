@@ -707,11 +707,10 @@ export const codingSessions = pgTable(
     // EXP-637 close-out (all synced): the agent's own account of the run,
     // written ONCE by the `exponential_sessions_end` MCP tool (the calling
     // session is identified by the launcher-injected `X-Exp-Session-Id`
-    // header). `summary` is plain GFM text ≤ MAX_CODING_SESSION_SUMMARY,
-    // `outcome` is codingSessionOutcomeValues. Both stay NULL on every other
-    // end path, and an already-ended row never has them overwritten.
+    // header). `summary` is plain GFM text ≤ MAX_CODING_SESSION_SUMMARY; it
+    // stays NULL on every other end path, and an already-ended row never has
+    // it overwritten.
     summary: text(`summary`),
-    outcome: varchar(`outcome`, { length: 16 }),
     // Who ended the run (codingSessionEndedByValues, documented varchar):
     // `agent` (sessions_end) · `user` (steer.killSession) · `client`
     // (codingSessions.end — agent exit, tab close, quit) · `merge` (the PR

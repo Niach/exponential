@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { PgDialect } from "drizzle-orm/pg-core"
 
@@ -278,6 +279,31 @@ function collectTools(
     gates
   )
   return tools
+}
+
+/** The registration DEFS (not the handlers) — the input schemas, so a test
+ * can assert what an argument list is allowed to carry. */
+function collectToolDefs(
+  gates: McpToolGates = ALL_MCP_TOOL_GATES
+): Map<string, { inputSchema?: Record<string, z.ZodType> }> {
+  const defs = new Map<string, { inputSchema?: Record<string, z.ZodType> }>()
+  const fakeServer = {
+    registerTool: (
+      name: string,
+      def: { inputSchema?: Record<string, z.ZodType> }
+    ) => {
+      defs.set(name, def)
+    },
+  }
+  registerExponentialTools(
+    fakeServer as never,
+    USER,
+    new Request(`https://x.test/api/mcp`),
+    FULL_ACCESS,
+    SESSION,
+    gates
+  )
+  return defs
 }
 
 const tools = collectTools()
@@ -1130,37 +1156,46 @@ describe(`exponential_sessions_end`, () => {
   it(`refuses outside a launched session, naming the missing header`, async () => {
     const result = await collectTools(USER, null, UNATTENDED).get(
       `exponential_sessions_end`
-    )!({ summary: `did the thing`, outcome: `done` })
+    )!({ summary: `did the thing` })
 
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`X-Exp-Session-Id`)
     expect(endSessionByAgent).not.toHaveBeenCalled()
   })
 
-  it(`closes the header session out with the summary and outcome`, async () => {
+  it(`closes the header session out with the summary`, async () => {
     vi.mocked(endSessionByAgent).mockResolvedValue({
       sessionId: SESSION,
       status: `ended`,
-      outcome: `blocked`,
       alreadyEnded: false,
       keptOpen: false,
     })
 
     const result = await collectTools(USER, SESSION, UNATTENDED).get(
       `exponential_sessions_end`
-    )!({ summary: `Stuck on the migration.`, outcome: `blocked` })
+    )!({ summary: `Stuck on the migration.` })
 
     expect(parseOk(result)).toEqual({
       sessionId: SESSION,
       status: `ended`,
-      outcome: `blocked`,
       alreadyEnded: false,
       keptOpen: false,
     })
     expect(endSessionByAgent).toHaveBeenCalledWith(db, SESSION, `user-1`, {
       summary: `Stuck on the migration.`,
-      outcome: `blocked`,
     })
+  })
+
+  // EXP-686 dropped the self-reported outcome. A desktop/CLI build from
+  // before that still sends one — the schema must strip it, never 400 the
+  // close-out of a run nobody is watching.
+  it(`tolerates an old client's stray outcome argument`, () => {
+    const schema = collectToolDefs(UNATTENDED).get(`exponential_sessions_end`)!
+      .inputSchema!
+    const parsed = z
+      .object(schema)
+      .parse({ summary: `Shipped it.`, outcome: `done` })
+    expect(parsed).toEqual({ summary: `Shipped it.` })
   })
 
   // EXP-679: a person-started run never gets the tool — the close-out is
@@ -1178,7 +1213,7 @@ describe(`exponential_sessions_end`, () => {
 
     const result = await collectTools(USER, SESSION, UNATTENDED).get(
       `exponential_sessions_end`
-    )!({ summary: `s`, outcome: `done` })
+    )!({ summary: `s` })
 
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`not allowed here`)
@@ -1739,7 +1774,7 @@ describe(`exponential_sessions_list`, () => {
     for (const column of SERVER_ONLY_SESSION_COLUMNS) {
       expect(projection).not.toContain(column)
     }
-    for (const column of [`id`, `issueId`, `issueIdentifier`, `summary`, `outcome`, `endedBy`, `branch`, `deviceId`]) {
+    for (const column of [`id`, `issueId`, `issueIdentifier`, `summary`, `endedBy`, `branch`, `deviceId`]) {
       expect(projection).toContain(column)
     }
 
@@ -1863,9 +1898,9 @@ describe(`exponential_sessions_list`, () => {
 
 describe(`exponential_sessions_get`, () => {
   it(`returns the projected row and checks membership for a teammate's run`, async () => {
-    dbRows.current = [{ id: RUN, userId: `user-2`, teamId: WS, status: `ended`, summary: `Shipped`, outcome: `done` }]
+    dbRows.current = [{ id: RUN, userId: `user-2`, teamId: WS, status: `ended`, summary: `Shipped` }]
     const result = await tool(`exponential_sessions_get`)({ id: RUN })
-    expect(parseOk(result)).toMatchObject({ id: RUN, summary: `Shipped`, outcome: `done` })
+    expect(parseOk(result)).toMatchObject({ id: RUN, summary: `Shipped` })
     expect(membership.resolveTeamAccess).toHaveBeenCalledWith(`user-1`, WS)
   })
 

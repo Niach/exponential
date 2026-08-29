@@ -19,7 +19,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -27,8 +26,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,12 +52,12 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.nextScheduleRun
 import com.exponential.app.domain.triggerSummary
+import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EndedRunRow
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassSegmentedControl
-import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.modelLabel
@@ -80,12 +77,17 @@ import java.util.Date
 // the selected team's action prompts, each with a Run affordance that opens
 // the unified Start-coding sheet (EXP-257) preselected on that action — one
 // launcher for issue runs AND action runs, with typed input fields and the
-// full agent/model/effort/toggle options. The "Fix merge conflicts" builtin
-// pins first by its flag; "Create action" left the list (EXP-431) — the
-// "Actions" section header's "New action" button (web-parity placement,
-// EXP-574) opens the dedicated [CreateActionSheet] (EXP-615) instead. After a
+// full agent/model/effort/toggle options. Neither client builtin is listed:
+// "Create action" left in EXP-431 (the "Actions" section header's "New action"
+// button, web-parity placement per EXP-574, opens the dedicated
+// [CreateActionSheet] (EXP-615) instead) and "Fix merge conflicts" in EXP-686
+// (it stays launchable from Reviews and the start-coding sheet). After a
 // successful send the screen waits for the desktop's synced coding_sessions
 // row and jumps into the existing agent session viewer once.
+//
+// EXP-686 gave it its own bottom-bar tab (it used to be a push off the Agents
+// header, now Devices), so the screen is a ROOT surface: a plain header row,
+// no back button, and its lists clear the floating bar.
 //
 // EXP-530 splits the surface into three segments (the PersonalScreen
 // GlassSegmentedControl pattern): Actions (the plain list), Automations and
@@ -101,10 +103,8 @@ private const val SEGMENT_ACTIONS = "actions"
 private const val SEGMENT_AUTOMATIONS = "automations"
 private const val SEGMENT_SUGGESTIONS = "suggestions"
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ActionsScreen(
-    onBack: () -> Unit,
     onOpenSteer: (codingSessionId: String) -> Unit,
     viewModel: ActionsViewModel = hiltViewModel(),
 ) {
@@ -150,19 +150,16 @@ fun ActionsScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Actions") },
-                navigationIcon = {
-                    TopBarBackButton(onClick = onBack)
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-            )
-        },
-        containerColor = Color.Transparent,
-    ) { padding ->
+    Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            // The root screens' header (AgentsScreen / SearchScreen parity):
+            // a plain large title, no back button — this is a tab now.
+            Text(
+                "Actions",
+                style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+            )
             GlassSegmentedControl(
                 options = listOf(SEGMENT_ACTIONS, SEGMENT_AUTOMATIONS, SEGMENT_SUGGESTIONS),
                 selected = when (segment) {
@@ -179,12 +176,14 @@ fun ActionsScreen(
                 },
                 onSelect = { segment = it },
                 modifier = Modifier.padding(horizontal = 16.dp),
+                testTag = { "actions-segment-$it" },
             )
             Spacer(Modifier.height(4.dp))
             Box(modifier = Modifier.fillMaxSize()) {
                 when (segment) {
                     SEGMENT_AUTOMATIONS -> AutomationsContent(
                         automations = automations,
+                        onOpenSteer = onOpenSteer,
                         actions = state.actions,
                         devices = syncedDevices,
                         lastRuns = lastRunByAutomation,
@@ -228,7 +227,7 @@ fun ActionsScreen(
                         state.actions.isEmpty() -> ActionsEmptyState()
                         else -> LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             // EXP-574 (web parity): "Actions · count" header
@@ -248,12 +247,10 @@ fun ActionsScreen(
                             if (runState !is ActionRunState.Idle) {
                                 item(key = "__run_state__") { SteerRunCaptionRow(runState) }
                             }
-                            // Builtin rows pin FIRST by the flag, never by sort order
-                            // (EXP-257; the stable sort keeps server order otherwise).
-                            items(
-                                state.actions.sortedByDescending { it.isBuiltin },
-                                key = { it.id },
-                            ) { action ->
+                            // Server order (sort_order, then name) — since
+                            // EXP-686 the list carries no client builtins to
+                            // pin above it.
+                            items(state.actions, key = { it.id }) { action ->
                                 ActionRow(
                                     action = action,
                                     // EXP-583: an action only says HOW MANY
@@ -437,6 +434,8 @@ private fun ActionRow(action: ActionDto, automationCount: Int, onRun: () -> Unit
 @Composable
 private fun AutomationsContent(
     automations: List<AutomationEntity>,
+    // EXP-686: a run that is still going opens its live session from the row.
+    onOpenSteer: (codingSessionId: String) -> Unit,
     actions: List<ActionDto>,
     devices: List<SteerDevice>,
     lastRuns: Map<String, CodingSessionEntity>,
@@ -460,7 +459,7 @@ private fun AutomationsContent(
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         // EXP-574 (web parity): counted section header, with the owner-only
@@ -528,23 +527,23 @@ private fun AutomationsContent(
                 )
             }
             items(runs, key = { it.id }) { session ->
-                // A FINISHED run shows the shared expandable close-out row
-                // (summary behind the tap, Resume when its machine can take
-                // it); one still going keeps the plain status line.
-                if (session.status == DomainContract.codingSessionStatusEnded) {
-                    val target = resumeTargets[session.id]
-                    EndedRunRow(
-                        title = session.actionName ?: "Action run",
-                        outcome = session.outcome,
-                        summary = session.summary,
-                        timeLabel = relativeTime(session.endedAt ?: session.startedAt),
-                        resumeTarget = target,
-                        resuming = session.id in resuming,
-                        onResume = onResume,
-                    )
-                } else {
-                    AutomatedRunRow(session)
-                }
+                // One row shape for both (EXP-686): a FINISHED run expands to
+                // its close-out summary and offers Resume when its machine can
+                // take it; one still going reads "Running" and opens its live
+                // session on tap.
+                val ended = session.status == DomainContract.codingSessionStatusEnded
+                EndedRunRow(
+                    title = session.actionName ?: "Action run",
+                    summary = session.summary,
+                    timeLabel = relativeTime(
+                        if (ended) session.endedAt ?: session.startedAt else session.startedAt,
+                    ),
+                    isLive = !ended,
+                    onOpen = if (ended) null else ({ onOpenSteer(session.id) }),
+                    resumeTarget = resumeTargets[session.id],
+                    resuming = session.id in resuming,
+                    onResume = onResume,
+                )
             }
         }
     }
@@ -649,13 +648,16 @@ private fun AutomationRow(
                 }
             }
             if (lastRun != null) {
+                // EXP-686: no status word — the run's own row below carries
+                // "Running", and a finished one says nothing (iOS parity).
                 val when_ = relativeTime(lastRun.startedAt)
-                Text(
-                    "Last run ${sessionStatusLabel(lastRun.status)}" +
-                        if (when_.isEmpty()) "" else " · $when_",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                )
+                if (when_.isNotEmpty()) {
+                    Text(
+                        "Last run $when_",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
             }
         }
         Spacer(Modifier.width(8.dp))
@@ -744,52 +746,6 @@ private fun deviceDisplayLabel(device: SteerDevice?, deviceId: String): String {
 private fun formatRunTime(epochMs: Long): String =
     DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(epochMs))
 
-// One automation-started coding_sessions row that is STILL GOING
-// (started_reason non-null): action-name snapshot, status, relative start
-// time. No "Automated" badge (EXP-643) — the section header already says so.
-// EXP-637: a run that has ENDED renders as the shared EndedRunRow instead.
-@Composable
-private fun AutomatedRunRow(session: CodingSessionEntity) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("automated-run-row")
-            .glassRow()
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(
-            session.actionName ?: "Action run",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            sessionStatusLabel(session.status),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-        val time = relativeTime(session.startedAt)
-        if (time.isNotEmpty()) {
-            Text(
-                time,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-        }
-    }
-}
-
-private fun sessionStatusLabel(status: String): String = when (status) {
-    DomainContract.codingSessionStatusRunning -> "Running"
-    DomainContract.codingSessionStatusInReview -> "In review"
-    DomainContract.codingSessionStatusEnded -> "Ended"
-    else -> status.replace('_', ' ').replaceFirstChar { it.uppercaseChar() }
-}
-
 @Composable
 private fun AutomationsEmptyState(isOwner: Boolean, onNew: () -> Unit) {
     Box(Modifier.fillMaxSize().padding(horizontal = 40.dp), contentAlignment = Alignment.Center) {
@@ -827,7 +783,7 @@ private fun AutomationsEmptyState(isOwner: Boolean, onNew: () -> Unit) {
 private fun SuggestionsContent(onUse: (ActionSuggestion) -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items(ACTION_SUGGESTIONS, key = { it.id }) { suggestion ->
@@ -868,7 +824,7 @@ private fun SuggestionRow(suggestion: ActionSuggestion, onUse: () -> Unit) {
                     // EXP-677: yield to the chip instead of pushing it off the row.
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                // EXP-583: what "Use suggestion" will set up — an action, or
+                // EXP-583: what "Use" will set up — an action, or
                 // the automation that runs one (EXP-677: short labels, the
                 // chip was cut off).
                 SuggestionKindChip(
@@ -884,7 +840,7 @@ private fun SuggestionRow(suggestion: ActionSuggestion, onUse: () -> Unit) {
             )
         }
         Text(
-            "Use suggestion",
+            "Use",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary,
             maxLines = 1,

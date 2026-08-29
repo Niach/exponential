@@ -1079,9 +1079,9 @@ async function main() {
   // lookup. Ended, so they never join the live agents list.
   //
   // EXP-663: both rows are a full EXP-637 close-out — `ended_by: 'agent'` plus
-  // an outcome and the summary the agent wrote — so the "Recent automated
-  // runs" rows expand into a summary, and the two outcomes differ on purpose
-  // so a capture photographs both the done tint and the blocked glyph.
+  // the summary the agent wrote — so the "Recent automated runs" rows expand
+  // into something. EXP-686: the summary renders as real markdown on every
+  // client, so one of them is a GFM bullet list to photograph that.
   await db.insert(codingSessions).values([
     {
       teamId: ws.id,
@@ -1094,8 +1094,7 @@ async function main() {
       deviceLabel: DEMO_DEVICE_LABEL,
       status: `ended`,
       endedBy: `agent`,
-      outcome: `done`,
-      summary: `Triaged 4 failing specs: 3 flaky (retry added), 1 real regression filed as APP-31.`,
+      summary: `Triaged 4 failing specs:\n\n- 3 flaky — added a retry and re-ran them green\n- 1 real regression in \`due-date-picker\`, filed as APP-31\n- No production code changed`,
       startedAt: hoursAgo(9),
       endedAt: hoursAgo(8),
     },
@@ -1110,7 +1109,6 @@ async function main() {
       deviceLabel: DEMO_DEVICE_LABEL,
       status: `ended`,
       endedBy: `agent`,
-      outcome: `blocked`,
       summary: `Bumped 12 packages; react-day-picker 9.x needs a manual API migration in due-date-picker.tsx before this can merge.`,
       startedAt: hoursAgo(33),
       endedAt: hoursAgo(32),

@@ -5,7 +5,7 @@ import Foundation
 /// apps/web/src/lib/action-suggestions.ts — id/title/description/icon must
 /// stay BYTE-IDENTICAL to the web list (icons come from the curated pickable
 /// registry set). Each description is written as INSTRUCTIONS for what the
-/// authored action's prompt should do: "Use suggestion" opens the create
+/// authored action's prompt should do: "Use" opens the create
 /// sheet with it prefilled as the builtin "Create action" run's description
 /// input, so the creator agent acts on it verbatim.
 ///

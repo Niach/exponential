@@ -13,6 +13,8 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { EndedSessionRow } from "@/components/agent-session-row"
+import { SuggestionsButton } from "@/components/getting-started/getting-started-sheet"
+import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
 import { getActionIcon } from "@/lib/board-icons"
 import {
   automationCollection,
@@ -228,15 +230,21 @@ export function AutomationsTab({
   isOwner,
   steerEnabled,
   teamId,
+  showSuggestions = false,
 }: {
-  /** The route's sorted action list (builtin included — never automated). */
+  /** The lookup pool for run/automation names — the builtins included, so a
+   * fix-conflicts run is named even though it is not listed (EXP-686). */
   actions: TeamAction[] | null
   devices: SteerDevice[]
   isOwner: boolean
   /** Same gate as the Actions tab's "New action" button. */
   steerEnabled: boolean
   teamId: string
+  /** EXP-686: the desktop-viewport `/automations` page carries the lightbulb
+   * to Getting started's suggestions; the mobile tabs have their own tab. */
+  showSuggestions?: boolean
 }) {
+  const dock = useAgentDock()
   const { data: automationRows } = useLiveQuery(
     (query) =>
       query
@@ -324,20 +332,25 @@ export function AutomationsTab({
   }
 
   const canCreate = steerEnabled && isOwner
-  const newButton = canCreate ? (
-    <Button
-      variant="outline"
-      size="sm"
-      className="h-6 gap-1 px-2 text-xs"
-      onClick={() => {
-        setEditing(null)
-        setDialogOpen(true)
-      }}
-    >
-      <AutomationCreateIcon className="size-3.5" />
-      New automation
-    </Button>
-  ) : undefined
+  const headerTrailing = !showSuggestions && !canCreate ? undefined : (
+    <>
+      {showSuggestions && <SuggestionsButton />}
+      {canCreate && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-6 gap-1 px-2 text-xs"
+          onClick={() => {
+            setEditing(null)
+            setDialogOpen(true)
+          }}
+        >
+          <AutomationCreateIcon className="size-3.5" />
+          New automation
+        </Button>
+      )}
+    </>
+  )
 
   if (actions === null) {
     return (
@@ -352,7 +365,7 @@ export function AutomationsTab({
           <GlassSectionHeader
             label="Automations"
             count={automations.length}
-            trailing={newButton}
+            trailing={headerTrailing}
           />
           {automations.length === 0 ? (
             <div className="px-1 py-3 text-sm text-muted-foreground">
@@ -391,8 +404,10 @@ export function AutomationsTab({
           ) : (
             <div className="flex flex-col gap-2">
               {automatedRuns.slice(0, 10).map((session) =>
-                // EXP-637: an ENDED run has a close-out to expand into; a live
-                // one is still just a status line.
+                // EXP-637: an ENDED run has a close-out to expand into.
+                // EXP-686: a live one has no self-reported state left to
+                // show — it just says "Running", and the whole row opens the
+                // session in the dock.
                 session.status === `ended` ? (
                   <EndedSessionRow
                     key={session.id}
@@ -412,7 +427,13 @@ export function AutomationsTab({
                     }
                   />
                 ) : (
-                  <GlassRow key={session.id} className="gap-2 text-sm">
+                  <GlassRow
+                    key={session.id}
+                    interactive
+                    className="gap-2 text-sm"
+                    onClick={() => dock?.openDock(session.id)}
+                    data-testid={`automated-run-${session.id}`}
+                  >
                     <span className="min-w-0 flex-1 truncate">
                       {session.actionName ??
                         (session.actionId
@@ -421,7 +442,7 @@ export function AutomationsTab({
                         `Action`}
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground">
-                      {`${sessionStatusLabel(session.status)} · ${relativeTime(session.createdAt)}`}
+                      {`Running · ${relativeTime(session.createdAt)}`}
                     </span>
                   </GlassRow>
                 )

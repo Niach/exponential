@@ -1713,10 +1713,9 @@ impl Render for CenterPanel {
         // the tool column is unmounted. EXP-480: the Actions page is the
         // same tab-less full-page mode (the rail stays; any rail-tool click
         // leaves it via `activate_tool`'s `set_screen(None)`).
-        let full_page = matches!(
-            resolved_screen(&self.nav, cx),
-            Some(Screen::Settings) | Some(Screen::Actions) | Some(Screen::GettingStarted)
-        );
+        let full_page = resolved_screen(&self.nav, cx).is_some_and(|screen| {
+            matches!(screen, Screen::Settings) || screen.is_rail_full_page()
+        });
         // EXP-525: a mount/unmount of the center split settles its layout on
         // the FOLLOWING frame (gpui's stray fit-content passes, EXP-492 —
         // the screens.rs layout tests draw twice per width for the same

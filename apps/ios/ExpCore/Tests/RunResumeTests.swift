@@ -3,18 +3,15 @@ import XCTest
 @testable import ExpCore
 
 // EXP-637: the agent closes out its own run (`exponential_sessions_end` stamps
-// summary + outcome + ended_by), and every client shows the SAME words for
-// what came back. These tests pin the labels (byte-equal with web's
-// `sessionOutcomeLabel`, desktop's `ended_runs.rs` and Android's
-// `domain/RunOutcome.kt`) and the gates on offering a Resume.
-final class RunOutcomeTests: XCTestCase {
+// summary + ended_by; EXP-686 dropped the self-reported outcome). These tests
+// pin the gates on offering a Resume.
+final class RunResumeTests: XCTestCase {
 
     private func session(
         id: String = "sess-1",
         userId: String = "user-1",
         status: String = "ended",
         deviceId: String? = "dev-1",
-        outcome: String? = "done",
         endedBy: String? = "agent"
     ) -> CodingSessionEntity {
         CodingSessionEntity(
@@ -25,7 +22,6 @@ final class RunOutcomeTests: XCTestCase {
             deviceLabel: "macbook",
             deviceId: deviceId,
             status: status,
-            outcome: outcome,
             endedBy: endedBy,
             startedAt: "2026-08-27T09:00:00Z",
             endedAt: "2026-08-27T09:12:00Z",
@@ -43,26 +39,6 @@ final class RunOutcomeTests: XCTestCase {
         SteerDevice(
             deviceId: id, deviceLabel: "macbook", caps: caps, online: online, owner: owner
         )
-    }
-
-    // MARK: - Labels
-
-    func testOutcomeLabelsAreTheSharedWords() {
-        XCTAssertEqual(RunOutcomePresentation.label(DomainContract.codingSessionOutcomeDone), "Done")
-        XCTAssertEqual(
-            RunOutcomePresentation.label(DomainContract.codingSessionOutcomeBlocked), "Blocked"
-        )
-        XCTAssertEqual(
-            RunOutcomePresentation.label(DomainContract.codingSessionOutcomeNoChanges), "No changes"
-        )
-    }
-
-    func testAnEndWithoutAnOutcomeJustSaysEnded() {
-        // Every path except the agent's own close-out (kill switch, tab close,
-        // PR merge, sweep) leaves the column NULL.
-        XCTAssertEqual(RunOutcomePresentation.label(nil), "Ended")
-        // A value from a newer client must not render as a raw enum token.
-        XCTAssertEqual(RunOutcomePresentation.label("something_new"), "Ended")
     }
 
     // MARK: - Resume gates

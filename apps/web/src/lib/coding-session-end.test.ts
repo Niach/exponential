@@ -52,12 +52,12 @@ function whereShape(cond: unknown, out: unknown[] = []): unknown[] {
   return out
 }
 
-const close = { summary: `Shipped the fix.`, outcome: `done` } as const
+const close = { summary: `Shipped the fix.` } as const
 
 beforeEach(() => {
   selectResults.length = 0
   updates.length = 0
-  updateReturning = [{ id: SESSION, status: `ended`, outcome: `done` }]
+  updateReturning = [{ id: SESSION, status: `ended` }]
 })
 
 describe(`endSessionByAgent`, () => {
@@ -68,7 +68,6 @@ describe(`endSessionByAgent`, () => {
         userId: `actor`,
         hostUserId: null,
         status: `running`,
-        outcome: null,
         startedReason: `schedule`,
       },
     ])
@@ -78,7 +77,6 @@ describe(`endSessionByAgent`, () => {
     expect(result).toEqual({
       sessionId: SESSION,
       status: `ended`,
-      outcome: `done`,
       alreadyEnded: false,
       keptOpen: false,
     })
@@ -86,7 +84,6 @@ describe(`endSessionByAgent`, () => {
       status: `ended`,
       endedBy: `agent`,
       summary: `Shipped the fix.`,
-      outcome: `done`,
       needsInput: false,
     })
     // Status-fenced so a close-out racing a kill can't resurrect the row.
@@ -108,31 +105,27 @@ describe(`endSessionByAgent`, () => {
         userId: `actor`,
         hostUserId: null,
         status: `running`,
-        outcome: null,
         startedReason: null,
       },
     ])
-    updateReturning = [{ id: SESSION, status: `running`, outcome: `done` }]
+    updateReturning = [{ id: SESSION, status: `running` }]
 
     const result = await endSessionByAgent(fakeDb, SESSION, `actor`, close)
 
     expect(result).toEqual({
       sessionId: SESSION,
       status: `running`,
-      outcome: `done`,
       alreadyEnded: false,
       keptOpen: true,
     })
-    // Summary + outcome only: no status flip, no ended stamp, no end path,
-    // and needsInput is left for the idle nudge to own.
+    // Summary only: no status flip, no ended stamp, no end path, and
+    // needsInput is left for the idle nudge to own.
     expect(Object.keys(updates[0]!.values).sort()).toEqual([
-      `outcome`,
       `summary`,
       `updatedAt`,
     ])
     expect(updates[0]!.values).toMatchObject({
       summary: `Shipped the fix.`,
-      outcome: `done`,
     })
     // Still status-fenced: a close-out racing a kill must not stamp a
     // summary onto a row that just ended.
@@ -152,7 +145,6 @@ describe(`endSessionByAgent`, () => {
         userId: `actor`,
         hostUserId: null,
         status: `in_review`,
-        outcome: null,
         startedReason: `event`,
       },
     ])
@@ -171,7 +163,6 @@ describe(`endSessionByAgent`, () => {
         userId: `actor`,
         hostUserId: null,
         status: `ended`,
-        outcome: `blocked`,
         startedReason: null,
       },
     ])
@@ -181,7 +172,6 @@ describe(`endSessionByAgent`, () => {
     expect(result).toEqual({
       sessionId: SESSION,
       status: `ended`,
-      outcome: `blocked`,
       alreadyEnded: true,
       keptOpen: false,
     })
@@ -195,7 +185,6 @@ describe(`endSessionByAgent`, () => {
         userId: `actor`,
         hostUserId: null,
         status: `running`,
-        outcome: null,
         startedReason: `schedule`,
       },
     ])
@@ -213,7 +202,6 @@ describe(`endSessionByAgent`, () => {
         userId: `requester`,
         hostUserId: `actor`,
         status: `running`,
-        outcome: null,
         startedReason: null,
       },
     ])
@@ -229,7 +217,6 @@ describe(`endSessionByAgent`, () => {
         userId: `someone-else`,
         hostUserId: null,
         status: `running`,
-        outcome: null,
         startedReason: null,
       },
     ])

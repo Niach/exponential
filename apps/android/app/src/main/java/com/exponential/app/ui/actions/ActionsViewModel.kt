@@ -8,7 +8,6 @@ import com.exponential.app.data.api.AutomationsApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
-import com.exponential.app.data.api.builtinActions
 import com.exponential.app.data.api.toActionDto
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
@@ -332,10 +331,10 @@ class ActionsViewModel @Inject constructor(
     }
 
     // Live from the synced actions shape (EXP-268): the DAO orders by
-    // sort_order then name; the fix-conflicts builtin is prepended (the
-    // screens pin it first by the flag, never by sort order). "Create action"
-    // is deliberately NOT listed (EXP-431) — creation lives behind the top
-    // bar's "New action" button instead of posing as a runnable action.
+    // sort_order then name. NEITHER client builtin is listed (EXP-431,
+    // EXP-686): "Create action" lives behind the header's "New action" button,
+    // and "Fix merge conflicts" is launched from Reviews / the start-coding
+    // sheet (which builds its own list) — neither poses as a team action here.
     val state: StateFlow<ActionsState> =
         combine(dbFlow, selection.selectedId) { db, teamId ->
             db to teamId
@@ -345,9 +344,7 @@ class ActionsViewModel @Inject constructor(
             } else {
                 db.actionDao().observeByTeam(teamId).map { rows ->
                     ActionsState(
-                        actions = builtinActions(teamId)
-                            .filter { it.id != DomainContract.builtinCreateActionId } +
-                            rows.map { it.toActionDto(json) },
+                        actions = rows.map { it.toActionDto(json) },
                         loading = false,
                     )
                 }

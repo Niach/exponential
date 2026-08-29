@@ -16,12 +16,12 @@ import {
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
 const ActionChatIcon = conceptIcon(`action-chat`)
-const NavAgentsIcon = conceptIcon(`nav-agents`)
+const NavActionsIcon = conceptIcon(`nav-actions`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
+const NavDevicesIcon = conceptIcon(`nav-devices`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavIssuesIcon = conceptIcon(`nav-issues`)
 const NavReviewsIcon = conceptIcon(`nav-reviews`)
-const NavSearchIcon = conceptIcon(`nav-search`)
 const NavSupportIcon = conceptIcon(`nav-support`)
 
 // Bottom padding for every scroll container that sits under the floating
@@ -42,10 +42,7 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/reviews/$issueIdentifier`,
     fuzzy: true,
   })
-  // EXP-574: the mobile Actions page is a pushed detail view (native parity)
-  // with its own back header.
-  const onActions = matchRoute({ to: `/t/$teamSlug/agents/actions` })
-  return !onIssueDetail && !onReviewDetail && !onActions
+  return !onIssueDetail && !onReviewDetail
 }
 
 // The board the Issues tab / compose FAB / topbar switcher target: the
@@ -93,7 +90,7 @@ function ReviewsDot({ boards }: { boards: Board[] | undefined }) {
 
 // Amber while any live session waits on a plan approval / question
 // (EXP-214), live green otherwise.
-function AgentsDot({ teamId }: { teamId?: string }) {
+function DevicesDot({ teamId }: { teamId?: string }) {
   const { data: session } = useSession()
   const { count, needsInput } = useAgentsRunningCount(teamId, session?.user?.id)
   if (count === 0) return null
@@ -126,17 +123,17 @@ interface MobileTabBarProps {
   teamSlug: string
   team: Team | null | undefined
   boards: Board[] | undefined
-  onOpenSearch: () => void
 }
 
 // Native-parity mobile navigation (EXP-189): a floating glass pill with the
 // top-level destinations plus a detached compose FAB, replacing the old
 // sidebar-as-drawer. Desktop keeps the persistent sidebar (`md:hidden`).
+// EXP-686: Issues, Inbox, Support, Devices, Actions, Reviews — Search left
+// the bar for the board header (`use-issue-search.tsx`) to make room.
 export function MobileTabBar({
   teamSlug,
   team,
   boards,
-  onOpenSearch,
 }: MobileTabBarProps) {
   const matchRoute = useMatchRoute()
   const visible = useMobileChromeVisible()
@@ -149,8 +146,14 @@ export function MobileTabBar({
   )
   const onTeamIndex = Boolean(matchRoute({ to: `/t/$teamSlug` }))
   const onInbox = Boolean(matchRoute({ to: `/t/$teamSlug/inbox`, fuzzy: true }))
-  const onAgents = Boolean(
-    matchRoute({ to: `/t/$teamSlug/agents`, fuzzy: true })
+  const onDevices = Boolean(
+    matchRoute({ to: `/t/$teamSlug/devices`, fuzzy: true })
+  )
+  // EXP-686: `/automations` replace-navigates into the Actions page's
+  // Automations tab on mobile, but a slow network can render this bar first.
+  const onActions = Boolean(
+    matchRoute({ to: `/t/$teamSlug/actions`, fuzzy: true }) ||
+      matchRoute({ to: `/t/$teamSlug/automations`, fuzzy: true })
   )
   const onReviews = Boolean(
     matchRoute({ to: `/t/$teamSlug/reviews`, fuzzy: true })
@@ -207,13 +210,21 @@ export function MobileTabBar({
           </Link>
         )}
         <Link
-          to="/t/$teamSlug/agents"
+          to="/t/$teamSlug/devices"
           params={{ teamSlug }}
-          aria-label="Agents"
-          className={tabClass(onAgents)}
+          aria-label="Devices"
+          className={tabClass(onDevices)}
         >
-          <NavAgentsIcon className="size-5" />
-          <AgentsDot teamId={team?.id} />
+          <NavDevicesIcon className="size-5" />
+          <DevicesDot teamId={team?.id} />
+        </Link>
+        <Link
+          to="/t/$teamSlug/actions"
+          params={{ teamSlug }}
+          aria-label="Actions"
+          className={tabClass(onActions)}
+        >
+          <NavActionsIcon className="size-5" />
         </Link>
         <Link
           to="/t/$teamSlug/reviews"
@@ -224,23 +235,13 @@ export function MobileTabBar({
           <NavReviewsIcon className="size-5" />
           <ReviewsDot boards={boards} />
         </Link>
-        {team && (
-          <button
-            type="button"
-            onClick={onOpenSearch}
-            aria-label="Search"
-            className={tabClass(false)}
-          >
-            <NavSearchIcon className="size-5" />
-          </button>
-        )}
       </nav>
-      {/* EXP-631: the Agents tab's FAB slot starts a chat instead of an
+      {/* EXP-631: the Devices tab's FAB slot starts a chat instead of an
           issue — the same launcher the device rows open, on its Chat tab
-          (native parity: iOS/Android hide compose on Agents too). */}
-      {onAgents ? (
+          (native parity: iOS/Android hide compose on Devices too). */}
+      {onDevices ? (
         <Link
-          to="/t/$teamSlug/agents"
+          to="/t/$teamSlug/devices"
           params={{ teamSlug }}
           search={{ chat: 1 }}
           aria-label="Start chat"

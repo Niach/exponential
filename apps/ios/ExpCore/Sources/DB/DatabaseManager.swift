@@ -402,10 +402,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("action_id", .text)
                 t.column("action_name", .text)
                 // EXP-637: the agent's own close-out (`exponential_sessions_end`
-                // writes summary + outcome), who ended the run, and the ended
-                // run this one resumed.
+                // writes the summary; EXP-686 dropped the outcome beside it),
+                // who ended the run, and the ended run this one resumed.
                 t.column("summary", .text)
-                t.column("outcome", .text)
                 t.column("ended_by", .text)
                 t.column("resumed_from_id", .text)
                 t.column("started_at", .text).notNull()
@@ -1076,10 +1075,13 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
-        // v22 (EXP-637 agent run close-outs): four columns ride along on the
-        // coding-sessions shape — `summary` + `outcome`, written by the agent's
-        // own `exponential_sessions_end` call, `ended_by` (which path ended the
+        // v22 (EXP-637 agent run close-outs): three columns ride along on the
+        // coding-sessions shape — `summary`, written by the agent's own
+        // `exponential_sessions_end` call, `ended_by` (which path ended the
         // run) and `resumed_from_id` (the ended run a resume continues).
+        // EXP-686 removed the fourth (`outcome`) from the list rather than
+        // adding a column v24 immediately drops again — stores that already
+        // ran v22 keep it until v24.
         // Additive ALTERs guarded on column presence so fresh installs (which
         // get them from the v1 create above) and migration-fixture DBs converge
         // on the same schema, then the offset reset so already-synced rows
@@ -1087,7 +1089,7 @@ public final class DatabaseManager: @unchecked Sendable {
         migrator.registerMigration("v22_coding_session_outcome") { db in
             guard try db.tableExists("coding_sessions") else { return }
             let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
-            for column in ["summary", "outcome", "ended_by", "resumed_from_id"]
+            for column in ["summary", "ended_by", "resumed_from_id"]
             where !existing.contains(column) {
                 try db.alter(table: "coding_sessions") { t in
                     t.add(column: column, .text)
@@ -1138,6 +1140,21 @@ public final class DatabaseManager: @unchecked Sendable {
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" IN ('devices', 'coding-sessions')
                     """)
+            }
+        }
+
+        // v24 (EXP-686): the self-reported run `outcome` is gone from the
+        // server, the shape allowlist and every client. Drop the local column
+        // so an old store converges on the same schema a fresh install gets
+        // from the v1 create above. Guarded on presence (a v1 install made
+        // after EXP-686 never had it). No offset reset: nothing new arrives,
+        // the wire simply stops carrying a key the decoder no longer reads.
+        migrator.registerMigration("v24_drop_coding_session_outcome") { db in
+            guard try db.tableExists("coding_sessions") else { return }
+            let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+            guard existing.contains("outcome") else { return }
+            try db.alter(table: "coding_sessions") { t in
+                t.drop(column: "outcome")
             }
         }
 

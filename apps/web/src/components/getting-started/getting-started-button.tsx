@@ -1,78 +1,34 @@
-import { useEffect, useState } from "react"
-import { useRouterState } from "@tanstack/react-router"
 import { Sparkles } from "lucide-react"
 import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
-import { GettingStartedCards } from "@/components/getting-started/getting-started-cards"
+import { useGettingStartedSheet } from "@/components/getting-started/getting-started-sheet"
 import { useGettingStartedProgressContext } from "@/hooks/use-getting-started-progress"
-import type { Team } from "@/db/schema"
 
 // Sidebar-footer re-entry point for the "Getting started" cards (EXP-88):
 // the inline block on the empty board disappears once issues exist, so this
 // keeps the setup guidance reachable. EXP-548: rendered until every entry is
 // done (no dismissal), and not at all while the signals still load — the
-// desktop rail entry follows the exact same rule.
-export function GettingStartedButton({
-  teamSlug,
-  team,
-}: {
-  teamSlug: string
-  team: Team | null | undefined
-}) {
-  const [open, setOpen] = useState(false)
+// desktop rail entry follows the exact same rule. EXP-686: the sheet itself
+// lives at the team layout (`getting-started-sheet.tsx`), so the Actions and
+// Automations lightbulbs can open it once this entry has hidden itself.
+export function GettingStartedButton() {
   const { loading, complete } = useGettingStartedProgressContext()
-
-  // Close the sheet when a card's link navigates (e.g. "Set up in team
-  // settings") — otherwise it would keep covering the new page.
-  const pathname = useRouterState({ select: (state) => state.location.pathname })
-  useEffect(() => {
-    setOpen(false)
-  }, [pathname])
+  const sheet = useGettingStartedSheet()
 
   if (loading || complete) return null
 
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
-        onClick={() => setOpen(true)}
+        onClick={() => sheet.open(`first-steps`)}
         aria-label="Getting started"
         className="text-muted-foreground"
       >
         <Sparkles className="size-4" />
         <span>Getting started</span>
       </SidebarMenuButton>
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="right" className="overflow-y-auto sm:max-w-xl">
-          <SheetHeader>
-            <SheetTitle>Getting started</SheetTitle>
-            <SheetDescription>
-              Set up the coding loop, collect feedback from your site, and
-              connect your tools.
-            </SheetDescription>
-          </SheetHeader>
-          <div className="px-4 pb-6">
-            {/* The checklist needs the team row (signals + permissions
-                derive from it) — while it syncs, the sheet chrome alone is
-                fine. */}
-            {team && (
-              <GettingStartedCards
-                team={team}
-                teamSlug={teamSlug}
-                layout="stack"
-              />
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
     </SidebarMenuItem>
   )
 }

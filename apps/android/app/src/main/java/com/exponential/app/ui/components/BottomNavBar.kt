@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.icons.ExpIcons
@@ -36,10 +37,11 @@ import com.exponential.app.ui.theme.TextEmphasis
 // Linear-style floating bottom navigation: a dark pill with the top-level
 // destinations (Issues, My Work — the merged Inbox + My Issues personal tab,
 // with an unread dot — Support — the team helpdesk inbox, present only while
-// the active team's helpdesk flag is on (EXP-180) — Agents — with a green
-// live dot — Reviews — its own entry per EXP-147, ordered after Agents per
-// EXP-152 — and Search; base order per EXP-81) plus a detached circular
-// compose button on the right.
+// the active team's helpdesk flag is on (EXP-180) — Devices — the machines +
+// live sessions surface, with a green live dot — Actions — the team's action
+// prompts, its own entry since EXP-686 — and Reviews) plus a detached circular
+// compose button on the right. Search left the bar in EXP-686: it is a button
+// in the board header now.
 // Overlaid above the NavHost; AppNavHost shows it only on the top-level routes.
 // (Compose has no cheap backdrop blur, so the pill uses a near-opaque dark fill
 // instead of the iOS material.)
@@ -56,7 +58,7 @@ val BottomBarInset = 96.dp
 // Live-session green, matching the steer UI's "Coding now" badge.
 private val AgentsLiveGreen = Color(0xFF34D399)
 
-// EXP-214 dot colors: the Agents dot escalates to amber while a session
+// EXP-214 dot colors: the Devices dot escalates to amber while a session
 // waits on a plan approval / question; the Reviews dot is the review green
 // (the in_review issue-status tint).
 private val AgentsNeedsInputAmber = DesignTokens.Semantic.Yellow
@@ -65,8 +67,8 @@ private val ReviewsGreen = DesignTokens.Semantic.Green
 @Composable
 fun BottomNavBar(
     issuesActive: Boolean,
-    searchActive: Boolean,
-    agentsActive: Boolean,
+    devicesActive: Boolean,
+    actionsActive: Boolean,
     personalActive: Boolean,
     reviewsActive: Boolean,
     supportActive: Boolean,
@@ -77,12 +79,12 @@ fun BottomNavBar(
     showsSupport: Boolean,
     supportUnread: Boolean,
     showsCompose: Boolean,
-    // EXP-631: the Agents surface puts a Chat launcher in the compose slot —
+    // EXP-631: the Devices surface puts a Chat launcher in the compose slot —
     // composing an issue is board-scoped and hidden there anyway.
     showsChat: Boolean,
     onIssues: () -> Unit,
-    onSearch: () -> Unit,
-    onAgents: () -> Unit,
+    onDevices: () -> Unit,
+    onActions: () -> Unit,
     onPersonal: () -> Unit,
     onReviews: () -> Unit,
     onSupport: () -> Unit,
@@ -111,6 +113,7 @@ fun BottomNavBar(
             TabItem(
                 icon = ExpIcons.navMyIssues,
                 contentDescription = "Issues",
+                testTag = "tab-issues",
                 active = issuesActive,
                 width = tabWidth,
                 onClick = onIssues,
@@ -118,6 +121,7 @@ fun BottomNavBar(
             TabItem(
                 icon = ExpIcons.navInbox,
                 contentDescription = "My Work",
+                testTag = "tab-mywork",
                 active = personalActive,
                 width = tabWidth,
                 showDot = unreadCount > 0,
@@ -130,41 +134,49 @@ fun BottomNavBar(
                 TabItem(
                     icon = ExpIcons.navSupport,
                     contentDescription = "Support",
+                    testTag = "tab-support",
                     active = supportActive,
                     width = tabWidth,
                     showDot = supportUnread,
                     onClick = onSupport,
                 )
             }
+            // Devices (EXP-686, the renamed Agents surface): the machine list
+            // plus its sessions.
             TabItem(
-                icon = ExpIcons.navAgents,
-                contentDescription = "Agents",
-                active = agentsActive,
+                icon = ExpIcons.navDevices,
+                contentDescription = "Devices",
+                testTag = "tab-devices",
+                active = devicesActive,
                 width = tabWidth,
                 showDot = agentsRunning,
                 // Amber while any session waits on a plan approval / question
                 // (EXP-214), live green otherwise.
                 dotColor = if (agentsNeedInput) AgentsNeedsInputAmber else AgentsLiveGreen,
-                onClick = onAgents,
+                onClick = onDevices,
             )
-            // Reviews sits beside Agents (EXP-147/EXP-152) — the same open-PR
+            // Actions (EXP-686): actions / automations / suggestions, no longer
+            // a push off the Devices header.
+            TabItem(
+                icon = ExpIcons.navActions,
+                contentDescription = "Actions",
+                testTag = "tab-actions",
+                active = actionsActive,
+                width = tabWidth,
+                onClick = onActions,
+            )
+            // Reviews sits last (EXP-147/EXP-152/EXP-686) — the same open-PR
             // glyph the Reviews rows use. Green dot while open PRs await
             // review (EXP-214).
             TabItem(
                 icon = ExpIcons.navReviews,
                 contentDescription = "Reviews",
+                testTag = "tab-reviews",
                 active = reviewsActive,
                 width = tabWidth,
                 showDot = reviewsOpen,
                 dotColor = ReviewsGreen,
                 onClick = onReviews,
-            )
-            TabItem(
-                icon = ExpIcons.navSearch,
-                contentDescription = "Search",
-                active = searchActive,
-                width = tabWidth,
-                onClick = onSearch,
             )
         }
 
@@ -208,6 +220,9 @@ private fun Fab(
 private fun TabItem(
     icon: ImageVector,
     contentDescription: String,
+    // EXP-686: the capture suites address a tab by tag — two of the six now
+    // carry a label that also reads as ordinary content elsewhere.
+    testTag: String,
     active: Boolean,
     width: Dp,
     showDot: Boolean = false,
@@ -237,6 +252,7 @@ private fun TabItem(
             // compose circle must fit a 360dp screen.
             .width(width)
             .height(42.dp)
+            .testTag(testTag)
             .clip(RoundedCornerShape(percent = 50))
             .background(Color.White.copy(alpha = pillAlpha))
             .clickable(onClick = onClick),

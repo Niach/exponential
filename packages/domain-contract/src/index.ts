@@ -50,7 +50,6 @@ export interface DomainContract {
    * (`exponential_sessions_end`) and who ended it — parity-locked with
    * @exp/db-schema/domain by apps/web's domain-contract test.
    */
-  codingSessionOutcome: { values: readonly string[] }
   codingSessionEndedBy: { values: readonly string[] }
   /**
    * Client-side liveness window for `running` coding_sessions rows: a row

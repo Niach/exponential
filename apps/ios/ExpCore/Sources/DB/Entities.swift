@@ -380,12 +380,11 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // on pre-EXP-583 automated rows, which carry only `startedReason`.
     public let automationId: String?
     // EXP-637: the agent's own close-out, written by the
-    // `exponential_sessions_end` MCP tool — a one-paragraph plain-GFM summary
-    // the runs lists show when a row is EXPANDED (never inline) and an
-    // `outcome` (`done`/`blocked`/`no_changes`). Both NULL on a run that
-    // ended any other way (kill switch, tab close, PR merge, sweep).
+    // `exponential_sessions_end` MCP tool — a one-paragraph GFM summary the
+    // runs lists render when a row is EXPANDED (never inline). NULL on a run
+    // that ended any other way (kill switch, tab close, PR merge, sweep).
+    // EXP-686 dropped the self-reported `outcome` beside it.
     public let summary: String?
-    public let outcome: String?
     // EXP-637: WHO ended the run (`agent`/`user`/`client`/`merge`/`system`).
     // The runs lists show only agent-declared ends — those are the rows that
     // carry a summary.
@@ -415,7 +414,6 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         startedReason: String? = nil,
         automationId: String? = nil,
         summary: String? = nil,
-        outcome: String? = nil,
         endedBy: String? = nil,
         resumedFromId: String? = nil,
         startedAt: String,
@@ -439,7 +437,6 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.startedReason = startedReason
         self.automationId = automationId
         self.summary = summary
-        self.outcome = outcome
         self.endedBy = endedBy
         self.resumedFromId = resumedFromId
         self.startedAt = startedAt
@@ -449,7 +446,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, status, agent, branch, summary, outcome
+        case id, status, agent, branch, summary
         case issueId = "issue_id"
         case boardId = "board_id"
         case teamId = "team_id"
@@ -496,9 +493,9 @@ extension CodingSessionEntity: Codable {
         startedReason = try c.decodeIfPresent(String.self, forKey: .startedReason)
         // Pre-EXP-583 snapshots omit the key — decode permissively.
         automationId = try c.decodeIfPresent(String.self, forKey: .automationId)
-        // Pre-EXP-637 snapshots omit these four — decode permissively.
+        // Pre-EXP-637 snapshots omit these three — decode permissively.
+        // (A pre-EXP-686 row's stray `outcome` simply has no key to land in.)
         summary = try c.decodeIfPresent(String.self, forKey: .summary)
-        outcome = try c.decodeIfPresent(String.self, forKey: .outcome)
         endedBy = try c.decodeIfPresent(String.self, forKey: .endedBy)
         resumedFromId = try c.decodeIfPresent(String.self, forKey: .resumedFromId)
         startedAt = try c.decode(String.self, forKey: .startedAt)

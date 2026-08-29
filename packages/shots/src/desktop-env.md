@@ -24,7 +24,7 @@ are documented for users.
 | Var | Values | Effect |
 | --- | --- | --- |
 | `EXP_DEV_TEAM` | team uuid | Pre-select the team (wins over the persisted last-team/board pair). |
-| `EXP_DEV_SCREEN` | `settings` \| `account` (= settings) \| `actions` \| `getting-started` \| `issue:<issue-uuid>` \| `pr:<issue-uuid>` \| `support:<thread-uuid>` | Pre-route the first screen. **New:** the `pr:` and `support:` arms. `pr:` is keyed by the ISSUE whose linked PR the diff shows (the Reviews rows open it the same way), `support:` by the support thread id. Unset = the rail tool's own center content. |
+| `EXP_DEV_SCREEN` | `settings` \| `account` (= settings) \| `devices` \| `actions` \| `automations` \| `getting-started` \| `issue:<issue-uuid>` \| `pr:<issue-uuid>` \| `support:<thread-uuid>` | Pre-route the first screen. **New:** the `pr:` and `support:` arms. `pr:` is keyed by the ISSUE whose linked PR the diff shows (the Reviews rows open it the same way), `support:` by the support thread id. Unset = the rail tool's own center content. |
 | `EXP_DEV_TOOL` | `inbox` \| `my-issues` \| `board` (also `board-issues`, `issues`) \| `reviews` \| `support` \| `files` \| `source-control` | **New.** Pre-select the rail tool window. Default `board`. `my-issues` selects the Inbox tool AND seeds its My Issues tab. |
 | `EXP_DEV_INBOX_TAB` | `inbox` \| `my-issues` | **New.** The Inbox tool window's active tab. Default `inbox`; wins over the `my-issues` seed above. |
 | `EXP_DEV_BOARD_ID` | board uuid | **New.** Pre-select the board, for the cases the last-visited one is the wrong one (the empty-board view). `EXP_DEV_BOARD=1` was already taken by an unrelated debug tab, hence the `_ID`. Only assigned when nothing else already picked a board. |
@@ -55,7 +55,7 @@ under the launcher.
 | `EXP_DEV_FILTER` | `1` | **New.** Render the board's filter popover already open. (Before EXP-642 this set gpui-component's `default_open`, which marks the popover open without registering it — nothing appeared. It now opens for real.) |
 | `EXP_DEV_SELECT` | `APP-11,APP-13,APP-10` | **New.** Pre-select those issues on the board so the bulk-action bar renders. Identifiers, not uuids. Applied once, and only when EVERY named row has synced — a partial selection would photograph a different bar. |
 | `EXP_DEV_SEARCH_QUERY` | free text | **New.** Open the search palette with this query already typed and its results resolved. Pairs with `EXP_DEV_DIALOG=search`. |
-| `EXP_DEV_ACTIONS_TAB` | `automations` \| `suggestions` | The Actions screen's active tab. |
+| `EXP_DEV_GETTING_STARTED_TAB` | `first-steps` \| `suggestions` | The Getting started screen's active tab (EXP-686 — the action suggestion seeds moved there from the Actions screen, which no longer has tabs; Devices and Automations are their own `EXP_DEV_SCREEN` values). |
 | `EXP_DEV_OPEN_SHELL` | `1` | Open the terminal dock. |
 | `EXP_DEV_SHELL_CWD` | absolute path | Where that shell starts. Default `$HOME`, whose directory name becomes the tab title — i.e. the developer's account name. The lane sets it to `--repos-root` so the store stays username-free (EXP-651). |
 

@@ -1,10 +1,5 @@
 import { useState } from "react"
-import {
-  Link,
-  useMatchRoute,
-  useNavigate,
-  useParams,
-} from "@tanstack/react-router"
+import { useMatchRoute, useNavigate, useParams } from "@tanstack/react-router"
 import { conceptIcon } from "@/lib/icons.generated"
 import type { Board, Team } from "@/db/schema"
 import { useSession } from "@/hooks/use-session"
@@ -32,7 +27,6 @@ import {
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
-const ActionDefaultIcon = conceptIcon(`action-default`)
 const NavAboutIcon = conceptIcon(`settings-about`)
 const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
@@ -74,15 +68,18 @@ export function TeamMobileTopbar({
     fuzzy: true,
   })
     ? `Inbox`
-    : matchRoute({ to: `/t/$teamSlug/agents`, fuzzy: true })
-      ? `Agents`
-      : matchRoute({ to: `/t/$teamSlug/reviews`, fuzzy: true })
-        ? `Reviews`
-        : matchRoute({ to: `/t/$teamSlug/support`, fuzzy: true })
-          ? `Support`
-          : matchRoute({ to: `/t/$teamSlug/settings`, fuzzy: true })
-            ? `Settings`
-            : undefined
+    : matchRoute({ to: `/t/$teamSlug/devices`, fuzzy: true })
+      ? `Devices`
+      : matchRoute({ to: `/t/$teamSlug/actions`, fuzzy: true }) ||
+          matchRoute({ to: `/t/$teamSlug/automations`, fuzzy: true })
+        ? `Actions`
+        : matchRoute({ to: `/t/$teamSlug/reviews`, fuzzy: true })
+          ? `Reviews`
+          : matchRoute({ to: `/t/$teamSlug/support`, fuzzy: true })
+            ? `Support`
+            : matchRoute({ to: `/t/$teamSlug/settings`, fuzzy: true })
+              ? `Settings`
+              : undefined
 
   if (!visible) return null
 
@@ -114,20 +111,6 @@ export function TeamMobileTopbar({
       )}
 
       <div className="ml-auto flex items-center gap-2">
-        {/* EXP-574 (native parity): the Agents surface carries the team
-            actions behind a top-right "Actions" entry — the tab bar is
-            already at capacity, so the entry rides the header instead of
-            an eighth tab. NOT helpdesk-gated. */}
-        {sectionTitle === `Agents` && (
-          <Link
-            to="/t/$teamSlug/agents/actions"
-            params={{ teamSlug }}
-            className="flex items-center gap-1.5 rounded-full border border-glass-stroke-section bg-glass-section px-3 py-1.5 text-sm font-medium"
-          >
-            <ActionDefaultIcon className="size-4 text-muted-foreground" />
-            Actions
-          </Link>
-        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button

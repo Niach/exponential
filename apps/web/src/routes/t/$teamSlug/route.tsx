@@ -27,6 +27,8 @@ import {
 import { MentionProvider } from "@/components/mention-provider"
 import { AgentDockProvider } from "@/components/agent-dock/agent-dock-provider"
 import { AgentDock } from "@/components/agent-dock/agent-dock"
+import { GettingStartedSheetProvider } from "@/components/getting-started/getting-started-sheet"
+import { IssueSearchProvider } from "@/hooks/use-issue-search"
 import {
   useTeamBySlug,
   useTeamBoards,
@@ -141,6 +143,13 @@ function TeamLayout() {
           {/* The agent-coding dock (EXP-106) lives at layout level so it
               survives $teamSlug param changes and pins to the viewport. */}
           <AgentDockProvider teamId={team?.id ?? ``}>
+          {/* EXP-686: the board header's Search button (mobile) and the
+              Actions/Automations lightbulb reach the layout's sheets through
+              context instead of a prop drilled through every list. The
+              Getting started sheet lives here so the lightbulb can open it
+              once the checklist is complete and its sidebar entry is gone. */}
+          <IssueSearchProvider value={{ open: () => setSearchOpen(true) }}>
+          <GettingStartedSheetProvider teamSlug={teamSlug} team={team}>
             <FeedbackWidgetProvider />
             {team && user && <WebMcpProvider team={team} user={user} />}
             <TeamSidebar
@@ -179,12 +188,7 @@ function TeamLayout() {
 
             {/* Native-style bottom navigation (EXP-189) — fixed-position,
                 so JSX placement only affects stacking. */}
-            <MobileTabBar
-              teamSlug={teamSlug}
-              team={team}
-              boards={boards}
-              onOpenSearch={() => setSearchOpen(true)}
-            />
+            <MobileTabBar teamSlug={teamSlug} team={team} boards={boards} />
 
             {team && (
               <IssueSearchSheet
@@ -194,6 +198,8 @@ function TeamLayout() {
                 teamSlug={teamSlug}
               />
             )}
+          </GettingStartedSheetProvider>
+          </IssueSearchProvider>
           </AgentDockProvider>
         </MentionProvider>
       </IssueRefProvider>

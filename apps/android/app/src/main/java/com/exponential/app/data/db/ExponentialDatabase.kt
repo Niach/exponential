@@ -184,18 +184,23 @@ import androidx.room.RoomDatabase
     //      destructive fallback wipes + resyncs.
     // v41 (EXP-637): coding_sessions.summary / outcome / ended_by /
     //      resumed_from_id — the agent's own close-out (`exponential_sessions_end`
-    //      writes a summary + `done`/`blocked`/`no_changes`), who ended the run,
-    //      and the ended run a Resume continues. Additive on an existing shape;
-    //      destructive fallback wipes + resyncs.
+    //      writes a summary), who ended the run, and the ended run a Resume
+    //      continues. Additive on an existing shape; destructive fallback
+    //      wipes + resyncs. (`outcome` left again in v43.)
     // v42 (EXP-484): devices.agent_accounts / agent_usage / agent_usage_at —
     //      the machine's read-only per-agent auth + usage status (jsonb kept as
     //      raw text) and the server stamp of the last usage write — plus
     //      coding_sessions.agent, the agent a run launched with (so a session
     //      view can find its host machine's usage). Additive on two existing
     //      shapes; destructive fallback wipes + resyncs.
+    // v43 (EXP-686): coding_sessions.outcome is GONE — the self-reported
+    //      done/blocked/no_changes close-out was dropped everywhere (server
+    //      column, shape allowlist, every client's badge). A run row now shows
+    //      "Running" or nothing at all. Removing a column, so the local cache
+    //      has to go: destructive fallback wipes + resyncs on first launch.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
-    // so an additive shape column just wipes and re-syncs from Electric.
-    version = 42,
+    // so a shape column change just wipes and re-syncs from Electric.
+    version = 43,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

@@ -128,12 +128,10 @@ public enum AppIcons {
         "chevron-up",
         "chevrons-up-down",
         "circle",
-        "circle-alert",
         "circle-arrow-up",
         "circle-check",
         "circle-dashed",
         "circle-dot",
-        "circle-minus",
         "circle-question-mark",
         "circle-user",
         "circle-x",
@@ -367,16 +365,20 @@ public enum AppIcons {
     public static let eventStatusChanged: String = "circle-dot"
     /// Concept `nav-account`.
     public static let navAccount: String = "circle-user"
+    /// Concept `nav-actions`.
+    public static let navActions: String = "bot"
     /// Concept `nav-admin`.
     public static let navAdmin: String = "shield"
-    /// Concept `nav-agents`.
-    public static let navAgents: String = "bot"
+    /// Concept `nav-automations`.
+    public static let navAutomations: String = "zap"
     /// Concept `nav-boards`.
     public static let navBoards: String = "folder-kanban"
     /// Concept `nav-changelog`.
     public static let navChangelog: String = "megaphone"
     /// Concept `nav-create-issue`.
     public static let navCreateIssue: String = "square-pen"
+    /// Concept `nav-devices`.
+    public static let navDevices: String = "monitor"
     /// Concept `nav-files`.
     public static let navFiles: String = "folder"
     /// Concept `nav-filter`.
@@ -449,12 +451,6 @@ public enum AppIcons {
     public static let priorityNone: String = "minus"
     /// Concept `priority-urgent`.
     public static let priorityUrgent: String = "triangle-alert"
-    /// Concept `run-outcome-blocked`.
-    public static let runOutcomeBlocked: String = "circle-alert"
-    /// Concept `run-outcome-done`.
-    public static let runOutcomeDone: String = "circle-check"
-    /// Concept `run-outcome-no-changes`.
-    public static let runOutcomeNoChanges: String = "circle-minus"
     /// Concept `run-resume`.
     public static let runResume: String = "rotate-ccw"
     /// Concept `sc-push`.

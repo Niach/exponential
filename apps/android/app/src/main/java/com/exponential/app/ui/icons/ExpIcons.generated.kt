@@ -1165,38 +1165,6 @@ public object ExpIcons {
         }.build()
     }
 
-    public val `circle-alert`: ImageVector by lazy {
-        ImageVector.Builder(
-            name = "circle-alert",
-            defaultWidth = 24.dp,
-            defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f,
-        ).apply {
-            addPath(
-                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-            addPath(
-                addPathNodes("M12 8L12 12"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-            addPath(
-                addPathNodes("M12 16L12.01 16"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-        }.build()
-    }
-
     public val `circle-arrow-up`: ImageVector by lazy {
         ImageVector.Builder(
             name = "circle-arrow-up",
@@ -1338,31 +1306,6 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M11 12A1 1 0 1 0 13 12A1 1 0 1 0 11 12Z"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-        }.build()
-    }
-
-    public val `circle-minus`: ImageVector by lazy {
-        ImageVector.Builder(
-            name = "circle-minus",
-            defaultWidth = 24.dp,
-            defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f,
-        ).apply {
-            addPath(
-                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-            addPath(
-                addPathNodes("M8 12h8"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -5952,12 +5895,10 @@ public object ExpIcons {
         "chevron-up" -> `chevron-up`
         "chevrons-up-down" -> `chevrons-up-down`
         "circle" -> `circle`
-        "circle-alert" -> `circle-alert`
         "circle-arrow-up" -> `circle-arrow-up`
         "circle-check" -> `circle-check`
         "circle-dashed" -> `circle-dashed`
         "circle-dot" -> `circle-dot`
-        "circle-minus" -> `circle-minus`
         "circle-question-mark" -> `circle-question-mark`
         "circle-user" -> `circle-user`
         "circle-x" -> `circle-x`
@@ -6187,16 +6128,20 @@ public object ExpIcons {
     public val eventStatusChanged: ImageVector get() = `circle-dot`
     /** Concept `nav-account`. */
     public val navAccount: ImageVector get() = `circle-user`
+    /** Concept `nav-actions`. */
+    public val navActions: ImageVector get() = `bot`
     /** Concept `nav-admin`. */
     public val navAdmin: ImageVector get() = `shield`
-    /** Concept `nav-agents`. */
-    public val navAgents: ImageVector get() = `bot`
+    /** Concept `nav-automations`. */
+    public val navAutomations: ImageVector get() = `zap`
     /** Concept `nav-boards`. */
     public val navBoards: ImageVector get() = `folder-kanban`
     /** Concept `nav-changelog`. */
     public val navChangelog: ImageVector get() = `megaphone`
     /** Concept `nav-create-issue`. */
     public val navCreateIssue: ImageVector get() = `square-pen`
+    /** Concept `nav-devices`. */
+    public val navDevices: ImageVector get() = `monitor`
     /** Concept `nav-files`. */
     public val navFiles: ImageVector get() = `folder`
     /** Concept `nav-filter`. */
@@ -6269,12 +6214,6 @@ public object ExpIcons {
     public val priorityNone: ImageVector get() = `minus`
     /** Concept `priority-urgent`. */
     public val priorityUrgent: ImageVector get() = `triangle-alert`
-    /** Concept `run-outcome-blocked`. */
-    public val runOutcomeBlocked: ImageVector get() = `circle-alert`
-    /** Concept `run-outcome-done`. */
-    public val runOutcomeDone: ImageVector get() = `circle-check`
-    /** Concept `run-outcome-no-changes`. */
-    public val runOutcomeNoChanges: ImageVector get() = `circle-minus`
     /** Concept `run-resume`. */
     public val runResume: ImageVector get() = `rotate-ccw`
     /** Concept `sc-push`. */

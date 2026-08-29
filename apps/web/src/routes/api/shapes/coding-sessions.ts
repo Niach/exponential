@@ -14,9 +14,11 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // (the Automations run history + per-row last run), `device_id` for
 // EXP-549/550 (the hosting machine's steer deviceId — clients join the synced
 // devices row for the renamed label and its online-ness), and
-// `summary`/`outcome`/`ended_by`/`resumed_from_id` for EXP-637 (the agent's
+// `summary`/`ended_by`/`resumed_from_id` for EXP-637 (the agent's
 // own close-out via `exponential_sessions_end`, who ended the run, and the
-// run a Resume continues), plus `agent` for EXP-484 (which agent CLI runs the
+// run a Resume continues; EXP-686 dropped the self-reported `outcome` —
+// "Running" or the summary is the whole story), plus `agent` for EXP-484
+// (which agent CLI runs the
 // session, so clients can name it and pair it with the host device's usage
 // windows) — each a ONE-TIME shape-identity rotation (benign: small table,
 // full resync; land in one deploy).
@@ -41,7 +43,6 @@ const CODING_SESSION_COLUMNS = [
   `status`,
   `branch`,
   `summary`,
-  `outcome`,
   `ended_by`,
   `resumed_from_id`,
   `needs_input`,

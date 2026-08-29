@@ -105,9 +105,9 @@ pub fn close_out(unattended: bool) -> String {
     if unattended {
         format!(
             "{WORKTREE_CLEAN} Then report with the `exponential_sessions_end` MCP tool: a \
-one-paragraph summary and outcome `done` (PR open or work complete), `blocked`, or \
-`no_changes`. That call ends this run; nobody is watching it, so do not wait for replies. \
-Merging your own PR never ends the session."
+one-paragraph summary of what you did and anything left open. That call ends this run; \
+nobody is watching it, so do not wait for replies. Merging your own PR never ends the \
+session."
         )
     } else {
         format!(
@@ -289,8 +289,8 @@ The login page flickers on slow connections.
         // re-impose a text gate.
         assert!(!prompt.contains("WAIT for explicit go-ahead"));
         assert!(!prompt.contains("propose a concise plan"));
-        // EXP-637: the shared close-out — a clean worktree and a declared
-        // outcome are part of every run's contract now.
+        // EXP-637: the shared close-out — a clean worktree and a reported
+        // summary are part of every run's contract now.
         assert!(prompt.contains("leave the worktree clean"));
         assert!(prompt.contains("`exponential_sessions_end`"));
     }

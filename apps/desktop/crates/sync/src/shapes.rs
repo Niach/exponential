@@ -380,12 +380,12 @@ pub const SHAPES: [ShapeSpec; 19] = [
             // manual starts) — heals onto existing store tables like the rest.
             "automation_id",
             "started_reason",
-            // EXP-637 close-out: the agent's own `summary`/`outcome`, who
-            // ended the run (`ended_by`) and the ended run a resume came
-            // from. The server-only `merged_own_pr` flag is deliberately NOT
-            // here (never in the shape allowlist).
+            // EXP-637 close-out: the agent's own `summary`, who ended the
+            // run (`ended_by`) and the ended run a resume came from. The
+            // server-only `merged_own_pr` flag is deliberately NOT here
+            // (never in the shape allowlist), and EXP-686 dropped `outcome`
+            // with the column itself.
             "summary",
-            "outcome",
             "ended_by",
             "resumed_from_id",
             "started_at",
@@ -646,15 +646,18 @@ mod tests {
 
     #[test]
     fn coding_sessions_sync_the_run_close_out() {
-        // EXP-637: the ended strip, the Actions run rows and Resume all read
-        // these — dropping any silently turns every finished run back into a
-        // bare "Ended" with no summary and no resume target. `merged_own_pr`
-        // is SERVER-ONLY and must never appear here.
+        // EXP-637: the ended strip, the automation run rows and Resume all
+        // read these — dropping any silently turns every finished run back
+        // into a bare "Ended" with no summary and no resume target.
+        // `merged_own_pr` is SERVER-ONLY and must never appear here; EXP-686
+        // dropped `outcome` from the table, so requesting it would break the
+        // whole shape.
         let spec = shape_by_name("coding_sessions").unwrap();
-        for column in ["summary", "outcome", "ended_by", "resumed_from_id"] {
+        for column in ["summary", "ended_by", "resumed_from_id"] {
             assert!(spec.columns.contains(&column), "coding_sessions needs {column}");
         }
         assert!(!spec.columns.contains(&"merged_own_pr"), "server-only");
+        assert!(!spec.columns.contains(&"outcome"), "dropped by EXP-686");
     }
 
     #[test]

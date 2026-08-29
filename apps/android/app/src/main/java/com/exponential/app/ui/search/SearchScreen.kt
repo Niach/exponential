@@ -34,7 +34,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.ui.components.BoardIcon
-import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.icons.ExpIcons
@@ -43,14 +43,18 @@ import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
- * The Search tab: a pure cross-board search — instant local matching over
- * identifier + title, augmented by the server's full-text search. Assigned
- * issues no longer live here (EXP-58): they moved to the "My Work" tab
- * (PersonalScreen) alongside the inbox.
+ * Search: a pure cross-board search — instant local matching over identifier +
+ * title, augmented by the server's full-text search. Assigned issues no longer
+ * live here (EXP-58): they moved to the "My Work" tab (PersonalScreen)
+ * alongside the inbox.
+ *
+ * EXP-686 took it off the bottom bar — it is pushed from the board header's
+ * search button now, so it carries its own back button and no bar inset.
  */
 @Composable
 fun SearchScreen(
     onOpenIssue: (String) -> Unit,
+    onBack: () -> Unit = {},
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -62,12 +66,20 @@ fun SearchScreen(
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            Text(
-                "Search",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircleIconButton(ExpIcons.uiBack, "Back", onClick = onBack)
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    "Search",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
             SearchField(
                 query = query,
                 onQueryChange = {
@@ -89,7 +101,7 @@ fun SearchScreen(
                 )
                 else -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = BottomBarInset),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     state.groups.forEach { group ->

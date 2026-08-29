@@ -49,7 +49,6 @@ use crate::collections::{Collection, Store};
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EndedFacts {
     pub ended_by: Option<String>,
-    pub outcome: Option<String>,
     pub summary: Option<String>,
 }
 
@@ -67,7 +66,6 @@ pub fn ended_facts(row: Option<&CodingSession>) -> EndedFacts {
     match row {
         Some(row) => EndedFacts {
             ended_by: row.ended_by.clone(),
-            outcome: row.outcome.clone(),
             summary: row.summary.clone(),
         },
         None => EndedFacts::default(),
@@ -256,13 +254,14 @@ mod tests {
             "id": "sess-1",
             "status": "ended",
             "ended_by": "agent",
+            // EXP-686 dropped `outcome`: a row from a server that still sends
+            // it must decode, not error.
             "outcome": "done",
             "summary": "Opened the PR.",
         }))
         .unwrap();
         let facts = ended_facts(Some(&row));
         assert!(facts.by_agent());
-        assert_eq!(facts.outcome.as_deref(), Some("done"));
         assert_eq!(facts.summary.as_deref(), Some("Opened the PR."));
 
         // A user kill is NOT the agent's own close-out.

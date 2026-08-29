@@ -317,7 +317,7 @@ private fun AuthenticatedNav(
     val currentRoute = backStackEntry?.destination?.route
     val barVisible = !needsOnboarding &&
         currentRoute in setOf(
-            "home", "search", "agents", "personal", "reviews", "support-inbox", "board/{boardId}",
+            "home", "actions", "agents", "personal", "reviews", "support-inbox", "board/{boardId}",
         )
 
     // The Support tab exists only while the flag is on — if it flips off
@@ -390,27 +390,30 @@ private fun AuthenticatedNav(
                     navController.navigate("invite/$token") { launchSingleTop = true }
                 },
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
+                // EXP-686: search left the bottom bar — the board header's
+                // button pushes it instead.
+                onOpenSearch = { navController.navigate("search") { launchSingleTop = true } },
             )
         }
         composable("search") {
+            // EXP-686: a pushed detail route now (not a tab), so it carries a
+            // back button and the bar yields the full height.
             SearchScreen(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onBack = { navController.popBackStack() },
             )
         }
         composable("agents") {
             AgentsScreen(
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenActions = { navController.navigate("actions") { launchSingleTop = true } },
                 chatRequest = chatRequest,
             )
         }
         composable("actions") {
-            // Team actions (EXP-253, view + run only) — pushed from the Agents
-            // tab's header entry; NOT helpdesk-gated. A detail-style route
-            // (not in the bottom-bar set), so the bar yields the full height.
+            // Team actions (EXP-253, view + run only) — its own bottom-bar tab
+            // since EXP-686; NOT helpdesk-gated.
             ActionsScreen(
-                onBack = { navController.popBackStack() },
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
             )
         }
@@ -536,6 +539,7 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onBack = { navController.popBackStack() },
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
+                onOpenSearch = { navController.navigate("search") { launchSingleTop = true } },
             )
         }
         composable("board/{boardId}/new") {
@@ -632,8 +636,8 @@ private fun AuthenticatedNav(
     if (barVisible) {
         BottomNavBar(
             issuesActive = currentRoute == "home",
-            searchActive = currentRoute == "search",
-            agentsActive = currentRoute == "agents",
+            devicesActive = currentRoute == "agents",
+            actionsActive = currentRoute == "actions",
             personalActive = currentRoute == "personal",
             reviewsActive = currentRoute == "reviews",
             supportActive = currentRoute == "support-inbox",
@@ -646,17 +650,17 @@ private fun AuthenticatedNav(
             showsCompose = composeBoardId != null,
             showsChat = currentRoute == "agents",
             onIssues = { navController.popBackStack("home", inclusive = false) },
-            onSearch = {
-                if (currentRoute != "search") {
-                    navController.navigate("search") {
+            onDevices = {
+                if (currentRoute != "agents") {
+                    navController.navigate("agents") {
                         launchSingleTop = true
                         popUpTo("home")
                     }
                 }
             },
-            onAgents = {
-                if (currentRoute != "agents") {
-                    navController.navigate("agents") {
+            onActions = {
+                if (currentRoute != "actions") {
+                    navController.navigate("actions") {
                         launchSingleTop = true
                         popUpTo("home")
                     }

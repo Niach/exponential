@@ -123,8 +123,11 @@ fun IssueListScreen(
     // invite token to the existing invite/{token} route.
     onOpenInvite: (String) -> Unit = {},
     // EXP-536: a remote start jumps straight into the live session once the
-    // desktop's row syncs in, instead of parking a chip pointing at Agents.
+    // desktop's row syncs in, instead of parking a chip pointing at Devices.
     onOpenSteer: (codingSessionId: String) -> Unit = {},
+    // EXP-686: search left the bottom bar and rides the board header instead,
+    // next to the filter trigger.
+    onOpenSearch: () -> Unit = {},
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -222,11 +225,12 @@ fun IssueListScreen(
     Scaffold(containerColor = Color.Transparent) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Pinned nav row. Pushed: circular back button + the filter
-            // trigger trailing. Root: the inline board switcher control +
-            // the filter trigger next to the settings gear (EXP-251 — the
-            // filter button moved up from the removed tab-preset row); the
-            // single add-issue affordance is the bottom bar's compose FAB.
+            // Pinned nav row. Pushed: circular back button + the search and
+            // filter triggers trailing. Root: the inline board switcher
+            // control + those two next to the settings gear (EXP-251 — the
+            // filter button moved up from the removed tab-preset row; EXP-686
+            // put search here when it left the bottom bar); the single
+            // add-issue affordance is the bottom bar's compose FAB.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -237,6 +241,13 @@ fun IssueListScreen(
                     IssueListMode.Pushed -> {
                         CircleIconButton(ExpIcons.uiBack, "Back", onClick = onBack)
                         Spacer(Modifier.weight(1f))
+                        CircleIconButton(
+                            ExpIcons.navSearch,
+                            "Search",
+                            onClick = onOpenSearch,
+                            modifier = Modifier.testTag("board-search"),
+                        )
+                        Spacer(Modifier.width(8.dp))
                         FilterButton(count = state.filters.count, onClick = { showFilters = true })
                     }
                     IssueListMode.Root -> {
@@ -249,6 +260,13 @@ fun IssueListScreen(
                         // No filter state exists before a board resolves —
                         // the empty/create-board states have nothing to filter.
                         if (!boardId.isNullOrBlank()) {
+                            CircleIconButton(
+                                ExpIcons.navSearch,
+                                "Search",
+                                onClick = onOpenSearch,
+                                modifier = Modifier.testTag("board-search"),
+                            )
+                            Spacer(Modifier.width(8.dp))
                             FilterButton(count = state.filters.count, onClick = { showFilters = true })
                             Spacer(Modifier.width(8.dp))
                         }

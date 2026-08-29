@@ -200,8 +200,7 @@ worktree dirty; never force-push; do not use `gh`.\n",
     }
     preamble.push_str(if unattended {
         "When you are done, report with the `exponential_sessions_end` MCP tool (a one-paragraph \
-summary plus outcome `done`, `blocked` or `no_changes`); that call ends this run, and nobody is \
-watching it.\n"
+summary of what you did); that call ends this run, and nobody is watching it.\n"
     } else {
         "When you are done, summarize what you did here; the session stays open afterwards, so \
 keep answering follow-ups.\n"
@@ -259,8 +258,8 @@ access (then pick the right repo id from `exponential_repositories_list`)."
     };
     // EXP-679: only an unattended creator run has the close-out tool.
     let report_rule = if unattended {
-        "After the action is created, report with `exponential_sessions_end` (outcome `done`); \
-that call ends this run."
+        "After the action is created, report with `exponential_sessions_end` (a one-paragraph \
+summary); that call ends this run."
     } else {
         "After the action is created, report what you created here; the session stays open \
 afterwards, so keep answering follow-ups."
@@ -306,7 +305,7 @@ pub fn fix_pr_conflicts_prompt(
     // EXP-679: the merge result goes into the conversation for a person's
     // run (no close-out tool there), through the tool for an unattended one.
     let report_rule = if unattended {
-        "Finally call `exponential_sessions_end` (`done` after the merge, `blocked` if you \
+        "Finally call `exponential_sessions_end` with the merge result (merged, or why you \
 stopped)."
     } else {
         "Finally report the merge result here (merged, or why you stopped)."
@@ -783,7 +782,7 @@ session stays open afterwards, so keep answering follow-ups."
         // EXP-679: only the unattended creator run names the close-out tool.
         let unattended =
             create_action_prompt("team-123", "review the backlog weekly", None, None, None, true);
-        assert!(unattended.contains("report with `exponential_sessions_end` (outcome `done`)"));
+        assert!(unattended.contains("report with `exponential_sessions_end` (a one-paragraph"));
         assert!(unattended.contains("that call ends this run."));
     }
 
@@ -836,8 +835,8 @@ rebase instead. Finally report the merge result here (merged, or why you stopped
             unattended,
             prompt.replace(
                 "Finally report the merge result here (merged, or why you stopped).",
-                "Finally call `exponential_sessions_end` (`done` after the merge, `blocked` if \
-you stopped)."
+                "Finally call `exponential_sessions_end` with the merge result (merged, or \
+why you stopped)."
             )
         );
         // The worktree prompt DOES push (Claude owns the PR branch) and then

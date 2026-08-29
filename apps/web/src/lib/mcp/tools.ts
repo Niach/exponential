@@ -94,7 +94,6 @@ import { TokenBucketLimiter } from "@/lib/widget/rate-limit"
 import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
 import { visibleDeviceRows } from "@/lib/trpc/devices"
 import { endSessionByAgent } from "@/lib/coding-session-end"
-import { codingSessionOutcomeValues } from "@exp/db-schema/domain"
 import { err, ok } from "./helpers"
 import { ALWAYS_LOAD_META } from "./always-load"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
@@ -274,7 +273,6 @@ const sessionColumns = {
   status: codingSessions.status,
   branch: codingSessions.branch,
   summary: codingSessions.summary,
-  outcome: codingSessions.outcome,
   endedBy: codingSessions.endedBy,
   resumedFromId: codingSessions.resumedFromId,
   parentSessionId: codingSessions.parentSessionId,
@@ -1930,14 +1928,13 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_sessions_end`,
       {
-        description: `Report this run's close-out, shown on the run to the team: a one-paragraph 'summary' of what you did and an 'outcome' of 'done' (PR open or work complete), 'blocked' (you stopped and a human is needed) or 'no_changes'. Call it LAST, after exponential_pr_open, with the worktree clean: it ends this run. Merging your own PR never ends it; this call does.`,
+        description: `Report this run's close-out, shown on the run to the team: a one-paragraph 'summary' of what you did, whether you finished, stopped for a human or changed nothing. Call it LAST, after exponential_pr_open, with the worktree clean: it ends this run. Merging your own PR never ends it; this call does.`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: {
           summary: z.string().min(1).max(4_000),
-          outcome: z.enum(codingSessionOutcomeValues),
         },
       },
-      async ({ summary, outcome }) => {
+      async ({ summary }) => {
         try {
           if (!sessionId) {
             return err(
@@ -1951,7 +1948,6 @@ export function registerExponentialTools(
           // an earlier close-out.
           const result = await endSessionByAgent(db, sessionId, user.id, {
             summary,
-            outcome,
           })
           return ok(result)
         } catch (e) {
@@ -1967,7 +1963,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_list`,
     {
-      description: `List coding sessions (newest first) across your teams or one team: status, issue, action, branch, device, and once ended the run's own summary/outcome/endedBy. mine limits to runs you started or host.`,
+      description: `List coding sessions (newest first) across your teams or one team: status, issue, action, branch, device, and once ended the run's own summary/endedBy. mine limits to runs you started or host.`,
       inputSchema: {
         teamId: uuidString.optional(),
         status: z.enum([`running`, `in_review`, `ended`]).optional(),
@@ -2032,7 +2028,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_get`,
     {
-      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open) → ended, then summary and outcome (done|blocked|no_changes) are the run's own close-out.`,
+      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open) → ended, then summary is the run's own close-out.`,
       inputSchema: { id: uuidString },
     },
     async ({ id }) => {
@@ -2136,7 +2132,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_start`,
     {
-      description: `Start a coding session on a registered device (exponential_devices_list; online, agents includes the agent). Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs for its inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and opens its own PR; track it with exponential_sessions_get. sessionId null = the device has not reported the run yet. Started from inside a run, the child is unattended: it reports via exponential_sessions_end and ends; poll exponential_sessions_get for its summary and outcome. Wait for status=ended and read that report before merging the child's PR — merging first ends the run with nothing reported.`,
+      description: `Start a coding session on a registered device (exponential_devices_list; online, agents includes the agent). Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs for its inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and opens its own PR; track it with exponential_sessions_get. sessionId null = the device has not reported the run yet. Started from inside a run, the child is unattended: it reports via exponential_sessions_end and ends; poll exponential_sessions_get for its summary. Wait for status=ended and read that report before merging the child's PR — merging first ends the run with nothing reported.`,
       inputSchema: {
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
@@ -2271,7 +2267,7 @@ export function registerExponentialTools(
         }
         // EXP-679: only a branded child is unattended. An old relay or device
         // drops `startedReason` off the frame and writes an ATTENDED run —
-        // say so, or the parent polls forever for an outcome nobody will
+        // say so, or the parent polls forever for a report nobody will
         // ever write.
         const unbranded =
           Boolean(sessionId) && session !== null && session.startedReason !== `agent`

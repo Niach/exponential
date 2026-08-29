@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import type { BoardIcon } from "@exp/db-schema/domain"
 import type { Automation, Team } from "@/db/schema"
 import { actionCollection, automationCollection } from "@/lib/collections"
 import {
@@ -8,10 +7,6 @@ import {
   BUILTIN_CREATE_ACTION_NAME,
   builtinFixConflictsAction,
 } from "@/lib/builtin-actions"
-import {
-  ACTION_SUGGESTIONS,
-  type ActionSuggestion,
-} from "@/lib/action-suggestions"
 import { LoaderCircle, Ellipsis, Pencil, Trash2 } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import { trpc } from "@/lib/trpc-client"
@@ -22,12 +17,15 @@ import {
   type TeamAction,
 } from "@/components/action-editor-dialog"
 import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
+import { SuggestionsButton } from "@/components/getting-started/getting-started-sheet"
 import { CreateActionDialog } from "@/components/launch-dialog/create-action-dialog"
 import { AutomationsTab } from "@/components/automations-tab"
+import {
+  ActionSuggestionsPanel,
+} from "@/components/action-suggestions-list"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -50,25 +48,31 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs"
-import { BOARD_ICON_COMPONENTS, getActionIcon } from "@/lib/board-icons"
+import { getActionIcon } from "@/lib/board-icons"
 
 // The team Actions surface (EXP-257/EXP-530), extracted from the Agents route
-// in EXP-574: the Actions · Automations · Suggestions tab block plus every
-// dialog it opens. Self-contained so it renders in two places — inline on the
-// desktop-viewport Agents page, and as its own mobile page (native-app
-// parity: Agents → top-right "Actions" → this view).
+// in EXP-574. EXP-686 split it across three routes: on a desktop viewport
+// `/actions` renders the actions LIST and `/automations` the automations one,
+// each a single view with no tab strip; on mobile `/actions` keeps the
+// native-parity Actions · Automations · Suggestions tabs, driven by `?tab=`.
+// Suggestions moved to Getting started on desktop — the lightbulb in the
+// section header goes there.
 
 // EXP-431: the create entry points share the cross-client `action-create`
 // concept (desktop's `registry::ACTION_CREATE`), never a raw glyph.
 const ActionCreateIcon = conceptIcon(`action-create`)
-// EXP-530: automation + suggestion glyphs are cross-client concepts too.
+// EXP-530: the automation glyph is a cross-client concept too.
 const ActionAutomationIcon = conceptIcon(`action-automation`)
-const ActionSuggestionIcon = conceptIcon(`action-suggestion`)
 const ActionRepositoryIcon = conceptIcon(`action-repository`)
 // EXP-615: running is a play icon button on every client — no text label.
 const ActionRunIcon = conceptIcon(`action-run`)
 
-type AgentsTab = `actions` | `automations` | `suggestions`
+/** Which of the three surfaces this panel renders. `tabs` is the mobile
+ * Actions page (all three behind a tab strip); the other two are the desktop
+ * routes, each a single view. */
+export type ActionsPanelView = `tabs` | `actions` | `automations`
+/** The mobile tab strip's value — also the `?tab=` search param. */
+export type ActionsPanelTab = `actions` | `automations` | `suggestions`
 
 // Owner-only ⋯ menu — hidden entirely on the builtin (server-shipped, not
 // editable or deletable).
@@ -206,59 +210,18 @@ function NoCustomActionsNudge({ onClick }: { onClick: () => void }) {
   )
 }
 
-// One suggestion seed as a row (EXP-530; rows since EXP-618 — native-app
-// parity). "Use suggestion" opens the create-action dialog with the
-// description/icon prefilled — the same owner+steer gate as the "New action"
-// button, since it launches the same builtin creator run.
-function SuggestionRow({
-  suggestion,
-  canUse,
-  disabled,
-  onUse,
+export function TeamActionsPanel({
+  team,
+  view,
+  tab = `actions`,
+  onTabChange,
 }: {
-  suggestion: ActionSuggestion
-  canUse: boolean
-  disabled: boolean
-  onUse: () => void
+  team: Team
+  view: ActionsPanelView
+  /** `tabs` view only — the controlled tab, i.e. the route's `?tab=`. */
+  tab?: ActionsPanelTab
+  onTabChange?: (tab: ActionsPanelTab) => void
 }) {
-  const RowIcon =
-    BOARD_ICON_COMPONENTS[suggestion.icon as BoardIcon] ?? ActionSuggestionIcon
-  return (
-    <GlassRow>
-      <RowIcon className="size-4 shrink-0 text-foreground/70" />
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-1.5 text-sm">
-          <span className="truncate font-medium">{suggestion.title}</span>
-          {/* EXP-583: a seed either just authors an action, or authors it and
-              sets up the automation that runs it. */}
-          <Badge variant="outline" className="shrink-0 gap-1 text-[0.625rem]">
-            {suggestion.automation && (
-              <ActionAutomationIcon className="h-3 w-3" />
-            )}
-            {suggestion.automation ? `Automation` : `Action`}
-          </Badge>
-        </div>
-        <div className="line-clamp-3 text-xs text-muted-foreground">
-          {suggestion.description}
-        </div>
-      </div>
-      {canUse && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="shrink-0"
-          disabled={disabled}
-          onClick={onUse}
-        >
-          <ActionSuggestionIcon />
-          Use suggestion
-        </Button>
-      )}
-    </GlassRow>
-  )
-}
-
-export function TeamActionsPanel({ team }: { team: Team }) {
   const { data: session } = useSession()
   const { isMember, isOwner } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
@@ -306,18 +269,27 @@ export function TeamActionsPanel({ team }: { team: Team }) {
     return counts
   }, [automationRows])
 
-  // The fix-conflicts builtin pinned FIRST by its flag (not a DB row, so the
-  // shape can't carry it); the synced rows re-apply the server's ordering
-  // (sortOrder asc, then name — collections hydrate unordered). "Create
-  // action" is deliberately NOT listed (EXP-431) — creation lives behind the
-  // section's own "New action" button instead of posing as a runnable action.
+  // The synced rows re-apply the server's ordering (sortOrder asc, then name
+  // — collections hydrate unordered). Neither builtin is LISTED: "Create
+  // action" lives behind the section's own "New action" button (EXP-431), and
+  // EXP-686 hid "Fix merge conflicts" too — it is launched from Reviews and
+  // over MCP, never picked out of this list.
   const sortedActions = useMemo<TeamAction[] | null>(() => {
     if (!isMember || actionRows === undefined) return null
-    const rows = [...actionRows]
+    return [...actionRows]
       .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
       .map((row) => ({ ...row, builtin: false as const }))
-    return [builtinFixConflictsAction(teamId), ...rows]
-  }, [teamId, isMember, actionRows])
+  }, [isMember, actionRows])
+
+  // …but the Automations tab still has to NAME a fix-conflicts run, so its
+  // lookup pool keeps the builtin.
+  const automationActions = useMemo<TeamAction[] | null>(
+    () =>
+      sortedActions === null
+        ? null
+        : [builtinFixConflictsAction(teamId), ...sortedActions],
+    [teamId, sortedActions]
+  )
 
   // Repo names for the badges + the editor's repository select.
   const [repos, setRepos] = useState<ActionRepoOption[]>([])
@@ -347,11 +319,6 @@ export function TeamActionsPanel({ team }: { team: Team }) {
 
   // The dedicated "New action" creation dialog (EXP-431).
   const [createActionOpen, setCreateActionOpen] = useState(false)
-  // EXP-530: Actions · Automations · Suggestions tab, plus the suggestion
-  // whose description/icon prefill the next create-dialog open.
-  const [agentsTab, setAgentsTab] = useState<AgentsTab>(`actions`)
-  const [suggestionPrefill, setSuggestionPrefill] =
-    useState<ActionSuggestion | null>(null)
 
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<TeamAction | null>(null)
@@ -392,31 +359,20 @@ export function TeamActionsPanel({ team }: { team: Team }) {
     onDelete: () => setDeleteTarget(action),
   })
 
-  return (
+  const canCreateAction = steerEnabled && isOwner
+  // EXP-686: the seeds live in Getting started on a desktop viewport; the
+  // mobile tabs keep their own Suggestions tab.
+  const showSuggestions = view !== `tabs`
+  const actionsSection = (
     <>
-      <Tabs
-        value={agentsTab}
-        onValueChange={(value) => setAgentsTab(value as AgentsTab)}
-        className="mb-4"
-      >
-        <TabsList className="w-full">
-          <TabsTrigger value="actions" className="flex-1">
-            Actions
-          </TabsTrigger>
-          <TabsTrigger value="automations" className="flex-1">
-            Automations
-          </TabsTrigger>
-          <TabsTrigger value="suggestions" className="flex-1">
-            Suggestions
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="actions">
-          <GlassSectionHeader
-            label="Actions"
-            count={sortedActions?.length ?? 0}
-            trailing={
-              steerEnabled && isOwner ? (
+      <GlassSectionHeader
+        label="Actions"
+        count={sortedActions?.length ?? 0}
+        trailing={
+          !showSuggestions && !canCreateAction ? undefined : (
+            <>
+              {showSuggestions && <SuggestionsButton />}
+              {canCreateAction && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -427,60 +383,68 @@ export function TeamActionsPanel({ team }: { team: Team }) {
                   <ActionCreateIcon className="size-3.5" />
                   New action
                 </Button>
-              ) : undefined
-            }
-          />
-          {sortedActions === null ? (
-            <div className="px-1 py-3 text-sm text-muted-foreground">
-              Loading…
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {sortedActions.map((action) => (
-                <ActionRow key={action.id} {...actionItemProps(action)} />
-              ))}
-              {steerEnabled &&
-                isOwner &&
-                sortedActions.every((a) => a.builtin) && (
-                  <NoCustomActionsNudge
-                    onClick={() => setCreateActionOpen(true)}
-                  />
-                )}
-            </div>
+              )}
+            </>
+          )
+        }
+      />
+      {sortedActions === null ? (
+        <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {sortedActions.map((action) => (
+            <ActionRow key={action.id} {...actionItemProps(action)} />
+          ))}
+          {canCreateAction && sortedActions.length === 0 && (
+            <NoCustomActionsNudge onClick={() => setCreateActionOpen(true)} />
           )}
-        </TabsContent>
+        </div>
+      )}
+    </>
+  )
 
-        <TabsContent value="automations">
-          <AutomationsTab
-            actions={sortedActions}
-            devices={remote.devices ?? []}
-            isOwner={isOwner}
-            steerEnabled={steerEnabled}
-            teamId={teamId}
-          />
-        </TabsContent>
+  const automationsSection = (
+    <AutomationsTab
+      actions={automationActions}
+      devices={remote.devices ?? []}
+      isOwner={isOwner}
+      steerEnabled={steerEnabled}
+      teamId={teamId}
+      showSuggestions={showSuggestions}
+    />
+  )
 
-        <TabsContent value="suggestions">
-          <GlassSectionHeader
-            label="Suggestions"
-            count={ACTION_SUGGESTIONS.length}
-          />
-          <div className="flex flex-col gap-2">
-            {ACTION_SUGGESTIONS.map((suggestion) => (
-              <SuggestionRow
-                key={suggestion.id}
-                suggestion={suggestion}
-                canUse={steerEnabled && isOwner}
-                disabled={runBusy}
-                onUse={() => {
-                  setSuggestionPrefill(suggestion)
-                  setCreateActionOpen(true)
-                }}
-              />
-            ))}
-          </div>
-        </TabsContent>
-      </Tabs>
+  return (
+    <>
+      {view === `tabs` ? (
+        <Tabs
+          value={tab}
+          onValueChange={(value) => onTabChange?.(value as ActionsPanelTab)}
+          className="mb-4"
+        >
+          <TabsList className="w-full">
+            <TabsTrigger value="actions" className="flex-1">
+              Actions
+            </TabsTrigger>
+            <TabsTrigger value="automations" className="flex-1">
+              Automations
+            </TabsTrigger>
+            <TabsTrigger value="suggestions" className="flex-1">
+              Suggestions
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="actions">{actionsSection}</TabsContent>
+          <TabsContent value="automations">{automationsSection}</TabsContent>
+          <TabsContent value="suggestions">
+            <ActionSuggestionsPanel team={team} />
+          </TabsContent>
+        </Tabs>
+      ) : view === `actions` ? (
+        actionsSection
+      ) : (
+        automationsSection
+      )}
 
       <LaunchDialog
         open={launchActionId !== null}
@@ -509,19 +473,12 @@ export function TeamActionsPanel({ team }: { team: Team }) {
       <CreateActionDialog
         open={createActionOpen}
         onOpenChange={(next) => {
-          if (!next) {
-            setCreateActionOpen(false)
-            // A later plain "New action" open must start blank again.
-            setSuggestionPrefill(null)
-          }
+          if (!next) setCreateActionOpen(false)
         }}
         devices={remote.devices ?? []}
         starting={remote.starting}
         teamId={teamId}
         repos={repos}
-        initialDescription={suggestionPrefill?.description}
-        initialIcon={suggestionPrefill?.icon}
-        automationPrefill={suggestionPrefill?.automation}
         onCreate={(device, options, inputs) => {
           remote
             .runAction(

@@ -69,7 +69,7 @@ const SHOTS: SocialShot[] = [
     anchorTimeoutMs: 60_000,
     recipe: `expandFirstDiffFile`,
   },
-  { name: `actions`, route: `${T}/agents`, anchor: `Update dependencies` },
+  { name: `actions`, route: `${T}/actions`, anchor: `Update dependencies` },
   // Inbox — 3 unread.
   { name: `inbox`, route: `${T}/inbox`, anchor: `Mira Chen assigned you APP-6` },
   // The helpdesk thread list shows reporter + snippet; open the freshest

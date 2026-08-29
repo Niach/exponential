@@ -133,12 +133,10 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "chevron-up" => ExpIcon::ChevronUp,
         "chevrons-up-down" => ExpIcon::ChevronsUpDown,
         "circle" => ExpIcon::Circle,
-        "circle-alert" => ExpIcon::CircleAlert,
         "circle-arrow-up" => ExpIcon::CircleArrowUp,
         "circle-check" => ExpIcon::CircleCheck,
         "circle-dashed" => ExpIcon::CircleDashed,
         "circle-dot" => ExpIcon::CircleDot,
-        "circle-minus" => ExpIcon::CircleMinus,
         "circle-question-mark" => ExpIcon::CircleQuestionMark,
         "circle-user" => ExpIcon::CircleUser,
         "circle-x" => ExpIcon::CircleX,
@@ -369,16 +367,20 @@ pub const EVENT_PRIORITY_CHANGED: ExpIcon = ExpIcon::SignalHigh;
 pub const EVENT_STATUS_CHANGED: ExpIcon = ExpIcon::CircleDot;
 /// Registry concept `nav-account` -> Lucide `circle-user`.
 pub const NAV_ACCOUNT: ExpIcon = ExpIcon::CircleUser;
+/// Registry concept `nav-actions` -> Lucide `bot`.
+pub const NAV_ACTIONS: ExpIcon = ExpIcon::Bot;
 /// Registry concept `nav-admin` -> Lucide `shield`.
 pub const NAV_ADMIN: ExpIcon = ExpIcon::Shield;
-/// Registry concept `nav-agents` -> Lucide `bot`.
-pub const NAV_AGENTS: ExpIcon = ExpIcon::Bot;
+/// Registry concept `nav-automations` -> Lucide `zap`.
+pub const NAV_AUTOMATIONS: ExpIcon = ExpIcon::Zap;
 /// Registry concept `nav-boards` -> Lucide `folder-kanban`.
 pub const NAV_BOARDS: ExpIcon = ExpIcon::FolderKanban;
 /// Registry concept `nav-changelog` -> Lucide `megaphone`.
 pub const NAV_CHANGELOG: ExpIcon = ExpIcon::Megaphone;
 /// Registry concept `nav-create-issue` -> Lucide `square-pen`.
 pub const NAV_CREATE_ISSUE: ExpIcon = ExpIcon::SquarePen;
+/// Registry concept `nav-devices` -> Lucide `monitor`.
+pub const NAV_DEVICES: ExpIcon = ExpIcon::Monitor;
 /// Registry concept `nav-files` -> Lucide `folder`.
 pub const NAV_FILES: ExpIcon = ExpIcon::Folder;
 /// Registry concept `nav-filter` -> Lucide `list-filter`.
@@ -451,12 +453,6 @@ pub const PRIORITY_MEDIUM: ExpIcon = ExpIcon::SignalMedium;
 pub const PRIORITY_NONE: ExpIcon = ExpIcon::Minus;
 /// Registry concept `priority-urgent` -> Lucide `triangle-alert`.
 pub const PRIORITY_URGENT: ExpIcon = ExpIcon::TriangleAlert;
-/// Registry concept `run-outcome-blocked` -> Lucide `circle-alert`.
-pub const RUN_OUTCOME_BLOCKED: ExpIcon = ExpIcon::CircleAlert;
-/// Registry concept `run-outcome-done` -> Lucide `circle-check`.
-pub const RUN_OUTCOME_DONE: ExpIcon = ExpIcon::CircleCheck;
-/// Registry concept `run-outcome-no-changes` -> Lucide `circle-minus`.
-pub const RUN_OUTCOME_NO_CHANGES: ExpIcon = ExpIcon::CircleMinus;
 /// Registry concept `run-resume` -> Lucide `rotate-ccw`.
 pub const RUN_RESUME: ExpIcon = ExpIcon::RotateCcw;
 /// Registry concept `sc-push` -> Lucide `upload`.

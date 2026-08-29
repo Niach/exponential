@@ -524,6 +524,25 @@ pub(crate) fn open_undocked_terminal_tab(
     .detach();
 }
 
+/// Bring a terminal tab into VIEW wherever it currently lives (EXP-686 — the
+/// automations run log opens a live run from its row): an undocked tab raises
+/// its own window, a docked one expands `origin`'s bottom dock and activates
+/// the tab. Best-effort: a tab whose window is already gone simply no-ops.
+pub(crate) fn reveal_terminal_tab(
+    tab_id: TabId,
+    manager: Entity<TerminalManager>,
+    origin: AnyWindowHandle,
+    cx: &mut App,
+) {
+    if let Some(window) = terminal_tab_window(tab_id, cx) {
+        cx.defer(move |cx| {
+            let _ = window.update(cx, |_, window, _| window.activate_window());
+        });
+        return;
+    }
+    restore_tab_in_owner(origin, manager, tab_id, true, cx);
+}
+
 /// Register an undocked terminal window (called by the view's constructor so
 /// registration/unregistration are symmetric around its lifetime).
 pub(crate) fn register_terminal_tab(

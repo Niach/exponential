@@ -28,7 +28,6 @@ class AgentRowsTest {
         endedBy: String? = null,
         endedAt: String? = null,
         startedAt: String = "2026-07-17T09:00:00Z",
-        outcome: String? = null,
     ) = CodingSessionEntity(
         id = id,
         issueId = issueId,
@@ -38,7 +37,6 @@ class AgentRowsTest {
         branch = branch,
         endedBy = endedBy,
         endedAt = endedAt,
-        outcome = outcome,
         startedAt = startedAt,
         createdAt = startedAt,
         updatedAt = updatedAt,

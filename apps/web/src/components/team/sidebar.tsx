@@ -66,10 +66,12 @@ import {
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
 const NavAboutIcon = conceptIcon(`settings-about`)
 const NavAdminIcon = conceptIcon(`nav-admin`)
-const NavAgentsIcon = conceptIcon(`nav-agents`)
+const NavActionsIcon = conceptIcon(`nav-actions`)
+const NavAutomationsIcon = conceptIcon(`nav-automations`)
 const NavBoardsIcon = conceptIcon(`nav-boards`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
+const NavDevicesIcon = conceptIcon(`nav-devices`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavReviewsIcon = conceptIcon(`nav-reviews`)
 const NavSearchIcon = conceptIcon(`nav-search`)
@@ -101,9 +103,9 @@ function ReviewsCountBadge({ boards }: { boards: Board[] | undefined }) {
   return <SidebarMenuBadge>{count > 99 ? `99+` : count}</SidebarMenuBadge>
 }
 
-// Live count of running coding sessions in the team, for the Agents entry.
+// Live count of running coding sessions in the team, for the Devices entry.
 // Amber while any session waits on a plan approval / question (EXP-214).
-function AgentsRunningBadge({ teamId }: { teamId?: string }) {
+function DevicesRunningBadge({ teamId }: { teamId?: string }) {
   const { data: session } = useSession()
   const { count, needsInput } = useAgentsRunningCount(teamId, session?.user?.id)
   if (count === 0) return null
@@ -324,14 +326,35 @@ export function TeamSidebar({
                       </SidebarMenuButton>
                       <ReviewsCountBadge boards={boards} />
                     </SidebarMenuItem>
+                    {/* EXP-686: Devices · Actions · Automations, the three
+                        surfaces the old Agents entry bundled. */}
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild>
-                        <Link to="/t/$teamSlug/agents" params={{ teamSlug }}>
-                          <NavAgentsIcon className="h-4 w-4" />
-                          <span>Agents</span>
+                        <Link to="/t/$teamSlug/devices" params={{ teamSlug }}>
+                          <NavDevicesIcon className="h-4 w-4" />
+                          <span>Devices</span>
                         </Link>
                       </SidebarMenuButton>
-                      <AgentsRunningBadge teamId={team?.id} />
+                      <DevicesRunningBadge teamId={team?.id} />
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild>
+                        <Link to="/t/$teamSlug/actions" params={{ teamSlug }}>
+                          <NavActionsIcon className="h-4 w-4" />
+                          <span>Actions</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild>
+                        <Link
+                          to="/t/$teamSlug/automations"
+                          params={{ teamSlug }}
+                        >
+                          <NavAutomationsIcon className="h-4 w-4" />
+                          <span>Automations</span>
+                        </Link>
+                      </SidebarMenuButton>
                     </SidebarMenuItem>
                     {team?.helpdeskEnabled === true && (
                       <SidebarMenuItem>
@@ -414,7 +437,7 @@ export function TeamSidebar({
               <SidebarMenu>
                 {/* EXP-88: re-entry point for the Getting started cards once the
                     board's inline block is gone (issues exist / dismissed). */}
-                <GettingStartedButton teamSlug={teamSlug} team={team} />
+                <GettingStartedButton />
               </SidebarMenu>
               {/* EXP-238: settings entry lives down here next to the user block,
                   like the IDE's rail gear — it opens the unified settings page

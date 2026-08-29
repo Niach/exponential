@@ -27,7 +27,7 @@ struct CreateActionSheet: View {
     /// the automation binds independently of whatever machine runs the
     /// creator session, and a sleeping box still owns the binding.
     let automationDevices: [SteerDevice]
-    /// EXP-530 "Use suggestion": the seeded description + icon.
+    /// EXP-530 "Use": the seeded description + icon.
     var prefillDescription: String = ""
     var prefillIcon: String = ""
     /// EXP-583: an "Action + automation" seed's trigger. Unlike before, an

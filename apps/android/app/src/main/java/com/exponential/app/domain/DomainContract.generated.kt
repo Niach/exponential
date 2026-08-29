@@ -21,7 +21,6 @@ object DomainContract {
     val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply")
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
     val codingSessionStatusValues: List<String> = listOf("running", "in_review", "ended")
-    val codingSessionOutcomeValues: List<String> = listOf("done", "blocked", "no_changes")
     val codingSessionEndedByValues: List<String> = listOf("agent", "user", "client", "merge", "system")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
     val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed")
@@ -75,9 +74,6 @@ object DomainContract {
     const val codingSessionStatusRunning: String = "running"
     const val codingSessionStatusInReview: String = "in_review"
     const val codingSessionStatusEnded: String = "ended"
-    const val codingSessionOutcomeDone: String = "done"
-    const val codingSessionOutcomeBlocked: String = "blocked"
-    const val codingSessionOutcomeNoChanges: String = "no_changes"
     const val codingSessionEndedByAgent: String = "agent"
     const val codingSessionEndedByUser: String = "user"
     const val codingSessionEndedByClient: String = "client"

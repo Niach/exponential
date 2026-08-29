@@ -126,6 +126,38 @@ pub(crate) fn empty_state(
         )
 }
 
+/// EXP-686: the web's round glass play button — a 32px circle filled with the
+/// glass card fill + stroke, its glyph at 70% foreground, hovering to the
+/// active fill. The row actions that used to be `.web_sm().rounded(999)`
+/// outline buttons (the action row's ▶ Run, the machine row's ▶ Start coding)
+/// all take this shape, so both lists match the web/mobile play affordance.
+///
+/// It rides a `ButtonCustomVariant`, not a `ghost` base with a caller
+/// refinement: the built-in variants paint their own hover fill from the
+/// interactivity layer, which is applied AFTER `refine_style` and would win
+/// over any glass tokens set here (and a second `.hover()` on the button
+/// trips gpui's "hover style already set" assertion). The custom variant owns
+/// bg/hover/active; only the stroke and the pill radius are refinements.
+pub(crate) fn glass_icon_button(
+    id: impl Into<gpui::ElementId>,
+    icon: Icon,
+    cx: &App,
+) -> gpui_component::button::Button {
+    use gpui_component::button::{ButtonCustomVariant, ButtonVariants as _};
+    let foreground = cx.theme().foreground;
+    let variant = ButtonCustomVariant::new(cx)
+        .color(t::glass::FILL_CARD.to_hsla())
+        .hover(t::glass::FILL_ACTIVE.to_hsla())
+        .active(t::glass::FILL_ACTIVE.to_hsla())
+        .foreground(foreground.opacity(0.7));
+    gpui_component::button::Button::new(id)
+        .custom(variant)
+        .web_icon_sm()
+        .icon(icon)
+        .border_1()
+        .border_color(t::glass::STROKE_CARD.to_hsla())
+}
+
 /// Web segmented `TabsList` capsule (`components/ui/tabs.tsx`): h-9 full-width
 /// capsule with a 3px inset. Pair with [`segmented_item`] children.
 pub(crate) fn segmented(cx: &App) -> Div {

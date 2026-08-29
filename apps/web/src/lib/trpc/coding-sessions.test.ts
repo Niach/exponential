@@ -1415,7 +1415,7 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
 })
 
 // EXP-637: `end` is the CLIENT end path (agent exit, tab close, quit) and now
-// says so on the row. It never writes summary/outcome — only the agent's own
+// says so on the row. It never writes a summary — only the agent's own
 // exponential_sessions_end does.
 describe(`codingSessions.end — endedBy stamp (EXP-637)`, () => {
   it(`stamps endedBy client and clears needsInput`, async () => {
@@ -1432,7 +1432,6 @@ describe(`codingSessions.end — endedBy stamp (EXP-637)`, () => {
       needsInput: false,
     })
     expect(`summary` in updates[0]!.values).toBe(false)
-    expect(`outcome` in updates[0]!.values).toBe(false)
   })
 
   it(`leaves an already-ended row alone`, async () => {

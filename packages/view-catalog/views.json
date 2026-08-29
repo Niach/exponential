@@ -717,19 +717,19 @@
     {
       "id": "agents",
       "group": "coding",
-      "title": "Actions",
-      "blurb": "The team's action catalog plus the machines that can run it: the Agents page, one card per action.",
+      "title": "Devices",
+      "blurb": "The machines that can run a coding session: the caller's desktops and headless servers, with the remote-start affordance on each.",
       "order": 1,
       "web": {
-        "route": "/t/$teamSlug/agents",
+        "route": "/t/$teamSlug/devices",
         "anchor": {
-          "text": "Update dependencies",
+          "text": "Alex's MacBook Pro",
           "timeoutMs": 30000
         },
         "settleMs": 1200
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agents",
+        "route": "/t/$teamSlug/devices",
         "anchor": {
           "text": "Alex's MacBook Pro",
           "timeoutMs": 30000
@@ -747,18 +747,26 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "actions"
+          "value": "devices"
         }
       }
     },
     {
       "id": "actions-mobile",
       "group": "coding",
-      "title": "Actions (mobile)",
-      "blurb": "The phone-shaped Actions surface: the pushed detail view mobile reaches from Agents, with the run affordance per card.",
+      "title": "Actions",
+      "blurb": "The team's action catalog: one row per reusable agent run, each with its play button.",
       "order": 2,
+      "web": {
+        "route": "/t/$teamSlug/actions",
+        "anchor": {
+          "text": "Update dependencies",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
       "webMobile": {
-        "route": "/t/$teamSlug/agents/actions",
+        "route": "/t/$teamSlug/actions",
         "anchor": {
           "text": "Update dependencies",
           "timeoutMs": 30000
@@ -774,8 +782,13 @@
         "lane": "store"
       },
       "notes": {
-        "web": "Desktop viewports render the same panel inline on the Agents page: capture `agents` instead. /t/$teamSlug/agents/actions exists purely as the mobile detail route (EXP-574).",
-        "desktop": "See `agents`: the desktop Actions screen is the web Agents page 1:1."
+        "web": "EXP-686 gave Actions its own top-level route on every client. A desktop viewport shows the list alone — Automations is /automations and the seeds moved into Getting started; the phone keeps all three behind ?tab=."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "actions"
+        }
       }
     },
     {
@@ -839,7 +852,7 @@
         },
         "anchorDelayMs": 600,
         "env": {
-          "EXP_DEV_SCREEN": "actions"
+          "EXP_DEV_SCREEN": "devices"
         }
       },
       "ios": {
@@ -874,7 +887,7 @@
         },
         "anchorDelayMs": 600,
         "env": {
-          "EXP_DEV_SCREEN": "actions"
+          "EXP_DEV_SCREEN": "devices"
         }
       },
       "ios": {
@@ -927,7 +940,7 @@
       "blurb": "One device up close: its name, whether it is your default, what it shares with the team, its per-agent defaults and its worktrees.",
       "order": 7,
       "web": {
-        "route": "/t/$teamSlug/agents",
+        "route": "/t/$teamSlug/devices",
         "anchor": {
           "text": "Device settings",
           "timeoutMs": 30000
@@ -942,7 +955,7 @@
         },
         "anchorDelayMs": 600,
         "env": {
-          "EXP_DEV_SCREEN": "actions"
+          "EXP_DEV_SCREEN": "devices"
         }
       },
       "webMobile": "inherit",
@@ -962,7 +975,7 @@
       "blurb": "The headless route: the one-liner that installs the CLI daemon and registers a machine by device code.",
       "order": 8,
       "web": {
-        "route": "/t/$teamSlug/agents",
+        "route": "/t/$teamSlug/devices",
         "anchor": {
           "text": "Add a server",
           "timeoutMs": 30000
@@ -982,7 +995,7 @@
         },
         "anchorDelayMs": 600,
         "env": {
-          "EXP_DEV_SCREEN": "actions"
+          "EXP_DEV_SCREEN": "devices"
         }
       }
     },
@@ -1058,7 +1071,7 @@
       "blurb": "One action's definition: name, icon, the markdown body the agent runs, its repo and its typed inputs.",
       "order": 1,
       "web": {
-        "route": "/t/$teamSlug/agents",
+        "route": "/t/$teamSlug/actions",
         "anchor": {
           "text": "Edit action",
           "timeoutMs": 20000
@@ -1089,7 +1102,7 @@
       "blurb": "Binding an action to a device and a trigger: the schedule-or-event when-part behind the Automations tab.",
       "order": 2,
       "web": {
-        "route": "/t/$teamSlug/agents",
+        "route": "/t/$teamSlug/automations",
         "anchor": {
           "text": "New automation",
           "timeoutMs": 20000
@@ -1098,7 +1111,7 @@
         "settleMs": 600
       },
       "notes": {
-        "web-mobile": "The phone layout reaches the editor through the Actions detail route rather than the Agents page; the paired native shots cover it."
+        "web-mobile": "The phone has no Automations route — the editor opens from the Actions page's Automations tab (/actions?tab=automations); the paired native shots cover it."
       },
       "desktop": {
         "drive": {
@@ -1107,7 +1120,7 @@
         },
         "anchorDelayMs": 600,
         "env": {
-          "EXP_DEV_SCREEN": "actions"
+          "EXP_DEV_SCREEN": "automations"
         }
       },
       "ios": {
@@ -1126,7 +1139,7 @@
       "blurb": "Authoring an action by describing it: the creator run writes the definition instead of a form (EXP-257).",
       "order": 3,
       "web": {
-        "route": "/t/$teamSlug/agents",
+        "route": "/t/$teamSlug/actions",
         "anchor": {
           "text": "New action",
           "timeoutMs": 30000
@@ -1153,7 +1166,7 @@
         }
       },
       "notes": {
-        "web-mobile": "The phone reaches the creator from the Actions detail route; the paired native shots cover it."
+        "web-mobile": "The phone reaches the creator from the Actions page's Actions tab; the paired native shots cover it."
       }
     },
     {
@@ -1163,16 +1176,15 @@
       "blurb": "The Automations tab itself: every action bound to a device and a trigger, plus what has fired recently.",
       "order": 4,
       "web": {
-        "route": "/t/$teamSlug/agents",
+        "route": "/t/$teamSlug/automations",
         "anchor": {
           "text": "Recent automated runs",
           "timeoutMs": 30000
         },
-        "recipe": "openAutomationsTab",
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agents/actions",
+        "route": "/t/$teamSlug/actions?tab=automations",
         "anchor": {
           "text": "Recent automated runs",
           "timeoutMs": 30000
@@ -1191,14 +1203,11 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "actions"
-        },
-        "env": {
-          "EXP_DEV_ACTIONS_TAB": "automations"
+          "value": "automations"
         }
       },
       "notes": {
-        "web-mobile": "The phone layout drops the tab strip from /agents — Actions, Automations and Suggestions live on the pushed /agents/actions route instead (EXP-574)."
+        "web-mobile": "EXP-686: the phone bar has no room for a seventh entry, so Automations stays a tab of the Actions page and the route carries it in ?tab=."
       }
     },
     {
@@ -1208,18 +1217,18 @@
       "blurb": "The starter catalog: curated action seeds that prefill the creator run, some carrying an automation with them.",
       "order": 5,
       "web": {
-        "route": "/t/$teamSlug/agents",
+        "route": "/t/$teamSlug/actions",
         "anchor": {
-          "text": "Use suggestion",
+          "text": "Daily standup digest",
           "timeoutMs": 30000
         },
         "recipe": "openSuggestionsTab",
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agents/actions",
+        "route": "/t/$teamSlug/actions?tab=suggestions",
         "anchor": {
-          "text": "Use suggestion",
+          "text": "Daily standup digest",
           "timeoutMs": 30000
         },
         "recipe": "openSuggestionsTab",
@@ -1236,14 +1245,15 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "actions"
+          "value": "getting-started"
         },
         "env": {
-          "EXP_DEV_ACTIONS_TAB": "suggestions"
+          "EXP_DEV_GETTING_STARTED_TAB": "suggestions"
         }
       },
       "notes": {
-        "web-mobile": "The phone layout drops the tab strip from /agents — Actions, Automations and Suggestions live on the pushed /agents/actions route instead (EXP-574)."
+        "web": "EXP-686: the seeds left the Actions surface for Getting started's second tab — the lightbulb next to \"New action\" opens it, which is what the recipe clicks.",
+        "web-mobile": "The phone keeps the seeds as the Actions page's third tab (/actions?tab=suggestions); Getting started is desktop-shaped."
       }
     },
     {

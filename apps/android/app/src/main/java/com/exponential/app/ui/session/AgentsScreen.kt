@@ -55,7 +55,6 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuDefaults
 import com.exponential.app.ui.components.GlassMenuItem
-import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -73,7 +72,8 @@ import com.exponential.app.ui.theme.glassRow
 import com.exponential.app.ui.theme.glassSection
 
 /**
- * The Agents tab: "My machines" — the caller's registered devices (EXP-403:
+ * The Devices tab (EXP-686, the renamed Agents surface): "My machines" — the
+ * caller's registered devices (EXP-403:
  * desktop IDEs and headless `exponential` servers, online and offline) doubling
  * as the remote-start launcher (EXP-156) — plus the caller's OWN coding
  * sessions currently running (EXP-312: live sessions are owner-only, so a
@@ -86,7 +86,6 @@ import com.exponential.app.ui.theme.glassSection
 fun AgentsScreen(
     onOpenSteer: (codingSessionId: String) -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
-    onOpenActions: () -> Unit,
     // EXP-631: the bottom bar's Chat FAB bumps this counter (the bar lives in
     // AppNavHost, the launcher lives here) — every change opens the Start
     // coding sheet on its Chat tab.
@@ -144,29 +143,12 @@ fun AgentsScreen(
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "Agents",
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                // Team actions (EXP-253) live behind the Agents surface — the
-                // bottom bar is already at capacity (six tabs + compose on a
-                // 360dp screen), so the entry rides the Agents header instead
-                // of a seventh tab. NOT helpdesk-gated.
-                GlassPillButton(
-                    label = "Actions",
-                    icon = ExpIcons.actionDefault,
-                    onClick = onOpenActions,
-                    modifier = Modifier.testTag("open-actions"),
-                )
-            }
+            Text(
+                "Devices",
+                style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+            )
             // No steer and nothing running → the full empty state (no
             // machines section to anchor a compact caption).
             if (!steerOn && state.rows.isEmpty()) {
@@ -897,7 +879,7 @@ private fun AgentsEmptyState() {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Icon(
-                ExpIcons.navAgents,
+                ExpIcons.navDevices,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 modifier = Modifier.size(28.dp),

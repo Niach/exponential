@@ -8,11 +8,11 @@ import {
   sessionDisplayState,
   type SessionDisplayState,
 } from "@/components/issue-coding-rows"
-import { sessionOutcomeLabel } from "@/lib/coding-session-display"
 import { relativeTime } from "@/components/comment-rows/format"
 import { trpc } from "@/lib/trpc-client"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { SessionMergeButton } from "@/components/session-merge-button"
 import { GlassRow } from "@/components/ui/glass-rows"
 
@@ -21,9 +21,10 @@ import { GlassRow } from "@/components/ui/glass-rows"
 // lucide import.
 const IssueDetailsIcon = conceptIcon(`ui-info`)
 
-// The live coding-session row shared by the team Agents page and the Actions
-// page (EXP-253) — extracted from routes/t/$teamSlug/agents/index.tsx so both
-// surfaces render identical rows. Labeling is three-way: an action run
+// The live coding-session row shared by the team Devices page and the
+// Automations runs list (EXP-253/EXP-686) — extracted from the old Agents
+// route so both surfaces render identical rows. Labeling is three-way: an
+// action run
 // (actionName snapshot set — survives the action's deletion) shows
 // "Action" + the action name, an issueless batch run shows "Batch",
 // everything else is the linked issue.
@@ -198,39 +199,16 @@ export function SessionRow({
 
 // ── Ended runs (EXP-637) ─────────────────────────────────────────────────────
 // A run that closed itself through `exponential_sessions_end` carries the
-// agent's own account of it: an outcome and a one-paragraph summary. Decision
-// 5: the summary is NEVER inline. Collapsed shows the title, the outcome
-// glyph + label and the time; expanding reveals the summary and Resume. This
-// is the Automations tab's "Recent automated runs" row (EXP-676 dropped the
-// Agents page's "Recent runs" list — only automated runs are listed now, so
-// every row is an action run and no "Action" kind label is drawn), mirrored
-// on desktop, iOS and Android.
+// agent's own account of it: a one-paragraph summary (EXP-686 dropped the
+// self-reported outcome — the summary IS the report). Decision 5: it is NEVER
+// inline. Collapsed shows the title and the time; expanding reveals the
+// summary, rendered as the markdown the agent wrote, and Resume. This is the
+// Automations tab's "Recent automated runs" row (EXP-676 dropped the Agents
+// page's "Recent runs" list — only automated runs are listed now, so every row
+// is an action run and no "Action" kind label is drawn), mirrored on desktop,
+// iOS and Android.
 
-const OUTCOME_ICON = {
-  done: conceptIcon(`run-outcome-done`),
-  blocked: conceptIcon(`run-outcome-blocked`),
-  no_changes: conceptIcon(`run-outcome-no-changes`),
-}
-const OUTCOME_CLASS: Record<string, string> = {
-  done: `text-sky-400`,
-  blocked: `text-amber-400`,
-  no_changes: `text-muted-foreground`,
-}
 const ResumeIcon = conceptIcon(`run-resume`)
-
-function OutcomeBadge({ outcome }: { outcome: string | null }) {
-  const Icon =
-    outcome && outcome in OUTCOME_ICON
-      ? OUTCOME_ICON[outcome as keyof typeof OUTCOME_ICON]
-      : null
-  const className = (outcome && OUTCOME_CLASS[outcome]) ?? `text-muted-foreground`
-  return (
-    <span className={`flex shrink-0 items-center gap-1 font-medium ${className}`}>
-      {Icon && <Icon className="size-3.5" />}
-      {sessionOutcomeLabel(outcome)}
-    </span>
-  )
-}
 
 /** What an ended-run row needs — the Automations tab builds both fields off
  * the synced session + device rows. */
@@ -284,7 +262,6 @@ export function EndedSessionRow({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2 text-xs">
-          <OutcomeBadge outcome={session.outcome} />
           <span className="text-muted-foreground">
             {relativeTime(session.endedAt ?? session.startedAt)}
           </span>
@@ -300,9 +277,13 @@ export function EndedSessionRow({
           onClick={(e) => e.stopPropagation()}
         >
           {session.summary ? (
-            <p className="text-sm whitespace-pre-wrap text-muted-foreground">
-              {session.summary}
-            </p>
+            <div className="text-sm text-foreground">
+              <MarkdownEditor
+                markdown={session.summary}
+                editable={false}
+                onChange={() => {}}
+              />
+            </div>
           ) : (
             <p className="text-sm text-muted-foreground">
               This run left no summary.

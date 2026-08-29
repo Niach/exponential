@@ -1051,9 +1051,10 @@ impl DeviceSettingsView {
                 })),
         );
 
+        // EXP-686: no section title — the "Default agent" row already names
+        // what the block is.
         let mut body = v_flex()
             .gap_3()
-            .child(Self::section_title("Agent defaults", cx))
             .child(Self::labeled_select("Default agent", &self.agent_select, cx))
             .child(tabs);
         body = match self.agent_tab {
@@ -1543,15 +1544,6 @@ impl Render for DeviceSettingsView {
             .as_ref()
             .map(|row| row.is_server())
             .unwrap_or(false);
-        let label = row
-            .as_ref()
-            .and_then(|row| row.label.clone())
-            .unwrap_or_default();
-        let subtitle = format!(
-            "{label}{}{}",
-            if server { " — server" } else { "" },
-            if online { "" } else { " (offline)" }
-        );
 
         let name_busy = self.busy_section == Some("name");
         let mut name_section = v_flex()
@@ -1607,15 +1599,11 @@ impl Render for DeviceSettingsView {
         // no Save button; the switch mirrors the live row.
         let is_default = row.as_ref().and_then(|row| row.is_default).unwrap_or(false);
         let default_busy = self.busy_section == Some("default");
+        // EXP-686: the toggle row alone — its own label says "Default
+        // device", so the section title and the helper paragraph were pure
+        // repetition.
         let mut default_section = v_flex()
             .gap_2()
-            .child(Self::section_title("Default device", cx))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child("Preselected whenever you start a coding session and more than one of your machines can run it."),
-            )
             .child(Self::toggle_row(
                 "device-default",
                 "Default device",
@@ -1642,7 +1630,6 @@ impl Render for DeviceSettingsView {
         let mut body = v_flex()
             .w_full()
             .gap_5()
-            .child(div().text_sm().text_color(muted).child(SharedString::from(subtitle)))
             .child(name_section)
             .child(default_section);
         if server {

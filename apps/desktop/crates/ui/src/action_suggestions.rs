@@ -1,6 +1,6 @@
 //! Curated action-suggestion seeds (EXP-530) — the desktop mirror of the web
 //! `lib/action-suggestions.ts`. The Suggestions tab renders them as cards and
-//! "Use suggestion" opens the create-action dialog with the description
+//! "Use" opens the create-action dialog with the description
 //! prefilled, so each description is written as INSTRUCTIONS for what the
 //! authored action's prompt should do: it becomes the builtin "Create action"
 //! run's description input and the creator agent acts on it verbatim.

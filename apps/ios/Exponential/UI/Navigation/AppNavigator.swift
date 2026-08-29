@@ -5,10 +5,12 @@ import SwiftUI
 import GRDB
 
 enum AppRoute: Hashable {
+    /// Search (EXP-686): a pushed detail off the board header's search
+    /// button — no longer a tab of its own.
     case search
     case agents
-    /// Team actions (EXP-253, view + run only) — pushed from the Agents tab's
-    /// toolbar entry; NOT helpdesk-gated.
+    /// Team actions (EXP-253, view + run only) — its own tab since EXP-686;
+    /// NOT helpdesk-gated.
     case actions
     /// My Work (EXP-58): Inbox + My Issues merged behind one destination.
     /// Nothing external ever landed on the old inbox route — notification
@@ -406,8 +408,8 @@ struct MainNavigator: View {
             if showsTabBar {
                 MobileTabBar(
                     issuesActive: path.isEmpty,
-                    searchActive: isOnSearch,
-                    agentsActive: isOnAgents,
+                    devicesActive: isOnAgents,
+                    actionsActive: isOnActions,
                     myWorkActive: isOnMyWork,
                     reviewsActive: isOnReviews,
                     supportActive: isOnSupport,
@@ -420,8 +422,8 @@ struct MainNavigator: View {
                     showsCompose: resolvedComposeTarget != nil,
                     showsChat: isOnAgents,
                     onIssues: { path = [] },
-                    onSearch: { if !isOnSearch { path = [.search] } },
-                    onAgents: { if !isOnAgents { path = [.agents] } },
+                    onDevices: { if !isOnAgents { path = [.agents] } },
+                    onActions: { if !isOnActions { path = [.actions] } },
                     onMyWork: { if !isOnMyWork { path = [.myWork] } },
                     onReviews: { if !isOnReviews { path = [.reviews] } },
                     onSupport: { if !isOnSupport { path = [.support] } },
@@ -459,13 +461,13 @@ struct MainNavigator: View {
 
     // MARK: - Tab bar
 
-    /// The bar floats only over the top-level surfaces (Issues root, Search,
-    /// Agents, My Work, Reviews, pushed board lists); detail and settings
-    /// screens get the full height back.
+    /// The bar floats only over the top-level surfaces (Issues root, Devices,
+    /// Actions, My Work, Reviews, pushed board lists); detail and settings
+    /// screens — Search among them since EXP-686 — get the full height back.
     private var showsTabBar: Bool {
         guard let top = path.last else { return true }
         switch top {
-        case .search, .agents, .myWork, .reviews, .support, .board:
+        case .agents, .actions, .myWork, .reviews, .support, .board:
             return true
         default:
             return false
@@ -517,19 +519,19 @@ struct MainNavigator: View {
         return false
     }
 
-    private var isOnSearch: Bool {
-        if case .search = path.last { return true }
-        return false
-    }
-
     private var isOnAgents: Bool {
         if case .agents = path.last { return true }
         return false
     }
 
+    private var isOnActions: Bool {
+        if case .actions = path.last { return true }
+        return false
+    }
+
     /// Compose targets the board in view: a pushed board list wins,
     /// otherwise the Issues tab root composes into its current board. The
-    /// other surfaces (Search, Agents, My Work, Reviews) hide the button —
+    /// other surfaces (Devices, Actions, My Work, Reviews) hide the button —
     /// creating an issue without a board context is ambiguous.
     private var resolvedComposeTarget: ComposeTarget? {
         if case let .board(accountId, id)? = path.last {

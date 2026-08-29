@@ -179,8 +179,10 @@ fun DeviceSettingsSheet(
                     .padding(horizontal = 12.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center,
             ) {
+                // EXP-686: the static sheet title — the machine's own name is
+                // the editable field right below it.
                 Text(
-                    device.deviceLabel.ifBlank { device.deviceId },
+                    "Device settings",
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -255,7 +257,6 @@ fun DeviceSettingsSheet(
                 Spacer(Modifier.height(8.dp))
 
                 // ── Default machine (EXP-622) ───────────────────────────────
-                SectionLabel("Default device")
                 OptionGroup {
                     SwitchRow(
                         title = "Default device",
@@ -266,13 +267,6 @@ fun DeviceSettingsSheet(
                         enabled = !defaultBusy,
                     )
                 }
-                Text(
-                    "Preselected whenever you start a coding session and more than one " +
-                        "of your machines can run it.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
-                )
                 ErrorCaption(defaultError)
                 Spacer(Modifier.height(8.dp))
 

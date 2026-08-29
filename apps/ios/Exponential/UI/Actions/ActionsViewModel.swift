@@ -120,8 +120,10 @@ final class ActionsViewModel {
                     let dtos = rows
                         .sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
                         .map { ActionDto(entity: $0) }
-                    self.actions = ActionDto.builtinActions(teamId: teamId)
-                        .filter { $0.id != DomainContract.builtinCreateActionId } + dtos
+                    // EXP-686: no builtins in the LIST — "Fix merge conflicts"
+                    // stays launchable from Reviews/Changes, and StartCodingSheet
+                    // builds its own pool that still carries it.
+                    self.actions = dtos
                     self.isLoading = false
                     self.loadError = nil
                 }

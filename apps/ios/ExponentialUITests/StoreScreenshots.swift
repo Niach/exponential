@@ -189,14 +189,11 @@ final class StoreScreenshots: XCTestCase {
         snapshot("05_review", settle: 2, popRects: app)
         goBack(app)
 
-        // ── 06: actions (EXP-253) — the seed inserts three team actions above
-        // the two client-side builtins. Reached from the Agents toolbar.
-        let agentsTab = app.buttons["tab-agents"]
-        XCTAssertTrue(agentsTab.waitForExistence(timeout: 15), "Agents tab missing")
-        agentsTab.tap()
-        let actionsLink = app.buttons["Actions"]
-        XCTAssertTrue(actionsLink.waitForExistence(timeout: 15), "Actions toolbar entry missing")
-        actionsLink.tap()
+        // ── 06: actions (EXP-253) — the seed inserts three team actions.
+        // EXP-686: Actions is its own tab; no builtins in the list.
+        let actionsTab = app.buttons["tab-actions"]
+        XCTAssertTrue(actionsTab.waitForExistence(timeout: 15), "Actions tab missing")
+        actionsTab.tap()
         let actionRow = app.descendants(matching: .any)
             .matching(identifier: "action-row").firstMatch
         XCTAssertTrue(
@@ -208,7 +205,6 @@ final class StoreScreenshots: XCTestCase {
             "Seeded team actions never synced"
         )
         snapshot("06_actions", settle: 2, popRects: app)
-        goBack(app)
 
         // ── 07: inbox (My Work tab, Inbox segment — the default) ────────────
         // Wait for a real notification group — capturing the "You're all

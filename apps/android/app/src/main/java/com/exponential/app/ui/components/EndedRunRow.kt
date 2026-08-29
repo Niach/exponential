@@ -27,33 +27,34 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.exponential.app.domain.RunOutcome
 import com.exponential.app.domain.RunResumeTarget
-import com.exponential.app.domain.runOutcomeOf
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 
 /**
- * EXP-637: one FINISHED run in the Actions screen's "Recent automated runs"
- * (the Agents tab's own "Recent runs" list was dropped in EXP-676).
+ * EXP-637: one run in the Actions screen's "Recent automated runs" (the Agents
+ * tab's own "Recent runs" list was dropped in EXP-676).
  *
- * The row is EXPANDABLE, and the summary is deliberately NOT inline: a
+ * A FINISHED row is EXPANDABLE, and the summary is deliberately NOT inline: a
  * close-out paragraph on every collapsed row would drown the list. Collapsed
- * shows the run's name plus its outcome glyph + tinted label and when it
- * ended; tapping expands to the agent's full summary (plain text — the wire
- * form is GFM, and mobile renders it as written) and the Resume affordance,
- * which only exists while [resumeTarget] resolves (own ended run, its own
- * machine online and `resume-run`-capable).
+ * shows the run's name and when it ended; tapping expands to the agent's full
+ * summary (rendered as the GFM it is) and the Resume affordance, which only
+ * exists while [resumeTarget] resolves (own ended run, its own machine online
+ * and `resume-run`-capable).
+ *
+ * EXP-686: a run that is still going ([isLive]) says "Running", carries no
+ * chevron and nothing to expand — the whole row opens the live session
+ * through [onOpen] instead. No self-reported outcome is shown anywhere.
  *
  * Same rule on web, desktop and iOS.
  */
 @Composable
 fun EndedRunRow(
     title: String,
-    outcome: String?,
     summary: String?,
     timeLabel: String,
     modifier: Modifier = Modifier,
@@ -62,31 +63,21 @@ fun EndedRunRow(
     identifier: String? = null,
     // The machine that ran it, when the surface tracks one.
     deviceLabel: String? = null,
+    // The run is still going: "Running", and the row opens it.
+    isLive: Boolean = false,
+    onOpen: (() -> Unit)? = null,
     resumeTarget: RunResumeTarget? = null,
     resuming: Boolean = false,
     onResume: (RunResumeTarget) -> Unit = {},
 ) {
     var expanded by remember { mutableStateOf(false) }
     var confirmResume by remember { mutableStateOf(false) }
-    val presentation = runOutcomeOf(outcome)
-    val tint = when (presentation) {
-        RunOutcome.Done -> DesignTokens.Semantic.Blue
-        RunOutcome.Blocked -> DesignTokens.Semantic.Yellow
-        // Nothing changed, or nothing was reported: neither good nor bad news.
-        RunOutcome.NoChanges, RunOutcome.Ended ->
-            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-    }
-    val glyph = when (presentation) {
-        RunOutcome.Done -> ExpIcons.runOutcomeDone
-        RunOutcome.Blocked -> ExpIcons.runOutcomeBlocked
-        RunOutcome.NoChanges, RunOutcome.Ended -> ExpIcons.runOutcomeNoChanges
-    }
     Column(
         modifier = modifier
             .fillMaxWidth()
             .testTag("ended-run-row")
             .glassRow()
-            .clickable { expanded = !expanded }
+            .clickable { if (onOpen != null) onOpen() else expanded = !expanded }
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -115,25 +106,28 @@ fun EndedRunRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Icon(
-                        glyph,
-                        contentDescription = null,
-                        modifier = Modifier.size(12.dp),
-                        tint = tint,
-                    )
-                    Text(
-                        presentation.label,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = tint,
-                        maxLines = 1,
-                    )
+                    if (isLive) {
+                        // Live reads green like every other "running now"
+                        // signal (iOS parity); a finished run says nothing.
+                        Text(
+                            "Running",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DesignTokens.Semantic.Green,
+                            maxLines = 1,
+                        )
+                    }
+                    // "started 5m ago" while it runs, "ended 5m ago" once it
+                    // finished — iOS `runByline` parity.
                     val trailing = listOfNotNull(
                         deviceLabel?.takeIf { it.isNotBlank() },
-                        timeLabel.takeIf { it.isNotEmpty() }?.let { "ended $it" },
-                    )
+                        timeLabel.takeIf { it.isNotEmpty() }
+                            ?.let { if (isLive) "started $it" else "ended $it" },
+                    ).joinToString(" · ")
                     if (trailing.isNotEmpty()) {
                         Text(
-                            "· ${trailing.joinToString(" · ")}",
+                            // The dot only separates — nothing precedes it on
+                            // a finished row anymore.
+                            if (isLive) "· $trailing" else trailing,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                             maxLines = 1,
@@ -142,20 +136,31 @@ fun EndedRunRow(
                     }
                 }
             }
-            Icon(
-                if (expanded) ExpIcons.uiChevronUp else ExpIcons.uiChevronDown,
-                contentDescription = if (expanded) "Collapse run" else "Expand run",
-                modifier = Modifier.padding(start = 8.dp).size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
+            // A live row has nothing to expand — it opens instead.
+            if (!isLive) {
+                Icon(
+                    if (expanded) ExpIcons.uiChevronUp else ExpIcons.uiChevronDown,
+                    contentDescription = if (expanded) "Collapse run" else "Expand run",
+                    modifier = Modifier.padding(start = 8.dp).size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+            }
         }
-        if (expanded) {
+        if (expanded && !isLive) {
             Spacer(Modifier.height(8.dp))
-            Text(
-                summary?.takeIf { it.isNotBlank() } ?: "This run left no summary.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            )
+            // The wire form is GFM (EXP-686): render it, and say so explicitly
+            // when there is nothing to render — MarkdownView draws nothing for
+            // a blank string.
+            val body = summary?.takeIf { it.isNotBlank() }
+            if (body != null) {
+                MarkdownView(markdown = body)
+            } else {
+                Text(
+                    "This run left no summary.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                )
+            }
             if (resumeTarget != null) {
                 Spacer(Modifier.height(10.dp))
                 if (resuming) {

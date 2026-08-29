@@ -226,9 +226,9 @@ export function GettingStartedCards({
     coding: (
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" asChild>
-          <Link to="/t/$teamSlug/agents" params={{ teamSlug }}>
+          <Link to="/t/$teamSlug/devices" params={{ teamSlug }}>
             <TerminalIcon className="mr-1.5 size-4" />
-            Open Agents
+            Open Devices
           </Link>
         </Button>
         <p className="text-xs text-muted-foreground">
@@ -240,13 +240,13 @@ export function GettingStartedCards({
     action: (
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" asChild>
-          <Link to="/t/$teamSlug/agents" params={{ teamSlug }}>
+          <Link to="/t/$teamSlug/actions" params={{ teamSlug }}>
             <ActionCreateIcon className="mr-1.5 size-4" />
             New action
           </Link>
         </Button>
         <p className="text-xs text-muted-foreground">
-          "New action" on the Agents page describes it; your agent builds it.
+          "New action" on the Actions page describes it; your agent builds it.
         </p>
       </div>
     ),
