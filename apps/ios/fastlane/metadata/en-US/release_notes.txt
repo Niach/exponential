@@ -1,5 +1,9 @@
 Everything since 0.14.0:
 
+- Offline is stated plainly with a Retry button instead of a raw network error, and Fix conflicts only appears for a real merge conflict
+- Merge a pull request straight from a live session's steering view
+- See which account each agent CLI is signed in with and how much of its limits is left, and start a sign-in on any of your machines from your phone
+- An agent can hand work to a second run and wait for its report
 - A run you started stays open after the agent reports back, so you can keep the conversation going; automated runs still close on their own
 - Agents report back when a run finishes: read the summary and outcome anywhere, and resume a finished run where it stopped
 - Type # to embed an issue chip in comments and descriptions, with smarter caret handling around chips

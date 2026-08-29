@@ -1,0 +1,1 @@
+Every screen now says plainly when you are offline and offers Retry, each machine shows which account its agent CLIs use and how much of their limits is left, and you can merge a pull request straight from a live session.
