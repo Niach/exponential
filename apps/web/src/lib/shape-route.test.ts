@@ -562,7 +562,6 @@ describe(`shape column + trash contracts`, () => {
       `status`,
       `branch`,
       `summary`,
-      `outcome`,
       `ended_by`,
       `resumed_from_id`,
       `needs_input`,
@@ -571,6 +570,7 @@ describe(`shape column + trash contracts`, () => {
       `created_at`,
       `updated_at`,
     ])
+    expect(columns).not.toContain(`outcome`)
     expect(columns).not.toContain(`merged_own_pr`)
     expect(columns).not.toContain(`host_user_id`)
     expect(columns).not.toContain(`board_deleted_at`)

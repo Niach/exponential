@@ -394,13 +394,13 @@ impl MachinesSection {
         // remote-start picker), so the gate is the local agent check — the
         // same one every other Start-coding affordance uses.
         let no_agent = crate::coding_flow::no_agent_reason(cx);
-        let start_coding = Button::new(("machine-start-coding", index))
-            .outline()
-            .cursor_pointer()
-            .web_sm()
-            // Round like the web/mobile play buttons (EXP-615).
-            .rounded(gpui::px(999.))
-            .icon(Icon::new(registry::ACTION_RUN))
+        // EXP-686: the shared round glass affordance (web/mobile parity) —
+        // the same shape the action rows' ▶ Run carries.
+        let start_coding = crate::controls::glass_icon_button(
+            ("machine-start-coding", index),
+            Icon::new(registry::ACTION_RUN),
+            cx,
+        )
             .tooltip(no_agent.clone().unwrap_or_else(|| "Start coding".into()))
             .disabled(no_agent.is_some())
             .on_click(move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut gpui::App| {

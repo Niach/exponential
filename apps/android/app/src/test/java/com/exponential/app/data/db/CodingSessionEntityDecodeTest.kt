@@ -8,8 +8,8 @@ import org.junit.Test
 
 /**
  * EXP-637: wire-decode vectors for the coding_sessions shape rows, now that
- * the shape carries the agent's own close-out (`summary`, `outcome`),
- * `ended_by` and `resumed_from_id`.
+ * the shape carries the agent's own close-out (`summary`), `ended_by` and
+ * `resumed_from_id`. EXP-686 dropped the companion `outcome` column.
  *
  * Every one of them must decode when ABSENT — an old server, or simply a row
  * that ended before the columns existed. A required field missing on the wire
@@ -38,7 +38,6 @@ class CodingSessionEntityDecodeTest {
               "status": "ended",
               "branch": "exp/chat-1a2b3c4d",
               "summary": "Refreshed the shots and pushed a PR.",
-              "outcome": "done",
               "ended_by": "agent",
               "resumed_from_id": "sess-0",
               "needs_input": "f",
@@ -52,7 +51,6 @@ class CodingSessionEntityDecodeTest {
         """.trimIndent()
         val entity = json.decodeFromString(CodingSessionEntity.serializer(), row)
         assertEquals("Refreshed the shots and pushed a PR.", entity.summary)
-        assertEquals("done", entity.outcome)
         assertEquals("agent", entity.endedBy)
         assertEquals("sess-0", entity.resumedFromId)
         assertEquals("2026-08-11 10:20:00+00", entity.endedAt)
@@ -66,7 +64,6 @@ class CodingSessionEntityDecodeTest {
               "teamId": "team-1",
               "userId": "user-1",
               "status": "ended",
-              "outcome": "blocked",
               "endedBy": "agent",
               "resumedFromId": "sess-0",
               "startedAt": "2026-08-11T10:00:00Z",
@@ -75,7 +72,6 @@ class CodingSessionEntityDecodeTest {
             }
         """.trimIndent()
         val entity = json.decodeFromString(CodingSessionEntity.serializer(), row)
-        assertEquals("blocked", entity.outcome)
         assertEquals("agent", entity.endedBy)
         assertEquals("sess-0", entity.resumedFromId)
     }
@@ -97,7 +93,6 @@ class CodingSessionEntityDecodeTest {
         """.trimIndent()
         val entity = json.decodeFromString(CodingSessionEntity.serializer(), row)
         assertNull(entity.summary)
-        assertNull(entity.outcome)
         assertNull(entity.endedBy)
         assertNull(entity.resumedFromId)
         // The pre-existing optional columns keep their defaults too.
@@ -115,7 +110,6 @@ class CodingSessionEntityDecodeTest {
               "user_id": "user-1",
               "status": "ended",
               "summary": null,
-              "outcome": null,
               "ended_by": null,
               "resumed_from_id": null,
               "started_at": "2026-08-11 10:00:00+00",
@@ -125,9 +119,31 @@ class CodingSessionEntityDecodeTest {
         """.trimIndent()
         val entity = json.decodeFromString(CodingSessionEntity.serializer(), row)
         assertNull(entity.summary)
-        assertNull(entity.outcome)
         assertNull(entity.endedBy)
         assertNull(entity.resumedFromId)
+    }
+
+    /** EXP-686: `outcome` left the shape. A server (or a cached row) that
+     * still sends it must not break the decode — ignoreUnknownKeys carries it,
+     * and nothing reads it anymore. */
+    @Test
+    fun `a stray outcome key is ignored`() {
+        val row = """
+            {
+              "id": "sess-1",
+              "team_id": "team-1",
+              "user_id": "user-1",
+              "status": "ended",
+              "summary": "Bumped the deps.",
+              "outcome": "done",
+              "started_at": "2026-08-11 10:00:00+00",
+              "created_at": "2026-08-11 10:00:00+00",
+              "updated_at": "2026-08-11 10:20:00+00"
+            }
+        """.trimIndent()
+        val entity = json.decodeFromString(CodingSessionEntity.serializer(), row)
+        assertEquals("Bumped the deps.", entity.summary)
+        assertEquals("ended", entity.status)
     }
 
     // EXP-484: the agent a run launched with — absent on every pre-EXP-484 row.

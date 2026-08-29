@@ -320,21 +320,9 @@ export const codingSessionStatusValues = [
 // rides every subject (issue, batch, action, builtin, resume).
 export const startedReasonValues = [`schedule`, `event`, `agent`] as const
 
-// How a coding session finished, in the agent's own words
-// (coding_sessions.outcome, documented varchar — EXP-637). Written only by
-// the `exponential_sessions_end` MCP tool, alongside `summary`; NULL on every
-// other end path. `done` = the work landed (PR open or nothing left to do),
-// `blocked` = the agent stopped and needs a human, `no_changes` = it looked
-// and nothing needed changing.
-export const codingSessionOutcomeValues = [
-  `done`,
-  `blocked`,
-  `no_changes`,
-] as const
-
 // Who ended a coding session (coding_sessions.ended_by, documented varchar —
 // EXP-637). `agent` = the run closed itself via `exponential_sessions_end`
-// (the only path that also writes summary/outcome); `user` =
+// (the only path that also writes `summary`); `user` =
 // steer.killSession; `client` = codingSessions.end (agent exit, tab close,
 // app quit); `merge` = a PR merge path; `system` = the stale sweep or account
 // deletion. NULL on rows ended by pre-EXP-637 servers.
@@ -393,8 +381,6 @@ export type CodingSessionStatus = (typeof codingSessionStatusValues)[number]
 export type SubscriberSource = (typeof subscriberSourceValues)[number]
 export type IssueEventType = (typeof issueEventTypeValues)[number]
 export type StartedReason = (typeof startedReasonValues)[number]
-export type CodingSessionOutcome =
-  (typeof codingSessionOutcomeValues)[number]
 export type CodingSessionEndedBy =
   (typeof codingSessionEndedByValues)[number]
 export type SupportMessageDirection =
@@ -419,7 +405,6 @@ export const codingSessionStatusSchema = z.enum(codingSessionStatusValues)
 export const subscriberSourceSchema = z.enum(subscriberSourceValues)
 export const issueEventTypeSchema = z.enum(issueEventTypeValues)
 export const startedReasonSchema = z.enum(startedReasonValues)
-export const codingSessionOutcomeSchema = z.enum(codingSessionOutcomeValues)
 export const codingSessionEndedBySchema = z.enum(codingSessionEndedByValues)
 export const codingSessionSummarySchema = z
   .string()

@@ -333,8 +333,8 @@ async function recipeOpenBoardSwitcher(page: Page): Promise<void> {
   if (!(await appears(trigger, 20_000))) {
     throw new Error(
       `no "Switch board" control in the mobile topbar — the topbar swaps the ` +
-        `board name for a section title on inbox/agents/reviews/support/` +
-        `settings, so capture this view on a board route`
+        `board name for a section title on inbox/devices/actions/reviews/` +
+        `support/settings, so capture this view on a board route`
     )
   }
   await trigger.first().click()
@@ -457,7 +457,7 @@ async function recipeOpenFirstThread(page: Page): Promise<void> {
 // --------------------------------------------------------------- machines
 
 /**
- * Open a machine's Device settings dialog from the Agents page. The ⋯ menu
+ * Open a machine's Device settings dialog from the Devices page. The ⋯ menu
  * only renders for a REGISTERED device of the caller's own (my-machines.tsx),
  * so with no relay stub running there is no row and nothing to click.
  *
@@ -527,17 +527,23 @@ async function recipeOpenActionCreate(page: Page): Promise<void> {
 }
 
 /**
- * The Automations tab itself — the list plus its "Recent automated runs"
- * section (automations-tab.tsx), one step short of `openAutomationEditor`.
- * The runs header is the anchor because it renders unconditionally: the
- * automations list above it can legitimately be the "No automations yet" empty
- * state, and waiting on a row would photograph a half-mounted tab whenever the
+ * The automations list plus its "Recent automated runs" section
+ * (automations-tab.tsx), one step short of `openAutomationEditor`. EXP-686
+ * gave automations their own desktop route, so the tab strip exists on the
+ * PHONE only — click it when it is there, and otherwise the page already IS
+ * the view. The runs header is the anchor because it renders unconditionally:
+ * the list above it can legitimately be the "No automations yet" empty state,
+ * and waiting on a row would photograph a half-mounted view whenever the
  * automations shape has not landed yet.
  */
-async function recipeOpenAutomationsTab(page: Page): Promise<void> {
-  const tab = page.getByRole(`tab`, { name: `Automations`, exact: true })
-  await tab.first().waitFor({ timeout: 20_000 })
+async function clickTabIfPresent(page: Page, name: string): Promise<void> {
+  const tab = page.getByRole(`tab`, { name, exact: true })
+  if (!(await appears(tab, 5_000))) return
   await tab.first().click()
+}
+
+async function recipeOpenAutomationsTab(page: Page): Promise<void> {
+  await clickTabIfPresent(page, `Automations`)
   await page
     .getByText(`Recent automated runs`)
     .filter({ visible: true })
@@ -546,15 +552,31 @@ async function recipeOpenAutomationsTab(page: Page): Promise<void> {
 }
 
 /**
- * The Suggestions tab: the shipped seed catalog that prefills the creator run.
- * The seeds are constants (`lib/action-suggestions.ts`), never DB rows, so this
- * tab is populated on every instance — which is why the anchor can be a
- * specific seed title rather than the section header the tab trigger shares.
+ * The shipped seed catalog that prefills the creator run. EXP-686 split its
+ * two homes: the phone keeps it as the Actions page's third tab, while a
+ * desktop viewport reaches it through the icon-only "Suggestions" lightbulb in
+ * the Actions header, which opens Getting started on its Suggested actions
+ * tab. Click whichever of the two is mounted. The seeds are constants
+ * (`lib/action-suggestions.ts`), never DB rows, so the anchor can be a
+ * specific seed title rather than a header the trigger shares.
  */
 async function recipeOpenSuggestionsTab(page: Page): Promise<void> {
   const tab = page.getByRole(`tab`, { name: `Suggestions`, exact: true })
-  await tab.first().waitFor({ timeout: 20_000 })
-  await tab.first().click()
+  if (await appears(tab, 5_000)) {
+    await tab.first().click()
+  } else {
+    const lightbulb = page.getByRole(`button`, {
+      name: `Suggestions`,
+      exact: true,
+    })
+    if (!(await appears(lightbulb, 20_000))) {
+      throw new Error(
+        `neither a Suggestions tab nor the Suggestions lightbulb — the seeds ` +
+          `live on the Actions page (phone) or in Getting started (desktop)`
+      )
+    }
+    await lightbulb.first().click()
+  }
   await page
     .getByText(`Daily standup digest`)
     .filter({ visible: true })
@@ -562,11 +584,13 @@ async function recipeOpenSuggestionsTab(page: Page): Promise<void> {
     .waitFor({ timeout: 15_000 })
 }
 
-/** Switch to the Automations tab and open the create-automation editor. */
+/**
+ * Open the create-automation editor. On the phone that means switching to the
+ * Actions page's Automations tab first; a desktop viewport is already on
+ * `/automations` and has no tab strip (EXP-686).
+ */
 async function recipeOpenAutomationEditor(page: Page): Promise<void> {
-  const tab = page.getByRole(`tab`, { name: `Automations` })
-  await tab.first().waitFor({ timeout: 20_000 })
-  await tab.first().click()
+  await clickTabIfPresent(page, `Automations`)
   const create = page.getByRole(`button`, { name: `New automation` })
   if (!(await appears(create, 15_000))) {
     throw new Error(

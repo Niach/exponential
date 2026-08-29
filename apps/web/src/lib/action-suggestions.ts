@@ -1,7 +1,7 @@
 import type { AutomationTrigger } from "@exp/db-schema/domain"
 
 // Curated action-suggestion seeds (EXP-530) — the Suggestions tab renders
-// them as cards and "Use suggestion" opens the create-action dialog with the
+// them as rows and "Use" opens the create-action dialog with the
 // description prefilled. Each description is written as INSTRUCTIONS for what
 // the authored action's prompt should do: it becomes the builtin "Create
 // action" run's description input, so the creator agent acts on it verbatim.

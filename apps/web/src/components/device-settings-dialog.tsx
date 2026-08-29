@@ -44,7 +44,6 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -607,14 +606,16 @@ export function DeviceSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-4 sm:max-h-[85dvh] sm:max-w-lg">
+      {/* EXP-686: no description — the machine's name is already the row you
+          opened this from, and repeating it pushed the settings down a line
+          on every client. `aria-describedby={undefined}` keeps Radix from
+          pointing at a description that no longer exists. */}
+      <DialogContent
+        className="gap-4 sm:max-h-[85dvh] sm:max-w-lg"
+        aria-describedby={undefined}
+      >
         <DialogHeader>
           <DialogTitle>Device settings</DialogTitle>
-          <DialogDescription>
-            {label}
-            {kind === `server` ? ` — server` : ``}
-            {online ? `` : ` (offline)`}
-          </DialogDescription>
         </DialogHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
           {/* ── Name ─────────────────────────────────────────────────── */}
@@ -664,10 +665,6 @@ export function DeviceSettingsDialog({
                 disabled={busySection !== null}
               />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Preselected whenever you start a coding session and more than one
-              of your machines can run it.
-            </p>
             {sectionErrors.default && (
               <p className="text-xs text-destructive">
                 {sectionErrors.default}

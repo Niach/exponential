@@ -21,6 +21,13 @@
 //! polled at the MachinesSection cadence while the page is up and slowly
 //! otherwise, and not at all once the checklist is complete.
 //!
+//! EXP-686: the page carries a second tab — "Suggested actions", the curated
+//! seed rows that used to live on the Actions page. The active tab rides the
+//! SCREEN ([`Screen::GettingStarted`]), so the Actions/Automations headers'
+//! lightbulb navigates straight into it and it survives go-back / tab
+//! restore. It is deliberately NOT a checklist entry: no new `EntryKey`, and
+//! `ENTRY_TITLES`/`ENTRY_DESCRIPTIONS` stay byte-equal with the web.
+//!
 //! There is NO dismissal (EXP-548): the rail entry (and the page, which
 //! leaves on its own) simply disappears once every visible entry is done,
 //! and stays hidden while the one-shots are still unanswered — exactly the
@@ -31,18 +38,23 @@ use std::time::{Duration, Instant};
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, relative, App, AppContext as _, ClipboardItem, Entity, FontWeight, Global, IntoElement,
-    ParentElement, Render, ScrollHandle, SharedString, Styled, Subscription, Window,
+    div, px, relative, App, AppContext as _, ClickEvent, ClipboardItem, Entity, FontWeight, Global,
+    InteractiveElement as _, IntoElement, ParentElement, Render, ScrollHandle, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 
+use crate::actions_view::section_heading;
 use crate::controls::WebControl as _;
 use crate::icons::registry;
-use crate::navigation::{active_team_id, nav_for_window, set_screen, Navigation};
+use crate::navigation::{
+    active_team_id, nav_for_window, resolved_screen, set_screen, GettingStartedTab, Navigation,
+    Screen,
+};
 use crate::queries;
 
 /// MachinesSection cadence while the page is visible: often enough that "I
@@ -902,6 +914,28 @@ impl GettingStartedView {
             }
         })
     }
+
+    /// EXP-686: the page's two tabs — the web segmented `TabsList`, full-width
+    /// under the header. Selecting one REPLACES the screen (no back-stack
+    /// push): the tab is part of the screen's identity, not a navigation.
+    fn render_tabs(
+        &self,
+        tab: GettingStartedTab,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let segment = |label: &'static str, target: GettingStartedTab| {
+            crate::controls::segmented_item(tab == target, cx)
+                .id(label)
+                .child(label)
+                .on_click(cx.listener(move |_, _: &gpui::ClickEvent, window, cx| {
+                    set_screen(window, cx, Some(Screen::GettingStarted { tab: target }));
+                }))
+        };
+        crate::controls::segmented(cx)
+            .child(segment("First steps", GettingStartedTab::FirstSteps))
+            .child(segment("Suggested actions", GettingStartedTab::Suggestions))
+            .into_any_element()
+    }
 }
 
 /// `{instance}/t/{slug}/settings/{section}` for the active account — the
@@ -925,6 +959,14 @@ impl Render for GettingStartedView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
         let team_id = active_team_id(&self.nav, cx);
+        // EXP-686: the tab is navigation state, read fresh every render — the
+        // lightbulb on Actions/Automations navigates here WITH a tab, and a
+        // go-back must land on the tab that was up.
+        let tab = match resolved_screen(&self.nav, cx) {
+            Some(Screen::GettingStarted { tab }) => tab,
+            _ => GettingStartedTab::default(),
+        };
+        let segments = self.render_tabs(tab, cx);
 
         let body: gpui::AnyElement = match team_id {
             None => div()
@@ -949,12 +991,18 @@ impl Render for GettingStartedView {
                 // EXP-548: no dismissal — the moment the last entry completes
                 // the rail entry is gone, so the page leaves too (the web
                 // sheet unmounts with its button). Deferred: never mutate the
-                // navigation from inside a render pass.
-                if complete {
+                // navigation from inside a render pass. EXP-686: only on the
+                // checklist tab — the suggestions tab is reachable from the
+                // Actions/Automations lightbulb precisely BECAUSE the
+                // checklist may already be complete.
+                if complete && tab == GettingStartedTab::FirstSteps {
                     window.defer(cx, |window, cx| set_screen(window, cx, None));
                 }
 
-                let progress: gpui::AnyElement = if loading {
+                // The progress bar belongs to the checklist, not to the page.
+                let progress: gpui::AnyElement = if loading
+                    || tab != GettingStartedTab::FirstSteps
+                {
                     div().into_any_element()
                 } else {
                     h_flex()
@@ -984,11 +1032,38 @@ impl Render for GettingStartedView {
                         .into_any_element()
                 };
 
-                let cards: Vec<gpui::AnyElement> = entries
-                    .iter()
-                    .enumerate()
-                    .map(|(index, entry)| self.entry_card(index, entry, &team_id, loading, cx))
-                    .collect();
+                let body: gpui::AnyElement = match tab {
+                    GettingStartedTab::FirstSteps => {
+                        let cards: Vec<gpui::AnyElement> = entries
+                            .iter()
+                            .enumerate()
+                            .map(|(index, entry)| {
+                                self.entry_card(index, entry, &team_id, loading, cx)
+                            })
+                            .collect();
+                        v_flex().min_w_0().gap_4().children(cards).into_any_element()
+                    }
+                    GettingStartedTab::Suggestions => {
+                        let rows: Vec<gpui::AnyElement> =
+                            crate::action_suggestions::ACTION_SUGGESTIONS
+                                .iter()
+                                .map(|suggestion| {
+                                    render_suggestion_row(suggestion, team_id.clone(), cx)
+                                })
+                                .collect();
+                        v_flex()
+                            .min_w_0()
+                            .gap_2()
+                            .child(section_heading(
+                                "Suggestions",
+                                Some(crate::action_suggestions::ACTION_SUGGESTIONS.len()),
+                                None,
+                                cx,
+                            ))
+                            .children(rows)
+                            .into_any_element()
+                    }
+                };
 
                 // NO `w_full` (EXP-508): a percent width on the centered
                 // column's direct child resolves against the UNCLAMPED
@@ -1019,7 +1094,8 @@ impl Render for GettingStartedView {
                             )
                             .child(progress),
                     )
-                    .children(cards)
+                    .child(segments)
+                    .child(body)
                     .into_any_element()
             }
         };
@@ -1040,6 +1116,124 @@ impl Render for GettingStartedView {
                     .child(column.w_full().max_w(px(720.)).mx_auto()),
             ))
     }
+}
+
+/// One suggestion row — the same list shape as an action row (EXP-618), with
+/// "Use" opening the creator dialog prefilled (EXP-686 moved these rows here
+/// from the Actions page and trimmed the button to the bare verb every client
+/// now uses; the glyph inside it went with the label).
+fn render_suggestion_row(
+    suggestion: &crate::action_suggestions::Suggestion,
+    team_id: String,
+    cx: &App,
+) -> gpui::AnyElement {
+    let theme = cx.theme();
+    let muted = theme.muted_foreground;
+    // EXP-642: the web `GlassRow` hover (`hover:bg-glass-active/50`).
+    let row_hover = theme.list_active.opacity(0.5);
+    let description = suggestion.description.to_string();
+    let icon = suggestion.icon.to_string();
+    // EXP-583: an "Action + automation" seed hands the create dialog a
+    // prefilled (still editable) trigger for its Automation block.
+    let automation = suggestion
+        .automation
+        .map(crate::action_suggestions::SuggestedAutomation::to_trigger);
+    let chip = if automation.is_some() { "Automation" } else { "Action" };
+    let no_agent = crate::coding_flow::no_agent_reason(cx);
+    crate::surface::glass_row_card()
+        .flex()
+        .w_full()
+        .min_w_0()
+        .items_center()
+        .gap_3()
+        .px_3()
+        .py_2p5()
+        .hover(move |this| this.bg(row_hover))
+        .child(
+            div().flex_shrink_0().child(
+                crate::icons::action_icon(Some(suggestion.icon))
+                    .xsmall()
+                    .text_color(muted),
+            ),
+        )
+        .child(
+            gpui_component::v_flex()
+                .flex_1()
+                .min_w_0()
+                .gap_0p5()
+                .child(
+                    gpui_component::h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_center()
+                        .gap_1p5()
+                        .child(
+                            div()
+                                .min_w_0()
+                                .text_sm()
+                                .font_weight(FontWeight::MEDIUM)
+                                .truncate()
+                                .text_color(theme.foreground)
+                                .child(SharedString::from(suggestion.title)),
+                        )
+                        // What "Use" will set up, up front.
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .px_1p5()
+                                .py_0p5()
+                                .rounded(px(theme::tokens::radius::SM))
+                                .border_1()
+                                .border_color(
+                                    theme::tokens::glass::STROKE_CARD.to_hsla(),
+                                )
+                                .text_xs()
+                                .text_color(muted)
+                                .child(chip),
+                        ),
+                )
+                .child(
+                    div()
+                        .w_full()
+                        .min_w_0()
+                        .text_xs()
+                        .text_color(muted)
+                        .line_clamp(3)
+                        .child(SharedString::from(suggestion.description)),
+                ),
+        )
+        .child(
+            div().flex_shrink_0().child(
+                // Keyed by the stable seed id, not the render index.
+                Button::new(SharedString::from(format!(
+                    "action-suggestion-{}",
+                    suggestion.id
+                )))
+                    .outline().cursor_pointer()
+                    .web_sm()
+                    .label("Use")
+                    .tooltip(
+                        no_agent
+                            .clone()
+                            .unwrap_or_else(|| "Author this action".into()),
+                    )
+                    .disabled(no_agent.is_some())
+                    .on_click(move |_: &ClickEvent, window, cx| {
+                        // The brief is a SEED, not a commitment — the
+                        // creator dialog opens with it in the editable
+                        // Description field.
+                        crate::create_action_dialog::open_prefilled(
+                            window,
+                            cx,
+                            team_id.clone(),
+                            Some(description.clone()),
+                            Some(icon.clone()),
+                            automation.clone(),
+                        );
+                    }),
+            ),
+        )
+        .into_any_element()
 }
 
 #[cfg(test)]

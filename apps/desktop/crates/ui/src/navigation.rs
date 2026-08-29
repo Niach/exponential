@@ -53,15 +53,35 @@ pub enum Screen {
     /// tool window rows open this instead of the issue detail; data via
     /// `issues.prFiles`, rendered by the shared side-by-side `DiffView`).
     PrDiff { issue_id: String },
-    /// The Actions page (EXP-467 — the web `t/$teamSlug/agents` page 1:1:
-    /// machines + the action card grid; editing lives in the edit dialog).
+    /// The Devices page (EXP-686 — the web `t/$teamSlug/devices` page: the
+    /// user's machines and nothing else). Tab-less full-page mode like
+    /// Settings (no sidebar, no tab chip), opened from the rail.
+    Devices,
+    /// The Actions page (EXP-467 — the web `t/$teamSlug/actions` page 1:1:
+    /// the team's action rows; editing lives in the edit dialog).
     /// EXP-480: a tab-less full-page mode like Settings (no sidebar, no tab
     /// chip), opened from the rail's Actions entry; the rail stays up.
+    /// EXP-686 split machines and automations out into their own screens.
     Actions,
+    /// The Automations page (EXP-686 — the web `t/$teamSlug/automations`
+    /// page: the automation rows plus "Recent automated runs").
+    Automations,
     /// The Getting-started checklist (EXP-470 — the desktop mirror of the
     /// web checklist). Tab-less full-page mode exactly like Actions, opened
-    /// from a conditional rail entry.
-    GettingStarted,
+    /// from a conditional rail entry. EXP-686: the page carries the
+    /// suggestion rows as a second tab, and the tab rides the SCREEN so the
+    /// Actions/Automations lightbulb can navigate straight into it (and so
+    /// go-back / tab restore keep the tab the user was on).
+    GettingStarted { tab: GettingStartedTab },
+}
+
+/// Which tab of the Getting-started page is up (EXP-686): the checklist, or
+/// the curated action suggestions that used to live on the Actions page.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum GettingStartedTab {
+    #[default]
+    FirstSteps,
+    Suggestions,
 }
 
 impl Screen {
@@ -88,6 +108,20 @@ impl Screen {
         matches!(
             self,
             Screen::IssueDetail { .. } | Screen::SupportThread { .. }
+        )
+    }
+
+    /// EXP-480/EXP-686: the tab-less FULL-PAGE screens the rail navigates to
+    /// directly. While one is up the tool column unmounts and exactly one
+    /// rail entry may read as selected (Settings is full-page too, but it
+    /// replaces the rail outright — the rail highlight rules don't apply).
+    pub(crate) fn is_rail_full_page(&self) -> bool {
+        matches!(
+            self,
+            Screen::Devices
+                | Screen::Actions
+                | Screen::Automations
+                | Screen::GettingStarted { .. }
         )
     }
 }
@@ -147,8 +181,10 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .get(issue_id)
             .map(|issue| gpui::SharedString::from(format!("{} · Diff", issue_tab_title(issue))))
             .unwrap_or_else(|| "Diff".into()),
+        Screen::Devices => "Devices".into(),
         Screen::Actions => "Actions".into(),
-        Screen::GettingStarted => "Getting started".into(),
+        Screen::Automations => "Automations".into(),
+        Screen::GettingStarted { .. } => "Getting started".into(),
     }
 }
 
@@ -227,17 +263,29 @@ impl Navigation {
     }
 }
 
-/// DEV-ONLY `EXP_DEV_SCREEN` values: `settings` | `account` | `actions`
-/// | `getting-started` | `issue:<uuid>` | `pr:<issue-uuid>` (the PR-diff
-/// screen, keyed by the ISSUE whose linked PR it shows) | `support:<uuid>`
-/// (anything else = no pre-route).
+/// DEV-ONLY `EXP_DEV_SCREEN` values: `settings` | `account` | `devices` |
+/// `actions` | `automations` | `getting-started` | `issue:<uuid>` |
+/// `pr:<issue-uuid>` (the PR-diff screen, keyed by the ISSUE whose linked PR
+/// it shows) | `support:<uuid>` (anything else = no pre-route).
+/// `getting-started` additionally reads `EXP_DEV_GETTING_STARTED_TAB`
+/// ([`parse_getting_started_tab`]) so a capture run can land on the
+/// suggestions tab without synthetic input.
 fn parse_dev_screen(spec: &str) -> Option<Screen> {
     match spec {
         "settings" => Some(Screen::Settings),
         // EXP-238: Account merged into Settings — the dev value keeps working.
         "account" => Some(Screen::Settings),
+        "devices" => Some(Screen::Devices),
         "actions" => Some(Screen::Actions),
-        "getting-started" => Some(Screen::GettingStarted),
+        "automations" => Some(Screen::Automations),
+        "getting-started" => Some(Screen::GettingStarted {
+            tab: std::env::var("EXP_DEV_GETTING_STARTED_TAB")
+                .ok()
+                .as_deref()
+                .map(str::trim)
+                .and_then(parse_getting_started_tab)
+                .unwrap_or_default(),
+        }),
         _ => {
             if let Some(id) = spec.strip_prefix("issue:") {
                 return Some(Screen::IssueDetail {
@@ -254,6 +302,18 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                     thread_id: id.to_string(),
                 })
         }
+    }
+}
+
+/// DEV-ONLY `EXP_DEV_GETTING_STARTED_TAB` values (EXP-686): `first-steps` |
+/// `suggestions` (anything else = the ordinary default). Split out of
+/// [`parse_dev_screen`] so it is testable without touching the process
+/// environment. Never document for users.
+fn parse_getting_started_tab(spec: &str) -> Option<GettingStartedTab> {
+    match spec {
+        "first-steps" => Some(GettingStartedTab::FirstSteps),
+        "suggestions" => Some(GettingStartedTab::Suggestions),
+        _ => None,
     }
 }
 
@@ -850,4 +910,68 @@ pub fn active_team_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
         .find(|team| !collections.boards_in_team(&team.id, cx).is_empty())
         .or_else(|| teams.first())
         .map(|team| team.id.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// EXP-686: the three full-page rail screens each have their own
+    /// `EXP_DEV_SCREEN` value — a capture run reaches Devices and Automations
+    /// without synthetic input, and the pre-split `actions` value keeps
+    /// meaning the Actions list.
+    #[test]
+    fn dev_screen_values_cover_the_full_page_screens() {
+        assert_eq!(parse_dev_screen("devices"), Some(Screen::Devices));
+        assert_eq!(parse_dev_screen("actions"), Some(Screen::Actions));
+        assert_eq!(parse_dev_screen("automations"), Some(Screen::Automations));
+        assert_eq!(parse_dev_screen("settings"), Some(Screen::Settings));
+        // EXP-238: the legacy Account value still lands on Settings.
+        assert_eq!(parse_dev_screen("account"), Some(Screen::Settings));
+        assert_eq!(
+            parse_dev_screen("issue:abc"),
+            Some(Screen::IssueDetail { issue_id: "abc".into() })
+        );
+        assert_eq!(parse_dev_screen("nonsense"), None);
+        // The old EXP-530 tab values were never screens.
+        assert_eq!(parse_dev_screen("suggestions"), None);
+    }
+
+    /// The Getting-started tab override parses exactly the two documented
+    /// values; anything else falls back to the checklist.
+    #[test]
+    fn getting_started_tab_override_parses_both_tabs() {
+        assert_eq!(
+            parse_getting_started_tab("first-steps"),
+            Some(GettingStartedTab::FirstSteps)
+        );
+        assert_eq!(
+            parse_getting_started_tab("suggestions"),
+            Some(GettingStartedTab::Suggestions)
+        );
+        assert_eq!(parse_getting_started_tab(""), None);
+        assert_eq!(parse_getting_started_tab("Suggestions"), None);
+        assert_eq!(GettingStartedTab::default(), GettingStartedTab::FirstSteps);
+    }
+
+    /// The rail entries and the tab-less page headers read these titles —
+    /// EXP-686 split "Agents" into three, so each screen must name itself.
+    #[gpui::test]
+    async fn full_page_screens_carry_their_own_titles(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            assert_eq!(screen_title(&Screen::Devices, cx), "Devices");
+            assert_eq!(screen_title(&Screen::Actions, cx), "Actions");
+            assert_eq!(screen_title(&Screen::Automations, cx), "Automations");
+            assert_eq!(
+                screen_title(
+                    &Screen::GettingStarted {
+                        tab: GettingStartedTab::Suggestions
+                    },
+                    cx
+                ),
+                "Getting started",
+                "the tab never changes the page's identity"
+            );
+        });
+    }
 }

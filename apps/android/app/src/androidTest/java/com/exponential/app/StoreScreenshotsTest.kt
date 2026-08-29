@@ -184,18 +184,15 @@ class StoreScreenshotsTest {
         flow.settle()
         flow.screenshot("5_review", popRects = true)
 
-        // --- Actions (EXP-253): the list rides the Agents header pill; the
-        // seed inserts three team actions above the two client builtins.
+        // --- Actions (EXP-253): its own bottom-bar tab since EXP-686; the
+        // seed inserts three team actions (no client builtins are listed).
         composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.waitFor(hasContentDescription("Agents"), NAV_TIMEOUT)
-        composeRule.onNode(hasContentDescription("Agents")).performClick()
-        flow.waitFor(hasTestTag("open-actions"), NAV_TIMEOUT)
-        composeRule.onNode(hasTestTag("open-actions")).performClick()
+        flow.waitFor(hasTestTag("tab-actions"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("tab-actions")).performClick()
         flow.waitFor(hasTestTag("action-row"), SYNC_TIMEOUT)
         flow.waitFor(hasText("Update dependencies", substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("6_actions", popRects = true)
-        composeRule.onNode(hasContentDescription("Back")).performClick()
 
         // --- My Work tab (EXP-58: Inbox + My Issues merged behind a
         // segmented control; Inbox is the default segment, seeded with 5

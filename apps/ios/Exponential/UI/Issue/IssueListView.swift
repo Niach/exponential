@@ -101,12 +101,14 @@ struct IssueListView: View {
         .sensoryFeedback(.impact(weight: .medium), trigger: selectionActive) { _, entered in entered }
         .navigationTitle(viewModel?.board?.name ?? "Issues")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        // Filter trigger in the nav bar (EXP-251 — replaces the removed
-        // inline filter/tab bar). Root mode also emits the Settings gear here
-        // (after the filter — EXP-331); pushed boards show the filter as the
-        // sole trailing item.
+        // Search + filter triggers in the nav bar (EXP-251 — replaces the
+        // removed inline filter/tab bar; EXP-686 moved Search out of the tab
+        // bar into the board header). Root mode also emits the Settings gear
+        // here (after the filter — EXP-331); pushed boards show search +
+        // filter as the sole trailing items.
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                searchToolbarButton
                 if let vm = viewModel {
                     filterToolbarButton(vm)
                 }
@@ -325,6 +327,20 @@ struct IssueListView: View {
         .glassRow()
         .padding(.horizontal, 16)
         .padding(.top, 8)
+    }
+
+    /// Nav-bar search entry (EXP-686): Search lost its tab, so every board
+    /// header carries it right before the filter, in the same 32pt style.
+    private var searchToolbarButton: some View {
+        NavigationLink(value: AppRoute.search) {
+            AppIcon(AppIcons.navSearch, size: AppIcon.Size.medium)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .frame(width: 32, height: 32)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Search")
+        .accessibilityIdentifier("board-search")
     }
 
     /// Nav-bar filter-sheet trigger with active-count badge (EXP-251 — the

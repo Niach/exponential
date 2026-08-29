@@ -141,8 +141,8 @@ struct SearchView: View {
         .listSectionSpacing(0)
         .scrollContentBackground(.hidden)
         .background(Color.clear)
-        // Clearance for the floating tab bar (EXP-36).
-        .tabBarBottomInset()
+        // No tab-bar clearance: EXP-686 made Search a pushed detail, so the
+        // floating bar is hidden here and the full height is ours.
     }
 
     @ViewBuilder

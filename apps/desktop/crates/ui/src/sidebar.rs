@@ -61,7 +61,7 @@ use crate::icons::{self, registry, ExpIcon};
 use crate::issue_list::IssueQuery;
 use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, navigate, resolved_screen, switch_team,
-    Navigation, Screen,
+    GettingStartedTab, Navigation, Screen,
 };
 use crate::issue_header::parse_hex_color;
 use crate::queries;
@@ -856,11 +856,7 @@ impl RailView {
         // mode is up the tool column is unmounted, so no tool entry may read
         // as selected — exactly one rail entry highlights, like a tool
         // switch.
-        let active = self.shared.read(cx).tool == tool
-            && !matches!(
-                resolved_screen(&self.nav, cx),
-                Some(Screen::Actions) | Some(Screen::GettingStarted)
-            );
+        let active = self.shared.read(cx).tool == tool && !self.full_page_screen_up(cx);
         if expanded {
             return rail_row(id, icon, label, active, badge, cx)
                 .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
@@ -907,40 +903,49 @@ impl RailView {
             .into_any_element()
     }
 
-    /// The Actions entry (EXP-467): not a tool window anymore — it navigates
-    /// to the [`Screen::Actions`] center page (the web agents page), the
-    /// settings gear's direct-navigation shape in the tool-icon slot.
-    /// EXP-480: the page is a tab-less full-page mode (no tool column, no
-    /// tab chip), so while it is up this entry is the ONE highlighted row.
-    fn rail_actions_entry(
+    /// EXP-480: whether a tab-less FULL-PAGE screen (Devices / Actions /
+    /// Automations / Getting started) owns the center. While one is up the
+    /// tool column is unmounted, so no tool or board entry may read as
+    /// selected — exactly one rail entry highlights, like a tool switch.
+    fn full_page_screen_up(&self, cx: &mut gpui::Context<Self>) -> bool {
+        resolved_screen(&self.nav, cx).is_some_and(|screen| screen.is_rail_full_page())
+    }
+
+    /// A rail entry that navigates STRAIGHT to a tab-less full-page screen
+    /// instead of activating a tool window (EXP-467's Actions entry,
+    /// generalized by EXP-686 for Devices / Actions / Automations): the
+    /// settings gear's direct-navigation shape in the tool-icon slot. While
+    /// its screen is up this entry is the ONE highlighted row.
+    fn rail_screen_entry(
         &self,
+        id: &'static str,
+        icon: Icon,
+        label: &'static str,
+        screen: Screen,
         accent: Hsla,
         expanded: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        let active = matches!(
-            resolved_screen(&self.nav, cx),
-            Some(Screen::Actions)
-        );
-        let icon = Icon::from(icons::registry::NAV_AGENTS);
+        let active = resolved_screen(&self.nav, cx).as_ref() == Some(&screen);
         if expanded {
-            return rail_row("rail-actions", icon, "Actions", active, None, cx)
-                .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                    navigate(window, cx, Screen::Actions);
+            let target = screen.clone();
+            return rail_row(id, icon, label, active, None, cx)
+                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                    navigate(window, cx, target.clone());
                 }))
                 .into_any_element();
         }
         div()
             .relative()
             .child(
-                Button::new("rail-actions")
+                Button::new(id)
                     .ghost().cursor_pointer()
                     .small()
                     .icon(icon)
                     .selected(active)
-                    .tooltip("Actions")
-                    .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                        navigate(window, cx, Screen::Actions);
+                    .tooltip(label)
+                    .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                        navigate(window, cx, screen.clone());
                     })),
             )
             .when(active, |this| {
@@ -962,7 +967,7 @@ impl RailView {
 
     /// The Getting-started entry (EXP-470): the desktop mirror of the web
     /// sidebar's re-entry point — navigates to the tab-less
-    /// [`Screen::GettingStarted`] page, the `rail_actions_entry` shape.
+    /// [`Screen::GettingStarted`] page, the [`Self::rail_screen_entry`] shape.
     /// EXP-548: it sits at the BOTTOM of the rail, right above the
     /// Settings/Account row (the web sidebar-footer position), and is
     /// rendered only while the checklist is incomplete — no dismissal.
@@ -972,9 +977,10 @@ impl RailView {
         expanded: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
+        // EXP-686: the page's tab rides the screen, so ANY tab highlights.
         let active = matches!(
             resolved_screen(&self.nav, cx),
-            Some(Screen::GettingStarted)
+            Some(Screen::GettingStarted { .. })
         );
         let icon = Icon::from(icons::registry::NAV_GETTING_STARTED);
         if expanded {
@@ -987,7 +993,9 @@ impl RailView {
                 cx,
             )
             .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                navigate(window, cx, Screen::GettingStarted);
+                navigate(window, cx, Screen::GettingStarted {
+                    tab: GettingStartedTab::FirstSteps,
+                });
             }))
             .into_any_element();
         }
@@ -1001,7 +1009,13 @@ impl RailView {
                     .selected(active)
                     .tooltip("Getting started")
                     .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                        navigate(window, cx, Screen::GettingStarted);
+                        navigate(
+                            window,
+                            cx,
+                            Screen::GettingStarted {
+                                tab: GettingStartedTab::FirstSteps,
+                            },
+                        );
                     })),
             )
             .when(active, |this| {
@@ -1167,10 +1181,7 @@ impl RailView {
         // (Actions / Getting-started) owns the highlight while it is up.
         let active = shared.tool == ToolWindow::BoardIssues
             && active_board.as_deref() == Some(board.id.as_str())
-            && !matches!(
-                resolved_screen(&self.nav, cx),
-                Some(Screen::Actions) | Some(Screen::GettingStarted)
-            );
+            && !self.full_page_screen_up(cx);
         let tint = board
             .color
             .as_deref()
@@ -1633,9 +1644,36 @@ impl Render for RailView {
                         expanded,
                         cx,
                     ))
-                    // EXP-525: Actions above Support (web sidebar order is
-                    // Inbox · Reviews · Agents · Support).
-                    .child(self.rail_actions_entry(accent, expanded, cx))
+                    // EXP-525/EXP-686: the three full-page entries sit above
+                    // Support (web sidebar order is Inbox · Reviews ·
+                    // Devices · Actions · Automations · Support).
+                    .child(self.rail_screen_entry(
+                        "rail-devices",
+                        Icon::from(icons::registry::NAV_DEVICES),
+                        "Devices",
+                        Screen::Devices,
+                        accent,
+                        expanded,
+                        cx,
+                    ))
+                    .child(self.rail_screen_entry(
+                        "rail-actions",
+                        Icon::from(icons::registry::NAV_ACTIONS),
+                        "Actions",
+                        Screen::Actions,
+                        accent,
+                        expanded,
+                        cx,
+                    ))
+                    .child(self.rail_screen_entry(
+                        "rail-automations",
+                        Icon::from(icons::registry::NAV_AUTOMATIONS),
+                        "Automations",
+                        Screen::Automations,
+                        accent,
+                        expanded,
+                        cx,
+                    ))
                     .children(support_icon)
                     .child(self.divider(expanded, cx))
                     .children(boards_header)

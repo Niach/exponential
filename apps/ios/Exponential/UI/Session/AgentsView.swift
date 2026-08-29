@@ -2,7 +2,8 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// The Agents tab: "My machines" — the caller's registered devices (EXP-403:
+/// The Devices tab (EXP-686, formerly Agents — the type names stay):
+/// "My machines" — the caller's registered devices (EXP-403:
 /// desktops AND headless `exponential` daemon servers, online or not — since
 /// EXP-481 read from the synced `devices` shape, online-ness derived from
 /// last_seen_at freshness) with a per-machine "Start coding" launcher and an
@@ -125,26 +126,8 @@ struct AgentsView: View {
                 }
             }
         }
-        .navigationTitle("Agents")
+        .navigationTitle("Devices")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        // Team actions (EXP-253) live behind the Agents surface — the tab bar
-        // is already at capacity (six tabs + compose on a 375pt screen), so
-        // the entry rides the Agents toolbar instead of a seventh tab. NOT
-        // helpdesk-gated.
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink(value: AppRoute.actions) {
-                    HStack(spacing: 4) {
-                        AppIcon(AppIcons.actionDefault, size: AppIcon.Size.small)
-                        Text("Actions")
-                            .font(.subheadline)
-                    }
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .contentShape(Rectangle())
-                }
-                .accessibilityLabel("Actions")
-            }
-        }
         .task(id: accountId) {
             let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
             steerEnabled = config.enabled
@@ -260,7 +243,7 @@ struct AgentsView: View {
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            AppIcon(AppIcons.navAgents, size: 28)
+            AppIcon(AppIcons.navDevices, size: 28)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text("No agents running")
                 .font(.subheadline)

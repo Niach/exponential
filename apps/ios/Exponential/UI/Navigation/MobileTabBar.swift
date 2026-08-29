@@ -4,17 +4,19 @@ import SwiftUI
 /// Linear-style floating bottom navigation: a glass pill with the top-level
 /// destinations (Issues, My Work — with an unread dot — Support — the team
 /// helpdesk inbox, present only while the active team's helpdesk flag is on
-/// (EXP-180) — Agents — with a running-session dot — Reviews — its own entry
-/// per EXP-147, ordered after Agents per EXP-152 — and Search; base order per
-/// EXP-81) plus a detached circular button on the right — compose an issue on
-/// the board surfaces, start a chat on Agents (EXP-631). Attached via
+/// (EXP-180) — Devices — with a running-session dot — Actions — the team's
+/// actions/automations surface, its own entry per EXP-686 — and Reviews — its
+/// own entry per EXP-147; base order per EXP-81) plus a detached circular
+/// button on the right — compose an issue on the board surfaces, start a chat
+/// on Devices (EXP-631). Search is no longer a tab (EXP-686): it is a pushed
+/// detail reached from the board header. Attached via
 /// `.overlay(alignment: .bottom)` so content
 /// scrolls underneath it; each bar-visible scrollable reserves clearance with
 /// `.tabBarBottomInset()` (EXP-36). MainNavigator hides it on detail screens.
 struct MobileTabBar: View {
     let issuesActive: Bool
-    let searchActive: Bool
-    let agentsActive: Bool
+    let devicesActive: Bool
+    let actionsActive: Bool
     let myWorkActive: Bool
     let reviewsActive: Bool
     let supportActive: Bool
@@ -25,12 +27,12 @@ struct MobileTabBar: View {
     let showsSupport: Bool
     let supportUnread: Bool
     let showsCompose: Bool
-    /// EXP-631: the Agents surface puts a Chat launcher in the compose slot —
+    /// EXP-631: the Devices surface puts a Chat launcher in the compose slot —
     /// composing an issue is board-scoped and hidden there anyway.
     let showsChat: Bool
     let onIssues: () -> Void
-    let onSearch: () -> Void
-    let onAgents: () -> Void
+    let onDevices: () -> Void
+    let onActions: () -> Void
     let onMyWork: () -> Void
     let onReviews: () -> Void
     let onSupport: () -> Void
@@ -52,9 +54,9 @@ struct MobileTabBar: View {
         if issuesActive { return "issues" }
         if myWorkActive { return "mywork" }
         if supportActive { return "support" }
-        if agentsActive { return "agents" }
+        if devicesActive { return "devices" }
+        if actionsActive { return "actions" }
         if reviewsActive { return "reviews" }
-        if searchActive { return "search" }
         return "none"
     }
 
@@ -91,20 +93,31 @@ struct MobileTabBar: View {
                     )
                     .accessibilityIdentifier("tab-support")
                 }
+                // Devices (EXP-686, the renamed Agents surface): the machine
+                // list plus its sessions.
                 tab(
-                    glyph: AppIcons.navAgents,
-                    label: "Agents",
-                    active: agentsActive,
+                    glyph: AppIcons.navDevices,
+                    label: "Devices",
+                    active: devicesActive,
                     badge: agentsRunning,
                     // Amber while any session waits on a plan approval /
                     // question (EXP-214), live green otherwise.
                     badgeColor: agentsNeedInput
                         ? DesignTokens.Semantic.yellow
                         : DesignTokens.Semantic.green,
-                    action: onAgents
+                    action: onDevices
                 )
-                .accessibilityIdentifier("tab-agents")
-                // Reviews sits beside Agents (EXP-147/EXP-152) — the same
+                .accessibilityIdentifier("tab-devices")
+                // Actions (EXP-686): actions / automations / suggestions, no
+                // longer a push off the Devices toolbar.
+                tab(
+                    glyph: AppIcons.navActions,
+                    label: "Actions",
+                    active: actionsActive,
+                    action: onActions
+                )
+                .accessibilityIdentifier("tab-actions")
+                // Reviews sits last (EXP-147/EXP-152/EXP-686) — the same
                 // open-PR glyph the in_review status uses. Green dot while
                 // open PRs await review (EXP-214).
                 tab(
@@ -116,8 +129,6 @@ struct MobileTabBar: View {
                     action: onReviews
                 )
                 .accessibilityIdentifier("tab-reviews")
-                tab(glyph: AppIcons.navSearch, label: "Search", active: searchActive, action: onSearch)
-                    .accessibilityIdentifier("tab-search")
             }
             .animation(motion.standard, value: activeKey)
             .padding(5)
@@ -205,7 +216,7 @@ extension View {
     /// plus 16pt of breathing room. The bar is an ancestor OVERLAY (see
     /// MainNavigator) — ancestor safe-area insets don't reliably reach List
     /// content inside pushed destinations, so every bar-visible scrollable
-    /// (Issues list, Search results, Agents, My Work's inbox/my-issues,
+    /// (Issues list, Devices, Actions, My Work's inbox/my-issues,
     /// Reviews) applies
     /// this ONE modifier directly. Detail screens (showsTabBar == false) must
     /// NOT reserve it — pass `false` when the same scrollable is reused on a

@@ -136,7 +136,9 @@ struct DeviceSettingsSheet: View {
             // gray; rows carry the glass fill.
             .scrollContentBackground(.hidden)
             .background(AppBackground())
-            .navigationTitle(device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel)
+            // EXP-686: the static sheet title — the machine's name is already
+            // the first field below it.
+            .navigationTitle("Device settings")
             .navigationBarTitleDisplayMode(.inline)
             .listSectionSpacing(12)
             .toolbar {
@@ -362,8 +364,6 @@ struct DeviceSettingsSheet: View {
                 )
             )
             .disabled(savingDefaultDevice)
-        } footer: {
-            Text("Preselected whenever you start a coding session and more than one of your machines can run it.")
         }
         .listRowBackground(glassFormRowFill)
     }

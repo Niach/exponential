@@ -1,13 +1,14 @@
 // EXP-637: the AGENT end path. Every other end is a client/user/merge/system
 // decision about a run; this one is the run's own close-out — the agent calls
-// the `exponential_sessions_end` MCP tool with a one-paragraph summary and an
-// outcome, and the row carries both to every runs list on every client.
+// the `exponential_sessions_end` MCP tool with a one-paragraph summary, and
+// the row carries it to every runs list on every client. (EXP-686 dropped the
+// self-reported outcome: the summary is the report.)
 //
 // EXP-673: the close-out ENDS the row only for a run an automation started
 // (`started_reason` set — nobody is watching that tab). A run a person
-// started (issue, batch, action or chat) records the summary and outcome and
-// STAYS live, so the person can keep talking to the agent; it ends when they
-// close the tab, kill it, or its PR merges — and the summary rides along.
+// started (issue, batch, action or chat) records the summary and STAYS live,
+// so the person can keep talking to the agent; it ends when they close the
+// tab, kill it, or its PR merges — and the summary rides along.
 //
 // EXP-679: the tool is now REGISTERED only for an unattended run (see
 // lib/mcp/gates.ts), so a person-started run should never reach this path at
@@ -18,7 +19,6 @@
 // tests mock this one module instead of the whole session router.
 import { and, eq, inArray } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
-import type { CodingSessionOutcome } from "@exp/db-schema/domain"
 import { codingSessions } from "@/db/schema"
 import type { Context } from "@/lib/trpc"
 
@@ -28,7 +28,6 @@ const LIVE_STATUSES = [`running`, `in_review`] as const
 export interface AgentEndResult {
   sessionId: string
   status: string
-  outcome: string | null
   /** The row was already `ended` — the earlier close-out is preserved. */
   alreadyEnded: boolean
   /** EXP-673: a person started this run, so the close-out was recorded but
@@ -48,7 +47,7 @@ export async function endSessionByAgent(
   db: Context[`db`],
   sessionId: string,
   callerId: string,
-  close: { summary: string; outcome: CodingSessionOutcome }
+  close: { summary: string }
 ): Promise<AgentEndResult> {
   const [existing] = await db
     .select({
@@ -56,7 +55,6 @@ export async function endSessionByAgent(
       userId: codingSessions.userId,
       hostUserId: codingSessions.hostUserId,
       status: codingSessions.status,
-      outcome: codingSessions.outcome,
       startedReason: codingSessions.startedReason,
     })
     .from(codingSessions)
@@ -80,7 +78,6 @@ export async function endSessionByAgent(
     return {
       sessionId,
       status: `ended`,
-      outcome: existing.outcome,
       alreadyEnded: true,
       keptOpen: false,
     }
@@ -109,13 +106,11 @@ export async function endSessionByAgent(
             endedAt: new Date(),
             endedBy: `agent`,
             summary: close.summary,
-            outcome: close.outcome,
             needsInput: false,
             updatedAt: new Date(),
           }
         : {
             summary: close.summary,
-            outcome: close.outcome,
             updatedAt: new Date(),
           }
     )
@@ -128,7 +123,6 @@ export async function endSessionByAgent(
     .returning({
       id: codingSessions.id,
       status: codingSessions.status,
-      outcome: codingSessions.outcome,
     })
 
   // Lost the race against a concurrent end — treat it as already closed
@@ -137,7 +131,6 @@ export async function endSessionByAgent(
     return {
       sessionId,
       status: `ended`,
-      outcome: existing.outcome,
       alreadyEnded: true,
       keptOpen: false,
     }
@@ -146,7 +139,6 @@ export async function endSessionByAgent(
   return {
     sessionId: session.id,
     status: session.status,
-    outcome: session.outcome,
     alreadyEnded: false,
     keptOpen: !automated,
   }

@@ -70,7 +70,9 @@
     "nav-my-issues": "list",
     "nav-boards": "folder-kanban",
     "nav-reviews": "git-pull-request",
-    "nav-agents": "bot",
+    "nav-devices": "monitor",
+    "nav-actions": "bot",
+    "nav-automations": "zap",
     "nav-support": "life-buoy",
     "nav-settings": "settings",
     "nav-notifications": "bell",
@@ -272,9 +274,6 @@
     "support-open": "circle-dot",
     "support-resolved": "circle-check",
 
-    "run-outcome-done": "circle-check",
-    "run-outcome-blocked": "circle-alert",
-    "run-outcome-no-changes": "circle-minus",
     "run-resume": "rotate-ccw"
   },
   "custom": {

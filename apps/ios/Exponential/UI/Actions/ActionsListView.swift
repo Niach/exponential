@@ -261,6 +261,7 @@ struct ActionsListView: View {
                 options: Segment.allCases,
                 selection: segment,
                 label: { $0.label },
+                identifier: { "actions-segment-\($0.rawValue)" },
                 onSelect: { segmentRaw = $0.rawValue }
             )
             .padding(.horizontal, 16)
@@ -320,6 +321,9 @@ struct ActionsListView: View {
                 }
                 .padding()
             }
+            // Actions is a tab of its own since EXP-686 — reserve the
+            // floating bar's clearance (EXP-36).
+            .tabBarBottomInset()
         }
     }
 
@@ -386,6 +390,7 @@ struct ActionsListView: View {
                 }
                 .padding()
             }
+            .tabBarBottomInset()
         }
     }
 
@@ -578,29 +583,34 @@ struct ActionsListView: View {
     }
 
     /// One automation-started coding_sessions row (started_reason non-null):
-    /// action-name snapshot, outcome glyph + label, relative time. No
-    /// "Automated" badge (EXP-643) — the section header already says so.
+    /// action-name snapshot, state, relative time. No "Automated" badge
+    /// (EXP-643) — the section header already says so.
     /// EXP-637: the SHARED expandable run row — a tap reveals the agent's
-    /// close-out summary and, on the machine that ran it, Resume. The summary
-    /// is never inline (decision 5), here or anywhere else.
+    /// close-out summary (rendered as real markdown since EXP-686) and, on the
+    /// machine that ran it, Resume. The summary is never inline (decision 5),
+    /// here or anywhere else. A LIVE row expands nothing: the only state it
+    /// shows is "Running", and tapping it opens that session.
     private func automatedRunRow(_ session: CodingSessionEntity, vm: ActionsViewModel) -> some View {
         let ended = session.status == DomainContract.codingSessionStatusEnded
         let device = ended ? vm.resumeDevice(for: session) : nil
         return EndedRunRow(
             title: session.actionName ?? "Action run",
-            outcome: session.outcome,
-            stateLabel: ended
-                ? RunOutcomePresentation.label(session.outcome)
-                : sessionStatusLabel(session.status),
             byline: runByline(session, ended: ended),
             summary: session.summary,
             expanded: expandedRunIds.contains(session.id),
             canResume: steerEnabled && device != nil,
+            isLive: !ended,
             onToggle: { toggleRun(session.id) },
             onResume: {
                 guard let device else { return }
                 resumeTarget = ResumeTarget(sessionId: session.id, deviceId: device.deviceId)
-            }
+            },
+            // A live run is steerable — the whole row IS the entry, exactly
+            // like the Devices tab's session rows. It pushes the SAME
+            // destination the start watcher does (a NavigationLink label can't
+            // hold the row's own header button).
+            onOpen: { sessionTarget = .init(sessionId: session.id) },
+            summary: { AgentMarkdownText(text: $0, context: nil) }
         )
         .accessibilityIdentifier("automated-run-row")
     }
@@ -635,15 +645,6 @@ struct ActionsListView: View {
         vm.resume(session: session, device: device, userId: deps.auth.userId)
     }
 
-    private func sessionStatusLabel(_ status: String) -> String {
-        switch status {
-        case DomainContract.codingSessionStatusRunning: return "Running"
-        case DomainContract.codingSessionStatusInReview: return "In review"
-        case DomainContract.codingSessionStatusEnded: return "Ended"
-        default: return status.replacingOccurrences(of: "_", with: " ").capitalized
-        }
-    }
-
     private func relativeDate(_ s: String) -> String {
         guard let date = WireTimestamps.parse(s) else { return "" }
         let formatter = RelativeDateTimeFormatter()
@@ -660,6 +661,7 @@ struct ActionsListView: View {
             }
             .padding()
         }
+        .tabBarBottomInset()
     }
 
     private func suggestionCard(_ suggestion: ActionSuggestion) -> some View {
@@ -672,7 +674,7 @@ struct ActionsListView: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                // EXP-583: what "Use suggestion" will set up.
+                // EXP-583: what "Use" will set up.
                 Text(suggestion.automation == nil ? "Action" : "Automation")
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -687,7 +689,7 @@ struct ActionsListView: View {
 
             Spacer(minLength: 0)
 
-            GlassPillButton("Use suggestion") {
+            GlassPillButton("Use") {
                 useSuggestion(suggestion)
             }
             .fixedSize(horizontal: true, vertical: false)
@@ -698,7 +700,8 @@ struct ActionsListView: View {
         .accessibilityIdentifier("suggestion-row")
     }
 
-    /// "Use suggestion": the create sheet, prefilled with the suggestion's
+    /// "Use" (EXP-686 shortened the label): the create sheet, prefilled with
+    /// the suggestion's
     /// description + icon and, for an "Action + automation" seed, its
     /// suggested trigger (EXP-615: the sheet always offers an automation —
     /// the seed only pre-fills one).

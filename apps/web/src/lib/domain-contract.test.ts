@@ -17,7 +17,6 @@ import {
   notificationTypeValues,
   prStateValues,
   codingSessionStatusValues,
-  codingSessionOutcomeValues,
   codingSessionEndedByValues,
   subscriberSourceValues,
   issueEventTypeValues,
@@ -162,11 +161,8 @@ describe(`domain-contract parity`, () => {
     ])
   })
 
-  // EXP-637: the agent-written close-out vocabulary.
-  it(`coding session outcome + endedBy values match the contract`, () => {
-    expect([...codingSessionOutcomeValues]).toEqual([
-      ...contract.codingSessionOutcome.values,
-    ])
+  // EXP-637: who ended a run (EXP-686 dropped the self-reported outcome).
+  it(`coding session endedBy values match the contract`, () => {
     expect([...codingSessionEndedByValues]).toEqual([
       ...contract.codingSessionEndedBy.values,
     ])

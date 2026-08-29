@@ -22,7 +22,6 @@ public enum DomainContract {
     public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply"]
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
     public static let codingSessionStatusValues: [String] = ["running", "in_review", "ended"]
-    public static let codingSessionOutcomeValues: [String] = ["done", "blocked", "no_changes"]
     public static let codingSessionEndedByValues: [String] = ["agent", "user", "client", "merge", "system"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
     public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed"]
@@ -76,9 +75,6 @@ public enum DomainContract {
     public static let codingSessionStatusRunning: String = "running"
     public static let codingSessionStatusInReview: String = "in_review"
     public static let codingSessionStatusEnded: String = "ended"
-    public static let codingSessionOutcomeDone: String = "done"
-    public static let codingSessionOutcomeBlocked: String = "blocked"
-    public static let codingSessionOutcomeNoChanges: String = "no_changes"
     public static let codingSessionEndedByAgent: String = "agent"
     public static let codingSessionEndedByUser: String = "user"
     public static let codingSessionEndedByClient: String = "client"

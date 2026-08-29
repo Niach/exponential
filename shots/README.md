@@ -164,7 +164,7 @@ family, one `drive` per view:
 | drive | env | opens |
 | ----- | --- | ----- |
 | `tool`     | `EXP_DEV_TOOL`                      | a rail tool window (board, inbox, reviews, support, files, source-control) |
-| `screen`   | `EXP_DEV_SCREEN`                    | a centre screen (`settings`, `actions`, `getting-started`, `issue:<id>`, `pr:<id>`) |
+| `screen`   | `EXP_DEV_SCREEN`                    | a centre screen (`settings`, `devices`, `actions`, `automations`, `getting-started`, `issue:<id>`, `pr:<id>`) |
 | `settings` | `EXP_DEV_SCREEN` + `EXP_DEV_SETTINGS` | one settings section |
 | `dialog`   | `EXP_DEV_DIALOG`                    | one dialog, fired once from the render path after the state it needs resolves |
 | `login`    | â€” (no session injected)             | the pre-login card, on its own throwaway data dir |
@@ -176,7 +176,8 @@ A view may add `desktop.env` on top for the cases that are a drive PLUS a flag â
 the rail at a board other than the last-visited one, `EXP_DEV_SELECT` to
 pre-select the rows the bulk bar needs, `EXP_DEV_SEARCH_QUERY` to open the
 palette with a query already typed, `EXP_DEV_OPEN_SHELL=1` for a docked
-terminal, `EXP_DEV_ACTIONS_TAB` for the Actions screen's tab, `EXP_DEV_LOGIN`
+terminal, `EXP_DEV_GETTING_STARTED_TAB` for the Getting started screen's tab,
+`EXP_DEV_LOGIN`
 for which state the login card starts in. Every one of them is documented in
 `packages/shots/src/desktop-env.md`.
 

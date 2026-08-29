@@ -40,10 +40,12 @@ import XCTest
 // v21_device_is_default (EXP-622: devices.is_default, the owner's default
 // machine every device picker prefills) the twentieth, and
 // v22_coding_session_outcome (EXP-637: the agent's own close-out —
-// coding_sessions.summary/outcome/ended_by + resumed_from_id) the
+// coding_sessions.summary/ended_by + resumed_from_id) the
 // twenty-first, and v23_agent_status (EXP-484: the machine's per-agent auth
 // status + rate-limit usage on the devices shape, and the agent a run was
-// launched with on the coding-sessions shape) the twenty-second.
+// launched with on the coding-sessions shape) the twenty-second, and
+// v24_drop_coding_session_outcome (EXP-686: the self-reported run outcome is
+// gone server-side, so the local column goes too) the twenty-third.
 // These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
@@ -91,7 +93,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v17_coding_session_branch", "v18_action_automations",
              "v19_coding_session_device_id", "v20_automations",
              "v21_device_is_default", "v22_coding_session_outcome",
-             "v23_agent_status"]
+             "v23_agent_status", "v24_drop_coding_session_outcome"]
         )
     }
 
@@ -113,7 +115,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v17_coding_session_branch", "v18_action_automations",
              "v19_coding_session_device_id", "v20_automations",
              "v21_device_is_default", "v22_coding_session_outcome",
-             "v23_agent_status"]
+             "v23_agent_status", "v24_drop_coding_session_outcome"]
         )
     }
 
@@ -163,7 +165,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v17_coding_session_branch", "v18_action_automations",
              "v19_coding_session_device_id", "v20_automations",
              "v21_device_is_default", "v22_coding_session_outcome",
-             "v23_agent_status"]
+             "v23_agent_status", "v24_drop_coding_session_outcome"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -233,7 +235,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v17_coding_session_branch", "v18_action_automations",
              "v19_coding_session_device_id", "v20_automations",
              "v21_device_is_default", "v22_coding_session_outcome",
-             "v23_agent_status"]
+             "v23_agent_status", "v24_drop_coding_session_outcome"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -636,13 +638,13 @@ final class DatabaseMigrationTests: XCTestCase {
     }
 
     // v22 (EXP-637 agent run close-outs): a store created before
-    // `coding_sessions.summary` / `outcome` / `ended_by` / `resumed_from_id`
-    // existed must gain all four via the guarded ALTERs and get the
-    // coding-sessions shape offset reset (the key has A DASH — the proxy route
-    // name, not the table name) so already-synced rows re-arrive carrying the
-    // agent's close-out.
-    func testCodingSessionOutcomeColumnsAddedToExistingStore() throws {
-        let pool = try makePool("session-outcome")
+    // `coding_sessions.summary` / `ended_by` / `resumed_from_id` existed must
+    // gain all three via the guarded ALTERs and get the coding-sessions shape
+    // offset reset (the key has A DASH — the proxy route name, not the table
+    // name) so already-synced rows re-arrive carrying the agent's close-out.
+    // EXP-686 dropped `outcome` from the set — v24 drops it again anyway.
+    func testCodingSessionCloseOutColumnsAddedToExistingStore() throws {
+        let pool = try makePool("session-close-out")
         let migrator = DatabaseManager.makeMigrator()
         try migrator.migrate(pool, upTo: "v21_device_is_default")
         try pool.write { db in
@@ -650,7 +652,7 @@ final class DatabaseMigrationTests: XCTestCase {
             // already declares (that overlap is exactly what the guarded
             // ALTERs have to tolerate) + a live offset row.
             let sessionCols = Set(try db.columns(in: "coding_sessions").map(\.name))
-            for column in ["summary", "outcome", "ended_by", "resumed_from_id"]
+            for column in ["summary", "ended_by", "resumed_from_id"]
             where sessionCols.contains(column) {
                 try db.alter(table: "coding_sessions") { t in t.drop(column: column) }
             }
@@ -663,7 +665,7 @@ final class DatabaseMigrationTests: XCTestCase {
 
         XCTAssertNoThrow(try migrator.migrate(pool))
         let columns = try columnNames(pool, "coding_sessions")
-        for column in ["summary", "outcome", "ended_by", "resumed_from_id"] {
+        for column in ["summary", "ended_by", "resumed_from_id"] {
             XCTAssertTrue(columns.contains(column), "missing \(column)")
             let added = try pool.read { db in
                 try db.columns(in: "coding_sessions").first { $0.name == column }
@@ -978,6 +980,28 @@ final class DatabaseMigrationTests: XCTestCase {
             XCTAssertEqual(offsetValue, "-1", shape)
             XCTAssertEqual(needsRefetch, true, shape)
             XCTAssertEqual(isLive, false, shape)
+        }
+    }
+
+    // v24 (EXP-686): a store created while `coding_sessions.outcome` still
+    // existed must lose it via the guarded drop (today's v1 create no longer
+    // declares it — hand-add it to model the old state). The rest of the
+    // close-out trio must survive.
+    func testCodingSessionOutcomeDroppedFromExistingStore() throws {
+        let pool = try makePool("session-outcome-drop")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v23_agent_status")
+        try pool.write { db in
+            try db.alter(table: "coding_sessions") { t in
+                t.add(column: "outcome", .text)
+            }
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let columns = try columnNames(pool, "coding_sessions")
+        XCTAssertFalse(columns.contains("outcome"))
+        for column in ["summary", "ended_by", "resumed_from_id"] {
+            XCTAssertTrue(columns.contains(column), "missing \(column)")
         }
     }
 

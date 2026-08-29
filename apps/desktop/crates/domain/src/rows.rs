@@ -468,11 +468,6 @@ pub struct CodingSession {
     /// the `exponential_sessions_end` MCP tool (≤4000 chars, plain GFM).
     #[serde(default)]
     pub summary: Option<String>,
-    /// EXP-637: `done` / `blocked` / `no_changes` — raw wire value
-    /// (`CODING_SESSION_OUTCOME_VALUES`); `None` on rows that ended without
-    /// the agent declaring an outcome.
-    #[serde(default)]
-    pub outcome: Option<String>,
     /// EXP-637: who ended the run — `agent` / `user` / `client` / `merge` /
     /// `system` (`CODING_SESSION_ENDED_BY_VALUES`).
     #[serde(default)]

@@ -197,14 +197,15 @@ final class SyncApplyTests: XCTestCase {
     }
 
     // EXP-637: the coding-sessions shape carries the agent's own close-out.
-    // An inserted row must round-trip all four columns into the v22 schema.
-    func testCodingSessionInsertPersistsOutcomeAndSummary() async throws {
+    // An inserted row must round-trip all three columns into the schema
+    // (EXP-686 removed the fourth, `outcome`).
+    func testCodingSessionInsertPersistsCloseOut() async throws {
         let session = CodingSessionEntity(
             id: "cs1", issueId: nil, teamId: "ws1", userId: "u1",
             deviceLabel: "macbook", deviceId: "dev-1", status: "ended",
             actionName: "Refresh screenshots",
             summary: "Recaptured every store slide and opened a PR.",
-            outcome: "done", endedBy: "agent", resumedFromId: "cs0",
+            endedBy: "agent", resumedFromId: "cs0",
             startedAt: "2026-08-27T09:00:00Z", endedAt: "2026-08-27T09:12:00Z",
             createdAt: "2026-08-27T09:00:00Z", updatedAt: "2026-08-27T09:12:00Z"
         )
@@ -216,14 +217,13 @@ final class SyncApplyTests: XCTestCase {
         )
         let stored = try await pool.read { try CodingSessionEntity.fetchOne($0, key: "cs1") }
         XCTAssertEqual(stored?.summary, "Recaptured every store slide and opened a PR.")
-        XCTAssertEqual(stored?.outcome, "done")
         XCTAssertEqual(stored?.endedBy, "agent")
         XCTAssertEqual(stored?.resumedFromId, "cs0")
     }
 
-    // A pre-EXP-637 snapshot omits all four keys entirely — the decoder must
+    // A pre-EXP-637 snapshot omits all three keys entirely — the decoder must
     // read them as nil rather than throw (which would brick the shape).
-    func testCodingSessionDecodesWithoutOutcomeKeys() throws {
+    func testCodingSessionDecodesWithoutCloseOutKeys() throws {
         let json = """
             {"id":"cs2","issue_id":null,"team_id":"ws1","user_id":"u1",
              "device_label":"macbook","status":"ended",
@@ -232,9 +232,24 @@ final class SyncApplyTests: XCTestCase {
             """
         let row = try JSONDecoder().decode(CodingSessionEntity.self, from: Data(json.utf8))
         XCTAssertNil(row.summary)
-        XCTAssertNil(row.outcome)
         XCTAssertNil(row.endedBy)
         XCTAssertNil(row.resumedFromId)
+        XCTAssertEqual(row.status, "ended")
+    }
+
+    // EXP-686 dropped `outcome` from the shape, but an older server (or a
+    // replayed snapshot) may still send the key — an unknown column must be
+    // ignored, never brick the shape.
+    func testCodingSessionToleratesAStrayOutcomeKey() throws {
+        let json = """
+            {"id":"cs3","issue_id":null,"team_id":"ws1","user_id":"u1",
+             "device_label":"macbook","status":"ended","outcome":"done",
+             "summary":"Shipped it.",
+             "started_at":"2026-08-27T09:00:00Z","ended_at":"2026-08-27T09:12:00Z",
+             "created_at":"2026-08-27T09:00:00Z","updated_at":"2026-08-27T09:12:00Z"}
+            """
+        let row = try JSONDecoder().decode(CodingSessionEntity.self, from: Data(json.utf8))
+        XCTAssertEqual(row.summary, "Shipped it.")
         XCTAssertEqual(row.status, "ended")
     }
 

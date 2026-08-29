@@ -266,9 +266,11 @@ final class StyleguideScreenshots: XCTestCase {
         app.buttons["Cancel"].firstMatch.tap()
 
         // ── sg_search: the search view with seeded results ───────────────────
-        let searchTab = app.buttons["tab-search"]
-        XCTAssertTrue(searchTab.waitForExistence(timeout: 15), "Search tab missing")
-        searchTab.tap()
+        // EXP-686: Search lost its tab — it is a push off the board header,
+        // beside Filter.
+        let searchButton = app.buttons["board-search"]
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Board search button missing")
+        searchButton.tap()
         let searchField = app.textFields["search-field"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field missing")
         focus(searchField)
@@ -278,6 +280,7 @@ final class StyleguideScreenshots: XCTestCase {
             "Search never returned the seeded issue for \"\(Self.searchQuery)\""
         )
         snapshot("sg_search", settle: 2)
+        goBack(app)
 
         // ── sg_my-issues: My Work → the "My Issues" segment ──────────────────
         // The segment is a GlassSegmentedControl button carrying only an
@@ -299,13 +302,14 @@ final class StyleguideScreenshots: XCTestCase {
         // Since EXP-642 this lane needs the relay stub (`screenshots:desktop`):
         // the demo user's own device row is what the next three shots are
         // taken from, and an empty machines list is not a useful reference
-        // shot either.
-        let agentsTab = app.buttons["tab-agents"]
-        XCTAssertTrue(agentsTab.waitForExistence(timeout: 15), "Agents tab missing")
-        agentsTab.tap()
+        // shot either. EXP-686 renamed the surface to Devices (the shot id
+        // stays sg_agents).
+        let devicesTab = app.buttons["tab-devices"]
+        XCTAssertTrue(devicesTab.waitForExistence(timeout: 15), "Devices tab missing")
+        devicesTab.tap()
         XCTAssertTrue(
-            app.navigationBars["Agents"].waitForExistence(timeout: 30),
-            "Agents surface never appeared"
+            app.navigationBars["Devices"].waitForExistence(timeout: 30),
+            "Devices surface never appeared"
         )
         XCTAssertTrue(
             app.staticTexts[Self.demoDeviceName].firstMatch.waitForExistence(timeout: 60),
@@ -314,7 +318,7 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_agents", settle: 2)
 
         // ── sg_start-coding-actions / -chat: the unified launch sheet ────────
-        // The machine row's play glyph opens the sheet the Agents surface owns;
+        // The machine row's play glyph opens the sheet the Devices surface owns;
         // it wires teamId + onRunAction, so the Issues | Actions | Chat
         // segmented control is there. The tabs carry identifiers because
         // "Actions" and "Chat" also read as ordinary buttons elsewhere.
@@ -364,24 +368,21 @@ final class StyleguideScreenshots: XCTestCase {
         _ = deviceSheet.waitForNonExistence(timeout: 10)
         settle(1)
 
-        // ── The Actions surface: four shots off one push ─────────────────────
-        // Actions has no tab of its own (the bar is full) — the entry rides the
-        // Agents toolbar, exactly like Android's Agents-header pill.
-        let actionsLink = app.navigationBars["Agents"].buttons["Actions"]
-        XCTAssertTrue(actionsLink.waitForExistence(timeout: 15), "Actions entry missing from the Agents toolbar")
-        actionsLink.tap()
+        // ── The Actions surface: four shots off one tab ──────────────────────
+        // EXP-686: Actions is a top-level tab of its own.
+        let actionsBarTab = app.buttons["tab-actions"]
+        XCTAssertTrue(actionsBarTab.waitForExistence(timeout: 15), "Actions tab missing")
+        actionsBarTab.tap()
         XCTAssertTrue(
             app.navigationBars["Actions"].waitForExistence(timeout: 30),
             "Actions surface never appeared"
         )
-        // The Agents toolbar link is ALSO a button labelled "Actions" — let the
-        // push finish before addressing the segment, or the query matches two
-        // elements and the tap throws.
-        _ = app.navigationBars["Agents"].waitForNonExistence(timeout: 10)
         // The segment choice is persisted in @AppStorage, so a retry after a
         // mid-Actions failure would land on Automations/Suggestions — select
-        // the Actions segment explicitly (the tap is idempotent).
-        let actionsSegment = app.buttons["Actions"]
+        // the Actions segment explicitly (the tap is idempotent). The segments
+        // carry identifiers (EXP-686) because "Actions" also reads as the tab
+        // and the nav bar title.
+        let actionsSegment = anyElement(app, identified: "actions-segment-actions")
         XCTAssertTrue(actionsSegment.waitForExistence(timeout: 15), "Actions segment missing")
         actionsSegment.tap()
         XCTAssertTrue(
@@ -417,7 +418,7 @@ final class StyleguideScreenshots: XCTestCase {
         // name: the `automations` rows are newer than this suite, so an older
         // seed shows the empty state — which is still a legitimate capture of
         // this surface, unlike a half-synced list.
-        let automationsSegment = app.buttons["Automations"]
+        let automationsSegment = anyElement(app, identified: "actions-segment-automations")
         XCTAssertTrue(automationsSegment.waitForExistence(timeout: 15), "Automations segment missing")
         automationsSegment.tap()
         let automationRow = anyElement(app, identified: "automation-row")
@@ -464,7 +465,7 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_action-suggestions: the Suggestions segment ────────────────────
         // Shipped constants (`ActionSuggestion.seeds`), not seeded rows — this
         // one can be gated hard on a row.
-        let suggestionsSegment = app.buttons["Suggestions"]
+        let suggestionsSegment = anyElement(app, identified: "actions-segment-suggestions")
         XCTAssertTrue(suggestionsSegment.waitForExistence(timeout: 15), "Suggestions segment missing")
         suggestionsSegment.tap()
         XCTAssertTrue(
@@ -474,7 +475,6 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_action-suggestions", settle: 2)
         // Leave the surface on Actions so a retry starts where it started.
         actionsSegment.tap()
-        goBack(app)
 
         // ── sg_reviews: the cross-board open-PR queue ───────────────────────
         let reviewsTab = app.buttons["tab-reviews"]

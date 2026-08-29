@@ -23,7 +23,7 @@ export function mcpServerInstructions(
   ]
   if (gates.sessionsEnd) {
     paragraphs.push(
-      `This run is unattended (an automation or another agent started it). When you are done, call exponential_sessions_end LAST with a one-paragraph summary and outcome 'done' (PR open or work complete), 'blocked' (you stopped and a human is needed) or 'no_changes'; leave the worktree clean first. That call ends the run; nobody is watching, so do not wait for replies.`
+      `This run is unattended (an automation or another agent started it). When you are done, call exponential_sessions_end LAST with a one-paragraph summary of what you did — whether you finished, stopped for a human or changed nothing; leave the worktree clean first. That call ends the run; nobody is watching, so do not wait for replies.`
     )
   }
   return paragraphs.join(`\n\n`)

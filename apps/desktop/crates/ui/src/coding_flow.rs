@@ -428,6 +428,14 @@ impl LocalSessions {
         self.all().find(|session| session.tab == tab)
     }
 
+    /// The live local session with this `coding_sessions` ROW id — the
+    /// reverse of [`Self::session_for_tab`]. EXP-686: the automations run log
+    /// resolves a synced live row back to the tab this process is hosting it
+    /// in, so clicking the row can reveal that terminal.
+    pub fn session_by_id(&self, session_id: &str) -> Option<&LocalCodingSession> {
+        self.all().find(|session| session.session_id == session_id)
+    }
+
     /// Every live local session's row id (issue + batch) — the EXP-105
     /// quit-time sweep input, the EXP-229 reconcile skip-set, and the
     /// sign-out sweep input.

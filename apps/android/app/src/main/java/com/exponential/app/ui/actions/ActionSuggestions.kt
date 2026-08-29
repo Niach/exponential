@@ -5,7 +5,7 @@ import com.exponential.app.domain.AutomationTrigger
 // EXP-530 Suggestions tab: 9 seed action ideas, mirrored per client from
 // apps/web/src/lib/action-suggestions.ts — id/title/description/icon must
 // stay in lockstep with the web list (icons come from the shared pickable
-// registry). "Use suggestion" opens the create sheet prefilled with the
+// registry). "Use" opens the create sheet prefilled with the
 // description + icon; the creator agent authors the real action from there.
 //
 // EXP-583: a seed may carry an [automation] — the suggested trigger (when-part

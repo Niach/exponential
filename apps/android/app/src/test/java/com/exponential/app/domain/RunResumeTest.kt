@@ -9,11 +9,10 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * EXP-637: the four labels a finished run can carry are byte-equal across web,
- * desktop, iOS and Android, and Resume is offered only where the server would
- * actually accept it.
+ * EXP-637: Resume is offered only where the server would actually accept it
+ * (EXP-686 removed the self-reported outcome labels this file also covered).
  */
-class RunOutcomeTest {
+class RunResumeTest {
 
     private fun session(
         id: String = "sess-1",
@@ -44,33 +43,6 @@ class RunOutcomeTest {
         caps = caps,
         owner = owner,
     )
-
-    // ── Labels (byte-equal on every client) ─────────────────────────────────
-
-    @Test
-    fun `every contract outcome maps to its shared label`() {
-        assertEquals("Done", runOutcomeLabel(DomainContract.codingSessionOutcomeDone))
-        assertEquals("Blocked", runOutcomeLabel(DomainContract.codingSessionOutcomeBlocked))
-        assertEquals("No changes", runOutcomeLabel(DomainContract.codingSessionOutcomeNoChanges))
-    }
-
-    @Test
-    fun `no outcome reads Ended, and so does an unknown one`() {
-        // A run killed, merged or swept never gets an outcome — and neither did
-        // anything that ended before EXP-637.
-        assertEquals("Ended", runOutcomeLabel(null))
-        assertEquals(RunOutcome.Ended, runOutcomeOf(null))
-        // A newer server's value must never leak its raw wire token into the UI.
-        assertEquals("Ended", runOutcomeLabel("some_future_outcome"))
-    }
-
-    @Test
-    fun `the contract's outcome values are exactly the three presentable ones`() {
-        assertEquals(
-            listOf(RunOutcome.Done, RunOutcome.Blocked, RunOutcome.NoChanges),
-            DomainContract.codingSessionOutcomeValues.map(::runOutcomeOf),
-        )
-    }
 
     // ── Resume eligibility ──────────────────────────────────────────────────
 

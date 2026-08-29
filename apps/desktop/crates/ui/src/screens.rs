@@ -121,10 +121,16 @@ pub(crate) fn build_screen_content(
         }
         // Never undockable — unreachable via the undock path, kept total for
         // the compiler.
+        Screen::Devices => cx
+            .new(|cx| crate::devices_view::DevicesView::new(window, cx))
+            .into(),
         Screen::Actions => cx
             .new(|cx| crate::actions_view::ActionsView::new(window, cx))
             .into(),
-        Screen::GettingStarted => cx
+        Screen::Automations => cx
+            .new(|cx| crate::automations_view::AutomationsView::new(window, cx))
+            .into(),
+        Screen::GettingStarted { .. } => cx
             .new(|cx| crate::getting_started::GettingStartedView::new(window, cx))
             .into(),
         Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
@@ -314,9 +320,15 @@ pub struct ScreensPanel {
     /// One shared PR diff view, re-pointed on tab switch (EXP-181 — the
     /// Reviews rows' target).
     pr_diff: Entity<crate::pr_diff::PrDiffView>,
-    /// The Actions page (EXP-467 — the web agents page: machines + the
-    /// action card grid; EXP-480: a tab-less full-page mode like Settings).
+    /// The Devices page (EXP-686 — the user's machines; the same tab-less
+    /// full-page mode).
+    devices: Entity<crate::devices_view::DevicesView>,
+    /// The Actions page (EXP-467 — the team's action rows; EXP-480: a
+    /// tab-less full-page mode like Settings).
     actions: Entity<crate::actions_view::ActionsView>,
+    /// The Automations page (EXP-686 — the automation rows plus the
+    /// "Recent automated runs" log).
+    automations: Entity<crate::automations_view::AutomationsView>,
     /// The Getting-started checklist page (EXP-470 — the same tab-less
     /// full-page mode, behind a conditional rail entry).
     getting_started: Entity<crate::getting_started::GettingStartedView>,
@@ -359,7 +371,10 @@ impl ScreensPanel {
         // EXP-525: only the in-shell instance offers "open in new window" —
         // `build_screen_content`'s undocked-window instances must not.
         pr_diff.update(cx, |diff, _| diff.show_undock = true);
+        let devices = cx.new(|cx| crate::devices_view::DevicesView::new(window, cx));
         let actions = cx.new(|cx| crate::actions_view::ActionsView::new(window, cx));
+        let automations =
+            cx.new(|cx| crate::automations_view::AutomationsView::new(window, cx));
         let getting_started =
             cx.new(|cx| crate::getting_started::GettingStartedView::new(window, cx));
         let nav = nav_for_window(window, cx);
@@ -434,7 +449,9 @@ impl ScreensPanel {
             file_viewer,
             support_thread,
             pr_diff,
+            devices,
             actions,
+            automations,
             getting_started,
             rail,
             tabs: Vec::new(),
@@ -603,8 +620,10 @@ impl ScreensPanel {
                     .update(cx, |thread, cx| thread.set_thread(thread_id, window, cx));
             }
             Screen::PrDiff { .. }
+            | Screen::Devices
             | Screen::Actions
-            | Screen::GettingStarted
+            | Screen::Automations
+            | Screen::GettingStarted { .. }
             | Screen::Settings => {
                 unreachable!("filtered by is_detail")
             }
@@ -1609,8 +1628,12 @@ impl Render for ScreensPanel {
                 self.support_thread.clone().into_any_element()
             }
             Some(Screen::PrDiff { .. }) => self.pr_diff.clone().into_any_element(),
+            Some(Screen::Devices) => self.devices.clone().into_any_element(),
             Some(Screen::Actions) => self.actions.clone().into_any_element(),
-            Some(Screen::GettingStarted) => self.getting_started.clone().into_any_element(),
+            Some(Screen::Automations) => self.automations.clone().into_any_element(),
+            Some(Screen::GettingStarted { .. }) => {
+                self.getting_started.clone().into_any_element()
+            }
             // EXP-288: no tab selected — the active TOOL owns the center.
             // Source Control shows its diff (following the History
             // selection), Files the read-only viewer (its Idle phase covers

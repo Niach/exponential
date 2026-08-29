@@ -817,8 +817,8 @@ export const codingSessionsRouter = router({
 
       // EXP-637: this is the CLIENT end path — the agent process exited, the
       // tab closed, or the app quit. `endedBy` records that, and the run
-      // carries no agent-written summary/outcome (only
-      // `exponential_sessions_end` writes those). needsInput is cleared so a
+      // carries no agent-written summary (only
+      // `exponential_sessions_end` writes that). needsInput is cleared so a
       // row parked on a picker can't end amber.
       const [session] = await ctx.db
         .update(codingSessions)

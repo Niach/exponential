@@ -297,16 +297,22 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasContentDescription("Filters"), NAV_TIMEOUT)
         flow.settle()
 
-        // --- Search: the field is the only editable node on the screen, so
-        // hasSetTextAction addresses it without a tag. Gate on a real hit —
-        // an unseeded backend would render "No issues match".
-        composeRule.onNode(hasContentDescription("Search")).performClick()
+        // --- Search: EXP-686 moved it off the bottom bar into the board
+        // header (next to Filters), so it is a PUSHED screen now — tagged,
+        // because "Search" also reads as the field's own placeholder. The
+        // field is the only editable node on it, so hasSetTextAction
+        // addresses it without a tag. Gate on a real hit — an unseeded
+        // backend would render "No issues match".
+        composeRule.onNode(hasTestTag("board-search")).performClick()
         flow.waitFor(hasText("Search"), NAV_TIMEOUT)
         composeRule.onNode(hasSetTextAction()).performTextInput(SEARCH_QUERY)
         Espresso.closeSoftKeyboard()
         flow.waitFor(hasText(SEARCH_RESULT_TITLE, substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_search")
+        composeRule.onNode(hasContentDescription("Back")).performClick()
+        flow.waitFor(hasContentDescription("Filters"), NAV_TIMEOUT)
+        flow.settle()
 
         // --- My Issues: the My Work tab opens on the Inbox segment (EXP-58);
         // the segmented control's label is the only handle on it.
@@ -317,12 +323,12 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_my-issues")
 
-        // --- Agents: since EXP-642 this lane needs the relay stub
-        // (`screenshots:desktop`) — the demo user's own device row is what the
-        // next three shots are taken from, and an empty machines list is not a
-        // useful reference shot either.
-        composeRule.onNode(hasContentDescription("Agents")).performClick()
-        flow.waitFor(hasText("Agents"), NAV_TIMEOUT)
+        // --- Devices (EXP-686, the renamed Agents surface): since EXP-642
+        // this lane needs the relay stub (`screenshots:desktop`) — the demo
+        // user's own device row is what the next three shots are taken from,
+        // and an empty machines list is not a useful reference shot either.
+        composeRule.onNode(hasTestTag("tab-devices")).performClick()
+        flow.waitFor(hasText("Devices"), NAV_TIMEOUT)
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_agents")
@@ -351,7 +357,7 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_machine-settings")
-        // Scoped to the sheet: "Done" also reads as an outcome label elsewhere
+        // Scoped to the sheet: "Done" also reads as an issue status elsewhere
         // in the tree, and an unscoped onFirst() once clicked that instead of
         // the button (EXP-663).
         composeRule
@@ -360,13 +366,12 @@ class StyleguideScreenshotsTest {
         flow.waitForGone(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle(longer = true)
 
-        // --- The Actions surface: four shots off one push. Actions has no tab
-        // of its own (the bar is full at six), so the entry rides the Agents
-        // header — the iOS twin rides the Agents toolbar. The segment is
-        // rememberSaveable and the route is popped afterwards, so it always
-        // opens on the Actions segment (iOS persists it in AppStorage and has
-        // to re-select it).
-        composeRule.onNode(hasTestTag("open-actions")).performClick()
+        // --- The Actions surface: four shots off one tab. EXP-686 gave it its
+        // own bottom-bar entry (it used to ride the Agents header). The segment
+        // is rememberSaveable, so re-select the Actions one explicitly by tag
+        // rather than trusting where a previous visit left it.
+        composeRule.onNode(hasTestTag("tab-actions")).performClick()
+        composeRule.onNode(hasTestTag("actions-segment-actions")).performClick()
         flow.waitFor(hasText(SEEDED_ACTION_NAME, substring = true), SYNC_TIMEOUT)
 
         // --- Create action: "New action" rides the "Actions · count" section
@@ -414,8 +419,6 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag("suggestion-row"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_action-suggestions")
-        composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.waitFor(hasTestTag("open-actions"), NAV_TIMEOUT)
         flow.settle()
 
         // --- Reviews: the cross-board open-PR queue; the seed leaves four open

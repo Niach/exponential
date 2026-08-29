@@ -9,7 +9,6 @@ import { SessionRow } from "@/components/agent-session-row"
 import { GlassSectionHeader } from "@/components/ui/glass-rows"
 import { useSteerConfig } from "@/components/agent-session"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
-import { TeamActionsPanel } from "@/components/team-actions-panel"
 import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
 import { useAgentsData } from "@/hooks/use-agents-data"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -19,23 +18,21 @@ import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 
-// Team Agents view (EXP-257 — absorbed the old Actions route): the caller's
-// online desktops (remote-start entry point) plus the team's actions. On
-// desktop viewports (md+) the actions render inline as the tabbed command
-// center (`TeamActionsPanel`) and there is NO Live section — the AgentDock
-// bottom strip already shows every live session. On mobile (<md) the page
-// mirrors the native apps (EXP-574): My desktops → Running only, with the
-// Actions surface behind the topbar's own "Actions" entry as a separate page
-// (`/t/$teamSlug/agents/actions`). The LaunchDialog here serves the device
-// rows' "Start coding"; the panel owns its own for action runs.
+// Team Devices view (EXP-686 — the old Agents route, minus the actions
+// surface: Actions and Automations are their own routes now): the caller's
+// online desktops and servers, the remote-start entry point. On mobile (<md)
+// the page mirrors the native apps: My desktops → Running only. On desktop
+// viewports there is NO Live section — the AgentDock bottom strip already
+// shows every live session. The LaunchDialog here serves the device rows'
+// "Start coding".
 //
 // EXP-631: `?chat=1` is the mobile FAB's one-shot open — the tab bar owns the
 // button, this route owns the launcher, so the request rides the URL (the
 // board route's `?new=1` compose pattern).
-type AgentsSearch = { chat?: 1 }
+type DevicesSearch = { chat?: 1 }
 
-export const Route = createFileRoute(`/t/$teamSlug/agents/`)({
-  validateSearch: (search: Record<string, unknown>): AgentsSearch => ({
+export const Route = createFileRoute(`/t/$teamSlug/devices`)({
+  validateSearch: (search: Record<string, unknown>): DevicesSearch => ({
     chat: search.chat === 1 || search.chat === `1` ? 1 : undefined,
   }),
   beforeLoad: async ({ context, location }) => {
@@ -46,10 +43,10 @@ export const Route = createFileRoute(`/t/$teamSlug/agents/`)({
       })
     }
   },
-  component: AgentsPage,
+  component: DevicesPage,
 })
 
-function AgentsPage() {
+function DevicesPage() {
   const { teamSlug } = Route.useParams()
   const search = Route.useSearch()
   const navigate = useNavigate()
@@ -90,7 +87,7 @@ function AgentsPage() {
     if (search.chat !== 1) return
     setChatOpen(true)
     void navigate({
-      to: `/t/$teamSlug/agents`,
+      to: `/t/$teamSlug/devices`,
       params: { teamSlug },
       search: {},
       replace: true,
@@ -142,10 +139,6 @@ function AgentsPage() {
               </div>
             </div>
           ) : null)}
-
-        {/* EXP-574: on mobile the actions surface is its own page behind the
-            topbar's "Actions" entry — native-app parity. */}
-        {!isMobile && <TeamActionsPanel team={team} />}
       </div>
 
       <LaunchDialog
