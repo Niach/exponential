@@ -115,6 +115,13 @@ type AgentOptionsFieldsProps = {
    * paints a device row at all.
    */
   deviceRow?: React.ReactNode
+  /**
+   * EXP-688: what to render UNDER the selected agent's toggles — the device
+   * settings dialog puts that agent's account and usage there, so the tab you
+   * are editing is the tab that tells you whose account it runs as. The
+   * launch dialog passes nothing: a run in flight is no place to sign in.
+   */
+  renderAgentFooter?: (agent: string) => React.ReactNode
   /** `` in the automation variant = device default. */
   agent: string
   availableAgents: string[]
@@ -135,6 +142,7 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
   const {
     idPrefix,
     deviceRow,
+    renderAgentFooter,
     agent,
     availableAgents,
     onAgentChange,
@@ -228,6 +236,7 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
       {toggles && (
         <LaunchToggles {...toggles} idPrefix={idPrefix} agent={agent} />
       )}
+      {renderAgentFooter?.(agent)}
     </>
   )
 }

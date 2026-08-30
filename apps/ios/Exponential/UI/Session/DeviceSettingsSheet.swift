@@ -15,11 +15,12 @@ import SwiftUI
 //              the machine is OFFLINE too: the row is the truth and the
 //              machine's settings.json converges on its next heartbeat, so the
 //              only offline concession is a footer saying so.
-//   Agents   — EXP-484: read-only per-agent auth status and rate-limit usage
-//              off the machine's own report, plus Login / Switch account,
-//              which queue an `agent_login` command the machine runs locally.
-//              No credential is ever held or forwarded — the machine publishes
-//              only the sign-in link it shows on its own screen.
+//              EXP-688: each agent's tab also carries that agent's account
+//              (EXP-484 read-only auth status, plus Login / Switch account,
+//              which queue an `agent_login` command the machine runs locally)
+//              and its usage cards. No credential is ever held or forwarded —
+//              the machine publishes only the sign-in link it shows on its own
+//              screen. There is no separate Agents section any more.
 //   Worktrees — the synced inventory (shape 18) with per-row Remove and a
 //              Prune button, queued as devices.createCommand rows the device
 //              runs on its next heartbeat (immediately when online). Progress
@@ -85,10 +86,6 @@ struct DeviceSettingsSheet: View {
     @State private var removeTarget: DeviceWorktreeEntity?
     /// The device-reported prune summary ("Pruned 2 worktrees"), shown once.
     @State private var commandSummary: String?
-    /// EXP-484: which usage window each agent's rows mark, once this
-    /// presentation has picked one (`AgentUsageWindowPrefs` holds the
-    /// remembered value across launches).
-    @State private var usageWindows: [String: String] = [:]
     /// The sign-in payload a finished `agent_login` command carried, per agent.
     /// Cleared the moment that agent is queued again.
     @State private var loginResults: [String: String] = [:]
@@ -121,7 +118,6 @@ struct DeviceSettingsSheet: View {
                     sharingSection(device)
                 }
                 defaultsSection(device)
-                agentsSection(device)
                 worktreesSection(device)
                 if let errorMessage {
                     Section {
@@ -143,7 +139,9 @@ struct DeviceSettingsSheet: View {
             .listSectionSpacing(12)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
+                    // EXP-687/688: the standard rounded pill, like every other
+                    // action in the app.
+                    GlassPillButton("Done") {
                         flushAll()
                         dismiss()
                     }
@@ -227,7 +225,9 @@ struct DeviceSettingsSheet: View {
         let agents = editableAgents(device)
         let advertisedDefault = device.launchDefaults?.defaultAgent
         defaultAgent = agents.contains(advertisedDefault ?? "") ? advertisedDefault! : (agents.first ?? "claude")
-        selectedAgent = keepTab && agents.contains(selectedAgent) ? selectedAgent : defaultAgent
+        // The tab may be a report-only agent (EXP-688) — a re-seed must not
+        // yank it back to an editable one.
+        selectedAgent = keepTab && tabAgents(device).contains(selectedAgent) ? selectedAgent : defaultAgent
         var next: [String: AgentDraft] = [:]
         for agent in agents {
             next[agent] = Self.draft(from: device.agentDefaults(for: agent), agent: agent)
@@ -442,8 +442,18 @@ struct DeviceSettingsSheet: View {
         return DomainContract.codingAgentValues.filter { set.contains($0) }
     }
 
+    /// EXP-688: every agent worth a TAB — the editable ones plus any the
+    /// machine only reports an account or usage for (there is no separate
+    /// Agents section any more, so a report-only agent would otherwise have
+    /// nowhere to show).
+    private func tabAgents(_ device: SteerDevice) -> [String] {
+        let set = Set(editableAgents(device)).union(reportedAgents(device))
+        return DomainContract.codingAgentValues.filter { set.contains($0) }
+    }
+
     private func defaultsSection(_ device: SteerDevice) -> some View {
         let agents = editableAgents(device)
+        let tabs = tabAgents(device)
         return Section {
             if agents.count > 1 {
                 GlassPickerRow(
@@ -452,10 +462,12 @@ struct DeviceSettingsSheet: View {
                     options: agents,
                     label: { LaunchVocabulary.agentLabel($0) }
                 )
+            }
+            if tabs.count > 1 {
                 // Which agent's options are on screen — a view choice, never
                 // an edit, so it deliberately bypasses the autosave.
                 GlassSegmentedControl(
-                    options: agents,
+                    options: tabs,
                     selection: selectedAgent,
                     label: { LaunchVocabulary.agentLabel($0) },
                     onSelect: { selectedAgent = $0 }
@@ -488,6 +500,10 @@ struct DeviceSettingsSheet: View {
                     Toggle("Skip permissions", isOn: draftBinding(\.skipPermissions))
                 }
             }
+            // EXP-688: the agent's own account and limits, right under its
+            // options instead of in a section of their own.
+            accountBlock(device, agent: selectedAgent)
+            usageBlock(device, agent: selectedAgent)
         } footer: {
             if !device.isOnline {
                 Text("Applies when the device comes online.")
@@ -594,15 +610,13 @@ struct DeviceSettingsSheet: View {
         if defaultsPending, !savingDefaults { saveDefaultsNow() }
     }
 
-    // MARK: - Agents (EXP-484)
+    // MARK: - Agent account + usage (EXP-484, per tab since EXP-688)
 
-    /// The agents this machine actually reported on. `editableAgents` is the
-    /// DEFAULTS vocabulary — it deliberately includes agents only the stored
-    /// defaults remember — and an agent with neither an account nor a usage
-    /// report has nothing to say here. A machine that reported none at all (an
-    /// older build) gets no section.
+    /// The agents this machine actually reported on — an account, usage, or
+    /// both. Every one of them earns a tab even when the stored launch
+    /// defaults never mention it.
     private func reportedAgents(_ device: SteerDevice) -> [String] {
-        editableAgents(device).filter {
+        DomainContract.codingAgentValues.filter {
             device.agentAccounts?[$0] != nil || device.agentUsage?[$0] != nil
         }
     }
@@ -611,57 +625,54 @@ struct DeviceSettingsSheet: View {
     /// flow a nudge. No credential is ever held, copied or forwarded — the
     /// device runs `claude auth login` / `codex login` locally and publishes
     /// only the sign-in link it puts on its own screen.
-    @ViewBuilder
-    private func agentsSection(_ device: SteerDevice) -> some View {
-        let agents = reportedAgents(device)
-        if !agents.isEmpty {
-            Section {
-                ForEach(agents, id: \.self) { agent in
-                    agentRow(device, agent: agent)
-                        .listRowSeparator(.hidden)
-                }
-            } header: {
-                Text("Agents")
-            } footer: {
-                // Only meaningful for a login queued before the machine went
-                // quiet — the button itself is offline-gated.
-                if !device.isOnline, pendingCommands.keys.contains(where: { $0.hasPrefix("login:") }) {
-                    Text("Runs when the device comes online.")
+    private func accountBlock(_ device: SteerDevice, agent: String) -> some View {
+        let account = device.agentAccounts?[agent]
+        let pending = pendingCommands["login:\(agent)"] != nil
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(accountCaption(account))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                if canOfferLogin(device, agent: agent), !pending {
+                    loginButton(agent: agent, account: account)
                 }
             }
-            .listRowBackground(glassFormRowFill)
+            if pending {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Waiting for the sign-in link…")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+            }
+            loginOutcome(agent: agent)
         }
     }
 
-    private func agentRow(_ device: SteerDevice, agent: String) -> some View {
-        let account = device.agentAccounts?[agent]
-        let usage = device.agentUsage?[agent]
-        return VStack(alignment: .leading, spacing: 8) {
-            Text(AgentUsagePresentation.accountRow(agent: agent, account: account))
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .fixedSize(horizontal: false, vertical: true)
-            // Numbers past the freshness window are not drawn at all: an old
-            // percentage beside a live machine reads as a current one.
-            if let usage, AgentUsagePresentation.isFresh(fetchedAt: usage.fetchedAt) {
-                AgentUsageWindowRows(
-                    agent: agent,
-                    usage: usage,
-                    selectedKey: usageWindows[agent] ?? AgentUsageWindowPrefs.read(agent: agent),
-                    onSelect: { windowKey in
-                        usageWindows[agent] = windowKey
-                        AgentUsageWindowPrefs.remember(agent: agent, key: windowKey)
-                    }
-                )
-            }
-            if canOfferLogin(device, agent: agent) {
-                loginControl(agent: agent, account: account)
-            } else if let asOf = asOfCaption(device, account: account) {
+    /// The machine's own words, minus the `<agent> · ` prefix `accountRow`
+    /// adds — the tab already names the agent. The two unknowns read as
+    /// sentences here rather than the wire's terse `signed out` / `unknown`.
+    private func accountCaption(_ account: AgentAccount?) -> String {
+        guard let account else { return "Sign-in status unknown" }
+        guard account.signedIn == true else { return "Not signed in" }
+        return AgentUsagePresentation.accountCaption(account)
+    }
+
+    /// EXP-688: the agent's rate-limit cards, or — when the numbers are past
+    /// the freshness window — how old they are. Fresh numbers only: an old
+    /// percentage beside a live machine reads as a current one.
+    @ViewBuilder
+    private func usageBlock(_ device: SteerDevice, agent: String) -> some View {
+        if let usage = device.agentUsage?[agent] {
+            if AgentUsagePresentation.isFresh(fetchedAt: usage.fetchedAt) {
+                AgentUsageCards(usage: usage, compact: true)
+            } else if let asOf = asOfCaption(device, account: device.agentAccounts?[agent]) {
                 Text(asOf)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
-            loginOutcome(agent: agent)
         }
     }
 
@@ -679,28 +690,16 @@ struct DeviceSettingsSheet: View {
         return asOf.isEmpty ? nil : "as of \(asOf)"
     }
 
-    @ViewBuilder
-    private func loginControl(agent: String, account: AgentAccount?) -> some View {
-        if pendingCommands["login:\(agent)"] != nil {
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text("Waiting for the sign-in link…")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-        } else {
-            let signedIn = account?.signedIn == true
-            Button {
-                if signedIn, agent == "codex" {
-                    switchConfirmAgent = agent
-                } else {
-                    queueLogin(agent: agent, switchAccount: signedIn)
-                }
-            } label: {
-                Label(
-                    signedIn ? "Switch account" : "Login",
-                    appIcon: signedIn ? AppIcons.uiSwap : AppIcons.uiSignIn
-                )
+    private func loginButton(agent: String, account: AgentAccount?) -> some View {
+        let signedIn = account?.signedIn == true
+        return GlassPillButton(
+            signedIn ? "Switch account" : "Login",
+            icon: signedIn ? AppIcons.uiSwap : AppIcons.uiSignIn
+        ) {
+            if signedIn, agent == "codex" {
+                switchConfirmAgent = agent
+            } else {
+                queueLogin(agent: agent, switchAccount: signedIn)
             }
         }
     }
@@ -784,19 +783,11 @@ struct DeviceSettingsSheet: View {
                 ForEach(worktrees) { worktree in
                     worktreeRow(worktree)
                 }
-                Button {
-                    prune()
-                } label: {
-                    HStack(spacing: 6) {
-                        if pendingCommands["prune"] != nil {
-                            ProgressView().controlSize(.small)
-                            Text(device.isOnline ? "Pruning…" : "Prune queued")
-                        } else {
-                            Label("Prune merged worktrees", appIcon: AppIcons.uiClean)
-                        }
-                    }
+                if pendingCommands["prune"] != nil {
+                    Text(device.isOnline ? "Pruning…" : "Prune queued")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .disabled(pendingCommands["prune"] != nil)
                 if let message = commandErrors["prune"] {
                     Text(message)
                         .font(.caption)
@@ -809,7 +800,26 @@ struct DeviceSettingsSheet: View {
                 }
             }
         } header: {
-            Text("Worktrees")
+            // EXP-688: Prune is an icon at the trailing edge of the header —
+            // it was a full-width labelled row among the worktrees it acts on.
+            HStack(spacing: 8) {
+                Text("Worktrees")
+                Spacer(minLength: 0)
+                if !worktrees.isEmpty {
+                    if pendingCommands["prune"] != nil {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        CircleIconButton(
+                            AppIcons.uiClean,
+                            accessibilityLabel: "Prune merged worktrees",
+                            size: 28,
+                            glyphSize: 15
+                        ) {
+                            prune()
+                        }
+                    }
+                }
+            }
         } footer: {
             if !device.isOnline, !worktrees.isEmpty {
                 Text("Runs when the device comes online.")

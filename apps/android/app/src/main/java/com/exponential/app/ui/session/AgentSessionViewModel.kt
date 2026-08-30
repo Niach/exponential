@@ -5,7 +5,7 @@ import android.os.SystemClock
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.AgentUsageWindowPrefs
+import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SteerApi
@@ -65,7 +65,6 @@ class AgentSessionViewModel @Inject constructor(
     private val steerApi: SteerApi,
     private val issuesApi: IssuesApi,
     private val store: SteerConnectionStore,
-    private val usageWindowPrefs: AgentUsageWindowPrefs,
     stats: SyncStats,
 ) : ViewModel() {
 
@@ -156,19 +155,41 @@ class AgentSessionViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
-     * Which window the collapsed strip shows for this run's agent — a purely
-     * local preference (see [AgentUsageWindowPrefs]). The prefs store isn't
-     * observable, so its version counter is what re-reads after a pick.
+     * EXP-688: this run's OWN issue — the header names what is being worked
+     * on, the way the Agents list row does. Null for batch and action runs
+     * (they have none) and until an issue-scoped run's issue syncs in.
      */
-    val preferredUsageWindow: StateFlow<String?> = combine(
-        session,
-        usageWindowPrefs.version,
-    ) { row, _ ->
-        row?.agent?.takeIf { it.isNotBlank() }?.let(usageWindowPrefs::read)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val issue: StateFlow<IssueEntity?> = session
+        .map { it?.issueId }
+        .distinctUntilChanged()
+        .flatMapLatest { issueId ->
+            if (issueId == null) {
+                flowOf(null)
+            } else {
+                dbFlow.scopedQuery(null) { it.issueDao().observeById(issueId) }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** Remember [key] as [agent]'s window — the strip re-reads via the version. */
-    fun selectUsageWindow(agent: String, key: String) = usageWindowPrefs.remember(agent, key)
+    /**
+     * EXP-688: the host machine's sign-in for the SAME agent — the Usage
+     * sheet's `signed in as …` caption. Same row-resolution rule as
+     * [AgentUsagePresentation.sessionUsage]; null whenever the machine never
+     * reported an account for it.
+     */
+    val agentAccount: StateFlow<AgentAccount?> = combine(
+        session,
+        deviceRows,
+    ) { row, devices ->
+        val agent = row?.agent?.takeIf { it.isNotBlank() } ?: return@combine null
+        val deviceId = row.deviceId ?: return@combine null
+        val matches = devices.filter { it.deviceId == deviceId }
+        val device = matches.firstOrNull { it.userId == row.userId }
+            ?: matches.firstOrNull()
+            ?: return@combine null
+        AgentUsagePresentation.parseAccounts(device.agentAccounts)?.get(agent)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * Probed sizes of the linked issue's attachments (REV2-79) — the feed

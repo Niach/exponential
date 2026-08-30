@@ -199,6 +199,7 @@ fn main() {
         EmitterConfig {
             agent: steer::activity::SessionAgent::Claude,
             worktree: worktree.clone(),
+            base_ref: None,
             term: Some(terminal.term()),
             extra_secrets: Vec::new(),
             on_needs_input: None,

@@ -19,10 +19,18 @@
 //!   ctrl-tab / ctrl-shift-tab to switch; tabs that don't fit the strip
 //!   collapse into a trailing "+N" dropdown exactly like the center tab
 //!   strip (EXP-497 — no cut-off horizontal scroll);
-//! - a **per-tab toolbar** under the strip (EXP-484): for the ACTIVE session
-//!   tab only, what it works on (issue chip / batch label / action name),
-//!   this machine's usage bar for the agent it runs, and the "Merge" button —
-//!   which used to live on the chip and squeeze its title;
+//! - the strip is ONE fixed 29px band pinned to the panel's BOTTOM edge
+//!   (EXP-688), open or collapsed, so the dock grows upward out of the tabs
+//!   the way the web dock does. Its right cluster carries "Open in new
+//!   window" (the active tab's undock, which used to be a per-chip hover
+//!   affordance) and the open/close chevron. The EXP-484 per-tab toolbar is
+//!   GONE: it repeated the chip it sat under, and usage moved to the agent's
+//!   tab in Device settings;
+//! - a **"Latest changes"** row above the strip (EXP-688) for the active
+//!   session tab: the BRANCH diff (`coding::scm::branch_diff` — committed
+//!   work included, so it survives the agent's commit) with `+adds -dels`,
+//!   expanding into the shared side-by-side view, plus the "Merge" button.
+//!   It renders for a diff OR an open PR, so Merge never stands alone;
 //! - **empty state** (EXP-369): an expanded, tab-less dock NEVER spawns
 //!   anything by itself — it renders the tab bar over a row of launch cards
 //!   (`render_empty_dock_options`), one per doctor-installed agent plus "New
@@ -76,10 +84,6 @@ use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 /// Stable serialization name for the panel registry (§3.3: never change it).
 pub const PANEL_NAME: &str = "TerminalDock";
 
-/// Per-tab hover group (EXP-65): reveals the undock button, mirroring the
-/// center tabs' `TAB_GROUP` idiom.
-const TAB_GROUP: &str = "terminal-tab";
-
 /// EXP-523: the bottom dock slides open and shut instead of snapping. The
 /// duration is the shared `standard` motion token, the same one the left
 /// column's rail-to-settings swap uses.
@@ -88,6 +92,19 @@ const DOCK_SLIDE_DURATION: Duration = theme::motion::STANDARD;
 /// Upstream `Dock::render`'s CLOSED height — the toggle strip it keeps when
 /// `open == false`. The slide's closed endpoint.
 const DOCK_STRIP_H: f32 = 29.;
+
+/// EXP-688: how often the Latest-changes bar re-reads the branch diff. The
+/// same 3s cadence the steer emitter's `DiffSnapshots` publishes on. While
+/// there is nothing to read (collapsed dock, no session tab) the loop idles
+/// on the shorter beat instead — it runs no git at all there, and the bar
+/// then appears within a blink of the dock opening rather than 3s later.
+const CHANGES_POLL: Duration = Duration::from_secs(3);
+const CHANGES_IDLE_POLL: Duration = Duration::from_millis(500);
+
+/// The Latest-changes bar's own height, and the expanded diff's (the web's
+/// `max-h-72`).
+const CHANGES_BAR_H: f32 = 28.;
+const CHANGES_DIFF_H: f32 = 288.;
 
 /// Slide tick. ~120Hz, so the animation is smooth on high-refresh displays
 /// and the cost is ~24 `set_size` calls over a whole open — trivial next to
@@ -110,18 +127,28 @@ const DOCK_SLIDE_FRAME: Duration = Duration::from_millis(8);
 /// move, and the PTY reshapes at most once per open (on the first frame, which
 /// is strictly better than today's reshape after the snap).
 ///
-/// # Why the content also needs a vertical offset
+/// # Why the content is bottom-anchored and clipped
 ///
 /// `Dock::set_size` clamps to upstream's `PANEL_MIN_SIZE` (100px), so heights
 /// between the 29px strip and that floor are not addressable — a naive
 /// animation would snap the last ~71px at the slow end of the easing curve,
-/// where the eye is most sensitive. Each tick therefore READS BACK what
-/// `set_size` actually stored and pushes the content down by the difference,
-/// so the panel's visible top edge tracks the virtual height continuously
-/// through the clamped region. The band this exposes above it is the same
+/// where the eye is most sensitive. So the panel does not follow the stored
+/// height at all: EXP-688's layout renders the content into a CLIP sized off
+/// what the tick REQUESTED ([`DockSlide::content_clip_height`]), with the
+/// content itself kept at its resting height and anchored to the clip's
+/// bottom edge. The clip eats it from the top, the grid's bounds never move,
+/// and the visible top edge tracks the virtual height right through the
+/// clamped region. The band this exposes above it is the same
 /// `theme::background_gradient()` quad the center already paints, so it reads
-/// as the center growing, not as a hole. Reading the clamp back rather than
-/// hardcoding it also keeps this correct if upstream ever changes the floor.
+/// as the center growing, not as a hole. (`applied`/`requested` are still
+/// recorded — the drag-collision check in `tick_slide` compares against what
+/// upstream actually stored.)
+///
+/// Materials, while we are here: gpui has NO in-scene backdrop blur, so the
+/// strip's and the changes bar's "glass" is the Android approximation —
+/// white-alpha `theme::tokens::glass` fills over the page gradient. They
+/// STACK above the terminal rather than overlaying it: a translucent strip
+/// with no blur sitting on top of a prompt line is a terminal-UX bug.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct DockSlide {
     /// Virtual height at the start of this leg. May be below the clamp floor.
@@ -188,10 +215,15 @@ impl DockSlide {
         self.from + (self.to - self.from) * t
     }
 
-    /// How far to push the content down so the visible top edge sits at the
-    /// virtual height even while `set_size` is clamping.
-    fn content_offset(&self) -> f32 {
-        (self.applied - self.requested).max(0.)
+    /// The height of the CLIP the content is rendered into this frame: the
+    /// virtual height minus the strip that always sits under it. The content
+    /// itself keeps its resting height and is bottom-anchored inside, so the
+    /// clip eats it from the TOP as the dock closes — the grid's bounds
+    /// never move (EXP-523's PTY guarantee) and the visible top edge tracks
+    /// the virtual height right through `set_size`'s clamp, because it is
+    /// what we REQUESTED that sizes the clip, not what upstream stored.
+    fn content_clip_height(&self) -> f32 {
+        (self.requested - DOCK_STRIP_H).max(0.)
     }
 
     /// Reverse mid-flight. Unlike `LeftColumnAnim`, which jumps to its
@@ -309,10 +341,16 @@ pub struct TerminalDockPanel {
     /// a progress line; cleared when the tab opens or the attempt fails (the
     /// cards come back).
     pending_launch: Option<SharedString>,
-    /// EXP-484: which tab's usage bar is expanded into its per-window rows,
-    /// if any. One at a time (the toolbar only ever renders the ACTIVE tab),
-    /// and cleared when that tab closes.
-    usage_expanded: Option<TabId>,
+    /// EXP-688: the active session tab's branch diff — what the
+    /// Latest-changes bar renders. `None` while the dock is collapsed or the
+    /// active tab is not a local session.
+    changes: Option<ChangesState>,
+    /// The expanded bar's side-by-side view (built off [`ChangesState`],
+    /// never fetched — the files are already in hand).
+    changes_diff: Entity<crate::diff::DiffView>,
+    /// The 3s poll behind [`Self::changes`]. Lives as long as the panel; it
+    /// only shells out to git while the dock is OPEN on a session tab.
+    _changes_poll: Task<()>,
     /// EXP-523: the open/close slide, `None` at rest. See [`DockSlide`].
     dock_slide: Option<DockSlide>,
     /// Dropping the task cancels the slide — same cancellation semantics as
@@ -354,11 +392,6 @@ impl TerminalDockPanel {
                         // token-refresher hold with the tab.
                         if let Some(clone) = this.agent_shell_holds.remove(id) {
                             TokenRefreshers::release(&clone, cx);
-                        }
-                        // EXP-484: the toolbar's expanded usage rows belong
-                        // to a tab — they must not survive it.
-                        if this.usage_expanded == Some(*id) {
-                            this.usage_expanded = None;
                         }
                         // §8.8b: closing the last tab collapses the bottom dock
                         // (mirror of the TabOpened expand); otherwise focus the
@@ -435,6 +468,38 @@ impl TerminalDockPanel {
             cx.observe(&resolver, |_, _, cx| cx.notify()).detach();
         }
 
+        // EXP-688: the Latest-changes poll. One timer for the panel's life —
+        // it resolves the active session tab itself and does no git work at
+        // all while the dock is collapsed.
+        let changes_poll = cx.spawn(async move |this, cx| loop {
+            let Ok(job) = this.update(cx, |this, cx| this.changes_job(cx)) else {
+                return; // panel gone with its window
+            };
+            let beat = match job {
+                ChangesJob::Idle => CHANGES_IDLE_POLL,
+                ChangesJob::Poll {
+                    tab,
+                    worktree,
+                    base_ref,
+                } => {
+                    let files = cx
+                        .background_executor()
+                        .spawn(async move {
+                            coding::scm::branch_diff(&worktree, base_ref.as_deref()).ok()
+                        })
+                        .await;
+                    if this
+                        .update(cx, |this, cx| this.apply_changes(tab, files, cx))
+                        .is_err()
+                    {
+                        return;
+                    }
+                    CHANGES_POLL
+                }
+            };
+            cx.background_executor().timer(beat).await;
+        });
+
         Self {
             focus_handle: cx.focus_handle(),
             manager,
@@ -442,7 +507,9 @@ impl TerminalDockPanel {
             agent_shell_holds: HashMap::new(),
             chips_slot_width: None,
             pending_launch: None,
-            usage_expanded: None,
+            changes: None,
+            changes_diff: cx.new(|cx| crate::diff::DiffView::new(window, cx)),
+            _changes_poll: changes_poll,
             dock_slide: None,
             _dock_slide_task: None,
             _subscription: subscription,
@@ -616,21 +683,41 @@ impl TerminalDockPanel {
         false
     }
 
-    /// Mid-slide the content is PINNED to the resting height and pushed down
-    /// by the clamp offset, inside the panel's `overflow_hidden` root: the
-    /// terminal grid's bounds never move (so the PTY reshapes at most once per
-    /// open), and the visible top edge tracks the virtual height continuously
-    /// through `Dock::set_size`'s `PANEL_MIN_SIZE` floor. At rest it is just
-    /// `size_full`, exactly as before.
-    fn pin_content<E: Styled>(&self, content: E) -> E {
+    /// Place the dock's content in the band ABOVE the always-present bottom
+    /// strip (EXP-688).
+    ///
+    /// At rest that is simply `top_0 .. bottom(DOCK_STRIP_H)`. Mid-slide the
+    /// content keeps its full RESTING height and is bottom-anchored inside a
+    /// clip sized to [`DockSlide::content_clip_height`]: the terminal grid's
+    /// bounds never move (so the PTY reshapes at most once per open,
+    /// EXP-523), and the band the clip exposes above itself is the same
+    /// `theme::background_gradient()` quad the center already paints, so it
+    /// reads as the center growing rather than as a hole.
+    fn pin_content<E: Styled + IntoElement>(&self, content: E) -> AnyElement {
         match self.dock_slide {
-            Some(slide) => content
+            Some(slide) => div()
                 .absolute()
                 .left_0()
                 .right_0()
-                .top(px(slide.content_offset()))
-                .h(px(slide.rest_height)),
-            None => content.size_full(),
+                .bottom(px(DOCK_STRIP_H))
+                .h(px(slide.content_clip_height()))
+                .overflow_hidden()
+                .child(
+                    content
+                        .absolute()
+                        .left_0()
+                        .right_0()
+                        .bottom_0()
+                        .h(px((slide.rest_height - DOCK_STRIP_H).max(0.))),
+                )
+                .into_any_element(),
+            None => content
+                .absolute()
+                .left_0()
+                .right_0()
+                .top_0()
+                .bottom(px(DOCK_STRIP_H))
+                .into_any_element(),
         }
     }
 
@@ -705,8 +792,20 @@ impl TerminalDockPanel {
             Some(pos) => (pos + visible.len() - 1) % visible.len(),
             None => 0,
         };
+        self.activate_tab(visible[next_pos], window, cx);
+    }
+
+    /// Make the manager's `manager_ix`th tab the active one and focus its
+    /// terminal — the one path every activation takes (chip click, the
+    /// overflow menu, ctrl-tab).
+    fn activate_tab(
+        &mut self,
+        manager_ix: usize,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
         self.manager
-            .update(cx, |manager, cx| manager.activate(visible[next_pos], cx));
+            .update(cx, |manager, cx| manager.activate(manager_ix, cx));
         self.focus_active_terminal(window, cx);
     }
 
@@ -863,24 +962,30 @@ impl TerminalDockPanel {
         self.activate_visible_step(false, window, cx);
     }
 
-    /// The session tab strip: one `Tab` per VISIBLE session (title + exit
-    /// badge + hover-revealed undock + close button; EXP-65 undocked tabs
-    /// are hidden — they render in their own windows), the `+` right after
-    /// the last tab, and the collapse chevron at the far right (§6.13).
-    /// Clicking the bar's empty space collapses the dock — the whole strip is
-    /// the toggle, mirroring the collapsed strip's whole-bar expand
-    /// (tab/button handlers stop propagation so their clicks never fall
-    /// through to the collapse).
+    /// ONE bottom strip, open or collapsed (EXP-688): a fixed
+    /// [`DOCK_STRIP_H`] glass band pinned to the panel's bottom edge, so the
+    /// tabs sit where the web dock's do and expanding grows the content
+    /// UPWARD out of them instead of pushing them down.
+    ///
+    /// Leading terminal glyph (plus the word "Terminal" only when there are
+    /// no tabs to name it), then one chip per VISIBLE session (EXP-65:
+    /// undocked tabs render in their own windows) with the `+` right after
+    /// the last one, then the right cluster: "Open in new window" for the
+    /// ACTIVE tab and the open/close chevron. Clicking the strip's empty
+    /// space toggles the dock; a chip click activates its tab (and expands a
+    /// collapsed dock) — chip/button handlers stop propagation so their
+    /// clicks never fall through to the toggle.
     ///
     /// EXP-497: chips that don't fit collapse into a trailing "+N" dropdown —
     /// the center strip's EXP-288 treatment (the scrolled chips this replaces
     /// left overflowing tabs cut off). Chip widths are measured, not guessed
     /// (the EXP-326 lesson), against the recorded [`Self::chips_slot_width`];
     /// the SELECTED tab is always kept visible.
-    fn render_tab_bar(
+    fn render_strip(
         &self,
         metas: &[TabMeta],
         selected_ix: usize,
+        collapsed: bool,
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
@@ -888,10 +993,10 @@ impl TerminalDockPanel {
         // treatment as the center tab strip — gpui-component's TabBar is
         // square with a strip-wide bottom border.
         //
-        // EXP-484: the chip has no merge button any more — Merge moved to the
-        // per-tab toolbar under the strip ([`Self::render_session_toolbar`]),
-        // where it has room for a label and cannot squeeze the titles. Every
-        // chip renders its close button again.
+        // EXP-688: the chip has no hover-revealed undock any more — the
+        // right cluster's "Open in new window" undocks the ACTIVE tab, which
+        // is one affordance instead of one per chip and buys every chip back
+        // 20px of title.
 
         // EXP-497: partition the chips against the slot's painted width. The
         // `+` new-session menu rides INSIDE the slot right after the chips —
@@ -921,12 +1026,15 @@ impl TerminalDockPanel {
             let manager_ix = meta.manager_ix;
             let chip = crate::surface::tab_chip(ix == selected_ix, cx)
                 .id(("terminal-tab", ix))
-                .group(TAB_GROUP)
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     cx.stop_propagation();
-                    this.manager
-                        .update(cx, |manager, cx| manager.activate(manager_ix, cx));
-                    this.focus_active_terminal(window, cx);
+                    // EXP-688: from the collapsed strip a chip click is also
+                    // "open the dock" — the tab it names has to become
+                    // visible, not just active.
+                    if collapsed {
+                        this.expand_dock(window, cx);
+                    }
+                    this.activate_tab(manager_ix, window, cx);
                 }))
                 // Middle-click closes (EXP-497 — the center tabs' EXP-235
                 // behavior; same as the chip's own close button, so the
@@ -979,26 +1087,6 @@ impl TerminalDockPanel {
                                     .child(SharedString::from(code.to_string())),
                             )
                         })
-                        // Hover-revealed undock (EXP-65) — same treatment as
-                        // the center tabs; `invisible` keeps the layout slot.
-                        .child(
-                            div()
-                                .invisible()
-                                .group_hover(TAB_GROUP, |style| style.visible())
-                                .child(
-                                    Button::new(("undock-terminal-tab", ix))
-                                        .ghost().cursor_pointer()
-                                        .xsmall()
-                                        .icon(ExpIcon::ExternalLink)
-                                        .tooltip("Open in new window")
-                                        .on_click(cx.listener(
-                                            move |this, _: &ClickEvent, window, cx| {
-                                                cx.stop_propagation();
-                                                this.undock_tab(id, window, cx);
-                                            },
-                                        )),
-                                ),
-                        )
                         .child(
                             Button::new(("close-terminal-tab", ix))
                                 .ghost().cursor_pointer()
@@ -1073,9 +1161,7 @@ impl TerminalDockPanel {
                                 else {
                                     return;
                                 };
-                                this.manager
-                                    .update(cx, |manager, cx| manager.activate(ix, cx));
-                                this.focus_active_terminal(window, cx);
+                                this.activate_tab(ix, window, cx);
                             });
                         }));
                     }
@@ -1083,22 +1169,32 @@ impl TerminalDockPanel {
                 })
         });
 
-        // Clicking the strip's empty space collapses the dock — the whole
+        // Whether the dock is (or is becoming) OPEN: mid-slide the chevron
+        // must already point where the animation is going, not where the
+        // Dock's `is_open` still says it is.
+        let showing = match self.dock_slide {
+            Some(slide) => slide.opening,
+            None => !collapsed,
+        };
+        let active_tab = metas.get(selected_ix).map(|meta| meta.id);
+
+        // Clicking the strip's empty space toggles the dock — the whole
         // strip is the toggle (chip/button handlers stop propagation).
         h_flex()
-            // EXP-497: record the chip slot's painted width (`bounds[0]` —
-            // the `flex_1` child below, a pure-stretch flex item the chips
-            // cannot inflate) so the partition above budgets against the real
-            // layout. Change-gated: only a real width change repaints. (On
-            // the bare `Div` — the method is not exposed on `Stateful`, so it
-            // rides ahead of `.id()`.)
+            // EXP-497: record the chip slot's painted width (the `flex_1`
+            // child below, a pure-stretch flex item the chips cannot
+            // inflate) so the partition above budgets against the real
+            // layout. It is child ONE — the leading glyph is child zero.
+            // Change-gated: only a real width change repaints. (On the bare
+            // `Div` — the method is not exposed on `Stateful`, so it rides
+            // ahead of `.id()`.)
             .on_children_prepainted({
                 let panel = cx.entity().downgrade();
                 move |bounds: Vec<Bounds<Pixels>>, _window, cx| {
-                    let Some(first) = bounds.first() else {
+                    let Some(slot) = bounds.get(1) else {
                         return;
                     };
-                    let width = f32::from(first.size.width);
+                    let width = f32::from(slot.size.width);
                     let _ = panel.update(cx, |this, cx| {
                         if this
                             .chips_slot_width
@@ -1111,14 +1207,44 @@ impl TerminalDockPanel {
                 }
             })
             .id("terminal-tab-strip")
-            .w_full()
-            .px_1()
-            .py_0p5()
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .h(px(DOCK_STRIP_H))
+            .px_2()
             .gap_1()
             .items_center()
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.collapse_dock(window, cx);
+            .flex_shrink_0()
+            .border_t_1()
+            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+            .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                if showing {
+                    this.collapse_dock(window, cx);
+                } else {
+                    this.expand_dock(window, cx);
+                    // EXP-369: expanding NEVER starts anything — with zero
+                    // sessions the dock opens on its launch cards; with
+                    // sessions the active terminal takes focus back.
+                    if !this.manager.read(cx).is_empty() {
+                        this.focus_active_terminal(window, cx);
+                    }
+                }
             }))
+            .child(
+                h_flex()
+                    .flex_shrink_0()
+                    .gap_1p5()
+                    .items_center()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(Icon::new(registry::NAV_TERMINAL).xsmall())
+                    // The word only when no chip names the dock.
+                    .when(metas.is_empty(), |this| {
+                        this.child(div().text_xs().child("Terminal"))
+                    }),
+            )
             .child(
                 // EXP-497: chips never scroll — non-fitting tabs fold into
                 // the "+N" dropdown (partition above). `overflow_x_hidden`
@@ -1142,15 +1268,52 @@ impl TerminalDockPanel {
                     .child(self.new_tab_menu(cx)),
             )
             .child(
-                Button::new("collapse-terminal-dock")
-                    .ghost().cursor_pointer()
-                    .xsmall()
-                    .icon(registry::UI_CHEVRON_DOWN)
-                    .tooltip("Hide terminal")
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        cx.stop_propagation();
-                        this.collapse_dock(window, cx);
-                    })),
+                h_flex()
+                    .flex_shrink_0()
+                    .gap_0p5()
+                    .items_center()
+                    // EXP-688: undock is one strip button on the ACTIVE tab
+                    // (it used to be a hover affordance on every chip).
+                    .child(
+                        Button::new("undock-active-terminal-tab")
+                            .ghost().cursor_pointer()
+                            .xsmall()
+                            .icon(ExpIcon::ExternalLink)
+                            .tooltip("Open in new window")
+                            .disabled(active_tab.is_none())
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                cx.stop_propagation();
+                                if let Some(id) = active_tab {
+                                    this.undock_tab(id, window, cx);
+                                }
+                            })),
+                    )
+                    .child(
+                        Button::new("toggle-terminal-dock")
+                            .ghost().cursor_pointer()
+                            .xsmall()
+                            .icon(if showing {
+                                registry::UI_CHEVRON_DOWN
+                            } else {
+                                registry::UI_CHEVRON_UP
+                            })
+                            .tooltip(if showing {
+                                "Hide terminal"
+                            } else {
+                                "Show terminal"
+                            })
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                cx.stop_propagation();
+                                if showing {
+                                    this.collapse_dock(window, cx);
+                                } else {
+                                    this.expand_dock(window, cx);
+                                    if !this.manager.read(cx).is_empty() {
+                                        this.focus_active_terminal(window, cx);
+                                    }
+                                }
+                            })),
+                    ),
             )
     }
 
@@ -1183,7 +1346,7 @@ impl TerminalDockPanel {
         };
         // EXP-484: one button per dock (the toolbar renders the ACTIVE tab
         // only), so the id no longer carries a strip index.
-        let mut button = Button::new("merge-session-toolbar").xsmall();
+        let mut button = Button::new("merge-session-changes").xsmall();
         if merging {
             button = button
                 .outline().cursor_pointer()
@@ -1482,132 +1645,6 @@ impl TerminalDockPanel {
         .detach();
     }
 
-    /// EXP-484: the per-tab session toolbar — a 24px row under the tab strip
-    /// carrying, for the ACTIVE tab only: what the session works on (the
-    /// issue chip's content, a batch label, or the action name), this
-    /// machine's usage bar for the agent the session runs, and the Merge
-    /// button that used to squeeze the chip.
-    ///
-    /// `None` for shell / agent-shell / login tabs — they have no session,
-    /// so there is nothing to say and no row is painted at all.
-    fn render_session_toolbar(
-        &self,
-        tab: TabId,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<gpui::AnyElement> {
-        let now = chrono::Utc::now().timestamp();
-        let meta = toolbar_meta(tab, now, cx)?;
-        let muted = cx.theme().muted_foreground;
-        let expanded = self.usage_expanded == Some(tab);
-
-        let context = match &meta.context {
-            ToolbarContext::Issue {
-                status,
-                identifier,
-                title,
-            } => h_flex()
-                .gap_1p5()
-                .items_center()
-                .min_w_0()
-                .child(crate::icons::resolved_status_icon(status, cx).xsmall())
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(muted)
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .whitespace_nowrap()
-                        .child(identifier.clone()),
-                )
-                .when_some(title.clone(), |this, title| {
-                    this.child(div().text_xs().min_w_0().truncate().child(title))
-                }),
-            ToolbarContext::Batch { label } | ToolbarContext::Action { name: label } => h_flex()
-                .items_center()
-                .min_w_0()
-                .child(div().text_xs().min_w_0().truncate().child(label.clone())),
-        };
-
-        let mut row = h_flex()
-            .w_full()
-            .h(px(24.))
-            .px_2()
-            .gap_2()
-            .items_center()
-            .child(context);
-
-        // The spacer that also hosts the collapsed bar — capped so a wide
-        // dock does not turn a hairline into a banner.
-        let mut spacer = h_flex().flex_1().min_w_0().justify_end();
-        if let Some(usage) = meta.usage.as_ref() {
-            let panel = cx.entity().downgrade();
-            let props = crate::usage_bar::UsageBarProps {
-                id: SharedString::from("terminal-toolbar-usage"),
-                usage: &usage.usage,
-                selected: usage.selected.as_deref(),
-                expanded,
-                now_epoch: now,
-            };
-            spacer = spacer.child(
-                div().w_full().max_w(px(220.)).child(
-                    crate::usage_bar::render_usage_track(
-                        &props,
-                        move |_, cx| {
-                            let _ = panel.update(cx, |this, cx| {
-                                this.usage_expanded =
-                                    (this.usage_expanded != Some(tab)).then_some(tab);
-                                cx.notify();
-                            });
-                        },
-                        cx,
-                    ),
-                ),
-            );
-        }
-        row = row.child(spacer);
-
-        if let Some(merge) = meta.merge.as_ref() {
-            let merge_state = crate::pr_merge::MergeState::global(cx);
-            row = row.child(self.tab_merge_button(tab, merge, &merge_state, cx));
-        }
-
-        let mut toolbar = v_flex()
-            .w_full()
-            .flex_shrink_0()
-            .border_b_1()
-            .border_color(cx.theme().border.opacity(0.6))
-            .child(row);
-        if expanded {
-            if let Some(usage) = meta.usage.as_ref() {
-                let panel = cx.entity().downgrade();
-                let agent = usage.agent;
-                let props = crate::usage_bar::UsageBarProps {
-                    id: SharedString::from("terminal-toolbar-usage"),
-                    usage: &usage.usage,
-                    selected: usage.selected.as_deref(),
-                    expanded,
-                    now_epoch: now,
-                };
-                toolbar = toolbar.child(
-                    div().px_2().pb_1().child(crate::usage_bar::render_usage_windows(
-                        &props,
-                        move |key, _, cx| {
-                            // The pick is a LOCAL reading habit: persisted
-                            // through the ui-prefs path (no doctor re-run,
-                            // and outside the launch-defaults wire).
-                            crate::usage_bar::persist_window(agent, key, cx);
-                            let _ = panel.update(cx, |this, cx| {
-                                this.usage_expanded = None;
-                                cx.notify();
-                            });
-                        },
-                        cx,
-                    )),
-                );
-            }
-        }
-        Some(toolbar.into_any_element())
-    }
-
     /// EXP-484 (C1): open one agent-LOGIN tab — `claude auth login
     /// --claudeai`, `codex login --device-auth`, or pi's bare TUI with
     /// `/login` typed at its prompt.
@@ -1638,46 +1675,198 @@ impl TerminalDockPanel {
         })
     }
 
-    /// The collapsed-dock strip: the bottom dock keeps a 29px band
-    /// when closed, and a chrome-less panel renders its full content clipped
-    /// into it — instead render this compact one-line strip. Clicking it (or
-    /// the chevron) re-opens the dock.
-    fn render_collapsed_strip(
-        &self,
-        tab_count: usize,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let label: SharedString = if tab_count > 0 {
-            format!("Terminal ({tab_count})").into()
-        } else {
-            "Terminal".into()
+    /// What the next Latest-changes poll should do. Clears the snapshot (and
+    /// skips git entirely) whenever there is nothing to show: a collapsed
+    /// dock, no active tab, an undocked one, or a tab that is not a local
+    /// coding session (a plain shell has no branch to diff).
+    fn changes_job(&mut self, cx: &mut gpui::Context<Self>) -> ChangesJob {
+        let idle = |this: &mut Self, cx: &mut gpui::Context<Self>| {
+            if this.changes.take().is_some() {
+                cx.notify();
+            }
+            ChangesJob::Idle
         };
-        h_flex()
-            .id("terminal-collapsed-strip")
+        if self.dock_collapsed(cx) {
+            return idle(self, cx);
+        }
+        let Some(tab) = self
+            .manager
+            .read(cx)
+            .active_tab()
+            .map(|tab| tab.id)
+            .filter(|id| !crate::undock::is_terminal_tab_undocked(*id, cx))
+        else {
+            return idle(self, cx);
+        };
+        let Some(sessions) = crate::coding_flow::LocalSessions::global_ref(cx) else {
+            return idle(self, cx);
+        };
+        let scope = {
+            let sessions = sessions.read(cx);
+            sessions
+                .session_for_tab(tab)
+                .map(|session| (session.worktree.clone(), session.base_ref.clone()))
+        };
+        let Some((worktree, base_ref)) = scope else {
+            return idle(self, cx);
+        };
+        ChangesJob::Poll {
+            tab,
+            worktree,
+            base_ref,
+        }
+    }
+
+    /// Install a poll's answer. A FAILED poll (`None`) keeps the previous
+    /// snapshot (`merge_changes_snapshot`): a diff momentarily unreadable —
+    /// mid-rebase, mid-checkout — must not blank the bar and strand the Merge
+    /// pill alone. A real empty answer (the branch was reset) clears it.
+    fn apply_changes(
+        &mut self,
+        tab: TabId,
+        files: Option<Vec<coding::scm::DiffFile>>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let previous = self
+            .changes
+            .take()
+            .filter(|changes| changes.tab == tab);
+        let expanded = previous.as_ref().is_some_and(|changes| changes.expanded);
+        let generation = previous.as_ref().map_or(0, |changes| changes.generation);
+        let previous_files = previous.map(|changes| changes.files).unwrap_or_default();
+        let changed = files.as_ref().is_some_and(|files| *files != previous_files);
+        let files = merge_changes_snapshot(previous_files, files);
+        let (additions, deletions) = changes_totals(&files);
+        self.changes = Some(ChangesState {
+            tab,
+            files,
+            additions,
+            deletions,
+            expanded,
+            generation: generation + u64::from(changed),
+        });
+        if changed && expanded {
+            self.rebuild_changes_diff(cx);
+        }
+        cx.notify();
+    }
+
+    /// Rebuild the expanded side-by-side view from the current snapshot.
+    fn rebuild_changes_diff(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(changes) = self.changes.as_ref() else {
+            return;
+        };
+        let prepared = crate::diff::build_scm_diff(&changes.files, &cx.theme().highlight_theme);
+        self.changes_diff
+            .update(cx, |diff, cx| diff.set_prepared(prepared, cx));
+    }
+
+    /// EXP-678/EXP-688: "Latest changes" — the branch's diff (everything the
+    /// PR carries, committed work included) plus the Merge button, in one
+    /// row directly above the bottom strip. Mirrors the web session view's
+    /// row; it renders when there IS a diff or an open PR to merge, so the
+    /// Merge pill never stands alone.
+    fn render_changes_bar(
+        &self,
+        tab: TabId,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let merge = merge_tab_meta(tab, cx);
+        let changes = self
+            .changes
+            .as_ref()
+            .filter(|changes| changes.tab == tab && !changes.files.is_empty());
+        if !changes_bar_visible(changes.is_some(), merge.is_some()) {
+            return None;
+        }
+        let muted = cx.theme().muted_foreground;
+        let expanded = changes.is_some_and(|changes| changes.expanded);
+
+        let mut left = h_flex()
+            .id("terminal-changes-toggle")
+            .min_w_0()
+            .flex_1()
+            .gap_1p5()
+            .items_center()
+            .text_xs()
+            .text_color(muted);
+        if let Some(changes) = changes {
+            left = left
+                .cursor_pointer()
+                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                    this.toggle_changes_expanded(cx);
+                }))
+                .child(
+                    Icon::new(if expanded {
+                        registry::UI_CHEVRON_DOWN
+                    } else {
+                        registry::UI_CHEVRON_RIGHT
+                    })
+                    .xsmall(),
+                )
+                .child(Icon::new(registry::CODING_DIFF).xsmall())
+                .child("Latest changes")
+                .child(
+                    div()
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .text_color(theme::tokens::GREEN.to_hsla())
+                        .child(SharedString::from(format!("+{}", changes.additions))),
+                )
+                .child(
+                    div()
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .text_color(cx.theme().danger)
+                        .child(SharedString::from(format!("-{}", changes.deletions))),
+                );
+        }
+
+        let mut row = h_flex()
             .w_full()
-            .h(px(29.))
-            .px_3()
+            .h(px(CHANGES_BAR_H))
+            .px_2()
             .gap_2()
             .items_center()
             .flex_shrink_0()
             .border_t_1()
-            .border_color(cx.theme().border)
-            .bg(cx.theme().title_bar)
-            .text_color(cx.theme().muted_foreground)
-            .cursor_pointer()
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.expand_dock(window, cx);
-                // EXP-369: expanding NEVER starts anything — with zero
-                // sessions the dock opens on its launch cards; with sessions
-                // the active terminal takes focus back.
-                if !this.manager.read(cx).is_empty() {
-                    this.focus_active_terminal(window, cx);
-                }
-            }))
-            .child(Icon::new(registry::NAV_TERMINAL).xsmall())
-            .child(div().text_xs().child(label))
-            .child(div().flex_1())
-            .child(Icon::new(registry::UI_CHEVRON_UP).xsmall())
+            .border_color(theme::tokens::glass::STROKE_SECTION.to_hsla())
+            .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
+            .child(left);
+        if let Some(merge) = merge.as_ref() {
+            let merge_state = crate::pr_merge::MergeState::global(cx);
+            row = row.child(crate::surface::glass_pill(
+                h_flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .child(self.tab_merge_button(tab, merge, &merge_state, cx)),
+                false,
+            ));
+        }
+
+        let bar = v_flex().w_full().flex_shrink_0().child(row);
+        Some(if expanded {
+            bar.child(
+                div()
+                    .w_full()
+                    .h(px(CHANGES_DIFF_H))
+                    .child(self.changes_diff.clone()),
+            )
+            .into_any_element()
+        } else {
+            bar.into_any_element()
+        })
+    }
+
+    /// Flip the Latest-changes bar open/shut, building the diff rows the
+    /// first time it opens (they are only worth rendering when visible).
+    fn toggle_changes_expanded(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(changes) = self.changes.as_mut() else {
+            return;
+        };
+        changes.expanded = !changes.expanded;
+        if changes.expanded {
+            self.rebuild_changes_diff(cx);
+        }
+        cx.notify();
     }
 
     /// EXP-65: every visible tab popped out into its own window — the dock
@@ -1934,119 +2123,52 @@ struct IssueTabMeta {
     title: Option<SharedString>,
 }
 
-/// EXP-484: what the per-tab toolbar renders for one session tab.
-struct ToolbarMeta {
-    context: ToolbarContext,
-    /// The open-PR merge target, when the session has one (EXP-498's rule,
-    /// unchanged — only the button's home moved off the chip).
-    merge: Option<MergeTabMeta>,
-    /// This machine's OWN usage for the agent the session runs. Absent when
-    /// the collector has nothing, or when its numbers are not fresh — stale
-    /// limits beside a live agent read as current ones.
-    usage: Option<ToolbarUsage>,
+/// EXP-688: the Latest-changes snapshot for ONE session tab.
+struct ChangesState {
+    tab: TabId,
+    files: Vec<coding::scm::DiffFile>,
+    additions: u32,
+    deletions: u32,
+    /// Whether the bar is showing its side-by-side diff.
+    expanded: bool,
+    /// Bumped on every CHANGED snapshot — the expanded view rebuilds off it.
+    generation: u64,
 }
 
-/// What the session works on, in the toolbar's own words.
-enum ToolbarContext {
-    Issue {
-        status: domain::statuses::ResolvedStatus,
-        identifier: SharedString,
-        title: Option<SharedString>,
-    },
-    Batch {
-        label: SharedString,
-    },
-    Action {
-        name: SharedString,
+/// What one Latest-changes tick has to do.
+enum ChangesJob {
+    /// Nothing to show (collapsed dock / no session tab) — no git, no bar.
+    Idle,
+    Poll {
+        tab: TabId,
+        worktree: PathBuf,
+        base_ref: Option<String>,
     },
 }
 
-struct ToolbarUsage {
-    agent: coding::CodingAgent,
-    usage: coding::agent_usage::AgentUsage,
-    /// The pinned window key (`Settings.usage_window[agent]`).
-    selected: Option<String>,
+/// The bar shows for a diff OR an open PR: a Merge button with nothing above
+/// it is the EXP-688 complaint, and a diff with no PR yet is still the
+/// session's work. Pure (unit-tested).
+fn changes_bar_visible(has_diff: bool, has_open_pr: bool) -> bool {
+    has_diff || has_open_pr
 }
 
-/// `Batch · 3 issues` — a batch tab's context line. Pure (unit-tested); a
-/// batch whose issues have not synced yet still names itself.
-fn batch_label(issue_count: usize) -> String {
-    match issue_count {
-        0 => "Batch".to_string(),
-        1 => "Batch · 1 issue".to_string(),
-        count => format!("Batch · {count} issues"),
-    }
+/// Keep the last snapshot across a FAILED poll (`None`): git errors for a
+/// moment during a rebase/checkout, and blanking the bar on that would strand
+/// the Merge button alone — the exact shape of the bug EXP-688 fixes. A real
+/// answer always wins, an empty one included (a reset branch has no changes).
+/// Pure.
+fn merge_changes_snapshot(
+    previous: Vec<coding::scm::DiffFile>,
+    next: Option<Vec<coding::scm::DiffFile>>,
+) -> Vec<coding::scm::DiffFile> {
+    next.unwrap_or(previous)
 }
 
-/// Resolve a tab to its toolbar row: the session's subject, its merge
-/// target, and this machine's usage for the agent it runs. `None` for
-/// anything that is not a local session tab.
-fn toolbar_meta(tab_id: TabId, now_epoch: i64, cx: &mut App) -> Option<ToolbarMeta> {
-    let sessions = crate::coding_flow::LocalSessions::global_ref(cx)?;
-    let (subject, branch, agent, session_id) = {
-        let sessions = sessions.read(cx);
-        let session = sessions.session_for_tab(tab_id)?;
-        (
-            session.subject.clone(),
-            session.branch.clone(),
-            session.agent,
-            session.session_id.clone(),
-        )
-    };
-    let store = sync::Store::try_global(cx)?;
-    let context = match &subject {
-        crate::coding_flow::SessionSubject::Issue(issue_id) => {
-            let issue = store.collections().issues.read(cx).get(issue_id).cloned()?;
-            let title = issue.title.trim().to_string();
-            ToolbarContext::Issue {
-                status: crate::queries::resolve_issue_status(cx, &issue),
-                identifier: SharedString::from(issue.identifier.clone()),
-                title: (!title.is_empty()).then(|| SharedString::from(title)),
-            }
-        }
-        crate::coding_flow::SessionSubject::Batch(_) => {
-            let count = store
-                .collections()
-                .issues
-                .read(cx)
-                .iter()
-                .filter(|issue| !branch.is_empty() && issue.branch.as_deref() == Some(branch.as_str()))
-                .count();
-            ToolbarContext::Batch {
-                label: SharedString::from(batch_label(count)),
-            }
-        }
-        crate::coding_flow::SessionSubject::Action(_) => {
-            // The run's own `coding_sessions` row carries the action-name
-            // SNAPSHOT (it survives the action's deletion).
-            let name = store
-                .collections()
-                .coding_sessions
-                .read(cx)
-                .get(&session_id)
-                .and_then(|row| row.action_name.clone())
-                .unwrap_or_else(|| "Action run".to_string());
-            ToolbarContext::Action {
-                name: SharedString::from(name),
-            }
-        }
-    };
-    let hub = CodingHub::global(cx);
-    let hub = hub.read(cx);
-    let usage = hub
-        .own_agent_usage(agent)
-        .filter(|usage| {
-            !usage.windows.is_empty() && crate::usage_bar::is_fresh(&usage.fetched_at, now_epoch)
-        })
-        .map(|usage| ToolbarUsage {
-            agent,
-            usage: usage.clone(),
-            selected: crate::usage_bar::preferred_window(&hub.settings, agent),
-        });
-    Some(ToolbarMeta {
-        context,
-        merge: merge_tab_meta(tab_id, cx),
-        usage,
+/// `+adds -dels` over every file in the snapshot. Pure.
+fn changes_totals(files: &[coding::scm::DiffFile]) -> (u32, u32) {
+    files.iter().fold((0, 0), |(adds, dels), file| {
+        (adds + file.additions, dels + file.deletions)
     })
 }
 
@@ -2058,7 +2180,7 @@ struct MergeTabMeta {
 }
 
 /// Measured width of one tab chip, for the EXP-497 overflow partition —
-/// mirrors the chip layout in `render_tab_bar` piece for piece, the way
+/// mirrors the chip layout in `render_strip` piece for piece, the way
 /// `screens::measure_chip_width` mirrors the center chips (EXP-326: spacing
 /// helpers resolve against the rem size and labels are SHAPED with the
 /// window's text system, so "fits" means fits).
@@ -2067,7 +2189,7 @@ fn measure_tab_chip_width(meta: &TabMeta, window: &Window) -> f32 {
     const CHIP_PADDING_REMS: f32 = 0.5 * 2.;
     /// `Icon::xsmall()` — `size_3` (the issue chip's status glyph).
     const LEAD_ICON_REMS: f32 = 0.75;
-    /// An icon-only xsmall `Button` — `size_5` (undock/close).
+    /// An icon-only xsmall `Button` — `size_5` (the chip's close).
     const XSMALL_BUTTON_REMS: f32 = 1.25;
     /// The trailing button cluster's own `gap_0p5`.
     const CLUSTER_GAP_REMS: f32 = 0.125;
@@ -2111,11 +2233,11 @@ fn measure_tab_chip_width(meta: &TabMeta, window: &Window) -> f32 {
         ),
     }
 
-    // The trailing cluster: exit badge, the undock slot (`invisible` keeps
-    // its box) and close. EXP-484 removed the merge button from the chip —
-    // it lives in the per-tab toolbar now, so nothing here reserves a
-    // variable-width labeled button any more.
-    let mut cluster: Vec<f32> = Vec::with_capacity(3);
+    // The trailing cluster: exit badge and close. EXP-484 removed the merge
+    // button from the chip and EXP-688 the hover-undock slot (the strip's
+    // right cluster undocks the active tab), so nothing here reserves a
+    // variable-width labeled button or a second icon button any more.
+    let mut cluster: Vec<f32> = Vec::with_capacity(2);
     if let Some(code) = meta.exit_code {
         cluster.push(
             BADGE_PADDING_REMS * rem
@@ -2127,7 +2249,6 @@ fn measure_tab_chip_width(meta: &TabMeta, window: &Window) -> f32 {
                 ),
         );
     }
-    cluster.push(XSMALL_BUTTON_REMS * rem);
     cluster.push(XSMALL_BUTTON_REMS * rem);
     let cluster_width = cluster.iter().sum::<f32>()
         + CLUSTER_GAP_REMS * rem * cluster.len().saturating_sub(1) as f32;
@@ -2286,72 +2407,58 @@ impl Render for TerminalDockPanel {
             )
         };
         let tab_count = self.manager.read(cx).len();
+        let selected_ix = active_id
+            .and_then(|id| metas.iter().position(|meta| meta.id == id))
+            .unwrap_or(0);
 
-        let outer = div()
+        // EXP-688: the strip is ABSOLUTE at the bottom edge and the content
+        // fills the band above it, so opening the dock grows the content
+        // upward out of the tabs (the web dock's behaviour) instead of
+        // pushing them down.
+        //
+        // EXP-523: `dock_slide.is_none()` holds the collapsed branch back
+        // while a CLOSE animation runs — `collapse_dock` deliberately does
+        // not flip `set_open` until it settles, so the content stays
+        // rendered for the whole slide. On open the flip happens up front,
+        // so this is already false on frame 1.
+        let collapsed = self.dock_collapsed(cx) && self.dock_slide.is_none();
+        let root = div()
             .id("terminal-dock-clip")
-            .relative()
-            .size_full()
-            .overflow_hidden();
-        let root = v_flex()
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::on_new_tab))
             .on_action(cx.listener(Self::on_close_tab))
             .on_action(cx.listener(Self::on_next_tab))
-            .on_action(cx.listener(Self::on_prev_tab));
+            .on_action(cx.listener(Self::on_prev_tab))
+            .relative()
+            .size_full()
+            .overflow_hidden();
 
-        // Collapsed dock: only the compact strip — never the full
-        // content squeezed/clipped into the 29px band.
-        // EXP-523: `dock_slide.is_none()` holds this back while a CLOSE
-        // animation runs. `collapse_dock` deliberately does not flip
-        // `set_open` until it settles, so the content stays rendered for the
-        // whole slide and the swap lands on a near-identical frame (the 29px
-        // tab strip replaced by the 29px collapsed strip). On open the flip
-        // happens up front, so this branch is already false on frame 1.
-        if self.dock_collapsed(cx) && self.dock_slide.is_none() {
-            return outer.child(root.size_full().child(
-                self.render_collapsed_strip(metas.len(), cx),
-            ));
-        }
-
-        let Some(active_view) = active_view else {
-            if tab_count > 0 {
+        let content: Option<AnyElement> = if collapsed {
+            None
+        } else {
+            let body = v_flex().w_full().overflow_hidden();
+            Some(match active_view {
+                Some(active_view) => self.pin_content(
+                    body
+                        // min_h(0) so the flex child can shrink with the
+                        // dock; the grid element itself guards the 0-height
+                        // collapsed case (§6.9).
+                        .child(div().flex_1().min_h_0().child(active_view))
+                        .when_some(active_exit, |this, code| this.child(exit_strip(code, cx)))
+                        .children(active_id.and_then(|id| self.render_changes_bar(id, cx))),
+                ),
                 // Tabs exist but none is visible/active here — every one is
                 // undocked (or the active tab just popped out mid-frame).
-                // Keep the bar (the `+` stays reachable) over a hint.
-                return outer.child(self.pin_content(
-                    root.child(self.render_tab_bar(&metas, 0, window, cx))
-                        .child(self.render_undocked_hint(cx)),
-                ));
-            }
-            // EXP-369: an expanded, empty dock offers its launch cards — the
-            // bar stays (the `+` / collapse chevron keep working) and nothing
-            // spawns until the user picks something.
-            return outer.child(self.pin_content(
-                root.child(self.render_tab_bar(&metas, 0, window, cx))
-                    .child(self.render_empty_dock_options(window, cx)),
-            ));
+                None if tab_count > 0 => self.pin_content(body.child(self.render_undocked_hint(cx))),
+                // EXP-369: an expanded, empty dock offers its launch cards —
+                // nothing spawns until the user picks something.
+                None => self.pin_content(body.child(self.render_empty_dock_options(window, cx))),
+            })
         };
 
-        let selected_ix = active_id
-            .and_then(|id| metas.iter().position(|meta| meta.id == id))
-            .unwrap_or(0);
-        // EXP-484: the ACTIVE session tab's toolbar (context · usage ·
-        // Merge), between the strip and the grid.
-        let toolbar = active_id.and_then(|id| self.render_session_toolbar(id, cx));
-        outer.child(
-            self.pin_content(
-                root.child(self.render_tab_bar(&metas, selected_ix, window, cx))
-                    .children(toolbar)
-                    // min_h(0) so the flex child can shrink with the dock; the
-                    // grid element itself guards the 0-height collapsed case
-                    // (§6.9).
-                    .child(div().flex_1().min_h_0().child(active_view))
-                    .when_some(active_exit, |this, code| {
-                        this.child(exit_strip(code, cx))
-                    }),
-            ),
-        )
+        root.children(content)
+            .child(self.render_strip(&metas, selected_ix, collapsed, window, cx))
     }
 }
 
@@ -2362,15 +2469,61 @@ mod tests {
 
     use super::*;
 
-    /// EXP-484: the batch tab's toolbar context line.
+    /// EXP-688: the bar's `+adds -dels` counts the WHOLE snapshot, not the
+    /// first file.
     #[test]
-    fn batch_label_counts_issues() {
-        assert_eq!(batch_label(3), "Batch · 3 issues");
-        assert_eq!(batch_label(2), "Batch · 2 issues");
-        // Singular reads as one issue, not "1 issues".
-        assert_eq!(batch_label(1), "Batch · 1 issue");
-        // Nothing synced yet — the tab still names itself.
-        assert_eq!(batch_label(0), "Batch");
+    fn changes_totals_sum_every_file() {
+        let file = |additions, deletions| coding::scm::DiffFile {
+            path: "f".to_string(),
+            previous_path: None,
+            status: coding::scm::FileStatus::Modified,
+            additions,
+            deletions,
+            hunks: Vec::new(),
+            binary: false,
+        };
+        assert_eq!(changes_totals(&[]), (0, 0));
+        assert_eq!(
+            changes_totals(&[file(3, 1), file(0, 7), file(10, 0)]),
+            (13, 8)
+        );
+    }
+
+    /// A momentarily empty answer (mid-rebase, mid-checkout) keeps the last
+    /// real diff — blanking the bar there is what left the Merge button
+    /// standing alone.
+    #[test]
+    fn an_empty_snapshot_keeps_the_last_non_empty_diff() {
+        let file = |path: &str| coding::scm::DiffFile {
+            path: path.to_string(),
+            previous_path: None,
+            status: coding::scm::FileStatus::Modified,
+            additions: 1,
+            deletions: 0,
+            hunks: Vec::new(),
+            binary: false,
+        };
+        let previous = vec![file("a.rs")];
+        // A failed poll keeps the previous answer.
+        let kept = merge_changes_snapshot(previous.clone(), None);
+        assert_eq!(kept, previous);
+        // A real answer always wins, even a smaller one.
+        let next = vec![file("b.rs")];
+        assert_eq!(merge_changes_snapshot(previous.clone(), Some(next.clone())), next);
+        // A real EMPTY answer clears the bar (the branch was reset).
+        assert!(merge_changes_snapshot(previous, Some(Vec::new())).is_empty());
+        // Nothing either way is still nothing.
+        assert!(merge_changes_snapshot(Vec::new(), None).is_empty());
+    }
+
+    /// The bar renders for a diff OR an open PR — and for neither it is not
+    /// painted at all (a shell tab has no session to describe).
+    #[test]
+    fn changes_bar_shows_for_diff_or_open_pr() {
+        assert!(changes_bar_visible(true, false));
+        assert!(changes_bar_visible(false, true));
+        assert!(changes_bar_visible(true, true));
+        assert!(!changes_bar_visible(false, false));
     }
 
     /// EXP-498: the batch tab's merge target — any synced OPEN-PR issue on
@@ -2518,24 +2671,26 @@ mod tests {
         }
     }
 
-    // The clamp offset is what keeps the panel's visible edge moving through
-    // the region `Dock::set_size` refuses to store (PANEL_MIN_SIZE).
+    // The clip tracks what the tick REQUESTED, not what `Dock::set_size`
+    // stored — that is what keeps the panel's visible edge moving through
+    // the region upstream refuses to store (PANEL_MIN_SIZE).
     #[test]
-    fn content_offset_is_zero_above_the_clamp_floor_and_covers_it_below() {
+    fn content_clip_height_tracks_the_virtual_height_not_the_clamp() {
         let t0 = Instant::now();
         let mut slide = DockSlide::new(240., DOCK_STRIP_H, 240., false, t0);
 
-        slide.record_apply(180., 180.);
-        assert_eq!(slide.content_offset(), 0., "no clamp above the floor");
-
-        // Asked for 29, upstream stored 100 — the content must drop by 71 so
-        // the visible top edge is still where 29 would put it.
+        // Asked for 29, upstream stored 100: the clip is still 0 — the strip
+        // alone is showing, exactly as 29 asks for.
         slide.record_apply(DOCK_STRIP_H, 100.);
-        assert!((slide.content_offset() - (100. - DOCK_STRIP_H)).abs() < 0.01);
+        assert_eq!(slide.content_clip_height(), 0.);
+
+        // Above the floor the clip is the height minus the strip.
+        slide.record_apply(180., 180.);
+        assert!((slide.content_clip_height() - 151.).abs() < 0.01);
 
         // Never negative, whatever upstream does.
-        slide.record_apply(300., 240.);
-        assert_eq!(slide.content_offset(), 0.);
+        slide.record_apply(10., 100.);
+        assert_eq!(slide.content_clip_height(), 0.);
     }
 
     // `LeftColumnAnim` jumps to its previous target on a mid-flight reversal

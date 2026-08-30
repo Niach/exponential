@@ -207,7 +207,12 @@ pub(crate) fn run_emitter(config: EmitterConfig, sender: ActivitySender, active:
         if let Some(signal) = &config.turn_signal {
             signal.set_idle(idle);
         }
-        diffs.tick(&config.worktree, &sender, &redactor);
+        diffs.tick(
+            &config.worktree,
+            config.base_ref.as_deref(),
+            &sender,
+            &redactor,
+        );
         std::thread::sleep(POLL_INTERVAL);
     }
 

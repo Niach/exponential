@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest"
 import {
   accountCaption,
+  accountLine,
   accountRow,
   formatResetCountdown,
   parseAgentLoginResult,
   parseAgentUsage,
   parseAgentUsageMap,
-  selectWindow,
   sessionAgentUsage,
   severity,
+  usageGroups,
   usageIsFresh,
   USAGE_FRESH_MS,
 } from "./agent-usage"
@@ -126,19 +127,105 @@ describe(`usageIsFresh`, () => {
   })
 })
 
-describe(`selectWindow`, () => {
-  it(`prefers the pinned key`, () => {
-    expect(selectWindow(USAGE, `session`)?.label).toBe(`5h`)
+describe(`usageGroups`, () => {
+  it(`usage groups split current, weekly and other`, () => {
+    expect(usageGroups(USAGE, NOW)).toEqual([
+      {
+        key: `session`,
+        title: `Current session`,
+        cards: [
+          {
+            key: `session`,
+            title: `Current session`,
+            percent: 42,
+            severity: `normal`,
+            caption: `resets in 2h 10m`,
+          },
+        ],
+      },
+      {
+        key: `weekly`,
+        title: `Weekly limits`,
+        cards: [
+          {
+            key: `weekly`,
+            title: `All models`,
+            percent: 81,
+            severity: `warning`,
+            caption: `resets in 3d 14h`,
+          },
+          {
+            key: `model:fable`,
+            title: `Fable only`,
+            percent: 96,
+            severity: `danger`,
+            caption: `resets in 3d 14h`,
+          },
+        ],
+      },
+      {
+        key: `other`,
+        title: `Other`,
+        cards: [
+          {
+            key: `credits`,
+            title: `Credits`,
+            percent: 12,
+            severity: `normal`,
+            caption: ``,
+          },
+        ],
+      },
+    ])
   })
 
-  it(`falls back to the fullest window when the pin is gone`, () => {
-    expect(selectWindow(USAGE, `model:opus`)?.key).toBe(`model:fable`)
-    expect(selectWindow(USAGE, null)?.key).toBe(`model:fable`)
+  it(`keeps every other window in report order`, () => {
+    const groups = usageGroups(
+      {
+        ...USAGE,
+        windows: [
+          ...USAGE.windows,
+          { key: `credits`, label: `Credits`, percent: 16, resetsAt: null },
+        ],
+      },
+      NOW
+    )
+    expect(groups.map((group) => group.key)).toEqual([
+      `session`,
+      `weekly`,
+      `other`,
+    ])
+    expect(groups[2].cards.map((card) => card.percent)).toEqual([12, 16])
   })
 
-  it(`is null without windows`, () => {
-    expect(selectWindow({ windows: [] }, `session`)).toBeNull()
-    expect(selectWindow(null)).toBeNull()
+  it(`says an untouched session window has not started`, () => {
+    const groups = usageGroups(
+      {
+        ...USAGE,
+        windows: [{ key: `session`, label: `5h`, percent: 0, resetsAt: null }],
+      },
+      NOW
+    )
+    expect(groups).toEqual([
+      {
+        key: `session`,
+        title: `Current session`,
+        cards: [
+          {
+            key: `session`,
+            title: `Current session`,
+            percent: 0,
+            severity: `normal`,
+            caption: `Starts when a message is sent`,
+          },
+        ],
+      },
+    ])
+  })
+
+  it(`is empty without windows`, () => {
+    expect(usageGroups({ windows: [] }, NOW)).toEqual([])
+    expect(usageGroups(null, NOW)).toEqual([])
   })
 })
 
@@ -211,6 +298,16 @@ describe(`accountCaption`, () => {
   it(`degrades to signed in, then to unknown`, () => {
     expect(accountCaption({ signedIn: true })).toBe(`signed in`)
     expect(accountCaption(null)).toBe(`unknown`)
+  })
+})
+
+describe(`accountLine`, () => {
+  it(`drops the prefix and spells out the negatives`, () => {
+    expect(
+      accountLine({ signedIn: true, email: `danny@example.com`, plan: `Max` })
+    ).toBe(`signed in as danny@example.com · Max`)
+    expect(accountLine({ signedIn: false })).toBe(`Not signed in`)
+    expect(accountLine(null)).toBe(`Sign-in status unknown`)
   })
 })
 

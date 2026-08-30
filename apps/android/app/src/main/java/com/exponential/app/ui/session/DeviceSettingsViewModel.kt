@@ -2,7 +2,6 @@ package com.exponential.app.ui.session
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.AgentUsageWindowPrefs
 import com.exponential.app.data.api.DeviceCommandDto
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.DevicesApi
@@ -74,18 +73,7 @@ class DeviceSettingsViewModel @Inject constructor(
     private val auth: AuthRepository,
     holder: DatabaseHolder,
     private val devicesApi: DevicesApi,
-    private val usageWindowPrefs: AgentUsageWindowPrefs,
 ) : ViewModel() {
-
-    /**
-     * EXP-484: bumped on every window pick, so the Agents section's rows
-     * re-read the (non-observable) local preference store.
-     */
-    val usageWindowVersion: StateFlow<Int> = usageWindowPrefs.version
-
-    fun readUsageWindow(agent: String): String? = usageWindowPrefs.read(agent)
-
-    fun rememberUsageWindow(agent: String, key: String) = usageWindowPrefs.remember(agent, key)
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 

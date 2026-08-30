@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentLaunchDefaults
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.SteerDevice
@@ -16,11 +17,13 @@ class DeviceSettingsDefaultsTest {
         agents: List<String>? = listOf("claude", "codex"),
         unauthed: List<String> = listOf("pi"),
         defaults: DeviceLaunchDefaults? = null,
+        accounts: Map<String, AgentAccount>? = null,
     ) = SteerDevice(
         deviceId = "dev-1",
         agents = agents,
         unauthedAgents = unauthed,
         launchDefaults = defaults,
+        agentAccounts = accounts,
     )
 
     @Test
@@ -33,6 +36,18 @@ class DeviceSettingsDefaultsTest {
         assertEquals(
             DomainContract.codingAgentValues,
             editableAgents(device(agents = null, unauthed = emptyList())),
+        )
+        // EXP-688: an agent the machine only reports an ACCOUNT for still gets
+        // a tab — that block is where its sign-in and usage live now.
+        assertEquals(
+            listOf("claude", "pi"),
+            editableAgents(
+                device(
+                    agents = listOf("claude"),
+                    unauthed = emptyList(),
+                    accounts = mapOf("pi" to AgentAccount(signedIn = true)),
+                ),
+            ),
         )
     }
 

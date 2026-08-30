@@ -3396,6 +3396,45 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `maximize-2`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "maximize-2",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M15 3h6v6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m21 3-7 7"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m3 21 7-7"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 21H3v-6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `megaphone`: ImageVector by lazy {
         ImageVector.Builder(
             name = "megaphone",
@@ -3488,6 +3527,45 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M9 11h6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `minimize-2`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "minimize-2",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("m14 10 7-7"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M20 10h-6V4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m3 21 7-7"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M4 14h6v6"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -5961,10 +6039,12 @@ public object ExpIcons {
         "log-out" -> `log-out`
         "mail" -> `mail`
         "map-pin" -> `map-pin`
+        "maximize-2" -> `maximize-2`
         "megaphone" -> `megaphone`
         "message-circle" -> `message-circle`
         "message-square" -> `message-square`
         "message-square-plus" -> `message-square-plus`
+        "minimize-2" -> `minimize-2`
         "minus" -> `minus`
         "monitor" -> `monitor`
         "monitor-off" -> `monitor-off`
@@ -6346,6 +6426,10 @@ public object ExpIcons {
     public val uiFolder: ImageVector get() = `folder`
     /** Concept `ui-folder-open`. */
     public val uiFolderOpen: ImageVector get() = `folder-open`
+    /** Concept `ui-fullscreen`. */
+    public val uiFullscreen: ImageVector get() = `maximize-2`
+    /** Concept `ui-fullscreen-exit`. */
+    public val uiFullscreenExit: ImageVector get() = `minimize-2`
     /** Concept `ui-github`. */
     public val uiGithub: ImageVector get() = `github`
     /** Concept `ui-help`. */
@@ -6428,6 +6512,8 @@ public object ExpIcons {
     public val uiUnsubscribe: ImageVector get() = `bell-off`
     /** Concept `ui-update`. */
     public val uiUpdate: ImageVector get() = `circle-arrow-up`
+    /** Concept `ui-usage`. */
+    public val uiUsage: ImageVector get() = `chart-line`
     /** Concept `ui-warning`. */
     public val uiWarning: ImageVector get() = `triangle-alert`
     /** Concept `ui-watch`. */

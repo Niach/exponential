@@ -32,6 +32,62 @@ public struct SessionAgentUsage: Equatable, Sendable {
     }
 }
 
+/// One usage card: a titled bar with its percentage, tone and caption. Pure
+/// presentation — `AgentUsagePresentation.usageGroups` is the only maker.
+public struct UsageCard: Equatable, Sendable, Identifiable {
+    /// The wire window key the card came from (`session`, `weekly`,
+    /// `model:fable`, `credits`, …).
+    public let key: String
+    public let title: String
+    /// Nil when the machine reported the window but no number for it.
+    public let percent: Double?
+    public let severity: AgentUsageSeverity
+    /// Empty when there is nothing to say under the bar.
+    public let caption: String
+
+    public var id: String { key }
+
+    public init(key: String, title: String, percent: Double?, severity: AgentUsageSeverity, caption: String) {
+        self.key = key
+        self.title = title
+        self.percent = percent
+        self.severity = severity
+        self.caption = caption
+    }
+}
+
+/// A titled run of cards. `key` is stable (`session` / `weekly` / `other`) so
+/// a view can special-case one without matching on its title.
+public struct UsageGroup: Equatable, Sendable, Identifiable {
+    public let key: String
+    public let title: String
+    public let cards: [UsageCard]
+
+    public var id: String { key }
+
+    public init(key: String, title: String, cards: [UsageCard]) {
+        self.key = key
+        self.title = title
+        self.cards = cards
+    }
+
+    init(key: String, title: String, windows: [AgentUsageWindow], now: Date) {
+        self.init(
+            key: key,
+            title: title,
+            cards: windows.map { window in
+                UsageCard(
+                    key: window.key,
+                    title: AgentUsagePresentation.cardTitle(window),
+                    percent: window.percent,
+                    severity: AgentUsagePresentation.severity(window.percent),
+                    caption: AgentUsagePresentation.cardCaption(window, now: now)
+                )
+            }
+        )
+    }
+}
+
 public enum AgentUsagePresentation {
     /// Numbers older than this are not current enough to draw. Locked ×4.
     public static let freshWindow: TimeInterval = 15 * 60
@@ -65,20 +121,60 @@ public enum AgentUsagePresentation {
         return Data(trimmed.utf8)
     }
 
-    // MARK: - Selection
+    // MARK: - Grouping (EXP-688)
 
-    /// The window a bar shows: the caller's remembered key when the report
-    /// still carries it, else the fullest one (a window with no percentage
-    /// never wins). Nil when there is nothing to draw.
-    public static func selectWindow(
-        _ usage: AgentUsage?,
-        preferredKey: String? = nil
-    ) -> AgentUsageWindow? {
-        guard let windows = usage?.windows, !windows.isEmpty else { return nil }
-        if let preferredKey, let pinned = windows.first(where: { $0.key == preferredKey }) {
-            return pinned
+    /// The reported windows as the CARDS a usage surface draws, in three fixed
+    /// groups. There is no pinned/tracked window any more (EXP-688 deleted the
+    /// concept ×4): every window the machine reported is shown, grouped the
+    /// way Claude's own app groups them.
+    ///
+    /// Locked ×4 (web `usageGroups`, Android `usageGroups`, desktop
+    /// `usage_groups`) against the same fixture:
+    ///   - `session` → "Current session" / card title "Current session";
+    ///   - `weekly` + `model:*` → "Weekly limits" / "All models" and
+    ///     "<Label> only", the all-models window first;
+    ///   - anything else (`credits`, codex's `43200`) → "Other" with the wire
+    ///     label, in report order.
+    /// Empty groups are omitted and the group order never varies.
+    public static func usageGroups(_ usage: AgentUsage, now: Date = Date()) -> [UsageGroup] {
+        let windows = usage.windows ?? []
+        let session = windows.filter { $0.key == sessionWindowKey }
+        let weekly = windows.filter { $0.key == weeklyWindowKey }
+            + windows.filter { $0.key.hasPrefix(modelWindowPrefix) }
+        let other = windows.filter {
+            $0.key != sessionWindowKey && $0.key != weeklyWindowKey
+                && !$0.key.hasPrefix(modelWindowPrefix)
         }
-        return windows.max { ($0.percent ?? -1) < ($1.percent ?? -1) }
+        return [
+            UsageGroup(key: "session", title: "Current session", windows: session, now: now),
+            UsageGroup(key: "weekly", title: "Weekly limits", windows: weekly, now: now),
+            UsageGroup(key: "other", title: "Other", windows: other, now: now),
+        ].filter { !$0.cards.isEmpty }
+    }
+
+    /// The idle-session line Claude's own app shows: a session window at 0%
+    /// with nothing to reset has not started yet. Locked ×4.
+    public static let sessionNotStartedCaption = "Starts when a message is sent"
+
+    static let sessionWindowKey = "session"
+    static let weeklyWindowKey = "weekly"
+    static let modelWindowPrefix = "model:"
+
+    /// One card's title: the two named windows read as words, a per-model
+    /// window as "<Label> only", and anything else keeps the wire label.
+    static func cardTitle(_ window: AgentUsageWindow) -> String {
+        if window.key == sessionWindowKey { return "Current session" }
+        if window.key == weeklyWindowKey { return "All models" }
+        if window.key.hasPrefix(modelWindowPrefix) { return "\(window.label) only" }
+        return window.label
+    }
+
+    /// The line under a card's bar: the countdown when the window resets, the
+    /// not-started sentence for an untouched session window, else nothing.
+    static func cardCaption(_ window: AgentUsageWindow, now: Date) -> String {
+        if let countdown = resetCountdown(resetsAt: window.resetsAt, now: now) { return countdown }
+        if window.key == sessionWindowKey, window.percent == 0 { return sessionNotStartedCaption }
+        return ""
     }
 
     /// Locked thresholds. An unreported percentage reads normal — absence is

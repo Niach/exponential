@@ -27,9 +27,9 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import {
-  DeviceAgentsSection,
+  AgentAccountBlock,
   agentLoginKey,
-} from "@/components/device-agents-section"
+} from "@/components/device-agent-account"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -184,10 +184,20 @@ export function DeviceSettingsDialog({
       ...(row?.agents ?? []),
       ...(row?.unauthedAgents ?? []),
       ...Object.keys(row?.launchDefaults?.agents ?? {}),
+      // EXP-688: an agent the machine only reported an ACCOUNT or usage for
+      // still gets a tab — that tab is now where its sign-in lives.
+      ...Object.keys(row?.agentAccounts ?? {}),
+      ...Object.keys(row?.agentUsage ?? {}),
     ].filter((agent) => contract.codingAgent.values.includes(agent))
     const unique = [...new Set(union)]
     return unique.length > 0 ? unique : [...contract.codingAgent.values]
-  }, [row?.agents, row?.unauthedAgents, row?.launchDefaults])
+  }, [
+    row?.agents,
+    row?.unauthedAgents,
+    row?.launchDefaults,
+    row?.agentAccounts,
+    row?.agentUsage,
+  ])
 
   // The value we last wrote, so our OWN write doesn't reseed the drafts back
   // to the pre-write row in the window before it syncs home.
@@ -567,19 +577,6 @@ export function DeviceSettingsDialog({
   const pendingKey = (key: string) =>
     tracked.some((command) => command.key === key)
 
-  // EXP-484: rows only for agents the machine actually REPORTED status for —
-  // one it never probed has nothing to say, so the section stays quiet (and
-  // vanishes entirely on a build that ships no agent status at all).
-  const agentStatusAgents = useMemo(
-    () =>
-      editorAgents.filter(
-        (agent) =>
-          (row?.agentAccounts && agent in row.agentAccounts) ||
-          (row?.agentUsage && agent in row.agentUsage)
-      ),
-    [editorAgents, row?.agentAccounts, row?.agentUsage]
-  )
-
   const queueAgentLogin = (agent: string, switchAccount: boolean) =>
     void queueCommand(agentLoginKey(agent), {
       kind: `agent_login`,
@@ -709,24 +706,6 @@ export function DeviceSettingsDialog({
 
           <Separator />
 
-          {/* ── Agents: who each CLI is signed in as + usage (EXP-484) ── */}
-          {agentStatusAgents.length > 0 && (
-            <>
-              <DeviceAgentsSection
-                agents={agentStatusAgents}
-                row={row}
-                online={online}
-                canAgentLogin={deviceCanAgentLogin({ caps: row?.caps ?? [] })}
-                now={now}
-                errors={sectionErrors}
-                isPending={pendingKey}
-                results={commandResults}
-                onLogin={startAgentLogin}
-              />
-              <Separator />
-            </>
-          )}
-
           {/* ── Agent defaults (server-authoritative, EXP-481) ────────── */}
           <div className="space-y-3">
             {(!online || savingDefaults) && (
@@ -796,6 +775,21 @@ export function DeviceSettingsDialog({
               onSkipPermissionsChange={(value) =>
                 patchDraft({ skipPermissions: value })
               }
+              /* EXP-688: who this agent is signed in as on this machine, and
+                 what it has spent — under its OWN tab, not a section apart. */
+              renderAgentFooter={(agent) => (
+                <AgentAccountBlock
+                  agent={agent}
+                  row={row}
+                  online={online}
+                  canAgentLogin={deviceCanAgentLogin({ caps: row?.caps ?? [] })}
+                  now={now}
+                  error={sectionErrors[agentLoginKey(agent)] ?? ``}
+                  pending={pendingKey(agentLoginKey(agent))}
+                  result={commandResults[agentLoginKey(agent)] ?? null}
+                  onLogin={startAgentLogin}
+                />
+              )}
             />
             {sectionErrors.defaults && (
               <p className="text-xs text-destructive">
@@ -810,10 +804,13 @@ export function DeviceSettingsDialog({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label>Worktrees</Label>
+              {/* EXP-688: icon only — the label repeated the section it sits
+                  in, and the row reads as a heading with an action again. */}
               <Button
-                variant="outline"
-                size="sm"
-                className="h-6 gap-1 px-2 text-xs"
+                variant="ghost"
+                className="h-5 w-5 p-0 text-muted-foreground"
+                aria-label="Prune merged worktrees"
+                title="Prune merged worktrees"
                 disabled={pendingKey(`prune`) || worktrees.length === 0}
                 onClick={() =>
                   void queueCommand(`prune`, { kind: `worktree_prune` })
@@ -824,7 +821,6 @@ export function DeviceSettingsDialog({
                 ) : (
                   <PruneIcon className="size-3" />
                 )}
-                Prune merged worktrees
               </Button>
             </div>
             {!online && (worktrees.length > 0 || pendingKey(`prune`)) && (

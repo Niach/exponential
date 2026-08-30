@@ -178,11 +178,7 @@ function TeamLayout() {
                 <Outlet />
               </div>
               {team && user && (
-                <AgentDock
-                  teamId={team.id}
-                  teamSlug={teamSlug}
-                  currentUserId={user.id}
-                />
+                <AgentDock teamId={team.id} currentUserId={user.id} />
               )}
             </main>
 

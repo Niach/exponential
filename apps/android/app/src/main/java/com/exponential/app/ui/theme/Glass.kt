@@ -94,11 +94,17 @@ fun AppBackground(
     )
 }
 
-/** Frosted pill/row surface — iOS `.glassRow()`. */
-fun Modifier.glassRow(active: Boolean = false): Modifier {
+/**
+ * Frosted pill/row surface — iOS `.glassRow()`. [opaque] lays a solid Card
+ * fill beneath the glass tint (same shape) for rows floating over scrolling
+ * content, where the low-alpha fill alone lets it bleed through (EXP-165 —
+ * the steer screen's floating Latest-changes chip).
+ */
+fun Modifier.glassRow(active: Boolean = false, opaque: Boolean = false): Modifier {
     val shape = RoundedCornerShape(GlassTokens.RowRadius)
     return this
         .clip(shape)
+        .then(if (opaque) Modifier.background(DesignTokens.Palette.Card, shape) else Modifier)
         .background(if (active) GlassTokens.RowFillActive else GlassTokens.RowFill, shape)
         .border(GlassTokens.Hairline, if (active) GlassTokens.StrokeActive else GlassTokens.StrokeRow, shape)
 }

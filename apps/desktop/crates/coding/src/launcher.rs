@@ -547,6 +547,14 @@ pub struct PreparedLaunch {
     /// cleanup's "did anything land here" compare. `None` for issue/batch
     /// sessions (the prune owns those) and repo-less runs.
     pub base_branch: Option<String>,
+    /// EXP-688: the git ref "Latest changes" is measured from —
+    /// `origin/<default branch>` for every run that has a repo. Unlike
+    /// [`base_branch`](Self::base_branch) this is set for issue and batch
+    /// sessions too: it is the DIFF base, not the cleanup compare, and
+    /// without it the published diff went blank the moment the agent
+    /// committed. `None` for a repo-less scratch run — nothing to diff
+    /// against.
+    pub base_ref: Option<String>,
     /// EXP-637: the run worktree to auto-remove when the run ends, iff it is
     /// clean and carries no commits ([`crate::run_cleanup`]). `None` for
     /// issue/batch sessions (their worktrees survive by design) and for
@@ -1503,6 +1511,7 @@ pub fn prepare_with_hooks(
         // Issue/batch worktrees are the prune's business, not the run
         // cleanup's — they survive their session by design.
         base_branch: None,
+        base_ref: Some(format!("origin/{}", minted.default_branch)),
         run_cleanup: None,
         spawn,
         tab_title,
@@ -2120,6 +2129,9 @@ fn prepare_action(
         repository_id,
         branch,
         base_branch: base_branch.clone(),
+        base_ref: base_branch
+            .as_ref()
+            .map(|base| format!("origin/{base}")),
         run_cleanup,
         spawn,
         tab_title,
@@ -2616,6 +2628,8 @@ fn prepare_resume_run(
         repository_id: record.repository_id.clone(),
         branch: record.branch.clone().unwrap_or_default(),
         base_branch: record.base_branch.clone(),
+        base_ref: (!default_branch.is_empty())
+            .then(|| format!("origin/{default_branch}")),
         run_cleanup,
         spawn,
         tab_title,

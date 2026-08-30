@@ -37,6 +37,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -59,6 +60,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -72,6 +74,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -84,9 +87,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.data.db.CodingSessionEntity
+import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AgentPhase
+import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MAX_STEER_IMAGES
@@ -101,15 +107,21 @@ import com.exponential.app.domain.locksCard
 import com.exponential.app.domain.questionLockKey
 import com.exponential.app.domain.visibleSubagentTabs
 import com.exponential.app.ui.components.BottomBarPillFill
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.components.TopBarActionButton
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DiffAddColor
 import com.exponential.app.ui.issue.DiffDelColor
+import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.issue.PatchLines
+import com.exponential.app.ui.issue.PulsingDot
+import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.issue.splitUnifiedDiff
 import com.exponential.app.ui.issue.unifiedDiffStats
 import com.exponential.app.ui.markdown.LocalAttachmentDims
@@ -204,7 +216,12 @@ fun AgentSessionScreen(
     // launched with — absent (and silent) unless the run is live, recorded its
     // agent, and its machine reported fresh numbers.
     val agentUsage by viewModel.agentUsage.collectAsStateWithLifecycle()
-    val preferredUsageWindow by viewModel.preferredUsageWindow.collectAsStateWithLifecycle()
+    // EXP-688: who that machine is signed in as for this agent — the Usage
+    // sheet's caption. Null whenever the machine never reported an account.
+    val agentAccount by viewModel.agentAccount.collectAsStateWithLifecycle()
+    // The run's OWN issue (EXP-688) — the header names what is being worked
+    // on, exactly like the Agents list row does.
+    val issue by viewModel.issue.collectAsStateWithLifecycle()
 
     // Steer image attach (EXP-511) — the system photo picker feeds the VM's
     // pending list; batch and action runs have no issue to upload to.
@@ -267,6 +284,13 @@ fun AgentSessionScreen(
     var diffSheetOpen by remember { mutableStateOf(false) }
     var killDialogOpen by remember { mutableStateOf(false) }
     var mergeConfirmOpen by remember { mutableStateOf(false) }
+    // EXP-688: the top bar's "…" menu, and the Usage sheet it opens.
+    var overflowOpen by remember { mutableStateOf(false) }
+    var usageSheetOpen by remember { mutableStateOf(false) }
+    // The floating Latest-changes bar's measured height — the feed pads its
+    // tail by it, so the last message always scrolls clear of the bar.
+    var barHeightPx by remember { mutableIntStateOf(0) }
+    val barInset = with(LocalDensity.current) { barHeightPx.toDp() }
 
     // EXP-656: the reader's place in the feed lives at the SCREEN level, not
     // inside ActivityFeed. Held there, a single frame of empty feed flipped the
@@ -289,7 +313,9 @@ fun AgentSessionScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
-                    SessionStatusTitle(
+                    SessionHeaderTitle(
+                        session = session,
+                        issue = issue,
                         phase = phase,
                         deviceLabel = hostDevice.displayLabel,
                         awaitingInput = awaitingInput,
@@ -300,18 +326,55 @@ fun AgentSessionScreen(
                     TopBarBackButton(onClick = onBack)
                 },
                 actions = {
+                    // EXP-688: one "…" (the issue-detail pattern) instead of a
+                    // bare red kill glyph — Usage joined it when the usage
+                    // strip left the header.
                     // Kill switch (EXP-268): only while the synced row is
                     // still live, for the session owner — everything about a
                     // live session is owner-only (EXP-312; server enforces
                     // too).
                     val row = session
-                    if (row != null && !sessionEnded && row.userId == currentUserId) {
-                        TopBarActionButton(
-                            ExpIcons.codingStop,
-                            "Kill session",
-                            onClick = { killDialogOpen = true },
-                            tint = MaterialTheme.colorScheme.error,
-                        )
+                    val canKill = row != null && !sessionEnded && row.userId == currentUserId
+                    val usage = agentUsage
+                    if (canKill || usage != null) {
+                        // The Box stays: it anchors the dropdown to the button.
+                        Box {
+                            TopBarActionButton(
+                                ExpIcons.uiMore,
+                                "Session actions",
+                                onClick = { overflowOpen = true },
+                            )
+                            GlassDropdownMenu(
+                                expanded = overflowOpen,
+                                onDismissRequest = { overflowOpen = false },
+                            ) {
+                                if (usage != null) {
+                                    GlassMenuItem(
+                                        leadingIcon = {
+                                            Icon(ExpIcons.uiUsage, contentDescription = null)
+                                        },
+                                        text = { Text("Usage") },
+                                        onClick = {
+                                            overflowOpen = false
+                                            usageSheetOpen = true
+                                        },
+                                    )
+                                }
+                                if (canKill) {
+                                    GlassMenuItem(
+                                        leadingIcon = {
+                                            Icon(ExpIcons.codingStop, contentDescription = null)
+                                        },
+                                        text = { Text("Kill session") },
+                                        destructive = true,
+                                        onClick = {
+                                            overflowOpen = false
+                                            killDialogOpen = true
+                                        },
+                                    )
+                                }
+                            }
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
@@ -330,19 +393,10 @@ fun AgentSessionScreen(
                 .imePadding()
                 .padding(horizontal = 12.dp),
         ) {
-            // ── Agent usage (EXP-484) ────────────────────────────────────────
-            val usage = agentUsage
-            val usageAgent = session?.agent
-            if (usage != null && usageAgent != null) {
-                AgentUsageStrip(
-                    agent = usageAgent,
-                    usage = usage,
-                    preferredKey = preferredUsageWindow,
-                    onSelect = { key -> viewModel.selectUsageWindow(usageAgent, key) },
-                )
-            }
-
             // ── The activity feed (bottom-anchored, follow-scroll) ───────────
+            // EXP-688: the usage strip that used to sit here is gone — usage
+            // lives in the "…" menu's Usage sheet, and the Latest-changes bar
+            // FLOATS over the tail of this feed instead of eating its height.
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 when {
                     // EXP-550: the machine is gone — an endless "waiting for
@@ -457,7 +511,109 @@ fun AgentSessionScreen(
                                 }
                             },
                             onSubmit = viewModel::sendSubmit,
+                            // The floating bar overlays the tail of the feed —
+                            // the list pads past it so the last message (and
+                            // every scroll-to-bottom) lands above it.
+                            bottomInset = barInset,
                         )
+                    }
+                }
+
+                // ── The floating "Latest changes" chip + Merge pill (EXP-688:
+                // an overlay pinned to the bottom of the feed, not a solid bar
+                // that eats feed height). EXP-678: the pill is offered while
+                // the run's PR is open and the composer is still there; the
+                // merge ends the session server-side (EXP-498), so it retires
+                // itself.
+                val diff = latestDiff
+                val canMerge = mergeIssue?.prState == DomainContract.prStateOpen &&
+                    !sessionEnded && phase !is AgentPhase.Ended
+                val barVisible = diff != null || canMerge
+                // A retired bar owes the feed its height back.
+                LaunchedEffect(barVisible) { if (!barVisible) barHeightPx = 0 }
+                if (barVisible) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                            .onSizeChanged { barHeightPx = it.height }
+                            // Both children measure to the taller one's height,
+                            // so the pill lines up with the chip whatever it
+                            // says.
+                            .height(IntrinsicSize.Min),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (diff != null) {
+                            val stats = remember(diff) { unifiedDiffStats(diff) }
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    // opaque: the feed scrolls beneath the bar
+                                    // (EXP-165, the Jump-to-bottom pill's rule).
+                                    .glassRow(opaque = true)
+                                    .clickable { diffSheetOpen = true }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    ExpIcons.codingDiff,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(
+                                        alpha = TextEmphasis.Secondary,
+                                    ),
+                                )
+                                Text(
+                                    "Latest changes",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    "+${stats.additions}",
+                                    color = DiffAddColor,
+                                    fontFamily = FontFamily.Monospace,
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                                Text(
+                                    "−${stats.deletions}",
+                                    color = DiffDelColor,
+                                    fontFamily = FontFamily.Monospace,
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                                Icon(
+                                    ExpIcons.uiChevronUp,
+                                    contentDescription = "Show diff",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(
+                                        alpha = TextEmphasis.Tertiary,
+                                    ),
+                                )
+                            }
+                        } else {
+                            // No diff yet: the pill still sits on the right.
+                            Spacer(Modifier.weight(1f))
+                        }
+                        if (canMerge) {
+                            GlassPillButton(
+                                "Merge",
+                                onClick = { mergeConfirmOpen = true },
+                                icon = ExpIcons.prMerged,
+                                enabled = !merging,
+                                loading = merging,
+                                // Floats over the feed like the chip beside it.
+                                opaque = true,
+                                // Matches the chip's 10dp — same label style,
+                                // same 14dp glyph, so both measure the same
+                                // height.
+                                verticalPadding = 10.dp,
+                                modifier = Modifier.fillMaxHeight(),
+                            )
+                        }
                     }
                 }
             }
@@ -561,87 +717,6 @@ fun AgentSessionScreen(
                 }
             }
 
-            // ── Pinned "Latest changes" chip + Merge pill (directly above the
-            // input bar). EXP-678: the pill is offered while the run's PR is
-            // open and the composer is still there; the merge ends the session
-            // server-side (EXP-498), so it retires itself.
-            val diff = latestDiff
-            val canMerge = mergeIssue?.prState == DomainContract.prStateOpen &&
-                !sessionEnded && phase !is AgentPhase.Ended
-            if (diff != null || canMerge) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp)
-                        // Both children measure to the taller one's height, so
-                        // the pill lines up with the chip whatever it says.
-                        .height(IntrinsicSize.Min),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    if (diff != null) {
-                        val stats = remember(diff) { unifiedDiffStats(diff) }
-                        Row(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .glassRow()
-                                .clickable { diffSheetOpen = true }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Icon(
-                                ExpIcons.codingDiff,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            )
-                            Text(
-                                "Latest changes",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                "+${stats.additions}",
-                                color = DiffAddColor,
-                                fontFamily = FontFamily.Monospace,
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                            Text(
-                                "−${stats.deletions}",
-                                color = DiffDelColor,
-                                fontFamily = FontFamily.Monospace,
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                            Icon(
-                                ExpIcons.uiChevronUp,
-                                contentDescription = "Show diff",
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                            )
-                        }
-                    } else {
-                        // No diff yet: the pill still sits on the right.
-                        Spacer(Modifier.weight(1f))
-                    }
-                    if (canMerge) {
-                        GlassPillButton(
-                            "Merge",
-                            onClick = { mergeConfirmOpen = true },
-                            icon = ExpIcons.prMerged,
-                            enabled = !merging,
-                            loading = merging,
-                            // Matches the chip's 10dp — same label style, same
-                            // 14dp glyph, so both measure the same height.
-                            verticalPadding = 10.dp,
-                            modifier = Modifier.fillMaxHeight(),
-                        )
-                    }
-                }
-            }
-
             // A rejected pick or a failed image upload (EXP-511) — the text and
             // the thumbnails survive, so the send is retryable.
             val imageFailure = steerImageError
@@ -695,6 +770,38 @@ fun AgentSessionScreen(
         )
     }
 
+    // ── The Usage sheet (EXP-688) — where the header's usage strip went.
+    // Only reachable while the host machine reports fresh numbers for this
+    // run's agent, so the sheet retires itself when they age out.
+    val sheetUsage = agentUsage
+    LaunchedEffect(sheetUsage) { if (sheetUsage == null) usageSheetOpen = false }
+    if (usageSheetOpen && sheetUsage != null) {
+        GlassSheet(title = "Usage", onDismiss = { usageSheetOpen = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp),
+            ) {
+                // Whose limits these are — the machine's sign-in for this
+                // agent, without the agent prefix (the sheet is already about
+                // this run's agent).
+                agentAccount?.let { account ->
+                    Text(
+                        AgentUsagePresentation.accountCaption(account),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = TextEmphasis.Secondary,
+                        ),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
+                AgentUsageCards(usage = sheetUsage)
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+    }
+
     if (killDialogOpen) {
         AlertDialog(
             onDismissRequest = { killDialogOpen = false },
@@ -743,10 +850,19 @@ fun AgentSessionScreen(
     }
 }
 
-// ── Header: status dot + "Live · <device>" ───────────────────────────────────
+// ── Header: the session's identity, with its live status under it ────────────
 
+/**
+ * EXP-688: what the steering screen is steering. Line 1 is the Agents list
+ * row's identity line ([SessionRowTitle] — the shared composable, so the two
+ * can't drift): status dot, mono identifier, issue title. Line 2 is the
+ * status caption the header used to be all by itself ("Live · macbook"),
+ * which never said which issue was being worked on.
+ */
 @Composable
-private fun SessionStatusTitle(
+private fun SessionHeaderTitle(
+    session: CodingSessionEntity?,
+    issue: IssueEntity?,
     phase: AgentPhase,
     deviceLabel: String?,
     /** Live but blocked on a trailing question/plan — waiting for a human
@@ -764,46 +880,53 @@ private fun SessionStatusTitle(
             (phase is AgentPhase.Closed && phase.reconnecting)
         )
     val awaiting = phase == AgentPhase.Live && awaitingInput
-    val dotColor = when {
-        paused -> LostGray
-        phase == AgentPhase.Live -> if (awaiting) ConnectingYellow else LiveGreen
-        connecting -> ConnectingYellow
-        else -> LostGray
-    }
-    // The connecting dot pulses; live/ended dots hold steady.
-    val pulse by rememberInfiniteTransition(label = "dot").animateFloat(
-        initialValue = 1f,
-        targetValue = 0.35f,
-        animationSpec = infiniteRepeatable(tween(650), RepeatMode.Reverse),
-        label = "dotAlpha",
-    )
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .alpha(if (connecting) pulse else 1f)
-                .background(dotColor, CircleShape),
-        )
-        val label = deviceLabel?.takeIf { it.isNotBlank() }
-        Text(
-            when {
-                paused -> if (label != null) "Paused · $label" else "Paused"
-                else -> when (phase) {
-                    AgentPhase.Live -> {
-                        val prefix = if (awaiting) "Needs your input" else "Live"
-                        if (label != null) "$prefix · $label" else prefix
-                    }
-                    AgentPhase.Connecting, AgentPhase.Starting, AgentPhase.Idle -> "Connecting…"
-                    is AgentPhase.Ended -> "Session ended"
-                    is AgentPhase.Closed -> if (phase.reconnecting) "Reconnecting…" else "Disconnected"
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        SessionRowTitle(
+            identifier = sessionRowIdentifier(issue),
+            // The row hasn't synced yet: name the surface rather than nothing.
+            title = session?.let { sessionRowTitle(it, issue) } ?: "Coding session",
+            dot = {
+                // The list row's dot rule: a working run pulses, every parked
+                // state is a static tone (EXP-194/EXP-214/EXP-550).
+                when {
+                    paused -> StaticDot(LostGray)
+                    awaiting -> StaticDot(NeedsInputAmber)
+                    phase == AgentPhase.Live -> PulsingDot()
+                    connecting -> StaticDot(ConnectingYellow)
+                    else -> StaticDot(LostGray)
                 }
             },
+        )
+        Text(
+            sessionStatusLine(phase, deviceLabel, awaiting, paused),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/** `Live · macbook` / `Needs your input · macbook` / `Paused · …` / `Session
+ *  ended` — the caption under the identity line. */
+private fun sessionStatusLine(
+    phase: AgentPhase,
+    deviceLabel: String?,
+    awaiting: Boolean,
+    paused: Boolean,
+): String {
+    val label = deviceLabel?.takeIf { it.isNotBlank() }
+    return when {
+        paused -> if (label != null) "Paused · $label" else "Paused"
+        else -> when (phase) {
+            AgentPhase.Live -> {
+                val prefix = if (awaiting) "Needs your input" else "Live"
+                if (label != null) "$prefix · $label" else prefix
+            }
+            AgentPhase.Connecting, AgentPhase.Starting, AgentPhase.Idle -> "Connecting…"
+            is AgentPhase.Ended -> "Session ended"
+            is AgentPhase.Closed -> if (phase.reconnecting) "Reconnecting…" else "Disconnected"
+        }
     }
 }
 
@@ -835,6 +958,10 @@ private fun ActivityFeed(
     /** Advances a LEGACY multi-select picker (Tab) — semantic cards submit
      *  through [onAnswer] instead. */
     onSubmit: () -> Unit,
+    /** EXP-688: how much of the feed's tail the floating Latest-changes bar
+     *  covers. The list pads past it (and so does the Jump-to-bottom pill), so
+     *  the last message is never parked underneath it. */
+    bottomInset: Dp = 0.dp,
 ) {
     // A card with a wire id stays answerable until it resolves; a legacy card
     // falls back to the trailing-run heuristic (EXP-78/EXP-174).
@@ -910,7 +1037,7 @@ private fun ActivityFeed(
             // Bottom-anchored: a short feed sits above the input bar, not at
             // the top of the screen.
             verticalArrangement = Arrangement.Bottom,
-            contentPadding = PaddingValues(vertical = 8.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp + bottomInset),
         ) {
             if (focused != null) {
                 // EXP-356: the focused subagent's conversation — its
@@ -1007,7 +1134,7 @@ private fun ActivityFeed(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 8.dp)
+                    .padding(bottom = 8.dp + bottomInset)
                     // opaque: the feed scrolls beneath this pill (EXP-165).
                     .glassButton(active = true, opaque = true)
                     .clickable { onFollowChange(true) }

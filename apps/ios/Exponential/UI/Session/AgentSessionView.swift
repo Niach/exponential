@@ -58,6 +58,13 @@ struct AgentSessionView: View {
     @State private var model: AgentSessionModel?
     @State private var showDiffSheet = false
     @State private var showKillConfirm = false
+    /// EXP-688: the `…` menu's Usage sheet — the per-window cards that used to
+    /// be a hairline strip under the nav bar.
+    @State private var showUsageSheet = false
+    /// The measured height of the floating Latest-changes bar (EXP-688), so a
+    /// feed shorter than the viewport bottom-anchors ABOVE it instead of
+    /// underneath.
+    @State private var changesBarHeight: CGFloat = 0
     /// EXP-678: the Merge pill's confirm + in-flight call. No success state:
     /// the server ends the run and flips `pr_state`, and the pill disappears
     /// when that echo syncs back.
@@ -93,14 +100,6 @@ struct AgentSessionView: View {
 
             VStack(spacing: 0) {
                 if let model {
-                    // EXP-484: how close the machine running this agent is to
-                    // its rate limit. Only ever drawn for a live run whose host
-                    // reported fresh numbers, so its absence is the norm.
-                    if let usage = model.agentUsage {
-                        AgentUsageStrip(agent: usage.agent, usage: usage.usage)
-                            .padding(.horizontal, 14)
-                            .padding(.top, 4)
-                    }
                     feedArea(model)
                     banners(model)
                     bottomBar(model)
@@ -112,30 +111,51 @@ struct AgentSessionView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .toolbar {
+            // EXP-688: the header names the ISSUE, like the list row it was
+            // opened from — the phase/machine line it used to be is demoted to
+            // a caption under it.
             ToolbarItem(placement: .principal) {
-                HStack(spacing: 6) {
-                    StatusDot(
-                        phase: model?.phase ?? .connecting,
-                        awaiting: model?.awaitingInput ?? false,
-                        paused: hostPaused
+                VStack(spacing: 1) {
+                    SessionRowTitle(
+                        identifier: headerIssue?.identifier,
+                        title: headerTitle,
+                        state: headerState,
+                        paused: hostPaused || headerLost,
+                        live: model?.phase == .live
                     )
-                    Text(headerTitle)
-                        .font(.caption.weight(.medium))
+                    Text(headerCaption)
+                        .font(.caption2)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .lineLimit(1)
                 }
             }
-            // Kill switch (EXP-268): force-end a live session — owner-only,
-            // like everything about a live session (EXP-312).
+            // EXP-688: one `…` (the issue-detail pattern) instead of a bare
+            // red kill glyph. Usage opens the per-window cards; Kill (EXP-268)
+            // force-ends a live session — owner-only, like everything about a
+            // live session (EXP-312).
             ToolbarItem(placement: .topBarTrailing) {
-                if model?.canKill == true {
-                    Button {
-                        showKillConfirm = true
+                let usage = model?.agentUsage
+                let canKill = model?.canKill == true
+                if usage != nil || canKill {
+                    GlassMenu {
+                        if usage != nil {
+                            GlassMenuItem("Usage", icon: AppIcons.uiUsage) {
+                                showUsageSheet = true
+                            }
+                        }
+                        if canKill {
+                            GlassMenuItem(
+                                "Kill session",
+                                icon: AppIcons.codingStop,
+                                destructive: true
+                            ) {
+                                showKillConfirm = true
+                            }
+                        }
                     } label: {
-                        AppIcon(AppIcons.codingStop, size: AppIcon.Size.large)
-                            .foregroundStyle(DesignTokens.Semantic.red)
+                        AppIcon(AppIcons.uiMore, size: AppIcon.Size.large)
                     }
-                    .accessibilityLabel("Kill session")
+                    .accessibilityLabel("More")
                 }
             }
         }
@@ -196,6 +216,13 @@ struct AgentSessionView: View {
                 LatestChangesSheet(diff: diff)
             }
         }
+        // EXP-688: usage lives in its own sheet now — every window the machine
+        // reported, grouped, instead of one pinned hairline.
+        .sheet(isPresented: $showUsageSheet) {
+            if let usage = model?.agentUsage {
+                AgentUsageSheet(usage: usage.usage, account: model?.agentAccount)
+            }
+        }
     }
 
     // MARK: - Header
@@ -230,7 +257,42 @@ struct AgentSessionView: View {
             ?? SessionDevicePresentation.resolve(session: session, devices: []).displayLabel
     }
 
+    /// EXP-688: the issue this run is steering. The model already observes
+    /// that row for the Merge pill (EXP-678), and for an issue-linked session
+    /// it IS the issue — a batch or action run has none.
+    private var headerIssue: IssueEntity? {
+        guard session.issueId != nil else { return nil }
+        return model?.mergeIssue
+    }
+
+    /// Line 1's title, by the Agents-list rule: an action run says its action
+    /// name, a batch run "Batch run", an issue run its title.
     private var headerTitle: String {
+        sessionRowTitle(issue: headerIssue, session: model?.session ?? session)
+    }
+
+    /// The socket is gone for good as far as this screen is concerned — a
+    /// dropped connection or an ended run. The dot goes static neutral with
+    /// the paused ones: none of them is "coding now", and the caption right
+    /// under it already says which.
+    private var headerLost: Bool {
+        switch model?.phase {
+        case .ended, .closed: return true
+        default: return false
+        }
+    }
+
+    /// Line 1's dot, by the Agents-list rule (EXP-194/EXP-214), narrowed by
+    /// the live phase — the row alone cannot know the socket is down.
+    private var headerState: CodingSessionDisplayState {
+        CodingSessionDisplayState.of(
+            session: model?.session ?? session, prState: headerIssue?.prState
+        )
+    }
+
+    /// Line 2: what the header used to say on its own — the phase, and the
+    /// machine the run is parked on.
+    private var headerCaption: String {
         let label = model?.hostDevice.label ?? session.deviceLabel
         let device = (label?.isEmpty == false) ? " · \(label!)" : ""
         if hostPaused { return "Paused\(device)" }
@@ -355,6 +417,9 @@ struct AgentSessionView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The bar is the feed's, not the composer's (EXP-688) — a run with an
+        // open PR must still offer Merge while the feed is still arriving.
+        .safeAreaInset(edge: .bottom, spacing: 0) { changesBar() }
     }
 
     /// Bottom-anchored feed (a short feed sits above the input bar, not at the
@@ -420,7 +485,10 @@ struct AgentSessionView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(minHeight: geo.size.height, alignment: .bottom)
+                    .frame(
+                        minHeight: max(0, geo.size.height - (changesBarVisible ? changesBarHeight : 0)),
+                        alignment: .bottom
+                    )
                     .background(
                         GeometryReader { content in
                             Color.clear.preference(
@@ -431,6 +499,12 @@ struct AgentSessionView: View {
                         }
                     )
                 }
+                // EXP-688: the floating Latest-changes/Merge bar. As a safe
+                // area inset it becomes a CONTENT inset: the feed scrolls
+                // under it, and `visibleRect` (what FollowPinTracker reads)
+                // already accounts for it, so the last line still comes to
+                // rest fully above the bar.
+                .safeAreaInset(edge: .bottom, spacing: 0) { changesBar() }
                 .coordinateSpace(name: Self.feedCoordSpace)
                 .modifier(FollowPinTracker(
                     atBottom: $atBottom,
@@ -707,7 +781,7 @@ struct AgentSessionView: View {
         .padding(.vertical, 8)
     }
 
-    // MARK: - Bottom bar (pinned diff chip + steering input)
+    // MARK: - Bottom bar (steering input)
 
     @ViewBuilder
     private func bottomBar(_ model: AgentSessionModel) -> some View {
@@ -716,32 +790,47 @@ struct AgentSessionView: View {
         // stays up through a reconnect (send disabled, draft intact) and only
         // goes away once the session is over. It used to vanish on every drop,
         // taking the half-typed message with it.
-        let inputVisible = !model.isOver
-        if model.latestDiff != nil || inputVisible {
-            VStack(alignment: .leading, spacing: 8) {
-                if model.latestDiff != nil || model.canMerge {
-                    HStack(spacing: 8) {
-                        if let diff = model.latestDiff {
-                            diffChip(diff)
-                        } else {
-                            Spacer()
-                        }
-                        // EXP-678: merge this run's PR without leaving the
-                        // steering screen — same height as the chip it sits
-                        // beside.
-                        if model.canMerge {
-                            mergePill(model)
-                        }
-                    }
+        if !model.isOver {
+            // Steering is fully seamless (EXP-312) — no captions, no
+            // operator state; input just sends.
+            composerCard(model)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+        }
+    }
+
+    // MARK: - Floating changes bar (EXP-688)
+
+    /// Whether the Latest-changes / Merge bar is on screen. Unchanged gate —
+    /// only WHERE it draws moved: it floats over the feed now instead of
+    /// eating a band of height above the composer.
+    private var changesBarVisible: Bool {
+        guard let model else { return false }
+        return model.latestDiff != nil || model.canMerge
+    }
+
+    /// The bar itself, hung off the feed as a bottom safe-area inset so the
+    /// feed scrolls under it and its last line still comes to rest above it.
+    @ViewBuilder
+    private func changesBar() -> some View {
+        if let model, changesBarVisible {
+            HStack(spacing: 8) {
+                if let diff = model.latestDiff {
+                    diffChip(diff)
+                } else {
+                    Spacer()
                 }
-                if inputVisible {
-                    // Steering is fully seamless (EXP-312) — no captions, no
-                    // operator state; input just sends.
-                    composerCard(model)
+                // EXP-678: merge this run's PR without leaving the steering
+                // screen — same height as the chip it sits beside.
+                if model.canMerge {
+                    mergePill(model)
                 }
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.bottom, 8)
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                changesBarHeight = height
+            }
         }
     }
 
@@ -1711,57 +1800,6 @@ private struct PermissionRow: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 4)
-    }
-}
-
-// MARK: - Status dot
-
-/// Header status dot: green live / pulsing yellow while connecting or the
-/// agent is starting / gray when ended or lost. Static under Reduce Motion.
-private struct StatusDot: View {
-    let phase: AgentSessionModel.Phase
-    /// Live but blocked on a trailing question/plan — waiting for a human
-    /// answer, not stuck (EXP-97).
-    var awaiting: Bool = false
-    /// EXP-550: the host machine is offline — the run is parked, so the dot
-    /// goes static neutral instead of pulsing "connecting".
-    var paused: Bool = false
-
-    @Environment(\.motion) private var motion
-    @State private var pulsing = false
-
-    private var connecting: Bool {
-        // A run parked on a sleeping machine isn't connecting to anything.
-        if paused { return false }
-        // Auto-reconnecting after a drop reads as connecting (EXP-243).
-        if case .closed(_, true) = phase { return true }
-        return phase == .connecting || phase == .starting || phase == .idle
-    }
-
-    private var color: Color {
-        if paused { return DesignTokens.Semantic.neutral }
-        switch phase {
-        case .live: return awaiting ? DesignTokens.Semantic.yellow : DesignTokens.Semantic.green
-        case .connecting, .starting, .idle, .closed(_, true): return DesignTokens.Semantic.yellow
-        default: return DesignTokens.Semantic.neutral
-        }
-    }
-
-    var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: 8, height: 8)
-            .opacity(pulsing ? 0.35 : 1)
-            // Value-bound so the repeat dies with the flag — an open-ended
-            // withAnimation(.repeatForever) here kept driving the render loop
-            // after the phase moved on (EXP-70).
-            .animation(pulsing ? motion.pulse(duration: 0.65) : nil, value: pulsing)
-            // EXP-523: the Reduce Motion decision comes from `motion` now, but
-            // it still has to gate the FLAG, not just the animation — `pulsing`
-            // also drives the resting opacity, so setting it with no animation
-            // would leave the dot permanently dimmed to 0.35.
-            .onAppear { pulsing = connecting && !motion.reduceMotion }
-            .onChange(of: connecting) { _, now in pulsing = now && !motion.reduceMotion }
     }
 }
 

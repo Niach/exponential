@@ -17,6 +17,26 @@ import kotlinx.serialization.json.doubleOrNull
 enum class AgentUsageSeverity { Normal, Warning, Danger }
 
 /**
+ * One rendered usage window (EXP-688) — everything a card shows, decided once
+ * in [AgentUsagePresentation.usageGroups] so the four clients cannot drift.
+ * [caption] is empty when the card has nothing to add under its bar.
+ */
+data class UsageCard(
+    val key: String,
+    val title: String,
+    val percent: Int,
+    val severity: AgentUsageSeverity,
+    val caption: String,
+)
+
+/** A titled run of [UsageCard]s — "Current session", "Weekly limits", "Other". */
+data class UsageGroup(
+    val key: String,
+    val title: String,
+    val cards: List<UsageCard>,
+)
+
+/**
  * EXP-484: how an agent's auth + usage status presents.
  *
  * Hand-mirrored on web (`lib/agent-usage.ts`), iOS
@@ -74,7 +94,7 @@ object AgentUsagePresentation {
         )
     }
 
-    // A window without a key can't be selected or remembered, so it is dropped
+    // A window without a key can't be grouped or titled, so it is dropped
     // instead of failing the whole snapshot; the percent is clamped here so
     // every renderer can trust 0-100.
     private fun windowFrom(element: JsonElement): AgentUsageWindow? {
@@ -99,22 +119,83 @@ object AgentUsagePresentation {
     private fun JsonObject.number(name: String): Double =
         primitive(name)?.let { it.doubleOrNull ?: it.content.toDoubleOrNull() } ?: 0.0
 
-    // ── Selection + severity ─────────────────────────────────────────────────
+    // ── Grouping + severity ──────────────────────────────────────────────────
 
     /**
-     * The window a collapsed bar shows: the caller's remembered [preferredKey]
-     * when that window is still reported, else the busiest one — which is what
-     * the user actually needs to see, and what a machine with only one window
-     * shows anyway. Null when there is nothing to show.
+     * Every reported window as the cards a Usage surface renders, grouped the
+     * way the agent's own app groups them (EXP-688): the current session, the
+     * weekly limits (all models, then each per-model window in report order),
+     * and everything else (credits, codex's month) under "Other". Empty groups
+     * are omitted and the order is fixed.
+     *
+     * There is no picking any more: the pinned-window concept is gone, so this
+     * is the ONLY selection rule and all four clients render the same list.
      */
-    fun selectWindow(usage: AgentUsage?, preferredKey: String? = null): AgentUsageWindow? {
-        val windows = usage?.windows.orEmpty()
-        if (windows.isEmpty()) return null
-        preferredKey?.let { key ->
-            windows.firstOrNull { it.key == key }?.let { return it }
+    fun usageGroups(usage: AgentUsage, nowMs: Long): List<UsageGroup> {
+        val session = mutableListOf<UsageCard>()
+        val weekly = mutableListOf<UsageCard>()
+        val models = mutableListOf<UsageCard>()
+        val other = mutableListOf<UsageCard>()
+        usage.windows.forEach { window ->
+            val card = usageCard(window, nowMs)
+            when {
+                window.key == WINDOW_SESSION -> session += card
+                window.key == WINDOW_WEEKLY -> weekly += card
+                window.key.startsWith(MODEL_WINDOW_PREFIX) -> models += card
+                else -> other += card
+            }
         }
-        return windows.maxByOrNull { it.percent }
+        return buildList {
+            if (session.isNotEmpty()) add(UsageGroup(GROUP_SESSION, "Current session", session))
+            val weeklyCards = weekly + models
+            if (weeklyCards.isNotEmpty()) add(UsageGroup(GROUP_WEEKLY, "Weekly limits", weeklyCards))
+            if (other.isNotEmpty()) add(UsageGroup(GROUP_OTHER, "Other", other))
+        }
     }
+
+    /**
+     * One window as a card. The title names the LIMIT, not the wire key —
+     * `Current session` / `All models` / `<Label> only` — and anything the
+     * collector doesn't group keeps its own label (`Credits`, `Month`).
+     *
+     * The caption is the countdown while the window resets, and for an idle
+     * session window (0% and no reset — what Claude's own app shows before the
+     * first message) says so instead of reading like a dead bar.
+     */
+    private fun usageCard(window: AgentUsageWindow, nowMs: Long): UsageCard {
+        val title = when {
+            window.key == WINDOW_SESSION -> "Current session"
+            window.key == WINDOW_WEEKLY -> "All models"
+            window.key.startsWith(MODEL_WINDOW_PREFIX) -> "${window.label} only"
+            else -> window.label
+        }
+        val caption = resetCountdown(window.resetsAt, nowMs)
+            ?: if (window.key == WINDOW_SESSION && window.percent.toInt() == 0) {
+                "Starts when a message is sent"
+            } else {
+                ""
+            }
+        return UsageCard(
+            key = window.key,
+            title = title,
+            percent = window.percent.toInt(),
+            severity = severity(window.percent),
+            caption = caption,
+        )
+    }
+
+    /** The current-session window's wire key. */
+    private const val WINDOW_SESSION = "session"
+
+    /** The all-models weekly window's wire key. */
+    private const val WINDOW_WEEKLY = "weekly"
+
+    /** Per-model weekly windows are `model:<display>` (`model:fable`). */
+    private const val MODEL_WINDOW_PREFIX = "model:"
+
+    const val GROUP_SESSION = "session"
+    const val GROUP_WEEKLY = "weekly"
+    const val GROUP_OTHER = "other"
 
     fun severity(percent: Double): AgentUsageSeverity = when {
         percent >= 95.0 -> AgentUsageSeverity.Danger
@@ -184,8 +265,8 @@ object AgentUsagePresentation {
     // ── Session join ─────────────────────────────────────────────────────────
 
     /**
-     * The usage bar a LIVE session view renders: the host machine's numbers for
-     * the agent that run launched with.
+     * The usage a LIVE session view renders (its Usage sheet since EXP-688):
+     * the host machine's numbers for the agent that run launched with.
      *
      * Nothing renders unless every piece lines up — the run is still working
      * (`running` / `in_review`), it recorded its agent, its host row is the one

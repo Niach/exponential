@@ -1,7 +1,12 @@
 import { useMemo } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { deviceCollection } from "@/lib/collections"
-import type { CodingSession, Device, DeviceAgentUsage } from "@/db/schema"
+import type {
+  CodingSession,
+  Device,
+  DeviceAgentAccount,
+  DeviceAgentUsage,
+} from "@/db/schema"
 import { useNow } from "@/hooks/use-now"
 import { sessionAgentUsage } from "@/lib/agent-usage"
 
@@ -16,7 +21,12 @@ export function useSessionAgentUsage(
     CodingSession,
     `deviceId` | `userId` | `agent` | `status`
   > | null
-): { agent: string; usage: DeviceAgentUsage } | null {
+): {
+  agent: string
+  usage: DeviceAgentUsage
+  /** EXP-688: who that agent is signed in as, for the Usage sheet's caption. */
+  account: DeviceAgentAccount | null
+} | null {
   const deviceId = session?.deviceId ?? null
   const { data: deviceRows } = useLiveQuery(
     (query) =>
@@ -33,10 +43,20 @@ export function useSessionAgentUsage(
   const status = session?.status ?? null
   return useMemo(() => {
     if (userId === null || status === null) return null
-    return sessionAgentUsage(
+    const rows = (deviceRows ?? []) as Device[]
+    const resolved = sessionAgentUsage(
       { deviceId, userId, agent, status },
-      (deviceRows ?? []) as Device[],
+      rows,
       now
     )
+    if (!resolved) return null
+    // The same row `sessionAgentUsage` read the numbers off (the session
+    // owner's own, on a shared machine id).
+    const matches = rows.filter((row) => row.deviceId === deviceId)
+    const row = matches.find((r) => r.userId === userId) ?? matches[0]
+    return {
+      ...resolved,
+      account: row?.agentAccounts?.[resolved.agent] ?? null,
+    }
   }, [deviceId, userId, agent, status, deviceRows, now])
 }

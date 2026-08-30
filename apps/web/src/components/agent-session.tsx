@@ -10,15 +10,12 @@ import {
 } from "react"
 import { toast } from "sonner"
 import { linkSegments } from "@/lib/linkify"
-import { trpcErrorMessage } from "@/lib/trpc-error"
 import {
   ArrowDown,
   ArrowUp,
   Check,
   ChevronDown,
   ChevronRight,
-  Maximize2,
-  Minimize2,
   Plus,
   X,
 } from "lucide-react"
@@ -29,7 +26,10 @@ import { SessionMergeButton } from "@/components/session-merge-button"
 import { useSessionDevice } from "@/hooks/use-session-device"
 import { useNow } from "@/hooks/use-now"
 import { useSessionAgentUsage } from "@/hooks/use-session-agent-usage"
-import { AgentUsageStrip } from "@/components/agent-usage-bar"
+import { useKillSession } from "@/hooks/use-kill-session"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { AgentUsageCards } from "@/components/agent-usage-bar"
+import { accountCaption } from "@/lib/agent-usage"
 import type { SessionDevice } from "@/lib/session-device"
 import {
   activeQuestionIds,
@@ -73,11 +73,15 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { FileDiffList } from "@/components/diff-view"
 
 // EXP-317: the session glyphs the native clients also draw resolve through
@@ -88,10 +92,14 @@ const CodingStopIcon = conceptIcon(`coding-stop`)
 const CodingSubagentIcon = conceptIcon(`coding-subagent`)
 const CodingToolIcon = conceptIcon(`coding-tool`)
 const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
+const UiFullscreenIcon = conceptIcon(`ui-fullscreen`)
+const UiFullscreenExitIcon = conceptIcon(`ui-fullscreen-exit`)
 const UiHelpIcon = conceptIcon(`ui-help`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
+const UiMoreIcon = conceptIcon(`ui-more`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
+const UiUsageIcon = conceptIcon(`ui-usage`)
 // EXP-529: multi-select options carry an explicit checkbox state (Android
 // parity) — the amber tint alone read as "nothing selected".
 const UiSelectedIcon = conceptIcon(`ui-selected`)
@@ -156,6 +164,15 @@ export function useSteerConfig(): SteerConfig | null {
 
 // ── The agent-session view: structured activity feed over the relay ─────────
 
+/** EXP-688: one run's identity, resolved once by the dock and rendered by
+ * both the dock tab and the mobile session header so they cannot drift. */
+export interface SessionIdentity {
+  /** `EXP-688` — null for action, batch and not-yet-synced issue runs. */
+  identifier: string | null
+  /** The issue title, an action's name snapshot, or `Batch run`. */
+  subject: string
+}
+
 // Mounted ONLY by the global agent dock (one at a time), keyed by session id.
 // Always auto-connects; the caller owns the membership + config.enabled gating
 // (the relay enforces both regardless) and supplies the `title` + `onCollapse`
@@ -163,7 +180,7 @@ export function useSteerConfig(): SteerConfig | null {
 export function AgentSessionView({
   session,
   currentUserId,
-  title,
+  identity,
   prIssue,
   onCollapse,
   isFullscreen,
@@ -171,8 +188,11 @@ export function AgentSessionView({
 }: {
   session: CodingSession
   currentUserId: string
-  /** Header identity — an issue-identifier Link, or plain text (batch/syncing). */
-  title: React.ReactNode
+  /** EXP-688: what this run IS — the mono identifier (absent for action and
+   *  batch runs) and its human subject. The MOBILE header names it; the
+   *  desktop header carries no identity at all, because the dock tab under
+   *  the panel already does. */
+  identity: SessionIdentity
   /** EXP-678: the issue whose PR this session would merge — the linked issue,
    *  or a batch run's resolved representative (EXP-535). Absent (action runs,
    *  still syncing) = no Merge pill. */
@@ -198,8 +218,7 @@ export function AgentSessionView({
   )
 
   const [diffOpen, setDiffOpen] = useState(false)
-  const [confirmKill, setConfirmKill] = useState(false)
-  const [killing, setKilling] = useState(false)
+  const [usageOpen, setUsageOpen] = useState(false)
   const [atBottom, setAtBottom] = useState(true)
   /** EXP-356: the selected conversation tab — `null` is the main agent; a
    *  subagent id focuses that agent's stream. Falls back to Main whenever the
@@ -216,26 +235,6 @@ export function AgentSessionView({
     text?: string
   ) => store.answerQuestion(item, keys, labels, text)
   const toggleLegacyOption = (key: string) => store.toggleLegacyOption(key)
-
-
-  const kill = async () => {
-    setKilling(true)
-    try {
-      await trpc.steer.killSession.mutate(
-        { codingSessionId: session.id },
-        { context: { skipErrorToast: true } }
-      )
-      setConfirmKill(false)
-      // The synced row flips to ended — the dock keeps the panel mounted
-      // until the user collapses it; the relay `bye` tears the socket down.
-    } catch (error) {
-      toast.error(`Couldn't kill the session`, {
-        description: trpcErrorMessage(error, `The kill could not be delivered`),
-      })
-    } finally {
-      setKilling(false)
-    }
-  }
 
   // ── Follow-scroll: pinned to the newest event until the user scrolls up ───
 
@@ -379,6 +378,7 @@ export function AgentSessionView({
    *  agent, or null (finished run, other agent, stale or absent numbers). */
   const agentUsage = useSessionAgentUsage(session)
   const usageNow = useNow(30_000)
+  const isMobile = useIsMobile()
   /** EXP-550: no live stream AND the host machine is offline (lid closed,
    *  usage-limit pause…) — the agent is PAUSED on that machine, not starting
    *  and not gone. The synced row stays `running`, so it resumes when the
@@ -392,6 +392,14 @@ export function AgentSessionView({
       phase.kind === `connecting` ||
       phase.kind === `idle` ||
       phase.kind === `closed`)
+  /** EXP-688: the kill confirmation is shared with the dock tab's X. Live
+   *  implies ownership (EXP-312), and only a live stream can be killed. */
+  const {
+    canKill: ownsLiveRow,
+    requestKill,
+    dialog: killDialog,
+  } = useKillSession(session, currentUserId, device.label, paused)
+  const canKill = live && ownsLiveRow
   const pausedTitle = `${device.label ?? `The device`} is offline`
   const pausedBody = `The agent is paused on that machine and continues when it comes back online.`
   // The `closed` phase (relay `bye publisher_lost`) does not redial on its
@@ -414,72 +422,187 @@ export function AgentSessionView({
     }
   }, [deviceOnline, store])
 
+  /** Pinned "Latest changes". EXP-678: once the PR is open the strip shares
+   *  its row with a glass Merge pill — the trigger shrinks, the pill sits on
+   *  the right at the same height, and the expanded diff still spans the full
+   *  width. The pill alone holds the row when no diff has arrived yet.
+   *  EXP-688: on mobile it is a floating glass row over the feed. */
+  const changesBar =
+    latestDiff || canMerge ? (
+      <Collapsible
+        open={diffOpen && Boolean(latestDiff)}
+        onOpenChange={setDiffOpen}
+        className={
+          isMobile
+            ? `overflow-hidden rounded-xl border border-glass-stroke-card bg-glass-card shadow-lg backdrop-blur-md`
+            : `border-t border-border`
+        }
+      >
+        <div className={cn(`flex items-stretch`, !isMobile && `bg-muted/30`)}>
+          {latestDiff ? (
+            <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/50">
+              <ChevronRight
+                className={cn(
+                  `size-3.5 shrink-0 text-muted-foreground transition-transform`,
+                  diffOpen && `rotate-90`
+                )}
+              />
+              <span className="font-medium">Latest changes</span>
+              <span className="ml-auto" />
+              <span className="shrink-0 font-mono">
+                <span className="text-emerald-400">+{diffStats.additions}</span>
+                {` `}
+                <span className="text-rose-400">-{diffStats.deletions}</span>
+              </span>
+            </CollapsibleTrigger>
+          ) : (
+            <span className="flex-1" />
+          )}
+          {canMerge && prIssue && (
+            <div className="flex shrink-0 items-center py-1 pr-2 pl-1">
+              <SessionMergeButton
+                variant="glass"
+                size="sm"
+                label="Merge"
+                prState={prIssue.prState}
+                prNumber={prIssue.prNumber}
+                issueId={prIssue.id}
+              />
+            </div>
+          )}
+        </div>
+        {latestDiff && (
+          <CollapsibleContent>
+            <div className="max-h-72 overflow-y-auto overscroll-contain border-t border-border/60">
+              <FileDiffList files={diffFiles} />
+            </div>
+          </CollapsibleContent>
+        )}
+      </Collapsible>
+    ) : null
+  /** The floating bar's footprint, so the newest message still scrolls clear
+   *  of it (and "Jump to bottom" lands above it). */
+  const floatingBar = isMobile && changesBar !== null
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Compact header line — the dock owns the panel frame, so this is just
-          identity + controls. */}
-      <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
-        <PhaseIndicator
-          phase={phase}
-          device={device}
-          awaitingInput={awaitingInput}
-          paused={paused}
-        />
-        <div className="min-w-0 flex-1 truncate text-sm">{title}</div>
-        {phase.kind === `closed` && !paused && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            onClick={() => store.reconnect()}
-          >
-            <UiRefreshIcon />
-            Reconnect
-          </Button>
-        )}
-        {/* Owner-only, like everything about a live session (EXP-312). */}
-        {live && session.userId === currentUserId && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0 text-destructive hover:text-destructive"
-            aria-label="Kill session"
-            title="Kill session"
-            onClick={() => setConfirmKill(true)}
-          >
-            <CodingStopIcon />
-          </Button>
-        )}
-        {onToggleFullscreen && (
+      {/* EXP-688: two headers, because the two surfaces already say different
+          things. On DESKTOP the dock tab under the panel carries the identity,
+          the phase and the kill, so the header keeps only the panel controls.
+          On MOBILE the takeover IS the whole screen: it names the run over the
+          phase caption and hides usage + kill behind a "…" menu, exactly like
+          the native session screens. */}
+      {isMobile ? (
+        <div className="flex items-center gap-1 border-b border-border px-1 py-1.5">
           <Button
             variant="ghost"
             size="icon"
             className="shrink-0"
-            aria-label={isFullscreen ? `Exit fullscreen` : `Fullscreen`}
-            onClick={onToggleFullscreen}
+            aria-label="Collapse session"
+            onClick={onCollapse}
           >
-            {isFullscreen ? <Minimize2 /> : <Maximize2 />}
+            <ChevronDown />
           </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0"
-          aria-label="Collapse session"
-          onClick={onCollapse}
-        >
-          <ChevronDown />
-        </Button>
-      </div>
-
-      {/* EXP-484: how much of the agent's rate-limit window this machine has
-          spent — a hairline under the header, expandable to every window. */}
-      {agentUsage && (
-        <AgentUsageStrip
-          agent={agentUsage.agent}
-          usage={agentUsage.usage}
-          now={usageNow}
-        />
+          <div className="flex min-w-0 flex-1 flex-col items-center">
+            <div className="flex w-full min-w-0 items-center justify-center gap-1.5">
+              <PhaseDot
+                phase={phase}
+                awaitingInput={awaitingInput}
+                paused={paused}
+              />
+              {identity.identifier && (
+                <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                  {identity.identifier}
+                </span>
+              )}
+              <span className="min-w-0 truncate text-sm font-medium">
+                {identity.subject}
+              </span>
+            </div>
+            <span className="max-w-full truncate text-[11px] text-muted-foreground">
+              {phaseLabel(phase, device, awaitingInput, paused)}
+            </span>
+          </div>
+          {/* A dropped stream redials from here too — a phone has no desktop
+              header to fall back on. */}
+          {phase.kind === `closed` && !paused && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={() => store.reconnect()}
+            >
+              <UiRefreshIcon />
+              Reconnect
+            </Button>
+          )}
+          {/* A finished run with no fresh numbers has nothing to offer, so the
+              trigger goes away rather than opening an empty menu (its width
+              stays, so the title does not jump). */}
+          {!agentUsage && !canKill && <span className="size-8 shrink-0" />}
+          {(agentUsage || canKill) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  className="h-8 w-8 shrink-0 p-0"
+                  aria-label="Session actions"
+                >
+                  <UiMoreIcon />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {agentUsage && (
+                  <DropdownMenuItem onSelect={() => setUsageOpen(true)}>
+                    <UiUsageIcon className="size-4" />
+                    Usage
+                  </DropdownMenuItem>
+                )}
+                {canKill && (
+                  <DropdownMenuItem variant="destructive" onSelect={requestKill}>
+                    <CodingStopIcon className="size-4" />
+                    Kill session
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
+          <span className="flex-1" />
+          {phase.kind === `closed` && !paused && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={() => store.reconnect()}
+            >
+              <UiRefreshIcon />
+              Reconnect
+            </Button>
+          )}
+          {onToggleFullscreen && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              aria-label={isFullscreen ? `Exit fullscreen` : `Fullscreen`}
+              onClick={onToggleFullscreen}
+            >
+              {isFullscreen ? <UiFullscreenExitIcon /> : <UiFullscreenIcon />}
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0"
+            aria-label="Collapse session"
+            onClick={onCollapse}
+          >
+            <ChevronDown />
+          </Button>
+        </div>
       )}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card/40">
@@ -547,7 +670,12 @@ export function AgentSessionView({
               ) : activeAgent !== null ? (
                 <div
                   ref={setContentRef}
-                  className="flex min-h-full flex-col justify-end gap-0.5 px-3 py-2"
+                  className={cn(
+                    `flex min-h-full flex-col justify-end gap-0.5 px-3 py-2`,
+                    // Room for the floating changes bar, so the newest row
+                    // still scrolls fully clear of it (EXP-688).
+                    floatingBar && `pb-14`
+                  )}
                 >
                   <AgentConversation
                     summary={agents.find((a) => a.subagentId === activeAgent)}
@@ -557,7 +685,12 @@ export function AgentSessionView({
               ) : (
                 <div
                   ref={setContentRef}
-                  className="flex min-h-full flex-col justify-end gap-0.5 px-3 py-2"
+                  className={cn(
+                    `flex min-h-full flex-col justify-end gap-0.5 px-3 py-2`,
+                    // Room for the floating changes bar, so the newest row
+                    // still scrolls fully clear of it (EXP-688).
+                    floatingBar && `pb-14`
+                  )}
                 >
                   {rows.map((row, index) => {
                     if (row.kind === `toolRun`) {
@@ -640,12 +773,22 @@ export function AgentSessionView({
               <Button
                 variant="secondary"
                 size="sm"
-                className="absolute bottom-2 left-1/2 h-7 -translate-x-1/2 rounded-full border border-border shadow-md"
+                className={cn(
+                  `absolute left-1/2 h-7 -translate-x-1/2 rounded-full border border-border shadow-md`,
+                  floatingBar ? `bottom-16` : `bottom-2`
+                )}
                 onClick={jumpToBottom}
               >
                 Jump to bottom
                 <ArrowDown />
               </Button>
+            )}
+            {/* EXP-688: the mobile changes bar floats over the feed's bottom
+                edge instead of taking a slice of it. */}
+            {floatingBar && (
+              <div className="absolute inset-x-0 bottom-0 px-3 pb-2">
+                {changesBar}
+              </div>
             )}
           </div>
 
@@ -675,63 +818,10 @@ export function AgentSessionView({
             </div>
           )}
 
-          {/* Pinned "Latest changes" (directly above the composer). EXP-678:
-              once the PR is open the strip shares its row with a glass Merge
-              pill — the trigger shrinks, the pill sits on the right at the
-              same height, and the expanded diff still spans the full width.
-              The pill alone holds the row when no diff has arrived yet. */}
-          {(latestDiff || canMerge) && (
-            <Collapsible
-              open={diffOpen && Boolean(latestDiff)}
-              onOpenChange={setDiffOpen}
-              className="border-t border-border"
-            >
-              <div className="flex items-stretch bg-muted/30">
-                {latestDiff ? (
-                  <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/50">
-                    <ChevronRight
-                      className={cn(
-                        `size-3.5 shrink-0 text-muted-foreground transition-transform`,
-                        diffOpen && `rotate-90`
-                      )}
-                    />
-                    <span className="font-medium">Latest changes</span>
-                    <span className="ml-auto" />
-                    <span className="shrink-0 font-mono">
-                      <span className="text-emerald-400">
-                        +{diffStats.additions}
-                      </span>
-                      {` `}
-                      <span className="text-rose-400">
-                        -{diffStats.deletions}
-                      </span>
-                    </span>
-                  </CollapsibleTrigger>
-                ) : (
-                  <span className="flex-1" />
-                )}
-                {canMerge && prIssue && (
-                  <div className="flex shrink-0 items-center py-1 pr-2 pl-1">
-                    <SessionMergeButton
-                      variant="glass"
-                      size="sm"
-                      label="Merge"
-                      prState={prIssue.prState}
-                      prNumber={prIssue.prNumber}
-                      issueId={prIssue.id}
-                    />
-                  </div>
-                )}
-              </div>
-              {latestDiff && (
-                <CollapsibleContent>
-                  <div className="max-h-72 overflow-y-auto overscroll-contain border-t border-border/60">
-                    <FileDiffList files={diffFiles} />
-                  </div>
-                </CollapsibleContent>
-              )}
-            </Collapsible>
-          )}
+          {/* Desktop keeps the row pinned between the feed and the composer;
+              on mobile it FLOATS over the feed (above, inside the scroll
+              wrapper) so it costs the conversation no height. */}
+          {!isMobile && changesBar}
 
           {/* Steering composer. Steering is fully seamless (EXP-312) — no
               captions, no operator state; live implies ownership. */}
@@ -753,96 +843,90 @@ export function AgentSessionView({
           )}
       </div>
 
-      <Dialog open={confirmKill} onOpenChange={setConfirmKill}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Kill this coding session?</DialogTitle>
-            <DialogDescription>
-              This force-terminates the terminal
-              {device.label ? ` on ${device.label}` : ``} and
-              ends the session. Uncommitted work in the worktree is kept, but
-              the agent stops immediately.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setConfirmKill(false)}
-              disabled={killing}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => void kill()}
-              disabled={killing}
-            >
-              {killing && <UiLoadingIcon className="animate-spin" />}
-              Kill session
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {killDialog}
+
+      {/* EXP-688: usage is a SHEET on mobile, not a hairline under the header
+          — every window the machine reports, grouped the way the agent's own
+          app groups them. */}
+      {agentUsage && (
+        <Dialog open={usageOpen} onOpenChange={setUsageOpen}>
+          <DialogContent
+            className="sm:max-w-sm"
+            aria-describedby={undefined}
+          >
+            <DialogHeader>
+              <DialogTitle>Usage</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              {/* Above the cards, without the agent prefix — the natives'
+                  Usage sheets do the same (hand-mirrored strings, EXP-484). */}
+              {agentUsage.account && (
+                <p className="text-[11px] text-muted-foreground">
+                  {accountCaption(agentUsage.account)}
+                </p>
+              )}
+              <AgentUsageCards usage={agentUsage.usage} now={usageNow} />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
 
 // ── Pieces ───────────────────────────────────────────────────────────────────
 
-function PhaseIndicator({
+/** What the viewer's connection reads as: `Live · macbook`, `Needs your
+ * input · macbook`, `Paused · macbook is offline`, `Session ended`. EXP-688:
+ * the mobile header demotes it to a caption under the run's name.
+ *
+ * `awaitingInput`: live but blocked on a trailing question/plan — waiting for
+ * a human, not stuck (EXP-97). `paused` (EXP-550): no stream and the host
+ * machine is offline, which is neither starting nor gone. */
+function phaseLabel(
+  phase: ViewerPhase,
+  /** EXP-549: the host machine per the synced devices row (renamed label). */
+  device: SessionDevice,
+  awaitingInput: boolean,
+  paused: boolean
+): string {
+  const deviceLabel = device.label
+  if (paused) return `Paused · ${deviceLabel ?? `device`} is offline`
+  if (phase.kind === `live`) {
+    if (awaitingInput) {
+      return deviceLabel ? `Needs your input · ${deviceLabel}` : `Needs your input`
+    }
+    return deviceLabel ? `Live · ${deviceLabel}` : `Live`
+  }
+  if (phase.kind === `starting`) return `Agent starting…`
+  if (phase.kind === `connecting` || phase.kind === `idle`) return `Connecting…`
+  if (phase.kind === `ended`) return `Session ended`
+  return `Disconnected`
+}
+
+/** The status dot that leads the phase: green live, amber pulsing while it
+ * connects, amber steady while it waits on a human, grey otherwise. */
+function PhaseDot({
   phase,
-  device,
   awaitingInput = false,
   paused = false,
 }: {
   phase: ViewerPhase
-  /** EXP-549: the host machine per the synced devices row (renamed label). */
-  device: SessionDevice
-  /** Live but blocked on a trailing question/plan — the session is waiting
-   *  for a human, not stuck (EXP-97). */
   awaitingInput?: boolean
-  /** EXP-550: no stream and the host machine is offline — steady grey dot,
-   *  "Paused" copy, never the pulsing "starting" amber. */
   paused?: boolean
 }) {
-  const deviceLabel = device.label
   const connecting =
     !paused && (phase.kind === `connecting` || phase.kind === `starting`)
   const awaiting = phase.kind === `live` && awaitingInput
-  const label = paused
-    ? `Paused · ${deviceLabel ?? `device`} is offline`
-    : phase.kind === `live`
-      ? awaiting
-        ? deviceLabel
-          ? `Needs your input · ${deviceLabel}`
-          : `Needs your input`
-        : deviceLabel
-          ? `Live · ${deviceLabel}`
-          : `Live`
-      : phase.kind === `starting`
-        ? `Agent starting…`
-        : phase.kind === `connecting` || phase.kind === `idle`
-          ? `Connecting…`
-          : phase.kind === `ended`
-            ? `Session ended`
-            : `Disconnected`
   return (
     <span
-      className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
-      title={paused ? `${deviceLabel ?? `The device`} is offline` : undefined}
-    >
-      <span
-        className={cn(
-          `size-2 shrink-0 rounded-full`,
-          phase.kind === `live` && (awaiting ? `bg-amber-400` : `bg-emerald-500`),
-          connecting && `animate-pulse bg-amber-400`,
-          !connecting && phase.kind !== `live` && `bg-muted-foreground/40`
-        )}
-      />
-      <span className={cn(`truncate`, awaiting && `text-amber-400`)}>
-        {label}
-      </span>
-    </span>
+      className={cn(
+        `size-2 shrink-0 rounded-full`,
+        phase.kind === `live` && (awaiting ? `bg-amber-400` : `bg-emerald-500`),
+        connecting && `animate-pulse bg-amber-400`,
+        !connecting && phase.kind !== `live` && `bg-muted-foreground/40`
+      )}
+    />
   )
 }
 

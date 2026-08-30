@@ -85,9 +85,13 @@ pub type AgentUsageMap = BTreeMap<String, AgentUsage>;
 ///
 /// The modern answer carries a `limits[]` array (each entry a window with a
 /// type, a utilization and a reset); an older one carries the two named
-/// `five_hour`/`seven_day` objects. Entries flagged `is_active: false` are
-/// dropped — an inactive window has nothing to render — and an enabled
-/// `extra_usage` becomes the `credits` window.
+/// `five_hour`/`seven_day` objects. An enabled `extra_usage` becomes the
+/// `credits` window.
+///
+/// EXP-688: entries flagged `is_active: false` are KEPT at 0%. Claude's own
+/// app shows the idle session window ("0% used · starts when a message is
+/// sent"); dropping it made the whole "Current session" group disappear on a
+/// machine that had not talked to the agent yet.
 ///
 /// `None` = not a usage body at all (an error page, a changed schema): the
 /// caller keeps its previous numbers and marks them stale rather than
@@ -141,9 +145,7 @@ pub fn parse_claude_usage(body: &str) -> Option<Vec<UsageWindow>> {
 }
 
 fn claude_window(entry: &Value) -> Option<UsageWindow> {
-    if entry.get("is_active").and_then(Value::as_bool) == Some(false) {
-        return None;
-    }
+    let inactive = entry.get("is_active").and_then(Value::as_bool) == Some(false);
     // Live shape (verified 2026-08-27): `kind` ∈ session|weekly_all|
     // weekly_scoped, the scoped window naming its model under
     // `scope.model.display_name`, `percent` 0-100. The older field names
@@ -167,7 +169,14 @@ fn claude_window(entry: &Value) -> Option<UsageWindow> {
     Some(UsageWindow {
         key,
         label,
-        percent: read_percent(entry)?,
+        // An INACTIVE window reports no utilization at all — that is 0%,
+        // not a reason to hide it (EXP-688). An active one without a readable
+        // percent is a schema wobble and is dropped rather than shown as 0%.
+        percent: match read_percent(entry) {
+            Some(percent) => percent,
+            None if inactive => 0,
+            None => return None,
+        },
         resets_at: read_reset(entry),
     })
 }
@@ -751,9 +760,9 @@ fn fetch_and_parse(access_token: &str, user_agent: &str) -> AgentProbe {
 mod tests {
     use super::*;
 
-    /// The modern `limits[]` body: four rendered windows (session, week, a
-    /// per-model one, and the enabled credits pool), with the inactive
-    /// entry dropped.
+    /// The modern `limits[]` body: every window it lists, in report order,
+    /// plus the enabled credits pool. EXP-688: an inactive window is kept —
+    /// at 0% when it reports no utilization at all.
     #[test]
     fn claude_limits_body_parses_into_the_locked_windows() {
         let body = r#"{
@@ -775,11 +784,26 @@ mod tests {
                 ("session", "5h", 42),
                 ("weekly", "Week", 61),
                 ("model:fable", "Fable", 12),
+                ("model:sonnet", "Sonnet", 3),
                 ("credits", "Credits", 7),
             ]
         );
         assert_eq!(windows[0].resets_at.as_deref(), Some("2026-08-28T14:00:00.000Z"));
         assert_eq!(windows[2].resets_at, None);
+
+        // The idle machine: the session window is inactive and reports no
+        // utilization — it still renders, at 0% (EXP-688).
+        let idle = r#"{"limits": [
+            {"kind": "session", "group": "session", "resets_at": null, "scope": null, "is_active": false}
+        ]}"#;
+        let windows = parse_claude_usage(idle).unwrap();
+        assert_eq!(
+            windows
+                .iter()
+                .map(|window| (window.key.as_str(), window.label.as_str(), window.percent))
+                .collect::<Vec<_>>(),
+            vec![("session", "5h", 0)]
+        );
     }
 
     /// The legacy body (no `limits[]`) still yields the two named windows,

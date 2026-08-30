@@ -1,10 +1,10 @@
 //! EXP-484 (B1, desktop): how a machine's per-agent rate-limit usage is
-//! PRESENTED — the selected window, the three tones, the countdown wording,
-//! the stale dimming, and the two elements every surface reuses.
+//! PRESENTED — the grouping, the three tones, the countdown wording, the
+//! stale dimming, and the cards every surface reuses.
 //!
 //! The device collects the numbers locally (it never holds, copies or
 //! refreshes a credential) and ships them on register/heartbeat into
-//! `devices.agent_usage`; every client then renders the same bar off the
+//! `devices.agent_usage`; every client then renders the same cards off the
 //! synced row.
 //!
 //! Hand-mirrored ×4 against the same fixture and the same test names:
@@ -13,22 +13,20 @@
 //!   Android  apps/android/.../domain/AgentUsagePresentation.kt
 //! Changing a rule or a string here means changing it in all four.
 //!
-//! The selected window is a per-client PREFERENCE (`Settings.usage_window`,
-//! keyed by agent id), never server state: which window a person cares about
-//! is a local reading habit, and the device rewrites the row every few
-//! minutes.
+//! EXP-688: there is no "pinned window" any more. Claude's own app shows
+//! every window at once (Current session / All models / Fable only), so
+//! [`usage_groups`] renders the machine's whole report as cards in three
+//! fixed groups and the local `Settings.usage_window` preference is gone.
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, AnyElement, App, Hsla, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement as _, Styled, Window,
+    div, prelude::FluentBuilder as _, px, AnyElement, App, Hsla, InteractiveElement as _,
+    IntoElement, ParentElement, SharedString, Styled,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{v_flex, ActiveTheme as _};
 
 use coding::agent_usage::{AgentUsage, UsageWindow};
 
-use crate::icons::registry;
-
-/// Numbers older than this are STALE: the bar dims and captions itself
+/// Numbers older than this are STALE: the cards dim and caption themselves
 /// `as of <relative>` instead of claiming to be current. Fails closed — a
 /// missing or unparsable `fetchedAt` is never fresh.
 pub(crate) const USAGE_FRESH_SECS: i64 = 15 * 60;
@@ -36,13 +34,6 @@ pub(crate) const USAGE_FRESH_SECS: i64 = 15 * 60;
 /// ≥ this percent reads as warning (amber), ≥ [`DANGER_PERCENT`] as danger.
 pub(crate) const WARNING_PERCENT: u8 = 75;
 pub(crate) const DANGER_PERCENT: u8 = 95;
-
-/// The width of the label column in an expanded row.
-const LABEL_W: f32 = 56.;
-/// The percent column (right-aligned, tabular).
-const PERCENT_W: f32 = 32.;
-/// The countdown column.
-const COUNTDOWN_W: f32 = 112.;
 
 /// The tone a window's fill takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,28 +75,89 @@ pub(crate) fn is_fresh(fetched_at: &str, now_epoch: i64) -> bool {
     now_epoch - fetched < USAGE_FRESH_SECS
 }
 
-/// The window a bar shows: the reader's pinned key when the device still
-/// reports it, else the fullest window (ties keep report order). `None` when
-/// the agent reports no windows at all.
-pub(crate) fn select_window<'a>(
-    windows: &'a [UsageWindow],
-    preferred: Option<&str>,
-) -> Option<&'a UsageWindow> {
-    if windows.is_empty() {
-        return None;
-    }
-    if let Some(key) = preferred.filter(|key| !key.is_empty()) {
-        if let Some(pinned) = windows.iter().find(|window| window.key == key) {
-            return Some(pinned);
+// ---------------------------------------------------------------------------
+// Grouping (the ×4 contract)
+// ---------------------------------------------------------------------------
+
+/// One rendered limit: a window with its display title, tone and caption
+/// already resolved.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct UsageCard {
+    /// The wire window key it came from.
+    pub key: String,
+    pub title: String,
+    pub percent: u8,
+    pub severity: Severity,
+    /// `resets in 2h 10m`, `Starts when a message is sent`, or empty.
+    pub caption: String,
+}
+
+/// One titled group of cards. `key` is `session` / `weekly` / `other`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct UsageGroup {
+    pub key: &'static str,
+    pub title: &'static str,
+    pub cards: Vec<UsageCard>,
+}
+
+/// The whole report, grouped the way Claude's own app groups it:
+///
+/// * `session` → **Current session** (title "Current session");
+/// * `weekly` + `model:*` → **Weekly limits**, the all-models window first
+///   ("All models") then the per-model ones in report order ("Fable only");
+/// * everything else (`credits`, codex's `43200`) → **Other**, in report
+///   order, under its wire label.
+///
+/// Empty groups are omitted and the order is fixed. The caption is the reset
+/// countdown when the window carries one; an idle session window at 0% with
+/// no reset says so instead of rendering a blank line.
+pub(crate) fn usage_groups(usage: &AgentUsage, now_epoch: i64) -> Vec<UsageGroup> {
+    let mut session = Vec::new();
+    let mut weekly = Vec::new();
+    let mut models = Vec::new();
+    let mut other = Vec::new();
+    for window in &usage.windows {
+        let card = usage_card(window, now_epoch);
+        match window.key.as_str() {
+            "session" => session.push(card),
+            "weekly" => weekly.push(card),
+            key if key.starts_with("model:") => models.push(card),
+            _ => other.push(card),
         }
     }
-    let mut best = &windows[0];
-    for window in windows {
-        if window.percent > best.percent {
-            best = window;
-        }
+    weekly.append(&mut models);
+    [
+        ("session", "Current session", session),
+        ("weekly", "Weekly limits", weekly),
+        ("other", "Other", other),
+    ]
+    .into_iter()
+    .filter(|(_, _, cards)| !cards.is_empty())
+    .map(|(key, title, cards)| UsageGroup { key, title, cards })
+    .collect()
+}
+
+fn usage_card(window: &UsageWindow, now_epoch: i64) -> UsageCard {
+    let title = match window.key.as_str() {
+        "session" => "Current session".to_string(),
+        "weekly" => "All models".to_string(),
+        key if key.starts_with("model:") => format!("{} only", window.label),
+        _ => window.label.clone(),
+    };
+    let caption = if window.resets_at.is_some() {
+        format_reset_countdown(window.resets_at.as_deref(), now_epoch).unwrap_or_default()
+    } else if window.key == "session" && window.percent == 0 {
+        "Starts when a message is sent".to_string()
+    } else {
+        String::new()
+    };
+    UsageCard {
+        key: window.key.clone(),
+        title,
+        percent: window.percent,
+        severity: severity(window.percent),
+        caption,
     }
-    Some(best)
 }
 
 /// `resets in 45m` / `resets in 2h 10m` / `resets in 3d 14h`, and
@@ -207,207 +259,95 @@ fn parse_window(value: &serde_json::Value) -> Option<UsageWindow> {
 // Render
 // ---------------------------------------------------------------------------
 
-/// Everything one usage bar renders from.
-pub(crate) struct UsageBarProps<'a> {
-    /// Element-id prefix — one bar per surface per agent.
-    pub id: SharedString,
-    pub usage: &'a AgentUsage,
-    /// The pinned window key (`Settings.usage_window[agent]`).
-    pub selected: Option<&'a str>,
-    /// Whether the per-window rows are showing.
-    pub expanded: bool,
-    pub now_epoch: i64,
-}
+/// The track's height — thick enough to read as a bar rather than the old
+/// 3px hairline, which is what made the toolbar's usage strip unreadable.
+const TRACK_H: f32 = 6.;
 
-/// `5h · 78%` — the collapsed track's tooltip; stale numbers say when they
-/// were taken.
-fn summary(props: &UsageBarProps, window: &UsageWindow) -> SharedString {
-    let mut text = format!("{} · {}%", window.label, window.percent);
-    if props.usage.stale || !is_fresh(&props.usage.fetched_at, props.now_epoch) {
-        let as_of = as_of_label(&props.usage.fetched_at, props.now_epoch);
-        if !as_of.is_empty() {
-            text.push_str(&format!(" · {as_of}"));
+/// Every window the machine reported, as one glass card each under its
+/// group heading (the session group needs none — its single card is titled
+/// "Current session"). Renders nothing when the agent reports no windows.
+pub(crate) fn render_usage_cards(
+    agent: coding::CodingAgent,
+    usage: &AgentUsage,
+    now_epoch: i64,
+    cx: &App,
+) -> AnyElement {
+    let groups = usage_groups(usage, now_epoch);
+    if groups.is_empty() {
+        return div().into_any_element();
+    }
+    let muted = cx.theme().muted_foreground;
+    let mut body = v_flex()
+        .id(SharedString::from(format!("usage-cards-{}", agent.id())))
+        .w_full()
+        .gap_2()
+        .when(usage.stale, |this| this.opacity(0.55));
+    for group in groups {
+        if group.key != "session" {
+            body = body.child(
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(group.title)),
+            );
+        }
+        for card in group.cards {
+            body = body.child(render_usage_card(&card, cx));
         }
     }
-    SharedString::from(text)
+    body.into_any_element()
 }
 
-/// The bar: a collapsed 3px track (click toggles), plus the per-window rows
-/// while `expanded`. Renders nothing when the agent reports no windows.
-///
-/// `on_toggle` flips the caller's expanded state; `on_select` receives the
-/// picked window KEY (the caller persists it as the agent's preference and
-/// collapses).
-///
-/// Surfaces that need the two halves in DIFFERENT layout slots (the terminal
-/// dock's toolbar puts the track in the 24px row and the rows underneath it)
-/// call [`render_usage_track`] and [`render_usage_windows`] directly.
-pub(crate) fn render_usage_bar(
-    props: UsageBarProps,
-    on_toggle: impl Fn(&mut Window, &mut App) + 'static,
-    on_select: impl Fn(String, &mut Window, &mut App) + 'static,
-    cx: &App,
-) -> AnyElement {
-    let expanded = props.expanded;
-    let track = render_usage_track(&props, on_toggle, cx);
-    if !expanded {
-        return track;
-    }
-    v_flex()
+fn render_usage_card(card: &UsageCard, cx: &App) -> gpui::Div {
+    let muted = cx.theme().muted_foreground;
+    let mut body = crate::surface::glass_card()
         .w_full()
-        .gap_1()
-        .child(track)
-        .child(render_usage_windows(&props, on_select, cx))
-        .into_any_element()
-}
-
-/// The collapsed track alone: one hairline filled to the selected window's
-/// percent, in a 14px hit area with the `"<label> · NN%"` tooltip.
-pub(crate) fn render_usage_track(
-    props: &UsageBarProps,
-    on_toggle: impl Fn(&mut Window, &mut App) + 'static,
-    cx: &App,
-) -> AnyElement {
-    let Some(selected) = select_window(&props.usage.windows, props.selected) else {
-        return div().into_any_element();
-    };
-    let stale = props.usage.stale;
-    let tooltip = summary(props, selected);
-    let track = div()
-        .id(SharedString::from(format!("{}-track", props.id)))
-        .flex()
-        .items_center()
-        .w_full()
-        .h(px(14.))
-        .cursor_pointer()
-        .when(stale, |this| this.opacity(0.55))
-        .tooltip(move |window, cx| {
-            gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
-        })
-        .on_click(move |_, window, cx| on_toggle(window, cx))
+        .gap_1p5()
+        .px_2p5()
+        .py_2()
+        .child(
+            gpui_component::h_flex()
+                .w_full()
+                .items_center()
+                .gap_2()
+                .text_xs()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .child(SharedString::from(card.title.clone())),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_color(muted)
+                        .child(SharedString::from(format!("{}% used", card.percent))),
+                ),
+        )
         .child(
             div()
                 .w_full()
-                .h(px(3.))
+                .h(px(TRACK_H))
                 .rounded_full()
                 .bg(cx.theme().border.opacity(0.6))
                 .child(
                     div()
                         .h_full()
                         .rounded_full()
-                        .w(gpui::relative(selected.percent as f32 / 100.))
-                        .bg(severity_color(severity(selected.percent), cx)),
+                        .w(gpui::relative(card.percent as f32 / 100.))
+                        .bg(severity_color(card.severity, cx)),
                 ),
         );
-
-    track.into_any_element()
-}
-
-/// Every window the machine reported: label · bar · percent · countdown,
-/// with the pinned one marked. Clicking a row pins it.
-pub(crate) fn render_usage_windows(
-    props: &UsageBarProps,
-    on_select: impl Fn(String, &mut Window, &mut App) + 'static,
-    cx: &App,
-) -> AnyElement {
-    let Some(selected) = select_window(&props.usage.windows, props.selected) else {
-        return div().into_any_element();
-    };
-    let stale = props.usage.stale;
-    let on_select = std::rc::Rc::new(on_select);
-    let mut rows = v_flex().w_full().gap_0p5().when(stale, |this| this.opacity(0.55));
-    for (index, window) in props.usage.windows.iter().enumerate() {
-        let active = window.key == selected.key;
-        let marker = if active {
-            registry::UI_SELECTED
-        } else {
-            registry::UI_UNSELECTED
-        };
-        let countdown = format_reset_countdown(window.resets_at.as_deref(), props.now_epoch)
-            .unwrap_or_default();
-        let key = window.key.clone();
-        let on_select = on_select.clone();
-        rows = rows.child(
-            h_flex()
-                .id(SharedString::from(format!("{}-window-{index}", props.id)))
-                .w_full()
-                .items_center()
-                .gap_2()
-                .py_0p5()
+    if !card.caption.is_empty() {
+        body = body.child(
+            div()
                 .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .cursor_pointer()
-                .on_click(move |_, window, cx| on_select(key.clone(), window, cx))
-                .child(Icon::new(marker).xsmall().flex_shrink_0())
-                .child(
-                    div()
-                        .w(px(LABEL_W))
-                        .flex_shrink_0()
-                        .truncate()
-                        .child(SharedString::from(window.label.clone())),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .h(px(4.))
-                        .rounded_full()
-                        .bg(cx.theme().border.opacity(0.6))
-                        .child(
-                            div()
-                                .h_full()
-                                .rounded_full()
-                                .w(gpui::relative(window.percent as f32 / 100.))
-                                .bg(severity_color(severity(window.percent), cx)),
-                        ),
-                )
-                .child(
-                    div()
-                        .w(px(PERCENT_W))
-                        .flex_shrink_0()
-                        .text_right()
-                        .child(SharedString::from(format!("{}%", window.percent))),
-                )
-                .child(
-                    div()
-                        .w(px(COUNTDOWN_W))
-                        .flex_shrink_0()
-                        .truncate()
-                        .text_right()
-                        .child(SharedString::from(countdown)),
-                ),
+                .text_color(muted)
+                .child(SharedString::from(card.caption.clone())),
         );
     }
-    if stale {
-        let as_of = as_of_label(&props.usage.fetched_at, props.now_epoch);
-        if !as_of.is_empty() {
-            rows = rows.child(
-                div()
-                    .pl(px(20.))
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(as_of)),
-            );
-        }
-    }
-    rows.into_any_element()
-}
-
-/// The agent's pinned window key out of the local preference map.
-pub(crate) fn preferred_window(settings: &coding::Settings, agent: coding::CodingAgent) -> Option<String> {
-    settings.usage_window.get(agent.id()).cloned()
-}
-
-/// Persist the agent's pinned window key (a UI pref — no doctor re-run, and
-/// deliberately outside the launch-defaults wire).
-pub(crate) fn persist_window(agent: coding::CodingAgent, key: String, cx: &mut App) {
-    let hub = crate::coding_flow::CodingHub::global(cx);
-    let mut settings = hub.read(cx).settings.clone();
-    if settings.usage_window.get(agent.id()) == Some(&key) {
-        return;
-    }
-    settings.usage_window.insert(agent.id().to_string(), key);
-    crate::coding_flow::CodingHub::save_ui_prefs(&hub, settings, cx);
+    body
 }
 
 #[cfg(test)]
@@ -435,35 +375,71 @@ mod tests {
         assert_eq!(severity(100), Severity::Danger);
     }
 
-    /// The pin wins while the device still reports it; otherwise the fullest
-    /// window does (ties keep report order).
+    /// EXP-688, the ×4 grouping contract: three fixed groups in a fixed
+    /// order, the all-models window ahead of the per-model ones, the titles
+    /// ("All models" / "Fable only" / the wire label for the rest), and the
+    /// two caption forms.
     #[test]
-    fn select_window_prefers_persisted_key_then_highest_percent() {
-        let windows = vec![
-            window("session", "5h", 12, None),
-            window("weekly", "Week", 80, None),
-            window("model:fable", "Fable", 80, None),
-        ];
+    fn usage_groups_split_current_weekly_and_other() {
+        let now = 1_756_000_000_i64;
+        let at = |offset: i64| {
+            chrono::DateTime::from_timestamp(now + offset, 0)
+                .unwrap()
+                .to_rfc3339()
+        };
+        let usage = AgentUsage {
+            fetched_at: at(-60),
+            stale: false,
+            windows: vec![
+                // An idle machine: 0% and no reset yet.
+                window("session", "5h", 0, None),
+                window("weekly", "Week", 61, Some(&at(2 * 3_600 + 10 * 60))),
+                window("model:fable", "Fable", 12, None),
+                window("credits", "Credits", 16, None),
+            ],
+        };
+        let groups = usage_groups(&usage, now);
         assert_eq!(
-            select_window(&windows, Some("session")).map(|w| w.key.as_str()),
-            Some("session")
+            groups
+                .iter()
+                .map(|group| (group.key, group.title))
+                .collect::<Vec<_>>(),
+            vec![
+                ("session", "Current session"),
+                ("weekly", "Weekly limits"),
+                ("other", "Other"),
+            ]
         );
-        // A pin the device no longer reports falls back to the fullest one,
-        // and the FIRST of two equal ones wins.
         assert_eq!(
-            select_window(&windows, Some("credits")).map(|w| w.key.as_str()),
-            Some("weekly")
+            groups
+                .iter()
+                .flat_map(|group| group.cards.iter())
+                .map(|card| (card.key.as_str(), card.title.as_str(), card.percent))
+                .collect::<Vec<_>>(),
+            vec![
+                ("session", "Current session", 0),
+                ("weekly", "All models", 61),
+                ("model:fable", "Fable only", 12),
+                ("credits", "Credits", 16),
+            ]
         );
-        assert_eq!(
-            select_window(&windows, None).map(|w| w.key.as_str()),
-            Some("weekly")
-        );
-        // An empty pin is no pin, and no windows is no selection.
-        assert_eq!(
-            select_window(&windows, Some("")).map(|w| w.key.as_str()),
-            Some("weekly")
-        );
-        assert!(select_window(&[], Some("session")).is_none());
+        // Captions: the countdown when there is a reset, the idle-session
+        // line at 0% without one, nothing otherwise.
+        assert_eq!(groups[0].cards[0].caption, "Starts when a message is sent");
+        assert_eq!(groups[1].cards[0].caption, "resets in 2h 10m");
+        assert_eq!(groups[1].cards[1].caption, "");
+        assert_eq!(groups[2].cards[0].caption, "");
+        assert_eq!(groups[1].cards[0].severity, Severity::Normal);
+
+        // A machine reporting nothing renders nothing.
+        assert!(usage_groups(&AgentUsage::default(), now).is_empty());
+        // A used session window captions the countdown, never the idle line.
+        let busy = AgentUsage {
+            fetched_at: at(-60),
+            stale: false,
+            windows: vec![window("session", "5h", 42, None)],
+        };
+        assert_eq!(usage_groups(&busy, now)[0].cards[0].caption, "");
     }
 
     /// The countdown wording, verbatim across the four clients — including

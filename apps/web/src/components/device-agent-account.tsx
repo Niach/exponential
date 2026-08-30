@@ -1,31 +1,27 @@
-// EXP-484: the device-settings "Agents" section — who each agent CLI on this
-// machine is signed in as, how much of its rate-limit windows is spent, and
-// the Login / Switch account buttons that queue the `agent_login` device
-// command.
+// EXP-484/688: the account block inside ONE agent's tab of device settings —
+// who that CLI is signed in as on this machine, how much of its rate-limit
+// windows is spent, and the Login / Switch account button that queues the
+// `agent_login` device command.
 //
 // The machine collects all of this locally and ships it on register/heartbeat
 // (it never holds, copies or refreshes a credential); this only renders the
-// synced row. Hand-mirrored on iOS (`DeviceSettingsSheet.agentsSection`),
-// Android (`DeviceSettingsSheet.kt`) and the desktop IDE
-// (`ui/src/device_settings.rs`) — same captions, same gating.
-import { useState } from "react"
+// synced row. EXP-688 moved it out of a standalone "Agents" section and under
+// each agent's own defaults, so the tab you are editing is the tab that tells
+// you whose account it runs as. Hand-mirrored on iOS
+// (`DeviceSettingsSheet`), Android (`DeviceSettingsSheet.kt`) and the desktop
+// IDE (`ui/src/device_settings.rs`) — same captions, same gating.
 import { LoaderCircle } from "lucide-react"
 import type { Device, DeviceAgentAccount } from "@/db/schema"
 import { conceptIcon } from "@/lib/icons.generated"
 import {
-  accountRow,
+  accountLine,
   parseAgentLoginResult,
   parseAgentUsage,
   usageIsFresh,
 } from "@/lib/agent-usage"
-import {
-  readAgentUsageWindow,
-  writeAgentUsageWindow,
-} from "@/lib/agent-usage-prefs"
-import { AgentUsageWindows } from "@/components/agent-usage-bar"
+import { AgentUsageCards } from "@/components/agent-usage-bar"
 import { relativeTime } from "@/components/comment-rows/format"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
 
 const SignInIcon = conceptIcon(`ui-sign-in`)
 const SwapIcon = conceptIcon(`ui-swap`)
@@ -37,59 +33,9 @@ export function agentLoginKey(agent: string): string {
   return `login:${agent}`
 }
 
-export function DeviceAgentsSection({
-  agents,
-  row,
-  online,
-  canAgentLogin,
-  now,
-  errors,
-  isPending,
-  results,
-  onLogin,
-}: {
-  /** The agents this machine actually reported (never the full contract). */
-  agents: string[]
-  row: Device | null
-  online: boolean
-  /** The machine's build runs the `agent_login` command (caps). */
-  canAgentLogin: boolean
-  now: Date
-  errors: Record<string, string>
-  isPending: (key: string) => boolean
-  results: Record<string, string>
-  /** Queue a login; the dialog owns the Codex switch confirmation. */
-  onLogin: (agent: string, switchAccount: boolean) => void
-}) {
-  if (agents.length === 0) return null
-  return (
-    <div className="space-y-2">
-      <Label>Agents</Label>
-      {agents.map((agent) => (
-        <AgentAccountRow
-          key={agent}
-          agent={agent}
-          account={row?.agentAccounts?.[agent] ?? null}
-          usage={parseAgentUsage(row?.agentUsage?.[agent])}
-          agentUsageAt={row?.agentUsageAt ?? null}
-          online={online}
-          canAgentLogin={canAgentLogin}
-          now={now}
-          error={errors[agentLoginKey(agent)] ?? ``}
-          pending={isPending(agentLoginKey(agent))}
-          result={results[agentLoginKey(agent)] ?? null}
-          onLogin={onLogin}
-        />
-      ))}
-    </div>
-  )
-}
-
-function AgentAccountRow({
+export function AgentAccountBlock({
   agent,
-  account,
-  usage,
-  agentUsageAt,
+  row,
   online,
   canAgentLogin,
   now,
@@ -99,38 +45,37 @@ function AgentAccountRow({
   onLogin,
 }: {
   agent: string
-  account: DeviceAgentAccount | null
-  usage: ReturnType<typeof parseAgentUsage>
-  agentUsageAt: Date | null
+  row: Device | null
   online: boolean
+  /** The machine's build runs the `agent_login` command (caps). */
   canAgentLogin: boolean
   now: Date
   error: string
   pending: boolean
   result: string | null
+  /** Queue a login; the dialog owns the Codex switch confirmation. */
   onLogin: (agent: string, switchAccount: boolean) => void
 }) {
-  const [selectedKey, setSelectedKey] = useState(() =>
-    readAgentUsageWindow(agent)
-  )
+  const account: DeviceAgentAccount | null = row?.agentAccounts?.[agent] ?? null
+  const usage = parseAgentUsage(row?.agentUsage?.[agent])
   // pi's sign-in is an interactive prompt with no device-code flow to hand
   // back — local only, and the server refuses the command outright.
   const canLogin = online && canAgentLogin && agent !== `pi`
   const signedIn = account?.signedIn === true
   const fresh = usageIsFresh(usage, now)
-  const asOf = account?.checkedAt ?? agentUsageAt
+  const asOf = account?.checkedAt ?? row?.agentUsageAt ?? null
 
   return (
-    <div className="space-y-1 border-b border-border/30 py-1.5 last:border-b-0">
+    <div className="space-y-2">
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {accountRow(agent, account)}
+          {accountLine(account)}
         </span>
         {canLogin && (
           <Button
-            variant="outline"
+            variant="glass"
             size="sm"
-            className="h-6 shrink-0 gap-1 px-2 text-xs"
+            className="shrink-0"
             disabled={pending}
             onClick={() => onLogin(agent, signedIn)}
           >
@@ -145,23 +90,6 @@ function AgentAccountRow({
           </Button>
         )}
       </div>
-      {fresh && usage && (
-        <AgentUsageWindows
-          agent={agent}
-          usage={usage}
-          now={now}
-          selectedKey={selectedKey}
-          onSelect={(key) => {
-            setSelectedKey(key)
-            writeAgentUsageWindow(agent, key)
-          }}
-        />
-      )}
-      {!canLogin && asOf && (
-        <p className="text-[11px] text-muted-foreground">
-          as of {relativeTime(asOf)}
-        </p>
-      )}
       {pending && (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <LoaderCircle className="size-3 animate-spin" />
@@ -172,6 +100,19 @@ function AgentAccountRow({
       )}
       {result && <AgentLoginOutcome result={result} />}
       {error && <p className="text-xs text-destructive">{error}</p>}
+      {/* Fresh numbers become cards; anything older (or an account with no
+          usage at all, like pi) says how old the report is — the same
+          fall-through the desktop/iOS/Android sheets use. */}
+      {fresh && usage && usage.windows.length > 0 ? (
+        <AgentUsageCards usage={usage} now={now} compact />
+      ) : (
+        (usage || account) &&
+        asOf && (
+          <p className="text-[11px] text-muted-foreground">
+            as of {relativeTime(asOf)}
+          </p>
+        )
+      )}
     </div>
   )
 }

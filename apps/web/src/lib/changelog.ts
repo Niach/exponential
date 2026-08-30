@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-steering-and-usage-ui`,
+    date: `2026-08-30`,
+    title: `A calmer steering view`,
+    summary: `Steering now names the issue it is working on, usage moved into a Usage sheet and into each agent's own tab, and the terminal tabs in the desktop app sit at the bottom.`,
+    body: `- **The header names the run**: on phones and tablets the session header now shows the issue identifier and title, with "Live", "Needs your input" or "Paused" as a small line underneath.
+- **A "..." menu**: usage and Kill session moved behind it. Usage opens a sheet with every limit the agent reports, grouped into Current session and Weekly limits, so it matches what the agent's own app shows you.
+- **Latest changes floats**: the changes and Merge bar now sits over the bottom of the conversation instead of taking a slice of it, and the newest message still scrolls clear of it.
+- **Usage per agent**: a machine's settings no longer keep a separate Agents section. Each agent's tab shows the account it is signed in as, its Login or Switch account button and its limits.
+- **Terminal tabs at the bottom**: the desktop app's terminal tabs now sit along the bottom edge and expand upwards, with an "Open in new window" button and the same Latest changes and Merge bar.
+- **Latest changes is the whole branch**: it used to show only what the agent had not committed yet, so it emptied out the moment it committed. It now shows everything the branch changes.`,
+  },
+  {
     id: `2026-08-offline-and-conflicts`,
     date: `2026-08-29`,
     title: `Honest offline handling`,

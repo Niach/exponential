@@ -549,7 +549,9 @@ export function createSteerSessionStore(
       }
       case `diff`: {
         // Diffs never enter the feed — the latest replaces the previous one
-        // behind the pinned "Latest changes" strip.
+        // behind the pinned "Latest changes" strip. EXP-688: an EMPTY frame
+        // is the publisher saying the branch no longer differs, so it clears
+        // the bar rather than leaving a stale diff standing.
         latestDiff = event.diff.trim() ? event.diff : null
         return
       }

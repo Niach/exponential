@@ -1426,31 +1426,64 @@ fn attribute_to_card(event: ActivityEvent, subagents: &Subagents) -> ActivityEve
 // Worktree diff
 // ---------------------------------------------------------------------------
 
-/// A unified diff of the worktree — unstaged plus staged — as one string.
-/// Empty when the tree is clean or git fails (best-effort).
-pub(crate) fn worktree_diff(worktree: &Path) -> String {
-    let mut out = git_diff(worktree, false);
-    let cached = git_diff(worktree, true);
+/// A unified diff of what this run has produced, as one string. Empty when
+/// there is nothing (or git fails — best-effort throughout).
+///
+/// EXP-688: measured from `git merge-base HEAD <base_ref>` when the launcher
+/// knows the branch's base, so the frame is the PR's content. It used to be
+/// `git diff` + `--cached` only, which meant "Latest changes" went blank the
+/// moment the agent committed — i.e. always, since an agent commits before
+/// opening its PR, leaving the viewer's Merge pill standing alone.
+///
+/// No base (a chat/scratch run, or the ref cannot be resolved) falls back to
+/// the old uncommitted view. `--cached` is not needed off the merge base:
+/// `git diff <commit>` already includes staged work.
+///
+/// `None` = git itself failed (an index lock mid-commit, a rebase in flight,
+/// a vanished worktree): the caller keeps its last answer rather than
+/// publishing an authoritative empty diff off a transient error.
+pub(crate) fn worktree_diff(worktree: &Path, base_ref: Option<&str>) -> Option<String> {
+    if let Some(base) = base_ref.map(str::trim).filter(|base| !base.is_empty()) {
+        if let Some(merge_base) = git_merge_base(worktree, base) {
+            return git_out(worktree, &["diff", &merge_base]);
+        }
+    }
+    let mut out = git_diff(worktree, false)?;
+    let cached = git_diff(worktree, true)?;
     if !cached.is_empty() {
         if !out.is_empty() {
             out.push('\n');
         }
         out.push_str(&cached);
     }
-    out
+    Some(out)
 }
 
-fn git_diff(worktree: &Path, cached: bool) -> String {
-    let mut cmd = terminal::process::background_command("git");
-    cmd.arg("-C").arg(worktree).arg("diff");
+/// `git merge-base HEAD <base>` — `None` when the ref is unknown (a base
+/// that was never fetched, an unborn HEAD), which is the fallback signal.
+fn git_merge_base(worktree: &Path, base: &str) -> Option<String> {
+    let hash = git_out(worktree, &["merge-base", "HEAD", base])?;
+    let hash = hash.trim();
+    (!hash.is_empty()).then(|| hash.to_string())
+}
+
+fn git_diff(worktree: &Path, cached: bool) -> Option<String> {
     if cached {
-        cmd.arg("--cached");
+        git_out(worktree, &["diff", "--cached"])
+    } else {
+        git_out(worktree, &["diff"])
     }
+}
+
+/// Stdout of one git command; `None` on a spawn failure or non-zero exit.
+fn git_out(worktree: &Path, args: &[&str]) -> Option<String> {
+    let mut cmd = terminal::process::background_command("git");
+    cmd.arg("-C").arg(worktree).args(args);
     match cmd.output() {
         Ok(output) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout).into_owned()
+            Some(String::from_utf8_lossy(&output.stdout).into_owned())
         }
-        _ => String::new(),
+        _ => None,
     }
 }
 
@@ -3281,6 +3314,10 @@ pub struct EmitterConfig {
     /// observer-extension sidecar.
     pub agent: SessionAgent,
     pub worktree: PathBuf,
+    /// EXP-688: the ref the published diff is measured from —
+    /// `origin/<default branch>` for issue/batch/action runs, `None` for a
+    /// chat/scratch run (and every headless caller). See [`worktree_diff`].
+    pub base_ref: Option<String>,
     pub term: Option<TermHandle>,
     /// REV2-17: exact secrets the wiring already holds at spawn time that no
     /// worktree file can recover — the `expu_` personal key for codex/pi
@@ -3443,21 +3480,36 @@ impl DiffSnapshots {
         }
     }
 
-    pub(crate) fn tick(&mut self, worktree: &Path, sender: &ActivitySender, redactor: &Redactor) {
+    pub(crate) fn tick(
+        &mut self,
+        worktree: &Path,
+        base_ref: Option<&str>,
+        sender: &ActivitySender,
+        redactor: &Redactor,
+    ) {
         let due = self.last_at.is_none_or(|at| at.elapsed() >= DIFF_INTERVAL);
         if !due {
             return;
         }
         self.last_at = Some(Instant::now());
-        let diff = worktree_diff(worktree);
-        if diff != self.last {
-            self.last = diff.clone();
-            if !diff.is_empty() {
-                sender.send(ActivityEvent::diff(truncate(
-                    &redactor.redact(&diff),
-                    DIFF_MAX,
-                )));
-            }
+        // A git failure (index lock, rebase in flight) is not an empty diff:
+        // keep the last answer and try again next tick.
+        let Some(diff) = worktree_diff(worktree, base_ref) else {
+            return;
+        };
+        if diff == self.last {
+            return;
+        }
+        let had_diff = !self.last.is_empty();
+        self.last = diff.clone();
+        // EXP-688: a diff that goes EMPTY publishes an explicit empty frame
+        // (the wire allows `""`, and every client treats it as "no diff").
+        // Sending nothing left viewers looking at a stale patch forever.
+        if !diff.is_empty() || had_diff {
+            sender.send(ActivityEvent::diff(truncate(
+                &redactor.redact(&diff),
+                DIFF_MAX,
+            )));
         }
     }
 }
@@ -4151,7 +4203,12 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         }
 
         // 8) Debounced worktree diff snapshot (only when changed).
-        diffs.tick(&config.worktree, &sender, &redactor);
+        diffs.tick(
+            &config.worktree,
+            config.base_ref.as_deref(),
+            &sender,
+            &redactor,
+        );
 
         // 9) Wait out the poll interval — interrupted by a remote answer, so
         //    steering never sits a full second behind the steerer's tap.
@@ -4268,6 +4325,128 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── EXP-688: the published diff is the PR's content ─────────────────────
+
+    struct DiffRepo(PathBuf);
+
+    impl Drop for DiffRepo {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    impl DiffRepo {
+        /// A repo on `exp/EXP-1`, cut from `main`, with one base commit.
+        fn new(tag: &str) -> Self {
+            let mut path = std::env::temp_dir();
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            path.push(format!("exp-steer-{tag}-{}-{nanos}", std::process::id()));
+            std::fs::create_dir_all(&path).unwrap();
+            let repo = Self(path);
+            repo.git(&["init", "--quiet", "-b", "main"]);
+            repo.git(&["config", "user.email", "t@example.com"]);
+            repo.git(&["config", "user.name", "t"]);
+            repo.git(&["config", "commit.gpgsign", "false"]);
+            repo.write("base.txt", "a\n");
+            repo.commit("init");
+            repo.git(&["checkout", "--quiet", "-b", "exp/EXP-1"]);
+            repo
+        }
+
+        fn git(&self, args: &[&str]) {
+            let output = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&self.0)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@example.com")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@example.com")
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "git {args:?} failed");
+        }
+
+        fn write(&self, rel: &str, content: &str) {
+            std::fs::write(self.0.join(rel), content).unwrap();
+        }
+
+        fn commit(&self, message: &str) {
+            self.git(&["add", "-A"]);
+            self.git(&["commit", "--quiet", "-m", message]);
+        }
+    }
+
+    /// The bug EXP-688 fixes: an agent COMMITS before opening its PR, and
+    /// the old `git diff` (+ `--cached`) view went blank right then. Off the
+    /// merge base the committed work is still the diff; with no base it
+    /// degrades to the uncommitted view rather than breaking.
+    #[test]
+    fn worktree_diff_reads_the_branch_off_its_merge_base() {
+        let repo = DiffRepo::new("diff-base");
+        // A TRACKED edit — `git diff` never showed untracked files either.
+        repo.write("base.txt", "a\nlanded\n");
+
+        // Uncommitted: both views agree.
+        assert!(worktree_diff(&repo.0, Some("main")).unwrap_or_default().contains("landed"));
+        assert!(worktree_diff(&repo.0, None).unwrap_or_default().contains("landed"));
+
+        repo.commit("the agent committed");
+        assert!(
+            worktree_diff(&repo.0, Some("main")).unwrap_or_default().contains("landed"),
+            "a committed change is still the branch's diff"
+        );
+        assert!(
+            worktree_diff(&repo.0, None).unwrap_or_default().is_empty(),
+            "the old view is exactly the bug"
+        );
+        // An unknown base is a fallback, never an error.
+        assert!(worktree_diff(&repo.0, Some("origin/nope")).unwrap_or_default().is_empty());
+        assert!(worktree_diff(&repo.0, Some("   ")).unwrap_or_default().is_empty());
+    }
+
+    /// A diff that goes empty publishes an EMPTY frame: sending nothing left
+    /// viewers holding the last patch forever.
+    #[test]
+    fn diff_snapshots_publish_an_empty_frame_when_the_diff_clears() {
+        let repo = DiffRepo::new("diff-clear");
+        let (sender, rx) = crate::publisher::ActivitySender::test_pair();
+        let redactor = Redactor::new(Vec::new());
+        let mut diffs = DiffSnapshots::new();
+
+        repo.write("base.txt", "a\nwip\n");
+        diffs.tick(&repo.0, None, &sender, &redactor);
+        match rx.try_recv() {
+            Ok(crate::publisher::PublisherCmd::Activity(ActivityEvent::Diff { diff, .. })) => {
+                assert!(diff.contains("wip"), "{diff}")
+            }
+            other => panic!("expected a diff frame, got {other:?}"),
+        }
+
+        // The debounce holds the next tick back until the interval passes.
+        diffs.tick(&repo.0, None, &sender, &redactor);
+        assert!(rx.try_recv().is_err(), "the 3s debounce still holds");
+
+        // The agent commits — with no base the diff clears, and THAT is the
+        // frame viewers need.
+        repo.commit("committed");
+        diffs.last_at = None;
+        diffs.tick(&repo.0, None, &sender, &redactor);
+        match rx.try_recv() {
+            Ok(crate::publisher::PublisherCmd::Activity(ActivityEvent::Diff { diff, .. })) => {
+                assert_eq!(diff, "", "an empty frame clears the viewer")
+            }
+            other => panic!("expected an empty diff frame, got {other:?}"),
+        }
+
+        // Still empty next time — nothing changed, nothing published.
+        diffs.last_at = None;
+        diffs.tick(&repo.0, None, &sender, &redactor);
+        assert!(rx.try_recv().is_err(), "an unchanged empty diff is silent");
+    }
 
     /// EXP-637: the graceful-stop signal. Already-idle subscribers fire
     /// IMMEDIATELY (an agent that called `sessions_end` between turns must

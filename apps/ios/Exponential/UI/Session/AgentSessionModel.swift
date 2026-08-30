@@ -110,6 +110,10 @@ final class AgentSessionModel {
     /// freshness window (all decided by `AgentUsagePresentation.sessionUsage`).
     /// Recomputed on the same three inputs as `hostDevice`.
     private(set) var agentUsage: SessionAgentUsage?
+    /// EXP-688: the host machine's sign-in status for THIS session's agent,
+    /// for the Usage sheet's caption. Read-only visibility off the same synced
+    /// row — nothing here holds or forwards a credential.
+    private(set) var agentAccount: AgentAccount?
     /// EXP-678: the issue whose PR the Merge pill merges — this session's own
     /// issue, or, for an issueless + actionless batch run in review, the
     /// representative issue of the batch PR its branch names (EXP-535). Nil
@@ -817,6 +821,14 @@ final class AgentSessionModel {
         agentUsage = AgentUsagePresentation.sessionUsage(
             session: session, devices: deviceRows, now: now
         )
+        // Same devices-row match `sessionUsage` makes (the stamped device id,
+        // preferring the session owner's own row) — only the account map is
+        // read, and only for the agent the run uses.
+        agentAccount = agentUsage.flatMap { usage -> AgentAccount? in
+            let byId = deviceRows.filter { $0.deviceId == session.deviceId }
+            let row = byId.first { $0.userId == session.userId } ?? byId.first
+            return AgentUsagePresentation.parseAccounts(row?.agentAccounts)?[usage.agent]
+        }
     }
 
     // MARK: - Merge target (EXP-678)
