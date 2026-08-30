@@ -367,16 +367,6 @@ fun DeviceSettingsSheet(
                         },
                     )
                 }
-                if (agentTab != "pi") {
-                    GroupDivider()
-                    SwitchRow(
-                        title = "Skip permissions",
-                        checked = draft.skipPermissions,
-                        onCheckedChange = { next ->
-                            editDraft(agentTab) { it.copy(skipPermissions = next) }
-                        },
-                    )
-                }
                 // EXP-688: the machine's sign-in and usage for THIS agent
                 // live in the agent's own card — the standalone "Agents"
                 // section repeated the agent list a second time.
@@ -802,7 +792,6 @@ data class AgentDraft(
     val effort: String,
     val ultracode: Boolean,
     val planMode: Boolean,
-    val skipPermissions: Boolean,
 )
 
 /**
@@ -840,7 +829,7 @@ internal fun seededDefaultAgent(device: SteerDevice, editable: List<String>): St
  */
 internal fun agentDraft(device: SteerDevice, agent: String): AgentDraft {
     val defaults = device.launchDefaults?.agents?.get(agent)
-        ?: return AgentDraft(defaultModelFor(agent), CLI_DEFAULT_EFFORT, false, false, false)
+        ?: return AgentDraft(defaultModelFor(agent), CLI_DEFAULT_EFFORT, false, false)
     val models = modelValuesFor(agent)
     return AgentDraft(
         model = defaults.model
@@ -853,7 +842,6 @@ internal fun agentDraft(device: SteerDevice, agent: String): AgentDraft {
             ?: CLI_DEFAULT_EFFORT,
         ultracode = defaults.ultracode && agent == DEFAULT_AGENT,
         planMode = defaults.planMode && supportsPlanMode(agent),
-        skipPermissions = defaults.skipPermissions && agent != "pi",
     )
 }
 
@@ -870,13 +858,12 @@ internal fun buildDefaults(
     defaultAgent = defaultAgent,
     agents = agents.associateWith { agent ->
         val draft = drafts[agent]
-            ?: AgentDraft(defaultModelFor(agent), CLI_DEFAULT_EFFORT, false, false, false)
+            ?: AgentDraft(defaultModelFor(agent), CLI_DEFAULT_EFFORT, false, false)
         AgentLaunchDefaults(
             model = draft.model,
             effort = draft.effort,
             ultracode = draft.ultracode && agent == DEFAULT_AGENT,
             planMode = draft.planMode && supportsPlanMode(agent),
-            skipPermissions = draft.skipPermissions && agent != "pi",
         )
     },
 )

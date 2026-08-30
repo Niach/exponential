@@ -201,7 +201,6 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertEqual(claude.effort, "")  // blank = CLI default, NOT absent
         XCTAssertEqual(claude.planMode, true)
         XCTAssertNil(claude.ultracode)     // absent boolean = false
-        XCTAssertNil(claude.skipPermissions)
 
         let codex = try XCTUnwrap(device.agentDefaults(for: "codex"))
         XCTAssertEqual(codex.model, "")
@@ -227,7 +226,9 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertNil(device.defaultLaunchAgent)
         let claude = try XCTUnwrap(device.agentDefaults(for: "claude"))
         XCTAssertEqual(claude.ultracode, true)
-        XCTAssertEqual(claude.skipPermissions, true)
+        // EXP-690 removed the skip-permissions option; an older desktop still
+        // advertises the key and the row must decode straight past it.
+        XCTAssertEqual(claude.model, "opus")
     }
 
     /// An older desktop advertises no defaults at all. Every accessor must read

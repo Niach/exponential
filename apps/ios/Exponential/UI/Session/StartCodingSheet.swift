@@ -32,8 +32,8 @@ import SwiftUI
 // EXP-201: the desktop runs three coding agents (claude / codex / pi). The
 // agent switcher — the shared `LaunchOptionsSection`'s brand-icon segmented
 // capsule — shows only the SELECTED device's agents (an old desktop reports
-// none = claude-only, hiding it); model/effort lists, the claude-only
-// toggles, and the skip-permissions toggle all follow the agent.
+// none = claude-only, hiding it); model/effort lists and the claude-only
+// toggles all follow the agent.
 // EXP-409: an advertised agent is RUNNABLE (installed and signed in), so a
 // machine reporting an explicitly EMPTY list can run nothing and drops out of
 // the device pool exactly like an offline one.
@@ -213,7 +213,6 @@ struct StartCodingSheet: View {
     @State private var effort = LaunchVocabulary.cliDefault
     @State private var ultracode = false
     @State private var planMode = false
-    @State private var skipPermissions = false
     @State private var seeded = false
     // EXP-481: resume offer state. `resume` defaults ON and only the user
     // flips it (eligibility recomputes live, the choice latches); the loaded
@@ -342,7 +341,6 @@ struct StartCodingSheet: View {
                         effort: $effort,
                         ultracode: $ultracode,
                         planMode: $planMode,
-                        skipPermissions: $skipPermissions,
                         resumeRow: resumeCandidate.map { candidate in
                             LaunchOptionsSection.ResumeRow(
                                 isOn: $resume,
@@ -1095,9 +1093,6 @@ struct StartCodingSheet: View {
         if !LaunchVocabulary.supportsPlanMode(agent) {
             planMode = false
         }
-        if agent == "pi" {
-            skipPermissions = false
-        }
     }
 
     private func clampAgentToDevice() {
@@ -1140,7 +1135,6 @@ struct StartCodingSheet: View {
         effort = Self.seedEffort(advertised?.effort, for: value)
         ultracode = advertised?.ultracode ?? false
         planMode = advertised?.planMode ?? false
-        skipPermissions = advertised?.skipPermissions ?? false
         clampToggles()
     }
 
@@ -1212,7 +1206,6 @@ struct StartCodingSheet: View {
             planMode: LaunchVocabulary.supportsPlanMode(agent)
                 ? (resume == true ? false : planMode)
                 : nil,
-            skipPermissions: agent == "pi" ? nil : skipPermissions,
             resume: resume
         )
     }

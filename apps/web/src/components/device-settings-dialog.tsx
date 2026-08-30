@@ -18,7 +18,6 @@ import { deviceCollection, deviceWorktreeCollection, teamCollection } from "@/li
 import {
   agentSeed,
   agentSupportsPlanMode,
-  agentSupportsSkipPermissions,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import {
@@ -84,7 +83,6 @@ interface AgentDraft {
   effort: string
   ultracode: boolean
   planMode: boolean
-  skipPermissions: boolean
 }
 
 /** One queued/in-flight command the dialog is watching. `key` anchors the
@@ -392,7 +390,6 @@ export function DeviceSettingsDialog({
         effort?: string
         ultracode?: boolean
         planMode?: boolean
-        skipPermissions?: boolean
       }
     > = {}
     for (const [agent, value] of Object.entries(snapshot.drafts)) {
@@ -401,9 +398,6 @@ export function DeviceSettingsDialog({
         effort: value.effort,
         ...(agentSupportsUltracode(agent) ? { ultracode: value.ultracode } : {}),
         ...(agentSupportsPlanMode(agent) ? { planMode: value.planMode } : {}),
-        ...(agentSupportsSkipPermissions(agent)
-          ? { skipPermissions: value.skipPermissions }
-          : {}),
       }
     }
     setSavingDefaults(true)
@@ -772,10 +766,6 @@ export function DeviceSettingsDialog({
               onUltracodeChange={(value) => patchDraft({ ultracode: value })}
               planMode={draft.planMode}
               onPlanModeChange={(value) => patchDraft({ planMode: value })}
-              skipPermissions={draft.skipPermissions}
-              onSkipPermissionsChange={(value) =>
-                patchDraft({ skipPermissions: value })
-              }
               /* EXP-688: who this agent is signed in as on this machine, and
                  what it has spent — under its OWN tab, not a section apart. */
               renderAgentFooter={(agent) => (

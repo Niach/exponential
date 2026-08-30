@@ -39,8 +39,8 @@ data class DeviceOwner(
  * [model]/[effort] are contract values where an EMPTY string is the explicit
  * "CLI default" (omit the flag) — the same convention the start options use.
  * The booleans ride only when true, so an absent one IS false; capability
- * clamping (ultracode is claude-only, plan mode is claude/pi-only (EXP-441),
- * skip-permissions never applies to pi) stays the reader's job.
+ * clamping (ultracode is claude-only, plan mode is claude/pi-only (EXP-441))
+ * stays the reader's job.
  */
 @Serializable
 data class AgentLaunchDefaults(
@@ -48,7 +48,6 @@ data class AgentLaunchDefaults(
     @SerialName("effort") val effort: String? = null,
     @SerialName("ultracode") val ultracode: Boolean = false,
     @SerialName("planMode") val planMode: Boolean = false,
-    @SerialName("skipPermissions") val skipPermissions: Boolean = false,
 )
 
 /**
@@ -325,8 +324,7 @@ private data class KillSessionInput(
  * sheet's choices. Null fields are omitted from the wire (the shared Json has
  * explicitNulls=false) and mean "desktop settings default" (plan mode OFF).
  * An empty [effort] is an explicit "CLI default" (omit --effort). A null
- * [agent] means claude (EXP-201); [skipPermissions] only applies to agents
- * with a guarded auto mode (claude/codex — pi is always unguarded).
+ * [agent] means claude (EXP-201).
  */
 data class SteerStartOptions(
     val model: String? = null,
@@ -334,7 +332,6 @@ data class SteerStartOptions(
     val ultracode: Boolean? = null,
     val planMode: Boolean? = null,
     val agent: String? = null,
-    val skipPermissions: Boolean? = null,
     /**
      * EXP-481: resume the issue's existing worktree/agent session instead of
      * starting fresh. Single-issue starts only (the server rejects it on
@@ -353,7 +350,6 @@ internal data class StartSessionInput(
     @SerialName("ultracode") val ultracode: Boolean? = null,
     @SerialName("planMode") val planMode: Boolean? = null,
     @SerialName("agent") val agent: String? = null,
-    @SerialName("skipPermissions") val skipPermissions: Boolean? = null,
     @SerialName("resume") val resume: Boolean? = null,
 )
 
@@ -370,7 +366,6 @@ private data class StartBatchSessionInput(
     @SerialName("ultracode") val ultracode: Boolean? = null,
     @SerialName("planMode") val planMode: Boolean? = null,
     @SerialName("agent") val agent: String? = null,
-    @SerialName("skipPermissions") val skipPermissions: Boolean? = null,
 )
 
 // The action form of steer.startSession (EXP-253, widened by EXP-257):
@@ -391,7 +386,6 @@ private data class StartActionSessionInput(
     @SerialName("ultracode") val ultracode: Boolean? = null,
     @SerialName("planMode") val planMode: Boolean? = null,
     @SerialName("agent") val agent: String? = null,
-    @SerialName("skipPermissions") val skipPermissions: Boolean? = null,
     @SerialName("inputs") val inputs: Map<String, String>? = null,
 )
 
@@ -465,7 +459,6 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 ultracode = options.ultracode,
                 planMode = options.planMode,
                 agent = options.agent,
-                skipPermissions = options.skipPermissions,
                 resume = options.resume,
             ),
             inputSerializer = StartSessionInput.serializer(),
@@ -494,7 +487,6 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 ultracode = options.ultracode,
                 planMode = options.planMode,
                 agent = options.agent,
-                skipPermissions = options.skipPermissions,
             ),
             inputSerializer = StartBatchSessionInput.serializer(),
         )
@@ -547,7 +539,6 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 ultracode = options.ultracode,
                 planMode = options.planMode,
                 agent = options.agent,
-                skipPermissions = options.skipPermissions,
                 inputs = inputs,
             ),
             inputSerializer = StartActionSessionInput.serializer(),

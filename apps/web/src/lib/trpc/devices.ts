@@ -49,7 +49,6 @@ import {
   agentEffortValues,
   agentModelValues,
   agentSupportsPlanMode,
-  agentSupportsSkipPermissions,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
@@ -104,12 +103,6 @@ function clampLaunchDefaults(
       }
       if (typeof d.planMode === `boolean` && agentSupportsPlanMode(agent)) {
         entry.planMode = d.planMode
-      }
-      if (
-        typeof d.skipPermissions === `boolean` &&
-        agentSupportsSkipPermissions(agent)
-      ) {
-        entry.skipPermissions = d.skipPermissions
       }
       if (Object.keys(entry).length > 0) agents[agent] = entry
     }

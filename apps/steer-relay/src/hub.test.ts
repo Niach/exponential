@@ -348,16 +348,16 @@ describe(`device presence + remote start`, () => {
       model: `sonnet`,
     })
 
-    // EXP-201: agent + skipPermissions ride the frame like any option.
+    // EXP-201: the agent rides the frame like any option.
     hub.startSession(`owner`, `dev-1`, { issueId: `issue-11` }, {
       agent: `codex`,
-      skipPermissions: true,
+      planMode: true,
     })
     expect(desktop.lastFrame(`start_session`)).toEqual({
       t: `start_session`,
       issueId: `issue-11`,
       agent: `codex`,
-      skipPermissions: true,
+      planMode: true,
     })
   })
 

@@ -95,22 +95,22 @@ class DeviceSettingsDefaultsTest {
             defaultAgent = "claude",
             agents = listOf("claude", "codex", "pi"),
             drafts = mapOf(
-                "claude" to AgentDraft("fable", "", ultracode = true, planMode = true, skipPermissions = true),
-                "codex" to AgentDraft("", "high", ultracode = true, planMode = true, skipPermissions = true),
-                "pi" to AgentDraft("", "", ultracode = false, planMode = true, skipPermissions = true),
+                "claude" to AgentDraft("fable", "", ultracode = true, planMode = true),
+                "codex" to AgentDraft("", "high", ultracode = true, planMode = true),
+                "pi" to AgentDraft("", "", ultracode = false, planMode = true),
             ),
         )
         assertEquals("claude", built.defaultAgent)
         assertTrue(built.agents.getValue("claude").ultracode)
-        // codex: no ultracode, no plan mode; keeps skip-permissions.
+        assertTrue(built.agents.getValue("claude").planMode)
+        // codex: neither ultracode nor plan mode survives.
         val codex = built.agents.getValue("codex")
         assertFalse(codex.ultracode)
         assertFalse(codex.planMode)
-        assertTrue(codex.skipPermissions)
         // pi: plan mode only.
         val pi = built.agents.getValue("pi")
+        assertFalse(pi.ultracode)
         assertTrue(pi.planMode)
-        assertFalse(pi.skipPermissions)
     }
 
     /**
@@ -127,17 +127,15 @@ class DeviceSettingsDefaultsTest {
                 effort = DomainContract.codingEffortValues.first(),
                 ultracode = true,
                 planMode = true,
-                skipPermissions = true,
             ),
             "codex" to AgentDraft(
                 model = DomainContract.codexModelValues.first(),
                 effort = DomainContract.codexEffortValues.last(),
                 ultracode = false,
                 planMode = false,
-                skipPermissions = true,
             ),
             // CLI defaults ("") must survive the round trip as themselves.
-            "pi" to AgentDraft("", "", ultracode = false, planMode = true, skipPermissions = false),
+            "pi" to AgentDraft("", "", ultracode = false, planMode = true),
         )
         val echoed = device(
             agents = agents,

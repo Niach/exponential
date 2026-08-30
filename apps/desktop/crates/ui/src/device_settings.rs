@@ -267,8 +267,6 @@ pub struct DeviceSettingsView {
     claude_ultracode: bool,
     claude_plan_mode: bool,
     pi_plan_mode: bool,
-    claude_skip_permissions: bool,
-    codex_skip_permissions: bool,
     agent_tab: CodingAgent,
     editor_agents: Vec<CodingAgent>,
     /// The current baseline as a Settings value (drafts overlay it): the
@@ -451,8 +449,6 @@ impl DeviceSettingsView {
             claude_ultracode: seeded.claude_ultracode,
             claude_plan_mode: seeded.claude_plan_mode,
             pi_plan_mode: seeded.pi_plan_mode,
-            claude_skip_permissions: seeded.claude_skip_permissions,
-            codex_skip_permissions: seeded.codex_skip_permissions,
             agent_tab: seeded.default_agent,
             editor_agents,
             seeded_label: row.label.clone().unwrap_or_default(),
@@ -603,8 +599,6 @@ impl DeviceSettingsView {
         self.claude_ultracode = baseline.claude_ultracode;
         self.claude_plan_mode = baseline.claude_plan_mode;
         self.pi_plan_mode = baseline.pi_plan_mode;
-        self.claude_skip_permissions = baseline.claude_skip_permissions;
-        self.codex_skip_permissions = baseline.codex_skip_permissions;
         self.editor_agents = editor_agents;
         let status = self.agent_status(cx);
         if !self.tab_agents(&status).contains(&self.agent_tab) {
@@ -635,8 +629,6 @@ impl DeviceSettingsView {
         drafted.claude_ultracode = self.claude_ultracode;
         drafted.claude_plan_mode = self.claude_plan_mode;
         drafted.pi_plan_mode = self.pi_plan_mode;
-        drafted.claude_skip_permissions = self.claude_skip_permissions;
-        drafted.codex_skip_permissions = self.codex_skip_permissions;
         drafted
     }
 
@@ -745,8 +737,6 @@ impl DeviceSettingsView {
             settings.claude_ultracode = drafted.claude_ultracode;
             settings.claude_plan_mode = drafted.claude_plan_mode;
             settings.pi_plan_mode = drafted.pi_plan_mode;
-            settings.claude_skip_permissions = drafted.claude_skip_permissions;
-            settings.codex_skip_permissions = drafted.codex_skip_permissions;
             self.set_error(
                 "defaults",
                 CodingHub::save_settings(&hub, settings, cx)
@@ -1117,26 +1107,12 @@ impl DeviceSettingsView {
                     self.claude_ultracode,
                     |this, checked, _| this.claude_ultracode = *checked,
                     cx,
-                ))
-                .child(Self::toggle_row(
-                    "device-claude-skip",
-                    "Skip permissions",
-                    self.claude_skip_permissions,
-                    |this, checked, _| this.claude_skip_permissions = *checked,
-                    cx,
                 )),
             CodingAgent::Codex => body
                 .child(Self::labeled_select("Model", &self.codex_model_select, cx))
                 .child(Self::labeled_select(
                     "Reasoning effort",
                     &self.codex_effort_select,
-                    cx,
-                ))
-                .child(Self::toggle_row(
-                    "device-codex-skip",
-                    "Skip permissions",
-                    self.codex_skip_permissions,
-                    |this, checked, _| this.codex_skip_permissions = *checked,
                     cx,
                 )),
             CodingAgent::Pi => body

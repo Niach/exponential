@@ -11,9 +11,9 @@
 //!   gated by `projects."<cwd>".hasTrustDialogAccepted` — and every session
 //!   spawns in a fresh worktree path, so this one re-blocks per session
 //! - the one-time `--dangerously-skip-permissions` warning, gated by the
-//!   top-level `bypassPermissionsModeAccepted` (only relevant when the user
-//!   opted into skip-permissions — plan mode's `--allow-…` variant does not
-//!   show it)
+//!   top-level `bypassPermissionsModeAccepted`. EXP-690: every launch seeds
+//!   it, plan-mode runs included — plan mode's `--allow-…` variant does not
+//!   show the warning at boot, but Shift+Tab into bypass would.
 //!
 //! There is no CLI flag that pre-accepts any of these; the only mechanism is
 //! the state file claude itself persists, so the launcher seeds the exact

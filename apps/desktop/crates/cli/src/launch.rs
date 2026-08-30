@@ -26,7 +26,6 @@ pub struct AgentFlags {
     pub model: Option<String>,
     pub effort: Option<String>,
     pub plan: bool,
-    pub skip_permissions: bool,
 }
 
 /// Resolve flags over the settings defaults with the desktop's capability
@@ -58,12 +57,6 @@ pub fn agent_options(
             bail!("--plan is not available for {}", agent.id());
         }
         options.plan_mode = true;
-    }
-    if flags.skip_permissions {
-        if !agent.supports_skip_permissions() {
-            bail!("--skip-permissions is not available for {}", agent.id());
-        }
-        options.skip_permissions = true;
     }
     Ok(options)
 }

@@ -168,7 +168,9 @@ pub struct RunRecord {
     pub effort: String,
     #[serde(default)]
     pub ultracode: bool,
-    #[serde(default)]
+    /// EXP-690: retired; every resume bypasses. Kept so pre-0.15 records
+    /// still parse without the key sticking in [`RunRecord::extra`].
+    #[serde(default, skip_serializing)]
     pub skip_permissions: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fix: Option<RunFix>,
@@ -442,7 +444,7 @@ mod tests {
             model: "fable".to_string(),
             effort: "high".to_string(),
             ultracode: false,
-            skip_permissions: true,
+            skip_permissions: false,
             fix: None,
             started_reason: None,
             resumed_from_id: None,

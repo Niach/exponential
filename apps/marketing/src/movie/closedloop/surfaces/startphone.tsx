@@ -555,7 +555,7 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
             />
           </Card>
           <Card top={Y_TOGGLES}>
-            {(["Ultracode", "Plan mode", "Skip permissions"] as const).map(
+            {(["Ultracode", "Plan mode"] as const).map(
               (label, i) => (
                 <React.Fragment key={label}>
                   {i > 0 ? <Sep /> : null}

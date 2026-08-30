@@ -24,7 +24,7 @@ const COMMANDS: { name: string; desc: string }[] = [
   { name: `exponential whoami`, desc: `Show the signed-in account and its instance.` },
   { name: `exponential status`, desc: `Account, device id, daemon state, installed agents, and git in one summary.` },
   { name: `exponential doctor`, desc: `Check git and the three agent CLIs, and say what's missing.` },
-  { name: `exponential code <ISSUE> [--agent claude|codex|pi] [--model <m>] [--effort <e>] [--plan] [--skip-permissions] [--detach]`, desc: `Start a coding session for an issue, by identifier ("EXP-42") or id.` },
+  { name: `exponential code <ISSUE> [--agent claude|codex|pi] [--model <m>] [--effort <e>] [--plan] [--detach]`, desc: `Start a coding session for an issue, by identifier ("EXP-42") or id.` },
   { name: `exponential run <action> [--team <id>] [--input k=v ...]`, desc: `Run a team action by name or id — the same agent flags apply.` },
   { name: `exponential daemon [--foreground] [--label <name>]`, desc: `Run the remote-start daemon in this terminal.` },
   { name: `exponential daemon install | uninstall | status`, desc: `Manage the systemd user unit (Linux) or launchd agent (macOS).` },
@@ -132,8 +132,9 @@ EXP_INSTANCE=https://issues.example.com EXP_TOKEN=expu_... exponential login
               <code>code</code> and <code>run</code> take the same agent
               options as the desktop&apos;s start-coding dialog, and fall
               back to your saved per-agent defaults when you omit them.{` `}
-              <code>--plan</code> and <code>--skip-permissions</code> are
-              agent-specific; see <a href="/docs/coding/">Coding agents</a>.
+              <code>--plan</code> is agent-specific (Claude and pi); every run
+              bypasses the agent&apos;s permission prompts. See{` `}
+              <a href="/docs/coding/">Coding agents</a>.
             </p>
             <p>
               Run <code>code</code> from a terminal and the agent&apos;s

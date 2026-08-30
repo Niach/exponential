@@ -75,7 +75,7 @@ Commands:
 
 Options for code/run:
   --agent claude|codex|pi   --model <m>   --effort <e>
-  --plan                    --skip-permissions
+  --plan
 Environment:
   EXP_INSTANCE, EXP_TOKEN (API key expu_… from Settings → API keys, or a session
   token — non-interactive login), EXP_LOG=debug

@@ -97,8 +97,6 @@ internal fun LaunchOptionsSection(
     planMode: Boolean = false,
     onPlanModeChange: (Boolean) -> Unit = {},
     planModeHidden: Boolean = false,
-    skipPermissions: Boolean = false,
-    onSkipPermissionsChange: (Boolean) -> Unit = {},
     resumeSlot: (@Composable () -> Unit)? = null,
 ) {
     val automation = variant == LaunchOptionsVariant.Automation
@@ -188,11 +186,12 @@ internal fun LaunchOptionsSection(
     resumeSlot?.invoke()
 
     // ── Toggles ──────────────────────────────────────────────────────────────
-    // ONE group: claude gets Ultracode + Plan mode + Skip permissions, codex
-    // just Skip permissions, pi just Plan mode (EXP-441 — pi stays otherwise
-    // unguarded; EXP-208). pi's ONLY toggle is plan mode, which a resume hides
-    // — skip the empty group shell then.
-    if (agent != "pi" || !planModeHidden) {
+    // ONE group: claude gets Ultracode + Plan mode, pi just Plan mode
+    // (EXP-441 — pi stays otherwise unguarded), codex neither. Plan mode is
+    // hidden entirely while resuming — a resume never re-enters it (EXP-202,
+    // desktop parity) — so skip the empty group shell when nothing is left.
+    val showsPlanMode = supportsPlanMode(agent) && !planModeHidden
+    if (agent == DEFAULT_AGENT || showsPlanMode) {
         OptionGroup {
             if (agent == DEFAULT_AGENT) {
                 SwitchRow(
@@ -200,25 +199,15 @@ internal fun LaunchOptionsSection(
                     checked = ultracode,
                     onCheckedChange = onUltracodeChange,
                 )
-                GroupDivider()
+                if (showsPlanMode) {
+                    GroupDivider()
+                }
             }
-            // Hidden entirely while resuming — a resume never re-enters plan
-            // mode (EXP-202, desktop parity).
-            if (supportsPlanMode(agent) && !planModeHidden) {
+            if (showsPlanMode) {
                 SwitchRow(
                     title = "Plan mode",
                     checked = planMode,
                     onCheckedChange = onPlanModeChange,
-                )
-                if (agent != "pi") {
-                    GroupDivider()
-                }
-            }
-            if (agent != "pi") {
-                SwitchRow(
-                    title = "Skip permissions",
-                    checked = skipPermissions,
-                    onCheckedChange = onSkipPermissionsChange,
                 )
             }
         }
@@ -238,7 +227,6 @@ internal data class AgentSeed(
     val effort: String,
     val ultracode: Boolean,
     val planMode: Boolean,
-    val skipPermissions: Boolean,
 )
 
 /**
@@ -266,7 +254,7 @@ internal fun defaultAgentFor(device: SteerDevice?): String {
  */
 internal fun agentSeed(device: SteerDevice?, agent: String): AgentSeed {
     val defaults = device?.launchDefaults?.agents?.get(agent)
-        ?: return AgentSeed(defaultModelFor(agent), CLI_DEFAULT_EFFORT, false, false, false)
+        ?: return AgentSeed(defaultModelFor(agent), CLI_DEFAULT_EFFORT, false, false)
     val models = modelValuesFor(agent)
     return AgentSeed(
         model = defaults.model
@@ -280,6 +268,5 @@ internal fun agentSeed(device: SteerDevice?, agent: String): AgentSeed {
             ?: CLI_DEFAULT_EFFORT,
         ultracode = defaults.ultracode && agent == DEFAULT_AGENT,
         planMode = defaults.planMode && supportsPlanMode(agent),
-        skipPermissions = defaults.skipPermissions && agent != "pi",
     )
 }

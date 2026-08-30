@@ -569,8 +569,6 @@ export function LaunchDialog({
             planMode={launch.planMode}
             onPlanModeChange={launch.setPlanMode}
             planModeHidden={resumeActive}
-            skipPermissions={launch.skipPermissions}
-            onSkipPermissionsChange={launch.setSkipPermissions}
             resumeRow={
               resumeCandidate
                 ? {

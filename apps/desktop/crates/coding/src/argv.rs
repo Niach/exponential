@@ -6,19 +6,17 @@
 //! enters raw mode get swallowed, so the prompt must never ride stdin), and
 //! the permission posture is per-agent:
 //!
-//! - **claude** — guarded AUTO mode by default (`--permission-mode auto`,
-//!   verified v2.1.215), plan mode when gated, or the classic
-//!   `--dangerously-skip-permissions` when the skip checkbox is on. The
-//!   doctor's [`crate::doctor::MIN_CLAUDE_VERSION`] gate guarantees every
-//!   claude flag here.
-//! - **codex** — the TUI's own "Auto" preset (`--sandbox workspace-write
-//!   --ask-for-approval on-request`, plus the network override so `git push`
-//!   works inside the sandbox), or `--dangerously-bypass-approvals-and-sandbox`
-//!   when skipping. `--full-auto` is deprecated and never used. Every codex
-//!   argv also disables the startup update prompt (EXP-389 — it parks an
-//!   unattended session; the directory-trust screen is handled separately by
-//!   [`crate::codex_trust`], because `-c projects.….trust_level` cannot
-//!   express paths containing dots).
+//! - **claude** — EXP-690: the classic `--dangerously-skip-permissions` on
+//!   every run, or plan mode when gated (plan wins the STARTING mode, with
+//!   the bypass one Shift+Tab away). The doctor's
+//!   [`crate::doctor::MIN_CLAUDE_VERSION`] gate guarantees every claude flag
+//!   here.
+//! - **codex** — EXP-690: always `--dangerously-bypass-approvals-and-sandbox`
+//!   (the workspace-write Auto preset is gone). `--full-auto` is deprecated
+//!   and never used. Every codex argv also disables the startup update prompt
+//!   (EXP-389 — it parks an unattended session; the directory-trust screen is
+//!   handled separately by [`crate::codex_trust`], because
+//!   `-c projects.….trust_level` cannot express paths containing dots).
 //! - **pi** — no permission system exists; no flags either way.
 
 use std::path::Path;
@@ -114,33 +112,26 @@ pub fn mcp_config_args() -> Vec<String> {
     ]
 }
 
-/// The permission tail of every CLAUDE coding argv (EXP-201 posture):
+/// The permission tail of every CLAUDE coding argv (EXP-690 posture — every
+/// run bypasses permissions; plan mode is the only starting-mode choice
+/// left):
 ///
 /// - Plan mode wins the STARTING mode: `--permission-mode plan` +
 ///   `--allow-dangerously-skip-permissions` (the skip flag cannot ride NEXT
 ///   TO a starting mode — both select one; the allow flag instead puts
 ///   `bypassPermissions` in the Shift+Tab cycle, one keypress to full-auto
 ///   after the plan is approved).
-/// - Skip checkbox on: the classic `--dangerously-skip-permissions`
+/// - Otherwise: the classic `--dangerously-skip-permissions`
 ///   (≡ `--permission-mode bypassPermissions`).
-/// - Otherwise: guarded AUTO mode (`--permission-mode auto` — a classifier
-///   approves routine actions and prompts on risky ones; v2.1.215) with the
-///   bypass reachable via Shift+Tab.
-pub fn permission_args(plan_mode: bool, skip_permissions: bool) -> Vec<String> {
+pub fn permission_args(plan_mode: bool) -> Vec<String> {
     if plan_mode {
         vec![
             "--permission-mode".into(),
             "plan".into(),
             "--allow-dangerously-skip-permissions".into(),
         ]
-    } else if skip_permissions {
-        vec!["--dangerously-skip-permissions".into()]
     } else {
-        vec![
-            "--permission-mode".into(),
-            "auto".into(),
-            "--allow-dangerously-skip-permissions".into(),
-        ]
+        vec!["--dangerously-skip-permissions".into()]
     }
 }
 
@@ -186,10 +177,6 @@ pub struct LaunchOptions {
     /// pi via the injected `.exp-pi-plan.ts` extension gated on
     /// [`PI_PLAN_MODE_ENV`] (EXP-441). Never codex.
     pub plan_mode: bool,
-    /// Full permission bypass (claude `--dangerously-skip-permissions` /
-    /// codex `--dangerously-bypass-approvals-and-sandbox`). OFF = the
-    /// agent's guarded auto mode. Inert for pi (always unguarded).
-    pub skip_permissions: bool,
 }
 
 impl LaunchOptions {
@@ -212,8 +199,6 @@ impl LaunchOptions {
             effort: settings.effort_for(agent).to_string(),
             ultracode: settings.claude_ultracode && agent.supports_ultracode(),
             plan_mode: settings.plan_mode_for(agent) && agent.supports_plan_mode(),
-            skip_permissions: settings.skip_permissions_for(agent)
-                && agent.supports_skip_permissions(),
         }
     }
 
@@ -228,14 +213,12 @@ impl LaunchOptions {
     ///   launch).
     /// - `effort: Some("")` is an explicit "CLI default" and beats a
     ///   non-blank settings effort; same for a blank codex/pi model.
-    /// - Absent ultracode/skip fall to the settings defaults (skip is
-    ///   per-AGENT — [`Settings::skip_permissions_for`] of the RESOLVED
-    ///   agent); plan mode defaults OFF when absent (F7 — an option-less
-    ///   start must never park an unattended desktop at the plan-approval
-    ///   TUI); a remote client sending `plan_mode: true` opted in knowingly.
+    /// - An absent ultracode falls to the settings default; plan mode
+    ///   defaults OFF when absent (F7 — an option-less start must never park
+    ///   an unattended desktop at the plan-approval TUI); a remote client
+    ///   sending `plan_mode: true` opted in knowingly.
     /// - Capabilities mask everything: a non-claude agent can never carry
-    ///   ultracode, codex never carries plan, pi never carries skip.
-    #[allow(clippy::too_many_arguments)]
+    ///   ultracode, codex never carries plan.
     pub fn remote(
         settings: &Settings,
         agent: Option<&str>,
@@ -243,7 +226,6 @@ impl LaunchOptions {
         effort: Option<&str>,
         ultracode: Option<bool>,
         plan_mode: Option<bool>,
-        skip_permissions: Option<bool>,
     ) -> Self {
         use crate::settings::normalize_choice;
         let agent = agent
@@ -279,8 +261,6 @@ impl LaunchOptions {
             ultracode: ultracode.unwrap_or(settings.claude_ultracode)
                 && agent.supports_ultracode(),
             plan_mode: plan_mode.unwrap_or(false) && agent.supports_plan_mode(),
-            skip_permissions: skip_permissions.unwrap_or(settings.skip_permissions_for(agent))
-                && agent.supports_skip_permissions(),
         }
     }
 }
@@ -391,7 +371,7 @@ pub fn session_args(
                 args.push(id.to_string());
             }
             args.extend(mcp_config_args());
-            args.extend(permission_args(opts.plan_mode, opts.skip_permissions));
+            args.extend(permission_args(opts.plan_mode));
         }
         CodingAgent::Codex => {
             // EXP-389: codex's startup update prompt ("Update now / Skip …
@@ -434,19 +414,8 @@ pub fn session_args(
                 args.push("-c".into());
                 args.push("experimental_use_rmcp_client=true".into());
             }
-            if opts.skip_permissions {
-                args.push("--dangerously-bypass-approvals-and-sandbox".into());
-            } else {
-                // The TUI's own "Auto" preset, made explicit (--full-auto is
-                // deprecated), plus the network override: workspace-write
-                // blocks network by default and the session must `git push`.
-                args.push("--sandbox".into());
-                args.push("workspace-write".into());
-                args.push("--ask-for-approval".into());
-                args.push("on-request".into());
-                args.push("-c".into());
-                args.push("sandbox_workspace_write.network_access=true".into());
-            }
+            // EXP-690: every codex run bypasses approvals and the sandbox.
+            args.push("--dangerously-bypass-approvals-and-sandbox".into());
         }
         CodingAgent::Pi => {
             if !trimmed_model.is_empty() {
@@ -518,37 +487,26 @@ mod tests {
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
-            skip_permissions: false,
         }
     }
 
     #[test]
-    fn permission_args_split_on_plan_and_skip() {
+    fn permission_args_split_on_plan() {
         // Gated: plan START mode + bypass ALLOWED (Shift+Tab reachable) but
         // never `--dangerously-skip-permissions` itself — that flag IS a
         // starting mode and would erase the gate.
         assert_eq!(
-            permission_args(true, false),
+            permission_args(true),
             vec![
                 "--permission-mode".to_string(),
                 "plan".to_string(),
                 "--allow-dangerously-skip-permissions".to_string(),
             ]
         );
-        // Plan wins the starting mode even with skip checked.
-        assert_eq!(permission_args(true, true), permission_args(true, false));
+        // EXP-690: everything else bypasses permissions outright.
         assert_eq!(
-            permission_args(false, true),
+            permission_args(false),
             vec!["--dangerously-skip-permissions".to_string()]
-        );
-        // EXP-201: the new default — guarded auto mode, bypass reachable.
-        assert_eq!(
-            permission_args(false, false),
-            vec![
-                "--permission-mode".to_string(),
-                "auto".to_string(),
-                "--allow-dangerously-skip-permissions".to_string(),
-            ]
         );
     }
 
@@ -589,12 +547,11 @@ mod tests {
             ]
         );
 
-        // Plan OFF + skip ON + effort set: the classic skip flag, effort
-        // before the MCP + permission tail, positional last.
+        // Plan OFF + effort set: the classic skip flag, effort before the
+        // MCP + permission tail, positional last.
         let opts = LaunchOptions {
             model: "opus".to_string(),
             effort: "xhigh".to_string(),
-            skip_permissions: true,
             ..claude_opts()
         };
         assert_eq!(
@@ -612,14 +569,12 @@ mod tests {
             ]
         );
 
-        // Plan OFF + skip OFF (EXP-201 default): guarded auto mode.
+        // Plan OFF (EXP-690 default): the bypass flag, nothing else.
         let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, SessionIdentity::default(), SessionTail::Prompt("p"));
         assert_eq!(
-            args[args.len() - 4..],
+            args[args.len() - 2..],
             [
-                "--permission-mode".to_string(),
-                "auto".to_string(),
-                "--allow-dangerously-skip-permissions".to_string(),
+                "--dangerously-skip-permissions".to_string(),
                 "p".to_string(),
             ]
         );
@@ -682,9 +637,7 @@ mod tests {
                 "--mcp-config",
                 ".exp-mcp.json",
                 "--strict-mcp-config",
-                "--permission-mode",
-                "auto",
-                "--allow-dangerously-skip-permissions",
+                "--dangerously-skip-permissions",
                 "prompt",
             ]
         );
@@ -724,15 +677,14 @@ mod tests {
             url: "https://app.exponential.at/api/mcp".to_string(),
             session_id: None,
         };
-        // Auto mode (skip OFF): explicit workspace-write + on-request + the
-        // network override; MCP via -c overrides with the env-var token.
+        // EXP-690: the yolo flag rides EVERY codex argv; MCP via -c
+        // overrides with the env-var token.
         let opts = LaunchOptions {
             agent: CodingAgent::Codex,
             model: "gpt-5.6-sol".to_string(),
             effort: "high".to_string(),
             ultracode: false,
             plan_mode: false,
-            skip_permissions: false,
         };
         assert_eq!(
             session_args(&opts, &mcp, None, SessionIdentity::default(), SessionTail::Prompt("prompt")),
@@ -749,25 +701,19 @@ mod tests {
                 "mcp_servers.exponential.bearer_token_env_var=\"EXP_MCP_TOKEN\"",
                 "-c",
                 "experimental_use_rmcp_client=true",
-                "--sandbox",
-                "workspace-write",
-                "--ask-for-approval",
-                "on-request",
-                "-c",
-                "sandbox_workspace_write.network_access=true",
+                "--dangerously-bypass-approvals-and-sandbox",
                 "prompt",
             ]
         );
 
-        // Skip ON: the yolo flag replaces the sandbox/approval tail; blank
-        // model + effort omit their flags entirely (codex's own defaults).
+        // Blank model + effort omit their flags entirely (codex's own
+        // defaults); the bypass flag is still there.
         let opts = LaunchOptions {
             agent: CodingAgent::Codex,
             model: "".to_string(),
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
-            skip_permissions: true,
         };
         let args = session_args(&opts, &mcp, None, SessionIdentity::default(), SessionTail::Prompt("prompt"));
         assert_eq!(
@@ -800,7 +746,6 @@ mod tests {
             effort: "high".to_string(),
             ultracode: false,
             plan_mode: false,
-            skip_permissions: false,
         };
         assert_eq!(
             session_args(&opts, &AgentMcp::PiExtension, None, SessionIdentity::default(), SessionTail::Prompt("prompt")),
@@ -827,7 +772,6 @@ mod tests {
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
-            skip_permissions: true, // inert for pi
         };
         let args = session_args(&opts, &AgentMcp::PiExtension, None, SessionIdentity::default(), SessionTail::Prompt("p"));
         assert_eq!(
@@ -857,7 +801,7 @@ mod tests {
         let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, SessionIdentity::default(), SessionTail::ClaudeResume("claude-1"));
         assert_eq!(args[args.len() - 2..], ["--resume".to_string(), "claude-1".to_string()]);
         assert!(args.contains(&"--mcp-config".to_string()));
-        assert!(args.contains(&"--permission-mode".to_string()));
+        assert!(args.contains(&"--dangerously-skip-permissions".to_string()));
 
         // pi: the bridge extensions still load and the recorded transcript
         // file rides the identity — nothing to append.
@@ -867,7 +811,6 @@ mod tests {
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
-            skip_permissions: false,
         };
         let session_file = Path::new("/data/pi-sessions/sess-1.jsonl");
         assert_eq!(
@@ -903,7 +846,6 @@ mod tests {
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
-            skip_permissions: true,
         };
         let mcp = AgentMcp::CodexOverrides {
             url: "https://app.exponential.at/api/mcp".to_string(),
@@ -935,7 +877,7 @@ mod tests {
         let args = session_args(&claude_opts(), &AgentMcp::ClaudeFile, None, SessionIdentity::default(), SessionTail::None);
         assert_eq!(
             args.last().map(String::as_str),
-            Some("--allow-dangerously-skip-permissions")
+            Some("--dangerously-skip-permissions")
         );
         assert!(!args.iter().any(|arg| arg == "--continue"));
 
@@ -945,7 +887,6 @@ mod tests {
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
-            skip_permissions: false,
         };
         let mcp = AgentMcp::CodexOverrides {
             url: "https://app.exponential.at/api/mcp".to_string(),
@@ -954,7 +895,7 @@ mod tests {
         let args = session_args(&codex, &mcp, None, SessionIdentity::default(), SessionTail::None);
         assert_eq!(
             args.last().map(String::as_str),
-            Some("sandbox_workspace_write.network_access=true")
+            Some("--dangerously-bypass-approvals-and-sandbox")
         );
 
         let pi = LaunchOptions {
@@ -963,7 +904,6 @@ mod tests {
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
-            skip_permissions: false,
         };
         let args = session_args(&pi, &AgentMcp::PiExtension, None, SessionIdentity::default(), SessionTail::None);
         assert_eq!(
@@ -989,7 +929,6 @@ mod tests {
         settings.claude_plan_mode = true;
         settings.codex_model = "gpt-5.6-terra".to_string();
         settings.codex_effort = "xhigh".to_string();
-        settings.codex_skip_permissions = true;
 
         let opts = LaunchOptions::defaults_for(&settings, CodingAgent::Codex);
         assert_eq!(opts.agent, CodingAgent::Codex);
@@ -997,7 +936,6 @@ mod tests {
         assert_eq!(opts.effort, "xhigh");
         assert!(!opts.ultracode);
         assert!(!opts.plan_mode);
-        assert!(opts.skip_permissions, "codex's own skip default");
 
         // `defaults` stays the default-agent shorthand.
         let via_default = LaunchOptions::defaults(&settings);
@@ -1008,7 +946,6 @@ mod tests {
 
         let opts = LaunchOptions::defaults_for(&settings, CodingAgent::Pi);
         assert_eq!(opts.agent, CodingAgent::Pi);
-        assert!(!opts.skip_permissions, "pi has no permission system");
         assert!(opts.plan_mode, "pi seeds its OWN plan default (EXP-441)");
 
         // The pi plan default is its own field — independent of claude's.
@@ -1029,16 +966,14 @@ mod tests {
         assert_eq!(opts.effort, "high");
         assert!(!opts.plan_mode);
         assert!(!opts.ultracode);
-        assert!(!opts.skip_permissions);
 
         // The stock defaults (EXP-206 — ONE set, no issue/batch split):
-        // plan mode ON, ultracode OFF, skip OFF (guarded auto posture).
+        // plan mode ON, ultracode OFF.
         let opts = LaunchOptions::defaults(&Settings::default());
         assert_eq!(opts.model, "fable");
         assert_eq!(opts.effort, "");
         assert!(opts.plan_mode);
         assert!(!opts.ultracode);
-        assert!(!opts.skip_permissions);
     }
 
     /// EXP-201: a non-claude default agent seeds ITS model/effort pair and
@@ -1051,20 +986,12 @@ mod tests {
         settings.codex_effort = "xhigh".to_string();
         settings.claude_ultracode = true; // claude-only — must mask
         settings.claude_plan_mode = true; // claude-only — must mask
-        settings.codex_skip_permissions = true; // codex's OWN skip default
         let opts = LaunchOptions::defaults(&settings);
         assert_eq!(opts.agent, CodingAgent::Codex);
         assert_eq!(opts.model, "gpt-5.6-terra");
         assert_eq!(opts.effort, "xhigh");
         assert!(!opts.ultracode);
         assert!(!opts.plan_mode);
-        assert!(opts.skip_permissions);
-
-        // Claude's skip default never leaks onto another agent (EXP-206:
-        // skip is per-agent) — codex OFF stays OFF with claude ON.
-        settings.claude_skip_permissions = true;
-        settings.codex_skip_permissions = false;
-        assert!(!LaunchOptions::defaults(&settings).skip_permissions);
 
         settings.default_agent = CodingAgent::Pi;
         settings.pi_model = "grok-4.5".to_string();
@@ -1073,7 +1000,6 @@ mod tests {
         assert_eq!(opts.agent, CodingAgent::Pi);
         assert_eq!(opts.model, "grok-4.5");
         assert_eq!(opts.effort, "max");
-        assert!(!opts.skip_permissions, "pi has no permission system");
     }
 
     #[test]
@@ -1085,13 +1011,12 @@ mod tests {
         settings.claude_effort = "high".to_string();
         settings.claude_ultracode = true;
         settings.claude_plan_mode = true; // must NOT leak into a remote start
-        let opts = LaunchOptions::remote(&settings, None, None, None, None, None, None);
+        let opts = LaunchOptions::remote(&settings, None, None, None, None, None);
         assert_eq!(opts.agent, CodingAgent::Claude);
         assert_eq!(opts.model, "opus");
         assert_eq!(opts.effort, "high");
         assert!(opts.ultracode);
         assert!(!opts.plan_mode);
-        assert!(!opts.skip_permissions);
     }
 
     #[test]
@@ -1106,25 +1031,23 @@ mod tests {
             Some("max"),
             Some(false),
             Some(true),
-            Some(true),
         );
         assert_eq!(opts.agent, CodingAgent::Claude);
         assert_eq!(opts.model, "sonnet", "case-normalized");
         assert_eq!(opts.effort, "max");
         assert!(!opts.ultracode);
         assert!(opts.plan_mode, "explicit remote opt-in");
-        assert!(opts.skip_permissions, "explicit remote opt-in");
 
         // Bogus model falls back to the settings model, never to a crash or
         // a raw pass-through to the CLI argv.
-        let opts = LaunchOptions::remote(&settings, None, Some("gpt-6"), None, None, None, None);
+        let opts = LaunchOptions::remote(&settings, None, Some("gpt-6"), None, None, None);
         assert_eq!(opts.model, "fable");
 
         // Explicit blank effort = "CLI default" and beats the settings value.
-        let opts = LaunchOptions::remote(&settings, None, None, Some(""), None, None, None);
+        let opts = LaunchOptions::remote(&settings, None, None, Some(""), None, None);
         assert_eq!(opts.effort, "");
         // Bogus effort also degrades to blank (omit --effort).
-        let opts = LaunchOptions::remote(&settings, None, None, Some("extreme"), None, None, None);
+        let opts = LaunchOptions::remote(&settings, None, None, Some("extreme"), None, None);
         assert_eq!(opts.effort, "");
     }
 
@@ -1143,14 +1066,12 @@ mod tests {
             Some("minimal"),
             Some(true), // ultracode — claude-only, must mask
             Some(true), // plan — claude/pi-only, must mask on codex
-            None,
         );
         assert_eq!(opts.agent, CodingAgent::Codex);
         assert_eq!(opts.model, "gpt-5.6-luna");
         assert_eq!(opts.effort, "minimal");
         assert!(!opts.ultracode);
         assert!(!opts.plan_mode);
-        assert!(!opts.skip_permissions);
 
         // A claude model on a codex start is bogus → blank (codex default).
         let opts = LaunchOptions::remote(
@@ -1160,12 +1081,11 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
         assert_eq!(opts.model, "");
 
-        // pi: thinking set, skip masked off; an explicit plan opt-in passes
-        // through (EXP-441 — pi plans via the injected extension).
+        // pi: thinking set; an explicit plan opt-in passes through
+        // (EXP-441 — pi plans via the injected extension).
         let opts = LaunchOptions::remote(
             &settings,
             Some("pi"),
@@ -1173,17 +1093,15 @@ mod tests {
             Some("xhigh"),
             None,
             Some(true),
-            Some(true),
         );
         assert_eq!(opts.agent, CodingAgent::Pi);
         assert_eq!(opts.model, "grok-4.5");
         assert_eq!(opts.effort, "xhigh");
         assert!(opts.plan_mode, "explicit remote opt-in (EXP-441)");
-        assert!(!opts.skip_permissions);
 
         // F7 holds for pi too: an option-less start must never park an
         // unattended desktop at the plan gate.
-        let opts = LaunchOptions::remote(&settings, Some("pi"), None, None, None, None, None);
+        let opts = LaunchOptions::remote(&settings, Some("pi"), None, None, None, None);
         assert!(!opts.plan_mode, "absent plan defaults OFF");
 
         // Unknown agent string → claude with claude normalization.
@@ -1194,37 +1112,30 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
         assert_eq!(opts.agent, CodingAgent::Claude);
         assert_eq!(opts.model, "sonnet");
     }
 
     /// A non-default remote agent with NO model/effort sent uses ITS blank
-    /// CLI defaults — never the default agent's persisted pair. An absent
-    /// skip falls to the RESOLVED agent's own setting (EXP-206).
+    /// CLI defaults — never the default agent's persisted pair.
     #[test]
     fn remote_non_default_agent_falls_to_blank_not_foreign_settings() {
         let mut settings = Settings::default();
         settings.claude_model = "opus".to_string();
         settings.claude_effort = "high".to_string();
-        settings.claude_skip_permissions = true; // must not leak onto codex
-        let opts = LaunchOptions::remote(&settings, Some("codex"), None, None, None, None, None);
+        let opts = LaunchOptions::remote(&settings, Some("codex"), None, None, None, None);
         assert_eq!(opts.agent, CodingAgent::Codex);
         assert_eq!(opts.model, "", "claude's opus must not leak onto codex");
         assert_eq!(opts.effort, "");
-        assert!(!opts.skip_permissions, "skip default is per-agent");
 
-        // And when codex IS the default agent, its persisted pair applies —
-        // as does its own skip default.
+        // And when codex IS the default agent, its persisted pair applies.
         settings.default_agent = CodingAgent::Codex;
         settings.codex_model = "gpt-5.6-sol".to_string();
         settings.codex_effort = "high".to_string();
-        settings.codex_skip_permissions = true;
-        let opts = LaunchOptions::remote(&settings, Some("codex"), None, None, None, None, None);
+        let opts = LaunchOptions::remote(&settings, Some("codex"), None, None, None, None);
         assert_eq!(opts.model, "gpt-5.6-sol");
         assert_eq!(opts.effort, "high");
-        assert!(opts.skip_permissions);
     }
 
     /// EXP-443: a fresh claude spawn carries the launcher-minted session id

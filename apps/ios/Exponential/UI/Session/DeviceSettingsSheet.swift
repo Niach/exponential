@@ -55,7 +55,6 @@ struct DeviceSettingsSheet: View {
         var effort: String
         var ultracode: Bool
         var planMode: Bool
-        var skipPermissions: Bool
     }
 
     @State private var seeded = false
@@ -256,8 +255,7 @@ struct DeviceSettingsSheet: View {
             model: model,
             effort: effort,
             ultracode: agent == "claude" && (advertised?.ultracode ?? false),
-            planMode: LaunchVocabulary.supportsPlanMode(agent) && (advertised?.planMode ?? false),
-            skipPermissions: agent != "pi" && (advertised?.skipPermissions ?? false)
+            planMode: LaunchVocabulary.supportsPlanMode(agent) && (advertised?.planMode ?? false)
         )
     }
 
@@ -495,9 +493,6 @@ struct DeviceSettingsSheet: View {
                 if LaunchVocabulary.supportsPlanMode(selectedAgent) {
                     Toggle("Plan mode", isOn: draftBinding(\.planMode))
                 }
-                if selectedAgent != "pi" {
-                    Toggle("Skip permissions", isOn: draftBinding(\.skipPermissions))
-                }
             }
             // EXP-688: the agent's own account and limits, right under its
             // options instead of in a section of their own.
@@ -566,8 +561,7 @@ struct DeviceSettingsSheet: View {
                 model: draft.model == LaunchVocabulary.cliDefault ? "" : draft.model,
                 effort: draft.effort == LaunchVocabulary.cliDefault ? "" : draft.effort,
                 ultracode: agent == "claude" ? draft.ultracode : nil,
-                planMode: LaunchVocabulary.supportsPlanMode(agent) ? draft.planMode : nil,
-                skipPermissions: agent == "pi" ? nil : draft.skipPermissions
+                planMode: LaunchVocabulary.supportsPlanMode(agent) ? draft.planMode : nil
             )
         }
         // Built synchronously: the payload is what the drafts say NOW, and a

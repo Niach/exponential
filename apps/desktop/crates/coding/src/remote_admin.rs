@@ -38,8 +38,6 @@ pub struct AgentDefaultsPatch {
     pub ultracode: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan_mode: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub skip_permissions: Option<bool>,
 }
 
 /// The wire form of the devices row's `launch_defaults` column — the SAME
@@ -120,17 +118,6 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
                 CodingAgent::Codex => {}
             }
         }
-        if let Some(skip) = entry.skip_permissions {
-            match agent {
-                CodingAgent::Claude => {
-                    set_bool(&mut settings.claude_skip_permissions, skip, &mut changed)
-                }
-                CodingAgent::Codex => {
-                    set_bool(&mut settings.codex_skip_permissions, skip, &mut changed)
-                }
-                CodingAgent::Pi => {}
-            }
-        }
     }
     changed
 }
@@ -153,9 +140,6 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
                 plan_mode: agent
                     .supports_plan_mode()
                     .then_some(settings.plan_mode_for(agent)),
-                skip_permissions: agent
-                    .supports_skip_permissions()
-                    .then_some(settings.skip_permissions_for(agent)),
             },
         );
     }
@@ -336,7 +320,9 @@ mod tests {
             "agents": {
                 "claude": { "model": "opus", "ultracode": true },
                 // Invalid model must NOT reset the field; the valid toggle
-                // beside it still applies.
+                // beside it still applies. EXP-690: `skipPermissions` is a
+                // retired key an old server copy may still carry — it must
+                // deserialize and be ignored, never fail the whole patch.
                 "codex": { "model": "not-a-model", "skipPermissions": true, "ultracode": true },
                 "cursor": { "model": "opus" },
             }
@@ -347,7 +333,6 @@ mod tests {
         assert_eq!(settings.claude_model, "opus");
         assert!(settings.claude_ultracode);
         assert_eq!(settings.codex_model, "", "invalid model left untouched");
-        assert!(settings.codex_skip_permissions);
         // ultracode is claude-only — the codex entry's true was masked.
         // (claude's own entry set it; reset and re-check the mask alone.)
         let mut fresh = Settings::default();
@@ -395,10 +380,11 @@ mod tests {
         let codex = &wire["agents"]["codex"];
         assert!(codex.get("ultracode").is_none(), "ultracode is claude-only");
         assert!(codex.get("planMode").is_none(), "plan mode is claude+pi");
-        assert!(codex.get("skipPermissions").is_some());
+        // EXP-690: the retired key is never advertised on any agent.
+        assert!(codex.get("skipPermissions").is_none());
         let pi = &wire["agents"]["pi"];
         assert!(pi.get("ultracode").is_none());
-        assert!(pi.get("skipPermissions").is_none(), "skip-permissions is claude+codex");
+        assert!(pi.get("skipPermissions").is_none());
         assert!(pi.get("planMode").is_some());
     }
 

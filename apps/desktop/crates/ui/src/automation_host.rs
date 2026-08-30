@@ -957,7 +957,6 @@ mod tests {
         assert_eq!(bare.agent, dialog.agent);
         assert_eq!(bare.model, dialog.model);
         assert_eq!(bare.ultracode, dialog.ultracode);
-        assert_eq!(bare.skip_permissions, dialog.skip_permissions);
         assert!(!bare.plan_mode);
     }
 

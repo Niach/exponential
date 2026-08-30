@@ -51,7 +51,6 @@ struct LaunchOptionsSection: View {
     @Binding var effort: String
     var ultracode: Binding<Bool>? = nil
     var planMode: Binding<Bool>? = nil
-    var skipPermissions: Binding<Bool>? = nil
     var resumeRow: ResumeRow? = nil
 
     var body: some View {
@@ -186,8 +185,7 @@ struct LaunchOptionsSection: View {
     // MARK: - Toggles (launch only)
 
     /// One footer-less toggle section (EXP-208 — no helper notices, like the
-    /// IDE). Ultracode is claude-only, plan mode is claude+pi (EXP-441), skip
-    /// permissions doesn't exist for pi.
+    /// IDE). Ultracode is claude-only, plan mode is claude+pi (EXP-441).
     @ViewBuilder
     private var togglesSection: some View {
         Section {
@@ -202,9 +200,6 @@ struct LaunchOptionsSection: View {
             if let planMode, LaunchVocabulary.supportsPlanMode(agent),
                resumeRow?.active != true {
                 Toggle("Plan mode", isOn: planMode)
-            }
-            if let skipPermissions, agent != "pi" {
-                Toggle("Skip permissions", isOn: skipPermissions)
             }
         } footer: {
             if let resumeRow, resumeRow.active {

@@ -133,7 +133,6 @@ fun CreateActionSheet(
     var effort by remember { mutableStateOf(initialSeed.effort) }
     var ultracode by remember { mutableStateOf(initialSeed.ultracode) }
     var planMode by remember { mutableStateOf(initialSeed.planMode) }
-    var skipPermissions by remember { mutableStateOf(initialSeed.skipPermissions) }
 
     val device = candidates.firstOrNull { it.deviceId == deviceId }
         ?: candidates.firstOrNull { it.isDefault }
@@ -147,7 +146,6 @@ fun CreateActionSheet(
         effort = seed.effort
         ultracode = seed.ultracode
         planMode = seed.planMode
-        skipPermissions = seed.skipPermissions
     }
 
     fun selectAgent(next: String) {
@@ -189,7 +187,6 @@ fun CreateActionSheet(
                     ultracode = if (agent == DEFAULT_AGENT) ultracode else null,
                     planMode = if (supportsPlanMode(agent)) planMode else null,
                     agent = agent,
-                    skipPermissions = if (agent == "pi") null else skipPermissions,
                 )
                 // EXP-583: the configured automation rides the description as
                 // a machine-readable note the creator agent copies verbatim
@@ -315,8 +312,6 @@ fun CreateActionSheet(
                 onUltracodeChange = { ultracode = it },
                 planMode = planMode,
                 onPlanModeChange = { planMode = it },
-                skipPermissions = skipPermissions,
-                onSkipPermissionsChange = { skipPermissions = it },
             )
             Spacer(Modifier.height(24.dp))
         }

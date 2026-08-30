@@ -770,7 +770,6 @@ fn remote_action_start(
         start.effort.as_deref(),
         start.ultracode,
         start.plan_mode,
-        start.skip_permissions,
     );
     let repo_group = repo.map(|repo| RepoGroup {
         repository_id: repo.repository_id,
@@ -897,7 +896,6 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
         start.effort.as_deref(),
         start.ultracode,
         start.plan_mode,
-        start.skip_permissions,
     );
     // EXP-481/EXP-662: honor the remote resume flag against the RUN REGISTRY
     // — the newest resumable record for this issue on this account relaunches
@@ -1058,7 +1056,6 @@ fn remote_batch_start(
         start.effort.as_deref(),
         start.ultracode,
         start.plan_mode,
-        start.skip_permissions,
     );
 
     // Same field construction the dialog's `batch_request` uses (device_label
@@ -1177,8 +1174,8 @@ enum SteerUiEvent {
 /// The per-session facts the emitter needs off a `PreparedLaunch`, snapshotted
 /// by `coding_flow::spawn_into_window` before the spawn consumes it.
 pub struct SteerSessionInfo {
-    /// EXP-275: the launch's resolved permission posture (skip-permissions
-    /// on, plan mode off) — feeds the emitter's launch narration. Bypass
+    /// EXP-275: the launch's resolved permission posture (bypass on: a
+    /// non-pi agent outside plan mode) — feeds the emitter's launch narration. Bypass
     /// sessions still hit real permission prompts (claude flags dangerous
     /// commands even then, EXP-564), so nothing else keys on it.
     pub bypass_permissions: bool,

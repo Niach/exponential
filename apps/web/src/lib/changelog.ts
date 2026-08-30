@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-always-skip-permissions`,
+    date: `2026-08-30`,
+    title: `Agents always skip permissions`,
+    summary: `Every coding run now starts with the agent's permission prompts bypassed, and the setting is gone.`,
+    body: `- **Bypassed by default**: claude launches with \`--dangerously-skip-permissions\` and codex with \`--dangerously-bypass-approvals-and-sandbox\` on every run. Plan mode stays the only starting-mode choice.
+- **One toggle less**: the "Skip permissions" switch is gone from the start-coding dialogs, action runs and device settings on web, desktop, iOS and Android, and from the CLI, where \`--skip-permissions\` is accepted and does nothing.
+- **Saved defaults**: stored per-machine launch defaults are migrated for you and the retired setting is dropped.`,
+  },
+  {
     id: `2026-08-uniform-mobile-sheets`,
     date: `2026-08-30`,
     title: `One look for every sheet and menu`,

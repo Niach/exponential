@@ -18,8 +18,6 @@ export interface CodingLaunchPrefs {
   effort: string
   ultracode: boolean
   planMode: boolean
-  /** Full permission bypass instead of the agent's guarded auto mode. */
-  skipPermissions: boolean
   /** EXP-481: resume the issue's existing worktree/agent session — SINGLE
    * issue starts only (the batch arm strips it before the mutation). */
   resume?: boolean
@@ -33,7 +31,6 @@ export interface AgentLaunchDefaults {
   effort?: string
   ultracode?: boolean
   planMode?: boolean
-  skipPermissions?: boolean
 }
 
 /** The model values pickable for `agent` (EXP-201). Blank ("CLI default") is
@@ -67,17 +64,14 @@ export function agentAllowsBlankModel(agent: string): boolean {
 }
 
 /** Ultracode is Claude-only; plan mode is claude + pi (EXP-441: pi via the
- * launcher-injected extension); pi has no permission system. */
+ * launcher-injected extension). EXP-690 retired the skip-permissions choice:
+ * every launch bypasses the agent's permission prompts. */
 export function agentSupportsUltracode(agent: string): boolean {
   return agent === `claude`
 }
 
 export function agentSupportsPlanMode(agent: string): boolean {
   return agent === `claude` || agent === `pi`
-}
-
-export function agentSupportsSkipPermissions(agent: string): boolean {
-  return agent !== `pi`
 }
 
 /** The default model choice for `agent` — first contract value for claude
@@ -118,8 +112,5 @@ export function agentSeed(
     effort,
     ultracode: (defaults?.ultracode ?? false) && agentSupportsUltracode(agent),
     planMode: (defaults?.planMode ?? false) && agentSupportsPlanMode(agent),
-    skipPermissions:
-      (defaults?.skipPermissions ?? false) &&
-      agentSupportsSkipPermissions(agent),
   }
 }
