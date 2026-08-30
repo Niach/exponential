@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -59,10 +58,10 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.GlassDropdownMenu
-import com.exponential.app.ui.components.GlassMenuDefaults
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TopBarBackButton
@@ -900,6 +899,7 @@ private fun MembersSection(
                                 // "Make member" item is hidden (not disabled) then.
                                 if (canMakeOwner) {
                                     GlassMenuItem(
+                                        leadingIcon = { Icon(ExpIcons.uiOwner, contentDescription = null) },
                                         text = { Text("Make owner") },
                                         onClick = {
                                             rowMenu = false
@@ -909,6 +909,7 @@ private fun MembersSection(
                                 }
                                 if (canMakeMember) {
                                     GlassMenuItem(
+                                        leadingIcon = { Icon(ExpIcons.uiMember, contentDescription = null) },
                                         text = { Text("Make member") },
                                         onClick = {
                                             rowMenu = false
@@ -917,10 +918,8 @@ private fun MembersSection(
                                     )
                                 }
                                 if (canLeave) {
-                                    if (canMakeOwner || canMakeMember) {
-                                        HorizontalDivider(color = GlassMenuDefaults.DividerColor)
-                                    }
                                     GlassMenuItem(
+                                        leadingIcon = { Icon(ExpIcons.navSignOut, contentDescription = null) },
                                         text = { Text("Leave team") },
                                         onClick = {
                                             rowMenu = false
@@ -930,10 +929,8 @@ private fun MembersSection(
                                     )
                                 }
                                 if (canRemove) {
-                                    if (canMakeOwner || canMakeMember) {
-                                        HorizontalDivider(color = GlassMenuDefaults.DividerColor)
-                                    }
                                     GlassMenuItem(
+                                        leadingIcon = { Icon(ExpIcons.uiRemoveMember, contentDescription = null) },
                                         text = { Text("Remove") },
                                         onClick = {
                                             rowMenu = false
@@ -1071,14 +1068,21 @@ private fun LabelEditorDialog(
     var color by remember { mutableStateOf(initialColor) }
     val canConfirm = name.isNotBlank()
     // A glass bottom sheet (iOS LabelEditorSheet parity, EXP-577) instead of
-    // the Material alert dialog: name field, swatch grid, Cancel / confirm.
-    GlassSheet(title = title, onDismiss = onDismiss) {
+    // the Material alert dialog: name field, swatch grid, and the pinned
+    // confirm button the shell owns (EXP-687 — no Cancel, swipe down instead).
+    GlassSheet(
+        title = title,
+        onDismiss = onDismiss,
+        primaryAction = SheetPrimaryAction(
+            label = confirmLabel,
+            enabled = canConfirm,
+            onClick = { onConfirm(name.trim(), color) },
+        ),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 8.dp)
-                .navigationBarsPadding(),
+                .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             GlassTextField(
@@ -1113,15 +1117,6 @@ private fun LabelEditorDialog(
                         }
                     }
                 }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                GlassPillButton(label = "Cancel", onClick = onDismiss)
-                Spacer(Modifier.weight(1f))
-                GlassPillButton(
-                    label = confirmLabel,
-                    onClick = { onConfirm(name.trim(), color) },
-                    enabled = canConfirm,
-                )
             }
         }
     }
@@ -1207,9 +1202,8 @@ private fun ChangeRepositorySheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 8.dp)
-                .navigationBarsPadding(),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(board.name, style = MaterialTheme.typography.labelMedium, color = secondary)

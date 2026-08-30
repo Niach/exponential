@@ -1,30 +1,20 @@
 package com.exponential.app.ui.actions
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -34,10 +24,12 @@ import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.domain.AutomationTrigger
-import com.exponential.app.ui.components.GlassPillButton
+import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.SectionLabel
+import com.exponential.app.ui.components.SheetHeight
+import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.issue.StartCodingSheetViewModel
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -53,7 +45,6 @@ import com.exponential.app.ui.theme.TextEmphasis
  * nobody to fill it in — so picking one blocks the submit and explains why,
  * exactly like the web dialog's disabled rows.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AutomationFormSheet(
     actions: List<ActionDto>,
@@ -66,7 +57,6 @@ fun AutomationFormSheet(
     editing: AutomationEntity? = null,
     dataViewModel: StartCodingSheetViewModel = hiltViewModel(),
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val boardOptions by dataViewModel.boardOptions.collectAsStateWithLifecycle()
     val labelOptions by dataViewModel.labelOptions.collectAsStateWithLifecycle()
     val statusOptions by dataViewModel.statusOptions.collectAsStateWithLifecycle()
@@ -114,120 +104,97 @@ fun AutomationFormSheet(
     val canSubmit = actionId != null && deviceId != null && trigger != null &&
         !blockedByInputs && !busy
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        dragHandle = null,
-        modifier = Modifier.statusBarsPadding().testTag("automation-form-sheet"),
+    GlassSheet(
+        title = if (editing == null) "New automation" else "Edit automation",
+        onDismiss = onDismiss,
+        modifier = Modifier.testTag("automation-form-sheet"),
+        height = SheetHeight.Full,
+        primaryAction = SheetPrimaryAction(
+            // Web-parity wording (EXP-615).
+            label = if (editing == null) "Create automation" else "Save changes",
+            enabled = canSubmit,
+            loading = busy,
+            onClick = submit@{
+                val action = actionId ?: return@submit
+                val device = deviceId ?: return@submit
+                val picked = trigger ?: return@submit
+                onSubmit(
+                    action,
+                    device,
+                    picked,
+                    draft.agent.takeIf { it.isNotEmpty() },
+                    draft.model.takeIf { it.isNotEmpty() },
+                    draft.effort.takeIf { it.isNotEmpty() },
+                )
+            },
+        ),
     ) {
-        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                GlassPillButton(label = "Cancel", onClick = onDismiss)
-                Spacer(Modifier.weight(1f))
-                Text(
-                    if (editing == null) "New automation" else "Edit automation",
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                Spacer(Modifier.weight(1f))
-                Button(
-                    onClick = {
-                        val action = actionId ?: return@Button
-                        val device = deviceId ?: return@Button
-                        val picked = trigger ?: return@Button
-                        onSubmit(
-                            action,
-                            device,
-                            picked,
-                            draft.agent.takeIf { it.isNotEmpty() },
-                            draft.model.takeIf { it.isNotEmpty() },
-                            draft.effort.takeIf { it.isNotEmpty() },
-                        )
-                    },
-                    enabled = canSubmit,
-                ) {
-                    if (busy) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(14.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                        )
-                    } else {
-                        // Web-parity wording (EXP-615).
-                        Text(if (editing == null) "Create automation" else "Save changes")
-                    }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            // No "Action" section header — the row below already says it
+            // (EXP-615 dedupe).
+            if (targets.isEmpty()) {
+                OptionGroup {
+                    Text(
+                        "No custom actions yet. Create one first, then automate it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    )
                 }
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                // No "Action" section header — the row below already says it
-                // (EXP-615 dedupe).
-                if (targets.isEmpty()) {
-                    OptionGroup {
-                        Text(
-                            "No custom actions yet. Create one first, then automate it.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        )
-                    }
-                } else {
-                    OptionGroup {
-                        PickerRow(
-                            label = "Action",
-                            value = selectedAction?.name ?: "Select",
-                            options = targets.map { it.id },
-                            selected = actionId,
-                            optionLabel = { id -> targets.firstOrNull { it.id == id }?.name ?: id },
-                            onSelect = { actionId = it },
-                        )
-                    }
-                    if (blockedByInputs) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            REQUIRED_INPUTS_HINT,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                            modifier = Modifier.padding(horizontal = 32.dp),
-                        )
-                    }
+            } else {
+                OptionGroup {
+                    PickerRow(
+                        label = "Action",
+                        value = selectedAction?.name ?: "Select",
+                        options = targets.map { it.id },
+                        selected = actionId,
+                        optionLabel = { id -> targets.firstOrNull { it.id == id }?.name ?: id },
+                        onSelect = { actionId = it },
+                    )
                 }
-                Spacer(Modifier.height(8.dp))
-
-                SectionLabel("Trigger")
-                AutomationTriggerFields(
-                    draft = draft,
-                    boards = boardOptions,
-                    labels = labelOptions,
-                    statuses = statusOptions,
-                    onChange = { draft = it },
-                )
-                Spacer(Modifier.height(8.dp))
-
-                AutomationBindingFields(
-                    draft = draft,
-                    devices = devices,
-                    onChange = { draft = it },
-                )
-
-                if (error != null) {
+                if (blockedByInputs) {
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        error,
+                        REQUIRED_INPUTS_HINT,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         modifier = Modifier.padding(horizontal = 32.dp),
                     )
                 }
-                Spacer(Modifier.height(24.dp))
             }
+            Spacer(Modifier.height(8.dp))
+
+            SectionLabel("Trigger")
+            AutomationTriggerFields(
+                draft = draft,
+                boards = boardOptions,
+                labels = labelOptions,
+                statuses = statusOptions,
+                onChange = { draft = it },
+            )
+            Spacer(Modifier.height(8.dp))
+
+            AutomationBindingFields(
+                draft = draft,
+                devices = devices,
+                onChange = { draft = it },
+            )
+
+            if (error != null) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    error,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 32.dp),
+                )
+            }
+            Spacer(Modifier.height(24.dp))
         }
     }
 }

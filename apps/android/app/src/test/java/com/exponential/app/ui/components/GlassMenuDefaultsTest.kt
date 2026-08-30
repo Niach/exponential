@@ -48,6 +48,16 @@ class GlassMenuDefaultsTest {
         assertEquals(RoundedCornerShape(GlassTokens.SectionRadius), GlassMenuDefaults.Shape)
     }
 
+    /**
+     * EXP-687: 16dp everywhere. M3 hands a menu item's icon slot 24dp, a whole
+     * rung heavier than the 16pt/px glyphs iOS and web draw; [GlassMenuItem]
+     * boxes both slots to this size so no call site can drift.
+     */
+    @Test
+    fun menuIconsAreSixteenDp() {
+        assertEquals(16.dp, GlassMenuDefaults.IconSize)
+    }
+
     @Test
     fun separationComesFromFillAndStrokeNotElevation() {
         assertEquals(0.dp, GlassMenuDefaults.ShadowElevation)

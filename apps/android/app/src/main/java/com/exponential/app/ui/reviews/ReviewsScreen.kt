@@ -18,17 +18,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +46,8 @@ import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.StartCodingSheet
@@ -208,7 +205,7 @@ private fun BoardHeader(board: BoardEntity, count: Int) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ReviewRow(
     entry: ReviewEntry,
@@ -388,77 +385,53 @@ private fun ReviewRow(
     }
 
     if (showActions) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = { showActions = false },
-            sheetState = sheetState,
-            dragHandle = { BottomSheetDefaults.DragHandle() },
+        GlassSheet(
+            title = if (entry.isBatch) {
+                entry.prNumber?.let { "PR #$it" } ?: "Batch PR"
+            } else {
+                entry.representative.identifier
+            },
+            onDismiss = { showActions = false },
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 12.dp),
-            ) {
-                Text(
-                    text = if (entry.isBatch) {
-                        entry.prNumber?.let { "PR #$it" } ?: "Batch PR"
-                    } else {
-                        entry.representative.identifier
+            // Row taps open the Review detail (EXP-168), so issue access
+            // moves here — the representative issue for a batch entry.
+            GlassSheetRow(
+                label = "Open issue",
+                onClick = {
+                    showActions = false
+                    onOpenIssue()
+                },
+                leading = { Icon(ExpIcons.navMyIssues, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            )
+            GlassSheetRow(
+                label = "Merge pull request",
+                onClick = {
+                    showActions = false
+                    onMerge()
+                },
+                leading = { Icon(ExpIcons.prOpen, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            )
+            // The recovery run needs the PR's branch to rebase (EXP-323).
+            if (!entry.branch.isNullOrBlank()) {
+                GlassSheetRow(
+                    label = "Fix merge conflicts",
+                    onClick = {
+                        showActions = false
+                        onFixConflicts()
                     },
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    leading = { Icon(ExpIcons.uiBranch, contentDescription = null, modifier = Modifier.size(18.dp)) },
                 )
-                // Row taps open the Review detail (EXP-168), so issue access
-                // moves here — the representative issue for a batch entry.
-                ListItem(
-                    headlineContent = { Text("Open issue") },
-                    leadingContent = { Icon(ExpIcons.navMyIssues, contentDescription = null) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            showActions = false
-                            onOpenIssue()
-                        },
+            }
+            if (entry.prUrl != null) {
+                GlassSheetRow(
+                    label = "Open PR",
+                    onClick = {
+                        showActions = false
+                        CustomTabsIntent.Builder().build()
+                            .launchUrl(context, android.net.Uri.parse(entry.prUrl))
+                    },
+                    leading = { Icon(ExpIcons.uiExternalLink, contentDescription = null, modifier = Modifier.size(18.dp)) },
                 )
-                ListItem(
-                    headlineContent = { Text("Merge pull request") },
-                    leadingContent = { Icon(ExpIcons.prOpen, contentDescription = null) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            showActions = false
-                            onMerge()
-                        },
-                )
-                // The recovery run needs the PR's branch to rebase (EXP-323).
-                if (!entry.branch.isNullOrBlank()) {
-                    ListItem(
-                        headlineContent = { Text("Fix merge conflicts") },
-                        leadingContent = {
-                            Icon(ExpIcons.uiBranch, contentDescription = null)
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                showActions = false
-                                onFixConflicts()
-                            },
-                    )
-                }
-                if (entry.prUrl != null) {
-                    ListItem(
-                        headlineContent = { Text("Open PR") },
-                        leadingContent = { Icon(ExpIcons.uiExternalLink, contentDescription = null) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                showActions = false
-                                CustomTabsIntent.Builder().build()
-                                    .launchUrl(context, android.net.Uri.parse(entry.prUrl))
-                            },
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
             }
         }
     }

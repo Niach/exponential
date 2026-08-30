@@ -1,19 +1,7 @@
 package com.exponential.app.ui.issue
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,10 +12,12 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.icons.ExpIcons
 
 /**
- * Wraps [IssueRow] with a long-press gesture that opens a [ModalBottomSheet]
+ * Wraps [IssueRow] with a long-press gesture that opens a [GlassSheet]
  * action list (Mark done / Move to backlog), replacing the old Material 3
  * swipe-to-dismiss row. iOS keeps its native `.swipeActions`; Android uses a
  * long-press → action sheet, the platform-idiomatic list affordance and the
@@ -41,7 +31,6 @@ import com.exponential.app.ui.icons.ExpIcons
  * row. This row is also used by the cross-team My Issues list, so it renders
  * the ANCHOR status glyph rather than a resolved team row.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LongPressIssueRow(
     issue: IssueEntity,
@@ -63,44 +52,23 @@ fun LongPressIssueRow(
     )
 
     if (showActions) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = { showActions = false },
-            sheetState = sheetState,
-            dragHandle = { BottomSheetDefaults.DragHandle() },
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 12.dp),
-            ) {
-                Text(
-                    text = issue.identifier,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                )
-                ListItem(
-                    headlineContent = { Text("Mark done") },
-                    leadingContent = { Icon(ExpIcons.statusDone, contentDescription = null) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            onMarkDone()
-                            showActions = false
-                        },
-                )
-                ListItem(
-                    headlineContent = { Text("Move to backlog") },
-                    leadingContent = { Icon(ExpIcons.statusBacklog, contentDescription = null) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            onMoveToBacklog()
-                            showActions = false
-                        },
-                )
-                Spacer(Modifier.height(8.dp))
-            }
+        GlassSheet(title = issue.identifier, onDismiss = { showActions = false }) {
+            GlassSheetRow(
+                label = "Mark done",
+                onClick = {
+                    onMarkDone()
+                    showActions = false
+                },
+                leading = { Icon(ExpIcons.statusDone, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            )
+            GlassSheetRow(
+                label = "Move to backlog",
+                onClick = {
+                    onMoveToBacklog()
+                    showActions = false
+                },
+                leading = { Icon(ExpIcons.statusBacklog, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            )
         }
     }
 }

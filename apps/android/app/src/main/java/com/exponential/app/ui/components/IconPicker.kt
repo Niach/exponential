@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -83,14 +81,21 @@ fun IconPicker(
         )
     }
     if (open) {
-        GlassSheet(title = "Icon", onDismiss = { open = false }) {
-            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                if (allowsNone && picked != null) {
-                    TextButton(onClick = {
+        GlassSheet(
+            title = "Icon",
+            onDismiss = { open = false },
+            headerAction = if (allowsNone && picked != null) {
+                {
+                    GlassSheetHeaderAction("No icon") {
                         onSelect("")
                         open = false
-                    }) { Text("No icon") }
+                    }
                 }
+            } else {
+                null
+            },
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
                 IconSwatchGrid(
                     selected = picked,
                     onSelect = {

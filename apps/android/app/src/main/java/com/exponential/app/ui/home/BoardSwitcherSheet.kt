@@ -11,12 +11,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
@@ -27,8 +24,8 @@ import com.exponential.app.data.db.ServerBoardGroup
 import com.exponential.app.data.db.TeamBlock
 import com.exponential.app.ui.components.BoardRow
 import com.exponential.app.ui.components.TeamAvatar
+import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
@@ -39,25 +36,13 @@ import com.exponential.app.ui.theme.TextEmphasis
  * Mirrors iOS BoardSwitcherSheet (no create-board action here — the sheet
  * spans teams, so a new board's target team would be ambiguous).
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BoardSwitcherSheet(
     groups: List<ServerBoardGroup>,
     onSelect: (accountId: String, boardId: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = GlassTokens.BackgroundBottom,
-    ) {
-        Text(
-            "Switch board",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 10.dp),
-        )
+    GlassSheet(title = "Switch board", onDismiss = onDismiss) {
         if (groups.isEmpty()) {
             Column(
                 modifier = Modifier

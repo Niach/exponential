@@ -182,6 +182,7 @@ private fun FileRow(
             }
             GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 GlassMenuItem(
+                    leadingIcon = { Icon(ExpIcons.uiWatch, contentDescription = null) },
                     text = { Text("Open") },
                     onClick = {
                         menuOpen = false
@@ -189,6 +190,7 @@ private fun FileRow(
                     },
                 )
                 GlassMenuItem(
+                    leadingIcon = { Icon(ExpIcons.uiShare, contentDescription = null) },
                     text = { Text("Share") },
                     onClick = {
                         menuOpen = false
@@ -197,6 +199,7 @@ private fun FileRow(
                 )
                 if (canDelete) {
                     GlassMenuItem(
+                        leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
                         text = { Text("Delete") },
                         onClick = {
                             menuOpen = false
