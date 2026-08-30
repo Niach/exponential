@@ -194,10 +194,12 @@ public enum AppIcons {
         "log-out",
         "mail",
         "map-pin",
+        "maximize-2",
         "megaphone",
         "message-circle",
         "message-square",
         "message-square-plus",
+        "minimize-2",
         "minus",
         "monitor",
         "monitor-off",
@@ -583,6 +585,10 @@ public enum AppIcons {
     public static let uiFolder: String = "folder"
     /// Concept `ui-folder-open`.
     public static let uiFolderOpen: String = "folder-open"
+    /// Concept `ui-fullscreen`.
+    public static let uiFullscreen: String = "maximize-2"
+    /// Concept `ui-fullscreen-exit`.
+    public static let uiFullscreenExit: String = "minimize-2"
     /// Concept `ui-github`.
     public static let uiGithub: String = "github"
     /// Concept `ui-help`.
@@ -665,6 +671,8 @@ public enum AppIcons {
     public static let uiUnsubscribe: String = "bell-off"
     /// Concept `ui-update`.
     public static let uiUpdate: String = "circle-arrow-up"
+    /// Concept `ui-usage`.
+    public static let uiUsage: String = "chart-line"
     /// Concept `ui-warning`.
     public static let uiWarning: String = "triangle-alert"
     /// Concept `ui-watch`.

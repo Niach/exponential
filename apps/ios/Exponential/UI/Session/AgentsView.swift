@@ -770,26 +770,6 @@ struct AgentsView: View {
         }
     }
 
-    /// Static-dot/label tint per parked display state (EXP-194/EXP-214):
-    /// review green, done blue (the issue-status palette), needs-input amber.
-    private func stateColor(_ state: CodingSessionDisplayState) -> Color {
-        switch state {
-        case .needsInput: DesignTokens.Semantic.yellow
-        case .review: DesignTokens.Semantic.green
-        case .done: DesignTokens.Semantic.blue
-        case .running: DesignTokens.Semantic.green
-        }
-    }
-
-    private func stateLabel(_ state: CodingSessionDisplayState) -> String? {
-        switch state {
-        case .needsInput: "Needs input"
-        case .review: "Ready for review"
-        case .done: "Done"
-        case .running: nil
-        }
-    }
-
     @ViewBuilder
     private func sessionRowContent(_ row: AgentsViewModel.Row) -> some View {
         // The parked states render a static dot/label instead of the
@@ -804,37 +784,25 @@ struct AgentsView: View {
         // pulsing "coding now" dot would be a lie, so it goes neutral.
         let paused = row.device.isPaused(state)
         HStack(spacing: 12) {
-            if paused || state != .running {
-                Circle()
-                    .fill(paused ? DesignTokens.Semantic.neutral : stateColor(state))
-                    .frame(width: 9, height: 9)
-            } else {
-                PulsingLiveDot()
-            }
-
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    if let identifier = row.issue?.identifier {
-                        Text(identifier)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .lineLimit(1)
-                    }
-                    Text(title(row))
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                }
+                // EXP-688: line 1 is shared with the steering screen's header
+                // (SessionRowTitle) so the two can never drift.
+                SessionRowTitle(
+                    identifier: row.issue?.identifier,
+                    title: title(row),
+                    state: state,
+                    paused: paused
+                )
                 HStack(spacing: 6) {
                     if paused {
                         Text("Paused")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             .lineLimit(1)
-                    } else if let label = stateLabel(state) {
+                    } else if let label = sessionStateLabel(state) {
                         Text(label)
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(stateColor(state))
+                            .foregroundStyle(sessionStateColor(state))
                             .lineLimit(1)
                     }
                     Text(byline(row, paused: paused))
@@ -854,10 +822,7 @@ struct AgentsView: View {
     /// "Untitled issue". A single-issue session whose issue row simply hasn't
     /// synced yet still reads "Untitled issue".
     private func title(_ row: AgentsViewModel.Row) -> String {
-        if row.issue == nil, row.session.issueId == nil {
-            return row.session.actionName ?? "Batch run"
-        }
-        return row.issue?.title ?? "Untitled issue"
+        sessionRowTitle(issue: row.issue, session: row.session)
     }
 
     /// EXP-549: the machine name comes from the LIVE devices row (a rename

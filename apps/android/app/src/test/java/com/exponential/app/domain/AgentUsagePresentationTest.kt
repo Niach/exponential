@@ -32,6 +32,23 @@ class AgentUsagePresentationTest {
         }
     """.trimIndent()
 
+    /**
+     * The grouping fixture: the shared windows plus a `credits` one, so the
+     * "Other" group (claude's credits, codex's `Month`) has something in it.
+     */
+    private val groupsJson = """
+        {
+          "fetchedAt": "2026-08-28T09:58:00Z",
+          "stale": false,
+          "windows": [
+            {"key": "session", "label": "5h", "percent": 42, "resetsAt": "2026-08-28T12:10:30Z"},
+            {"key": "weekly", "label": "Week", "percent": 78, "resetsAt": "2026-09-01T00:00:00Z"},
+            {"key": "model:fable", "label": "Fable", "percent": 96, "resetsAt": null},
+            {"key": "credits", "label": "Credits", "percent": 16, "resetsAt": null}
+          ]
+        }
+    """.trimIndent()
+
     private val accountsJson = """
         {
           "claude": {"signedIn": true, "email": "danny@yourev.at", "plan": "max", "checkedAt": "2026-08-28T09:58:00Z"},
@@ -88,21 +105,55 @@ class AgentUsagePresentationTest {
     }
 
     @Test
-    fun `selectWindow prefers remembered key else max percent`() {
-        val usage = AgentUsagePresentation.parseUsage(usageJson)
+    fun `usage groups split current, weekly and other`() {
+        val groups = AgentUsagePresentation.usageGroups(
+            AgentUsagePresentation.parseUsage(groupsJson)!!,
+            nowMs,
+        )
+        // Fixed order, and the group titles are the contract.
+        assertEquals(listOf("session", "weekly", "other"), groups.map { it.key })
+        assertEquals(
+            listOf("Current session", "Weekly limits", "Other"),
+            groups.map { it.title },
+        )
+        // `weekly` is the all-models window; a `model:` one names its model;
+        // anything else keeps the label the machine reported.
+        assertEquals(listOf("Current session"), groups[0].cards.map { it.title })
+        assertEquals(listOf("All models", "Fable only"), groups[1].cards.map { it.title })
+        assertEquals(listOf("Credits"), groups[2].cards.map { it.title })
+        assertEquals(listOf("model:fable"), listOf(groups[1].cards[1].key))
 
-        // No preference: the busiest window.
-        assertEquals("model:fable", AgentUsagePresentation.selectWindow(usage)?.key)
-        assertEquals("model:fable", AgentUsagePresentation.selectWindow(usage, null)?.key)
-        // A remembered key that is still reported wins.
-        assertEquals("session", AgentUsagePresentation.selectWindow(usage, "session")?.key)
-        // One that is no longer reported falls back to the busiest.
-        assertEquals("model:fable", AgentUsagePresentation.selectWindow(usage, "missing")?.key)
+        assertEquals(42, groups[0].cards[0].percent)
+        assertEquals("resets in 2h 10m", groups[0].cards[0].caption)
+        assertEquals(AgentUsageSeverity.Warning, groups[1].cards[0].severity)
+        assertEquals("resets in 3d 14h", groups[1].cards[0].caption)
+        // A window that never resets has nothing to add under its bar.
+        assertEquals(AgentUsageSeverity.Danger, groups[1].cards[1].severity)
+        assertEquals("", groups[1].cards[1].caption)
+        assertEquals("", groups[2].cards[0].caption)
 
-        assertNull(AgentUsagePresentation.selectWindow(null))
-        assertNull(
-            AgentUsagePresentation.selectWindow(
-                AgentUsagePresentation.parseUsage("""{"fetchedAt": "2026-08-28T09:58:00Z"}"""),
+        // The idle session window Claude's own app shows before the first
+        // message: 0%, no reset — it says so instead of reading like a dead bar.
+        val idle = AgentUsagePresentation.usageGroups(
+            AgentUsagePresentation.parseUsage(
+                """
+                {
+                  "fetchedAt": "2026-08-28T09:58:00Z",
+                  "windows": [{"key": "session", "label": "5h", "percent": 0, "resetsAt": null}]
+                }
+                """.trimIndent(),
+            )!!,
+            nowMs,
+        )
+        assertEquals(listOf("session"), idle.map { it.key })
+        assertEquals("Starts when a message is sent", idle[0].cards[0].caption)
+
+        // Empty groups are omitted, so a snapshot with no windows renders none.
+        assertEquals(
+            emptyList<UsageGroup>(),
+            AgentUsagePresentation.usageGroups(
+                AgentUsagePresentation.parseUsage("""{"fetchedAt": "2026-08-28T09:58:00Z"}""")!!,
+                nowMs,
             ),
         )
     }

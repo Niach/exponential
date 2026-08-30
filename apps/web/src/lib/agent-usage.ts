@@ -10,9 +10,9 @@
 //   desktop  apps/desktop/crates/ui/src/usage_bar.rs
 // Changing a rule or a string here means changing it in all four.
 //
-// The selected window is a per-client preference (lib/agent-usage-prefs.ts),
-// never server state: which window a person cares about is a local reading
-// habit, and the device rewrites the row every few minutes.
+// EXP-688: every window the machine reports is SHOWN, grouped the way the
+// agent's own app groups them (`usageGroups`). There is no pinned window and
+// no "the fullest one" heuristic any more — a reading habit nobody had.
 
 import type {
   CodingSession,
@@ -104,26 +104,6 @@ export function usageIsFresh(
   return now.getTime() - fetched < USAGE_FRESH_MS
 }
 
-/** The window a bar shows: the reader's pinned key when the device still
- * reports it, else the fullest window (ties keep report order). Null when the
- * agent reports no windows at all. */
-export function selectWindow(
-  usage: DeviceAgentUsage | null | undefined,
-  preferredKey?: string | null
-): DeviceUsageWindow | null {
-  const windows = usage?.windows ?? []
-  if (windows.length === 0) return null
-  if (preferredKey) {
-    const pinned = windows.find((window) => window.key === preferredKey)
-    if (pinned) return pinned
-  }
-  let best = windows[0]
-  for (const window of windows) {
-    if (window.percent > best.percent) best = window
-  }
-  return best
-}
-
 /** Tone thresholds — the same three everywhere. */
 export function severity(percent: number): UsageSeverity {
   if (percent >= DANGER_PERCENT) return `danger`
@@ -155,6 +135,90 @@ export function formatResetCountdown(
   return rest === 0 ? `resets in ${days}d` : `resets in ${days}d ${rest}h`
 }
 
+export type UsageGroupKey = `session` | `weekly` | `other`
+
+/** One rendered window: what it is called, how full it is and the one line
+ * under it. `percent` is already clamped by the parser. */
+export interface UsageCard {
+  /** The wire key — stable enough to render a list with. */
+  key: string
+  title: string
+  percent: number
+  severity: UsageSeverity
+  /** `resets in 2h 10m`, `Starts when a message is sent`, or empty. */
+  caption: string
+}
+
+export interface UsageGroup {
+  key: UsageGroupKey
+  title: `Current session` | `Weekly limits` | `Other`
+  cards: UsageCard[]
+}
+
+/** What ONE window is called: the agent apps name the five-hour window
+ * "Current session", the rolling week "All models", and a per-model window
+ * "<Model> only". Anything else (credits, codex's month) keeps the label the
+ * machine sent. */
+function cardTitle(window: DeviceUsageWindow): string {
+  if (window.key === `session`) return `Current session`
+  if (window.key === `weekly`) return `All models`
+  if (window.key.startsWith(`model:`)) return `${window.label} only`
+  return window.label
+}
+
+function cardCaption(window: DeviceUsageWindow, now: Date): string {
+  const countdown = formatResetCountdown(window.resetsAt, now)
+  if (countdown) return countdown
+  // Claude's own app says this about an idle session window: it is not "0%
+  // used", it has not started.
+  if (window.key === `session` && window.percent === 0) {
+    return `Starts when a message is sent`
+  }
+  return ``
+}
+
+/** EXP-688: every reported window, grouped the way the agent's own app groups
+ * them — the current session, the weekly limits (all models first, then the
+ * per-model ones in report order), then everything else in report order.
+ * Empty groups are omitted; the group order is fixed. */
+export function usageGroups(
+  usage: DeviceAgentUsage | null | undefined,
+  now: Date
+): UsageGroup[] {
+  const session: UsageCard[] = []
+  const weekly: UsageCard[] = []
+  const models: UsageCard[] = []
+  const other: UsageCard[] = []
+  for (const window of usage?.windows ?? []) {
+    const card: UsageCard = {
+      key: window.key,
+      title: cardTitle(window),
+      percent: window.percent,
+      severity: severity(window.percent),
+      caption: cardCaption(window, now),
+    }
+    if (window.key === `session`) session.push(card)
+    else if (window.key === `weekly`) weekly.push(card)
+    else if (window.key.startsWith(`model:`)) models.push(card)
+    else other.push(card)
+  }
+  const groups: UsageGroup[] = []
+  if (session.length > 0) {
+    groups.push({ key: `session`, title: `Current session`, cards: session })
+  }
+  if (weekly.length > 0 || models.length > 0) {
+    groups.push({
+      key: `weekly`,
+      title: `Weekly limits`,
+      cards: [...weekly, ...models],
+    })
+  }
+  if (other.length > 0) {
+    groups.push({ key: `other`, title: `Other`, cards: other })
+  }
+  return groups
+}
+
 /** What one agent's sign-in reads as: `signed in as <email> · <plan>`,
  * `signed in as <email>`, the bare plan for an account with no email (pi
  * reports a provider, never an address), `signed in`, `signed out`, or
@@ -171,6 +235,17 @@ export function accountCaption(
   if (email) return `signed in as ${email}`
   if (plan) return plan
   return `signed in`
+}
+
+/** EXP-688: the same sentence inside an agent's OWN tab, where the agent is
+ * already the heading — no `claude · ` prefix, and the two negative cases read
+ * as sentences instead of as states. */
+export function accountLine(
+  account: DeviceAgentAccount | null | undefined
+): string {
+  if (!account) return `Sign-in status unknown`
+  if (!account.signedIn) return `Not signed in`
+  return accountCaption(account)
 }
 
 /** The whole row: `claude · signed in as danny@example.com · Max`. */

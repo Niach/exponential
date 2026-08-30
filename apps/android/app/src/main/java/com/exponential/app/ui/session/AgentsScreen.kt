@@ -34,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -724,45 +723,27 @@ private fun AgentSessionRow(
                 .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // running → pulsing green; parked states → static dot: review green,
-            // done blue, needs-input amber (EXP-194/EXP-214);
-            // paused-on-an-offline-machine → static grey (EXP-550).
-            when {
-                paused -> StaticDot(LostGray)
-                else -> when (state) {
-                    CodingSessionDisplayState.Running -> PulsingDot()
-                    CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber)
-                    CodingSessionDisplayState.Review -> StaticDot(ReviewGreen)
-                    CodingSessionDisplayState.Done -> StaticDot(DoneBlue)
-                }
-            }
-            Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        issue?.identifier ?: "…",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        maxLines = 1,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        // An issueless run is an action run when the row carries
-                        // its action_name snapshot (EXP-253), else a batch run —
-                        // never "not synced". Keep the not-yet-synced case for an
-                        // issue-scoped session whose issue hasn't landed.
+                // EXP-688: the identity line is shared with the steering
+                // screen's header (SessionRowTitle) so the two can't drift.
+                // running → pulsing green; parked states → static dot: review
+                // green, done blue, needs-input amber (EXP-194/EXP-214);
+                // paused-on-an-offline-machine → static grey (EXP-550).
+                SessionRowTitle(
+                    identifier = sessionRowIdentifier(issue),
+                    title = sessionRowTitle(session, issue),
+                    dot = {
                         when {
-                            issue != null -> issue.title
-                            session.issueId == null -> session.actionName ?: "Batch run"
-                            else -> "Issue not synced yet"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                            paused -> StaticDot(LostGray)
+                            else -> when (state) {
+                                CodingSessionDisplayState.Running -> PulsingDot()
+                                CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber)
+                                CodingSessionDisplayState.Review -> StaticDot(ReviewGreen)
+                                CodingSessionDisplayState.Done -> StaticDot(DoneBlue)
+                            }
+                        }
+                    },
+                )
                 // EXP-549: the LIVE machine label, so a rename lands here
                 // instead of the row keeping the original hostname forever.
                 val deviceName = device.displayLabel
@@ -790,6 +771,9 @@ private fun AgentSessionRow(
                     },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    // Aligned under the identifier: the dot (8dp) plus its
+                    // 12dp gap now live inside the identity line above.
+                    modifier = Modifier.padding(start = 20.dp),
                 )
             }
             // EXP-498: merging always closes the session too — confirm-gated,

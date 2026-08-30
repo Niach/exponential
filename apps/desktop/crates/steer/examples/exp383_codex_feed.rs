@@ -201,6 +201,7 @@ fn main() {
         EmitterConfig {
             agent: steer::activity::SessionAgent::Codex,
             worktree: worktree.clone(),
+            base_ref: None,
             term: Some(terminal.term()),
             extra_secrets: Vec::new(),
             on_needs_input: Some(Arc::new(|pending| {

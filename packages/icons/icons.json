@@ -203,6 +203,8 @@
     "ui-more": "ellipsis",
     "ui-more-vertical": "ellipsis-vertical",
     "ui-external-link": "external-link",
+    "ui-fullscreen": "maximize-2",
+    "ui-fullscreen-exit": "minimize-2",
     "ui-back": "arrow-left",
     "ui-chevron-right": "chevron-right",
     "ui-chevron-left": "chevron-left",
@@ -268,6 +270,7 @@
     "ui-staging": "flask-conical",
     "ui-undock": "arrow-up-right",
     "ui-redock": "arrow-down-left",
+    "ui-usage": "chart-line",
     "ui-download": "download",
     "ui-attach": "paperclip",
 

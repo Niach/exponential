@@ -199,10 +199,12 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "log-out" => ExpIcon::LogOut,
         "mail" => ExpIcon::Mail,
         "map-pin" => ExpIcon::MapPin,
+        "maximize-2" => ExpIcon::Maximize2,
         "megaphone" => ExpIcon::Megaphone,
         "message-circle" => ExpIcon::MessageCircle,
         "message-square" => ExpIcon::MessageSquare,
         "message-square-plus" => ExpIcon::MessageSquarePlus,
+        "minimize-2" => ExpIcon::Minimize2,
         "minus" => ExpIcon::Minus,
         "monitor" => ExpIcon::Monitor,
         "monitor-off" => ExpIcon::MonitorOff,
@@ -585,6 +587,10 @@ pub const UI_FILE: ExpIcon = ExpIcon::File;
 pub const UI_FOLDER: ExpIcon = ExpIcon::Folder;
 /// Registry concept `ui-folder-open` -> Lucide `folder-open`.
 pub const UI_FOLDER_OPEN: ExpIcon = ExpIcon::FolderOpen;
+/// Registry concept `ui-fullscreen` -> Lucide `maximize-2`.
+pub const UI_FULLSCREEN: ExpIcon = ExpIcon::Maximize2;
+/// Registry concept `ui-fullscreen-exit` -> Lucide `minimize-2`.
+pub const UI_FULLSCREEN_EXIT: ExpIcon = ExpIcon::Minimize2;
 /// Registry concept `ui-github` -> Lucide `github`.
 pub const UI_GITHUB: ExpIcon = ExpIcon::Github;
 /// Registry concept `ui-help` -> Lucide `circle-question-mark`.
@@ -667,6 +673,8 @@ pub const UI_UNSELECTED: ExpIcon = ExpIcon::Circle;
 pub const UI_UNSUBSCRIBE: ExpIcon = ExpIcon::BellOff;
 /// Registry concept `ui-update` -> Lucide `circle-arrow-up`.
 pub const UI_UPDATE: ExpIcon = ExpIcon::CircleArrowUp;
+/// Registry concept `ui-usage` -> Lucide `chart-line`.
+pub const UI_USAGE: ExpIcon = ExpIcon::ChartLine;
 /// Registry concept `ui-warning` -> Lucide `triangle-alert`.
 pub const UI_WARNING: ExpIcon = ExpIcon::TriangleAlert;
 /// Registry concept `ui-watch` -> Lucide `eye`.

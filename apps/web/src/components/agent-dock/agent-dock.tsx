@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { Link } from "@tanstack/react-router"
 import type { CodingSession, Issue } from "@/db/schema"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { useAgentsData, type AgentSessionRow } from "@/hooks/use-agents-data"
-import { AgentSessionView } from "@/components/agent-session"
+import {
+  AgentSessionView,
+  type SessionIdentity,
+} from "@/components/agent-session"
 import { sessionDisplayState } from "@/components/issue-coding-rows"
 import { cn } from "@/lib/utils"
+import { conceptIcon } from "@/lib/icons.generated"
 import { Button } from "@/components/ui/button"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
 import { retainSteerSessions } from "@/lib/steer-session-store"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useKillSession } from "@/hooks/use-kill-session"
 import {
   clampAgentDockHeight,
   readAgentDockHeight,
@@ -38,6 +42,8 @@ import { useWheelContainment } from "@/hooks/use-wheel-containment"
 // slides off the bottom), and the enter runs from the closed state on the
 // frame after mount.
 
+const CloseIcon = conceptIcon(`ui-close`)
+
 function RunningDot() {
   return (
     <span className="relative flex size-2 shrink-0">
@@ -49,11 +55,9 @@ function RunningDot() {
 
 export function AgentDock({
   teamId,
-  teamSlug,
   currentUserId,
 }: {
   teamId: string
-  teamSlug: string
   currentUserId: string
 }) {
   const dock = useAgentDock()
@@ -233,7 +237,7 @@ export function AgentDock({
           key={panelRow.session.id}
           session={panelRow.session}
           currentUserId={currentUserId}
-          title={<SessionTitle row={panelRow} teamSlug={teamSlug} />}
+          identity={sessionIdentity(panelRow)}
           prIssue={panelRow.issue ?? panelRow.batchPrIssue}
           onCollapse={() => dock?.collapseDock()}
         />
@@ -309,7 +313,7 @@ export function AgentDock({
               key={panelRow.session.id}
               session={panelRow.session}
               currentUserId={currentUserId}
-              title={<SessionTitle row={panelRow} teamSlug={teamSlug} />}
+              identity={sessionIdentity(panelRow)}
               prIssue={panelRow.issue ?? panelRow.batchPrIssue}
               onCollapse={() => {
                 setFullscreen(false)
@@ -327,11 +331,13 @@ export function AgentDock({
             key={row.session.id}
             row={row}
             expanded={expandedId === row.session.id}
+            currentUserId={currentUserId}
             onClick={() =>
               expandedId === row.session.id
                 ? dock?.collapseDock()
                 : dock?.openDock(row.session.id)
             }
+            onCollapse={() => dock?.collapseDock()}
           />
         ))}
       </div>
@@ -339,96 +345,135 @@ export function AgentDock({
   )
 }
 
-function SessionTitle({
-  row,
-  teamSlug,
-}: {
-  row: AgentSessionRow
-  teamSlug: string
-}) {
-  const { session, issue, board } = row
-  if (issue && board) {
-    return (
-      <Link
-        to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
-        params={{
-          teamSlug,
-          boardSlug: board.slug,
-          issueIdentifier: issue.identifier,
-        }}
-        className="font-mono hover:underline"
-      >
-        {issue.identifier}
-      </Link>
-    )
+/** EXP-688: what a run IS — resolved once, rendered identically by the dock
+ * tab and (on mobile) the session header, so the two cannot drift. Action
+ * runs keep their name snapshot even if the action was deleted (EXP-253); an
+ * issue-scoped row whose issue hasn't synced yet says so. */
+function sessionIdentity(row: AgentSessionRow): SessionIdentity {
+  const { session, issue } = row
+  if (issue) {
+    return {
+      identifier: issue.identifier,
+      subject: issue.title.trim() || `Untitled issue`,
+    }
   }
-  // Issueless action/batch row, or an issue-scoped row whose issue hasn't
-  // synced yet — action runs keep their name snapshot even if the action
-  // was deleted (EXP-253).
   if (!session.issueId) {
-    return session.actionName ? (
-      <span className="truncate">{session.actionName}</span>
-    ) : (
-      <span className="font-mono">Batch</span>
-    )
+    return {
+      identifier: null,
+      subject: session.actionName ?? `Batch run`,
+    }
   }
-  return (
-    <span className="font-mono">{issue?.identifier ?? `Issue syncing…`}</span>
-  )
+  return { identifier: null, subject: `Issue syncing…` }
+}
+
+/** EXP-688: the phase a tab's tooltip spells out — the dock tab shows the
+ * identity, so "Live · macbook" moves into the hover title. Mirrors the
+ * session view's `phaseLabel` for the states a synced row can tell apart (a
+ * tab has no viewer connection of its own). */
+function tabPhaseLabel(row: AgentSessionRow): string {
+  const { session, device, paused } = row
+  if (paused) return `Paused · ${device.label ?? `the device`} is offline`
+  if (session.status === `ended`) return `Session ended`
+  if (session.needsInput) {
+    return device.label ? `Needs your input · ${device.label}` : `Needs your input`
+  }
+  return device.label ? `Live · ${device.label}` : `Live`
 }
 
 function DockTab({
   row,
   expanded,
+  currentUserId,
   onClick,
+  onCollapse,
 }: {
   row: AgentSessionRow
   expanded: boolean
+  currentUserId: string
   onClick: () => void
+  /** What the X does for anything but a live own run: put the dock away. */
+  onCollapse: () => void
 }) {
   const { session, issue, device, paused } = row
-  // Action runs label their tab with the action-name snapshot (EXP-253).
-  const label = issue?.identifier ?? session.actionName ?? `Batch`
+  const identity = sessionIdentity(row)
+  // EXP-688: the X ends a live run of your own (with the same confirmation
+  // the mobile "…" menu shows); on a finished or paused one it just puts the
+  // dock away, because there is nothing left to stop.
+  const { canKill, requestKill, dialog } = useKillSession(
+    session,
+    currentUserId,
+    device.label,
+    paused
+  )
   return (
-    <Button
-      variant="ghost"
-      onClick={onClick}
+    <div
       className={cn(
-        `h-9 shrink-0 gap-1.5 rounded-none border-r border-border px-3 text-xs font-normal`,
+        `flex h-9 shrink-0 items-center border-r border-border pr-1`,
         expanded && `bg-muted`,
         // EXP-550: the host machine is offline — the agent is parked, the
         // tab greys out instead of pinging "live".
         paused && `opacity-60`
       )}
-      title={
-        paused ? `Paused · ${device.label ?? `the device`} is offline` : undefined
-      }
     >
-      {paused ? (
-        <span className="size-2 shrink-0 rounded-full bg-muted-foreground/40" />
-      ) : session.status === `running` || session.status === `in_review` ? (
-        (() => {
-          // EXP-214 display split: needs-input amber beats everything, a
-          // merged PR renders blue, review stays green.
-          const state = sessionDisplayState(session, issue?.prState)
-          if (state === `running`) return <RunningDot />
-          const dot =
-            state === `needs_input`
-              ? `bg-amber-500`
-              : state === `done`
-                ? `bg-sky-500`
-                : `bg-emerald-500`
-          return <span className={`size-2 shrink-0 rounded-full ${dot}`} />
-        })()
-      ) : (
-        <span className="size-2 shrink-0 rounded-full bg-muted-foreground/40" />
-      )}
-      <span className="max-w-[10rem] truncate font-mono">{label}</span>
-      {device.label && (
-        <span className="max-w-[8rem] truncate text-muted-foreground">
-          {` · ${device.label}`}
-        </span>
-      )}
-    </Button>
+      <Button
+        variant="ghost"
+        onClick={onClick}
+        className="h-9 shrink-0 gap-1.5 rounded-none px-3 text-xs font-normal"
+        title={tabPhaseLabel(row)}
+      >
+        {paused ? (
+          <span className="size-2 shrink-0 rounded-full bg-muted-foreground/40" />
+        ) : session.status === `running` || session.status === `in_review` ? (
+          (() => {
+            // EXP-214 display split: needs-input amber beats everything, a
+            // merged PR renders blue, review stays green.
+            const state = sessionDisplayState(session, issue?.prState)
+            if (state === `running`) return <RunningDot />
+            const dot =
+              state === `needs_input`
+                ? `bg-amber-500`
+                : state === `done`
+                  ? `bg-sky-500`
+                  : `bg-emerald-500`
+            return <span className={`size-2 shrink-0 rounded-full ${dot}`} />
+          })()
+        ) : (
+          <span className="size-2 shrink-0 rounded-full bg-muted-foreground/40" />
+        )}
+        {identity.identifier ? (
+          <>
+            <span className="shrink-0 font-mono">{identity.identifier}</span>
+            <span className="max-w-[180px] truncate">{identity.subject}</span>
+          </>
+        ) : (
+          // No identifier to lead with: the action's name (or "Batch") takes
+          // the mono slot on its own, as it always has.
+          <span className="max-w-[180px] truncate font-mono">
+            {session.actionName ??
+              (session.issueId ? identity.subject : `Batch`)}
+          </span>
+        )}
+        {device.label && (
+          <span className="max-w-[8rem] truncate text-muted-foreground">
+            {` · ${device.label}`}
+          </span>
+        )}
+      </Button>
+      <Button
+        variant="ghost"
+        className="h-5 w-5 p-0 text-muted-foreground"
+        aria-label={canKill ? `Kill session` : `Close session tab`}
+        title={canKill ? `Kill session` : `Close session tab`}
+        onClick={(event) => {
+          // The tab beside it toggles the panel; the X must not.
+          event.stopPropagation()
+          if (canKill) requestKill()
+          else onCollapse()
+        }}
+      >
+        <CloseIcon className="size-3" />
+      </Button>
+      {dialog}
+    </div>
   )
 }

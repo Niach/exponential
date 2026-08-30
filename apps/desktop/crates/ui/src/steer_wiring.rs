@@ -1198,6 +1198,9 @@ pub struct SteerSessionInfo {
     /// EXP-432: the requesting teammate on a shared-device relay start
     /// (`heartbeat_scope.started_by_id`) — `None` on local/own starts.
     pub started_by_id: Option<String>,
+    /// EXP-688: the ref the published diff is measured from
+    /// (`origin/<default branch>`) — see [`steer::activity::worktree_diff`].
+    pub base_ref: Option<String>,
 }
 
 /// Attach a steer publisher to a freshly launched coding session (§8.4). The
@@ -1224,6 +1227,7 @@ pub fn attach_publisher(
         codex_originator,
         codex_resume_id,
         started_by_id,
+        base_ref,
     } = info;
     let session_agent = match agent {
         CodingAgent::Claude => steer::activity::SessionAgent::Claude,
@@ -1392,6 +1396,7 @@ pub fn attach_publisher(
         EmitterConfig {
             agent: session_agent,
             worktree,
+            base_ref,
             extra_secrets,
             // The live grid: the emitter watches it to confirm pickers the
             // transcript can't show while PENDING (EXP-150) and to choreograph

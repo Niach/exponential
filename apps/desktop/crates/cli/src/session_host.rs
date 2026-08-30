@@ -124,6 +124,7 @@ pub fn launch(
         clone,
         repository_id,
         branch,
+        base_ref,
         spawn,
         heartbeat_scope,
         bypass_permissions,
@@ -269,6 +270,9 @@ pub fn launch(
             EmitterConfig {
                 agent: session_agent,
                 worktree: worktree.clone(),
+                // EXP-688: the published diff is measured from the branch's
+                // base, so it stays the PR's content after the agent commits.
+                base_ref: base_ref.clone(),
                 term: Some(term),
                 extra_secrets: env.personal_key.iter().cloned().collect(),
                 on_needs_input: Some(Arc::new(move |pending| {

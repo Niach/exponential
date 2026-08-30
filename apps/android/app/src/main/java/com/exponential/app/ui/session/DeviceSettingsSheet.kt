@@ -59,6 +59,8 @@ import com.exponential.app.ui.components.AgentSegmentedTabs
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.DEFAULT_AGENT
+import com.exponential.app.ui.components.CircleIconButton
+import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
@@ -118,9 +120,6 @@ fun DeviceSettingsSheet(
     val defaultError by viewModel.defaultError.collectAsStateWithLifecycle()
     val defaultsError by viewModel.defaultsError.collectAsStateWithLifecycle()
     val commandStates by viewModel.commandStates.collectAsStateWithLifecycle()
-    // EXP-484: bumped on every window pick — the prefs store isn't observable,
-    // so this is what re-reads it for the Agents section's rows.
-    val usageWindowVersion by viewModel.usageWindowVersion.collectAsStateWithLifecycle()
 
     var label by remember { mutableStateOf(device.deviceLabel.ifBlank { device.deviceId }) }
     var nameFocused by remember { mutableStateOf(false) }
@@ -188,10 +187,11 @@ fun DeviceSettingsSheet(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(horizontal = 72.dp),
                 )
-                TextButton(
+                GlassPillButton(
+                    "Done",
                     onClick = onDismiss,
                     modifier = Modifier.align(Alignment.CenterEnd),
-                ) { Text("Done") }
+                )
             }
 
             Column(
@@ -403,66 +403,45 @@ fun DeviceSettingsSheet(
                             },
                         )
                     }
+                    // EXP-688: the machine's sign-in and usage for THIS agent
+                    // live in the agent's own card — the standalone "Agents"
+                    // section repeated the agent list a second time.
+                    GroupDivider()
+                    AgentAccountBlock(
+                        agent = agentTab,
+                        account = device.agentAccounts?.get(agentTab),
+                        usage = device.agentUsage?.get(agentTab),
+                        usageAt = device.agentUsageAt,
+                        state = commandStates[agentLoginCommandKey(agentTab)],
+                        // The command opens a login flow ON the machine and
+                        // publishes its URL back, so it needs a machine that is
+                        // ours, online, and new enough to advertise the cap. pi
+                        // has no remote sign-in at all (the server refuses it).
+                        canLogin = device.online && device.canAgentLogin &&
+                            device.isMine && agentTab != "pi",
+                        onLogin = { switchAccount ->
+                            if (switchAccount && agentTab == "codex") {
+                                switchConfirmAgent = agentTab
+                            } else {
+                                viewModel.agentLogin(
+                                    device.deviceId,
+                                    agentTab,
+                                    switchAccount,
+                                    device.online,
+                                )
+                            }
+                        },
+                    )
                 }
                 ErrorCaption(defaultsError)
                 Spacer(Modifier.height(8.dp))
 
-                // ── Agents (EXP-484) ─────────────────────────────────────────
-                // Read-only sign-in + usage status per agent, plus the login
-                // the machine runs for itself. Only agents the machine
-                // actually reported on are listed — a machine older than
-                // EXP-484 reports none, and the whole section disappears
-                // rather than claiming everything is signed out.
-                val statusAgents = editableAgents.filter { agent ->
-                    device.agentAccounts?.containsKey(agent) == true ||
-                        device.agentUsage?.containsKey(agent) == true
-                }
-                if (statusAgents.isNotEmpty()) {
-                    SectionLabel("Agents")
-                    OptionGroup {
-                        statusAgents.forEachIndexed { index, agent ->
-                            if (index > 0) GroupDivider()
-                            AgentAccountRow(
-                                agent = agent,
-                                account = device.agentAccounts?.get(agent),
-                                usage = device.agentUsage?.get(agent),
-                                usageAt = device.agentUsageAt,
-                                state = commandStates[agentLoginCommandKey(agent)],
-                                // The command opens a login flow ON the machine
-                                // and publishes its URL back, so it needs a
-                                // machine that is ours, online, and new enough
-                                // to advertise the cap. pi has no remote
-                                // sign-in at all (the server refuses it).
-                                canLogin = device.online && device.canAgentLogin &&
-                                    device.isMine && agent != "pi",
-                                selectedWindow = remember(agent, usageWindowVersion) {
-                                    viewModel.readUsageWindow(agent)
-                                },
-                                onSelectWindow = { key ->
-                                    viewModel.rememberUsageWindow(agent, key)
-                                },
-                                onLogin = { switchAccount ->
-                                    if (switchAccount && agent == "codex") {
-                                        switchConfirmAgent = agent
-                                    } else {
-                                        viewModel.agentLogin(
-                                            device.deviceId,
-                                            agent,
-                                            switchAccount,
-                                            device.online,
-                                        )
-                                    }
-                                },
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-
                 // ── Worktrees (EXP-481) ──────────────────────────────────────
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(end = 24.dp),
+                    // 16dp: the icon button's right edge lines up with the
+                    // section cards below it.
+                    modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
                 ) {
                     SectionLabel("Worktrees")
                     Spacer(Modifier.weight(1f))
@@ -477,11 +456,15 @@ fun DeviceSettingsSheet(
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                         } else {
-                            TextButton(
+                            // EXP-688: icon-only, at the trailing edge of the
+                            // section header (web/desktop/iOS parity).
+                            CircleIconButton(
+                                ExpIcons.uiClean,
+                                "Prune merged worktrees",
                                 onClick = {
                                     viewModel.pruneWorktrees(device.deviceId, device.online)
                                 },
-                            ) { Text("Prune merged") }
+                            )
                         }
                     }
                 }
@@ -652,33 +635,39 @@ private fun WorktreeRow(
 }
 
 /**
- * One agent's status row in the Agents section (EXP-484): who is signed in on
- * that machine, its usage windows while they are fresh, and the button that
- * asks the machine to run the agent's OWN sign-in flow. No credential is ever
- * carried here — the machine publishes a login URL and the user finishes on
- * whatever device they are holding.
+ * One agent's account + usage inside that agent's card (EXP-484/EXP-688): who
+ * is signed in on that machine, the button that asks the machine to run the
+ * agent's OWN sign-in flow, and its usage cards while the numbers are fresh.
+ * No credential is ever carried here — the machine publishes a login URL and
+ * the user finishes on whatever device they are holding.
  */
 @Composable
-private fun AgentAccountRow(
+private fun AgentAccountBlock(
     agent: String,
     account: AgentAccount?,
     usage: AgentUsage?,
     usageAt: String?,
     state: DeviceCommandUiState?,
     canLogin: Boolean,
-    selectedWindow: String?,
-    onSelectWindow: (String) -> Unit,
     onLogin: (Boolean) -> Unit,
 ) {
     val busy = state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running
-    // Freshness is decided once, on the same clock the strip uses: numbers
-    // older than the window are simply not shown (fail closed).
-    val fresh = usage != null &&
-        AgentUsagePresentation.isFresh(usage.fetchedAt, System.currentTimeMillis())
-    Column(modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp)) {
+    // Freshness is decided once, on the shared clock: numbers older than the
+    // window are simply not shown (fail closed).
+    val fresh = usage?.takeIf {
+        AgentUsagePresentation.isFresh(it.fetchedAt, System.currentTimeMillis())
+    }
+    Column(modifier = Modifier.padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text(
-                AgentUsagePresentation.accountRow(agent, account),
+                // The card already names the agent — this line is about the
+                // account, so it drops the `claude · ` prefix the old Agents
+                // section needed.
+                when {
+                    account == null -> "Sign-in status unknown"
+                    !account.signedIn -> "Not signed in"
+                    else -> AgentUsagePresentation.accountCaption(account)
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
@@ -693,31 +682,22 @@ private fun AgentAccountRow(
                 )
                 canLogin -> {
                     val switching = account?.signedIn == true
-                    TextButton(onClick = { onLogin(switching) }) {
-                        Icon(
-                            if (switching) ExpIcons.uiSwap else ExpIcons.uiSignIn,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (switching) "Switch account" else "Login")
-                    }
+                    Spacer(Modifier.width(8.dp))
+                    GlassPillButton(
+                        if (switching) "Switch account" else "Login",
+                        onClick = { onLogin(switching) },
+                        icon = if (switching) ExpIcons.uiSwap else ExpIcons.uiSignIn,
+                    )
                 }
             }
         }
-        if (fresh && usage != null) {
-            Spacer(Modifier.height(6.dp))
-            AgentUsageWindowRows(
-                agent = agent,
-                usage = usage,
-                selectedKey = selectedWindow,
-                onSelect = onSelectWindow,
-                modifier = Modifier.padding(end = 12.dp),
-            )
-        }
-        // No button here means nothing can be done from this screen, so the row
-        // says how old what it shows is instead of looking live.
-        if (!canLogin) {
+        LoginResultCaption(state)
+        if (fresh != null) {
+            Spacer(Modifier.height(10.dp))
+            AgentUsageCards(usage = fresh, compact = true)
+        } else if (usage != null || account != null) {
+            // Nothing live to show, so the block says how old what it knows is
+            // instead of looking current.
             (account?.checkedAt ?: usageAt)?.let { at ->
                 val relative = relativeTime(at)
                 if (relative.isNotEmpty()) {
@@ -727,12 +707,11 @@ private fun AgentAccountRow(
                         color = MaterialTheme.colorScheme.onSurface.copy(
                             alpha = TextEmphasis.Tertiary,
                         ),
-                        modifier = Modifier.padding(top = 2.dp),
+                        modifier = Modifier.padding(top = 4.dp),
                     )
                 }
             }
         }
-        LoginResultCaption(state)
     }
 }
 
@@ -864,6 +843,11 @@ internal fun editableAgents(device: SteerDevice): List<String> {
         addAll(device.agents.orEmpty())
         addAll(device.unauthedAgents)
         addAll(device.launchDefaults?.agents?.keys.orEmpty())
+        // EXP-688: an agent the machine only reports an ACCOUNT or USAGE for
+        // still needs its tab — that block is where its sign-in and limits
+        // live now.
+        addAll(device.agentAccounts?.keys.orEmpty())
+        addAll(device.agentUsage?.keys.orEmpty())
     }
     val ordered = DomainContract.codingAgentValues.filter { it in known }
     return ordered.ifEmpty { DomainContract.codingAgentValues }

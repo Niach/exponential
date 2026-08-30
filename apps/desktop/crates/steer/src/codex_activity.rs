@@ -1036,7 +1036,12 @@ fn run_emitter_with_root(
         }
 
         // 5) Debounced worktree diff snapshot (only when changed).
-        diffs.tick(&config.worktree, &sender, &redactor);
+        diffs.tick(
+            &config.worktree,
+            config.base_ref.as_deref(),
+            &sender,
+            &redactor,
+        );
 
         // 6) Wait out the poll interval — interrupted by a remote answer,
         //    with the same parked-retry contract as the claude emitter

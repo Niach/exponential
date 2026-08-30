@@ -382,16 +382,62 @@ pub fn working_tree_diff(repo: &Path) -> Result<Vec<DiffFile>, GitError> {
         // broken repo still errors on the ls-files below.
         Err(_) => Vec::new(),
     };
+    files.extend(untracked_diff_files(repo)?);
+    Ok(files)
+}
+
+/// The whole BRANCH vs the base it was cut from (EXP-688): everything the
+/// PR would carry, committed work included.
+///
+/// `git merge-base HEAD <base_ref>` then `git diff <merge-base>` — the
+/// three-dot semantics, so a base that moved on since the branch was cut
+/// does not show up as the branch's own changes — plus the same untracked
+/// synthesis [`working_tree_diff`] does, so work in flight still shows.
+///
+/// Falls back to [`working_tree_diff`] whenever there is no base to compare
+/// against (`None`/blank `base_ref`, no such ref, an unborn HEAD): the old
+/// uncommitted view is a worse answer, never a broken one. That fallback is
+/// the whole reason "Latest changes" went blank the moment an agent
+/// committed — the frame showed `git diff` only.
+pub fn branch_diff(repo: &Path, base_ref: Option<&str>) -> Result<Vec<DiffFile>, GitError> {
+    let Some(base) = base_ref.map(str::trim).filter(|base| !base.is_empty()) else {
+        return working_tree_diff(repo);
+    };
+    let merge_base = match run_git(
+        Some(repo),
+        &["merge-base", "HEAD", base],
+        None,
+        "git merge-base",
+    ) {
+        Ok(hash) => hash.trim().to_string(),
+        Err(_) => return working_tree_diff(repo),
+    };
+    if merge_base.is_empty() {
+        return working_tree_diff(repo);
+    }
+    let mut files = match run_git(Some(repo), &["diff", &merge_base], None, "git diff") {
+        Ok(raw) => parse_unified_diff(&raw),
+        Err(_) => return working_tree_diff(repo),
+    };
+    files.extend(untracked_diff_files(repo)?);
+    Ok(files)
+}
+
+/// The synthesized all-addition entries for every untracked path — shared by
+/// [`working_tree_diff`] and [`branch_diff`].
+fn untracked_diff_files(repo: &Path) -> Result<Vec<DiffFile>, GitError> {
     let untracked = run_git(
         Some(repo),
         &["ls-files", "--others", "--exclude-standard"],
         None,
         "git ls-files --others",
     )?;
-    for path in untracked.lines().map(str::trim).filter(|l| !l.is_empty()) {
-        files.push(untracked_diff_file(repo, path));
-    }
-    Ok(files)
+    Ok(untracked
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|path| untracked_diff_file(repo, path))
+        .collect())
 }
 
 /// Synthesize the all-addition [`DiffFile`] for one untracked path (git emits
@@ -1277,6 +1323,51 @@ new file mode 100644
         assert!(!untracked.binary);
         assert_eq!(untracked.hunks[0].lines[0].content, "u1");
         assert_eq!(untracked.hunks[0].lines[0].new_line, Some(1));
+    }
+
+    /// EXP-688: the branch diff is what the PR carries — committed work
+    /// included — measured from the merge base, so a base that moved on is
+    /// not attributed to the branch. Untracked work in flight still shows,
+    /// and a base that cannot be resolved degrades to the working tree.
+    #[test]
+    fn branch_diff_measures_committed_work_from_the_merge_base() {
+        let d = temp_dir("branchdiff");
+        let r = &d.0;
+        init_repo(r);
+        write(r, "base.txt", "a\n");
+        commit_all(r, "init");
+
+        git(r, &["checkout", "--quiet", "-b", "exp/EXP-1"]);
+        write(r, "landed.txt", "one\n");
+        commit_all(r, "the agent committed"); // gone from `git diff`
+
+        // The base moved on after the branch was cut — not our change.
+        git(r, &["checkout", "--quiet", "main"]);
+        write(r, "theirs.txt", "other\n");
+        commit_all(r, "someone else");
+        git(r, &["checkout", "--quiet", "exp/EXP-1"]);
+        write(r, "flight.txt", "wip\n"); // untracked, still in flight
+
+        let files = branch_diff(r, Some("main")).unwrap();
+        let paths: Vec<&str> = files.iter().map(|file| file.path.as_str()).collect();
+        assert!(paths.contains(&"landed.txt"), "{paths:?}");
+        assert!(paths.contains(&"flight.txt"), "{paths:?}");
+        assert!(!paths.contains(&"theirs.txt"), "{paths:?}");
+
+        // The old uncommitted view is the fallback, never the answer.
+        let no_base = branch_diff(r, None).unwrap();
+        assert_eq!(
+            no_base.iter().map(|file| file.path.as_str()).collect::<Vec<_>>(),
+            vec!["flight.txt"]
+        );
+        // An unresolvable base falls back the same way, it never errors.
+        let unknown = branch_diff(r, Some("origin/nope")).unwrap();
+        assert_eq!(
+            unknown.iter().map(|file| file.path.as_str()).collect::<Vec<_>>(),
+            vec!["flight.txt"]
+        );
+        // Blank is no base at all.
+        assert_eq!(branch_diff(r, Some("  ")).unwrap().len(), 1);
     }
 
     #[test]

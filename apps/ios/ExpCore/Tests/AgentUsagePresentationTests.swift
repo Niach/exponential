@@ -4,9 +4,10 @@ import XCTest
 
 // EXP-484: the agent auth-status / usage presentation rules, locked against
 // the SAME fixture the web, Android and desktop mirrors use (same test names).
-// Everything here is pure: parsing the device-reported jsonb, picking the
-// window a bar shows, the severity thresholds, the freshness gate, and the
-// countdown/caption strings — all four clients must print them byte-for-byte.
+// Everything here is pure: parsing the device-reported jsonb, grouping the
+// reported windows into cards (EXP-688), the severity thresholds, the
+// freshness gate, and the countdown/caption strings — all four clients must
+// print them byte-for-byte.
 final class AgentUsagePresentationTests: XCTestCase {
     private let now = WireTimestamps.parse("2026-08-28T10:00:00Z")!
 
@@ -24,10 +25,6 @@ final class AgentUsagePresentationTests: XCTestCase {
         "pi":{"signedIn":true,"plan":"anthropic (oauth)",
         "checkedAt":"2026-08-28T09:58:00Z"}}
         """
-
-    private func fixtureUsage() throws -> AgentUsage {
-        try XCTUnwrap(AgentUsagePresentation.parse(usageJson))
-    }
 
     // A device that over-reports must not paint outside the bar; a negative
     // percentage floors at zero rather than inverting it.
@@ -72,26 +69,44 @@ final class AgentUsagePresentationTests: XCTestCase {
         XCTAssertNil(AgentUsagePresentation.parseAccounts(nil))
     }
 
-    func testSelectWindowPrefersRememberedKey() throws {
-        let usage = try fixtureUsage()
-        XCTAssertEqual(
-            AgentUsagePresentation.selectWindow(usage, preferredKey: "session")?.key, "session"
-        )
-        XCTAssertEqual(
-            AgentUsagePresentation.selectWindow(usage, preferredKey: "session")?.label, "5h"
-        )
-    }
+    // EXP-688: every reported window is drawn, grouped Current session /
+    // Weekly limits / Other. There is no pinned window any more — the cards
+    // and their titles are the whole contract, locked ×4.
+    func testUsageGroupsSplitCurrentWeeklyAndOther() throws {
+        let usage = try XCTUnwrap(AgentUsagePresentation.parse("""
+            {"fetchedAt":"2026-08-28T09:58:00Z","stale":false,"windows":[
+            {"key":"session","label":"5h","percent":42,"resetsAt":"2026-08-28T12:10:30Z"},
+            {"key":"weekly","label":"Week","percent":78,"resetsAt":"2026-09-01T00:00:00Z"},
+            {"key":"model:fable","label":"Fable","percent":96,"resetsAt":null},
+            {"key":"credits","label":"Credits","percent":16,"resetsAt":null}]}
+            """))
+        let groups = AgentUsagePresentation.usageGroups(usage, now: now)
+        XCTAssertEqual(groups.map(\.key), ["session", "weekly", "other"])
+        XCTAssertEqual(groups.map(\.title), ["Current session", "Weekly limits", "Other"])
+        XCTAssertEqual(groups[0].cards.map(\.title), ["Current session"])
+        // The all-models window leads its group; the per-model ones follow in
+        // report order.
+        XCTAssertEqual(groups[1].cards.map(\.title), ["All models", "Fable only"])
+        XCTAssertEqual(groups[2].cards.map(\.title), ["Credits"])
+        XCTAssertEqual(groups[0].cards[0].percent, 42)
+        XCTAssertEqual(groups[0].cards[0].caption, "resets in 2h 10m")
+        XCTAssertEqual(groups[1].cards[0].severity, .warning)
+        XCTAssertEqual(groups[1].cards[1].severity, .danger)
+        // A window that never resets has nothing to say under its bar.
+        XCTAssertEqual(groups[1].cards[1].caption, "")
+        XCTAssertEqual(groups[2].cards[0].key, "credits")
 
-    // No preference, or one the machine no longer reports, falls back to the
-    // fullest window — the one worth warning about.
-    func testSelectWindowFallsBackToMaxPercent() throws {
-        let usage = try fixtureUsage()
-        XCTAssertEqual(AgentUsagePresentation.selectWindow(usage)?.key, "model:fable")
-        XCTAssertEqual(
-            AgentUsagePresentation.selectWindow(usage, preferredKey: "missing")?.key, "model:fable"
-        )
-        XCTAssertNil(AgentUsagePresentation.selectWindow(nil))
-        XCTAssertNil(AgentUsagePresentation.selectWindow(AgentUsage(windows: [])))
+        // An idle session window reads as not-started rather than "0%" alone,
+        // and an empty group is dropped entirely.
+        let idle = try XCTUnwrap(AgentUsagePresentation.parse("""
+            {"fetchedAt":"2026-08-28T09:58:00Z","windows":[
+            {"key":"session","label":"5h","percent":0,"resetsAt":null}]}
+            """))
+        let idleGroups = AgentUsagePresentation.usageGroups(idle, now: now)
+        XCTAssertEqual(idleGroups.map(\.key), ["session"])
+        XCTAssertEqual(idleGroups[0].cards[0].caption, "Starts when a message is sent")
+        XCTAssertEqual(idleGroups[0].cards[0].severity, .normal)
+        XCTAssertTrue(AgentUsagePresentation.usageGroups(AgentUsage(windows: []), now: now).isEmpty)
     }
 
     func testSeverityThresholds() {

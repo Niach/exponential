@@ -294,9 +294,13 @@ pub struct LocalCodingSession {
     pub manager: WeakEntity<TerminalManager>,
     /// The team action this run executes (`None` for issue/batch sessions).
     pub action_id: Option<String>,
-    /// EXP-484: the agent CLI this session runs — the per-tab toolbar reads
-    /// its usage windows off THIS machine's own snapshot.
+    /// EXP-484: the agent CLI this session runs.
     pub agent: coding::CodingAgent,
+    /// EXP-688: the session's worktree and the ref its "Latest changes" bar
+    /// diffs against (`origin/<default branch>`; `None` for a repo-less
+    /// scratch run — nothing to compare to).
+    pub worktree: PathBuf,
+    pub base_ref: Option<String>,
     /// EXP-637: `schedule`/`event` when an AUTOMATION started this run —
     /// nobody is watching its tab, so an agent-declared end closes it
     /// instead of leaving an ended strip. `None` = a person started it.
@@ -1339,6 +1343,8 @@ pub fn spawn_into_window(
         codex_originator: prepared.codex_originator.clone(),
         codex_resume_id: prepared.codex_resume_id.clone(),
         started_by_id: prepared.heartbeat_scope.started_by_id.clone(),
+        // EXP-688: the emitter measures the published diff from here.
+        base_ref: prepared.base_ref.clone(),
     };
     // Action identity for the registry's exit announcement (EXP-257).
     let action_id = match &prepared.tab_kind {
@@ -1349,8 +1355,10 @@ pub fn spawn_into_window(
     // policy) and the run worktree to reclaim at exit.
     let started_reason = prepared.heartbeat_scope.started_reason.clone();
     let run_cleanup = prepared.run_cleanup.clone();
-    // EXP-484: which agent this tab is running (the usage bar's key).
+    // EXP-484: which agent this tab is running.
     let agent = prepared.agent;
+    // EXP-688: the dock's Latest-changes bar polls the branch diff here.
+    let base_ref = prepared.base_ref.clone();
 
     let sessions = LocalSessions::global(cx);
     let notify_sessions = sessions.downgrade();
@@ -1387,7 +1395,7 @@ pub fn spawn_into_window(
                 &subject,
                 terminal_tab,
                 &manager,
-                worktree,
+                worktree.clone(),
                 steer_info,
                 cx,
             );
@@ -1408,6 +1416,8 @@ pub fn spawn_into_window(
                     manager: manager.downgrade(),
                     action_id,
                     agent,
+                    worktree,
+                    base_ref,
                     started_reason,
                     run_cleanup,
                 },

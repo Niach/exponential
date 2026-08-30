@@ -47,6 +47,9 @@ fun GlassPillButton(
     /** A call in flight: the icon becomes a spinner, so the pill keeps its
      *  width and the caller only has to dim it via [enabled]. */
     loading: Boolean = false,
+    /** EXP-688: a solid fill under the glass tint, for a pill floating over
+     *  scrolling content (the steer screen's Merge pill). */
+    opaque: Boolean = false,
 ) {
     val fg = MaterialTheme.colorScheme.onSurface.copy(
         alpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary,
@@ -55,7 +58,7 @@ fun GlassPillButton(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = modifier
-            .glassButton()
+            .glassButton(opaque = opaque)
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 12.dp, vertical = verticalPadding),
     ) {
