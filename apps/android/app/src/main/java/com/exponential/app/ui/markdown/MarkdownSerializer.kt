@@ -19,6 +19,14 @@ import com.exponential.app.ui.markdown.model.RichText
  */
 object MarkdownSerializer {
 
+    /**
+     * The GFM interchange form of an intentional blank line — a paragraph
+     * holding only a no-break space, written as the entity so it survives
+     * every client's parser as a visually empty paragraph (EXP-7 on web,
+     * EXP-689 here).
+     */
+    const val BLANK_LINE_MARKER = "&nbsp;"
+
     fun blocksToMarkdown(blocks: List<ContentBlock>): String {
         val parts = mutableListOf<String>()
         for (block in blocks) {
@@ -57,7 +65,19 @@ object MarkdownSerializer {
 
         // Group consecutive code-block lines into single fenced segments; every
         // other line is its own segment.
-        val segments = segment(attrs)
+        val allSegments = segment(attrs)
+        // EXP-689: an intentional blank line (two Enters) is an empty plain
+        // paragraph. GFM cannot carry one as bare newlines — every parser
+        // folds `A\n\n\n\nB` into `A\n\nB` — so INTERIOR blank paragraphs
+        // are written as the contract's `&nbsp;` line (web's MarkdownParagraph
+        // does exactly this) and leading/trailing ones are dropped as
+        // meaningless spacing. Blank lines inside a fence are code, untouched.
+        fun isBlankParagraph(seg: Segment) =
+            !seg.isCode && attrs[seg.startLine].kind == BlockKind.Paragraph && lines[seg.startLine].isBlank()
+        val firstContent = allSegments.indexOfFirst { !isBlankParagraph(it) }
+        if (firstContent < 0) return ""
+        val lastContent = allSegments.indexOfLast { !isBlankParagraph(it) }
+        val segments = allSegments.subList(firstContent, lastContent + 1)
         val out = StringBuilder()
         for ((segIndex, seg) in segments.withIndex()) {
             if (segIndex > 0) {
@@ -70,6 +90,8 @@ object MarkdownSerializer {
                 out.append("```").append(lang).append("\n")
                 out.append((seg.startLine..seg.endLine).joinToString("\n") { lines[it] })
                 out.append("\n```")
+            } else if (isBlankParagraph(seg)) {
+                out.append(BLANK_LINE_MARKER)
             } else {
                 val i = seg.startLine
                 out.append(serializeLine(lines[i], attrs[i], lineMarks[i]))

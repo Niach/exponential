@@ -30,6 +30,12 @@ class RemoteSyncedText(
     // read/written from Compose effects and focus handlers (single-threaded UI).
     private var baseline: String? = null
     private var focused = false
+    // The persisted form of the most recent local save (EXP-689). The
+    // debounced autosave fires while the user keeps typing, so by the time
+    // the Electric echo of that save arrives `normalizeForEcho(text)` has
+    // already moved past it — without this the echo read as a foreign edit
+    // and flashed the reload banner (a layout jump) on every autosave.
+    private var lastSaved: String? = null
 
     val isDirty: Boolean get() = baseline != null && text != baseline
 
@@ -62,12 +68,33 @@ class RemoteSyncedText(
                 baseline = remote
                 pendingRemote = null
             }
+            // Echo of an EARLIER save the user has since typed past: the remote
+            // carries exactly what we sent, so it is ours — re-baseline and
+            // keep going silently. Never a banner.
+            remote == lastSaved -> {
+                baseline = remote
+                pendingRemote = null
+            }
             // Clean (BYTE equality — never normalized, which is what protects an
             // in-flight draft image from a live apply) and not focused: live-apply.
             !focused && text == base -> seed(remote)
             // Dirty or focused: stash for the reload banner (last-write-wins until
             // the user reloads — the local save still overwrites remote meanwhile).
             else -> pendingRemote = remote
+        }
+    }
+
+    /**
+     * The ViewModel is about to persist [persisted] (already in its
+     * server-side form). Recorded BEFORE the request goes out so the echo can
+     * never race it; if the echo somehow landed first and got stashed, the
+     * stash is dropped here instead of surfacing.
+     */
+    fun markSaved(persisted: String) {
+        lastSaved = persisted
+        if (pendingRemote == persisted) {
+            baseline = persisted
+            pendingRemote = null
         }
     }
 

@@ -61,6 +61,28 @@ public enum MarkdownConversion {
 
     // MARK: - NSAttributedString → Markdown
 
+    /// The GFM interchange form of an intentional blank line — a paragraph
+    /// holding only a no-break space, written as the entity so it survives
+    /// every client's parser as a visually empty paragraph (EXP-7 on web,
+    /// EXP-689 here).
+    public static let blankLineMarker = "&nbsp;"
+
+    /// Empty, or whitespace-only (U+00A0 included) and not fence content.
+    private static func isBlankParagraph(_ range: NSRange, in attrStr: NSAttributedString) -> Bool {
+        if range.length == 0 {
+            // A zero-length line inside a fence is a blank code line, kept
+            // by `splitIntoParagraphs` precisely so it survives.
+            guard range.location < attrStr.length else { return true }
+            return (attrStr.attribute(.markdownCodeBlock, at: range.location, effectiveRange: nil) as? Bool) != true
+        }
+        let attrs = attrStr.attributes(at: range.location, effectiveRange: nil)
+        if attrs[.markdownCodeBlock] as? Bool == true || attrs[.markdownTableBlock] as? Bool == true {
+            return false
+        }
+        let text = (attrStr.string as NSString).substring(with: range)
+        return text.unicodeScalars.allSatisfy { CharacterSet.whitespaces.contains($0) }
+    }
+
     public static func attributedStringToMarkdown(_ attrStr: NSAttributedString) -> String {
         let fullText = attrStr.string
         guard !fullText.isEmpty else { return "" }
@@ -73,9 +95,30 @@ public enum MarkdownConversion {
         let paragraphs = splitIntoParagraphs(attrStr)
         log.debug("attributedStringToMarkdown: \(paragraphs.count) paragraphs from \(attrStr.length) chars")
 
+        // EXP-689: an intentional blank line (two Returns) is an empty,
+        // whitespace-only paragraph. GFM cannot carry one as bare newlines —
+        // every parser folds `A\n\n\n\nB` into `A\n\nB` — so INTERIOR blank
+        // paragraphs are written as the contract's `&nbsp;` line (web's
+        // MarkdownParagraph does exactly this) and leading/trailing ones are
+        // dropped as meaningless spacing. A blank line inside a fence is code.
+        let blank = paragraphs.map { isBlankParagraph($0, in: attrStr) }
+        let firstContent = blank.firstIndex(of: false) ?? paragraphs.count
+        let lastContent = blank.lastIndex(of: false) ?? -1
+
         for (i, para) in paragraphs.enumerated() {
             guard para.location < attrStr.length, NSMaxRange(para) <= attrStr.length else {
                 log.error("paragraph out of bounds: \(para.location)+\(para.length) vs \(attrStr.length)")
+                continue
+            }
+            if blank[i] {
+                guard i > firstContent, i < lastContent else { continue }
+                if inCodeBlock {
+                    markdown += "```"
+                    inCodeBlock = false
+                    codeBlockLang = nil
+                }
+                inTableBlock = false
+                markdown += "\n\n" + blankLineMarker
                 continue
             }
             let paraStr = attrStr.attributedSubstring(from: para)
@@ -124,7 +167,10 @@ public enum MarkdownConversion {
             inTableBlock = false
 
             if i > 0 {
-                if let prevAttrs = i > 0 ? attrStr.attributes(at: paragraphs[i - 1].location, effectiveRange: nil) : nil,
+                // A blank line between two items is a paragraph break, never a
+                // tight-list joiner, whatever attributes its newline carries.
+                if !blank[i - 1],
+                   let prevAttrs = i > 0 ? attrStr.attributes(at: paragraphs[i - 1].location, effectiveRange: nil) : nil,
                    (prevAttrs[.markdownListType] as? String) != nil,
                    (attrs[.markdownListType] as? String) != nil {
                     markdown += "\n"
@@ -352,8 +398,23 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
                 .paragraphStyle: MarkdownStyle.blockquoteParagraphStyle,
             ])
         }
+        let paragraphStart = collector.currentText.length
         renderChildrenToBlocks(node, collector: collector, context: &context)
         if context.inBlockquote { context.popStyle() }
+        // EXP-689: a whitespace-only plain paragraph is the stored form of an
+        // intentional blank line (`&nbsp;`, decoded by cmark to U+00A0) —
+        // fold it to a genuinely empty line so the editor shows no invisible
+        // character and the save path writes the `&nbsp;` form back.
+        if !context.inBlockquote, context.listStack.isEmpty,
+           collector.currentText.length > paragraphStart {
+            let appended = (collector.currentText.string as NSString)
+                .substring(from: paragraphStart)
+            if appended.unicodeScalars.allSatisfy({ CharacterSet.whitespaces.contains($0) }) {
+                collector.currentText.deleteCharacters(
+                    in: NSRange(location: paragraphStart, length: collector.currentText.length - paragraphStart)
+                )
+            }
+        }
         context.needsBlockSeparator = true
 
     case CMARK_NODE_HEADING:
@@ -677,18 +738,14 @@ private func splitIntoParagraphs(_ attrStr: NSAttributedString) -> [NSRange] {
             end -= 1
         }
         let trimmedRange = NSRange(location: lineRange.location, length: end - lineRange.location)
-        if trimmedRange.length > 0 {
-            ranges.append(trimmedRange)
-        } else if trimmedRange.location < length,
-                  (attrStr.attribute(.markdownCodeBlock, at: trimmedRange.location, effectiveRange: nil) as? Bool) == true {
-            // A blank line INSIDE a fenced code block is content, not block
-            // spacing — keep the zero-length range so the save path writes the
-            // empty line back into the fence. Gating on the attribute (not
-            // emitting every zero-length line) keeps the paragraphs array
-            // byte-identical for non-code documents, so list/heading spacing is
-            // untouched. The base-attributed block-separator newline is never a
-            // standalone zero-length line (it terminates the preceding content
-            // line), so ordinary blank lines still stay dropped.
+        // Zero-length lines are kept too: inside a fence they are blank code
+        // lines the save path writes back verbatim; elsewhere they are the
+        // user's intentional blank lines, which `attributedStringToMarkdown`
+        // persists as `&nbsp;` paragraphs (EXP-689). The base-attributed
+        // block-separator newline is never a standalone zero-length line (it
+        // terminates the preceding content line), so ordinary block spacing
+        // is byte-identical to before.
+        if trimmedRange.length > 0 || trimmedRange.location < length {
             ranges.append(trimmedRange)
         }
         start = NSMaxRange(lineRange)

@@ -1,5 +1,7 @@
 package com.exponential.app.ui.markdown
 
+import com.exponential.app.ui.markdown.model.ContentBlock
+import com.exponential.app.ui.markdown.model.RichText
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -89,6 +91,39 @@ class MarkdownRoundTripTest {
     )
 
     @Test fun multipleParagraphs() = assertStable("First paragraph.\n\nSecond paragraph.")
+
+    // --- EXP-689: intentional blank lines. GFM folds bare blank-line runs, so
+    // the contract stores each interior empty paragraph as an `&nbsp;` line
+    // (web MarkdownParagraph, EXP-7). Byte-locked ×4. ---
+
+    @Test fun blankLineBetweenParagraphs() = assertStable("First\n\n&nbsp;\n\nSecond")
+
+    @Test fun twoBlankLinesBetweenParagraphs() =
+        assertStable("First\n\n&nbsp;\n\n&nbsp;\n\nSecond")
+
+    @Test fun blankLineParsesToAnEmptyEditorLine() {
+        // No invisible U+00A0 in the editor: the marker folds to a truly empty line.
+        val block = MarkdownParser.parse("First\n\n&nbsp;\n\nSecond").single() as ContentBlock.TextBlock
+        assertEquals("First\n\nSecond", block.content.text)
+    }
+
+    @Test fun editorTypedBlankLineIsWrittenAsTheMarker() {
+        // Two Enters in the editor = an empty line inside the text block.
+        val blocks = listOf(ContentBlock.TextBlock(content = RichText.plain("First\n\nSecond")))
+        assertEquals("First\n\n&nbsp;\n\nSecond", MarkdownSerializer.blocksToMarkdown(blocks))
+    }
+
+    @Test fun leadingAndTrailingBlankLinesAreDropped() {
+        val blocks = listOf(ContentBlock.TextBlock(content = RichText.plain("\n\nOnly line\n")))
+        assertEquals("Only line", MarkdownSerializer.blocksToMarkdown(blocks))
+        assertEquals("Only line", roundTrip("&nbsp;\n\nOnly line\n\n&nbsp;"))
+    }
+
+    @Test fun literalNoBreakSpaceParagraphConvergesToTheMarker() =
+        assertEquals("First\n\n&nbsp;\n\nSecond", roundTrip("First\n\n\u00A0\n\nSecond"))
+
+    @Test fun blankLinesInsideAFenceStayCode() =
+        assertStable("```\na\n\nb\n```")
 
     @Test fun boldAtStart() = assertStable("**Bold** start")
 

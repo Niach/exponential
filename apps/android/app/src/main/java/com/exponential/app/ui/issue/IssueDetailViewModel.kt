@@ -706,6 +706,16 @@ class IssueDetailViewModel @Inject constructor(
         _descriptionSaveError.value = null
     }
 
+    // The persisted form of the latest local title/description save, published
+    // BEFORE the request goes out (EXP-689). The screen hands each value to its
+    // RemoteSyncedText so the Electric echo of our own save — which lands after
+    // the user has typed past it — is recognized as ours and never raises the
+    // "Updated by someone else" banner.
+    private val _lastSavedTitle = MutableStateFlow<String?>(null)
+    val lastSavedTitle: StateFlow<String?> = _lastSavedTitle
+    private val _lastSavedDescription = MutableStateFlow<String?>(null)
+    val lastSavedDescription: StateFlow<String?> = _lastSavedDescription
+
     /**
      * Drop not-yet-saved local description input — the screen applied a remote
      * value over it (live apply or banner reload), so a later dispose-time flush
@@ -851,8 +861,10 @@ class IssueDetailViewModel @Inject constructor(
         if (title.isBlank()) return
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
+            val trimmed = title.trim()
+            _lastSavedTitle.value = trimmed
             runCatching {
-                issuesApi.update(accountId, UpdateIssueInput(id = issueId, title = title.trim()))
+                issuesApi.update(accountId, UpdateIssueInput(id = issueId, title = trimmed))
             }.onFailure { reportMutationFailure(it, "The title could not be saved") }
         }
     }
@@ -878,6 +890,7 @@ class IssueDetailViewModel @Inject constructor(
         val sanitized = stripDraftImages(text)
         // Skip no-op saves (debounce can fire with the already-persisted value).
         if (sanitized == extractDescriptionMarkdown(state.value.issue?.description)) return
+        _lastSavedDescription.value = sanitized
         // This can be the LAST chance to persist an edit (the leave-screen
         // flush), so a transient failure must not silently drop it: retry with
         // backoff, then surface the error instead of swallowing it.

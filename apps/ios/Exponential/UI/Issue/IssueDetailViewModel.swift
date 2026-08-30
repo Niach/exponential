@@ -690,6 +690,7 @@ final class IssueDetailViewModel {
         // retries (the lastSavedMarkdown guard above stays open) and applyRemote
         // stashes remote content behind the reload banner instead of clobbering
         // the unsaved edit.
+        editor.markSaving(markdown)
         guard await update(input) else { return }
         editor.markSaved(markdown)
     }
