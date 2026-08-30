@@ -36,6 +36,20 @@ BEGIN
 	-- 2. Issues on a CUSTOM unstarted row keep the row; only the anchor moves.
 	UPDATE issues SET status = 'backlog' WHERE status = 'todo';
 
+	-- 3a. An automation whose status filter listed ONLY Todo rows would be
+	--     widened by the scrub below to fire on EVERY status change (an empty
+	--     filter means pass-all). Disable it instead; the owner re-points it.
+	UPDATE automations a
+	SET enabled = false
+	WHERE jsonb_typeof(a.trigger->'filters'->'toStatusIds') = 'array'
+	  AND jsonb_array_length(a.trigger->'filters'->'toStatusIds') > 0
+	  AND NOT EXISTS (
+	    SELECT 1 FROM jsonb_array_elements(a.trigger->'filters'->'toStatusIds') AS x
+	    WHERE (x #>> '{}') NOT IN (
+	      SELECT id::text FROM issue_statuses WHERE builtin_key = 'todo'
+	    )
+	  );
+
 	-- 3. Automation status filters referencing a Todo row id (jsonb, no FK).
 	UPDATE automations a
 	SET trigger = jsonb_set(
