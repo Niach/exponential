@@ -1,9 +1,5 @@
-- Når du er frakoblet, sier appen det tydelig med en Prøv igjen-knapp i stedet for en rå nettverksfeil
-- Merge en pull request direkte fra styringsvisningen i en pågående økt
-- Se hvilken konto hver agent-CLI er logget inn med, og hvor mye som gjenstår av grensene dens, og start en innlogging på hvilken som helst av maskinene dine fra telefonen
-- En agent kan gi arbeid videre til en annen kjøring og vente på rapporten dens
-- En kjøring du startet, forblir åpen for oppfølging; automatiserte kjøringer leverer et sammendrag og et utfall du kan lese overalt, og en avsluttet kjøring kan gjenopptas der den stoppet
-- Skriv # for å sette inn en issue-brikke i kommentarer og beskrivelser
-- Live-økter forblir tilkoblet ved nettverks- og appbytter, holder seg rolige under lange ventetider og henter seg inn selv hvis de faller ut
-- «Løs konflikter» tilbys bare ved en ekte merge-konflikt
-- Brytere og handlingslisten har fått et renere utseende
+- Todo og Backlog er nå én liste: alt som lå i Todo ligger nå i Backlog
+- Ark og menyer deler ett enhetlig utseende i hele appen
+- Editoren bevarer dine bevisste tomme linjer, identisk på alle plattformer
+- Bruk viser grensene til agenten som kjører økten din
+- Agenter kjører alltid uten tillatelsesspørsmål; bryteren er borte

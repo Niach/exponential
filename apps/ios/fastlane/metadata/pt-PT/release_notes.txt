@@ -1,9 +1,5 @@
-- Quando estás offline, a app di-lo claramente com um botão Tentar novamente, em vez de um erro de rede em bruto
-- Faz merge de um pull request diretamente a partir da vista de condução de uma sessão em curso
-- Vê com que conta cada CLI de agente tem sessão iniciada e quanto resta dos seus limites, e inicia sessão em qualquer uma das tuas máquinas a partir do telemóvel
-- Um agente pode delegar trabalho a uma segunda execução e aguardar o seu relatório
-- Uma execução iniciada por ti mantém-se aberta para continuares; as automatizadas entregam um resumo e um resultado legíveis em qualquer lado, e uma execução terminada pode ser retomada onde parou
-- Escreve # para inserir um chip de issue em comentários e descrições
-- As sessões ao vivo mantêm-se ligadas ao mudar de rede ou de app, ficam em silêncio nas esperas longas e recuperam sozinhas se caírem
-- «Resolver conflitos» só é proposto para um conflito de merge real
-- Os interruptores e a lista de ações ficaram mais limpos
+- Todo e Backlog são agora uma única lista: tudo o que estava em Todo vive no Backlog
+- As folhas e os menus partilham um estilo uniforme em toda a app
+- O editor mantém as suas linhas em branco intencionais, de forma idêntica em todas as plataformas
+- A utilização mostra os limites do agente que executa a sua sessão
+- Os agentes correm sempre sem pedidos de permissão; o interruptor desapareceu

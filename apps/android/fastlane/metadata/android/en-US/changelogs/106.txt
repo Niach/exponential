@@ -1,0 +1,1 @@
+Todo and Backlog are now one list. Sheets and menus share one uniform look. The editor keeps your intentional blank lines on every platform. Usage shows the limits of the agent running your session. Agents always run without permission prompts.

@@ -1,9 +1,5 @@
-- Wenn du offline bist, sagt die App das klar und bietet „Erneut versuchen“ an, statt einen rohen Netzwerkfehler zu zeigen
-- Pull Requests direkt aus der Steuerungsansicht einer laufenden Session mergen
-- Sieh, mit welchem Konto jedes Agent-CLI angemeldet ist und wie viel von seinen Limits übrig ist, und starte eine Anmeldung auf jedem deiner Rechner vom Handy aus
-- Ein Agent kann Arbeit an einen zweiten Lauf übergeben und auf dessen Bericht warten
-- Ein von dir gestarteter Lauf bleibt für Rückfragen offen; automatisierte Läufe melden Zusammenfassung und Ergebnis, die du überall nachlesen kannst, und ein beendeter Lauf lässt sich dort fortsetzen, wo er aufgehört hat
-- Mit # fügst du einen Issue-Chip in Kommentare und Beschreibungen ein
-- Live-Sessions bleiben bei Netzwerk- und App-Wechseln verbunden, bleiben bei langen Wartezeiten ruhig und erholen sich von selbst, wenn sie abbrechen
-- „Konflikte beheben“ wird nur bei einem echten Merge-Konflikt angeboten
-- Schalter und die Aktionsliste sehen aufgeräumter aus
+- Todo und Backlog sind jetzt eine Liste: alles aus Todo liegt nun im Backlog
+- Sheets und Menüs haben ein einheitliches Erscheinungsbild in der ganzen App
+- Der Editor erhält deine bewussten Leerzeilen, identisch auf jeder Plattform
+- „Nutzung“ zeigt die Limits des Agents, der deine Session ausführt
+- Agents laufen immer ohne Berechtigungsabfragen; der Schalter ist weg

@@ -1,9 +1,5 @@
-- Quando sei offline l'app lo dice chiaramente con un pulsante Riprova, invece di un errore di rete grezzo
-- Unisci una pull request direttamente dalla vista di guida di una sessione in corso
-- Vedi con quale account è connessa ogni CLI agente e quanto resta dei suoi limiti, e avvia un accesso su qualsiasi tua macchina dal telefono
-- Un agente può affidare lavoro a una seconda esecuzione e attenderne il rapporto
-- Un'esecuzione avviata da te resta aperta per i seguiti; quelle automatiche consegnano riepilogo ed esito leggibili ovunque, e un'esecuzione terminata può riprendere da dove si era fermata
-- Digita # per inserire un chip di issue in commenti e descrizioni
-- Le sessioni live restano connesse al cambio di rete o di app, restano silenziose nelle attese lunghe e si riprendono da sole se cadono
-- «Risolvi conflitti» viene proposto solo per un vero conflitto di merge
-- Interruttori ed elenco delle azioni hanno un aspetto più pulito
+- Todo e Backlog ora sono un'unica lista: tutto ciò che era in Todo vive nel Backlog
+- Fogli e menu condividono uno stile uniforme in tutta l'app
+- L'editor conserva le tue righe vuote intenzionali, identiche su ogni piattaforma
+- Utilizzo mostra i limiti dell'agente che esegue la tua sessione
+- Gli agenti vengono sempre eseguiti senza richieste di autorizzazione; l'interruttore non c'è più
