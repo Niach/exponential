@@ -4,8 +4,8 @@
 //!
 //! - [`Variant::Launch`] — the Start-coding dialog and the create-action
 //!   dialog: the doctor-filtered agent pill strip, the per-agent Model /
-//!   Effort selects and the capability-gated toggles (ultracode, plan mode,
-//!   skip permissions). This is [`LaunchOptionsSection`], which OWNS that
+//!   Effort selects and the capability-gated toggles (ultracode, plan
+//!   mode). This is [`LaunchOptionsSection`], which OWNS that
 //!   state and hands out a [`LaunchOptions`] snapshot.
 //! - [`Variant::Automation`] — [`crate::automation_editor`]'s launch PINS:
 //!   the exact same strip (seeded to the bound device's default agent — no
@@ -84,19 +84,16 @@ pub(crate) fn pickable_agents(report: Option<&coding::DoctorReport>) -> Vec<Codi
         .collect()
 }
 
-/// The `(ultracode, plan_mode, skip_permissions)` settings defaults for
-/// `agent`, capability-masked (EXP-201: ultracode is Claude-only, plan mode
-/// is claude+pi since EXP-441, skip does not exist for pi). EXP-206: ONE set
-/// of defaults — a single-issue run and a multi-issue batch run seed
-/// identically, and plan/skip are per-AGENT settings.
-pub(crate) fn agent_defaults(
-    settings: &coding::Settings,
-    agent: CodingAgent,
-) -> (bool, bool, bool) {
+/// The `(ultracode, plan_mode)` settings defaults for `agent`,
+/// capability-masked (EXP-201: ultracode is Claude-only, plan mode is
+/// claude+pi since EXP-441). EXP-206: ONE set of defaults — a single-issue
+/// run and a multi-issue batch run seed identically, and plan mode is a
+/// per-AGENT setting. EXP-690 retired the skip-permissions toggle (every
+/// run bypasses).
+pub(crate) fn agent_defaults(settings: &coding::Settings, agent: CodingAgent) -> (bool, bool) {
     (
         settings.claude_ultracode && agent.supports_ultracode(),
         settings.plan_mode_for(agent) && agent.supports_plan_mode(),
-        settings.skip_permissions_for(agent) && agent.supports_skip_permissions(),
     )
 }
 
@@ -279,8 +276,6 @@ pub(crate) struct LaunchOptionsSection {
     pub(crate) ultracode: bool,
     /// Native plan mode (`--permission-mode plan`; pi via its extension).
     pub(crate) plan_mode: bool,
-    /// Full permission bypass (claude/codex; pi has no permission system).
-    pub(crate) skip_permissions: bool,
 }
 
 impl LaunchOptionsSection {
@@ -288,7 +283,7 @@ impl LaunchOptionsSection {
     pub(crate) fn new(window: &mut Window, cx: &mut App) -> Self {
         let settings = crate::coding_flow::CodingHub::global(cx).read(cx).settings.clone();
         let agent = settings.default_agent;
-        let (ultracode, plan_mode, skip_permissions) = agent_defaults(&settings, agent);
+        let (ultracode, plan_mode) = agent_defaults(&settings, agent);
         Self {
             agent,
             model: choice_select(model_choices_for(agent), settings.model_for(agent), window, cx),
@@ -300,7 +295,6 @@ impl LaunchOptionsSection {
             ),
             ultracode,
             plan_mode,
-            skip_permissions,
         }
     }
 
@@ -320,7 +314,7 @@ impl LaunchOptionsSection {
             window,
             cx,
         );
-        (self.ultracode, self.plan_mode, self.skip_permissions) = agent_defaults(&settings, agent);
+        (self.ultracode, self.plan_mode) = agent_defaults(&settings, agent);
     }
 
     /// Keep the selection on a RUNNABLE agent: when the doctor report
@@ -366,7 +360,6 @@ impl LaunchOptionsSection {
             // agent that doesn't support it.
             ultracode: self.ultracode && self.agent.supports_ultracode(),
             plan_mode: self.plan_mode && self.agent.supports_plan_mode() && !resume_active,
-            skip_permissions: self.skip_permissions && self.agent.supports_skip_permissions(),
         }
     }
 
@@ -442,7 +435,7 @@ impl LaunchOptionsSection {
         }
         // The capability-gated toggles (EXP-201; hint-free since EXP-206).
         let show_plan = agent.supports_plan_mode() && !hide_plan_mode;
-        if agent.supports_ultracode() || show_plan || agent.supports_skip_permissions() {
+        if agent.supports_ultracode() || show_plan {
             let mut toggles = v_flex().gap_2();
             if agent.supports_ultracode() {
                 toggles = toggles.child(
@@ -463,18 +456,6 @@ impl LaunchOptionsSection {
                         .checked(self.plan_mode)
                         .on_click(cx.listener(move |view: &mut V, on: &bool, _, cx| {
                             access(view).plan_mode = *on;
-                            cx.notify();
-                        }))
-                        .into_any_element(),
-                );
-            }
-            if agent.supports_skip_permissions() {
-                toggles = toggles.child(
-                    Checkbox::new(SharedString::from(format!("{prefix}-skip-permissions")))
-                        .label("Skip permissions")
-                        .checked(self.skip_permissions)
-                        .on_click(cx.listener(move |view: &mut V, on: &bool, _, cx| {
-                            access(view).skip_permissions = *on;
                             cx.notify();
                         }))
                         .into_any_element(),

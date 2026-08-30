@@ -96,7 +96,7 @@ describe(`device launch defaults`, () => {
       defaultAgent: `claude`,
       agents: {
         claude: { model: `opus`, effort: ``, planMode: true },
-        codex: { model: ``, effort: `high`, skipPermissions: true },
+        codex: { model: ``, effort: `high` },
       },
     },
   })
@@ -121,7 +121,6 @@ describe(`device launch defaults`, () => {
     expect(deviceAgentLaunchDefaults(advertising, `codex`)).toEqual({
       model: ``,
       effort: `high`,
-      skipPermissions: true,
     })
     expect(deviceAgentLaunchDefaults(advertising, `pi`)).toBe(null)
     expect(deviceAgentLaunchDefaults(server(), `claude`)).toBe(null)
@@ -130,17 +129,14 @@ describe(`device launch defaults`, () => {
   it(`agentSeed validates against the contract and capability-clamps`, () => {
     // The advertised values ride through; blank effort stays blank.
     expect(agentSeed(`claude`, { model: `opus`, effort: ``, planMode: true })).toEqual(
-      { model: `opus`, effort: ``, ultracode: false, planMode: true, skipPermissions: false }
+      { model: `opus`, effort: ``, ultracode: false, planMode: true }
     )
-    // Blank model is valid for codex; skip rides through.
-    expect(
-      agentSeed(`codex`, { model: ``, effort: `high`, skipPermissions: true })
-    ).toEqual({
+    // Blank model is valid for codex.
+    expect(agentSeed(`codex`, { model: ``, effort: `high` })).toEqual({
       model: ``,
       effort: `high`,
       ultracode: false,
       planMode: false,
-      skipPermissions: true,
     })
     // A foreign/unknown value falls back to the static default; claude never
     // takes a blank model.
@@ -149,18 +145,14 @@ describe(`device launch defaults`, () => {
       effort: ``,
       ultracode: false,
       planMode: false,
-      skipPermissions: false,
     })
-    // Capability masking beats a lying advertisement: pi never skips or
-    // ultracodes, but its advertised plan default rides through (EXP-441).
-    expect(
-      agentSeed(`pi`, { skipPermissions: true, planMode: true, ultracode: true })
-    ).toEqual({
+    // Capability masking beats a lying advertisement: pi never ultracodes,
+    // but its advertised plan default rides through (EXP-441).
+    expect(agentSeed(`pi`, { planMode: true, ultracode: true })).toEqual({
       model: ``,
       effort: ``,
       ultracode: false,
       planMode: true,
-      skipPermissions: false,
     })
     // Codex never plans.
     expect(agentSeed(`codex`, { planMode: true })).toMatchObject({
@@ -172,7 +164,6 @@ describe(`device launch defaults`, () => {
       effort: ``,
       ultracode: false,
       planMode: false,
-      skipPermissions: false,
     })
   })
 })

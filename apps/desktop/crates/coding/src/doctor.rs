@@ -244,7 +244,6 @@ impl DoctorReport {
                             effort: options.effort,
                             ultracode: options.ultracode,
                             plan_mode: options.plan_mode,
-                            skip_permissions: options.skip_permissions,
                         },
                     )
                 })
@@ -304,7 +303,6 @@ pub struct AgentLaunchDefaults {
     pub effort: String,
     pub ultracode: bool,
     pub plan_mode: bool,
-    pub skip_permissions: bool,
 }
 
 impl AgentAdvertisement {
@@ -1096,8 +1094,8 @@ mod tests {
     }
 
     /// EXP-437: the advertisement carries the machine's per-agent launch
-    /// defaults — capability-masked (codex never plan/ultracode, pi never
-    /// skip), blank efforts preserved, only RUNNABLE agents listed, and the
+    /// defaults — capability-masked (codex never plan/ultracode), blank
+    /// efforts preserved, only RUNNABLE agents listed, and the
     /// default agent passed through even when it is not installed.
     #[test]
     fn advertisement_carries_capability_masked_launch_defaults() {
@@ -1112,10 +1110,8 @@ mod tests {
             claude_effort: "".into(),
             claude_ultracode: true,
             claude_plan_mode: true,
-            claude_skip_permissions: false,
             codex_model: "".into(),
             codex_effort: "high".into(),
-            codex_skip_permissions: true,
             pi_model: "grok-4.5".into(),
             ..Settings::default()
         };
@@ -1132,15 +1128,13 @@ mod tests {
         assert_eq!(claude.effort, "");
         assert!(claude.ultracode);
         assert!(claude.plan_mode);
-        assert!(!claude.skip_permissions);
         // Capability masking: codex can never carry ultracode/plan, but its
-        // per-agent skip-permissions and blank model ride through.
+        // blank model rides through.
         let codex = &advert.launch_defaults["codex"];
         assert_eq!(codex.model, "");
         assert_eq!(codex.effort, "high");
         assert!(!codex.ultracode);
         assert!(!codex.plan_mode);
-        assert!(codex.skip_permissions);
 
         // A default agent that is NOT runnable still passes through as an id
         // (clients clamp); it simply has no launch_defaults entry.
@@ -1153,7 +1147,7 @@ mod tests {
         assert!(!advert.launch_defaults.contains_key("pi"));
 
         // A RUNNABLE pi advertises its own plan default (EXP-441) — plan
-        // rides through, ultracode/skip stay masked.
+        // rides through, ultracode stays masked.
         let report = DoctorReport {
             pi: green(Tool::Pi, "0.84.1"),
             ..report
@@ -1163,7 +1157,6 @@ mod tests {
         assert_eq!(pi.model, "grok-4.5");
         assert!(pi.plan_mode, "pi_plan_mode defaults ON");
         assert!(!pi.ultracode);
-        assert!(!pi.skip_permissions);
     }
 
     /// EXP-409: `claude auth status` JSON classification — noise-tolerant,

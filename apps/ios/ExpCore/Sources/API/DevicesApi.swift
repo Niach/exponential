@@ -50,20 +50,17 @@ public struct AgentLaunchDefaultsInput: Encodable, Sendable {
     public let effort: String?
     public let ultracode: Bool?
     public let planMode: Bool?
-    public let skipPermissions: Bool?
 
     public init(
         model: String? = nil,
         effort: String? = nil,
         ultracode: Bool? = nil,
-        planMode: Bool? = nil,
-        skipPermissions: Bool? = nil
+        planMode: Bool? = nil
     ) {
         self.model = model
         self.effort = effort
         self.ultracode = ultracode
         self.planMode = planMode
-        self.skipPermissions = skipPermissions
     }
 }
 

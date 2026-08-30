@@ -758,6 +758,8 @@ describe(`steer relay end-to-end`, () => {
       teamId: `team-1`,
       inputs,
       agent: `codex`,
+      // EXP-690: a retired key an old client still sends is dropped by
+      // /start, never forwarded onto the device frame.
       skipPermissions: true,
     })
     expect(withInputs.ok).toBe(true)
@@ -768,7 +770,6 @@ describe(`steer relay end-to-end`, () => {
       teamId: `team-1`,
       inputs,
       agent: `codex`,
-      skipPermissions: true,
     })
 
     // A PRESENT but malformed inputs key must 400 (same stance as repo) —

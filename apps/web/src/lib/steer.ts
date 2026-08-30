@@ -190,9 +190,6 @@ export interface SteerStartOptions {
   effort?: string
   ultracode?: boolean
   planMode?: boolean
-  /** EXP-201: full permission bypass instead of the agent's guarded auto
-   * mode. Absent = desktop settings default. */
-  skipPermissions?: boolean
   /** EXP-481: resume the issue's existing worktree/agent session instead of
    * starting fresh. Single-issue starts only; the web server gates it on the
    * device's `resume` cap, and the device-side launcher degrades a missing/

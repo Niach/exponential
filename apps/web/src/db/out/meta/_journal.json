@@ -645,6 +645,13 @@
       "when": 1788050270738,
       "tag": "0091_retire_todo_status",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1788108926883,
+      "tag": "0092_retire_skip_permissions",
+      "breakpoints": true
     }
   ]
 }

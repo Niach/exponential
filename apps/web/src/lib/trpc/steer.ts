@@ -231,7 +231,9 @@ export const steerRouter = router({
           effort: z.string().max(32).optional(),
           ultracode: z.boolean().optional(),
           planMode: z.boolean().optional(),
-          skipPermissions: z.boolean().optional(),
+          // EXP-690 retired `skipPermissions`: every launch bypasses the
+          // agent's permission prompts. The schema strips (never `.strict()`),
+          // so an old client's key is dropped instead of 400'ing the start.
           // EXP-481: resume the issue's existing worktree/agent session.
           // Single-issue starts only; gated below on the device's persisted
           // `resume` cap.
@@ -276,7 +278,6 @@ export const steerRouter = router({
                 `effort`,
                 `ultracode`,
                 `planMode`,
-                `skipPermissions`,
               ] as const
             ).filter((key) => value[key] !== undefined)
             for (const key of conflicting) {
@@ -357,13 +358,6 @@ export const steerRouter = router({
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               message: `planMode is a claude/pi-only option`,
-            })
-          }
-          if (agent === `pi` && value.skipPermissions) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: [`skipPermissions`],
-              message: `pi has no permission system to skip`,
             })
           }
         })
@@ -837,7 +831,6 @@ export const steerRouter = router({
           effort: input.effort,
           ultracode: input.ultracode,
           planMode: input.planMode,
-          skipPermissions: input.skipPermissions,
         })
         if (!result.ok) {
           if (result.status === 404) {
@@ -924,7 +917,6 @@ export const steerRouter = router({
         effort: input.effort,
         ultracode: input.ultracode,
         planMode: input.planMode,
-        skipPermissions: input.skipPermissions,
         resume: input.resume,
       }
       const result =

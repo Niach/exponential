@@ -49,11 +49,12 @@ pub const DEFAULT_CLAUDE_EFFORT: &str = "";
 /// EXP-201 per-run-mode toggle pairs (EXP-206 merged them into the
 /// per-AGENT fields below — issue and batch runs share one default), and
 /// the EXP-484 pinned usage window (EXP-688 renders every window as a card,
-/// so there is nothing left to pin).
+/// so there is nothing left to pin), and the EXP-690 per-agent skip toggles
+/// (every run bypasses permissions now, so there is nothing to persist).
 /// Foreign top-level keys other subsystems own (`launchDefaultsSync`,
 /// `actionAutomations`) ride the merge-save untouched and must never enter
 /// this list.
-const DEAD_KEYS: [&str; 12] = [
+const DEAD_KEYS: [&str; 14] = [
     "usageWindow",
     "subagentModel",
     "subagentEffort",
@@ -66,6 +67,8 @@ const DEAD_KEYS: [&str; 12] = [
     "batchPlanMode",
     "issueSkipPermissions",
     "batchSkipPermissions",
+    "claudeSkipPermissions",
+    "codexSkipPermissions",
 ];
 
 /// The resolved coding settings. `repos_root` is stored in its raw
@@ -124,14 +127,6 @@ pub struct Settings {
     /// pi plan-mode default — ON by default like Claude's (EXP-441: pi's
     /// plan mode is the launcher-injected `.exp-pi-plan.ts` extension).
     pub pi_plan_mode: bool,
-    /// Claude "skip permissions" default — OFF by default (sessions start in
-    /// the guarded `--permission-mode auto`; ON opts into the full
-    /// `--dangerously-skip-permissions` bypass).
-    pub claude_skip_permissions: bool,
-    /// Codex "skip permissions" default — OFF by default (the guarded auto
-    /// preset; ON is `--dangerously-bypass-approvals-and-sandbox`). pi has no
-    /// permission system, hence no field ([`Self::skip_permissions_for`]).
-    pub codex_skip_permissions: bool,
     /// EXP-282: whether the ui's left rail renders EXPANDED (labelled rows)
     /// instead of the 44px icon strip. Not a launcher knob — but this file is
     /// the app's ONE merge-preserving per-install store, and the rail pref
@@ -194,8 +189,6 @@ impl Default for Settings {
             claude_ultracode: false,
             claude_plan_mode: true,
             pi_plan_mode: true,
-            claude_skip_permissions: false,
-            codex_skip_permissions: false,
             rail_expanded: None,
             terminal_shell: None,
             tools_setup_seen: false,
@@ -349,17 +342,6 @@ impl Settings {
             CodingAgent::Claude => self.claude_plan_mode,
             CodingAgent::Codex => false,
             CodingAgent::Pi => self.pi_plan_mode,
-        }
-    }
-
-    /// The skip-permissions default for `agent` (EXP-206 — per agent, not
-    /// per run mode). Always `false` for pi: it has no permission system, so
-    /// there is nothing to bypass.
-    pub fn skip_permissions_for(&self, agent: CodingAgent) -> bool {
-        match agent {
-            CodingAgent::Claude => self.claude_skip_permissions,
-            CodingAgent::Codex => self.codex_skip_permissions,
-            CodingAgent::Pi => false,
         }
     }
 
@@ -563,13 +545,11 @@ mod tests {
         assert_eq!(settings.pi_model, "");
         assert_eq!(settings.pi_thinking, "");
         // Per-agent run defaults (EXP-206 — no issue/batch split): Claude
-        // plan mode ON, ultracode OFF; skip-permissions OFF everywhere
-        // (guarded auto mode is the default posture).
+        // plan mode ON, ultracode OFF. EXP-690: skip-permissions is no
+        // longer a setting — every run bypasses.
         assert!(!settings.claude_ultracode);
         assert!(settings.claude_plan_mode);
         assert!(settings.pi_plan_mode);
-        assert!(!settings.claude_skip_permissions);
-        assert!(!settings.codex_skip_permissions);
         // EXP-288: no shell override by default (auto-detect).
         assert_eq!(settings.terminal_shell, None);
         // EXP-367: a fresh install has not seen the tools onboarding step.
@@ -735,8 +715,6 @@ mod tests {
         assert!(!settings.claude_ultracode, "missing key must default FALSE");
         assert!(settings.claude_plan_mode, "missing key must default TRUE");
         assert!(settings.pi_plan_mode, "missing key must default TRUE");
-        assert!(!settings.claude_skip_permissions);
-        assert!(!settings.codex_skip_permissions);
 
         fs::write(
             &path,
@@ -747,13 +725,6 @@ mod tests {
         assert!(settings.claude_ultracode);
         assert!(!settings.claude_plan_mode);
         assert!(!settings.pi_plan_mode);
-        assert!(settings.claude_skip_permissions);
-        assert!(settings.codex_skip_permissions);
-
-        // skip_permissions_for maps per agent; pi is always false.
-        assert!(settings.skip_permissions_for(CodingAgent::Claude));
-        assert!(settings.skip_permissions_for(CodingAgent::Codex));
-        assert!(!settings.skip_permissions_for(CodingAgent::Pi));
 
         // plan_mode_for maps per agent; codex has no launch-into-plan mode.
         let defaults = Settings::default();
@@ -777,6 +748,8 @@ mod tests {
             "batchPlanMode",
             "issueSkipPermissions",
             "batchSkipPermissions",
+            "claudeSkipPermissions",
+            "codexSkipPermissions",
         ] {
             assert!(root.get(dead).is_none(), "{dead} must be scrubbed");
         }
@@ -803,8 +776,6 @@ mod tests {
             claude_ultracode: true,
             claude_plan_mode: false,
             pi_plan_mode: false,
-            claude_skip_permissions: true,
-            codex_skip_permissions: true,
             rail_expanded: Some(true),
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
             tools_setup_seen: true,
@@ -821,14 +792,6 @@ mod tests {
         assert!(raw.contains("\"claudeUltracode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudePlanMode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"piPlanMode\""), "camelCase keys: {raw}");
-        assert!(
-            raw.contains("\"claudeSkipPermissions\""),
-            "camelCase keys: {raw}"
-        );
-        assert!(
-            raw.contains("\"codexSkipPermissions\""),
-            "camelCase keys: {raw}"
-        );
         assert_eq!(Settings::load(&path), settings);
     }
 

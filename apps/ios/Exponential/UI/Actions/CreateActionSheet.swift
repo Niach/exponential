@@ -64,7 +64,6 @@ struct CreateActionSheet: View {
     @State private var effort = LaunchVocabulary.cliDefault
     @State private var ultracode = false
     @State private var planMode = false
-    @State private var skipPermissions = false
     @State private var seeded = false
     @State private var lastSeededDeviceId: String?
 
@@ -119,8 +118,7 @@ struct CreateActionSheet: View {
                             model: $model,
                             effort: $effort,
                             ultracode: $ultracode,
-                            planMode: $planMode,
-                            skipPermissions: $skipPermissions
+                            planMode: $planMode
                         )
                     }
                     // EXP-603: the sheet's own background shows through the
@@ -369,10 +367,8 @@ struct CreateActionSheet: View {
         effort = seedEffort(advertised?.effort, for: value)
         ultracode = advertised?.ultracode ?? false
         planMode = advertised?.planMode ?? false
-        skipPermissions = advertised?.skipPermissions ?? false
         if agent != "claude" { ultracode = false }
         if !LaunchVocabulary.supportsPlanMode(agent) { planMode = false }
-        if agent == "pi" { skipPermissions = false }
     }
 
     private func seedModel(_ value: String?, for agent: String) -> String {
@@ -426,8 +422,7 @@ struct CreateActionSheet: View {
             model: model == LaunchVocabulary.cliDefault ? "" : model,
             effort: effort == LaunchVocabulary.cliDefault ? "" : effort,
             ultracode: agent == "claude" ? ultracode : nil,
-            planMode: LaunchVocabulary.supportsPlanMode(agent) ? planMode : nil,
-            skipPermissions: agent == "pi" ? nil : skipPermissions
+            planMode: LaunchVocabulary.supportsPlanMode(agent) ? planMode : nil
         )
         // Values in wire form: text trimmed, blank optionals dropped — the
         // very same helper the action inputs go through.

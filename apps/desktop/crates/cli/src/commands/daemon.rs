@@ -1076,7 +1076,6 @@ fn handle_remote_start(
         start.effort.as_deref(),
         start.ultracode,
         start.plan_mode,
-        start.skip_permissions,
     );
     let origin = coding::LaunchOrigin::Relay {
         device_id: device_id.to_string(),

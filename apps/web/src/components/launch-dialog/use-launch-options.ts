@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react"
 import {
   agentSeed,
   agentSupportsPlanMode,
-  agentSupportsSkipPermissions,
   agentSupportsUltracode,
   DEFAULT_LAUNCH_AGENT,
   type CodingLaunchPrefs,
@@ -42,8 +41,6 @@ export interface LaunchOptions {
   setUltracode: (value: boolean) => void
   planMode: boolean
   setPlanMode: (value: boolean) => void
-  skipPermissions: boolean
-  setSkipPermissions: (value: boolean) => void
   /** The capability-clamped payload for `steer.startSession`. */
   buildOptions: (args?: { resume?: boolean }) => CodingLaunchPrefs
 }
@@ -64,7 +61,6 @@ export function useLaunchOptions({
   const [effortValue, setEffortValue] = useState(CLI_DEFAULT_EFFORT)
   const [ultracode, setUltracode] = useState(false)
   const [planMode, setPlanMode] = useState(false)
-  const [skipPermissions, setSkipPermissions] = useState(false)
   const [deviceId, setDeviceId] = useState<string | null>(null)
   // EXP-437: the deviceId whose launch defaults last seeded the options —
   // the 15s devices re-poll must not stomp in-dialog edits, but an actual
@@ -85,7 +81,6 @@ export function useLaunchOptions({
     setEffortValue(CLI_DEFAULT_EFFORT)
     setUltracode(seed.ultracode)
     setPlanMode(seed.planMode)
-    setSkipPermissions(seed.skipPermissions)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -120,7 +115,6 @@ export function useLaunchOptions({
     setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
     setUltracode(seed.ultracode)
     setPlanMode(seed.planMode)
-    setSkipPermissions(seed.skipPermissions)
   }
 
   // EXP-437: seed the launch options from the selected device's advertised
@@ -142,7 +136,6 @@ export function useLaunchOptions({
     setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
     setUltracode(seed.ultracode)
     setPlanMode(seed.planMode)
-    setSkipPermissions(seed.skipPermissions)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, device?.deviceId])
 
@@ -166,7 +159,6 @@ export function useLaunchOptions({
     // A resumed session never re-enters plan mode (EXP-481, mirrors the
     // desktop launcher's clamp).
     planMode: planMode && agentSupportsPlanMode(agent) && !resume,
-    skipPermissions: skipPermissions && agentSupportsSkipPermissions(agent),
     ...(resume ? { resume: true } : {}),
   })
 
@@ -185,8 +177,6 @@ export function useLaunchOptions({
     setUltracode,
     planMode,
     setPlanMode,
-    skipPermissions,
-    setSkipPermissions,
     buildOptions,
   }
 }

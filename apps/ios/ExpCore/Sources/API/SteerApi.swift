@@ -63,8 +63,10 @@ public struct DeviceOwner: Decodable, Sendable {
 /// EXP-437: one agent's saved launch options on a machine, as advertised on
 /// the relay presence row. `model`/`effort` are always sent — `""` means "CLI
 /// default / omit the flag", which is a real choice, not an absence — while
-/// the booleans are serialized only when true (absent = false). Everything is
-/// optional here anyway: the sender is a desktop of unknown vintage.
+/// `ultracode`/`planMode` are serialized only when true (absent = false).
+/// Everything is optional here anyway: the sender is a desktop of unknown
+/// vintage, and an older one may still send the EXP-690-removed skip-
+/// permissions key — Codable ignores unknown keys.
 /// Equatable so a settings surface can diff the live row against its drafts
 /// (EXP-490: the iOS device-settings sheet re-seeds off `onChange`).
 public struct AgentLaunchDefaults: Decodable, Equatable, Sendable {
@@ -72,20 +74,17 @@ public struct AgentLaunchDefaults: Decodable, Equatable, Sendable {
     public let effort: String?
     public let ultracode: Bool?
     public let planMode: Bool?
-    public let skipPermissions: Bool?
 
     public init(
         model: String? = nil,
         effort: String? = nil,
         ultracode: Bool? = nil,
-        planMode: Bool? = nil,
-        skipPermissions: Bool? = nil
+        planMode: Bool? = nil
     ) {
         self.model = model
         self.effort = effort
         self.ultracode = ultracode
         self.planMode = planMode
-        self.skipPermissions = skipPermissions
     }
 }
 
@@ -493,7 +492,6 @@ public struct SteerStartOptions: Sendable {
     public let effort: String?
     public let ultracode: Bool?
     public let planMode: Bool?
-    public let skipPermissions: Bool?
     /// EXP-481: resume the issue's existing worktree/agent session instead of
     /// starting fresh. SINGLE-ISSUE starts only — the batch/action inputs
     /// never carry it (the server rejects it there).
@@ -505,7 +503,6 @@ public struct SteerStartOptions: Sendable {
         effort: String? = nil,
         ultracode: Bool? = nil,
         planMode: Bool? = nil,
-        skipPermissions: Bool? = nil,
         resume: Bool? = nil
     ) {
         self.agent = agent
@@ -513,7 +510,6 @@ public struct SteerStartOptions: Sendable {
         self.effort = effort
         self.ultracode = ultracode
         self.planMode = planMode
-        self.skipPermissions = skipPermissions
         self.resume = resume
     }
 }
@@ -526,7 +522,6 @@ private struct StartSessionInput: Encodable {
     let effort: String?
     let ultracode: Bool?
     let planMode: Bool?
-    let skipPermissions: Bool?
     // EXP-481: single-issue only — the batch/action inputs deliberately have
     // no such field.
     let resume: Bool?
@@ -545,7 +540,6 @@ private struct StartBatchSessionInput: Encodable {
     let effort: String?
     let ultracode: Bool?
     let planMode: Bool?
-    let skipPermissions: Bool?
 }
 
 /// Action remote-start (EXP-253/EXP-257): exactly one of
@@ -565,7 +559,6 @@ private struct StartActionSessionInput: Encodable {
     let effort: String?
     let ultracode: Bool?
     let planMode: Bool?
-    let skipPermissions: Bool?
     let inputs: [String: String]?
 }
 
@@ -630,7 +623,6 @@ public final class SteerApi: Sendable {
                     effort: options.effort,
                     ultracode: options.ultracode,
                     planMode: options.planMode,
-                    skipPermissions: options.skipPermissions,
                     resume: options.resume
                 )
             )
@@ -664,8 +656,7 @@ public final class SteerApi: Sendable {
                     model: options.model,
                     effort: options.effort,
                     ultracode: options.ultracode,
-                    planMode: options.planMode,
-                    skipPermissions: options.skipPermissions
+                    planMode: options.planMode
                 )
             )
         } catch let TrpcError.httpError(status, body) {
@@ -706,7 +697,6 @@ public final class SteerApi: Sendable {
                     effort: options.effort,
                     ultracode: options.ultracode,
                     planMode: options.planMode,
-                    skipPermissions: options.skipPermissions,
                     inputs: inputs
                 )
             )

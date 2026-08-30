@@ -81,8 +81,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 // brand-icon agent capsule (EXP-201: claude / codex / pi, shown only when the
 // chosen desktop offers more than one), the claude-only ultracode switch
 // (it IS `--effort ultracode`, so it disables the Effort row) and plan-mode
-// switch, and a skip-permissions switch (claude + codex — pi is always
-// unguarded, so the row is simply absent). Exactly 1 checked issue launches a
+// switch. Exactly 1 checked issue launches a
 // plain single session; 2+ launch a BATCH session (one agent on one
 // `exp/batch-<id8>` branch spanning every issue, all from one repository).
 // EXP-257 adds a top-level subject switch, since EXP-615 one segmented capsule
@@ -208,7 +207,6 @@ fun StartCodingSheet(
     // single-issue runs — no per-mode override on the 1↔2+ crossing anymore.
     var ultracode by remember { mutableStateOf(initialSeed.ultracode) }
     var planMode by remember { mutableStateOf(initialSeed.planMode) }
-    var skipPermissions by remember { mutableStateOf(initialSeed.skipPermissions) }
     // Seed only with in-pool preselected ids — never carry a phantom id.
     var checked by remember { mutableStateOf(preselectedIds intersect poolIds) }
     var query by remember { mutableStateOf("") }
@@ -337,8 +335,8 @@ fun StartCodingSheet(
 
     // Every option follows the agent: the per-agent model/effort vocabularies
     // differ, and so do the settled machine's advertised defaults (EXP-437).
-    // The seed is already capability-clamped (no ultracode/plan off claude, no
-    // skip-permissions on pi), so this needs no clamping of its own.
+    // The seed is already capability-clamped (no ultracode/plan off claude),
+    // so this needs no clamping of its own.
     fun applyAgentSeed(next: String) {
         agent = next
         val seed = agentSeed(device, next)
@@ -346,7 +344,6 @@ fun StartCodingSheet(
         effort = seed.effort
         ultracode = seed.ultracode
         planMode = seed.planMode
-        skipPermissions = seed.skipPermissions
     }
 
     fun selectAgent(next: String) {
@@ -477,8 +474,7 @@ fun StartCodingSheet(
                 val options = SteerStartOptions(
                     model = model,
                     effort = effort,
-                    // ultracode/plan are claude-only; skip-permissions
-                    // applies to every guarded agent (i.e. not pi).
+                    // ultracode/plan are claude-only.
                     ultracode = if (agent == DEFAULT_AGENT) ultracode else null,
                     // A resume never re-enters plan mode (EXP-202) —
                     // clamped like the desktop dialog.
@@ -488,7 +484,6 @@ fun StartCodingSheet(
                         else -> null
                     },
                     agent = agent,
-                    skipPermissions = if (agent == "pi") null else skipPermissions,
                     // Single-issue starts only — the batch/action
                     // inputs never carry the field.
                     resume = if (resumeOn && ids.size == 1 && action == null) true else null,
@@ -891,8 +886,6 @@ fun StartCodingSheet(
                 planMode = planMode,
                 onPlanModeChange = { planMode = it },
                 planModeHidden = resumeOn,
-                skipPermissions = skipPermissions,
-                onSkipPermissionsChange = { skipPermissions = it },
                 // ── Resume (EXP-481) ─────────────────────────────────────
                 // Offered only when a synced worktree row matches the
                 // single checked issue + agent on a resume-capable

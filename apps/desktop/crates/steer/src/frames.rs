@@ -461,8 +461,9 @@ pub enum ServerFrame {
         started_reason: Option<String>,
         /// Launch options (EXP-149) — absent on frames from clients that
         /// don't send them yet; absent = desktop settings default.
-        /// `agent`/`skip_permissions` are the EXP-201 additions (absent
-        /// agent = claude, the exact pre-EXP-201 behavior).
+        /// `agent` is the EXP-201 addition (absent agent = claude, the
+        /// exact pre-EXP-201 behavior). EXP-690 retired `skipPermissions`:
+        /// old clients still send it and it parses away into nothing.
         #[serde(default)]
         agent: Option<String>,
         #[serde(default)]
@@ -473,8 +474,6 @@ pub enum ServerFrame {
         ultracode: Option<bool>,
         #[serde(default)]
         plan_mode: Option<bool>,
-        #[serde(default)]
-        skip_permissions: Option<bool>,
         /// EXP-481: resume the issue's existing worktree/agent session
         /// instead of starting fresh. Single-issue frames only (the web
         /// server rejects it elsewhere); the launcher's marker gate degrades
@@ -1094,7 +1093,6 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
-                skip_permissions: None,
                 resume: false,
                 resume_session_id: None,
             }
@@ -1189,7 +1187,6 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
-                skip_permissions: None,
                 resume: false,
                 resume_session_id: None,
             }
@@ -1221,7 +1218,6 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
-                skip_permissions: None,
                 resume: false,
                 resume_session_id: None,
             }
@@ -1238,6 +1234,8 @@ mod tests {
     fn start_session_deserializes_launch_options() {
         // hub.ts startSession with EXP-149 options spread into the frame.
         // `effort: ""` is a real value (explicit "CLI default"), not absent.
+        // EXP-690: `skipPermissions` is retired but old clients keep sending
+        // it — it must parse away silently, never fail the frame.
         assert_eq!(
             ServerFrame::parse(
                 r#"{"t":"start_session","issueId":"issue-9","agent":"codex","model":"opus","effort":"","ultracode":true,"planMode":false,"skipPermissions":true}"#
@@ -1258,7 +1256,6 @@ mod tests {
                 effort: Some(String::new()),
                 ultracode: Some(true),
                 plan_mode: Some(false),
-                skip_permissions: Some(true),
                 resume: false,
                 resume_session_id: None,
             }
@@ -1292,7 +1289,6 @@ mod tests {
                 effort: Some("high".into()),
                 ultracode: Some(true),
                 plan_mode: Some(false),
-                skip_permissions: None,
                 resume: false,
                 resume_session_id: None,
             }
@@ -1327,7 +1323,6 @@ mod tests {
                 effort: Some("high".into()),
                 ultracode: None,
                 plan_mode: None,
-                skip_permissions: None,
                 resume: false,
                 resume_session_id: None,
             }
@@ -1338,6 +1333,7 @@ mod tests {
     fn start_session_deserializes_action_frame_with_inputs() {
         // EXP-257: an inputs-carrying action start — server-resolved values
         // ride `inputs` (camelCase fields, `type` literal), full options.
+        // The retired EXP-690 `skipPermissions` key parses away here too.
         assert_eq!(
             ServerFrame::parse(
                 r#"{"t":"start_session","actionId":"act-1","actionName":"Groom","teamId":"ws-7","inputs":[{"key":"scope","label":"Scope","type":"text","value":"urgent only","display":"urgent only"},{"key":"repo","type":"repo","value":"repo-1","display":"acme/api"}],"agent":"codex","model":"gpt-5.6-sol","skipPermissions":true}"#
@@ -1375,7 +1371,6 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
-                skip_permissions: Some(true),
                 resume: false,
                 resume_session_id: None,
             }
@@ -1410,7 +1405,6 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
-                skip_permissions: None,
                 resume: false,
                 resume_session_id: None,
             }

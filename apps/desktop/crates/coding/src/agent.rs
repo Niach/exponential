@@ -99,13 +99,6 @@ impl CodingAgent {
         matches!(self, CodingAgent::Claude | CodingAgent::Pi)
     }
 
-    /// Whether the "Skip permissions" (full-bypass) checkbox applies: pi has
-    /// no permission system at all — it always runs unguarded, so there is
-    /// nothing to toggle.
-    pub fn supports_skip_permissions(self) -> bool {
-        !matches!(self, CodingAgent::Pi)
-    }
-
     /// The closed model set for this agent (blank "CLI default" is an extra
     /// valid value for Codex and pi; Claude's `--model` is explicit-always).
     pub fn model_values(self) -> &'static [&'static str] {
@@ -174,11 +167,10 @@ mod tests {
     #[test]
     fn capability_matrix() {
         // Ultracode is Claude-only; plan mode is claude (native) + pi (via
-        // the injected extension, EXP-441); the skip-permissions checkbox
-        // exists everywhere but pi (pi is always unguarded).
+        // the injected extension, EXP-441). EXP-690: there is no
+        // skip-permissions capability any more — every run bypasses.
         assert!(CodingAgent::Claude.supports_ultracode());
         assert!(CodingAgent::Claude.supports_plan_mode());
-        assert!(CodingAgent::Claude.supports_skip_permissions());
         assert!(!CodingAgent::Claude.allows_blank_model());
         for agent in [CodingAgent::Codex, CodingAgent::Pi] {
             assert!(!agent.supports_ultracode(), "{agent}");
@@ -186,8 +178,6 @@ mod tests {
         }
         assert!(!CodingAgent::Codex.supports_plan_mode());
         assert!(CodingAgent::Pi.supports_plan_mode());
-        assert!(CodingAgent::Codex.supports_skip_permissions());
-        assert!(!CodingAgent::Pi.supports_skip_permissions());
     }
 
     #[test]

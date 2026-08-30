@@ -125,6 +125,23 @@ class DeviceRowsTest {
         assertNull(device.launchDefaults)
     }
 
+    // EXP-690: the per-agent skip-permissions option is gone (the server always
+    // bypasses now), but an older desktop's stored jsonb still carries the key
+    // — decoding must stay tolerant of it rather than dropping the defaults.
+    @Test
+    fun `stored launch defaults tolerate a legacy skipPermissions key`() {
+        val device = entity {
+            copy(
+                launchDefaults = """{"defaultAgent":"claude","agents":""" +
+                    """{"claude":{"model":"fable","planMode":true,"skipPermissions":true}}}""",
+            )
+        }.toSteerDevice(nowMs, currentUserId = "me")
+        val claude = device.launchDefaults?.agents?.getValue("claude")
+        assertEquals("claude", device.launchDefaults?.defaultAgent)
+        assertEquals("fable", claude?.model)
+        assertTrue(claude!!.planMode)
+    }
+
     // ── resumeWorktreeFor ────────────────────────────────────────────────────
 
     private fun worktree(over: DeviceWorktreeEntity.() -> DeviceWorktreeEntity = { this }) =

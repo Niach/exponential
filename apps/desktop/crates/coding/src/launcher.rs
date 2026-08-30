@@ -575,10 +575,11 @@ pub struct PreparedLaunch {
     /// Which tab kind the spawn opens: `Claude` for issue/batch sessions,
     /// `Action(id)` for action runs (EXP-253).
     pub tab_kind: TabKind,
-    /// EXP-275: the spawn runs with permissions bypassed
+    /// EXP-275/EXP-690: the spawn runs with permissions bypassed
     /// (`--dangerously-skip-permissions` / codex bypass — mirrors
-    /// `permission_args`: plan mode wins the starting mode, so it clears
-    /// this). The activity emitter uses it to keep permission-flavored
+    /// `permission_args`: every claude/codex run bypasses, and plan mode
+    /// wins the starting mode, so it clears this; pi has no permission
+    /// system at all). The activity emitter uses it to keep permission-flavored
     /// notifications from becoming "blocked on approval" cards.
     pub bypass_permissions: bool,
     /// EXP-529: the spawn launched into plan mode (claude `--permission-mode
@@ -1322,10 +1323,9 @@ pub fn prepare_with_hooks(
     // EXP-414: same pre-accept for claude, keyed by the spawn CWD — claude's
     // trust dialog is per-directory and every session gets a fresh worktree.
     if agent == CodingAgent::Claude {
-        crate::claude_trust::ensure_onboarded(
-            &worktree,
-            options.skip_permissions && !options.plan_mode,
-        );
+        // EXP-690: always seed `bypassPermissionsModeAccepted` — every run
+        // bypasses, and even a plan-mode run is one Shift+Tab from it.
+        crate::claude_trust::ensure_onboarded(&worktree, true);
     }
     let hook_settings = write_hook_settings(&deps.data_dir, &session.id, agent, hooks);
     // EXP-443: identity minted BEFORE spawn, so the transcript pin and the
@@ -1404,7 +1404,7 @@ pub fn prepare_with_hooks(
             model: options.model.clone(),
             effort: options.effort.clone(),
             ultracode: options.ultracode,
-            skip_permissions: options.skip_permissions,
+            skip_permissions: false,
             fix: None,
             // EXP-530/EXP-679: automations only fire action runs, but an
             // `agent`-started issue/batch run is unattended too.
@@ -1518,7 +1518,7 @@ pub fn prepare_with_hooks(
         tab_title_prefix,
         heartbeat_scope,
         tab_kind: TabKind::Claude,
-        bypass_permissions: options.skip_permissions && !options.plan_mode,
+        bypass_permissions: agent != CodingAgent::Pi && !options.plan_mode,
         plan_mode: options.plan_mode,
         agent,
         claude_session_id,
@@ -1965,10 +1965,7 @@ fn prepare_action(
     }
     // EXP-414: claude keys trust by the spawn cwd itself (worktree/scratch).
     if agent == CodingAgent::Claude {
-        crate::claude_trust::ensure_onboarded(
-            &cwd,
-            options.skip_permissions && !options.plan_mode,
-        );
+        crate::claude_trust::ensure_onboarded(&cwd, true);
     }
     let hook_settings = write_hook_settings(&deps.data_dir, &session.id, agent, hooks);
     // EXP-443: action runs mint identities like a session — they share the
@@ -2099,7 +2096,7 @@ fn prepare_action(
             model: options.model.clone(),
             effort: options.effort.clone(),
             ultracode: options.ultracode,
-            skip_permissions: options.skip_permissions,
+            skip_permissions: false,
             fix: match &req.kind {
                 ActionRunKind::FixConflicts {
                     branch,
@@ -2159,7 +2156,7 @@ fn prepare_action(
             agent: Some(agent.id().to_string()),
         },
         tab_kind: TabKind::Action(req.action_id.clone()),
-        bypass_permissions: options.skip_permissions && !options.plan_mode,
+        bypass_permissions: agent != CodingAgent::Pi && !options.plan_mode,
         plan_mode: options.plan_mode,
         agent,
         claude_session_id,
@@ -2246,7 +2243,6 @@ fn prepare_resume_run(
         ultracode: record.ultracode,
         // The plan already happened in the run being continued.
         plan_mode: false,
-        skip_permissions: record.skip_permissions,
     };
 
     // Step 0 — doctor: the RECORDED agent (a resume never switches agents),
@@ -2468,7 +2464,7 @@ fn prepare_resume_run(
         crate::codex_trust::ensure_trusted(trust_root);
     }
     if agent == CodingAgent::Claude {
-        crate::claude_trust::ensure_onboarded(&cwd, options.skip_permissions);
+        crate::claude_trust::ensure_onboarded(&cwd, true);
     }
     let hook_settings = write_hook_settings(&deps.data_dir, &session.id, agent, hooks);
     // A native claude resume keeps the recorded conversation's id; anything
@@ -2636,7 +2632,7 @@ fn prepare_resume_run(
         tab_title_prefix: tab_prefix,
         heartbeat_scope,
         tab_kind,
-        bypass_permissions: options.skip_permissions,
+        bypass_permissions: agent != CodingAgent::Pi,
         plan_mode: false,
         agent,
         claude_session_id,
@@ -2768,10 +2764,7 @@ pub fn prepare_agent_shell(
     }
     // EXP-414: claude keys trust by the spawn cwd itself.
     if agent == CodingAgent::Claude {
-        crate::claude_trust::ensure_onboarded(
-            &cwd,
-            options.skip_permissions && !options.plan_mode,
-        );
+        crate::claude_trust::ensure_onboarded(&cwd, true);
     }
     // EXP-443: no claude session id — shells stay hookless/unpinned, and the
     // whole point of the pin is that real sessions stop listening to them.
@@ -3033,14 +3026,13 @@ mod tests {
             device_label: "testbox".to_string(),
             origin: LaunchOrigin::Local,
             // The dialog defaults: claude, fable, no effort, no ultracode,
-            // plan mode ON, no skip (auto posture).
+            // plan mode ON.
             options: LaunchOptions {
                 agent: CodingAgent::Claude,
                 model: "fable".to_string(),
                 effort: "".to_string(),
                 ultracode: false,
                 plan_mode: true,
-                skip_permissions: false,
             },
             resume_prompt: false,
         }
@@ -3097,7 +3089,6 @@ mod tests {
             effort: "high".to_string(),
             ultracode: true,
             plan_mode: false,
-            skip_permissions: true,
         }
     }
 
@@ -3266,7 +3257,6 @@ mod tests {
                 effort: String::new(),
                 ultracode: false,
                 plan_mode: false,
-                skip_permissions: false,
             },
         }
     }
@@ -3483,7 +3473,6 @@ mod tests {
             effort: "high".to_string(),
             ultracode: false,
             plan_mode: false,
-            skip_permissions: false,
         };
 
         let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
@@ -3510,8 +3499,8 @@ mod tests {
         assert!(args
             .contains(&"mcp_servers.exponential.bearer_token_env_var=\"EXP_MCP_TOKEN\"".to_string()));
         assert!(!args.iter().any(|arg| arg.contains("expu_")));
-        // Auto preset (skip OFF) + the key in the spawn env only.
-        assert!(args.contains(&"workspace-write".to_string()));
+        // EXP-690: the bypass flag + the key in the spawn env only.
+        assert!(args.contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
         assert!(prepared
             .spawn
             .env
@@ -3543,7 +3532,6 @@ mod tests {
             effort: String::new(),
             ultracode: false,
             plan_mode: false,
-            skip_permissions: false,
         };
 
         let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
@@ -3713,7 +3701,6 @@ mod tests {
             effort: String::new(),
             ultracode: false,
             plan_mode: false,
-            skip_permissions: false,
         };
         let hooks = hook_setup();
         let prepared =
@@ -5262,10 +5249,10 @@ mod tests {
         );
     }
 
-    /// Plan mode OFF rides the classic skip flag — the dialog's choice, not
-    /// a launcher hardcode.
+    /// EXP-690: plan mode OFF rides the classic bypass flag — every run
+    /// bypasses, there is nothing left to opt into.
     #[test]
-    fn plan_mode_off_uses_the_skip_flag() {
+    fn plan_mode_off_bypasses_permissions() {
         let dir = temp_dir("skip-flag");
         let worktree = dir.0.join("wt");
         fs::create_dir_all(&worktree).unwrap();
@@ -5281,7 +5268,6 @@ mod tests {
         let deps = make_deps(&base, &dir.0, worktrees);
         let mut req = request("EXP-42");
         req.options.plan_mode = false;
-        req.options.skip_permissions = true;
         req.options.effort = "xhigh".to_string();
 
         match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
@@ -5307,7 +5293,7 @@ mod tests {
 
     /// EXP-201: a CODEX launch writes NO `.exp-mcp.json` (the raw key rides
     /// only the spawn env as EXP_MCP_TOKEN), composes the `-c mcp_servers.*`
-    /// overrides + the explicit Auto preset, and titles the tab `codex · …`.
+    /// overrides + the EXP-690 bypass flag, and titles the tab `codex · …`.
     #[test]
     fn prepare_codex_full_sequence() {
         let dir = temp_dir("codex-happy");
@@ -5331,7 +5317,6 @@ mod tests {
             effort: "high".to_string(),
             ultracode: false,
             plan_mode: false,
-            skip_permissions: false,
         };
 
         let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
@@ -5356,11 +5341,11 @@ mod tests {
             .spawn
             .env
             .contains(&("EXP_MCP_TOKEN".to_string(), "expu_seeded".to_string())));
-        // Auto preset (skip OFF): workspace-write + on-request + network.
-        assert!(args.contains(&"--sandbox".to_string()));
-        assert!(args.contains(&"workspace-write".to_string()));
-        assert!(args.contains(&"sandbox_workspace_write.network_access=true".to_string()));
-        assert!(!args.iter().any(|arg| arg == "--dangerously-bypass-approvals-and-sandbox"));
+        // EXP-690: every codex run carries the bypass flag; the old
+        // workspace-write Auto preset is gone.
+        assert!(args.contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
+        assert!(!args.iter().any(|arg| arg == "--sandbox"));
+        assert!(!args.iter().any(|arg| arg == "sandbox_workspace_write.network_access=true"));
         // Prompt positional-last, model/effort flags present, the EXP-389
         // update-prompt suppression leading.
         assert_eq!(
@@ -5417,7 +5402,6 @@ mod tests {
             effort: "high".to_string(),
             ultracode: false,
             plan_mode: false,
-            skip_permissions: false,
         };
 
         let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
@@ -5918,7 +5902,6 @@ mod tests {
                 effort: String::new(),
                 ultracode: false,
                 plan_mode: false,
-                skip_permissions: false,
             },
             repository_id: "repo-1".to_string(),
             full_name: "acme/web".to_string(),

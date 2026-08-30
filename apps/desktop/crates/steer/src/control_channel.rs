@@ -159,7 +159,6 @@ pub struct RemoteStart {
     pub effort: Option<String>,
     pub ultracode: Option<bool>,
     pub plan_mode: Option<bool>,
-    pub skip_permissions: Option<bool>,
     /// EXP-481: resume the issue's existing worktree/agent session. Only
     /// meaningful on the Issue subject (the server rejects it elsewhere);
     /// absent on the wire = `false`, a fresh start (the pre-481 wire).
@@ -188,7 +187,6 @@ pub(crate) fn remote_start_from_frame(
     effort: Option<String>,
     ultracode: Option<bool>,
     plan_mode: Option<bool>,
-    skip_permissions: Option<bool>,
     resume: bool,
     resume_session_id: Option<String>,
 ) -> Option<RemoteStart> {
@@ -210,7 +208,6 @@ pub(crate) fn remote_start_from_frame(
             effort: None,
             ultracode: None,
             plan_mode: None,
-            skip_permissions: None,
             resume: false,
         });
     }
@@ -241,7 +238,6 @@ pub(crate) fn remote_start_from_frame(
         effort,
         ultracode,
         plan_mode,
-        skip_permissions,
         resume,
     })
 }
@@ -546,14 +542,12 @@ async fn connect_and_listen(
                             effort,
                             ultracode,
                             plan_mode,
-                            skip_permissions,
                             resume,
                             resume_session_id,
                         }) => match remote_start_from_frame(
                             issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
                             started_by, started_reason, agent, model, effort, ultracode,
-                            plan_mode,
-                            skip_permissions, resume, resume_session_id,
+                            plan_mode, resume, resume_session_id,
                         ) {
                             Some(start) => {
                                 log::info!("steer control: remote start_session ({:?})", start.subject);
@@ -640,7 +634,6 @@ mod tests {
             None,
             Some(true),
             None,
-            Some(true),
             false,
             Some("sess-old".into()),
         )
@@ -657,7 +650,6 @@ mod tests {
         assert_eq!(start.agent, None);
         assert_eq!(start.model, None);
         assert_eq!(start.ultracode, None);
-        assert_eq!(start.skip_permissions, None);
         assert!(!start.resume);
 
         // The web server rides `issueId` / `actionId` (+ `actionName`) along
@@ -673,7 +665,6 @@ mod tests {
                 action,
                 Some("Groom".into()),
                 Some("ws-1".into()),
-                None,
                 None,
                 None,
                 None,
@@ -711,7 +702,6 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
                 false,
                 Some("sess-old".into()),
             ),
@@ -738,7 +728,6 @@ mod tests {
                 None,
                 Some(true),
                 None,
-                Some(true),
                 false,
                 None,
             ),
@@ -751,7 +740,6 @@ mod tests {
                 effort: None,
                 ultracode: Some(true),
                 plan_mode: None,
-                skip_permissions: Some(true),
                 resume: false,
             })
         );
@@ -773,7 +761,6 @@ mod tests {
                 None,
                 None,
                 Some(false),
-                None,
                 false,
                 None,
             ),
@@ -790,7 +777,6 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: Some(false),
-                skip_permissions: None,
                 resume: false,
             })
         );
@@ -815,7 +801,6 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
                 false,
                 None,
             ),
@@ -828,7 +813,6 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
-                skip_permissions: None,
                 resume: false,
             })
         );
@@ -854,7 +838,6 @@ mod tests {
             None,
             None,
             None,
-            None,
             false,
             None,
         )
@@ -871,7 +854,6 @@ mod tests {
             None,
             None,
             Some("agent".into()),
-            None,
             None,
             None,
             None,
@@ -903,7 +885,6 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
                 false,
                 None,
             ),
@@ -912,8 +893,7 @@ mod tests {
         // Neither subject set.
         assert_eq!(
             remote_start_from_frame(
-                None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-                None, false, None,
+                None, None, None, None, None, None, None, None, None, None, None, None, None, None, false, None,
             ),
             None
         );
@@ -926,7 +906,6 @@ mod tests {
                 None,
                 Some("ws-7".into()),
                 Some(repo()),
-                None,
                 None,
                 None,
                 None,
@@ -957,7 +936,6 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
                 false,
                 None,
             ),
@@ -972,7 +950,6 @@ mod tests {
                 None,
                 None,
                 Some(repo()),
-                None,
                 None,
                 None,
                 None,
@@ -1007,7 +984,6 @@ mod tests {
                 Some("high".into()),
                 None,
                 None,
-                None,
                 false,
                 None,
             ),
@@ -1026,7 +1002,6 @@ mod tests {
                 effort: Some("high".into()),
                 ultracode: None,
                 plan_mode: None,
-                skip_permissions: None,
                 resume: false,
             })
         );
@@ -1038,7 +1013,6 @@ mod tests {
                 Some("act-2".into()),
                 Some("Groom".into()),
                 Some("ws-7".into()),
-                None,
                 None,
                 None,
                 None,
@@ -1098,7 +1072,6 @@ mod tests {
                 None,
                 None,
                 None,
-                Some(true),
                 false,
                 None,
             ),
@@ -1117,7 +1090,6 @@ mod tests {
                 effort: None,
                 ultracode: None,
                 plan_mode: None,
-                skip_permissions: Some(true),
                 resume: false,
             })
         );
@@ -1133,7 +1105,6 @@ mod tests {
                 Some("act-1".into()),
                 Some("Code review".into()),
                 Some("ws-7".into()),
-                None,
                 None,
                 None,
                 None,
@@ -1165,7 +1136,6 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
                 false,
                 None,
             ),
@@ -1178,7 +1148,6 @@ mod tests {
                 None,
                 Some("act-1".into()),
                 Some("Code review".into()),
-                None,
                 None,
                 None,
                 None,

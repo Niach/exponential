@@ -242,7 +242,6 @@ fn main() {
                 effort: "".to_string(),
                 ultracode: false,
                 plan_mode: false,
-                skip_permissions: true,
             },
             resume_prompt: false,
         })

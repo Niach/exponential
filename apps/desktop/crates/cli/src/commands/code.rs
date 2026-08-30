@@ -25,12 +25,13 @@ pub fn run(args: &[String]) -> CommandResult {
         model: take_value(&mut args, "--model"),
         effort: take_value(&mut args, "--effort"),
         plan: take_flag(&mut args, "--plan"),
-        skip_permissions: take_flag(&mut args, "--skip-permissions"),
     };
+    // EXP-690: always on; tolerated so old scripts keep working.
+    let _ = take_flag(&mut args, "--skip-permissions");
     let detach = take_flag(&mut args, "--detach");
     reject_unknown_flags(&args)?;
     let Some(issue_ref) = args.first() else {
-        anyhow::bail!("usage: exponential code <ISSUE> [--agent claude|codex|pi] [--model m] [--effort e] [--plan] [--skip-permissions] [--detach]");
+        anyhow::bail!("usage: exponential code <ISSUE> [--agent claude|codex|pi] [--model m] [--effort e] [--plan] [--detach]");
     };
 
     let ctx = context::load()?;

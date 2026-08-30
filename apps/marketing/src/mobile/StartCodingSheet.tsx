@@ -111,8 +111,6 @@ export function MobileStartCodingSheet() {
           <ToggleRow label={`Ultracode`} />
           <div className={`mss-sep`} />
           <ToggleRow label={`Plan mode`} />
-          <div className={`mss-sep`} />
-          <ToggleRow label={`Skip permissions`} />
         </div>
       </div>
     </div>

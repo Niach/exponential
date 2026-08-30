@@ -862,7 +862,6 @@ export interface DeviceAgentLaunchDefaults {
   effort?: string
   ultracode?: boolean
   planMode?: boolean
-  skipPermissions?: boolean
 }
 export interface DeviceLaunchDefaults {
   defaultAgent?: string
@@ -873,6 +872,9 @@ export interface DeviceLaunchDefaults {
 // strict schema 400'd the whole register — leaving the machine invisible
 // with no self-heal path (the update request is consumed on register).
 // `clampLaunchDefaults` strips the nulls; stored copies stay null-free.
+// The schema is plain `z.object` (strip mode) on purpose: EXP-690 retired the
+// per-agent `skipPermissions` key and old clients keep sending it, so an
+// incoming copy is silently dropped instead of rejected.
 export const deviceLaunchDefaultsSchema = z.object({
   defaultAgent: z.string().min(1).max(32).nullish(),
   agents: z
@@ -883,7 +885,6 @@ export const deviceLaunchDefaultsSchema = z.object({
         effort: z.string().max(64).nullish(),
         ultracode: z.boolean().nullish(),
         planMode: z.boolean().nullish(),
-        skipPermissions: z.boolean().nullish(),
       })
     )
     .refine((agents) => Object.keys(agents).length <= 16)

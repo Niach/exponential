@@ -2145,7 +2145,6 @@ export function registerExponentialTools(
         model: z.string().max(64).optional(),
         effort: z.string().max(32).optional(),
         planMode: z.boolean().optional(),
-        skipPermissions: z.boolean().optional(),
         ultracode: z.boolean().optional(),
       },
     },

@@ -94,7 +94,6 @@ export function StartCodingDialog() {
   const [effort, setEffort] = useState(0)
   const [planMode, setPlanMode] = useState(true)
   const [ultracode, setUltracode] = useState(false)
-  const [skipPerms, setSkipPerms] = useState(false)
 
   /* Every issue stays listed — done ones carry their status caption, like
      the real picker; the search narrows everything but the seeded pick. */
@@ -232,11 +231,6 @@ export function StartCodingDialog() {
                   label="Plan mode"
                   on={planMode}
                   onToggle={() => setPlanMode((v) => !v)}
-                />
-                <CheckRow
-                  label="Skip permissions"
-                  on={skipPerms}
-                  onToggle={() => setSkipPerms((v) => !v)}
                 />
               </div>
               {checked.size >= 2 && (

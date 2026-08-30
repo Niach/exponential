@@ -217,9 +217,11 @@ export type ClientFrame = z.infer<typeof clientFrame>
 
 // ── Relay → client control frames ────────────────────────────────────────────
 
-/** Launch options a remote start may carry (EXP-149; agent/skipPermissions
- * are EXP-201). All optional — an absent field means "desktop settings
- * default" (plan mode OFF; absent agent = claude).
+/** Launch options a remote start may carry (EXP-149; `agent` is EXP-201).
+ * All optional — an absent field means "desktop settings default" (plan mode
+ * OFF; absent agent = claude). EXP-690 retired `skipPermissions`: every
+ * launch bypasses the agent's permission prompts, and an old caller's key is
+ * dropped here instead of forwarded.
  * `startedBy` (EXP-432): the requesting teammate's userId on a start
  * targeting a SHARED server device — pure pass-through attribution the
  * daemon echoes into codingSessions.start; absent on own-device starts. */
@@ -236,7 +238,6 @@ export interface StartSessionOptions {
   effort?: string
   ultracode?: boolean
   planMode?: boolean
-  skipPermissions?: boolean
   /** EXP-481: resume the issue's existing worktree/agent session instead of
    * starting fresh. Single-issue starts only; the web server gates it on the
    * device's `resume` cap — the relay passes it through untouched. */

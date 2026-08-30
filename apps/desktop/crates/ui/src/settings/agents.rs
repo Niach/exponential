@@ -8,8 +8,8 @@
 //! |--------|--------------------------------------------------------------|
 //! | Agents | Default agent, then one TAB per agent: CLI path + model +    |
 //! |        | effort, plus the agent's own toggles — Claude: plan mode,    |
-//! |        | ultracode, skip permissions; Codex: skip permissions; pi:    |
-//! |        | nothing (no permission system)                               |
+//! |        | ultracode; Codex: none; pi: none (EXP-690: every run         |
+//! |        | bypasses permissions, no toggle)                             |
 //!
 //! Model/effort are [`crate::coding_selects`] choice selects (never free
 //! text — the closed alias sets the CLI accepts). The per-agent toggles are
@@ -82,8 +82,6 @@ pub struct AgentsPane {
     claude_ultracode: bool,
     claude_plan_mode: bool,
     pi_plan_mode: bool,
-    claude_skip_permissions: bool,
-    codex_skip_permissions: bool,
     /// The hub settings the controls were last synced from (dirty baseline).
     synced: Option<Settings>,
     save_error: Option<SharedString>,
@@ -183,8 +181,6 @@ impl AgentsPane {
             claude_ultracode: defaults.claude_ultracode,
             claude_plan_mode: defaults.claude_plan_mode,
             pi_plan_mode: defaults.pi_plan_mode,
-            claude_skip_permissions: defaults.claude_skip_permissions,
-            codex_skip_permissions: defaults.codex_skip_permissions,
             synced: None,
             save_error: None,
             _subscriptions: subscriptions,
@@ -210,8 +206,6 @@ impl AgentsPane {
         onto.claude_ultracode = from.claude_ultracode;
         onto.claude_plan_mode = from.claude_plan_mode;
         onto.pi_plan_mode = from.pi_plan_mode;
-        onto.claude_skip_permissions = from.claude_skip_permissions;
-        onto.codex_skip_permissions = from.codex_skip_permissions;
     }
 
     /// Mirror the hub's settings into the controls whenever they change out
@@ -262,8 +256,6 @@ impl AgentsPane {
         self.claude_ultracode = settings.claude_ultracode;
         self.claude_plan_mode = settings.claude_plan_mode;
         self.pi_plan_mode = settings.pi_plan_mode;
-        self.claude_skip_permissions = settings.claude_skip_permissions;
-        self.codex_skip_permissions = settings.codex_skip_permissions;
         // Open the Agents card on the saved default agent (first sync only —
         // later external saves must not yank the tab from under the user).
         if self.synced.is_none() {
@@ -304,8 +296,6 @@ impl AgentsPane {
             claude_ultracode: self.claude_ultracode,
             claude_plan_mode: self.claude_plan_mode,
             pi_plan_mode: self.pi_plan_mode,
-            claude_skip_permissions: self.claude_skip_permissions,
-            codex_skip_permissions: self.codex_skip_permissions,
             ..defaults
         };
         Self::overlay_owned(&mut drafted, &owned);
@@ -389,8 +379,8 @@ impl AgentsPane {
 
     /// The Agents card (EXP-206): one TAB per agent, each holding that
     /// agent's CLI path + model/effort selects and its OWN toggles — plan
-    /// mode and ultracode exist only on the Claude tab, skip permissions on
-    /// Claude and Codex.
+    /// mode and ultracode exist only on the Claude tab (EXP-690 retired the
+    /// skip-permissions toggle: every run bypasses).
     fn render_agents_section(&mut self, cx: &mut gpui::Context<Self>) -> gpui::Div {
         let active_ix = CodingAgent::ALL
             .iter()
@@ -443,13 +433,6 @@ impl AgentsPane {
                     self.claude_ultracode,
                     |this, checked, _| this.claude_ultracode = *checked,
                     cx,
-                ))
-                .child(Self::toggle_row(
-                    "claude-skip-permissions",
-                    "Skip permissions",
-                    self.claude_skip_permissions,
-                    |this, checked, _| this.claude_skip_permissions = *checked,
-                    cx,
                 )),
             CodingAgent::Codex => body
                 .child(Self::labeled_input("CLI path", &self.codex_input, cx))
@@ -457,13 +440,6 @@ impl AgentsPane {
                 .child(Self::labeled_select(
                     "Reasoning effort",
                     &self.codex_effort_select,
-                    cx,
-                ))
-                .child(Self::toggle_row(
-                    "codex-skip-permissions",
-                    "Skip permissions",
-                    self.codex_skip_permissions,
-                    |this, checked, _| this.codex_skip_permissions = *checked,
                     cx,
                 )),
             CodingAgent::Pi => body

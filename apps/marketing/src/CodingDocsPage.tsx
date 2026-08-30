@@ -156,11 +156,6 @@ export function CodingDocsPage() {
                 vocabulary (Codex calls it Reasoning, pi calls it Thinking).
               </li>
               <li>
-                <strong>Skip permissions</strong> (Claude and Codex). Off
-                leaves the agent in its own guarded auto mode, on hands it a
-                full bypass.
-              </li>
-              <li>
                 <strong>Dynamic workflows (ultracode)</strong>, Claude only.
                 Lets the run organize its own workflow; it takes over the
                 effort setting.
@@ -174,12 +169,13 @@ export function CodingDocsPage() {
             <p>
               Defaults are <strong>per agent, not per mode</strong>: single and
               batch runs prefill identically. Out of the box that&apos;s{` `}
-              <strong>plan mode on</strong>, <strong>ultracode off</strong> and
-              {` `}
-              <strong>skip permissions off</strong>. Change them under{` `}
-              <strong>Settings → Agents</strong> on the desktop, per agent, and
-              every future run starts from your values. Every run uses exactly
-              one repository.
+              <strong>plan mode on</strong> and <strong>ultracode off</strong>.
+              Change them under <strong>Settings → Agents</strong> on the
+              desktop, per agent, and every future run starts from your values.
+              Permissions are not a setting: every run hands Claude and Codex a
+              full bypass, and plan mode still asks you to approve the plan
+              before any code is written. Every run uses exactly one
+              repository.
             </p>
             <p>
               The same dialog has an <strong>Actions</strong> tab: the

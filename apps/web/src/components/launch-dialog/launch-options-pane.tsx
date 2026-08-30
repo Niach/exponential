@@ -14,14 +14,13 @@ import {
   agentEffortValues,
   agentModelValues,
   agentSupportsPlanMode,
-  agentSupportsSkipPermissions,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import type { SteerDevice } from "@/lib/steer-devices"
 
 // The options column of the unified launch dialog (EXP-257) — a
 // presentational extraction of the Start-coding dialog's right half: device
-// select, agent tab strip, model/effort selects, and the three capability
+// select, agent tab strip, model/effort selects, and the capability
 // toggles. All state and the touched/clamp logic stay in the dialog shell.
 // EXP-481 splits the agent strip + model/effort/toggles cluster into
 // `AgentOptionsFields` so the device-settings dialog's defaults editor
@@ -91,7 +90,7 @@ export interface ResumeRowProps {
 }
 
 /** The launch variant's run-time switches — never rendered for an automation,
- * which has nobody to answer a permission prompt. */
+ * which has nobody to steer a plan or a resume. */
 interface LaunchToggleProps {
   ultracode: boolean
   onUltracodeChange: (value: boolean) => void
@@ -100,8 +99,6 @@ interface LaunchToggleProps {
   /** EXP-481: hidden entirely while a resume is armed — a resumed session
    * never re-enters plan mode (mirrors the desktop dialog). */
   planModeHidden?: boolean
-  skipPermissions: boolean
-  onSkipPermissionsChange: (value: boolean) => void
   resumeRow?: ResumeRowProps | null
 }
 
@@ -249,8 +246,6 @@ function LaunchToggles({
   planMode,
   onPlanModeChange,
   planModeHidden = false,
-  skipPermissions,
-  onSkipPermissionsChange,
   resumeRow,
 }: LaunchToggleProps & { idPrefix: string; agent: string }) {
   // EXP-616: the second grouped card — one switch row per capability,
@@ -260,8 +255,7 @@ function LaunchToggles({
     <>
       {(resumeRow ||
         agentSupportsUltracode(agent) ||
-        (agentSupportsPlanMode(agent) && !planModeHidden) ||
-        agentSupportsSkipPermissions(agent)) && (
+        (agentSupportsPlanMode(agent) && !planModeHidden)) && (
         <GlassGroup>
           {resumeRow && (
             <GlassToggleRow
@@ -293,14 +287,6 @@ function LaunchToggles({
               onCheckedChange={onPlanModeChange}
             />
           )}
-          {agentSupportsSkipPermissions(agent) && (
-            <GlassToggleRow
-              id={`${idPrefix}-skip-permissions`}
-              label="Skip permissions"
-              checked={skipPermissions}
-              onCheckedChange={onSkipPermissionsChange}
-            />
-          )}
         </GlassGroup>
       )}
     </>
@@ -324,8 +310,6 @@ export function LaunchOptionsPane({
   planMode,
   onPlanModeChange,
   planModeHidden,
-  skipPermissions,
-  onSkipPermissionsChange,
   resumeRow,
 }: {
   /** The tab's CANDIDATE devices (capability-filtered by the shell). */
@@ -347,8 +331,6 @@ export function LaunchOptionsPane({
   planMode: boolean
   onPlanModeChange: (value: boolean) => void
   planModeHidden?: boolean
-  skipPermissions: boolean
-  onSkipPermissionsChange: (value: boolean) => void
   /** EXP-481: rendered when the shell computed a resumable worktree. */
   resumeRow?: ResumeRowProps | null
 }) {
@@ -398,8 +380,6 @@ export function LaunchOptionsPane({
         planMode={planMode}
         onPlanModeChange={onPlanModeChange}
         planModeHidden={planModeHidden}
-        skipPermissions={skipPermissions}
-        onSkipPermissionsChange={onSkipPermissionsChange}
         resumeRow={resumeRow}
       />
     </div>

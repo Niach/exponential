@@ -390,8 +390,6 @@ export function CreateActionDialog({
               onUltracodeChange={launch.setUltracode}
               planMode={launch.planMode}
               onPlanModeChange={launch.setPlanMode}
-              skipPermissions={launch.skipPermissions}
-              onSkipPermissionsChange={launch.setSkipPermissions}
             />
           </div>
 

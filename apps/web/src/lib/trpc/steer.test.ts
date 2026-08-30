@@ -343,23 +343,26 @@ describe(`steer.startSession — routed body shape`, () => {
 })
 
 describe(`steer.startSession — agent selection (EXP-201)`, () => {
-  it(`forwards agent + skipPermissions to the relay body`, async () => {
+  it(`forwards agent to the relay body and drops skipPermissions`, async () => {
     queueOwnDevice()
-    await caller.startSession({
+    // EXP-690: old clients keep sending the retired key; the input schema
+    // strips it, so it never reaches the relay.
+    const input = {
       issueId: ISSUE_A,
       deviceId: `dev-1`,
       agent: `codex`,
       model: `gpt-5.6-sol`,
       effort: `xhigh`,
       skipPermissions: true,
-    })
+    }
+    await caller.startSession(input)
     expect(lastStartBody()).toMatchObject({
       issueId: ISSUE_A,
       agent: `codex`,
       model: `gpt-5.6-sol`,
       effort: `xhigh`,
-      skipPermissions: true,
     })
+    expect(`skipPermissions` in lastStartBody()).toBe(false)
   })
 
   it(`rejects an agent the row did not register`, async () => {
@@ -455,16 +458,17 @@ describe(`steer.startSession — agent selection (EXP-201)`, () => {
     })
     expect(lastStartBody()).toMatchObject({ agent: `pi`, planMode: true })
 
-    // pi has no permission system to skip.
-    error = await rejectionOf(
-      caller.startSession({
-        issueId: ISSUE_A,
-        deviceId: `dev-1`,
-        agent: `pi`,
-        skipPermissions: true,
-      })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    // EXP-690: pi never had a permission system, and the retired key is now
+    // silently accepted (and dropped) rather than rejected.
+    queueOwnDevice()
+    const legacy = {
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      agent: `pi`,
+      skipPermissions: true,
+    }
+    await caller.startSession(legacy)
+    expect(`skipPermissions` in lastStartBody()).toBe(false)
   })
 })
 
@@ -500,7 +504,6 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
       agent: `codex`,
       model: `gpt-5.6-sol`,
       effort: `xhigh`,
-      skipPermissions: true,
     })
     expect(lastStartBody()).toMatchObject({
       userId: `actor`,
@@ -511,7 +514,6 @@ describe(`steer.startSession — action runs (EXP-257)`, () => {
       agent: `codex`,
       model: `gpt-5.6-sol`,
       effort: `xhigh`,
-      skipPermissions: true,
     })
     expect(`inputs` in lastStartBody()).toBe(false)
   })
