@@ -29,14 +29,20 @@ struct EmojiPickerSheet: View {
     }
 
     var body: some View {
-        GlassSheetChrome(title: "Emoji", detents: [.medium, .large]) {
-            VStack(spacing: 0) {
+        // `.full`, not fitted: the browse grid pins its section headers, so it
+        // owns its own scroller and can never be measured by the chrome.
+        GlassSheetChrome(
+            title: "Emoji",
+            height: .full,
+            pinnedHeader: {
                 GlassSheetSearchField(placeholder: "Search emoji", text: $query)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 8)
+            },
+            content: {
                 content
             }
-        }
+        )
         .onAppear {
             // Usually already decoded by the editor's preload; this covers a
             // picker opened first (and is a no-op once loaded).

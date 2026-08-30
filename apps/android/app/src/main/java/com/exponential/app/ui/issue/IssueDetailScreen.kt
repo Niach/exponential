@@ -391,7 +391,7 @@ fun IssueDetailScreen(
                                 // only board (web parity: 2+ boards).
                                 if (isModerator && moveTargets.isNotEmpty()) {
                                     GlassMenuItem(
-                                        leadingIcon = { Icon(ExpIcons.eventBoardMoved, contentDescription = null) },
+                                        leadingIcon = { Icon(ExpIcons.navBoards, contentDescription = null) },
                                         text = { Text("Move to board") },
                                         onClick = {
                                             overflowOpen = false
@@ -403,6 +403,7 @@ fun IssueDetailScreen(
                                     GlassMenuItem(
                                         leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
                                         text = { Text("Delete issue") },
+                                        destructive = true,
                                         onClick = {
                                             overflowOpen = false
                                             confirmDelete = true

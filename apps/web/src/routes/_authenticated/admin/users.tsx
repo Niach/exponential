@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -268,7 +269,7 @@ function AdminUsers() {
         open={Boolean(confirmDelete)}
         onOpenChange={(open) => !open && setConfirmDelete(null)}
       >
-        <DialogContent>
+        <DialogContent mobile="alert">
           <DialogHeader>
             <DialogTitle>Delete user?</DialogTitle>
             <DialogDescription>
@@ -278,13 +279,11 @@ function AdminUsers() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
+            <DialogCancel
               variant="outline"
               onClick={() => setConfirmDelete(null)}
               disabled={busy !== null}
-            >
-              Cancel
-            </Button>
+            />
             <Button
               variant="destructive"
               onClick={handleDelete}

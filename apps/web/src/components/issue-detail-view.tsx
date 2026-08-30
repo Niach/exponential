@@ -6,10 +6,8 @@ import {
   ChevronUp,
   Files,
   Link2,
-  Ellipsis,
-  Trash2,
-  Undo2,
 } from "lucide-react"
+import { conceptIcon } from "@/lib/icons.generated"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Issue, User, Board } from "@/db/schema"
@@ -53,7 +51,12 @@ import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
 import { IssueDetailMobileBar } from "@/components/issue-detail-mobile-bar"
 import { IssueFilesSection } from "@/components/issue-files-section"
 import { SubscribeToggle } from "@/components/subscribe-toggle"
+import { IssueDetailMobileMenu } from "@/components/issue-detail-mobile-menu"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
+
+const UiMoreIcon = conceptIcon(`ui-more`)
+const UiDeleteIcon = conceptIcon(`ui-delete`)
+const UiUndoIcon = conceptIcon(`ui-undo`)
 
 // Where the current issue sits in the board's filtered+sorted sequence — feeds
 // the header's "N / total" prev/next switcher. Null (or omitted) hides the
@@ -122,7 +125,7 @@ function DuplicateOfBanner({
           className="ml-auto shrink-0 text-muted-foreground"
           onClick={onUnmark}
         >
-          <Undo2 className="size-3.5" />
+          <UiUndoIcon className="size-3.5" />
           Unmark
         </Button>
       )}
@@ -488,6 +491,28 @@ export function IssueDetailView({
     }
   }
 
+  // EXP-57: the server renumbers the issue in the target board, so both the
+  // board slug AND the identifier change — await the issues txId, then hop to
+  // the issue's new canonical URL. Shared by the properties picker and the
+  // phone `…` menu (EXP-687).
+  const handleBoardChange = async (boardId: string) => {
+    if (readOnly) return
+    const {
+      txId,
+      issue: moved,
+      boardSlug,
+    } = await trpc.issues.move.mutate({ id: issue.id, boardId })
+    await issueCollection.utils.awaitTxId(txId)
+    void navigate({
+      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+      params: {
+        teamSlug,
+        boardSlug,
+        issueIdentifier: moved.identifier,
+      },
+    })
+  }
+
   // Delete is a hard delete (issues.delete cleans up attachments server-side);
   // once it commits, land back on the board with the carried filters.
   const handleDeleteIssue = async () => {
@@ -590,26 +615,7 @@ export function IssueDetailView({
       boardRepositoryId={board.repositoryId}
       boardId={issue.boardId}
       issueIdentifier={issue.identifier}
-      onBoardChange={async (boardId) => {
-        if (readOnly) return
-        // EXP-57: the server renumbers the issue in the target board, so
-        // both the board slug AND the identifier change — await the issues
-        // txId, then hop to the issue's new canonical URL.
-        const {
-          txId,
-          issue: moved,
-          boardSlug,
-        } = await trpc.issues.move.mutate({ id: issue.id, boardId })
-        await issueCollection.utils.awaitTxId(txId)
-        void navigate({
-          to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
-          params: {
-            teamSlug,
-            boardSlug,
-            issueIdentifier: moved.identifier,
-          },
-        })
-      }}
+      onBoardChange={handleBoardChange}
       disabled={readOnly}
     />
   )
@@ -708,7 +714,7 @@ export function IssueDetailView({
               className="text-muted-foreground"
               aria-label="Issue actions"
             >
-              <Ellipsis className="size-4" />
+              <UiMoreIcon className="size-4" />
             </Button>
           </DropdownMenuTrigger>
         </IconTooltip>
@@ -721,7 +727,7 @@ export function IssueDetailView({
               })
             }}
           >
-            <Undo2 className="size-4" />
+            <UiUndoIcon className="size-4" />
             Unmark duplicate
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -740,7 +746,7 @@ export function IssueDetailView({
             className="text-muted-foreground"
             aria-label="Delete issue"
           >
-            <Trash2 className="size-4" />
+            <UiDeleteIcon className="size-4" />
           </Button>
         </DropdownMenuTrigger>
       </IconTooltip>
@@ -751,7 +757,7 @@ export function IssueDetailView({
             void handleDeleteIssue()
           }}
         >
-          <Trash2 className="size-4" />
+          <UiDeleteIcon className="size-4" />
           Confirm delete
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -761,6 +767,29 @@ export function IssueDetailView({
   const subscribeToggle = currentUserId ? (
     <SubscribeToggle issueId={issue.id} currentUserId={currentUserId} />
   ) : null
+
+  const issueUrl = `${typeof window === `undefined` ? `` : window.location.origin}/t/${teamSlug}/boards/${board.slug}/issues/${issue.identifier}`
+
+  // The phone header collapses copy-link / subscribe / unmark / delete into
+  // ONE `…` (EXP-687), the way the iOS and Android toolbars already do.
+  const mobileMenu = (
+    <IssueDetailMobileMenu
+      issueId={issue.id}
+      issueTitle={title}
+      issueUrl={issueUrl}
+      teamId={teamId}
+      boardId={issue.boardId}
+      issueIdentifier={issue.identifier}
+      duplicateOfId={issue.duplicateOfId ?? null}
+      currentUserId={currentUserId}
+      readOnly={readOnly}
+      onDelete={handleDeleteIssue}
+      onMoveBoard={handleBoardChange}
+      onUnmarkDuplicate={() => {
+        void trpc.issues.update.mutate({ id: issue.id, duplicateOfId: null })
+      }}
+    />
+  )
 
   const breadcrumb = (
     <div className="flex items-center gap-1.5 text-xs text-muted-foreground px-4 py-2 border-b border-border min-w-0">
@@ -827,10 +856,7 @@ export function IssueDetailView({
         {position && (
           <Separator orientation="vertical" className="mx-1 !h-3.5" />
         )}
-        {copyLinkButton}
-        {subscribeToggle}
-        {unmarkDuplicateMenu}
-        {deleteMenu}
+        {mobileMenu}
       </div>
     </div>
   )

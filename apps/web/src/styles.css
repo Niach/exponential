@@ -65,6 +65,10 @@ html {
   --color-glass-stroke-card: var(--glass-stroke-card);
   --color-glass-stroke-strong: var(--glass-stroke-strong);
   --color-glass-stroke-active: var(--glass-stroke-active);
+  /* EXP-687 — the opaque sheet surface. Every mobile bottom sheet on all
+     three clients paints this exact value (iOS DesignTokens.Glass
+     .backgroundBottom / Android GlassTokens.BackgroundBottom). */
+  --color-glass-bottom: var(--glass-background-bottom);
   /* EXP-523 — Tailwind v4's `--ease-*` theme namespace, so `ease-standard`,
      `ease-decelerate` and `ease-accelerate` exist as utilities. Same
      var-indirection shape as --color-glass-* above; the raw vars carry the

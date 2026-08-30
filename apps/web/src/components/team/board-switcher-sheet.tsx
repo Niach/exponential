@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { Check, FolderKanban, Plus } from "lucide-react"
+import { Check, Plus } from "lucide-react"
+import { conceptIcon } from "@/lib/icons.generated"
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { getBoardIcon } from "@/lib/board-icons"
@@ -24,6 +25,8 @@ interface BoardSwitcherSheetProps {
   activeBoardSlug?: string
 }
 
+const NavBoardsIcon = conceptIcon(`nav-boards`)
+
 const rowClass = `flex h-11 w-full items-center gap-3 rounded-md px-3 text-left text-sm hover:bg-muted/50`
 
 // Mobile board/team switcher (EXP-189), mirroring the native apps'
@@ -46,17 +49,21 @@ export function BoardSwitcherSheet({
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
+        {/* The panel itself never scrolls (EXP-687): it is the sheet frame,
+            capped at the shared 90dvh, and the list inside it is the one
+            scroll region. */}
         <SheetContent
           side="bottom"
-          className="max-h-[75dvh] gap-0 overflow-y-auto rounded-t-xl pb-[max(1rem,env(safe-area-inset-bottom))]"
+          className="gap-0 pb-[max(1rem,env(safe-area-inset-bottom))]"
         >
           <SheetHeader className="pb-2">
             <SheetTitle>Boards</SheetTitle>
           </SheetHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex flex-col px-2">
             {!boards || boards.length === 0 ? (
               <div className="flex h-11 items-center gap-3 px-3 text-sm text-muted-foreground">
-                <FolderKanban className="size-4 shrink-0" />
+                <NavBoardsIcon className="size-4 shrink-0" />
                 No boards yet
               </div>
             ) : (
@@ -136,6 +143,7 @@ export function BoardSwitcherSheet({
               <Plus className="size-4 shrink-0" />
               New team
             </button>
+          </div>
           </div>
         </SheetContent>
       </Sheet>

@@ -1300,7 +1300,6 @@ private fun BulkLabelSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 420.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
             filtered.forEach { label ->

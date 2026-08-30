@@ -192,11 +192,14 @@ internal fun RegularCommentRow(
                         )
                         GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             GlassMenuItem(
+                                leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
                                 text = { Text("Edit") },
                                 onClick = { menuOpen = false; onEdit() },
                             )
                             GlassMenuItem(
+                                leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
                                 text = { Text("Delete") },
+                                destructive = true,
                                 onClick = { menuOpen = false; onDelete() },
                             )
                         }

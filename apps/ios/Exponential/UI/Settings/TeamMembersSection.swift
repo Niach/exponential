@@ -127,12 +127,12 @@ struct TeamMembersSection: View {
                         }
                     }
                     if canLeave {
-                        GlassMenuItem("Leave", icon: AppIcons.uiClose, destructive: true) {
+                        GlassMenuItem("Leave", icon: AppIcons.navSignOut, destructive: true) {
                             confirm = .remove(member, isSelf: true)
                         }
                     }
                     if canRemove {
-                        GlassMenuItem("Remove", icon: AppIcons.uiClose, destructive: true) {
+                        GlassMenuItem("Remove", icon: AppIcons.uiRemoveMember, destructive: true) {
                             confirm = .remove(member, isSelf: false)
                         }
                     }

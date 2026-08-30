@@ -12,6 +12,7 @@ import {
 import {
   Dialog,
   DialogBody,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -238,9 +239,7 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
                 )}
               </DialogBody>
               <DialogFooter>
-                <Button variant="outline" onClick={closeCreate}>
-                  Cancel
-                </Button>
+                <DialogCancel variant="outline" onClick={closeCreate} />
                 <Button onClick={() => void handleMint()} disabled={minting}>
                   {minting ? `Creating…` : `Create key`}
                 </Button>
@@ -289,7 +288,7 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
           if (!open) setRevokeTarget(null)
         }}
       >
-        <DialogContent>
+        <DialogContent mobile="alert">
           <DialogHeader>
             <DialogTitle>Revoke API key</DialogTitle>
             <DialogDescription>
@@ -310,9 +309,10 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
             </p>
           </DialogBody>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRevokeTarget(null)}>
-              Cancel
-            </Button>
+            <DialogCancel
+              variant="outline"
+              onClick={() => setRevokeTarget(null)}
+            />
             <Button
               variant="destructive"
               onClick={() => void handleRevoke()}

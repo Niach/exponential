@@ -15,6 +15,7 @@ import {
 import { GlassGroup } from "@/components/ui/glass-rows"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -226,7 +227,7 @@ export function TeamBoardsSection({
           if (!open) setDeleteTarget(null)
         }}
       >
-        <DialogContent>
+        <DialogContent mobile="alert">
           <DialogHeader>
             <DialogTitle>Move board to trash</DialogTitle>
             <DialogDescription>
@@ -240,13 +241,11 @@ export function TeamBoardsSection({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
+            <DialogCancel
               variant="outline"
               onClick={() => setDeleteTarget(null)}
               disabled={deleting}
-            >
-              Cancel
-            </Button>
+            />
             <Button
               variant="destructive"
               onClick={handleDelete}
@@ -264,7 +263,7 @@ export function TeamBoardsSection({
           if (!open) setArchiveTarget(null)
         }}
       >
-        <DialogContent>
+        <DialogContent mobile="alert">
           <DialogHeader>
             <DialogTitle>Archive board</DialogTitle>
             <DialogDescription>
@@ -279,13 +278,11 @@ export function TeamBoardsSection({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
+            <DialogCancel
               variant="outline"
               onClick={() => setArchiveTarget(null)}
               disabled={archiving}
-            >
-              Cancel
-            </Button>
+            />
             <Button onClick={handleArchive} disabled={archiving}>
               {archiving ? `Archiving…` : `Archive board`}
             </Button>

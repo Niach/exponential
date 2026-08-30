@@ -1,26 +1,19 @@
 package com.exponential.app.ui.actions
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,7 +36,6 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.formatAutomationBlock
 import com.exponential.app.domain.triggerSummary
 import com.exponential.app.ui.components.DEFAULT_AGENT
-import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
@@ -52,6 +44,8 @@ import com.exponential.app.ui.components.LaunchOptionsSection
 import com.exponential.app.ui.components.LaunchOptionsVariant
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
+import com.exponential.app.ui.components.SheetHeight
+import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.agentSeed
 import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.components.defaultAgentFor
@@ -69,7 +63,6 @@ import com.exponential.app.ui.theme.TextEmphasis
 // action for the team (and, when an automation is configured, copies the
 // trailing note verbatim into `exponential_automations_create`).
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateActionSheet(
     teamId: String,
@@ -83,7 +76,6 @@ fun CreateActionSheet(
     suggestionAutomation: AutomationTrigger? = null,
     dataViewModel: StartCodingSheetViewModel = hiltViewModel(),
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val teamRepos by dataViewModel.repos.collectAsStateWithLifecycle()
     val boardOptions by dataViewModel.boardOptions.collectAsStateWithLifecycle()
     val labelOptions by dataViewModel.labelOptions.collectAsStateWithLifecycle()
@@ -180,179 +172,165 @@ fun CreateActionSheet(
 
     val canCreate = device != null && description.isNotBlank()
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        dragHandle = null,
-        modifier = Modifier.statusBarsPadding().testTag("create-action-sheet"),
-    ) {
-        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                GlassPillButton(label = "Cancel", onClick = onDismiss)
-                Spacer(Modifier.weight(1f))
-                Text("New action", style = MaterialTheme.typography.titleSmall)
-                Spacer(Modifier.weight(1f))
-                Button(
-                    onClick = {
-                        val target = device ?: return@Button
-                        val options = SteerStartOptions(
-                            model = model,
-                            effort = effort,
-                            ultracode = if (agent == DEFAULT_AGENT) ultracode else null,
-                            planMode = if (supportsPlanMode(agent)) planMode else null,
-                            agent = agent,
-                            skipPermissions = if (agent == "pi") null else skipPermissions,
-                        )
-                        // EXP-583: the configured automation rides the
-                        // description as a machine-readable note the creator
-                        // agent copies verbatim into
-                        // exponential_automations_create.
-                        val automationDeviceId = automation.deviceId
-                        val trigger = automationDraftToTrigger(automation)
-                        val body = if (trigger != null && automationDeviceId != null) {
-                            description + formatAutomationBlock(
-                                trigger,
-                                deviceId = automationDeviceId,
-                                agent = automation.agent,
-                                model = automation.model,
-                                effort = automation.effort,
-                            )
-                        } else {
-                            description
-                        }
-                        val inputs = buildMap {
-                            put("description", body)
-                            if (name.isNotBlank()) put("name", name.trim())
-                            if (repoId.isNotEmpty()) put("repo", repoId)
-                            if (icon.isNotEmpty()) put("icon", icon)
-                        }
-                        onRunAction(target, createAction, options, inputs)
-                        onDismiss()
-                    },
-                    enabled = canCreate,
-                ) {
-                    Icon(
-                        ExpIcons.actionCreate,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
+    GlassSheet(
+        title = "New action",
+        onDismiss = onDismiss,
+        modifier = Modifier.testTag("create-action-sheet"),
+        height = SheetHeight.Full,
+        primaryAction = SheetPrimaryAction(
+            label = "Create",
+            enabled = canCreate,
+            icon = ExpIcons.actionCreate,
+            onClick = create@{
+                val target = device ?: return@create
+                val options = SteerStartOptions(
+                    model = model,
+                    effort = effort,
+                    ultracode = if (agent == DEFAULT_AGENT) ultracode else null,
+                    planMode = if (supportsPlanMode(agent)) planMode else null,
+                    agent = agent,
+                    skipPermissions = if (agent == "pi") null else skipPermissions,
+                )
+                // EXP-583: the configured automation rides the description as
+                // a machine-readable note the creator agent copies verbatim
+                // into exponential_automations_create.
+                val automationDeviceId = automation.deviceId
+                val trigger = automationDraftToTrigger(automation)
+                val body = if (trigger != null && automationDeviceId != null) {
+                    description + formatAutomationBlock(
+                        trigger,
+                        deviceId = automationDeviceId,
+                        agent = automation.agent,
+                        model = automation.model,
+                        effort = automation.effort,
                     )
-                    Spacer(Modifier.width(6.dp))
-                    Text("Create")
+                } else {
+                    description
                 }
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                // Icon + name on one row (web/desktop/iOS parity), then the
-                // description that the creator agent actually works from.
-                OptionGroup {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconPicker(selected = icon, onSelect = { icon = it }, allowsNone = true)
-                        Spacer(Modifier.width(12.dp))
-                        GlassTextField(
-                            value = name,
-                            onValueChange = {
-                                name = it.take(DomainContract.actionInputTextMax)
-                            },
-                            modifier = Modifier.weight(1f),
-                            placeholder = "Name (optional)",
-                            singleLine = true,
-                        )
-                    }
+                val inputs = buildMap {
+                    put("description", body)
+                    if (name.isNotBlank()) put("name", name.trim())
+                    if (repoId.isNotEmpty()) put("repo", repoId)
+                    if (icon.isNotEmpty()) put("icon", icon)
                 }
-                Spacer(Modifier.height(8.dp))
-
-                GlassTextField(
-                    value = description,
-                    onValueChange = {
-                        description = it.take(DomainContract.actionInputTextMax)
-                    },
+                onRunAction(target, createAction, options, inputs)
+                onDismiss()
+            },
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            // Icon + name on one row (web/desktop/iOS parity), then the
+            // description that the creator agent actually works from.
+            OptionGroup {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    placeholder = "What should this action do?",
-                    minLines = 4,
-                )
-                Spacer(Modifier.height(8.dp))
-
-                OptionGroup {
-                    PickerRow(
-                        label = "Repository",
-                        value = when {
-                            repoId.isEmpty() -> "None"
-                            else -> teamRepos.firstOrNull { it.id == repoId }?.fullName ?: repoId
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconPicker(selected = icon, onSelect = { icon = it }, allowsNone = true)
+                    Spacer(Modifier.width(12.dp))
+                    GlassTextField(
+                        value = name,
+                        onValueChange = {
+                            name = it.take(DomainContract.actionInputTextMax)
                         },
-                        options = listOf("") + teamRepos.map { it.id },
-                        selected = repoId,
-                        optionLabel = { id ->
-                            if (id.isEmpty()) {
-                                "None"
-                            } else {
-                                teamRepos.firstOrNull { it.id == id }?.fullName ?: id
-                            }
-                        },
-                        onSelect = { repoId = it },
-                    )
-                    GroupDivider()
-                    // The automation summary row — always here, "No automation"
-                    // until one is configured (web parity).
-                    AutomationSummaryRow(
-                        draft = automation,
-                        devices = automationDevices,
-                        onClick = { automationOpen = true },
+                        modifier = Modifier.weight(1f),
+                        placeholder = "Name (optional)",
+                        singleLine = true,
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+            }
+            Spacer(Modifier.height(8.dp))
 
-                LaunchOptionsSection(
-                    variant = LaunchOptionsVariant.Launch,
-                    devices = candidates,
-                    device = device,
-                    onDeviceChange = { id ->
-                        deviceId = id
-                        val candidate = candidates.firstOrNull { it.deviceId == id }
-                        val available = availableAgentsFor(candidate)
-                        if (agent !in available) {
-                            selectAgent(available.firstOrNull() ?: DEFAULT_AGENT)
+            GlassTextField(
+                value = description,
+                onValueChange = {
+                    description = it.take(DomainContract.actionInputTextMax)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                placeholder = "What should this action do?",
+                minLines = 4,
+            )
+            Spacer(Modifier.height(8.dp))
+
+            OptionGroup {
+                PickerRow(
+                    label = "Repository",
+                    value = when {
+                        repoId.isEmpty() -> "None"
+                        else -> teamRepos.firstOrNull { it.id == repoId }?.fullName ?: repoId
+                    },
+                    options = listOf("") + teamRepos.map { it.id },
+                    selected = repoId,
+                    optionLabel = { id ->
+                        if (id.isEmpty()) {
+                            "None"
+                        } else {
+                            teamRepos.firstOrNull { it.id == id }?.fullName ?: id
                         }
                     },
-                    agent = agent,
-                    availableAgents = availableAgents,
-                    onAgentChange = ::selectAgent,
-                    model = model,
-                    onModelChange = { model = it },
-                    effort = effort,
-                    onEffortChange = { effort = it },
-                    noDeviceNote = "No capable desktop online. This action needs a desktop " +
-                        "app new enough to run action inputs.",
-                    ultracode = ultracode,
-                    onUltracodeChange = { ultracode = it },
-                    planMode = planMode,
-                    onPlanModeChange = { planMode = it },
-                    skipPermissions = skipPermissions,
-                    onSkipPermissionsChange = { skipPermissions = it },
+                    onSelect = { repoId = it },
                 )
-                Spacer(Modifier.height(24.dp))
+                GroupDivider()
+                // The automation summary row — always here, "No automation"
+                // until one is configured (web parity).
+                AutomationSummaryRow(
+                    draft = automation,
+                    devices = automationDevices,
+                    onClick = { automationOpen = true },
+                )
             }
+            Spacer(Modifier.height(8.dp))
+
+            LaunchOptionsSection(
+                variant = LaunchOptionsVariant.Launch,
+                devices = candidates,
+                device = device,
+                onDeviceChange = { id ->
+                    deviceId = id
+                    val candidate = candidates.firstOrNull { it.deviceId == id }
+                    val available = availableAgentsFor(candidate)
+                    if (agent !in available) {
+                        selectAgent(available.firstOrNull() ?: DEFAULT_AGENT)
+                    }
+                },
+                agent = agent,
+                availableAgents = availableAgents,
+                onAgentChange = ::selectAgent,
+                model = model,
+                onModelChange = { model = it },
+                effort = effort,
+                onEffortChange = { effort = it },
+                noDeviceNote = "No capable desktop online. This action needs a desktop " +
+                    "app new enough to run action inputs.",
+                ultracode = ultracode,
+                onUltracodeChange = { ultracode = it },
+                planMode = planMode,
+                onPlanModeChange = { planMode = it },
+                skipPermissions = skipPermissions,
+                onSkipPermissionsChange = { skipPermissions = it },
+            )
+            Spacer(Modifier.height(24.dp))
         }
     }
 
     // The automation detail, nested in its own glass sheet (EXP-607 pattern) —
     // the trigger's leading "None" segment IS the clear affordance.
     if (automationOpen) {
-        GlassSheet(title = "Automation", onDismiss = { automationOpen = false }) {
+        GlassSheet(
+            title = "Automation",
+            onDismiss = { automationOpen = false },
+            height = SheetHeight.Full,
+            primaryAction = SheetPrimaryAction(label = "Done", onClick = { automationOpen = false }),
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -373,13 +351,6 @@ fun CreateActionSheet(
                         devices = automationDevices,
                         onChange = { automation = it },
                     )
-                }
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    GlassPillButton(label = "Done", onClick = { automationOpen = false })
                 }
                 Spacer(Modifier.height(8.dp))
             }

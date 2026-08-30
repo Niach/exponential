@@ -12,46 +12,35 @@ struct BoardSwitcherSheet: View {
     let onSelect: (_ accountId: String, _ boardId: String) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Switch board")
-                .font(.headline)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 20)
-                .padding(.top, 18)
-                .padding(.bottom, 10)
-
+        GlassSheetChrome(title: "Switch board") {
             let groups = boardLoader?.groups ?? []
             if groups.isEmpty {
                 emptyHint
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 18) {
-                        ForEach(groups) { group in
-                            serverSection(group)
-                        }
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    ForEach(groups) { group in
+                        serverSection(group)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
-                    .padding(.bottom, 24)
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var emptyHint: some View {
         VStack(spacing: 10) {
-            Spacer()
             AppIcon(AppIcons.navBoards, size: AppIcon.Size.large)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             Text("Create your first board on the web or desktop app.")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .multilineTextAlignment(.center)
-            Spacer()
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 40)
+        .padding(.vertical, 32)
     }
 
     @ViewBuilder

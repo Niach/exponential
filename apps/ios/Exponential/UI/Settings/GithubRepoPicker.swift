@@ -35,29 +35,23 @@ struct GithubRepoPicker: View {
     // belongs to the repos query and has its own lifecycle.
     @State private var connectError: String?
     @State private var installSession = InstallWebAuthSession()
-    // Natural height of the scroll content — short states (connect prompt,
-    // empty list) size the sheet to fit instead of a half-screen of empty
-    // glass (EXP-577); long lists keep medium/large.
-    @State private var contentHeight: CGFloat = 0
 
-    // Bottom-sheet presentation (EXP-390, Android parity): the glass sheet
-    // chrome instead of a full-height NavigationStack sheet.
+    // Bottom-sheet presentation (EXP-390, Android parity): the shared glass
+    // sheet chrome, content-fitted — a short state (connect prompt, empty
+    // list) sizes to fit instead of a half-screen of empty glass (EXP-577).
     var body: some View {
-        GlassSheetChrome(title: "Add repository", detents: [.medium, .large], fittedContentHeight: contentHeight) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    content
-                    if let connectError {
-                        Text(connectError).font(.caption).foregroundStyle(.red)
-                    }
-                    if let error {
-                        Text(error).font(.caption).foregroundStyle(.red)
-                    }
+        GlassSheetChrome(title: "Add repository") {
+            VStack(alignment: .leading, spacing: 16) {
+                content
+                if let connectError {
+                    Text(connectError).font(.caption).foregroundStyle(.red)
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { contentHeight = $0 }
+                if let error {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                }
             }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
         }
         .task { await load() }
         .onChange(of: scenePhase) { _, phase in
@@ -106,20 +100,10 @@ struct GithubRepoPicker: View {
             Text("Connect the Exponential GitHub App to pick a repository. You'll come right back here.")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Button {
+            // EXP-687: the app's ONE primary button, never a system tint.
+            GlassSubmitButton("Connect GitHub") {
                 openConnect(data)
-            } label: {
-                HStack(spacing: 6) {
-                    AppIcon(AppIcons.uiGithub, size: AppIcon.Size.medium)
-                    Text("Connect GitHub")
-                }
-                .foregroundStyle(DesignTokens.Palette.primaryForeground)
-                .frame(maxWidth: .infinity)
             }
-            // Android parity: the connect button renders in the theme's white
-            // primary, not the system accent.
-            .buttonStyle(.borderedProminent)
-            .tint(DesignTokens.Palette.primary)
             // Android parity (EXP-577): the escape hatch is a neutral white
             // outline with the refresh glyph, never the system-blue tint.
             Button {
@@ -211,19 +195,9 @@ struct GithubRepoPicker: View {
                 Text("Reconnect GitHub to load the repositories you can access\(reauthAccountSuffix(data)).")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Button {
+                GlassSubmitButton("Reconnect GitHub") {
                     openConnect(data)
-                } label: {
-                    HStack(spacing: 6) {
-                        AppIcon(AppIcons.uiRefresh, size: AppIcon.Size.medium)
-                        Text("Reconnect GitHub")
-                    }
-                    .foregroundStyle(DesignTokens.Palette.primaryForeground)
-                    .frame(maxWidth: .infinity)
                 }
-                // Android parity: white primary, not the system accent.
-                .buttonStyle(.borderedProminent)
-                .tint(DesignTokens.Palette.primary)
             }
         } else {
             Text("No repositories found for your connected GitHub accounts.")

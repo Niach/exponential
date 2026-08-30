@@ -17,7 +17,10 @@ struct IssuePropertyChipsBox: View {
     let assignedLabels: [LabelEntity]
     let singleMemberTeam: Bool
     let isModerator: Bool
-    let onTap: (IssueDetailSheet) -> Void
+    /// A chip opens its per-property picker directly (EXP-687: the pickers
+    /// are their own enum now — the combined sheet is not one of them).
+    let onTapProperty: (IssuePropertyChild) -> Void
+    let onOpenProperties: () -> Void
 
     var body: some View {
         let priority = IssuePriority.from(issue.priority)
@@ -73,10 +76,16 @@ struct IssuePropertyChipsBox: View {
                 }
             }
             if isModerator {
-                chip(target: .properties) {
+                Button {
+                    onOpenProperties()
+                } label: {
                     AppIcon(AppIcons.uiAdd, size: AppIcon.Size.small, weight: .medium)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .glassButton()
                 }
+                .buttonStyle(.plain)
             }
         }
         .padding(10)
@@ -87,7 +96,7 @@ struct IssuePropertyChipsBox: View {
         // test over this tap gesture.
         .onTapGesture {
             guard isModerator else { return }
-            onTap(.properties)
+            onOpenProperties()
         }
         .opacity(isModerator ? 1 : 0.55)
         .disabled(!isModerator)
@@ -95,11 +104,11 @@ struct IssuePropertyChipsBox: View {
 
     @ViewBuilder
     private func chip<Content: View>(
-        target: IssueDetailSheet,
+        target: IssuePropertyChild,
         @ViewBuilder content: () -> Content
     ) -> some View {
         Button {
-            onTap(target)
+            onTapProperty(target)
         } label: {
             HStack(spacing: 5) {
                 content()

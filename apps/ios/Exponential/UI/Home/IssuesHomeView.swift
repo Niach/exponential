@@ -75,9 +75,6 @@ struct IssuesHomeView: View {
                     onSelectBoard(accountId, boardId)
                 }
             )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-            .presentationBackground(.ultraThinMaterial)
         }
         .sheet(item: $createTarget) { target in
             CreateBoardSheet(
@@ -85,11 +82,9 @@ struct IssuesHomeView: View {
                 teamId: target.teamId,
                 onCreated: { boardId in onSelectBoard(target.accountId, boardId) }
             )
-            .presentationBackground(.ultraThinMaterial)
         }
         .sheet(isPresented: $showTeamSetup) {
             TeamSetupSheet()
-                .presentationBackground(.ultraThinMaterial)
         }
         // Observe the active account's synced teams so the empty state can
         // distinguish "no boards yet" from "no team at all" (EXP-188).

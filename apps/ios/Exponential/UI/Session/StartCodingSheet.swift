@@ -292,92 +292,85 @@ struct StartCodingSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                if actionsEnabled {
-                    Section {
-                        GlassSegmentedControl(
-                            options: [SubjectTab.issues, .actions, .chat],
-                            selection: subjectTab,
-                            label: { $0.label },
-                            identifier: { $0.accessibilityIdentifier },
-                            onSelect: { subjectTab = $0 }
-                        )
-                    }
-                    .listRowBackground(Color.clear)
-                    // Zero insets keep the capsule flush with the grouped
-                    // cards' margins (EXP-615).
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                }
-
-                switch subjectTab {
-                case .issues:
-                    issuesSection
-                case .actions:
-                    actionsSection
-                    if let action = selectedAction, !(action.inputs ?? []).isEmpty {
-                        inputsSection(action)
-                    }
-                case .chat:
-                    chatSection
-                }
-
-                // EXP-615: the shared device / agent / model / effort /
-                // toggles block — the same rows the create-action sheet and
-                // (in its automation variant) the automation editor render.
-                LaunchOptionsSection(
-                    variant: .launch,
-                    devices: candidateDevices,
-                    deviceId: deviceBinding,
-                    noDeviceNote: noDeviceNote,
-                    availableAgents: availableAgents,
-                    agent: agent,
-                    onAgentChange: selectAgent,
-                    model: $model,
-                    effort: $effort,
-                    ultracode: $ultracode,
-                    planMode: $planMode,
-                    skipPermissions: $skipPermissions,
-                    resumeRow: resumeCandidate.map { candidate in
-                        LaunchOptionsSection.ResumeRow(
-                            isOn: $resume,
-                            identifier: candidate.issueIdentifier,
-                            branch: candidate.branch,
-                            active: resumeActive
-                        )
-                    }
-                )
-            }
-            // EXP-603: the sheet wears the app background instead of the
-            // system grouped-list gray; rows carry the glass fill.
-            .scrollContentBackground(.hidden)
-            .background(AppBackground())
-            // No navigation title (EXP-211) — the confirm button already says
-            // "Start coding"; the bar carries only Cancel + Start.
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .listSectionSpacing(12)
-            // EXP-594: white control tint — system blue is retired (toggles,
-            // menu pickers).
-            .tint(DesignTokens.Palette.primary)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(confirmTitle) {
-                        switch subjectTab {
-                        case .issues: submit()
-                        case .actions: submitAction()
-                        case .chat: submitChat()
+        // Full-height chrome (EXP-687): no bar buttons — the confirm is the
+        // ONE pinned button, and a swipe down cancels.
+        GlassSheetChrome(
+            height: .full,
+            content: {
+                Form {
+                    if actionsEnabled {
+                        Section {
+                            GlassSegmentedControl(
+                                options: [SubjectTab.issues, .actions, .chat],
+                                selection: subjectTab,
+                                label: { $0.label },
+                                identifier: { $0.accessibilityIdentifier },
+                                onSelect: { subjectTab = $0 }
+                            )
                         }
+                        .listRowBackground(Color.clear)
+                        // Zero insets keep the capsule flush with the grouped
+                        // cards' margins (EXP-615).
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
                     }
-                    .disabled(!canConfirm)
+
+                    switch subjectTab {
+                    case .issues:
+                        issuesSection
+                    case .actions:
+                        actionsSection
+                        if let action = selectedAction, !(action.inputs ?? []).isEmpty {
+                            inputsSection(action)
+                        }
+                    case .chat:
+                        chatSection
+                    }
+
+                    // EXP-615: the shared device / agent / model / effort /
+                    // toggles block — the same rows the create-action sheet and
+                    // (in its automation variant) the automation editor render.
+                    LaunchOptionsSection(
+                        variant: .launch,
+                        devices: candidateDevices,
+                        deviceId: deviceBinding,
+                        noDeviceNote: noDeviceNote,
+                        availableAgents: availableAgents,
+                        agent: agent,
+                        onAgentChange: selectAgent,
+                        model: $model,
+                        effort: $effort,
+                        ultracode: $ultracode,
+                        planMode: $planMode,
+                        skipPermissions: $skipPermissions,
+                        resumeRow: resumeCandidate.map { candidate in
+                            LaunchOptionsSection.ResumeRow(
+                                isOn: $resume,
+                                identifier: candidate.issueIdentifier,
+                                branch: candidate.branch,
+                                active: resumeActive
+                            )
+                        }
+                    )
+                }
+                // EXP-603: the sheet's own background shows through the grouped
+                // list instead of the system gray; rows carry the glass fill.
+                .scrollContentBackground(.hidden)
+                .listSectionSpacing(12)
+                // EXP-594: white control tint — system blue is retired (toggles,
+                // menu pickers).
+                .tint(DesignTokens.Palette.primary)
+            },
+            primaryAction: {
+                GlassSubmitButton(confirmTitle, enabled: canConfirm) {
+                    switch subjectTab {
+                    case .issues: submit()
+                    case .actions: submitAction()
+                    case .chat: submitChat()
+                    }
                 }
             }
-        }
-        .presentationDetents([.large])
+        )
         // `children: .contain` keeps the form's controls queryable; a bare
         // identifier on a plain container never reaches the UI-test hierarchy.
         .accessibilityElement(children: .contain)

@@ -31,9 +31,17 @@ final class GlassMenuTokenTests: XCTestCase {
         XCTAssertEqual(GlassMenuTokens.itemHPadding, 12)
     }
 
-    // The same white .06 hairline every other divider in the app uses.
+    // The same white .06 hairline every other divider in the app uses. No
+    // menu draws one since EXP-687 (a destructive item is red, never fenced
+    // off), but the rung stays: it is the app's divider value.
     func testDividerIsTheSharedRowHairline() {
         XCTAssertEqual(GlassMenuTokens.dividerOpacity, 0.06, accuracy: 0.0001)
+    }
+
+    // EXP-687: the glyph stays 16pt, but the TRIGGER around it is 44pt on
+    // every client — the `…` used to drop taps that landed beside the ink.
+    func testTriggerHitAreaIsFortyFour() {
+        XCTAssertEqual(GlassMenuTokens.triggerHitSize, 44)
     }
 
     // The fill is DERIVED (white .06 over the card token), never a literal —

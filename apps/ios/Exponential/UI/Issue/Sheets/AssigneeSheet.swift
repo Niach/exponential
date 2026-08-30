@@ -28,11 +28,14 @@ struct AssigneeSheet: View {
     }
 
     var body: some View {
-        GlassSheetChrome(title: "Assignee", detents: [.medium, .large]) {
-            GlassSheetSearchField(placeholder: "Search members", text: $searchText)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-            ScrollView {
+        GlassSheetChrome(
+            title: "Assignee",
+            pinnedHeader: {
+                GlassSheetSearchField(placeholder: "Search members", text: $searchText)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+            },
+            content: {
                 VStack(spacing: 2) {
                     GlassSheetRow(
                         label: "Unassigned",
@@ -70,6 +73,6 @@ struct AssigneeSheet: View {
                 .padding(.horizontal, 6)
                 .padding(.bottom, 16)
             }
-        }
+        )
     }
 }

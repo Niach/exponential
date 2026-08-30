@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -252,7 +253,7 @@ function IssueMergeButton({ issue }: { issue: Issue }) {
           if (!merging) setConfirmOpen(next)
         }}
       >
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent mobile="alert" className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Merge pull request?</DialogTitle>
             <DialogDescription>
@@ -260,13 +261,10 @@ function IssueMergeButton({ issue }: { issue: Issue }) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              variant="ghost"
+            <DialogCancel
               onClick={() => setConfirmOpen(false)}
               disabled={merging}
-            >
-              Cancel
-            </Button>
+            />
             <Button onClick={merge} disabled={merging}>
               {merging ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
               Merge

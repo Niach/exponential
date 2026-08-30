@@ -3,19 +3,28 @@ import ExpCore
 import SwiftUI
 import GRDB
 
-/// Every sheet the issue detail can present, driving ONE `.sheet(item:)`
-/// (EXP-240 — replaces six independent Bools so sheet hand-offs are just a
-/// deferred item swap).
+/// The SCREEN-level sheets (EXP-687): everything the issue detail itself
+/// presents. The per-property pickers are `IssuePropertyChild` — they stack
+/// OVER the Properties sheet now instead of dismissing and re-presenting it
+/// (Android's `propertiesOpen` + `activeSheet` split).
 enum IssueDetailSheet: String, Identifiable {
+    case properties
+    case moveBoard
+    case startCoding
+
+    var id: String { rawValue }
+}
+
+/// One editable property's picker. Presented over Properties when opened from
+/// it, and directly from the chip box.
+enum IssuePropertyChild: String, Identifiable {
     case status
     case priority
     case assignee
     case labels
     case dueDate
-    case properties
     case moveBoard
     case duplicateOf
-    case startCoding
 
     var id: String { rawValue }
 }
@@ -29,11 +38,29 @@ struct IssueDetailView: View {
     @State private var viewModel: IssueDetailViewModel?
     @State private var showDeleteConfirm = false
     @State private var activeSheet: IssueDetailSheet?
+    /// A property picker opened straight from the chip box (no Properties
+    /// sheet under it). Its own node, so it never collides with `activeSheet`.
+    @State private var directChild: IssuePropertyChild?
+    /// A property picker stacked over the Properties sheet.
+    @State private var propertyChild: IssuePropertyChild?
+    /// A picker that has to hand off to ANOTHER sheet (the duplicate-status
+    /// interception) parks its target here and it is promoted on dismiss — a
+    /// sheet cannot present while its sibling is still animating away.
+    @State private var pendingChild: IssuePropertyChild?
     // Candidates for the Start-coding sheet, loaded just before presenting.
     @State private var startCandidates: [StartCodingSheet.IssueOption] = []
     // The board picked in the move sheet, pending confirmation (EXP-57) —
     // non-nil drives the "Move issue" alert.
     @State private var moveTarget: BoardEntity?
+    /// The Properties path's own confirm target: the alert has to hang off the
+    /// Properties sheet, not the screen behind it.
+    @State private var propertyMoveTarget: BoardEntity?
+    /// Courier for both: the picked board, promoted once the picker dismissed.
+    @State private var pendingMoveTarget: BoardEntity?
+    /// The `…` toolbar menu (EXP-687): the popup is an in-view overlay on this
+    /// screen's root, so the bar button only reports its frame and toggles.
+    @State private var menuAnchor: CGRect = .zero
+    @State private var menuOpen = false
     /// EXP-603: `ShareLink` cannot live inside a `GlassMenu` (its rows are
     /// plain buttons), so the menu item hands the URL to a host-level sheet.
     @State private var shareTarget: ShareTarget?
@@ -161,7 +188,8 @@ struct IssueDetailView: View {
                             assignedLabels: vm.assignedLabels,
                             singleMemberTeam: vm.singleMemberTeam,
                             isModerator: vm.permissions.isModerator,
-                            onTap: { activeSheet = $0 }
+                            onTapProperty: { directChild = $0 },
+                            onOpenProperties: { activeSheet = .properties }
                         )
 
                         // A remote edit arrived while editing locally — offer
@@ -311,7 +339,7 @@ struct IssueDetailView: View {
                 .task(id: "widget-submission-\(issue.id)") {
                     await vm.loadWidgetSubmission()
                 }
-                .sheet(item: $activeSheet) { sheet in
+                .sheet(item: $activeSheet, onDismiss: { promoteMoveTarget(to: .screen) }) { sheet in
                     sheetContent(sheet, vm: vm, issue: issue)
                 }
                 // Presenting a sheet over a focused editor kept the editor
@@ -320,67 +348,29 @@ struct IssueDetailView: View {
                 .onChange(of: activeSheet) { _, newSheet in
                     if newSheet != nil { UIApplication.endEditing() }
                 }
-                .alert(
-                    "Move issue",
-                    isPresented: Binding(
-                        get: { moveTarget != nil },
-                        set: { if !$0 { moveTarget = nil } }
-                    ),
-                    presenting: moveTarget
-                ) { target in
-                    Button("Move") {
-                        Task { await vm.moveToBoard(target.id) }
-                    }
-                    Button("Cancel", role: .cancel) {}
-                } message: { target in
-                    // Byte-shared with web, desktop and Android (EXP-426).
-                    Text("Move \(issue.identifier ?? "this issue") to \"\(target.name)\"? The issue will get a new identifier in that board.")
+                // The chip box presents its pickers directly (EXP-687), so
+                // that path needs the same resign.
+                .onChange(of: directChild) { _, child in
+                    if child != nil { UIApplication.endEditing() }
                 }
+                .moveBoardConfirm(
+                    target: $moveTarget,
+                    identifier: issue.identifier,
+                    onConfirm: { target in Task { await vm.moveToBoard(target.id) } }
+                )
                 // EXP-327: one `…` and nothing else — share and the subscribe
                 // toggle moved inside it (with words, so the bell's state is
                 // readable instead of guessed), next to Move to board. The MENU
                 // is available to everyone; only the mutating items are
                 // moderator-gated (parity with Android).
-                .sheet(item: $shareTarget) { target in
-                    ActivityShareSheet(items: [target.text, target.url])
-                }
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
-                        GlassMenu {
-                            if let shareURL = vm.shareURL {
-                                GlassMenuItem("Share", icon: AppIcons.uiShare) {
-                                    shareTarget = ShareTarget(url: shareURL, text: vm.shareText)
-                                }
-                            }
-                            GlassMenuItem(
-                                vm.isSubscribed ? "Unsubscribe" : "Subscribe",
-                                icon: vm.isSubscribed ? AppIcons.uiUnsubscribe : AppIcons.uiSubscribe
-                            ) {
-                                Task { await vm.toggleSubscribe() }
-                            }
-                            if vm.permissions.isModerator {
-                                // Duplicate = status interception (L27): unmark is
-                                // the only duplicate action here; marking happens via
-                                // the `duplicate` status picker.
-                                if issue.duplicateOfId != nil {
-                                    GlassMenuItem("Unmark duplicate", icon: AppIcons.statusDuplicate) {
-                                        Task { await vm.unmarkDuplicate() }
-                                    }
-                                }
-                                // Move to another board in the same team
-                                // (EXP-57) — hidden when there's nowhere to go.
-                                if !vm.moveTargetBoards.isEmpty {
-                                    GlassMenuItem("Move to board", icon: AppIcons.navBoards) {
-                                        activeSheet = .moveBoard
-                                    }
-                                }
-                                GlassMenuItem("Delete issue", icon: AppIcons.uiDelete, destructive: true) {
-                                    showDeleteConfirm = true
-                                }
-                            }
-                        } label: {
-                            AppIcon(AppIcons.uiMore, size: AppIcon.Size.large)
-                        }
+                        GlassMenuBarButton(
+                            icon: AppIcons.uiMore,
+                            accessibilityLabel: "More",
+                            anchor: $menuAnchor,
+                            isPresented: $menuOpen
+                        )
                     }
                 }
             } else if let vm = viewModel, vm.loadTimedOut {
@@ -391,6 +381,31 @@ struct IssueDetailView: View {
             } else {
                 ProgressView().tint(.white)
             }
+        }
+        // EXP-687: the `…` popup rides an in-view overlay on THIS root, not a
+        // presentation launched from inside the UIKit bar item — that dropped
+        // taps, slid in from the bottom and landed off the button.
+        .glassMenuOverlay(isPresented: $menuOpen, anchor: menuAnchor, presentation: .inline) {
+            toolbarMenuItems
+        }
+        // Each presentation lives on its OWN node (EXP-240): a second `.sheet`
+        // in the same chain silently loses to the first.
+        .background {
+            Color.clear
+                .sheet(item: $directChild, onDismiss: {
+                    promoteChild(to: .screen)
+                    promoteMoveTarget(to: .screen)
+                }) { child in
+                    if let vm = viewModel, let issue = vm.issue {
+                        childSheet(child, vm: vm, issue: issue)
+                    }
+                }
+        }
+        .background {
+            Color.clear
+                .sheet(item: $shareTarget) { target in
+                    ActivityShareSheet(items: [target.text, target.url])
+                }
         }
         // The identifier IS the title (EXP-568) — it used to be a chip in the
         // content, one line below a nav bar that just said "Issue".
@@ -484,11 +499,130 @@ struct IssueDetailView: View {
         return nil
     }
 
+    // MARK: - Toolbar menu
+
+    @ViewBuilder
+    private var toolbarMenuItems: some View {
+        if let vm = viewModel, let issue = vm.issue {
+            if let shareURL = vm.shareURL {
+                GlassMenuItem("Share", icon: AppIcons.uiShare) {
+                    shareTarget = ShareTarget(url: shareURL, text: vm.shareText)
+                }
+            }
+            GlassMenuItem(
+                vm.isSubscribed ? "Unsubscribe" : "Subscribe",
+                icon: vm.isSubscribed ? AppIcons.uiUnsubscribe : AppIcons.uiSubscribe
+            ) {
+                Task { await vm.toggleSubscribe() }
+            }
+            if vm.permissions.isModerator {
+                // Duplicate = status interception (L27): unmark is the only
+                // duplicate action here; marking happens via the `duplicate`
+                // status picker.
+                if issue.duplicateOfId != nil {
+                    GlassMenuItem("Unmark duplicate", icon: AppIcons.statusDuplicate) {
+                        Task { await vm.unmarkDuplicate() }
+                    }
+                }
+                // Move to another board in the same team (EXP-57) — hidden
+                // when there's nowhere to go.
+                if !vm.moveTargetBoards.isEmpty {
+                    GlassMenuItem("Move to board", icon: AppIcons.navBoards) {
+                        activeSheet = .moveBoard
+                    }
+                }
+                GlassMenuItem("Delete issue", icon: AppIcons.uiDelete, destructive: true) {
+                    showDeleteConfirm = true
+                }
+            }
+        }
+    }
+
     // MARK: - Sheets
+
+    /// Which "Move issue" alert a promoted target belongs to — the screen's
+    /// own, or the one hanging off the Properties sheet.
+    private enum MoveConfirmHost {
+        case screen
+        case properties
+    }
+
+    private func promoteMoveTarget(to host: MoveConfirmHost) {
+        guard let target = pendingMoveTarget else { return }
+        pendingMoveTarget = nil
+        switch host {
+        case .screen: moveTarget = target
+        case .properties: propertyMoveTarget = target
+        }
+    }
+
+    private func promoteChild(to host: MoveConfirmHost) {
+        guard let next = pendingChild else { return }
+        pendingChild = nil
+        switch host {
+        case .screen: directChild = next
+        case .properties: propertyChild = next
+        }
+    }
 
     @ViewBuilder
     private func sheetContent(_ sheet: IssueDetailSheet, vm: IssueDetailViewModel, issue: IssueEntity) -> some View {
         switch sheet {
+        case .properties:
+            IssuePropertiesSheet(
+                issue: issue,
+                status: vm.resolvedStatus,
+                assignee: vm.assignee(),
+                labels: vm.teamLabels,
+                assignedIds: vm.assignedLabelIds,
+                singleMemberTeam: vm.singleMemberTeam,
+                board: vm.board,
+                hasMoveTargets: !vm.moveTargetBoards.isEmpty,
+                onToggleLabel: { labelId in
+                    Task { await vm.toggleLabel(labelId) }
+                },
+                activeChild: $propertyChild,
+                onChildDismiss: {
+                    promoteChild(to: .properties)
+                    promoteMoveTarget(to: .properties)
+                },
+                child: { child in
+                    childSheet(child, vm: vm, issue: issue)
+                }
+            )
+            // The confirm hangs off the Properties ROOT — a different node
+            // from the child `.sheet` inside it (EXP-240).
+            .moveBoardConfirm(
+                target: $propertyMoveTarget,
+                identifier: issue.identifier,
+                onConfirm: { target in Task { await vm.moveToBoard(target.id) } }
+            )
+        case .moveBoard:
+            moveBoardPicker(vm: vm, issue: issue)
+        case .startCoding:
+            // EXP-642: `teamId` + `onRunAction` are what light up the sheet's
+            // Actions and Chat tabs — without them the issue detail offered
+            // Issues-only, unlike every other host.
+            StartCodingSheet(
+                devices: vm.steerDevices ?? [],
+                issues: startCandidates,
+                preselectedIds: [issue.id],
+                teamId: vm.board?.teamId,
+                onStart: { device, issueIds, options in
+                    vm.startCoding(on: device, issueIds: issueIds, options: options)
+                },
+                onRunAction: { device, action, options, inputs in
+                    vm.runAction(on: device, action: action, options: options, inputs: inputs)
+                }
+            )
+        }
+    }
+
+    /// The per-property pickers. The SAME builder feeds the chip box's direct
+    /// sheet and the ones Properties stacks over itself.
+    @ViewBuilder
+    private func childSheet(_ child: IssuePropertyChild, vm: IssueDetailViewModel, issue: IssueEntity) -> some View {
+        switch child {
         case .status:
             GlassPickerSheet(
                 title: "Status",
@@ -502,9 +636,10 @@ struct IssueDetailView: View {
                     // it opens the canonical-issue picker instead of writing
                     // the status directly; markDuplicate sets duplicateOfId +
                     // status='duplicate' atomically. Cancelling the picker
-                    // leaves the status untouched.
+                    // leaves the status untouched. The hand-off is promoted on
+                    // THIS picker's dismiss, never on a timer.
                     if selected.category == .duplicate {
-                        handOff(to: .duplicateOf)
+                        pendingChild = .duplicateOf
                     } else {
                         Task { await vm.setStatus(selected) }
                     }
@@ -558,48 +693,8 @@ struct IssueDetailView: View {
                 date: parseDate(issue.dueDate),
                 onDateChange: { date in Task { await vm.setDueDate(date) } }
             )
-        case .properties:
-            IssuePropertiesSheet(
-                issue: issue,
-                status: vm.resolvedStatus,
-                assignee: vm.assignee(),
-                labels: vm.teamLabels,
-                assignedIds: vm.assignedLabelIds,
-                singleMemberTeam: vm.singleMemberTeam,
-                board: vm.board,
-                hasMoveTargets: !vm.moveTargetBoards.isEmpty,
-                onNavigate: { handOff(to: $0) },
-                onToggleLabel: { labelId in
-                    Task { await vm.toggleLabel(labelId) }
-                }
-            )
         case .moveBoard:
-            // Move to board (EXP-57): pick a same-team target, then
-            // confirm — the issue is renumbered in the target board, so
-            // the move deserves an explicit yes before it fires. Glass since
-            // EXP-603 retired the stock `PickerSheet`.
-            GlassPickerSheet(
-                title: "Move to board",
-                items: vm.moveTargetBoards,
-                selectedID: issue.boardId,
-                idFor: { $0.id },
-                onSelect: { target in
-                    // Defer so this sheet finishes dismissing before
-                    // the confirmation alert presents.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        moveTarget = target
-                    }
-                }
-            ) { board in
-                Label {
-                    Text(board.name)
-                } icon: {
-                    // Board glyph tinted with the board color — same idiom as
-                    // the board switcher sheet (EXP-449).
-                    AppIcon(BoardTypeDisplay.iconName(for: board), size: 16)
-                        .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
-                }
-            }
+            moveBoardPicker(vm: vm, issue: issue)
         case .duplicateOf:
             DuplicatePickerSheet(
                 loadCandidates: { await vm.duplicateCandidates() },
@@ -607,33 +702,29 @@ struct IssueDetailView: View {
                     Task { await vm.markDuplicate(of: canonical) }
                 }
             )
-            .presentationBackground(.ultraThinMaterial)
-        case .startCoding:
-            // EXP-642: `teamId` + `onRunAction` are what light up the sheet's
-            // Actions and Chat tabs — without them the issue detail offered
-            // Issues-only, unlike every other host.
-            StartCodingSheet(
-                devices: vm.steerDevices ?? [],
-                issues: startCandidates,
-                preselectedIds: [issue.id],
-                teamId: vm.board?.teamId,
-                onStart: { device, issueIds, options in
-                    vm.startCoding(on: device, issueIds: issueIds, options: options)
-                },
-                onRunAction: { device, action, options, inputs in
-                    vm.runAction(on: device, action: action, options: options, inputs: inputs)
-                }
-            )
         }
     }
 
-    /// Dismiss the current sheet and present `target` once the dismissal
-    /// animation finished (the same trick the duplicate-status interception
-    /// has always used).
-    private func handOff(to target: IssueDetailSheet) {
-        activeSheet = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            activeSheet = target
+    /// Move to board (EXP-57): pick a same-team target, then confirm — the
+    /// issue is renumbered in the target board, so the move deserves an
+    /// explicit yes before it fires. The pick is parked and promoted once this
+    /// picker finished dismissing.
+    private func moveBoardPicker(vm: IssueDetailViewModel, issue: IssueEntity) -> some View {
+        GlassPickerSheet(
+            title: "Move to board",
+            items: vm.moveTargetBoards,
+            selectedID: issue.boardId,
+            idFor: { $0.id },
+            onSelect: { target in pendingMoveTarget = target }
+        ) { board in
+            Label {
+                Text(board.name)
+            } icon: {
+                // Board glyph tinted with the board color — same idiom as
+                // the board switcher sheet (EXP-449).
+                AppIcon(BoardTypeDisplay.iconName(for: board), size: 16)
+                    .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
+            }
         }
     }
 
@@ -711,5 +802,41 @@ struct IssueDetailView: View {
     private func parseDate(_ dateString: String?) -> Date? {
         guard let dateString else { return nil }
         return AppDateFormatters.yyyyMMdd.date(from: dateString)
+    }
+}
+
+/// The "Move issue" confirmation (EXP-57), reusable so BOTH paths — the `…`
+/// menu's picker and the one Properties stacks over itself — confirm with the
+/// exact same words on their own host node (EXP-687).
+private struct MoveBoardConfirm: ViewModifier {
+    @Binding var target: BoardEntity?
+    let identifier: String?
+    let onConfirm: (BoardEntity) -> Void
+
+    func body(content: Content) -> some View {
+        content.alert(
+            "Move issue",
+            isPresented: Binding(
+                get: { target != nil },
+                set: { if !$0 { target = nil } }
+            ),
+            presenting: target
+        ) { board in
+            Button("Move") { onConfirm(board) }
+            Button("Cancel", role: .cancel) {}
+        } message: { board in
+            // Byte-shared with web, desktop and Android (EXP-426).
+            Text("Move \(identifier ?? "this issue") to \"\(board.name)\"? The issue will get a new identifier in that board.")
+        }
+    }
+}
+
+extension View {
+    func moveBoardConfirm(
+        target: Binding<BoardEntity?>,
+        identifier: String?,
+        onConfirm: @escaping (BoardEntity) -> Void
+    ) -> some View {
+        modifier(MoveBoardConfirm(target: target, identifier: identifier, onConfirm: onConfirm))
     }
 }

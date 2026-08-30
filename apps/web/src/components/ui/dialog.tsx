@@ -3,6 +3,14 @@ import { XIcon } from "lucide-react"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { MOBILE_ARMS, type DialogMobileArm } from "@/components/ui/dialog-arms"
+import {
+  SheetDragProvider,
+  SheetGrabber,
+  useSheetDragHandleProps,
+} from "@/components/ui/sheet-chrome"
+import { useSheetDrag } from "@/hooks/use-sheet-drag"
 
 function Dialog({
   ...props
@@ -44,36 +52,58 @@ function DialogOverlay({
   )
 }
 
-// Below `sm` a dialog is one of two things. The DEFAULT is the full-screen
-// page (EXP-255) every dialog has had since then. `mobileSheet` opts into the
-// iOS presentation instead (EXP-616): a large-detent bottom sheet — rounded
-// top edge, the page peeking behind it, sliding up from the bottom. The detent
-// is FIXED at 94dvh rather than content-sized: a sheet that shrank to its
-// content read as a cut-off page, and a definite height is also what lets the
-// panel's `flex-1 min-h-0` body scroll instead of clip. Both arms
-// carry their OWN mobile-only classes so nothing leaks between them; from `sm`
-// up the two are identical (the shared string below), which is why the sheet
-// arm re-states the `sm:` padding and zoom the page arm owns unprefixed.
-const MOBILE_PAGE = `inset-0 bg-background p-6 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95`
-const MOBILE_SHEET = `max-sm:inset-x-0 max-sm:bottom-0 max-sm:h-[94dvh] max-sm:rounded-t-3xl max-sm:border-t max-sm:border-glass-stroke-card max-sm:bg-card/85 max-sm:p-4 max-sm:pb-[max(1rem,env(safe-area-inset-bottom))] max-sm:backdrop-blur-2xl max-sm:data-[state=closed]:slide-out-to-bottom-1/2 max-sm:data-[state=open]:slide-in-from-bottom-1/2 sm:p-6 sm:data-[state=closed]:zoom-out-95 sm:data-[state=open]:zoom-in-95`
+/** The `< sm` presentation of the enclosing dialog, for chrome that differs
+ * per arm (the ✕, DialogCancel). `null` outside a DialogContent. */
+const DialogPresentationContext = React.createContext<DialogMobileArm | null>(
+  null
+)
 
 function DialogContent({
   className,
   children,
   showCloseButton = true,
-  mobileSheet = false,
+  mobile = `sheet`,
+  ref,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
-  /** Present the dialog as a bottom sheet below `sm` instead of a full-screen
-   * page (EXP-616). Opt-in — the `sm:` presentation is unchanged either way. */
-  mobileSheet?: boolean
+  /** How the dialog presents below `sm` (EXP-687). Defaults to the bottom
+   * `sheet`; the `sm:` presentation is identical for every arm. See
+   * ui/dialog-arms.ts for what each one means. */
+  mobile?: DialogMobileArm
 }) {
+  const isSheet = mobile === `sheet` || mobile === `sheet-full`
+  const panelRef = React.useRef<HTMLDivElement | null>(null)
+  const dragCloseRef = React.useRef<HTMLButtonElement | null>(null)
+
+  // Dragging the sheet down clicks a hidden Close — i.e. it takes the same
+  // Root-level path as the EXP-247 overlay tap, NOT the DismissableLayer, so
+  // `onInteractOutside` + preventDefault does not veto it. A dialog that must
+  // guard its dismissal (issue-editor/dialog-shell.tsx) re-checks at the Root.
+  const onDragDismiss = React.useCallback(() => {
+    dragCloseRef.current?.click()
+  }, [])
+  const { handleProps } = useSheetDrag({ panelRef, onDismiss: onDragDismiss })
+
+  const setPanel = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      panelRef.current = node
+      if (typeof ref === `function`) {
+        ref(node)
+      } else if (ref) {
+        ref.current = node
+      }
+    },
+    [ref]
+  )
+
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
+        data-mobile={mobile}
+        ref={setPanel}
         className={cn(
           // The panel is a flex COLUMN that never scrolls itself (EXP-369):
           // header and footer stay pinned and the scrolling happens inside
@@ -82,16 +112,14 @@ function DialogContent({
           // DialogBody — without one, tall content is clipped rather than
           // scrolled (short confirm dialogs only hit that below ~200px of
           // viewport height).
-          // Below `sm` every dialog is still a full-screen page (EXP-255):
-          // inset-0, no rounding/border — the same flex column, just against
-          // a definite 100dvh height, so the body scrolls and the action
-          // buttons stay reachable at the bottom of the phone screen; opting
-          // into `mobileSheet` swaps that arm for a bottom sheet with a fixed
-          // 94dvh detent (see MOBILE_PAGE/MOBILE_SHEET
-          // above). From `sm` up it is the centered panel, capped to the
-          // viewport — the same for both arms. Callers
-          // that reposition or re-cap the panel must sm:-prefix those classes
-          // so they compose with (and tailwind-merge away) the sm: base here.
+          // Below `sm` the presentation is one of the four arms in
+          // ui/dialog-arms.ts, `sheet` by default (EXP-687): a bottom sheet
+          // with a grabber and no ✕, dismissed by dragging it down or tapping
+          // outside. From `sm` up it is the centered frosted panel (EXP-269),
+          // capped to the viewport — THE SAME for every arm, which is why the
+          // arms own all the padding and zoom. Callers that reposition or
+          // re-cap the panel must sm:-prefix those classes so they compose
+          // with (and tailwind-merge away) the sm: base here.
           // A column flex container also fixes EXP-178 for free: items take
           // the container's definite width and long nowrap lines (e.g. an
           // issue title in a picker row) overflow their item instead of
@@ -100,37 +128,57 @@ function DialogContent({
           // unprefixed max-w-[calc(100%-2rem)] used to give, without sitting in
           // the max-w-* tailwind-merge group — so a caller's sm:max-w-* still
           // caps the panel instead of dropping the gutter.
-          // From `sm` up the panel is frosted glass (EXP-269): translucent
-          // card surface + backdrop blur + hairline. Below `sm` the page arm
-          // stays opaque — no phone-sized blur cost, and flat #0a0a0a is
-          // indistinguishable from the gradient top; only the sheet arm, which
-          // deliberately shows the page behind it, pays for the blur.
-          `fixed z-50 flex w-full flex-col gap-4 overflow-hidden shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 sm:inset-auto sm:top-[50%] sm:left-[50%] sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl sm:border sm:border-glass-stroke-card sm:bg-card/85 sm:shadow-2xl sm:shadow-black/40 sm:backdrop-blur-2xl`,
-          mobileSheet ? MOBILE_SHEET : MOBILE_PAGE,
+          `fixed z-50 flex flex-col gap-4 overflow-hidden shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 sm:inset-auto sm:top-[50%] sm:left-[50%] sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl sm:border sm:border-glass-stroke-card sm:bg-card/85 sm:shadow-2xl sm:shadow-black/40 sm:backdrop-blur-2xl`,
+          MOBILE_ARMS[mobile],
           className
         )}
         {...props}
       >
-        {children}
-        {showCloseButton && (
-          <DialogPrimitive.Close
-            data-slot="dialog-close"
-            className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
-          >
-            <XIcon />
-            <span className="sr-only">Close</span>
-          </DialogPrimitive.Close>
-        )}
+        <DialogPresentationContext.Provider value={mobile}>
+          <SheetDragProvider value={isSheet ? handleProps : null}>
+            {isSheet && (
+              <>
+                <SheetGrabber className="hidden max-sm:block" />
+                <DialogPrimitive.Close
+                  ref={dragCloseRef}
+                  aria-hidden
+                  tabIndex={-1}
+                  className="hidden"
+                />
+              </>
+            )}
+            {children}
+            {showCloseButton && (
+              <DialogPrimitive.Close
+                data-slot="dialog-close"
+                className={cn(
+                  `absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4`,
+                  // Sheets and alerts carry no ✕ on a phone (EXP-687); the
+                  // full-screen page arm is the one that still needs it.
+                  mobile !== `page` && `max-sm:hidden`
+                )}
+              >
+                <XIcon />
+                <span className="sr-only">Close</span>
+              </DialogPrimitive.Close>
+            )}
+          </SheetDragProvider>
+        </DialogPresentationContext.Provider>
       </DialogPrimitive.Content>
     </DialogPortal>
   )
 }
 
 function DialogHeader({ className, ...props }: React.ComponentProps<`div`>) {
+  // Inside a sheet the whole header area drags, not just the 4px grabber.
+  const drag = useSheetDragHandleProps()
   return (
     <div
       data-slot="dialog-header"
-      className={cn(`flex flex-col gap-2 text-center sm:text-left`, className)}
+      {...drag}
+      // Left-aligned on every viewport (EXP-687): a centered mobile title
+      // reads as an alert, and sheets are not alerts.
+      className={cn(`flex flex-col gap-2 text-left`, className)}
       {...props}
     />
   )
@@ -156,11 +204,44 @@ function DialogFooter({ className, ...props }: React.ComponentProps<`div`>) {
     <div
       data-slot="dialog-footer"
       className={cn(
-        `flex flex-col-reverse gap-2 sm:flex-row sm:justify-end`,
+        // On a phone every action is the full-width `lg` capsule pinned to
+        // the bottom of the sheet (EXP-687) — one button shape across web,
+        // iOS `GlassSubmitButton` and Android `GlassSubmitButton`.
+        `flex flex-col-reverse gap-2 max-sm:[&>[data-slot=button]]:h-10 max-sm:[&>[data-slot=button]]:w-full max-sm:[&>[data-slot=button]]:px-6 sm:flex-row sm:justify-end`,
         className
       )}
       {...props}
     />
+  )
+}
+
+/**
+ * The Cancel of a dialog footer (EXP-687). Hidden on a phone for the sheet
+ * arms — a sheet is dismissed by dragging it down or tapping outside, so a
+ * Cancel button is redundant chrome — and visible for `alert`/`page`, where
+ * native platforms keep it. Desktop is unchanged: a ghost button.
+ */
+function DialogCancel({
+  className,
+  children = `Cancel`,
+  ...props
+}: React.ComponentProps<typeof Button>) {
+  const mobile = React.useContext(DialogPresentationContext)
+  const keepOnMobile = mobile === `alert` || mobile === `page`
+  return (
+    <DialogPrimitive.Close asChild>
+      <Button
+        type="button"
+        variant="ghost"
+        // Keeps Button's `data-slot="button"`, which DialogFooter's phone
+        // sizing keys on; this attribute only names the role.
+        data-dialog-cancel=""
+        className={cn(!keepOnMobile && `max-sm:hidden`, className)}
+        {...props}
+      >
+        {children}
+      </Button>
+    </DialogPrimitive.Close>
   )
 }
 
@@ -193,6 +274,7 @@ function DialogDescription({
 export {
   Dialog,
   DialogBody,
+  DialogCancel,
   DialogClose,
   DialogContent,
   DialogDescription,
@@ -200,6 +282,7 @@ export {
   DialogHeader,
   DialogOverlay,
   DialogPortal,
+  DialogPresentationContext,
   DialogTitle,
   DialogTrigger,
 }

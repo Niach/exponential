@@ -1,4 +1,4 @@
-import { FolderInput, Tag, UserX, X } from "lucide-react"
+import { Tag, UserX, X } from "lucide-react"
 import type { Issue, Label, Board, User } from "@/db/schema"
 import { getIssuePriorityConfig, issuePriorityOptions } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -8,7 +8,7 @@ import {
   statusColorClass,
   statusColorStyle,
 } from "@/components/issue-properties/status-dropdown"
-import { ICON_COMPONENTS } from "@/lib/icons.generated"
+import { ICON_COMPONENTS, conceptIcon } from "@/lib/icons.generated"
 import { getInitials } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -23,6 +23,9 @@ import {
   ContextMenuSubContent,
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu"
+
+// EXP-687: "Move to board" draws the SAME glyph on all four clients.
+const NavBoardsIcon = conceptIcon(`nav-boards`)
 
 interface StatusSubmenuProps {
   // The RESOLVED team status row of this issue (EXP-314).
@@ -231,7 +234,7 @@ export function BoardSubmenu({
   return (
     <ContextMenuSub>
       <ContextMenuSubTrigger>
-        <FolderInput className="size-4" />
+        <NavBoardsIcon className="size-4" />
         Move to board
         <ContextMenuShortcut className={topLevelValueClass}>
           {currentName ?? `Board`}

@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,7 +51,6 @@ import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.GlassDropdownMenu
-import com.exponential.app.ui.components.GlassMenuDefaults
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
@@ -619,7 +617,6 @@ private fun MachineRow(
                             },
                         )
                     }
-                    HorizontalDivider(color = GlassMenuDefaults.DividerColor)
                     GlassMenuItem(
                         text = { Text("Remove") },
                         leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },

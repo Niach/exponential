@@ -159,7 +159,8 @@ final class StoreScreenshots: XCTestCase {
             "Start-coding dialog did not open — is a desktop online on the relay?"
         )
         snapshot("03_start-coding", settle: 2, popRects: app)
-        app.buttons["Cancel"].firstMatch.tap()
+        // EXP-687: sheets have no Cancel — swipe it away.
+        dismissSheet(app, whileVisible: startSheet)
         goBack(app)
 
         // ── 05: PR review (real diff + merge bar) ───────────────────────────

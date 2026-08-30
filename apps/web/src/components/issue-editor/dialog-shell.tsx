@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react"
 import type { ComponentPropsWithoutRef, ReactNode, Ref } from "react"
-import { ArrowUp, ChevronRight, LoaderCircle, X } from "lucide-react"
+import { ChevronRight, LoaderCircle, X } from "lucide-react"
+import { conceptIcon } from "@/lib/icons.generated"
 import type { User } from "@/db/schema"
 import type { IssuePriority } from "@/lib/domain"
 import type { StatusRowOption } from "@/lib/team-statuses"
@@ -17,6 +18,8 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Input } from "@/components/ui/input"
+
+const UiBackIcon = conceptIcon(`ui-back`)
 
 // The editor's @/# autocomplete popup portals to document.body (EXP-54 — the
 // dialog's scroll region would clip it), and EXP-568's formatting rail does
@@ -57,6 +60,8 @@ interface PrimaryAction {
   onClick?: () => void
   type?: `button` | `submit`
   loading?: boolean
+  // The phone header's submit is a labelled pill, not an icon (EXP-687).
+  label?: string
 }
 
 interface IssueEditorDialogShellProps {
@@ -270,41 +275,42 @@ export function IssueEditorDialogShell({
         <SheetTitle className="sr-only">
           {title || `Issue ${boardPrefix}`}
         </SheetTitle>
-        <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2 border-b border-border/50">
+        {/* The phone editor is a PAGE, not a sheet (EXP-687): back arrow
+            top-left, the title left-aligned beside it, and the primary action
+            as a labelled pill top-right — the same header the iOS and Android
+            New-issue pages draw. Back is wired exactly like the desktop ✕
+            (onOpenChange(false)), so create-issue-dialog's discard veto at the
+            Root still runs. */}
+        <div className="flex items-center gap-2 border-b border-border/50 px-3 pt-3 pb-2">
           <Button
             type="button"
             variant="ghost"
             size="icon-xs"
-            aria-label="Close"
+            aria-label="Back"
             disabled={closeBlocked}
             onClick={() => onOpenChange(false)}
-            className="text-muted-foreground shrink-0"
+            className="shrink-0 text-muted-foreground"
           >
-            <X className="size-4" />
+            <UiBackIcon className="size-4" />
           </Button>
-          <div className="flex flex-1 items-center justify-center gap-1.5 min-w-0 text-sm text-muted-foreground">
-            {boardPill}
-            <span className="truncate">{headerContent}</span>
-          </div>
+          <span className="min-w-0 flex-1 truncate text-lg font-semibold text-foreground">
+            {headerContent}
+          </span>
+          <div className="shrink-0">{boardPill}</div>
           {primaryAction ? (
             <Button
               type={primaryAction.type ?? `button`}
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Submit"
+              size="sm"
               disabled={primaryAction.disabled}
               onClick={primaryAction.onClick}
-              className="shrink-0 rounded-full bg-accent/50 disabled:opacity-40"
+              className="shrink-0"
             >
-              {primaryAction.loading ? (
+              {primaryAction.loading && (
                 <LoaderCircle className="size-4 animate-spin" />
-              ) : (
-                <ArrowUp className="size-4" />
               )}
+              {primaryAction.label ?? `Create`}
             </Button>
-          ) : (
-            <span className="w-7 shrink-0" aria-hidden />
-          )}
+          ) : null}
         </div>
 
         {titleInput}
@@ -339,7 +345,7 @@ export function IssueEditorDialogShell({
       <Sheet open={open} onOpenChange={guardedOpenChange}>
         <SheetContent
           side="bottom"
-          showCloseButton={false}
+          showGrabber={false}
           data-testid={dialogTestId}
           aria-describedby={undefined}
           onEscapeKeyDown={(event) => {
@@ -360,7 +366,7 @@ export function IssueEditorDialogShell({
               event.preventDefault()
             }
           }}
-          className="top-0 h-[100dvh] p-0 gap-0 flex flex-col pb-[env(safe-area-inset-bottom)]"
+          className="top-0 flex h-[100dvh] max-h-none flex-col gap-0 rounded-none p-0 pb-[env(safe-area-inset-bottom)]"
         >
           {formProps ? (
             <form {...formProps} className="contents">

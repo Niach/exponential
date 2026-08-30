@@ -22,9 +22,9 @@ import {
   ListTodo,
   SquareCheckBig,
   SquarePen,
-  Trash2,
   Undo2,
 } from "lucide-react"
+import { conceptIcon } from "@/lib/icons.generated"
 import { MoveBoardConfirmDialog } from "@/components/issue-properties/move-board-confirm"
 import { DueDateSubmenu } from "./due-date-presets"
 import {
@@ -34,6 +34,8 @@ import {
   BoardSubmenu,
   StatusSubmenu,
 } from "./submenus"
+
+const UiDeleteIcon = conceptIcon(`ui-delete`)
 
 interface IssueRowContextMenuProps {
   children: ReactNode
@@ -282,11 +284,11 @@ export function IssueRowContextMenu({
             />
           )}
 
-          <ContextMenuSeparator />
-
+          {/* No separator above a destructive item (EXP-687): the red is the
+              divider, on every client. */}
           <ContextMenuSub>
-            <ContextMenuSubTrigger className="text-destructive focus:bg-destructive/10 focus:text-destructive data-[state=open]:bg-destructive/10 data-[state=open]:text-destructive [&_svg]:text-destructive!">
-              <Trash2 className="size-4" />
+            <ContextMenuSubTrigger variant="destructive">
+              <UiDeleteIcon className="size-4" />
               Delete issue
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-[14rem]">
@@ -296,7 +298,7 @@ export function IssueRowContextMenu({
                   void deleteIssue()
                 }}
               >
-                <Trash2 className="size-4" />
+                <UiDeleteIcon className="size-4" />
                 Confirm delete
               </ContextMenuItem>
             </ContextMenuSubContent>

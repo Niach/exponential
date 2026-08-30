@@ -102,11 +102,9 @@ struct TeamBoardsSection: View {
                 boardsApi: boardsApi,
                 repositoriesApi: repositoriesApi
             )
-            .presentationBackground(.ultraThinMaterial)
         }
         .sheet(isPresented: $showCreate) {
             CreateBoardSheet(accountId: accountId, teamId: teamId)
-                .presentationBackground(.ultraThinMaterial)
         }
     }
 }
@@ -127,70 +125,60 @@ private struct ChangeRepositorySheet: View {
     @State private var saving = false
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                AppBackground()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(board.name)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        GlassSheetChrome(title: "Change repository") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(board.name)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
-                        if loading {
-                            HStack { Spacer(); ProgressView().tint(.white); Spacer() }
-                                .padding(.vertical, 24)
-                        } else if repos.isEmpty {
-                            Text("No repositories connected. Add one in team settings → Repositories first.")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        } else {
-                            ForEach(repos) { repo in
-                                Button {
-                                    Task { await setRepo(repo) }
-                                } label: {
-                                    HStack(spacing: 10) {
-                                        AppIcon(
-                                            repo.id == board.repositoryId
-                                                ? AppIcons.uiSelected : AppIcons.uiUnselected,
-                                            size: AppIcon.Size.small
-                                        )
-                                            .foregroundStyle(repo.id == board.repositoryId
-                                                ? DesignTokens.Semantic.blue
-                                                : .white.opacity(TextOpacity.tertiary))
-                                        Text(repo.fullName)
-                                            .font(.subheadline.monospaced())
-                                            .foregroundStyle(.white)
-                                            .lineLimit(1)
-                                            .truncationMode(.middle)
-                                        Spacer()
-                                        if repo.isPrivate {
-                                            AppIcon(AppIcons.uiPrivate, size: 11)
-                                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                        }
-                                    }
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 10)
-                                    .glassRow()
+                if loading {
+                    HStack { Spacer(); ProgressView().tint(.white); Spacer() }
+                        .padding(.vertical, 24)
+                } else if repos.isEmpty {
+                    Text("No repositories connected. Add one in team settings → Repositories first.")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                } else {
+                    ForEach(repos) { repo in
+                        Button {
+                            Task { await setRepo(repo) }
+                        } label: {
+                            HStack(spacing: 10) {
+                                AppIcon(
+                                    repo.id == board.repositoryId
+                                        ? AppIcons.uiSelected : AppIcons.uiUnselected,
+                                    size: AppIcon.Size.small
+                                )
+                                    .foregroundStyle(repo.id == board.repositoryId
+                                        ? DesignTokens.Semantic.blue
+                                        : .white.opacity(TextOpacity.tertiary))
+                                Text(repo.fullName)
+                                    .font(.subheadline.monospaced())
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer()
+                                if repo.isPrivate {
+                                    AppIcon(AppIcons.uiPrivate, size: 11)
+                                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                 }
-                                .buttonStyle(.plain)
-                                .disabled(saving)
                             }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .glassRow()
                         }
-
-                        if let errorText {
-                            Text(errorText).font(.caption).foregroundStyle(.red)
-                        }
+                        .buttonStyle(.plain)
+                        .disabled(saving)
                     }
-                    .padding(16)
+                }
+
+                if let errorText {
+                    Text(errorText).font(.caption).foregroundStyle(.red)
                 }
             }
-            .navigationTitle("Change repository")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
-            }
-            .task { await load() }
+            .padding(16)
         }
+        .task { await load() }
     }
 
     private func load() async {

@@ -117,8 +117,8 @@ struct AgentUsageTrack: View {
 }
 
 /// The steering screen's "Usage" sheet (EXP-688) — the `…` menu's Usage entry.
-/// Opens at the medium detent and expands to large when a machine reports many
-/// windows.
+/// Content-fitted (EXP-687): a machine reporting many windows grows the sheet
+/// up to the shared 85 % cap, then scrolls.
 struct AgentUsageSheet: View {
     let usage: AgentUsage
     /// The host machine's sign-in status for THIS session's agent, when it
@@ -127,27 +127,25 @@ struct AgentUsageSheet: View {
     let account: AgentAccount?
 
     var body: some View {
-        GlassSheetChrome(title: "Usage", detents: [.medium, .large]) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if let account {
-                        Text(AgentUsagePresentation.accountCaption(account))
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    AgentUsageCards(usage: usage)
-                    if let staleCaption {
-                        Text(staleCaption)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    }
+        GlassSheetChrome(title: "Usage") {
+            VStack(alignment: .leading, spacing: 16) {
+                if let account {
+                    Text(AgentUsagePresentation.accountCaption(account))
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.horizontal, 14)
-                .padding(.top, 4)
-                .padding(.bottom, 24)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                AgentUsageCards(usage: usage)
+                if let staleCaption {
+                    Text(staleCaption)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
             }
+            .padding(.horizontal, 14)
+            .padding(.top, 4)
+            .padding(.bottom, 24)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

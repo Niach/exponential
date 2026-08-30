@@ -1,7 +1,7 @@
 import Foundation
 
 /// Runs the create → upload → patch sequence against the API, mirroring the
-/// app's `CreateIssueSheet`. Images are uploaded sequentially (extension memory
+/// app's `CreateIssueView`. Images are uploaded sequentially (extension memory
 /// is tight) and embedded into the description only after the issue exists — the
 /// create mutation rejects markdown images.
 ///

@@ -110,45 +110,44 @@ struct DeviceSettingsSheet: View {
     }
 
     private func content(_ device: SteerDevice) -> some View {
-        NavigationStack {
-            Form {
-                nameSection(device)
-                defaultDeviceSection(device)
-                if device.isServer {
-                    sharingSection(device)
-                }
-                defaultsSection(device)
-                worktreesSection(device)
-                if let errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .font(.caption)
-                            .foregroundStyle(DesignTokens.Semantic.red)
+        // EXP-686: the static sheet title — the machine's name is already the
+        // first field below it.
+        GlassSheetChrome(
+            title: "Device settings",
+            height: .full,
+            content: {
+                Form {
+                    nameSection(device)
+                    defaultDeviceSection(device)
+                    if device.isServer {
+                        sharingSection(device)
                     }
-                    .listRowBackground(glassFormRowFill)
-                }
-            }
-            // EXP-603: the app background instead of the system grouped-list
-            // gray; rows carry the glass fill.
-            .scrollContentBackground(.hidden)
-            .background(AppBackground())
-            // EXP-686: the static sheet title — the machine's name is already
-            // the first field below it.
-            .navigationTitle("Device settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .listSectionSpacing(12)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    // EXP-687/688: the standard rounded pill, like every other
-                    // action in the app.
-                    GlassPillButton("Done") {
-                        flushAll()
-                        dismiss()
+                    defaultsSection(device)
+                    worktreesSection(device)
+                    if let errorMessage {
+                        Section {
+                            Text(errorMessage)
+                                .font(.caption)
+                                .foregroundStyle(DesignTokens.Semantic.red)
+                        }
+                        .listRowBackground(glassFormRowFill)
                     }
                 }
+                // EXP-603: the sheet's own background shows through the
+                // grouped list; rows carry the glass fill.
+                .scrollContentBackground(.hidden)
+                .listSectionSpacing(12)
+            },
+            primaryAction: {
+                GlassSubmitButton("Done") {
+                    flushAll()
+                    dismiss()
+                }
             }
-        }
-        .presentationDetents([.large])
+        )
+        // A swipe down is an exit now (there is no Cancel), so the pending
+        // edits have to flush on every way out — not just the button.
+        .onDisappear { flushAll() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("device-settings-sheet")
         .onAppear { seed(device) }

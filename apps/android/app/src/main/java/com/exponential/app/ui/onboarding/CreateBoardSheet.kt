@@ -1,21 +1,16 @@
 package com.exponential.app.ui.onboarding
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,8 +19,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.ui.components.GlassPillButton
-import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.theme.TextEmphasis
 
 // The onboarding create-board form presented as a bottom sheet for the app's
@@ -33,7 +28,6 @@ import com.exponential.app.ui.theme.TextEmphasis
 // that already know it pass `teamId`; the account-level empty states pass
 // null and the default team is ensured. On success it records the board as
 // last-used and hands the id back to the caller.
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateBoardSheet(
     teamId: String?,
@@ -47,43 +41,45 @@ fun CreateBoardSheet(
 
     LaunchedEffect(teamId) { viewModel.ensureTeam(teamId) }
 
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    // iOS CreateBoardSheet parity (EXP-577): a nav-bar-style header — glass
-    // "Cancel" capsule on the left, "New board" centered — and NO in-body
-    // title, so the form's "Create board" button is the only one that says so.
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = GlassTokens.BackgroundBottom,
-        dragHandle = null,
+    val form = rememberCreateBoardFormState()
+    val ws = resolvedTeamId
+    val acct = accountId
+    // The shared sheet shell (EXP-687): drag handle, left title, and the
+    // create button pinned to the bottom edge — no Cancel capsule, and the
+    // form's own inline submit is handed over via `showSubmit = false`.
+    GlassSheet(
+        title = "New board",
+        onDismiss = onDismiss,
+        primaryAction = if (ws == null || acct == null) {
+            null
+        } else {
+            SheetPrimaryAction(
+                label = "Create board",
+                enabled = form.canCreate,
+                loading = state.submitting,
+                onClick = {
+                    // Repo is optional — send whatever (if any) is selected.
+                    viewModel.create(
+                        ws,
+                        form.name,
+                        form.prefix,
+                        form.color,
+                        form.iconName,
+                        form.repository,
+                    ) { boardId ->
+                        viewModel.rememberCreated(boardId)
+                        onCreated(boardId)
+                    }
+                },
+            )
+        },
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(bottom = 24.dp)
-                .navigationBarsPadding(),
+                .padding(horizontal = 20.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-            ) {
-                GlassPillButton(
-                    label = "Cancel",
-                    onClick = onDismiss,
-                    modifier = Modifier.align(Alignment.CenterStart),
-                )
-                Text(
-                    "New board",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.align(Alignment.Center),
-                )
-            }
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-            val ws = resolvedTeamId
-            val acct = accountId
             if (ws == null || acct == null) {
                 // The team resolve can fail (offline, server error, no team
                 // yet — EXP-188) — without this branch the sheet would spin
@@ -127,9 +123,10 @@ fun CreateBoardSheet(
                         viewModel.rememberCreated(boardId)
                         onCreated(boardId)
                     },
+                    showSubmit = false,
+                    form = form,
                     viewModel = viewModel,
                 )
-            }
             }
         }
     }

@@ -452,7 +452,7 @@
       "id": "issue-create",
       "group": "issues",
       "title": "New issue",
-      "blurb": "The create-issue dialog with its title/description editor and the inline property pickers.",
+      "blurb": "The new-issue page with its title/description editor and the inline property pickers.",
       "order": 5,
       "web": {
         "route": "/t/$teamSlug/boards/$boardSlug",

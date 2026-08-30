@@ -346,7 +346,9 @@ class StyleguideScreenshotsTest {
         composeRule.onNode(hasTestTag("start-coding-tab-chat")).performClick()
         flow.settle()
         flow.screenshot("sg_start-coding-chat")
-        composeRule.onAllNodes(hasText("Cancel")).onFirst().performClick()
+        // EXP-687: sheets carry no Cancel pill — back (like a swipe down)
+        // dismisses.
+        Espresso.pressBack()
         flow.waitForGone(hasTestTag("start-coding-sheet"), NAV_TIMEOUT)
         flow.settle(longer = true)
 
@@ -382,7 +384,9 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText("What should this action do?", substring = true), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_action-create")
-        composeRule.onAllNodes(hasText("Cancel")).onFirst().performClick()
+        // EXP-687: sheets carry no Cancel pill — back (like a swipe down)
+        // dismisses.
+        Espresso.pressBack()
         flow.waitForGone(hasTestTag("create-action-sheet"), NAV_TIMEOUT)
         flow.settle(longer = true)
 
@@ -409,7 +413,9 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag("automation-form-sheet"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_automations")
-        composeRule.onAllNodes(hasText("Cancel")).onFirst().performClick()
+        // EXP-687: sheets carry no Cancel pill — back (like a swipe down)
+        // dismisses.
+        Espresso.pressBack()
         flow.waitForGone(hasTestTag("automation-form-sheet"), NAV_TIMEOUT)
         flow.settle(longer = true)
 

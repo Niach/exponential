@@ -41,6 +41,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogCancel,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -268,11 +269,11 @@ export function CreateActionDialog({
       {/* Fixed panel height (EXP-615): the automation detail slides over the
           form inside ONE frame, so the dialog must not resize between the two.
           Both halves are absolutely positioned, so the frame needs a definite
-          height on every breakpoint — below `sm` the mobile sheet's own fixed
-          94dvh detent supplies it (EXP-616), which is why this one is
+          height on every breakpoint — below `sm` the `sheet-full` arm's own
+          fixed 94dvh detent supplies it (EXP-616), which is why this one is
           sm:-prefixed. */}
       <DialogContent
-        mobileSheet
+        mobile="sheet-full"
         className="gap-3 sm:h-[min(85dvh,36rem)] sm:max-h-[85dvh] sm:max-w-2xl"
       >
         <DialogHeader>
@@ -447,13 +448,7 @@ export function CreateActionDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-            disabled={starting}
-          >
-            Cancel
-          </Button>
+          <DialogCancel disabled={starting} />
           <Button onClick={submit} disabled={starting || !device || submitBlocked}>
             {starting ? (
               <LoaderCircle className="animate-spin" />

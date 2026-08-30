@@ -14,6 +14,17 @@ private struct DraftFile: Identifiable, Sendable {
     let data: Data
 }
 
+/// The four pickers the page can present — ONE `.sheet(item:)` (EXP-240: four
+/// `.sheet(isPresented:)` on one node means only the first ever presents).
+private enum CreateIssuePicker: String, Identifiable {
+    case status
+    case priority
+    case assignee
+    case createLabel
+
+    var id: String { rawValue }
+}
+
 private enum DraftFileReadFailure: Error {
     case unreadable
     case tooLarge
@@ -35,16 +46,18 @@ private func readDraftFileBytes(from url: URL) -> Result<Data, DraftFileReadFail
     return .success(data)
 }
 
-struct CreateIssueSheet: View {
+/// The New-issue PAGE (EXP-687 — it used to be a sheet): back icon top-left,
+/// `Create` pill top-right, exactly like Android's `CreateIssueScreen`.
+struct CreateIssueView: View {
     let boardId: String
-    /// The sheet is done with a created issue, carrying its id so the host can
-    /// land on it (EXP-596). NOT called in "Create more" mode — the sheet stays
-    /// up for the next issue, and a run of creates has no single destination.
-    let onCreated: (String) -> Void
+    /// The page is done: the created issue's id so the host can land on it
+    /// (EXP-596), or nil when the draft was abandoned. NOT called in "Create
+    /// more" mode — the page stays up for the next issue, and a run of creates
+    /// has no single destination.
+    let onFinish: (String?) -> Void
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
-    @Environment(\.dismiss) private var dismiss
 
     @State private var title = ""
     @State private var editor = IssueEditorModel()
@@ -67,247 +80,251 @@ struct CreateIssueSheet: View {
     /// that member (EXP-50). Multi-member teams keep the picker.
     @State private var singleMemberTeam = false
     @State private var createMore = false
-    /// True once this sheet's issue was created but the sheet stayed up to
+    /// True once this page's issue was created but the page stayed up to
     /// report a failed attachment — Create is inert from then on, so the only
-    /// way out is Cancel and no second issue can be filed.
+    /// way out is Back and no second issue can be filed.
     @State private var createCommitted = false
     @State private var loading = false
     @State private var error: String?
     @State private var permissions: TeamPermissions = .denied
-    @State private var showStatusPicker = false
-    @State private var showPriorityPicker = false
-    @State private var showAssigneePicker = false
-    @State private var showCreateLabel = false
+    /// ONE presentation for the four pickers — four `.sheet(isPresented:)` on
+    /// one node meant only the first ever presented (EXP-240).
+    @State private var picker: CreateIssuePicker?
+    /// Non-nil once this draft's issue exists (an attachment failed, so the
+    /// page stayed up to report it) — Back then still lands on it.
+    @State private var createdIssueId: String?
+    @State private var confirmDiscard = false
     @FocusState private var titleFocused: Bool
 
+    /// True while there is unsaved work worth a confirmation.
+    private var hasDraftContent: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !editor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !editor.pendingImages.isEmpty
+            || !draftFiles.isEmpty
+    }
+
     var body: some View {
-        NavigationStack {
-            ZStack {
-                AppBackground()
+        ZStack {
+            AppBackground()
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        // Title
-                        TextField("Issue title", text: $title)
-                            .font(.title3.weight(.medium))
-                            .textFieldStyle(.plain)
-                            .foregroundStyle(.white)
-                            .focused($titleFocused)
-                            .accessibilityIdentifier("issue-title-field")
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                            .background(Color.white.opacity(0.04))
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
-                            )
-
-                        // Description (block-based markdown editor with images)
-                        MarkdownEditor(
-                            model: editor,
-                            baseURL: instanceBaseURL,
-                            accountId: accountId,
-                            httpClient: deps.httpClient,
-                            mentionMembers: users.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
-                            // EXP-327: the same attach menu as issue detail —
-                            // images go into the description, other files
-                            // become drafts uploaded once the issue exists.
-                            // No `minHeight` here (EXP-659): the editor hugs its
-                            // content. Issue detail keeps the 200pt focus-end
-                            // band (EXP-655); on this sheet the title is
-                            // auto-focused, so the keyboard is up from the first
-                            // frame and a 200pt band pushed the properties card,
-                            // Labels and "Create more" under it on an iPhone. A
-                            // short or empty description is its own tap target.
-                            onAttachFile: { url in ingestDraftFile(url) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Title
+                    TextField("Issue title", text: $title)
+                        .font(.title3.weight(.medium))
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(.white)
+                        .focused($titleFocused)
+                        .accessibilityIdentifier("issue-title-field")
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(Color.white.opacity(0.04))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
                         )
 
-                        // Draft files, only once there is one (the section never
-                        // announces its own emptiness — EXP-327).
-                        if !draftFiles.isEmpty {
-                            draftFilesSection
-                        }
+                    // Description (block-based markdown editor with images)
+                    MarkdownEditor(
+                        model: editor,
+                        baseURL: instanceBaseURL,
+                        accountId: accountId,
+                        httpClient: deps.httpClient,
+                        mentionMembers: users.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
+                        // EXP-327: the same attach menu as issue detail —
+                        // images go into the description, other files
+                        // become drafts uploaded once the issue exists.
+                        // No `minHeight` here (EXP-659): the editor hugs its
+                        // content. Issue detail keeps the 200pt focus-end
+                        // band (EXP-655); on this sheet the title is
+                        // auto-focused, so the keyboard is up from the first
+                        // frame and a 200pt band pushed the properties card,
+                        // Labels and "Create more" under it on an iPhone. A
+                        // short or empty description is its own tap target.
+                        onAttachFile: { url in ingestDraftFile(url) }
+                    )
 
-                        // Metadata + due date, one card (EXP-247): the due-date
-                        // row (and, when set, the time rows) attach directly to
-                        // the Status/Priority/Assignee card instead of floating
-                        // as standalone sections.
-                        VStack(spacing: 0) {
-                            VStack(spacing: 12) {
-                                // Status
-                                metadataRow(label: "Status", icon: status.iconName, iconColor: status.color) {
+                    // Draft files, only once there is one (the section never
+                    // announces its own emptiness — EXP-327).
+                    if !draftFiles.isEmpty {
+                        draftFilesSection
+                    }
+
+                    // Metadata + due date, one card (EXP-247): the due-date
+                    // row (and, when set, the time rows) attach directly to
+                    // the Status/Priority/Assignee card instead of floating
+                    // as standalone sections.
+                    VStack(spacing: 0) {
+                        VStack(spacing: 12) {
+                            // Status
+                            metadataRow(label: "Status", icon: status.iconName, iconColor: status.color) {
+                                Button {
+                                    picker = .status
+                                } label: {
+                                    Text(status.name)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            // Priority
+                            metadataRow(label: "Priority", icon: priority.iconName, iconColor: priority.color) {
+                                Button {
+                                    picker = .priority
+                                } label: {
+                                    Text(priority.label)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            // Assignee — hidden on solo teams, where the
+                            // sole member is pre-assigned (EXP-50).
+                            if !singleMemberTeam {
+                                metadataRow(label: "Assignee", icon: "person.circle", iconColor: .white.opacity(0.6)) {
                                     Button {
-                                        showStatusPicker = true
+                                        picker = .assignee
                                     } label: {
-                                        Text(status.name)
+                                        let assignee = users.first { $0.id == assigneeId }
+                                        // memberDisplayName falls back to the email for a
+                                        // blank name (name-less Apple logins); keep the
+                                        // "Unassigned" sentinel when there is no assignee.
+                                        Text(assignee.map { memberDisplayName($0, id: $0.id) } ?? "Unassigned")
                                             .font(.subheadline)
                                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                     }
                                     .buttonStyle(.plain)
                                 }
-
-                                // Priority
-                                metadataRow(label: "Priority", icon: priority.iconName, iconColor: priority.color) {
-                                    Button {
-                                        showPriorityPicker = true
-                                    } label: {
-                                        Text(priority.label)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-
-                                // Assignee — hidden on solo teams, where the
-                                // sole member is pre-assigned (EXP-50).
-                                if !singleMemberTeam {
-                                    metadataRow(label: "Assignee", icon: "person.circle", iconColor: .white.opacity(0.6)) {
-                                        Button {
-                                            showAssigneePicker = true
-                                        } label: {
-                                            let assignee = users.first { $0.id == assigneeId }
-                                            // memberDisplayName falls back to the email for a
-                                            // blank name (name-less Apple logins); keep the
-                                            // "Unassigned" sentinel when there is no assignee.
-                                            Text(assignee.map { memberDisplayName($0, id: $0.id) } ?? "Unassigned")
-                                                .font(.subheadline)
-                                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                            }
-                            .padding(16)
-
-                            Divider().background(Color.white.opacity(0.06))
-
-                            // Due date — embedded so it carries no card of its own.
-                            DueDatePicker(date: $dueDate, embedded: true)
-                        }
-                        .glassSection()
-                        .opacity(permissions.isModerator ? 1 : 0.55)
-                        .disabled(!permissions.isModerator)
-
-                        // Labels — all team labels as colored-dot toggle
-                        // chips + a "+ Label" chip (parity with Android's
-                        // CreateIssueScreen and the web create dialog). Toggling
-                        // only flips a local selection; the issue doesn't exist
-                        // yet, so labelIds rides along on the create call. Not
-                        // moderator-gated: issues.create lets any creator set
-                        // title/description/labels.
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Labels")
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-                            FlowLayout(spacing: 6) {
-                                ForEach(labels, id: \.id) { label in
-                                    Button {
-                                        if selectedLabelIds.contains(label.id) {
-                                            selectedLabelIds.remove(label.id)
-                                        } else {
-                                            selectedLabelIds.insert(label.id)
-                                        }
-                                    } label: {
-                                        HStack(spacing: 5) {
-                                            Circle()
-                                                .fill(Color(hex: label.color) ?? .gray)
-                                                .frame(width: 8, height: 8)
-                                            Text(label.name)
-                                                .font(.caption)
-                                                .foregroundStyle(.white)
-                                        }
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                        .glassButton(isActive: selectedLabelIds.contains(label.id))
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                                // "+ Label" — create a new team label and
-                                // pre-select it on this draft in one step.
-                                GlassPillButton("Label", icon: AppIcons.uiAdd) {
-                                    showCreateLabel = true
-                                }
                             }
                         }
+                        .padding(16)
 
-                        // Create more toggle
-                        Toggle(isOn: $createMore) {
-                            Text("Create more")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        }
-                        .padding(.horizontal, 4)
+                        Divider().background(Color.white.opacity(0.06))
 
-                        if let error {
-                            Text(error)
-                                .font(.callout)
-                                .foregroundStyle(.red)
+                        // Due date — embedded so it carries no card of its own.
+                        DueDatePicker(date: $dueDate, embedded: true)
+                    }
+                    .glassSection()
+                    .opacity(permissions.isModerator ? 1 : 0.55)
+                    .disabled(!permissions.isModerator)
+
+                    // Labels — all team labels as colored-dot toggle
+                    // chips + a "+ Label" chip (parity with Android's
+                    // CreateIssueScreen and the web create dialog). Toggling
+                    // only flips a local selection; the issue doesn't exist
+                    // yet, so labelIds rides along on the create call. Not
+                    // moderator-gated: issues.create lets any creator set
+                    // title/description/labels.
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Labels")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+
+                        FlowLayout(spacing: 6) {
+                            ForEach(labels, id: \.id) { label in
+                                Button {
+                                    if selectedLabelIds.contains(label.id) {
+                                        selectedLabelIds.remove(label.id)
+                                    } else {
+                                        selectedLabelIds.insert(label.id)
+                                    }
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Circle()
+                                            .fill(Color(hex: label.color) ?? .gray)
+                                            .frame(width: 8, height: 8)
+                                        Text(label.name)
+                                            .font(.caption)
+                                            .foregroundStyle(.white)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .glassButton(isActive: selectedLabelIds.contains(label.id))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            // "+ Label" — create a new team label and
+                            // pre-select it on this draft in one step.
+                            GlassPillButton("Label", icon: AppIcons.uiAdd) {
+                                picker = .createLabel
+                            }
                         }
                     }
-                    .padding(20)
-                    // Tap-outside keyboard dismissal (EXP-246): catcher BEHIND
-                    // the content — only dead-space taps reach it, interactive
-                    // children keep winning hit-testing.
-                    .background {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { UIApplication.endEditing() }
+
+                    // Create more toggle
+                    Toggle(isOn: $createMore) {
+                        Text("Create more")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                    .padding(.horizontal, 4)
+
+                    if let error {
+                        Text(error)
+                            .font(.callout)
+                            .foregroundStyle(.red)
                     }
                 }
-                .scrollDismissesKeyboard(.interactively)
-                // EXP-592: the description's `@`/`#`/`:` menu. In the safe-area
-                // inset it rides above the keyboard; inside the editor it hung
-                // off the end of the description, behind the keyboard and
-                // clipped by this scroller. Focus-gated, so a candidate set the
-                // user abandoned for the title field does not linger.
-                .safeAreaInset(edge: .bottom) {
-                    if editor.showsAutocompleteMenu {
-                        EditorAutocompleteMenu(model: editor)
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 8)
-                    }
+                .padding(20)
+                // Tap-outside keyboard dismissal (EXP-246): catcher BEHIND
+                // the content — only dead-space taps reach it, interactive
+                // children keep winning hit-testing.
+                .background {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { UIApplication.endEditing() }
                 }
             }
-            .navigationTitle("New Issue")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task { await createIssue() }
-                    } label: {
-                        if loading {
-                            ProgressView().tint(.white)
-                        } else {
-                            Text("Create")
-                                .fontWeight(.medium)
-                        }
-                    }
-                    .disabled(title.isEmpty || loading || createCommitted)
+            .scrollDismissesKeyboard(.interactively)
+            // EXP-592: the description's `@`/`#`/`:` menu. In the safe-area
+            // inset it rides above the keyboard; inside the editor it hung
+            // off the end of the description, behind the keyboard and
+            // clipped by this scroller. Focus-gated, so a candidate set the
+            // user abandoned for the title field does not linger.
+            .safeAreaInset(edge: .bottom) {
+                if editor.showsAutocompleteMenu {
+                    EditorAutocompleteMenu(model: editor)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 8)
                 }
             }
-            // Presenting a picker over a focused editor kept the editor first
-            // responder — its keyboard-accessory strip then floated over the
-            // picker sheet (EXP-246). Resign before each picker lands.
-            .onChange(of: showStatusPicker) { _, shown in
-                if shown { UIApplication.endEditing() }
+        }
+        .navigationTitle("New Issue")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        // The page owns its own Back (Android parity): it has to run the
+        // discard confirmation, which the system chevron cannot.
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                TopBarBackButton { attemptClose() }
             }
-            .onChange(of: showPriorityPicker) { _, shown in
-                if shown { UIApplication.endEditing() }
+            ToolbarItem(placement: .topBarTrailing) {
+                GlassPillButton(
+                    loading ? "Creating…" : "Create",
+                    enabled: !title.isEmpty && !loading && !createCommitted
+                ) {
+                    Task { await createIssue() }
+                }
             }
-            .onChange(of: showAssigneePicker) { _, shown in
-                if shown { UIApplication.endEditing() }
-            }
-            .onChange(of: showCreateLabel) { _, shown in
-                if shown { UIApplication.endEditing() }
-            }
-            .onAppear {
+        }
+        .alert("Discard this issue?", isPresented: $confirmDiscard) {
+            Button("Discard", role: .destructive) { onFinish(createdIssueId) }
+            Button("Keep editing", role: .cancel) {}
+        } message: {
+            Text("Your title, description and attached images will be lost.")
+        }
+        // Presenting a picker over a focused editor kept the editor first
+        // responder — its keyboard-accessory strip then floated over the
+        // picker sheet (EXP-246). Resign before each picker lands.
+        .onChange(of: picker) { _, shown in
+            if shown != nil { UIApplication.endEditing() }
+        }
+        .onAppear {
                 titleFocused = true
                 configureEditor()
                 Task {
@@ -374,70 +391,84 @@ struct CreateIssueSheet: View {
                     )
                 }
             }
-            .sheet(isPresented: $showStatusPicker) {
-                GlassPickerSheet(
-                    title: "Status",
-                    // Duplicate CATEGORY = status interception (L27): a new issue
-                    // can't be a duplicate (nothing to link yet), so it's not a
-                    // create option. The team's own status order — the ONE picker
-                    // vocabulary (REV2-85), same as the filter sheet.
-                    items: teamStatuses.filter { $0.category != .duplicate },
-                    selectedID: status.id,
-                    idFor: { $0.id },
-                    onSelect: { status = $0 }
-                ) { s in
+        .sheet(item: $picker) { target in
+            pickerSheet(target)
+        }
+    }
+
+    @ViewBuilder
+    private func pickerSheet(_ target: CreateIssuePicker) -> some View {
+        switch target {
+        case .status:
+            GlassPickerSheet(
+                title: "Status",
+                // Duplicate CATEGORY = status interception (L27): a new issue
+                // can't be a duplicate (nothing to link yet), so it's not a
+                // create option. The team's own status order — the ONE picker
+                // vocabulary (REV2-85), same as the filter sheet.
+                items: teamStatuses.filter { $0.category != .duplicate },
+                selectedID: status.id,
+                idFor: { $0.id },
+                onSelect: { status = $0 }
+            ) { s in
+                Label {
+                    Text(s.name)
+                } icon: {
+                    AppIcon(s.iconName, size: AppIcon.Size.medium)
+                        .foregroundStyle(s.color)
+                }
+            }
+        case .priority:
+            GlassPickerSheet(
+                title: "Priority",
+                items: IssuePriority.displayOrder,
+                selectedID: priority.id,
+                idFor: { $0.id },
+                onSelect: { priority = $0 }
+            ) { p in
+                Label {
+                    Text(p.label)
+                } icon: {
+                    AppIcon(p.iconName, size: AppIcon.Size.medium)
+                        .foregroundStyle(p.color)
+                }
+            }
+        case .assignee:
+            GlassPickerSheet(
+                title: "Assignee",
+                items: assigneeOptions(users: users),
+                selectedID: assigneeId ?? AssigneeOption.unassigned.id,
+                idFor: { $0.id },
+                onSelect: { assigneeId = $0.userId }
+            ) { option in
+                if option.userId == nil {
                     Label {
-                        Text(s.name)
+                        Text("Unassigned")
                     } icon: {
-                        AppIcon(s.iconName, size: AppIcon.Size.medium)
-                            .foregroundStyle(s.color)
+                        AppIcon(AppIcons.uiUnassigned, size: AppIcon.Size.medium)
                     }
-                }
-            }
-            .sheet(isPresented: $showPriorityPicker) {
-                GlassPickerSheet(
-                    title: "Priority",
-                    items: IssuePriority.displayOrder,
-                    selectedID: priority.id,
-                    idFor: { $0.id },
-                    onSelect: { priority = $0 }
-                ) { p in
+                } else {
                     Label {
-                        Text(p.label)
+                        Text(option.displayName)
                     } icon: {
-                        AppIcon(p.iconName, size: AppIcon.Size.medium)
-                            .foregroundStyle(p.color)
+                        AppIcon(AppIcons.uiAssignee, size: AppIcon.Size.medium)
                     }
                 }
             }
-            .sheet(isPresented: $showAssigneePicker) {
-                GlassPickerSheet(
-                    title: "Assignee",
-                    items: assigneeOptions(users: users),
-                    selectedID: assigneeId ?? AssigneeOption.unassigned.id,
-                    idFor: { $0.id },
-                    onSelect: { assigneeId = $0.userId }
-                ) { option in
-                    if option.userId == nil {
-                        Label {
-                            Text("Unassigned")
-                        } icon: {
-                            AppIcon(AppIcons.uiUnassigned, size: AppIcon.Size.medium)
-                        }
-                    } else {
-                        Label {
-                            Text(option.displayName)
-                        } icon: {
-                            AppIcon(AppIcons.uiAssignee, size: AppIcon.Size.medium)
-                        }
-                    }
-                }
+        case .createLabel:
+            CreateLabelSheet { name, color in
+                Task { await createAndSelectLabel(name: name, color: color) }
             }
-            .sheet(isPresented: $showCreateLabel) {
-                CreateLabelSheet { name, color in
-                    Task { await createAndSelectLabel(name: name, color: color) }
-                }
-            }
+        }
+    }
+
+    /// Back with unsaved work asks first (Android parity). A committed create
+    /// (an attachment failed after the issue landed) still lands on the issue.
+    private func attemptClose() {
+        if createCommitted || !hasDraftContent {
+            onFinish(createdIssueId)
+        } else {
+            confirmDiscard = true
         }
     }
 
@@ -707,16 +738,15 @@ struct CreateIssueSheet: View {
                 // No hand-off: a run of creates has no single issue to land on,
                 // and the sheet stays up for the next one.
             } else if draftsUploaded {
-                onCreated(createdId)
-                dismiss()
+                onFinish(createdId)
             } else {
-                // The issue exists; only an attachment failed. Hold the sheet
+                // The issue exists; only an attachment failed. Hold the page
                 // so the error is actually read, and latch the create so
-                // acknowledging it can't file a duplicate issue. Cancelling it
+                // acknowledging it can't file a duplicate issue. Going Back
                 // still lands on the issue — it is real, and the attachment can
                 // be retried there.
                 createCommitted = true
-                onCreated(createdId)
+                createdIssueId = createdId
             }
         } catch {
             self.error = error.userFacingMessage

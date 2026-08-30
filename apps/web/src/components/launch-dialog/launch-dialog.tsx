@@ -37,6 +37,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogCancel,
 } from "@/components/ui/dialog"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -471,8 +472,8 @@ export function LaunchDialog({
       {/* The header/tabs/footer stay anchored (the ui/dialog base is a flex
           column) while only the BODY takes the height budget — it is the
           flex-1 min-h-0 row. On mobile the dialog is a bottom sheet
-          (EXP-616 — `mobileSheet` on the ui/dialog base: a fixed 94dvh
-          detent) and the body stacks vertically,
+          (EXP-616 — `mobile="sheet-full"` on the ui/dialog base: the fixed
+          94dvh detent) and the body stacks vertically,
           scrolling as one region; from `sm` up the body splits into two
           columns — issue/action picker left, launch options right — where
           ONLY the picker list scrolls, so the dialog never shows nested
@@ -483,7 +484,7 @@ export function LaunchDialog({
           (every pane is `shrink-0` with its own capped list there, so the body
           scrolls as one region anchored to the top). */}
       <DialogContent
-        mobileSheet
+        mobile="sheet-full"
         className="gap-3 sm:h-[min(85dvh,36rem)] sm:max-h-[85dvh] sm:max-w-3xl"
       >
         <DialogHeader>
@@ -583,13 +584,7 @@ export function LaunchDialog({
           />
         </div>
         <DialogFooter>
-          <Button
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-            disabled={starting}
-          >
-            Cancel
-          </Button>
+          <DialogCancel disabled={starting} />
           <Button
             onClick={submit}
             disabled={starting || !device || submitBlocked}

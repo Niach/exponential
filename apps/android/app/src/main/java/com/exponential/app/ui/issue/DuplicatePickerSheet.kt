@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -71,7 +70,7 @@ fun DuplicatePickerSheet(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
             )
         } else {
-            LazyColumn(modifier = Modifier.heightIn(max = 480.dp)) {
+            LazyColumn {
                 items(filtered, key = { it.id }) { issue ->
                     Row(
                         modifier = Modifier

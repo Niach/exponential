@@ -1,7 +1,6 @@
 package com.exponential.app.ui.issue
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,14 +10,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +30,8 @@ import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.isStatusSelected
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.ui.components.CircleIconButton
+import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassSheetHeaderAction
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.PriorityIcon
@@ -48,7 +46,6 @@ private enum class FilterView { Categories, Status, Priority, Labels }
 // category list (Status / Priority / Labels, each with its active count) drills
 // into a dedicated sub-view; the Labels sub-view adds a search field. All toggles
 // reuse the shared IssueFilters model + the ViewModel toggle methods.
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IssueFilterSheet(
     filters: IssueFilters,
@@ -62,27 +59,22 @@ fun IssueFilterSheet(
     onClear: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var view by remember { mutableStateOf(FilterView.Categories) }
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        dragHandle = { BottomSheetDefaults.DragHandle() },
+    GlassSheet(
+        title = "Filters",
+        onDismiss = onDismiss,
+        // "Clear all" belongs to the overview; a sub-view has its own back row.
+        headerAction = if (filters.isEmpty || view != FilterView.Categories) null else ({ GlassSheetHeaderAction("Clear all", onClear) }),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp).fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 4.dp),
+        ) {
             when (view) {
                 FilterView.Categories -> {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("Filters", style = MaterialTheme.typography.titleMedium)
-                        if (!filters.isEmpty) {
-                            TextButton(onClick = onClear) { Text("Clear all") }
-                        }
-                    }
-                    Spacer(Modifier.height(4.dp))
                     CategoryRow("Status", filters.statusIds.size) { view = FilterView.Status }
                     CategoryRow("Priority", filters.priorities.size) { view = FilterView.Priority }
                     CategoryRow("Labels", filters.labelIds.size) { view = FilterView.Labels }

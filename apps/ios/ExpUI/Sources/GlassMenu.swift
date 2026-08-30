@@ -38,7 +38,15 @@ public enum GlassMenuTokens {
     public static let itemHPadding: CGFloat = 12
     public static let textOpacity: Double = 0.9
     /// The same white .06 hairline every other divider in the app uses.
+    /// No menu draws one since EXP-687 (a destructive item is red, never
+    /// fenced off), but the rung stays: it is the app's divider value.
     public static let dividerOpacity: Double = 0.06
+    /// 44pt — the minimum tap target around a menu's trigger glyph, the
+    /// cross-platform constant EXP-687 pins on both phones.
+    public static let triggerHitSize: CGFloat = 44
+    /// Added around every `GlassMenu` label's hit shape (not its frame): a
+    /// bare 20pt glyph becomes the 44pt `triggerHitSize`.
+    public static let triggerHitInset: CGFloat = 12
     public static let minWidth: CGFloat = 180
     public static let maxWidth: CGFloat = 280
     /// White .06 over the opaque card fill == #252525 (EXP-357 parity).
@@ -159,17 +167,6 @@ public struct GlassMenuItem: View {
     }
 }
 
-/// Hairline between groups of menu items.
-public struct GlassMenuDivider: View {
-    public init() {}
-
-    public var body: some View {
-        Rectangle()
-            .fill(Color.white.opacity(GlassMenuTokens.dividerOpacity))
-            .frame(height: GlassMenuTokens.hairline)
-    }
-}
-
 // MARK: - Dismissal environment
 
 /// Reference box around the dismissal closure. A bare `() -> Void` cannot be an
@@ -208,7 +205,9 @@ extension EnvironmentValues {
 ///
 /// The popup rides a `.fullScreenCover` with a clear presentation background —
 /// the only SwiftUI surface that reliably paints over a navigation bar and the
-/// keyboard. Both the present and the dismiss run inside a transaction with
+/// keyboard from INSIDE a scroller. (A menu triggered from a toolbar item takes
+/// `GlassMenuPresentation.inline` instead — see there.) Both the present and
+/// the dismiss run inside a transaction with
 /// `disablesAnimations`, so the system's full-screen slide never shows; the
 /// menu supplies its own fade + scale from the anchor corner instead.
 public struct GlassMenu<Label: View, Content: View>: View {
@@ -227,7 +226,15 @@ public struct GlassMenu<Label: View, Content: View>: View {
         Button {
             present()
         } label: {
+            // EXP-687: a `…` glyph is 16–20pt of ink; the TRIGGER is 44pt on
+            // every client, so the taps that used to miss it cannot.
+            // Grow the hit test, not the layout: a row menu's `…` keeps its
+            // 30–32pt footprint (and its place in the row) while the tappable
+            // region becomes 44pt for a bare glyph.
             label
+                .padding(GlassMenuTokens.triggerHitInset)
+                .contentShape(Rectangle())
+                .padding(-GlassMenuTokens.triggerHitInset)
         }
         .buttonStyle(.plain)
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
@@ -243,24 +250,90 @@ public struct GlassMenu<Label: View, Content: View>: View {
     }
 }
 
+/// Where a `GlassMenu` popup is hosted.
+public enum GlassMenuPresentation {
+    /// A `.fullScreenCover` — the only surface that paints over a keyboard and
+    /// a tab bar, so row menus living inside scrollers use it.
+    case cover
+    /// An in-view overlay on the screen's root. The ONE answer for a menu
+    /// triggered from a toolbar item (EXP-687): a presentation launched from
+    /// inside a UIKit bar item ignored the transaction (slide-in), carried a
+    /// stale anchor (menu landed off the button) and sometimes had no host to
+    /// present from at all (dead tap). An overlay has none of those failure
+    /// modes. Trade-off: its outside-tap catcher cannot cover the nav bar.
+    case inline
+}
+
 public extension View {
     /// The `GlassMenu` popup as a standalone modifier, for hosts that cannot
     /// own the trigger — a toolbar item whose presentation has to hang off the
     /// screen content instead. The caller captures the trigger's global frame
-    /// (`.onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) })`)
-    /// and flips `isPresented` inside a `disablesAnimations` transaction.
+    /// (`GlassMenuBarButton` does it) and flips `isPresented` inside a
+    /// `disablesAnimations` transaction.
     func glassMenuOverlay<Content: View>(
         isPresented: Binding<Bool>,
         anchor: CGRect,
+        presentation: GlassMenuPresentation = .cover,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
-        modifier(GlassMenuOverlay(isPresented: isPresented, anchor: anchor, menuContent: content))
+        modifier(
+            GlassMenuOverlay(
+                isPresented: isPresented,
+                anchor: anchor,
+                presentation: presentation,
+                menuContent: content
+            )
+        )
+    }
+}
+
+/// The 44pt trigger for a toolbar-hosted `GlassMenu` (EXP-687): it captures its
+/// own global frame into `anchor` and flips `isPresented` animation-free. The
+/// popup itself is a `.glassMenuOverlay(…, presentation: .inline)` on the
+/// screen's root.
+public struct GlassMenuBarButton: View {
+    let icon: String
+    let accessibilityLabel: String
+    @Binding var anchor: CGRect
+    @Binding var isPresented: Bool
+
+    public init(
+        icon: String,
+        accessibilityLabel: String,
+        anchor: Binding<CGRect>,
+        isPresented: Binding<Bool>
+    ) {
+        self.icon = icon
+        self.accessibilityLabel = accessibilityLabel
+        self._anchor = anchor
+        self._isPresented = isPresented
+    }
+
+    public var body: some View {
+        Button {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { isPresented.toggle() }
+        } label: {
+            AppIcon(icon, size: AppIcon.Size.large)
+                .frame(
+                    width: GlassMenuTokens.triggerHitSize,
+                    height: GlassMenuTokens.triggerHitSize
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+            anchor = frame
+        }
     }
 }
 
 private struct GlassMenuOverlay<MenuContent: View>: ViewModifier {
     @Binding var isPresented: Bool
     let anchor: CGRect
+    let presentation: GlassMenuPresentation
     @ViewBuilder let menuContent: () -> MenuContent
 
     /// Every write to the presentation flag — ours and the system's — is
@@ -277,12 +350,33 @@ private struct GlassMenuOverlay<MenuContent: View>: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        content
-            .fullScreenCover(isPresented: coverBinding) {
-                GlassMenuPopup(anchor: anchor, dismiss: { coverBinding.wrappedValue = false }) {
-                    menuContent()
+        switch presentation {
+        case .cover:
+            content
+                .fullScreenCover(isPresented: coverBinding) {
+                    GlassMenuPopup(anchor: anchor, dismiss: { coverBinding.wrappedValue = false }) {
+                        menuContent()
+                    }
+                    .presentationBackground(.clear)
                 }
-            }
+        case .inline:
+            content
+                .overlay {
+                    if isPresented {
+                        GeometryReader { proxy in
+                            // The anchor is global; the overlay is not.
+                            let origin = proxy.frame(in: .global).origin
+                            GlassMenuPopup(
+                                anchor: anchor.offsetBy(dx: -origin.x, dy: -origin.y),
+                                dismiss: { coverBinding.wrappedValue = false }
+                            ) {
+                                menuContent()
+                            }
+                        }
+                        .ignoresSafeArea()
+                    }
+                }
+        }
     }
 }
 
@@ -309,7 +403,6 @@ private struct GlassMenuPopup<Content: View>: View {
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .ignoresSafeArea()
-        .presentationBackground(.clear)
     }
 
     /// Below the anchor unless the measured menu would run off the bottom.

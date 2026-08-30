@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogBody,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -144,13 +145,7 @@ export function AdjustSeatsDialog({
         </DialogBody>
 
         <DialogFooter>
-          <Button
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-            disabled={saving}
-          >
-            Cancel
-          </Button>
+          <DialogCancel onClick={() => onOpenChange(false)} disabled={saving} />
           <Button onClick={handleSave} disabled={!changed || saving}>
             {saving && (
               <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />

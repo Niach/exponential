@@ -120,8 +120,6 @@ struct IssueListView: View {
         .sheet(isPresented: $showFilterSheet) {
             if let vm = viewModel {
                 IssueFilterSheet(vm: vm)
-                    .presentationDetents([.medium, .large])
-                    .presentationBackground(.ultraThinMaterial)
             }
         }
         .sheet(isPresented: $showStartSheet) {
@@ -1177,11 +1175,14 @@ private struct BulkLabelsSheet: View {
     }
 
     var body: some View {
-        GlassSheetChrome(title: "Labels", detents: [.medium, .large]) {
-            GlassSheetSearchField(placeholder: "Search labels", text: $searchText)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-            ScrollView {
+        GlassSheetChrome(
+            title: "Labels",
+            pinnedHeader: {
+                GlassSheetSearchField(placeholder: "Search labels", text: $searchText)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+            },
+            content: {
                 VStack(spacing: 2) {
                     ForEach(filtered, id: \.id) { label in
                         let state = stateFor(label.id)
@@ -1226,7 +1227,7 @@ private struct BulkLabelsSheet: View {
                 .padding(.horizontal, 6)
                 .padding(.bottom, 16)
             }
-        }
+        )
     }
 }
 

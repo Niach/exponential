@@ -9,8 +9,8 @@ import {
   Ellipsis,
   ShieldCheck,
   Trash2,
-  UserMinus,
 } from "lucide-react"
+import { conceptIcon } from "@/lib/icons.generated"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { toast } from "sonner"
 import type { User, TeamMember } from "@/db/schema"
@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/card"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -47,6 +48,11 @@ import {
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { UpgradeDialog } from "@/components/upgrade-dialog"
+
+// EXP-687: leaving a team is a sign-out, removing someone is a user-minus —
+// both red, both the same concepts the natives draw.
+const NavSignOutIcon = conceptIcon(`nav-sign-out`)
+const UiRemoveMemberIcon = conceptIcon(`ui-remove-member`)
 
 export function TeamMembersSection({
   currentUserId,
@@ -206,9 +212,9 @@ export function TeamMembersSection({
                                 displayName,
                               })
                             }
-                            className="text-destructive"
+                            variant="destructive"
                           >
-                            <UserMinus className="mr-2 h-4 w-4" />
+                            <NavSignOutIcon className="mr-2 h-4 w-4" />
                             Leave team
                           </DropdownMenuItem>
                         ) : (
@@ -221,9 +227,9 @@ export function TeamMembersSection({
                                   displayName,
                                 })
                               }
-                              className="text-destructive"
+                              variant="destructive"
                             >
-                              <UserMinus className="mr-2 h-4 w-4" />
+                              <UiRemoveMemberIcon className="mr-2 h-4 w-4" />
                               Remove member
                             </DropdownMenuItem>
                           )
@@ -250,7 +256,7 @@ export function TeamMembersSection({
           if (!open && !removing) setRemoveTarget(null)
         }}
       >
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent mobile="alert" className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>
               {removeTarget?.isSelf ? `Leave team` : `Remove member`}
@@ -262,13 +268,10 @@ export function TeamMembersSection({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              variant="ghost"
+            <DialogCancel
               disabled={removing}
               onClick={() => setRemoveTarget(null)}
-            >
-              Cancel
-            </Button>
+            />
             <Button
               variant="destructive"
               disabled={removing}

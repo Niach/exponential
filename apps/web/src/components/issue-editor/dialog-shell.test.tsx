@@ -16,6 +16,23 @@ const editorFocus = vi.fn()
 // would otherwise swallow — capture them so the whitelist can be exercised.
 const captured = vi.hoisted(() => ({
   dialogContent: null as Record<string, unknown> | null,
+  isMobile: false,
+}))
+
+// EXP-687: the phone arm is a different header (back arrow + Create pill), so
+// the viewport is a knob here rather than a jsdom accident.
+vi.mock(`@/hooks/use-mobile`, () => ({
+  useIsMobile: () => captured.isMobile,
+}))
+
+vi.mock(`@/components/ui/sheet`, () => ({
+  Sheet: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SheetContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SheetTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
+}))
+
+vi.mock(`@/components/issue-editor/mobile-properties`, () => ({
+  IssueEditorMobileProperties: () => <div>Mobile properties</div>,
 }))
 
 vi.mock(`@/components/ui/dialog`, () => ({
@@ -226,6 +243,32 @@ describe(`IssueEditorDialogShell`, () => {
     // Shift+Tab keeps its default backward behavior — no editor focus.
     fireEvent.keyDown(titleInput, { key: `Tab`, shiftKey: true })
     expect(editorFocus).toHaveBeenCalledTimes(1)
+  })
+
+  // EXP-687: the phone New-issue header is a PAGE header — a back arrow where
+  // the ✕ was, the title left-aligned, and a labelled Create pill instead of
+  // the ArrowUp circle.
+  it(`renders the page-style header on a phone`, () => {
+    captured.isMobile = true
+    try {
+      const onOpenChange = vi.fn()
+      render(
+        <IssueEditorDialogShell
+          {...baseShellProps()}
+          onOpenChange={onOpenChange}
+          primaryAction={{ type: `submit`, label: `Create` }}
+        />
+      )
+
+      expect(screen.queryByLabelText(`Close dialog`)).toBeNull()
+      expect(screen.queryByLabelText(`Submit`)).toBeNull()
+      expect(screen.getByText(`Create`)).toBeTruthy()
+
+      fireEvent.click(screen.getByLabelText(`Back`))
+      expect(onOpenChange).toHaveBeenCalledWith(false)
+    } finally {
+      captured.isMobile = false
+    }
   })
 
   it(`does not hijack Tab while the dialog is disabled`, () => {

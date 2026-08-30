@@ -7,6 +7,7 @@ import { trpcErrorMessage } from "@/lib/trpc-error"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -66,7 +67,7 @@ export function useKillSession(
     requestKill: () => setConfirmOpen(true),
     dialog: (
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent mobile="alert" className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Kill this coding session?</DialogTitle>
             <DialogDescription>
@@ -77,13 +78,10 @@ export function useKillSession(
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              variant="ghost"
+            <DialogCancel
               onClick={() => setConfirmOpen(false)}
               disabled={killing}
-            >
-              Cancel
-            </Button>
+            />
             <Button
               variant="destructive"
               onClick={() => void kill()}

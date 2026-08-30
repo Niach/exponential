@@ -142,28 +142,20 @@ struct TeamSetupSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                AppBackground()
-                ScrollView {
-                    TeamSetupView(
-                        onCreated: { _ in
-                            onDone()
-                            dismiss()
-                        },
-                        onJoined: {
-                            onDone()
-                            dismiss()
-                        }
-                    )
-                    .padding(16)
+        // Two inline submits (Create / Join) — this sheet has no single
+        // primary action, so the chrome's pinned slot stays empty.
+        GlassSheetChrome(title: "Set up a team") {
+            TeamSetupView(
+                onCreated: { _ in
+                    onDone()
+                    dismiss()
+                },
+                onJoined: {
+                    onDone()
+                    dismiss()
                 }
-            }
-            .navigationTitle("Set up a team")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
-            }
+            )
+            .padding(16)
         }
     }
 }

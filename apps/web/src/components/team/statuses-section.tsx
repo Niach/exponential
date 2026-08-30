@@ -38,6 +38,7 @@ import { GlassGroup } from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogBody,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -432,7 +433,7 @@ function ReassignDialog({
 
   return (
     <Dialog open={target !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent mobile="alert" className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Delete {target?.option.name}?</DialogTitle>
           <DialogDescription>
@@ -469,14 +470,7 @@ function ReassignDialog({
           {error && <p className="text-xs text-destructive">{error}</p>}
         </DialogBody>
         <DialogFooter>
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={busy}
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
+          <DialogCancel disabled={busy} onClick={() => onOpenChange(false)} />
           <Button
             type="button"
             variant="destructive"

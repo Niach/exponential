@@ -6,6 +6,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
+import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
 import org.junit.After
@@ -166,7 +167,9 @@ class StoreScreenshotsTest {
         flow.waitFor(hasTestTag("start-coding-sheet"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("3_start-coding", popRects = true)
-        composeRule.onAllNodes(hasText("Cancel")).onFirst().performClick()
+        // EXP-687: sheets carry no Cancel pill — back (like a swipe down)
+        // dismisses.
+        Espresso.pressBack()
         // The sheet animates out over the detail — let it finish before the
         // back press, or the tap lands on the dismissing scrim.
         flow.settle(longer = true)

@@ -16,7 +16,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
@@ -257,7 +256,7 @@ function MarkdownImageNodeView({
                 <Copy />
                 Copy image
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
+              {/* No separator above a destructive item (EXP-687). */}
               <DropdownMenuItem
                 variant="destructive"
                 onSelect={() => {

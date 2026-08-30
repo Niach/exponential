@@ -1,92 +1,267 @@
 import SwiftUI
 
-// Shared chrome for the glass property sheets (EXP-240) — the iOS twin of
-// Android's ui/components/GlassSheet.kt: glass background, rounded top, a title
-// header with a circular ✕ close, and rows styled as
-// [leading icon · label · trailing checkmark].
+// The ONE bottom-sheet shell (EXP-687) — the iOS twin of Android's
+// ui/components/GlassSheet.kt. Every `.sheet` in the app roots in
+// `GlassSheetChrome`, so a sheet cannot drift: system drag indicator, opaque
+// `glass.backgroundBottom` (#18181B), 24pt top radius, a left-aligned title,
+// and — when there is a primary action — ONE full-width `GlassSubmitButton`
+// pinned to the bottom. There is no ✕ and no Cancel anywhere: a swipe down
+// dismisses, on both phones.
 //
 // Moved here from Exponential/UI/Issue/Sheets/GlassSheetChrome.swift by
 // EXP-603, which retired the last stock `PickerSheet` call sites: a sheet is
 // now the app's ONE answer to "pick one of these", so it belongs in ExpUI next
 // to the glass controls (EXP-604) rather than under the issue feature folder.
 //
-// Absent twins, deliberately: Android's `GlassSheet` takes a `BackgroundBottom`
-// gradient stop because a Compose bottom sheet paints its own container; here
-// `.presentationBackground(.ultraThinMaterial)` continues the app background
-// through the system's own presentation host.
+// Absent twins, deliberately: Android's `GlassSheet` takes an `onDismiss`
+// because a Compose bottom sheet is state-driven; here the caller's
+// `.sheet(...)` owns presentation and the shell only paints.
 
-/// The sheet shell: header (title + circular close) over caller content, on
-/// ultra-thin material with a 24pt corner radius.
-public struct GlassSheetChrome<Content: View>: View {
-    let title: String
-    var detents: Set<PresentationDetent> = [.medium]
-    /// The caller-measured natural height of `content` (EXP-577). While it
-    /// fits in half the screen the sheet sizes to exactly header + content +
-    /// home-indicator inset instead of a half-screen of empty glass; nil, 0 or
-    /// taller falls back to `detents`.
-    var fittedContentHeight: CGFloat? = nil
+/// How tall a sheet opens. `.fitted` measures its content and sizes to exactly
+/// that (capped at `GlassSheetTokens.fittedMaxFraction` of the screen, inner
+/// scroll past it); `.full` opens at `.large` and lets the caller's own
+/// Form/List scroll.
+public enum GlassSheetHeight {
+    case fitted
+    case full
+}
+
+/// The cross-platform sheet constants, pinned by `GlassSheetTokenTests` and
+/// mirrored by Android's `GlassSheetDefaults` (`GlassSheetDefaultsTest.kt`).
+public enum GlassSheetTokens {
+    /// 24pt top corners — the `xl3` rung, matching web's `rounded-t-3xl`.
+    public static let cornerRadius: CGFloat = 24
+    /// A fitted sheet never claims more than 85 % of the screen.
+    public static let fittedMaxFraction: CGFloat = 0.85
+    /// Clears the system drag indicator, which paints in the top ~14pt.
+    public static let headerTopPadding: CGFloat = 22
+    public static let headerBottomPadding: CGFloat = 10
+    public static let headerHPadding: CGFloat = 20
+    public static let actionHPadding: CGFloat = 16
+    public static let actionVPadding: CGFloat = 10
+    /// Opaque #18181B — no blur. A sheet is a surface, not a scrim.
+    public static var background: Color { DesignTokens.Glass.backgroundBottom }
+}
+
+/// The sheet shell: optional title header (+ a trailing slot for "Clear all" /
+/// "+12 −4"), an optional pinned header (a search field that must not scroll
+/// away), the caller's content, and an optional bottom-pinned primary action.
+public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action: View>: View {
+    let title: String?
+    var height: GlassSheetHeight = .fitted
+    @ViewBuilder let headerTrailing: () -> Header
+    @ViewBuilder let pinnedHeader: () -> Pinned
     @ViewBuilder let content: () -> Content
+    @ViewBuilder let primaryAction: () -> Action
 
-    @Environment(\.dismiss) private var dismiss
+    // The pieces of a fitted sheet's natural height. Each slot measures itself
+    // AFTER its padding, so the sum is the detent.
+    @State private var headerHeight: CGFloat = 0
+    @State private var pinnedHeight: CGFloat = 0
+    @State private var contentHeight: CGFloat = 0
+    @State private var actionHeight: CGFloat = 0
     // The sheet's bottom safe-area inset (home indicator) — part of a
     // `.height` detent, so it must be added to the measured content. Values
     // from a raised keyboard are ignored (they'd inflate the detent).
     @State private var bottomInset: CGFloat = 0
 
     public init(
-        title: String,
-        detents: Set<PresentationDetent> = [.medium],
-        fittedContentHeight: CGFloat? = nil,
-        @ViewBuilder content: @escaping () -> Content
+        title: String? = nil,
+        height: GlassSheetHeight = .fitted,
+        @ViewBuilder headerTrailing: @escaping () -> Header,
+        @ViewBuilder pinnedHeader: @escaping () -> Pinned,
+        @ViewBuilder content: @escaping () -> Content,
+        @ViewBuilder primaryAction: @escaping () -> Action
     ) {
         self.title = title
-        self.detents = detents
-        self.fittedContentHeight = fittedContentHeight
+        self.height = height
+        self.headerTrailing = headerTrailing
+        self.pinnedHeader = pinnedHeader
         self.content = content
+        self.primaryAction = primaryAction
     }
 
-    /// The header's vertical footprint (top 18 + 30pt close circle + bottom 10).
-    public static var headerHeight: CGFloat { 58 }
+    private var hasAction: Bool { Action.self != EmptyView.self }
 
     private var resolvedDetents: Set<PresentationDetent> {
-        guard let height = fittedContentHeight, height > 0 else { return detents }
-        let fitted = height + Self.headerHeight + bottomInset
-        guard fitted < UIScreen.main.bounds.height * 0.5 else { return detents }
-        return [.height(fitted)]
+        guard height == .fitted else { return [.large] }
+        guard contentHeight > 0 else { return [.medium] }
+        let natural = headerHeight + pinnedHeight + contentHeight + actionHeight + bottomInset
+        let cap = UIScreen.main.bounds.height * GlassSheetTokens.fittedMaxFraction
+        return [.height(min(natural, cap))]
     }
 
     public var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    AppIcon(AppIcons.uiClose, size: AppIcon.Size.small, weight: .semibold)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .frame(width: 30, height: 30)
-                        .background(Color.white.opacity(0.08), in: Circle())
+            if let title {
+                HStack(spacing: 12) {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                    Spacer(minLength: 0)
+                    headerTrailing()
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
+                .padding(.horizontal, GlassSheetTokens.headerHPadding)
+                .padding(.top, GlassSheetTokens.headerTopPadding)
+                .padding(.bottom, GlassSheetTokens.headerBottomPadding)
+                .measuredHeight { headerHeight = $0 }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 18)
-            .padding(.bottom, 10)
 
-            content()
+            pinnedHeader()
+                .measuredHeight { pinnedHeight = $0 }
+
+            switch height {
+            case .fitted:
+                ScrollView {
+                    content()
+                        .measuredHeight { contentHeight = $0 }
+                }
+                .scrollDismissesKeyboard(.interactively)
+            case .full:
+                content()
+                    .frame(maxHeight: .infinity)
+            }
+
+            if hasAction {
+                primaryAction()
+                    .padding(.horizontal, GlassSheetTokens.actionHPadding)
+                    .padding(.vertical, GlassSheetTokens.actionVPadding)
+                    // Opaque: the action is a floor, not a translucent strip
+                    // over the last scrolled row. A `.height` detent excludes
+                    // safe-area insets, so this is a VStack slot rather than a
+                    // `safeAreaInset`.
+                    .background(GlassSheetTokens.background)
+                    .measuredHeight { actionHeight = $0 }
+            }
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.bottom }) { inset in
             if inset < 60 { bottomInset = inset }
         }
         .presentationDetents(resolvedDetents)
-        .presentationBackground(.ultraThinMaterial)
-        .presentationCornerRadius(24)
-        .presentationDragIndicator(.hidden)
+        .presentationBackground(GlassSheetTokens.background)
+        .presentationCornerRadius(GlassSheetTokens.cornerRadius)
+        .presentationDragIndicator(.visible)
+        .presentationContentInteraction(.scrolls)
+    }
+}
+
+extension View {
+    /// Report this view's laid-out height once it changes — the fitted sheet's
+    /// measurement, factored out so every slot measures identically.
+    fileprivate func measuredHeight(_ onChange: @escaping (CGFloat) -> Void) -> some View {
+        onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: onChange)
+    }
+}
+
+// MARK: - Convenience inits
+
+extension GlassSheetChrome where Header == EmptyView, Pinned == EmptyView, Action == EmptyView {
+    public init(
+        title: String? = nil,
+        height: GlassSheetHeight = .fitted,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.init(
+            title: title,
+            height: height,
+            headerTrailing: { EmptyView() },
+            pinnedHeader: { EmptyView() },
+            content: content,
+            primaryAction: { EmptyView() }
+        )
+    }
+}
+
+extension GlassSheetChrome where Header == EmptyView, Pinned == EmptyView {
+    public init(
+        title: String? = nil,
+        height: GlassSheetHeight = .fitted,
+        @ViewBuilder content: @escaping () -> Content,
+        @ViewBuilder primaryAction: @escaping () -> Action
+    ) {
+        self.init(
+            title: title,
+            height: height,
+            headerTrailing: { EmptyView() },
+            pinnedHeader: { EmptyView() },
+            content: content,
+            primaryAction: primaryAction
+        )
+    }
+}
+
+extension GlassSheetChrome where Header == EmptyView, Action == EmptyView {
+    public init(
+        title: String? = nil,
+        height: GlassSheetHeight = .fitted,
+        @ViewBuilder pinnedHeader: @escaping () -> Pinned,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.init(
+            title: title,
+            height: height,
+            headerTrailing: { EmptyView() },
+            pinnedHeader: pinnedHeader,
+            content: content,
+            primaryAction: { EmptyView() }
+        )
+    }
+}
+
+extension GlassSheetChrome where Header == EmptyView {
+    public init(
+        title: String? = nil,
+        height: GlassSheetHeight = .fitted,
+        @ViewBuilder pinnedHeader: @escaping () -> Pinned,
+        @ViewBuilder content: @escaping () -> Content,
+        @ViewBuilder primaryAction: @escaping () -> Action
+    ) {
+        self.init(
+            title: title,
+            height: height,
+            headerTrailing: { EmptyView() },
+            pinnedHeader: pinnedHeader,
+            content: content,
+            primaryAction: primaryAction
+        )
+    }
+}
+
+extension GlassSheetChrome where Pinned == EmptyView, Action == EmptyView {
+    public init(
+        title: String? = nil,
+        height: GlassSheetHeight = .fitted,
+        @ViewBuilder headerTrailing: @escaping () -> Header,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.init(
+            title: title,
+            height: height,
+            headerTrailing: headerTrailing,
+            pinnedHeader: { EmptyView() },
+            content: content,
+            primaryAction: { EmptyView() }
+        )
+    }
+}
+
+extension GlassSheetChrome where Pinned == EmptyView {
+    public init(
+        title: String? = nil,
+        height: GlassSheetHeight = .fitted,
+        @ViewBuilder headerTrailing: @escaping () -> Header,
+        @ViewBuilder content: @escaping () -> Content,
+        @ViewBuilder primaryAction: @escaping () -> Action
+    ) {
+        self.init(
+            title: title,
+            height: height,
+            headerTrailing: headerTrailing,
+            pinnedHeader: { EmptyView() },
+            content: content,
+            primaryAction: primaryAction
+        )
     }
 }
 
@@ -137,8 +312,8 @@ public struct GlassSheetRow<Leading: View>: View {
 }
 
 /// The ONE "pick one of these" sheet (EXP-603 retired the stock `PickerSheet`
-/// it was cloned from): scrollable rows with a trailing checkmark, immediate
-/// commit + dismiss on tap. It measures its own rows, so a three-option list
+/// it was cloned from): rows with a trailing checkmark, immediate commit +
+/// dismiss on tap. The chrome measures the rows, so a three-option list
 /// presents as a short sheet instead of a half-screen of empty glass.
 public struct GlassPickerSheet<Item, ID: Hashable, Row: View>: View {
     let title: String
@@ -149,7 +324,6 @@ public struct GlassPickerSheet<Item, ID: Hashable, Row: View>: View {
     @ViewBuilder let row: (Item) -> Row
 
     @Environment(\.dismiss) private var dismiss
-    @State private var contentHeight: CGFloat = 0
 
     public init(
         title: String,
@@ -174,35 +348,30 @@ public struct GlassPickerSheet<Item, ID: Hashable, Row: View>: View {
 
     public var body: some View {
         let identified = items.map { IdentifiedItem(id: idFor($0), value: $0) }
-        GlassSheetChrome(title: title, fittedContentHeight: contentHeight) {
-            ScrollView {
-                VStack(spacing: 2) {
-                    ForEach(identified) { wrapped in
-                        Button {
-                            onSelect(wrapped.value)
-                            dismiss()
-                        } label: {
-                            HStack(spacing: 10) {
-                                row(wrapped.value)
-                                Spacer(minLength: 0)
-                                if let selectedID, wrapped.id == selectedID {
-                                    AppIcon(AppIcons.uiCheck, size: 15, weight: .semibold)
-                                        .foregroundStyle(Color.white)
-                                }
+        GlassSheetChrome(title: title) {
+            VStack(spacing: 2) {
+                ForEach(identified) { wrapped in
+                    Button {
+                        onSelect(wrapped.value)
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 10) {
+                            row(wrapped.value)
+                            Spacer(minLength: 0)
+                            if let selectedID, wrapped.id == selectedID {
+                                AppIcon(AppIcons.uiCheck, size: 15, weight: .semibold)
+                                    .foregroundStyle(Color.white)
                             }
-                            .padding(.horizontal, 14)
-                            .frame(minHeight: 44)
-                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                     }
-                }
-                .padding(.horizontal, 6)
-                .padding(.bottom, 16)
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
-                    contentHeight = height
+                    .buttonStyle(.plain)
                 }
             }
+            .padding(.horizontal, 6)
+            .padding(.bottom, 16)
         }
     }
 }

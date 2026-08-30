@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +44,29 @@ import com.exponential.app.ui.theme.LabelPalette
 import com.exponential.app.ui.theme.TextEmphasis
 
 private const val DEFAULT_COLOR = "#6366f1"
+
+/**
+ * The create-board form's own field state, hoisted out of [CreateBoardForm] so
+ * a HOST can own the submit button (EXP-687: `CreateBoardSheet` pins it to the
+ * sheet's bottom edge, while the onboarding wizard keeps its inline one).
+ */
+@Stable
+class CreateBoardFormState {
+    var name by mutableStateOf("")
+    var prefix by mutableStateOf("")
+
+    /** Once the user hand-edits the prefix, stop auto-deriving from the name. */
+    var prefixEdited by mutableStateOf(false)
+    var color by mutableStateOf(DEFAULT_COLOR)
+    var iconName by mutableStateOf("square-kanban")
+    var repository by mutableStateOf<BoardRepositoryChoice?>(null)
+
+    /** Repo is always optional now, so creation only needs a name + prefix. */
+    val canCreate: Boolean get() = name.isNotBlank() && prefix.isNotBlank()
+}
+
+@Composable
+fun rememberCreateBoardFormState(): CreateBoardFormState = remember { CreateBoardFormState() }
 
 /**
  * First letters of each word, uppercased, capped at 4 (the server cap,
@@ -70,6 +94,9 @@ private fun derivePrefix(name: String): String =
 // `minimal` (the onboarding wizard, per the shared iOS/Android onboarding spec)
 // reduces the form to name + icon + repository: the prefix keeps auto-deriving
 // from the name and the color stays at the default — all editable later.
+//
+// `showSubmit = false` hands the create button to the host (the sheet pins it);
+// the host then drives it from the same [CreateBoardFormState] it passes in.
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CreateBoardForm(
@@ -79,25 +106,18 @@ fun CreateBoardForm(
     modifier: Modifier = Modifier,
     submitLabel: String = "Create board",
     minimal: Boolean = false,
+    showSubmit: Boolean = true,
+    form: CreateBoardFormState = rememberCreateBoardFormState(),
     viewModel: CreateBoardViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-
-    var name by remember { mutableStateOf("") }
-    var prefix by remember { mutableStateOf("") }
-    // Once the user hand-edits the prefix, stop auto-deriving from the name.
-    var prefixEdited by remember { mutableStateOf(false) }
-    var color by remember { mutableStateOf(DEFAULT_COLOR) }
-    var iconName by remember { mutableStateOf("square-kanban") }
-    var repository by remember { mutableStateOf<BoardRepositoryChoice?>(null) }
 
     LaunchedEffect(teamId) {
         viewModel.loadRepos(teamId)
     }
 
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    // Repo is always optional now, so creation only needs a name + prefix.
-    val canCreate = name.isNotBlank() && prefix.isNotBlank() && !state.submitting
+    val canCreate = form.canCreate && !state.submitting
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         // Caption-labelled glass fields — iOS CreateBoardForm parity (EXP-577).
@@ -112,15 +132,15 @@ fun CreateBoardForm(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 IconPicker(
-                    selected = iconName,
-                    onSelect = { iconName = it },
-                    accentColor = parseColor(color),
+                    selected = form.iconName,
+                    onSelect = { form.iconName = it },
+                    accentColor = parseColor(form.color),
                 )
                 GlassTextField(
-                    value = name,
+                    value = form.name,
                     onValueChange = {
-                        name = it
-                        if (!prefixEdited) prefix = derivePrefix(it)
+                        form.name = it
+                        if (!form.prefixEdited) form.prefix = derivePrefix(it)
                     },
                     singleLine = true,
                     placeholder = "e.g. Backend API",
@@ -133,10 +153,10 @@ fun CreateBoardForm(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Prefix", style = MaterialTheme.typography.labelMedium, color = secondary)
                 GlassTextField(
-                    value = prefix,
+                    value = form.prefix,
                     onValueChange = {
-                        prefixEdited = true
-                        prefix = it.uppercase().take(4)
+                        form.prefixEdited = true
+                        form.prefix = it.uppercase().take(4)
                     },
                     singleLine = true,
                     placeholder = "e.g. API",
@@ -153,7 +173,7 @@ fun CreateBoardForm(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     LabelPalette.colors.forEach { swatch ->
-                        val selected = swatch.equals(color, ignoreCase = true)
+                        val selected = swatch.equals(form.color, ignoreCase = true)
                         Box(
                             modifier = Modifier
                                 .size(28.dp)
@@ -162,7 +182,7 @@ fun CreateBoardForm(
                                     if (selected) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
                                     else Modifier,
                                 )
-                                .clickable { color = swatch },
+                                .clickable { form.color = swatch },
                             contentAlignment = Alignment.Center,
                         ) {
                             if (selected) {
@@ -199,8 +219,8 @@ fun CreateBoardForm(
                     teamId = teamId,
                     repos = state.repos,
                     loading = state.loadingRepos,
-                    selection = repository,
-                    onSelect = { repository = it },
+                    selection = form.repository,
+                    onSelect = { form.repository = it },
                 )
             }
         }
@@ -218,13 +238,23 @@ fun CreateBoardForm(
             }
         }
 
-        GlassSubmitButton(
-            label = if (state.submitting) "Creating…" else submitLabel,
-            enabled = canCreate,
-            onClick = {
-                // Repo is optional — send whatever (if any) is selected.
-                viewModel.create(teamId, name, prefix, color, iconName, repository, onCreated)
-            },
-        )
+        if (showSubmit) {
+            GlassSubmitButton(
+                label = if (state.submitting) "Creating…" else submitLabel,
+                enabled = canCreate,
+                onClick = {
+                    // Repo is optional — send whatever (if any) is selected.
+                    viewModel.create(
+                        teamId,
+                        form.name,
+                        form.prefix,
+                        form.color,
+                        form.iconName,
+                        form.repository,
+                        onCreated,
+                    )
+                },
+            )
+        }
     }
 }

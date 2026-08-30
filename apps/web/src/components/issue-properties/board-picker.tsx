@@ -27,6 +27,12 @@ interface BoardPickerProps {
   // Named in the confirmation copy; absent reads as "this issue".
   issueIdentifier?: string | null
   onSelect: (boardId: string) => void | Promise<void>
+  // Controlled mode (EXP-687): the mobile issue-detail `…` menu opens the
+  // picker from a menu item, so it owns the open state and renders no trigger
+  // of its own. The MoveBoardConfirmDialog stays here either way.
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  hideTrigger?: boolean
 }
 
 // Move-to-board picker for the issue detail view (EXP-57): single-select
@@ -41,8 +47,13 @@ export function BoardPicker({
   selectedBoardId,
   issueIdentifier,
   onSelect,
+  open: controlledOpen,
+  onOpenChange,
+  hideTrigger,
 }: BoardPickerProps) {
-  const [open, setOpen] = useState(false)
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+  const open = controlledOpen ?? uncontrolledOpen
+  const setOpen = onOpenChange ?? setUncontrolledOpen
   const [pendingBoard, setPendingBoard] = useState<Board | null>(null)
 
   const { data: boardRows } = useLiveQuery(
@@ -81,26 +92,28 @@ export function BoardPicker({
           setOpen(o)
         }}
       >
-        <MobilePopoverTrigger asChild>
-          <Button
-            variant="ghost"
-            size="xs"
-            className="text-muted-foreground"
-            disabled={disabled}
-          >
-            <BoardGlyph
-              board={selectedBoard ?? { color: `#71717a` }}
-              className="size-3.5"
-            />
-            {selectedBoard ? (
-              <span className="max-w-[7.5rem] truncate">
-                {selectedBoard.name}
-              </span>
-            ) : (
-              `Board`
-            )}
-          </Button>
-        </MobilePopoverTrigger>
+        {!hideTrigger && (
+          <MobilePopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="xs"
+              className="text-muted-foreground"
+              disabled={disabled}
+            >
+              <BoardGlyph
+                board={selectedBoard ?? { color: `#71717a` }}
+                className="size-3.5"
+              />
+              {selectedBoard ? (
+                <span className="max-w-[7.5rem] truncate">
+                  {selectedBoard.name}
+                </span>
+              ) : (
+                `Board`
+              )}
+            </Button>
+          </MobilePopoverTrigger>
+        )}
         <MobilePopoverContent
           className="w-[14rem] p-0"
           align="start"

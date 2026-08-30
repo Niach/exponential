@@ -1,31 +1,25 @@
 package com.exponential.app.ui.session
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -61,10 +55,13 @@ import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassPillButton
+import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.SectionLabel
+import com.exponential.app.ui.components.SheetHeight
+import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.components.defaultModelFor
@@ -99,14 +96,12 @@ private const val MAX_DEVICE_LABEL = 255
 
 private const val NOT_SHARED = ""
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceSettingsSheet(
     device: SteerDevice,
     onDismiss: () -> Unit,
     viewModel: DeviceSettingsViewModel = hiltViewModel(),
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(device.rowId) { viewModel.bind(device.rowId) }
 
@@ -163,341 +158,319 @@ fun DeviceSettingsSheet(
         viewModel.queueDefaults(device.deviceId, buildDefaults(defaultAgent, editableAgents, next))
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        dragHandle = null,
-        modifier = Modifier.statusBarsPadding().testTag("device-settings-sheet"),
+    // EXP-686: the static sheet title — the machine's own name is the editable
+    // field right below it. Edits save themselves, so "Done" is only a dismiss
+    // (the swipe-down gesture does the same).
+    GlassSheet(
+        title = "Device settings",
+        onDismiss = onDismiss,
+        modifier = Modifier.testTag("device-settings-sheet"),
+        height = SheetHeight.Full,
+        primaryAction = SheetPrimaryAction(label = "Done", onClick = onDismiss),
     ) {
-        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight()) {
-            // Done is the only chrome button now (edits save themselves), so
-            // the title centers on the sheet rather than between two buttons.
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                // EXP-686: the static sheet title — the machine's own name is
-                // the editable field right below it.
-                Text(
-                    "Device settings",
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 72.dp),
-                )
-                GlassPillButton(
-                    "Done",
-                    onClick = onDismiss,
-                    modifier = Modifier.align(Alignment.CenterEnd),
-                )
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                // ── Name ─────────────────────────────────────────────────────
-                SectionLabel("Name")
-                OptionGroup {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        TextField(
-                            value = label,
-                            onValueChange = { next ->
-                                label = next.take(MAX_DEVICE_LABEL)
-                                viewModel.queueRename(
-                                    device.deviceId,
-                                    label.trim()
-                                        .takeIf { it.isNotEmpty() && it != device.deviceLabel },
-                                )
-                            },
-                            singleLine = true,
-                            modifier = Modifier
-                                .weight(1f)
-                                .onFocusChanged {
-                                    nameFocused = it.isFocused
-                                    if (!it.isFocused) {
-                                        // A rename that arrived while focused
-                                        // was deliberately skipped — catch up
-                                        // unless an edit is owed.
-                                        val hadPending = viewModel.hasPendingRename()
-                                        viewModel.flushPending()
-                                        if (!hadPending) {
-                                            label = device.deviceLabel
-                                                .ifBlank { device.deviceId }
-                                        }
-                                    }
-                                },
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                disabledContainerColor = Color.Transparent,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                                disabledIndicatorColor = Color.Transparent,
-                            ),
-                        )
-                        if (nameBusy) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp).padding(end = 2.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Spacer(Modifier.width(12.dp))
-                        }
-                    }
-                }
-                ErrorCaption(nameError)
-                Spacer(Modifier.height(8.dp))
-
-                // ── Default machine (EXP-622) ───────────────────────────────
-                OptionGroup {
-                    SwitchRow(
-                        title = "Default device",
-                        checked = device.isDefault,
-                        onCheckedChange = { next ->
-                            viewModel.setDefault(device.deviceId, next)
-                        },
-                        enabled = !defaultBusy,
-                    )
-                }
-                ErrorCaption(defaultError)
-                Spacer(Modifier.height(8.dp))
-
-                // ── Sharing (server machines only, EXP-432/EXP-481) ─────────
-                if (device.isServer) {
-                    SectionLabel("Sharing")
-                    OptionGroup {
-                        PickerRow(
-                            label = "Shared with",
-                            value = teams.firstOrNull { it.id == device.sharedTeamId }?.name
-                                ?: "Not shared",
-                            options = listOf(NOT_SHARED) + teams.map { it.id },
-                            selected = device.sharedTeamId ?: NOT_SHARED,
-                            optionLabel = { id ->
-                                if (id == NOT_SHARED) {
-                                    "Not shared"
-                                } else {
-                                    teams.firstOrNull { it.id == id }?.name ?: id
-                                }
-                            },
-                            enabled = !shareBusy,
-                            onSelect = { id ->
-                                viewModel.setShared(
-                                    device.deviceId,
-                                    id.takeIf { it != NOT_SHARED },
-                                )
-                            },
-                        )
-                    }
-                    Text(
-                        "Teammates of the shared team can start coding sessions on this " +
-                            "machine. Runs are attributed to whoever starts them.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
-                    )
-                    ErrorCaption(shareError)
-                    Spacer(Modifier.height(8.dp))
-                }
-
-                // ── Agent defaults (server-authoritative, EXP-481) ───────────
-                if (!device.online) {
-                    Text(
-                        "This machine is offline — changes apply when it comes online.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
-                    )
-                }
-                OptionGroup {
-                    PickerRow(
-                        label = "Default agent",
-                        value = agentLabel(defaultAgent),
-                        options = editableAgents,
-                        selected = defaultAgent,
-                        optionLabel = ::agentLabel,
-                        onSelect = {
-                            defaultAgent = it
-                            viewModel.queueDefaults(
-                                device.deviceId,
-                                buildDefaults(it, editableAgents, drafts),
-                            )
-                        },
-                    )
-                }
-                Spacer(Modifier.height(4.dp))
-                if (editableAgents.size > 1) {
-                    // EXP-615: the same one-capsule agent strip the launch
-                    // dialogs render.
-                    AgentSegmentedTabs(
-                        agents = editableAgents,
-                        selected = agentTab,
-                        onSelect = { agentTab = it },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
-                    Spacer(Modifier.height(4.dp))
-                }
-                val draft = drafts[agentTab] ?: agentDraft(device, agentTab)
-                OptionGroup {
-                    val modelOptions = if (agentTab == DEFAULT_AGENT) {
-                        modelValuesFor(agentTab)
-                    } else {
-                        listOf(CLI_DEFAULT_MODEL) + modelValuesFor(agentTab)
-                    }
-                    PickerRow(
-                        label = "Model",
-                        value = modelLabel(draft.model),
-                        options = modelOptions,
-                        selected = draft.model,
-                        optionLabel = ::modelLabel,
-                        onSelect = { next -> editDraft(agentTab) { it.copy(model = next) } },
-                    )
-                    GroupDivider()
-                    PickerRow(
-                        label = when (agentTab) {
-                            "codex" -> "Reasoning"
-                            "pi" -> "Thinking"
-                            else -> "Effort"
-                        },
-                        value = effortLabel(draft.effort),
-                        options = listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(agentTab),
-                        selected = draft.effort,
-                        optionLabel = ::effortLabel,
-                        enabled = !(agentTab == DEFAULT_AGENT && draft.ultracode),
-                        onSelect = { next -> editDraft(agentTab) { it.copy(effort = next) } },
-                    )
-                    if (agentTab == DEFAULT_AGENT) {
-                        GroupDivider()
-                        SwitchRow(
-                            title = "Ultracode",
-                            checked = draft.ultracode,
-                            onCheckedChange = { next ->
-                                editDraft(agentTab) { it.copy(ultracode = next) }
-                            },
-                        )
-                    }
-                    if (supportsPlanMode(agentTab)) {
-                        GroupDivider()
-                        SwitchRow(
-                            title = "Plan mode",
-                            checked = draft.planMode,
-                            onCheckedChange = { next ->
-                                editDraft(agentTab) { it.copy(planMode = next) }
-                            },
-                        )
-                    }
-                    if (agentTab != "pi") {
-                        GroupDivider()
-                        SwitchRow(
-                            title = "Skip permissions",
-                            checked = draft.skipPermissions,
-                            onCheckedChange = { next ->
-                                editDraft(agentTab) { it.copy(skipPermissions = next) }
-                            },
-                        )
-                    }
-                    // EXP-688: the machine's sign-in and usage for THIS agent
-                    // live in the agent's own card — the standalone "Agents"
-                    // section repeated the agent list a second time.
-                    GroupDivider()
-                    AgentAccountBlock(
-                        agent = agentTab,
-                        account = device.agentAccounts?.get(agentTab),
-                        usage = device.agentUsage?.get(agentTab),
-                        usageAt = device.agentUsageAt,
-                        state = commandStates[agentLoginCommandKey(agentTab)],
-                        // The command opens a login flow ON the machine and
-                        // publishes its URL back, so it needs a machine that is
-                        // ours, online, and new enough to advertise the cap. pi
-                        // has no remote sign-in at all (the server refuses it).
-                        canLogin = device.online && device.canAgentLogin &&
-                            device.isMine && agentTab != "pi",
-                        onLogin = { switchAccount ->
-                            if (switchAccount && agentTab == "codex") {
-                                switchConfirmAgent = agentTab
-                            } else {
-                                viewModel.agentLogin(
-                                    device.deviceId,
-                                    agentTab,
-                                    switchAccount,
-                                    device.online,
-                                )
-                            }
-                        },
-                    )
-                }
-                ErrorCaption(defaultsError)
-                Spacer(Modifier.height(8.dp))
-
-                // ── Worktrees (EXP-481) ──────────────────────────────────────
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            // ── Name ─────────────────────────────────────────────────────
+            SectionLabel("Name")
+            OptionGroup {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    // 16dp: the icon button's right edge lines up with the
-                    // section cards below it.
-                    modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    SectionLabel("Worktrees")
-                    Spacer(Modifier.weight(1f))
-                    val pruneState = commandStates[PRUNE_COMMAND_KEY]
-                    if (worktrees.isNotEmpty()) {
-                        if (pruneState is DeviceCommandUiState.Sending ||
-                            pruneState is DeviceCommandUiState.Running
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onSurface,
+                    TextField(
+                        value = label,
+                        onValueChange = { next ->
+                            label = next.take(MAX_DEVICE_LABEL)
+                            viewModel.queueRename(
+                                device.deviceId,
+                                label.trim()
+                                    .takeIf { it.isNotEmpty() && it != device.deviceLabel },
                             )
-                        } else {
-                            // EXP-688: icon-only, at the trailing edge of the
-                            // section header (web/desktop/iOS parity).
-                            CircleIconButton(
-                                ExpIcons.uiClean,
-                                "Prune merged worktrees",
-                                onClick = {
-                                    viewModel.pruneWorktrees(device.deviceId, device.online)
-                                },
-                            )
-                        }
+                        },
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(1f)
+                            .onFocusChanged {
+                                nameFocused = it.isFocused
+                                if (!it.isFocused) {
+                                    // A rename that arrived while focused
+                                    // was deliberately skipped — catch up
+                                    // unless an edit is owed.
+                                    val hadPending = viewModel.hasPendingRename()
+                                    viewModel.flushPending()
+                                    if (!hadPending) {
+                                        label = device.deviceLabel
+                                            .ifBlank { device.deviceId }
+                                    }
+                                }
+                            },
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            disabledContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            disabledIndicatorColor = Color.Transparent,
+                        ),
+                    )
+                    if (nameBusy) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp).padding(end = 2.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.width(12.dp))
                     }
                 }
-                if (!device.online && worktrees.isNotEmpty()) {
-                    Text(
-                        "This machine is offline — commands run when it comes online.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
-                    )
-                }
-                CommandCaption(commandStates[PRUNE_COMMAND_KEY])
-                if (worktrees.isEmpty()) {
-                    Text(
-                        "No worktrees reported by this machine.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        modifier = Modifier.padding(horizontal = 32.dp, vertical = 4.dp),
-                    )
-                } else {
-                    OptionGroup {
-                        worktrees.forEachIndexed { index, worktree ->
-                            if (index > 0) GroupDivider()
-                            WorktreeRow(
-                                worktree = worktree,
-                                state = commandStates["${worktree.repoFullName} ${worktree.branch}"],
-                                onRemove = { removeTarget = worktree },
-                            )
-                        }
-                    }
-                }
-                Spacer(Modifier.height(24.dp))
             }
+            ErrorCaption(nameError)
+            Spacer(Modifier.height(8.dp))
+
+            // ── Default machine (EXP-622) ───────────────────────────────
+            OptionGroup {
+                SwitchRow(
+                    title = "Default device",
+                    checked = device.isDefault,
+                    onCheckedChange = { next ->
+                        viewModel.setDefault(device.deviceId, next)
+                    },
+                    enabled = !defaultBusy,
+                )
+            }
+            ErrorCaption(defaultError)
+            Spacer(Modifier.height(8.dp))
+
+            // ── Sharing (server machines only, EXP-432/EXP-481) ─────────
+            if (device.isServer) {
+                SectionLabel("Sharing")
+                OptionGroup {
+                    PickerRow(
+                        label = "Shared with",
+                        value = teams.firstOrNull { it.id == device.sharedTeamId }?.name
+                            ?: "Not shared",
+                        options = listOf(NOT_SHARED) + teams.map { it.id },
+                        selected = device.sharedTeamId ?: NOT_SHARED,
+                        optionLabel = { id ->
+                            if (id == NOT_SHARED) {
+                                "Not shared"
+                            } else {
+                                teams.firstOrNull { it.id == id }?.name ?: id
+                            }
+                        },
+                        enabled = !shareBusy,
+                        onSelect = { id ->
+                            viewModel.setShared(
+                                device.deviceId,
+                                id.takeIf { it != NOT_SHARED },
+                            )
+                        },
+                    )
+                }
+                Text(
+                    "Teammates of the shared team can start coding sessions on this " +
+                        "machine. Runs are attributed to whoever starts them.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
+                )
+                ErrorCaption(shareError)
+                Spacer(Modifier.height(8.dp))
+            }
+
+            // ── Agent defaults (server-authoritative, EXP-481) ───────────
+            if (!device.online) {
+                Text(
+                    "This machine is offline — changes apply when it comes online.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
+                )
+            }
+            OptionGroup {
+                PickerRow(
+                    label = "Default agent",
+                    value = agentLabel(defaultAgent),
+                    options = editableAgents,
+                    selected = defaultAgent,
+                    optionLabel = ::agentLabel,
+                    onSelect = {
+                        defaultAgent = it
+                        viewModel.queueDefaults(
+                            device.deviceId,
+                            buildDefaults(it, editableAgents, drafts),
+                        )
+                    },
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            if (editableAgents.size > 1) {
+                // EXP-615: the same one-capsule agent strip the launch
+                // dialogs render.
+                AgentSegmentedTabs(
+                    agents = editableAgents,
+                    selected = agentTab,
+                    onSelect = { agentTab = it },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+            val draft = drafts[agentTab] ?: agentDraft(device, agentTab)
+            OptionGroup {
+                val modelOptions = if (agentTab == DEFAULT_AGENT) {
+                    modelValuesFor(agentTab)
+                } else {
+                    listOf(CLI_DEFAULT_MODEL) + modelValuesFor(agentTab)
+                }
+                PickerRow(
+                    label = "Model",
+                    value = modelLabel(draft.model),
+                    options = modelOptions,
+                    selected = draft.model,
+                    optionLabel = ::modelLabel,
+                    onSelect = { next -> editDraft(agentTab) { it.copy(model = next) } },
+                )
+                GroupDivider()
+                PickerRow(
+                    label = when (agentTab) {
+                        "codex" -> "Reasoning"
+                        "pi" -> "Thinking"
+                        else -> "Effort"
+                    },
+                    value = effortLabel(draft.effort),
+                    options = listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(agentTab),
+                    selected = draft.effort,
+                    optionLabel = ::effortLabel,
+                    enabled = !(agentTab == DEFAULT_AGENT && draft.ultracode),
+                    onSelect = { next -> editDraft(agentTab) { it.copy(effort = next) } },
+                )
+                if (agentTab == DEFAULT_AGENT) {
+                    GroupDivider()
+                    SwitchRow(
+                        title = "Ultracode",
+                        checked = draft.ultracode,
+                        onCheckedChange = { next ->
+                            editDraft(agentTab) { it.copy(ultracode = next) }
+                        },
+                    )
+                }
+                if (supportsPlanMode(agentTab)) {
+                    GroupDivider()
+                    SwitchRow(
+                        title = "Plan mode",
+                        checked = draft.planMode,
+                        onCheckedChange = { next ->
+                            editDraft(agentTab) { it.copy(planMode = next) }
+                        },
+                    )
+                }
+                if (agentTab != "pi") {
+                    GroupDivider()
+                    SwitchRow(
+                        title = "Skip permissions",
+                        checked = draft.skipPermissions,
+                        onCheckedChange = { next ->
+                            editDraft(agentTab) { it.copy(skipPermissions = next) }
+                        },
+                    )
+                }
+                // EXP-688: the machine's sign-in and usage for THIS agent
+                // live in the agent's own card — the standalone "Agents"
+                // section repeated the agent list a second time.
+                GroupDivider()
+                AgentAccountBlock(
+                    agent = agentTab,
+                    account = device.agentAccounts?.get(agentTab),
+                    usage = device.agentUsage?.get(agentTab),
+                    usageAt = device.agentUsageAt,
+                    state = commandStates[agentLoginCommandKey(agentTab)],
+                    // The command opens a login flow ON the machine and
+                    // publishes its URL back, so it needs a machine that is
+                    // ours, online, and new enough to advertise the cap. pi
+                    // has no remote sign-in at all (the server refuses it).
+                    canLogin = device.online && device.canAgentLogin &&
+                        device.isMine && agentTab != "pi",
+                    onLogin = { switchAccount ->
+                        if (switchAccount && agentTab == "codex") {
+                            switchConfirmAgent = agentTab
+                        } else {
+                            viewModel.agentLogin(
+                                device.deviceId,
+                                agentTab,
+                                switchAccount,
+                                device.online,
+                            )
+                        }
+                    },
+                )
+            }
+            ErrorCaption(defaultsError)
+            Spacer(Modifier.height(8.dp))
+
+            // ── Worktrees (EXP-481) ──────────────────────────────────────
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                // 16dp: the icon button's right edge lines up with the
+                // section cards below it.
+                modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
+            ) {
+                SectionLabel("Worktrees")
+                Spacer(Modifier.weight(1f))
+                val pruneState = commandStates[PRUNE_COMMAND_KEY]
+                if (worktrees.isNotEmpty()) {
+                    if (pruneState is DeviceCommandUiState.Sending ||
+                        pruneState is DeviceCommandUiState.Running
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    } else {
+                        // EXP-688: icon-only, at the trailing edge of the
+                        // section header (web/desktop/iOS parity).
+                        CircleIconButton(
+                            ExpIcons.uiClean,
+                            "Prune merged worktrees",
+                            onClick = {
+                                viewModel.pruneWorktrees(device.deviceId, device.online)
+                            },
+                        )
+                    }
+                }
+            }
+            if (!device.online && worktrees.isNotEmpty()) {
+                Text(
+                    "This machine is offline — commands run when it comes online.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
+                )
+            }
+            CommandCaption(commandStates[PRUNE_COMMAND_KEY])
+            if (worktrees.isEmpty()) {
+                Text(
+                    "No worktrees reported by this machine.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 4.dp),
+                )
+            } else {
+                OptionGroup {
+                    worktrees.forEachIndexed { index, worktree ->
+                        if (index > 0) GroupDivider()
+                        WorktreeRow(
+                            worktree = worktree,
+                            state = commandStates["${worktree.repoFullName} ${worktree.branch}"],
+                            onRemove = { removeTarget = worktree },
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(24.dp))
         }
     }
 

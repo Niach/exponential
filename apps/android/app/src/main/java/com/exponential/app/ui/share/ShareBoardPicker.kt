@@ -11,20 +11,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.components.BoardIcon
+import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassSection
@@ -130,12 +127,11 @@ fun ShareBoardSelector(
 }
 
 /**
- * Team-grouped board picker sheet for the share composer — the same
- * Material 3 chooser pattern as [com.exponential.app.ui.issue.IssuePickerSheet]
- * (title + [ListItem] rows + trailing check), with a secondary team header
- * above each group's boards.
+ * Team-grouped board picker sheet for the share composer — the shared
+ * [GlassSheet] chooser ([com.exponential.app.ui.issue.IssuePickerSheet]'s
+ * pattern: title + [GlassSheetRow]s + trailing check), with a secondary team
+ * header above each group's boards.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShareBoardPickerSheet(
     groups: List<TeamBoards>,
@@ -143,51 +139,31 @@ fun ShareBoardPickerSheet(
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        dragHandle = { BottomSheetDefaults.DragHandle() },
-    ) {
+    GlassSheet(title = "Share to", onDismiss = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(bottom = 12.dp),
+                .verticalScroll(rememberScrollState()),
         ) {
-            Text(
-                text = "Share to",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-            )
             groups.forEach { group ->
                 Text(
                     group.team.name,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 2.dp),
+                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 2.dp),
                 )
                 group.boards.forEach { board ->
-                    val isSelected = board.id == selectedBoardId
-                    ListItem(
-                        headlineContent = {
-                            Text(board.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    GlassSheetRow(
+                        label = board.name,
+                        onClick = {
+                            onSelect(board.id)
+                            onDismiss()
                         },
-                        leadingContent = { BoardIcon(board) },
-                        trailingContent = if (isSelected) {
-                            { Icon(ExpIcons.uiCheck, contentDescription = "Selected") }
-                        } else null,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                onSelect(board.id)
-                                onDismiss()
-                            },
+                        selected = board.id == selectedBoardId,
+                        leading = { BoardIcon(board) },
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
         }
     }
 }

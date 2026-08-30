@@ -48,14 +48,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -112,6 +110,7 @@ import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.components.TopBarActionButton
 import com.exponential.app.ui.components.TopBarBackButton
@@ -2224,31 +2223,21 @@ private fun CenteredState(content: @Composable androidx.compose.foundation.layou
 // Renders the latest worktree diff (raw `git diff` output): split on
 // `diff --git` into per-file sections with the shared +/−/@@ coloring;
 // horizontal scrolling lives inside each file's code block only.
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun UnifiedDiffPanel(diff: String, onDismiss: () -> Unit) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val sections = remember(diff) { splitUnifiedDiff(diff) }
     val stats = remember(diff) { unifiedDiffStats(diff) }
     val contextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = GlassTokens.BackgroundBottom,
-    ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+    GlassSheet(
+        title = "Latest changes",
+        onDismiss = onDismiss,
+        height = SheetHeight.Full,
+        headerAction = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(bottom = 10.dp),
             ) {
-                Text(
-                    "Latest changes",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
                 Text(
                     "+${stats.additions}",
                     color = DiffAddColor,
@@ -2262,6 +2251,9 @@ private fun UnifiedDiffPanel(diff: String, onDismiss: () -> Unit) {
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
+        },
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             LazyColumn(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(bottom = 24.dp),

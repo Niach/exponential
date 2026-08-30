@@ -2,7 +2,9 @@ package com.exponential.app.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
@@ -12,6 +14,7 @@ import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.MenuItemColors
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -73,6 +76,15 @@ object GlassMenuDefaults {
 
     /** Hairline between groups of menu items — the same white .06 every other divider in the app uses. */
     val DividerColor: Color = GlassTokens.StrokeRow
+
+    /**
+     * 16dp, applied centrally by [GlassMenuItem] (EXP-687). M3's `DropdownMenuItem`
+     * hands its icon slot the stock 24dp `LocalContentColor`/size, which reads a
+     * whole rung heavier than the 16pt/px menu glyphs iOS and web draw. An
+     * `Icon(ImageVector)` scales to its constraints, so boxing the slot shrinks
+     * every menu icon in the app without touching a single call site.
+     */
+    val IconSize = 16.dp
 
     @Composable
     fun itemColors(): MenuItemColors = MenuDefaults.itemColors(
@@ -158,8 +170,8 @@ fun GlassMenuItem(
         text = text,
         onClick = onClick,
         modifier = modifier,
-        leadingIcon = leadingIcon,
-        trailingIcon = trailingIcon,
+        leadingIcon = if (leadingIcon == null) null else ({ MenuIconSlot(leadingIcon) }),
+        trailingIcon = if (trailingIcon == null) null else ({ MenuIconSlot(trailingIcon) }),
         enabled = enabled,
         colors = if (destructive) {
             GlassMenuDefaults.destructiveItemColors()
@@ -167,6 +179,17 @@ fun GlassMenuItem(
             GlassMenuDefaults.itemColors()
         },
     )
+}
+
+/** Pins a menu item's icon slot to [GlassMenuDefaults.IconSize] (EXP-687). */
+@Composable
+private fun MenuIconSlot(content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier.size(GlassMenuDefaults.IconSize),
+        contentAlignment = Alignment.Center,
+    ) {
+        content()
+    }
 }
 
 /**

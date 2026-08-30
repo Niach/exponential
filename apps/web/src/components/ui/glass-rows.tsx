@@ -8,7 +8,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Sheet, SheetContent } from "@/components/ui/sheet"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { Switch } from "@/components/ui/switch"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
@@ -161,13 +166,12 @@ function GlassPickerRow({
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetContent
             side="bottom"
-            showCloseButton={false}
-            className="flex max-h-[85dvh] flex-col gap-0 rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)]"
+            className="flex flex-col gap-0 p-0 pb-[env(safe-area-inset-bottom)]"
           >
-            <div className="px-4 pt-3 pb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              {label}
-            </div>
-            <div className="overflow-y-auto p-1">
+            <SheetHeader className="pb-2">
+              <SheetTitle>{label}</SheetTitle>
+            </SheetHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto p-1">
               {options.map((option) => (
                 <button
                   key={option.value}

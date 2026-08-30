@@ -19,7 +19,10 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { BoardGlyph } from "@/components/board-glyph"
 import { Search } from "lucide-react"
+import { conceptIcon } from "@/lib/icons.generated"
 import type { Issue, Board } from "@/db/schema"
+
+const UiBackIcon = conceptIcon(`ui-back`)
 
 interface IssueSearchSheetProps {
   open: boolean
@@ -188,30 +191,34 @@ export function IssueSearchSheet({
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={handleOpenChange}>
+        {/* Page-like, not a sheet: it covers the whole screen, so it takes
+            the New-issue page's chrome instead — no grabber, no radius, a
+            leading back arrow where a sheet would have nothing (EXP-687). */}
         <SheetContent
           side="bottom"
-          showCloseButton={false}
-          className="top-0 h-[100dvh] rounded-none p-0 gap-0 flex flex-col"
+          showGrabber={false}
+          className="top-0 flex h-[100dvh] max-h-none flex-col gap-0 rounded-none p-0"
         >
           <SheetTitle className="sr-only">Search issues</SheetTitle>
-          <div className="flex items-center gap-2 px-3 py-3 border-b border-border/50">
-            <Search className="size-4 text-muted-foreground shrink-0" />
+          <div className="flex items-center gap-2 border-b border-border/50 px-3 py-3">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Back"
+              onClick={() => handleOpenChange(false)}
+              className="shrink-0 text-muted-foreground"
+            >
+              <UiBackIcon className="size-4" />
+            </Button>
+            <Search className="size-4 shrink-0 text-muted-foreground" />
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search issues..."
               autoFocus
-              className="border-none shadow-none focus-visible:ring-0 h-9 text-base md:text-sm"
+              className="h-9 border-none text-base shadow-none focus-visible:ring-0 md:text-sm"
             />
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => handleOpenChange(false)}
-              className="text-sm text-muted-foreground px-2"
-            >
-              Cancel
-            </Button>
           </div>
           <div className="flex-1 overflow-y-auto">
             {results.length === 0 && emptyState}
