@@ -112,7 +112,7 @@ export const CL_BOARD: BoardRow[] = [
   {
     id: NEW_ISSUE_ID,
     title: REPORT.title,
-    status: "todo",
+    status: "backlog",
     priority: "none",
     label: CL_LABELS.widget,
     assignee: CL.initials,
@@ -121,7 +121,7 @@ export const CL_BOARD: BoardRow[] = [
   {
     id: "EXP-149",
     title: "Add Apple Pay to checkout",
-    status: "todo",
+    status: "backlog",
     priority: "medium",
     label: CL_LABELS.web,
     assignee: CL.initials,
@@ -130,7 +130,7 @@ export const CL_BOARD: BoardRow[] = [
   {
     id: "EXP-150",
     title: "Order confirmation email renders twice",
-    status: "todo",
+    status: "backlog",
     priority: "low",
     label: CL_LABELS.bug,
   },
@@ -385,7 +385,7 @@ export const PRESENCE_USERS = [
 ] as const
 
 export const REMOTE_USER = { name: "Mara", color: "#2dd4bf" } as const
-export const REMOTE_DRAG_ID = "EXP-149" // Mara drags "Add Apple Pay" Todo → In Progress
+export const REMOTE_DRAG_ID = "EXP-149" // Mara drags "Add Apple Pay" Backlog → In Progress
 export const LIVE_EDIT_ID = "EXP-150" // a teammate edit flashes in live
 
 // Pushes land with the REAL notification grammar (lib/integrations/
@@ -407,7 +407,7 @@ export type PhoneBoardProjection = {
   id: string
   title: string
   priority: "none" | "urgent" | "high" | "medium" | "low"
-  status: "backlog" | "todo" | "in_progress" | "done"
+  status: "backlog" | "in_progress" | "done"
   labelDot?: string
   assignee?: string
   due?: string

@@ -6,9 +6,9 @@ import { useIde } from "./state"
 import { Avatar, LabelChip, PriorityIcon, StatusIcon } from "./bits"
 import { IcCalDays, IcChevDown, IcChevRight, IcListFilter } from "./icons"
 
-/* Contract display order (backlog · unstarted · started · completed), the
+/* Contract display order (backlog · started · completed), the
    order the real list groups in — `GROUP_ORDER` keeps the web fixture's. */
-const DESKTOP_ORDER: IssueStatus[] = [`backlog`, `todo`, `in_progress`, `in_review`, `done`]
+const DESKTOP_ORDER: IssueStatus[] = [`backlog`, `in_progress`, `in_review`, `done`]
 
 const GROUPS = DESKTOP_ORDER.map(
   (status) => GROUP_ORDER.find((g) => g.status === status) ?? { status, label: status },

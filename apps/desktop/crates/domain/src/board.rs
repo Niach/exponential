@@ -379,12 +379,12 @@ mod tests {
     #[test]
     fn overdue_needs_past_due_and_open_status() {
         assert!(is_issue_overdue(
-            &issue("a", "todo", "none", Some("2026-07-02")),
+            &issue("a", "backlog", "none", Some("2026-07-02")),
             TODAY
         ));
         // Today is not overdue (strict <).
         assert!(!is_issue_overdue(
-            &issue("a", "todo", "none", Some("2026-07-03")),
+            &issue("a", "backlog", "none", Some("2026-07-03")),
             TODAY
         ));
         // Closed-ish anchors are never overdue.
@@ -394,20 +394,20 @@ mod tests {
                 TODAY
             ));
         }
-        assert!(!is_issue_overdue(&issue("a", "todo", "none", None), TODAY));
+        assert!(!is_issue_overdue(&issue("a", "backlog", "none", None), TODAY));
     }
 
     #[test]
     fn open_group_sort_is_overdue_then_priority_then_due_then_number() {
         let issues = vec![
-            issue_n("none-undated", 3, "todo", "none", None),
-            issue_n("low-late-due", 4, "todo", "low", Some("2026-08-01")),
-            issue_n("low-early-due", 5, "todo", "low", Some("2026-07-10")),
-            issue_n("urgent", 6, "todo", "urgent", None),
-            issue_n("overdue-none", 7, "todo", "none", Some("2026-01-01")),
+            issue_n("none-undated", 3, "backlog", "none", None),
+            issue_n("low-late-due", 4, "backlog", "low", Some("2026-08-01")),
+            issue_n("low-early-due", 5, "backlog", "low", Some("2026-07-10")),
+            issue_n("urgent", 6, "backlog", "urgent", None),
+            issue_n("overdue-none", 7, "backlog", "none", Some("2026-01-01")),
             // Same priority + due date → number breaks the tie.
-            issue_n("high-n9", 9, "todo", "high", Some("2026-07-20")),
-            issue_n("high-n8", 8, "todo", "high", Some("2026-07-20")),
+            issue_n("high-n9", 9, "backlog", "high", Some("2026-07-20")),
+            issue_n("high-n8", 8, "backlog", "high", Some("2026-07-20")),
         ];
         let groups = build_status_groups(issues.clone(), &builtin_rows(), &[], TODAY);
         assert_eq!(groups.len(), 1);
@@ -429,8 +429,8 @@ mod tests {
     #[test]
     fn number_tiebreak_is_numeric_not_lexicographic() {
         let issues = vec![
-            issue_n("n10", 10, "todo", "none", None),
-            issue_n("n2", 2, "todo", "none", None),
+            issue_n("n10", 10, "backlog", "none", None),
+            issue_n("n2", 2, "backlog", "none", None),
         ];
         let groups = build_status_groups(issues.clone(), &builtin_rows(), &[], TODAY);
         let order: Vec<&str> = groups[0].issues.iter().map(|i| i.id.as_str()).collect();
@@ -513,14 +513,14 @@ mod tests {
     fn groups_follow_team_status_order_and_hide_empty() {
         let issues = vec![
             issue("d", "done", "none", None),
-            issue("t", "todo", "none", None),
+            issue("t", "backlog", "none", None),
             issue("i", "in_progress", "none", None),
         ];
         let groups = build_status_groups(issues.clone(), &builtin_rows(), &[], TODAY);
         // Category display order with empty groups hidden.
-        assert_eq!(group_names(&groups), vec!["Todo", "In Progress", "Done"]);
+        assert_eq!(group_names(&groups), vec!["Backlog", "In Progress", "Done"]);
         // Group keys are the ROW ids.
-        assert_eq!(groups[0].status.group_key, "row-todo");
+        assert_eq!(groups[0].status.group_key, "row-backlog");
     }
 
     #[test]
@@ -529,11 +529,11 @@ mod tests {
         // constructed `builtin:<key>` defaults.
         let issues = vec![
             issue("i", "in_progress", "none", None),
-            issue("t", "todo", "none", None),
+            issue("t", "backlog", "none", None),
         ];
         let groups = build_status_groups(issues.clone(), &[], &[], TODAY);
-        assert_eq!(group_names(&groups), vec!["Todo", "In Progress"]);
-        assert_eq!(groups[0].status.group_key, "builtin:todo");
+        assert_eq!(group_names(&groups), vec!["Backlog", "In Progress"]);
+        assert_eq!(groups[0].status.group_key, "builtin:backlog");
         assert!(groups[0].status.is_fallback());
     }
 
@@ -543,11 +543,11 @@ mod tests {
         // backlog BEFORE the row lookup, so it lands in the team's REAL
         // Backlog group — never a second, constructed one beside it.
         let issues = vec![
-            issue("known", "todo", "none", None),
+            issue("known", "in_progress", "none", None),
             issue("weird", "triaged", "none", None),
         ];
         let groups = build_status_groups(issues.clone(), &builtin_rows(), &[], TODAY);
-        assert_eq!(group_names(&groups), vec!["Backlog", "Todo"]);
+        assert_eq!(group_names(&groups), vec!["Backlog", "In Progress"]);
         assert_eq!(groups[0].status.group_key, "row-backlog");
         assert!(!groups[0].status.is_fallback());
         assert_eq!(groups[0].issues.len(), 1);
@@ -565,7 +565,7 @@ mod tests {
         // must keep showing that group instead of rendering empty.
         let issues = vec![
             issue("wip", "in_progress", "none", None),
-            issue("t", "todo", "none", None),
+            issue("t", "backlog", "none", None),
         ];
         let groups = build_status_groups(
             issues.clone(),
@@ -590,23 +590,27 @@ mod tests {
         assert_eq!(ids, vec!["wip"]);
 
         // A row-uuid key still selects exactly its own group.
-        let groups =
-            build_status_groups(issues.clone(), &builtin_rows(), &["row-todo".to_string()], TODAY);
-        assert_eq!(group_names(&groups), vec!["Todo"]);
+        let groups = build_status_groups(
+            issues.clone(),
+            &builtin_rows(),
+            &["row-backlog".to_string()],
+            TODAY,
+        );
+        assert_eq!(group_names(&groups), vec!["Backlog"]);
     }
 
     #[test]
     fn status_filter_keeps_selected_groups_even_when_empty() {
         // web: `if (keys.length > 0) return groups.filter((g) =>
         // keys.includes(g.key))` — WITHOUT the emptiness filter.
-        let issues = vec![issue("t", "todo", "none", None)];
+        let issues = vec![issue("t", "backlog", "none", None)];
         let groups = build_status_groups(
             issues.clone(),
             &builtin_rows(),
-            &["row-in_progress".to_string(), "row-todo".to_string()],
+            &["row-in_progress".to_string(), "row-backlog".to_string()],
             TODAY,
         );
-        assert_eq!(group_names(&groups), vec!["Todo", "In Progress"]);
+        assert_eq!(group_names(&groups), vec!["Backlog", "In Progress"]);
         assert_eq!(groups[0].issues.len(), 1);
         assert!(groups[1].issues.is_empty());
     }
@@ -623,9 +627,9 @@ mod tests {
             ..Default::default()
         };
         let issues = vec![
-            issue("i-1", "todo", "none", None),
-            issue("i-2", "todo", "none", None),
-            issue("i-3", "todo", "none", None),
+            issue("i-1", "backlog", "none", None),
+            issue("i-2", "backlog", "none", None),
+            issue("i-3", "backlog", "none", None),
         ];
         let filtered = build_filtered_issues(issues, &map, &builtin_rows(), &filters);
         let ids: Vec<&str> = filtered.iter().map(|i| i.id.as_str()).collect();
@@ -653,8 +657,8 @@ mod tests {
     fn flatten_follows_group_order_and_skips_empty_groups() {
         let issues = vec![
             issue("done-1", "done", "none", None),
-            issue_n("todo-urgent", 2, "todo", "urgent", None),
-            issue_n("todo-low", 1, "todo", "low", None),
+            issue_n("backlog-urgent", 2, "backlog", "urgent", None),
+            issue_n("backlog-low", 1, "backlog", "low", None),
             issue("wip", "in_progress", "none", None),
         ];
         // No status filter: empty groups are already hidden; flatten preserves
@@ -662,7 +666,7 @@ mod tests {
         let groups = build_status_groups(issues.clone(), &builtin_rows(), &[], TODAY);
         assert_eq!(
             flatten_group_issue_ids(&groups),
-            vec!["todo-urgent", "todo-low", "wip", "done-1"]
+            vec!["backlog-urgent", "backlog-low", "wip", "done-1"]
         );
 
         // Status-filtered boards keep selected-but-empty groups in the group
@@ -670,12 +674,12 @@ mod tests {
         let groups = build_status_groups(
             issues.clone(),
             &builtin_rows(),
-            &["row-backlog".to_string(), "row-todo".to_string()],
+            &["row-backlog".to_string(), "row-in_review".to_string()],
             TODAY,
         );
         assert_eq!(
             flatten_group_issue_ids(&groups),
-            vec!["todo-urgent", "todo-low"]
+            vec!["backlog-urgent", "backlog-low"]
         );
     }
 

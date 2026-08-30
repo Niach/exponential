@@ -36,7 +36,7 @@ import {
   issueStatusCategorySchema,
   issueStatusCategoryValues,
   issueStatusSchema,
-  issueStatusValues,
+  type IssueStatus,
   type NotificationType,
   notificationTypeValues,
   prStateSchema,
@@ -58,7 +58,19 @@ const { createInsertSchema, createSelectSchema } = createSchemaFactory({
 // Enums
 // ---------------------------------------------------------------------------
 
-export const issueStatusEnum = pgEnum(`issue_status`, issueStatusValues)
+// The PG type keeps the orphan `todo` label (EXP-685 migrated every Todo issue
+// to Backlog, migration 0091): dropping an enum VALUE needs a full type
+// recreate, and no writer or reader can produce it any more. Deliberately NOT
+// derived from issueStatusValues — that list is the app vocabulary.
+export const issueStatusEnum = pgEnum(`issue_status`, [
+  `backlog`,
+  `todo`,
+  `in_progress`,
+  `in_review`,
+  `done`,
+  `cancelled`,
+  `duplicate`,
+])
 
 // EXP-314: the fixed category a custom/builtin issue status belongs to.
 export const issueStatusCategoryEnum = pgEnum(
@@ -357,7 +369,9 @@ export const issues = pgTable(
     title: varchar({ length: 500 }).notNull(),
     // Plain GFM markdown (was jsonb `{ text }`).
     description: text(),
-    status: issueStatusEnum().notNull().default(`backlog`),
+    // Narrowed to the app vocabulary: the PG type also carries the orphan
+    // `todo` label (EXP-685) that no row holds any more.
+    status: issueStatusEnum().$type<IssueStatus>().notNull().default(`backlog`),
     // EXP-314: the precise per-team status row; `status` above stays the
     // dual-written builtin anchor. NULLABLE + SET NULL so a status delete or
     // team cascade can never wedge an issue; the populate_issue_status_id
@@ -482,7 +496,7 @@ export const labels = pgTable(
 )
 
 // EXP-314 — per-team custom issue statuses (Linear-style), grouped into the
-// fixed issue_status_category set. Every team carries 7 locked builtin rows
+// fixed issue_status_category set. Every team carries 6 locked builtin rows
 // (builtin_key != NULL, seeded by the seed_builtin_issue_statuses trigger and
 // the migration backfill; values mirror contract.json issueStatusDefaults) —
 // not renamable, not recolorable, not deletable; customs (builtin_key NULL)
@@ -503,7 +517,7 @@ export const issueStatuses = pgTable(
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     // NULL = custom status; non-null marks the locked builtin row for that
     // enum value (at most one per team).
-    builtinKey: issueStatusEnum(`builtin_key`),
+    builtinKey: issueStatusEnum(`builtin_key`).$type<IssueStatus>(),
     ...timestamps,
   },
   (table) => [

@@ -1473,7 +1473,7 @@ mod tests {
             "number": 1,
             "identifier": "EXP-1",
             "title": "t",
-            "status": "todo",
+            "status": "backlog",
         }))
         .unwrap()
     }

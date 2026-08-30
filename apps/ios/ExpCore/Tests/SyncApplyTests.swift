@@ -52,7 +52,7 @@ final class SyncApplyTests: XCTestCase {
         try pool.write { db in
             try IssueEntity(
                 id: id, boardId: "p1", number: 1, identifier: "EXP-1", title: title,
-                description: nil, status: "todo", priority: "none", assigneeId: nil,
+                description: nil, status: "in_progress", priority: "none", assigneeId: nil,
                 creatorId: "u1", source: nil, dueDate: nil, sortOrder: 1.0,
                 completedAt: nil, duplicateOfId: nil, prUrl: nil,
                 prNumber: nil, prState: nil, branch: nil, prMergedAt: nil,

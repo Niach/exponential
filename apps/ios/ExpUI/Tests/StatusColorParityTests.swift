@@ -8,8 +8,7 @@ import ExpUI
 // a per-platform taste call. The desktop IDE palette is the source of truth
 // (`apps/desktop/crates/domain/src/options.rs` → the same tokens web spells as
 // Tailwind classes): cancelled is a MUTED terminal resolution, not an error
-// state, and todo carries the brighter near-white foreground tint that
-// separates it from backlog's neutral gray.
+// state, not red.
 final class StatusColorParityTests: XCTestCase {
 
     // Cancelled used to be `Semantic.red` here while web/desktop rendered it
@@ -24,15 +23,6 @@ final class StatusColorParityTests: XCTestCase {
     func testTerminalAndParkedStatesShareTheNeutralGray() {
         XCTAssertEqual(IssueStatus.backlog.color, DesignTokens.Semantic.neutral)
         XCTAssertEqual(IssueStatus.duplicate.color, DesignTokens.Semantic.neutral)
-    }
-
-    // Backlog vs todo must be distinguishable without a group header: dashed
-    // vs solid glyph AND neutral vs near-white tint (web `text-foreground`,
-    // desktop `ColorToken::Foreground`).
-    func testTodoIsBrighterThanBacklog() {
-        XCTAssertEqual(IssueStatus.todo.color, Zinc._50)
-        XCTAssertNotEqual(IssueStatus.todo.color, IssueStatus.backlog.color)
-        XCTAssertNotEqual(IssueStatus.todo.iconName, IssueStatus.backlog.iconName)
     }
 
     func testActiveStatusAccentsMatchTheSharedTokens() {
@@ -67,7 +57,7 @@ final class StatusColorParityTests: XCTestCase {
             XCTAssertEqual(resolved.color, status.color, "builtin \(status.rawValue)")
         }
         // …even though the constructed rows DO carry the seeded hex.
-        XCTAssertNotNil(IssueStatusResolver.builtinDefault(for: .todo).colorHex)
+        XCTAssertNotNil(IssueStatusResolver.builtinDefault(for: .backlog).colorHex)
     }
 
     // A CUSTOM row (no builtin key) renders its stored hex through the same

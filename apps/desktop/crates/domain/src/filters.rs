@@ -132,7 +132,7 @@ mod tests {
     #[test]
     fn matches_filters_passes_everything_when_empty() {
         let filters = empty_filters();
-        assert!(matches_filters(&issue("todo", "none"), &[], &synced("s-1", None), &filters));
+        assert!(matches_filters(&issue("backlog", "none"), &[], &synced("s-1", None), &filters));
         assert!(matches_filters(
             &issue("done", "urgent"),
             &["l-1".to_string()],
@@ -144,13 +144,13 @@ mod tests {
     #[test]
     fn matches_filters_status_category_is_group_keys() {
         let filters = IssueFilters {
-            status_keys: vec!["s-todo".to_string(), "s-qa".to_string()],
+            status_keys: vec!["s-backlog".to_string(), "s-qa".to_string()],
             ..Default::default()
         };
         assert!(matches_filters(
-            &issue("todo", "none"),
+            &issue("backlog", "none"),
             &[],
-            &synced("s-todo", Some("todo")),
+            &synced("s-backlog", Some("backlog")),
             &filters
         ));
         // A custom started status matches by KEY, not by its `in_progress`
@@ -169,13 +169,13 @@ mod tests {
         ));
         // Pre-sync fallback keys work the same way.
         let filters = IssueFilters {
-            status_keys: vec!["builtin:todo".to_string()],
+            status_keys: vec!["builtin:backlog".to_string()],
             ..Default::default()
         };
         assert!(matches_filters(
-            &issue("todo", "none"),
+            &issue("backlog", "none"),
             &[],
-            &fallback("todo"),
+            &fallback("backlog"),
             &filters
         ));
     }
@@ -196,9 +196,9 @@ mod tests {
         ));
         // …but it must not select a different builtin, nor a custom row.
         assert!(!matches_filters(
-            &issue("todo", "none"),
+            &issue("backlog", "none"),
             &[],
-            &synced("row-todo", Some("todo")),
+            &synced("row-backlog", Some("backlog")),
             &filters
         ));
         assert!(!matches_filters(
@@ -233,12 +233,12 @@ mod tests {
             ..Default::default()
         };
         assert!(matches_filters(
-            &issue("todo", "urgent"),
+            &issue("backlog", "urgent"),
             &[],
             &synced("s-1", None),
             &filters
         ));
-        assert!(!matches_filters(&issue("todo", "low"), &[], &synced("s-1", None), &filters));
+        assert!(!matches_filters(&issue("backlog", "low"), &[], &synced("s-1", None), &filters));
     }
 
     #[test]
@@ -249,38 +249,38 @@ mod tests {
         };
         // web: filters.labelIds.some((id) => issueLabelIds.includes(id))
         assert!(matches_filters(
-            &issue("todo", "none"),
+            &issue("backlog", "none"),
             &["l-2".to_string(), "l-9".to_string()],
             &synced("s-1", None),
             &filters
         ));
         assert!(!matches_filters(
-            &issue("todo", "none"),
+            &issue("backlog", "none"),
             &["l-9".to_string()],
             &synced("s-1", None),
             &filters
         ));
-        assert!(!matches_filters(&issue("todo", "none"), &[], &synced("s-1", None), &filters));
+        assert!(!matches_filters(&issue("backlog", "none"), &[], &synced("s-1", None), &filters));
     }
 
     #[test]
     fn matches_filters_is_and_across_categories() {
         let filters = IssueFilters {
-            status_keys: vec!["s-todo".to_string()],
+            status_keys: vec!["s-backlog".to_string()],
             priorities: vec![IssuePriority::High],
             label_ids: vec!["l-1".to_string()],
         };
         assert!(matches_filters(
-            &issue("todo", "high"),
+            &issue("backlog", "high"),
             &["l-1".to_string()],
-            &synced("s-todo", Some("todo")),
+            &synced("s-backlog", Some("backlog")),
             &filters
         ));
         // Right status + label, wrong priority → fail.
         assert!(!matches_filters(
-            &issue("todo", "low"),
+            &issue("backlog", "low"),
             &["l-1".to_string()],
-            &synced("s-todo", Some("todo")),
+            &synced("s-backlog", Some("backlog")),
             &filters
         ));
     }
@@ -288,7 +288,7 @@ mod tests {
     #[test]
     fn active_filter_count_sums_all_categories() {
         let filters = IssueFilters {
-            status_keys: vec!["s-todo".to_string(), "s-done".to_string()],
+            status_keys: vec!["s-backlog".to_string(), "s-done".to_string()],
             priorities: vec![IssuePriority::Low],
             label_ids: vec!["l-1".to_string()],
         };

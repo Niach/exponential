@@ -4,15 +4,15 @@
 import Foundation
 
 public enum DomainContract {
-    public static let issueStatusValues: [String] = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate"]
-    public static let issueStatusDisplayOrder: [String] = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate"]
+    public static let issueStatusValues: [String] = ["backlog", "in_progress", "in_review", "done", "cancelled", "duplicate"]
+    public static let issueStatusDisplayOrder: [String] = ["backlog", "in_progress", "in_review", "done", "cancelled", "duplicate"]
     public static let issueStatusCategoryValues: [String] = ["backlog", "unstarted", "started", "completed", "cancelled", "duplicate"]
     public static let issueStatusCategoryDisplayOrder: [String] = ["backlog", "unstarted", "started", "completed", "cancelled", "duplicate"]
-    public static let issueStatusDefaultKeys: [String] = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate"]
-    public static let issueStatusDefaultCategories: [String] = ["backlog", "unstarted", "started", "started", "completed", "cancelled", "duplicate"]
-    public static let issueStatusDefaultNames: [String] = ["Backlog", "Todo", "In Progress", "In Review", "Done", "Cancelled", "Duplicate"]
-    public static let issueStatusDefaultColors: [String] = ["#A1A1AA", "#FAFAFA", "#EAB308", "#22C55E", "#3B82F6", "#A1A1AA", "#A1A1AA"]
-    public static let issueStatusDefaultSortOrders: [Int] = [1, 1, 1, 2, 1, 1, 1]
+    public static let issueStatusDefaultKeys: [String] = ["backlog", "in_progress", "in_review", "done", "cancelled", "duplicate"]
+    public static let issueStatusDefaultCategories: [String] = ["backlog", "started", "started", "completed", "cancelled", "duplicate"]
+    public static let issueStatusDefaultNames: [String] = ["Backlog", "In Progress", "In Review", "Done", "Cancelled", "Duplicate"]
+    public static let issueStatusDefaultColors: [String] = ["#A1A1AA", "#EAB308", "#22C55E", "#3B82F6", "#A1A1AA", "#A1A1AA"]
+    public static let issueStatusDefaultSortOrders: [Int] = [1, 1, 2, 1, 1, 1]
     public static let issuePriorityValues: [String] = ["none", "urgent", "high", "medium", "low"]
     public static let issuePriorityDisplayOrder: [String] = ["urgent", "high", "medium", "low", "none"]
     public static let issueSourceValues: [String] = ["user", "widget", "agent"]

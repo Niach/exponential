@@ -21,7 +21,7 @@ use crate::enums::{IssuePriority, IssueStatus};
 pub enum IconGlyph {
     /// web `CircleDashed` — status backlog.
     CircleDashed,
-    /// web `Circle` — status todo.
+    /// web `Circle` — the `unstarted` category glyph.
     Circle,
     /// web `Timer` — the pre-EXP-314 in_progress glyph. Kept: the registry
     /// still ships `timer.svg` and the variant costs nothing.
@@ -139,18 +139,12 @@ const fn opt<V>(value: V, label: &'static str, icon: IconGlyph, color: ColorToke
 /// from, and as the source of the builtin color tokens. The in_progress /
 /// in_review glyphs moved to the pie clocks in step with the shared registry's
 /// `status-in-progress` / `status-in-review` concepts.
-pub const ISSUE_STATUS_OPTIONS: [IssueOption<IssueStatus>; 7] = [
+pub const ISSUE_STATUS_OPTIONS: [IssueOption<IssueStatus>; 6] = [
     opt(
         IssueStatus::Backlog,
         "Backlog",
         IconGlyph::CircleDashed,
         ColorToken::MutedForeground,
-    ),
-    opt(
-        IssueStatus::Todo,
-        "Todo",
-        IconGlyph::Circle,
-        ColorToken::Foreground,
     ),
     opt(
         IssueStatus::InProgress,
@@ -263,7 +257,7 @@ mod tests {
         let labels: Vec<_> = ISSUE_STATUS_OPTIONS.iter().map(|o| o.label).collect();
         assert_eq!(
             labels,
-            vec!["Backlog", "Todo", "In Progress", "In Review", "Done", "Cancelled", "Duplicate"]
+            vec!["Backlog", "In Progress", "In Review", "Done", "Cancelled", "Duplicate"]
         );
         // Labels agree with the enum's own label() (single source of display
         // truth across the two P2/P3 surfaces).

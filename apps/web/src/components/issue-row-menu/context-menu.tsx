@@ -183,14 +183,14 @@ export function IssueRowContextMenu({
           </ContextMenuItem>
 
           {/* Convenience toggle — deliberately an ENUM write (EXP-314): it
-              always lands on the team's builtin Done / Todo rows via the
+              always lands on the team's builtin Done / Backlog rows via the
               trigger's anchor derivation, exactly like the native swipe
               actions and the coding launcher's parking write. The LABEL keys
               off the resolved category so a custom completed status still
-              reads "Move to todo". */}
+              reads "Move to backlog" (Backlog since EXP-685 retired Todo). */}
           <ContextMenuItem
             onSelect={() => {
-              void updateIssue({ status: isCompleted ? `todo` : `done` })
+              void updateIssue({ status: isCompleted ? `backlog` : `done` })
             }}
           >
             {isCompleted ? (
@@ -198,7 +198,7 @@ export function IssueRowContextMenu({
             ) : (
               <CheckCheck className="size-4" />
             )}
-            {isCompleted ? `Move to todo` : `Mark as done`}
+            {isCompleted ? `Move to backlog` : `Mark as done`}
           </ContextMenuItem>
 
           <ContextMenuItem

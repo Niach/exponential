@@ -1085,10 +1085,21 @@ fn now_epoch() -> i64 {
 // Event rows (comment-rows/event.tsx)
 // ---------------------------------------------------------------------------
 
+/// Labels for builtins that no longer exist but still appear in stored
+/// timeline payloads. EXP-685 retired `todo`: a historic `status_changed`
+/// row carries the bare enum anchor, and it must keep reading "Todo" rather
+/// than degrade into the live vocabulary (iOS `statusLabel` / Android
+/// `retiredLabels` carry the same table).
+const RETIRED_STATUS_LABELS: [(&str, &str); 1] = [("todo", "Todo")];
+
 /// Web `statusLabel`: wire value with `_` → space (`in_progress` →
-/// `in progress`).
+/// `in progress`), except the retired builtins above.
 fn status_label(wire: &str) -> String {
-    wire.replace('_', " ")
+    RETIRED_STATUS_LABELS
+        .iter()
+        .find(|(value, _)| *value == wire)
+        .map(|(_, label)| (*label).to_string())
+        .unwrap_or_else(|| wire.replace('_', " "))
 }
 
 /// Web `priorityLabel`: the wire value capitalized (`urgent` → `Urgent`);
@@ -1415,6 +1426,8 @@ mod tests {
 
         // The server payload carries from+to (issues.ts) — show both (EXP-33).
         let (_, phrase, _) = event_phrase(
+            // EXP-685: `todo` is retired, but a historic row still reads
+            // "Todo" (the retired-label table).
             &event("status_changed", json!({ "from": "todo", "to": "in_progress" })),
             &users,
             &labels,
@@ -1422,7 +1435,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        assert_eq!(phrase, "changed status from todo to in progress");
+        assert_eq!(phrase, "changed status from Todo to in progress");
 
         // EXP-314: a status-row payload renders the ROW NAMES (a custom status
         // has no enum value to munge), and a missing `fromName` still falls
@@ -1736,7 +1749,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        assert_eq!(phrase, "changed status from todo to in progress");
+        assert_eq!(phrase, "changed status from Todo to in progress");
 
         drop(store);
         let _ = std::fs::remove_dir_all(&dir);

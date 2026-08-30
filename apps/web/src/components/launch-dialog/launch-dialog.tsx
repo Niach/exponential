@@ -82,7 +82,6 @@ export type LaunchTab = `issues` | `actions` | `chat`
 // automatically, so custom statuses need no extra gating here.
 const CODEABLE_STATUSES = new Set<string>([
   `backlog`,
-  `todo`,
   `in_progress`,
   `in_review`,
 ])

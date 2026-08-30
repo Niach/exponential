@@ -9,7 +9,6 @@ extension IssueStatus {
     public var iconName: String {
         switch self {
         case .backlog: AppIcons.statusBacklog
-        case .todo: AppIcons.statusTodo
         case .inProgress: AppIcons.statusInProgress
         case .inReview: AppIcons.statusInReview
         case .done: AppIcons.statusDone
@@ -21,7 +20,6 @@ extension IssueStatus {
     public var color: Color {
         switch self {
         case .backlog: StatusColor.backlog
-        case .todo: StatusColor.todo
         case .inProgress: StatusColor.inProgress
         case .inReview: StatusColor.inReview
         case .done: StatusColor.done

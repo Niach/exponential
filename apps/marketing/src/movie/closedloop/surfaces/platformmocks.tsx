@@ -137,7 +137,7 @@ const boardRow = (id: string): LineupRow => {
 }
 type LineupSection = {
   name: string
-  status: "backlog" | "in_progress" | "todo" | "done"
+  status: "backlog" | "in_progress" | "done"
   tint: string
   count: number
   rows: LineupRow[]
@@ -148,15 +148,8 @@ export const LINEUP_SECTIONS: LineupSection[] = [
     name: "Backlog",
     status: "backlog",
     tint: C.tintBacklog,
-    count: 2,
-    rows: [boardRow("EXP-146")],
-  },
-  {
-    name: "Todo",
-    status: "todo",
-    tint: C.tintTodo,
-    count: 1,
-    rows: [boardRow("EXP-150")],
+    count: 3,
+    rows: [boardRow("EXP-150"), boardRow("EXP-146")],
   },
   {
     name: "In Progress",
@@ -216,19 +209,11 @@ const StatusGlyph: React.FC<{
         </svg>
       </span>
     )
-  if (status === "done")
-    return (
-      <span style={{ color: C.statusDone, display: "flex" }}>
-        <Glyph size={size} sw={2}>
-          <circle cx="12" cy="12" r="9" />
-          <path d="m8.5 12 2.5 2.5 5-5" />
-        </Glyph>
-      </span>
-    )
   return (
-    <span style={{ color: C.statusTodo, display: "flex" }}>
+    <span style={{ color: C.statusDone, display: "flex" }}>
       <Glyph size={size} sw={2}>
         <circle cx="12" cy="12" r="9" />
+        <path d="m8.5 12 2.5 2.5 5-5" />
       </Glyph>
     </span>
   )

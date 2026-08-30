@@ -3,7 +3,6 @@ import type { ReactNode } from "react"
 import type { Assignee, IssuePriority, IssueStatus, Label } from "./data"
 import {
   IcAlert,
-  IcCircle,
   IcCircleCheck,
   IcCircleDashed,
   IcMinus,
@@ -17,13 +16,12 @@ import {
 
 export function StatusIcon({ status, size = 14 }: { status: IssueStatus; size?: number }) {
   switch (status) {
-    /* EXP-314 category glyphs: backlog dashed ring, unstarted plain ring,
-       started = the positional pie clock, completed = check. Colors are the
+    /* EXP-314 category glyphs: backlog dashed ring, started = the positional
+       pie clock, completed = check (the unstarted plain ring left with the
+       Todo builtin, EXP-685). Colors are the
        contract's `issueStatusDefaults` hexes. */
     case `backlog`:
       return <IcCircleDashed size={size} style={{ color: `#a1a1aa` }} />
-    case `todo`:
-      return <IcCircle size={size} style={{ color: `#fafafa` }} />
     case `in_progress`:
       return <IcProgress24 size={size} style={{ color: `#eab308` }} />
     case `in_review`:

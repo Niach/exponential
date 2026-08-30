@@ -47,11 +47,11 @@ use domain::statuses::{
     ResolvedStatus,
 };
 
-use crate::controls::WebControl as _;
+use crate::controls::{WebControl as _, CTL_XS_H};
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 
-use super::labels::{swatch_grid, LABEL_COLORS};
+use super::labels::{swatch_grid, LABEL_COLORS, STATUS_COLORS};
 use super::{card_title, section};
 use crate::icons::registry;
 
@@ -624,9 +624,19 @@ impl StatusesPane {
             .border_color(super::row_stroke(cx));
 
         // Leading glyph. A CUSTOM status' glyph doubles as its color swatch
-        // trigger (the labels pane's dot popover, one control lighter).
+        // trigger (the labels pane's dot popover, one control lighter). A
+        // builtin's is inert — but it takes the SAME 24px slot, or the two
+        // kinds of row would step out of line by the button's padding.
         line = if builtin.is_some() {
-            line.child(div().flex_shrink_0().child(glyph.clone().small()))
+            line.child(
+                div()
+                    .size(gpui::px(CTL_XS_H))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(glyph.clone().small()),
+            )
         } else {
             let current = row.color.clone().unwrap_or_default();
             let swatch_status = status_id.clone();
@@ -645,6 +655,7 @@ impl StatusesPane {
                         let team_id = swatch_team.clone();
                         swatch_grid(
                             &format!("status-swatch-{status_id}"),
+                            &STATUS_COLORS,
                             Some(current.as_str()),
                             move |picked, window, cx| {
                                 let team_id = team_id.clone();
@@ -773,6 +784,10 @@ impl StatusesPane {
                         );
                     })),
             );
+        } else {
+            // Builtins cannot be deleted — reserve the button's width so the
+            // counts and badges stay column-aligned with the custom rows.
+            line = line.child(div().size(gpui::px(CTL_XS_H)).flex_shrink_0());
         }
 
         let error = self
@@ -835,6 +850,7 @@ impl StatusesPane {
                     )
                     .child(swatch_grid(
                         "new-status-swatch",
+                        &STATUS_COLORS,
                         Some(self.new_color.as_str()),
                         move |picked, _, cx| {
                             let picked = picked.to_string();
@@ -921,6 +937,17 @@ impl Render for StatusesPane {
                     .text_color(cx.theme().muted_foreground)
                     .child(category.label()),
             );
+            // A category can be EMPTY — since EXP-685 retired the builtin
+            // Todo, `unstarted` starts out with no rows at all. Say so
+            // instead of leaving the heading hanging over the "Add status".
+            if rows.is_empty() {
+                group = group.child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("No statuses yet."),
+                );
+            }
             for (index, (row, resolved)) in rows.iter().enumerate() {
                 group = group.child(self.render_status_row(
                     row,

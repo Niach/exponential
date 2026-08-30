@@ -13,7 +13,7 @@ final class IssueSortingTests: XCTestCase {
         id: String,
         number: Int? = nil,
         identifier: String? = nil,
-        status: IssueStatus = .todo,
+        status: IssueStatus = .inProgress,
         priority: IssuePriority = .none,
         dueDate: String? = nil,
         sortOrder: Double? = nil,
@@ -59,7 +59,7 @@ final class IssueSortingTests: XCTestCase {
         let nonePriority = makeIssue(id: "none-priority", number: 4, priority: .none)
 
         XCTAssertEqual(
-            sortedIds([nonePriority, mediumToday, urgentNoDue, overdueLow], status: .todo),
+            sortedIds([nonePriority, mediumToday, urgentNoDue, overdueLow], status: .inProgress),
             ["overdue-low", "urgent-no-due", "medium-today", "none-priority"]
         )
     }
@@ -102,7 +102,7 @@ final class IssueSortingTests: XCTestCase {
             makeIssue(id: "no-number", number: nil, identifier: nil, sortOrder: 0),
         ]
         XCTAssertEqual(
-            sortedIds(issues, status: .todo),
+            sortedIds(issues, status: .inProgress),
             ["nine", "ten", "no-number"]
         )
     }
@@ -157,7 +157,9 @@ final class IssueSortingTests: XCTestCase {
         let b = makeIssue(id: "b", number: 1, priority: .urgent)
         for (status, category) in [
             (IssueStatus.backlog, IssueStatusCategory.backlog),
-            (.todo, .unstarted),
+            // EXP-685: `todo` is retired — an unstarted status anchors to backlog
+            // and must still sort like the unstarted category.
+            (.backlog, .unstarted),
             (.inProgress, .started),
             (.inReview, .started),
             (.done, .completed),

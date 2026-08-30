@@ -218,7 +218,7 @@ impl StatusMenuScope {
 /// [`status_menu`], so the duplicate-visibility contract is unit-testable.
 ///
 /// EXP-448: no picker-only re-sort — `statuses` already arrives in the ONE
-/// order (Backlog and Todo lead) that the settings pane and the list groups
+/// order (Backlog leads) that the settings pane and the list groups
 /// use, so a picker can never contradict either.
 pub(crate) fn status_menu_options<'a>(
     statuses: &'a [ResolvedStatus],
@@ -649,11 +649,11 @@ mod tests {
         assert_eq!(assignable, expected);
     }
 
-    /// EXP-448: pickers lead with Backlog/Todo because the ONE category order
+    /// EXP-448: pickers lead with Backlog because the ONE category order
     /// does — the same order the board groups and the settings pane render,
     /// with the started rows' pie-clock positions intact.
     #[test]
-    fn picker_options_lead_with_backlog_and_todo() {
+    fn picker_options_lead_with_backlog() {
         let statuses = default_resolved_statuses();
         let names: Vec<String> = status_menu_options(&statuses, StatusMenuScope::SingleIssue)
             .into_iter()
@@ -663,7 +663,6 @@ mod tests {
             names,
             [
                 "Backlog",
-                "Todo",
                 "In Progress",
                 "In Review",
                 "Done",

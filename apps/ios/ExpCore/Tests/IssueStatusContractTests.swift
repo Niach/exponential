@@ -35,5 +35,8 @@ final class IssueStatusContractTests: XCTestCase {
         XCTAssertEqual(IssueStatus.from("in_review"), .inReview)
         XCTAssertEqual(IssueStatus.from("triaged"), .backlog)
         XCTAssertEqual(IssueStatus.from(nil), .backlog)
+        // EXP-685: `todo` is retired but survives as an orphan PG enum label —
+        // a legacy row still decodes through the same fallback, never a crash.
+        XCTAssertEqual(IssueStatus.from("todo"), .backlog)
     }
 }

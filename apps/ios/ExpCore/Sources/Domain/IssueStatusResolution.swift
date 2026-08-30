@@ -4,7 +4,7 @@ import Foundation
 /// every client implements byte-identically (web `lib/issue-status.ts`,
 /// desktop `domain/src/statuses.rs`, Android `domain/IssueStatusResolution.kt`).
 ///
-/// A team owns a set of `issue_statuses` rows: 7 LOCKED builtins (one per
+/// A team owns a set of `issue_statuses` rows: 6 LOCKED builtins (one per LIVE
 /// `issue_status` enum value, `builtinKey` non-nil) plus any number of custom
 /// rows. `issues.status` stays the builtin ANCHOR — dual-written by the server
 /// for every status change — so anchor-keyed surfaces (cross-team grouping,
@@ -137,7 +137,10 @@ public enum IssueStatusResolver {
     public static func anchor(for category: IssueStatusCategory) -> IssueStatus {
         switch category {
         case .backlog: .backlog
-        case .unstarted: .todo
+        // EXP-685: the builtin `todo` status is retired, so the `unstarted`
+        // category (which stays) anchors to `backlog` — custom unstarted rows
+        // dual-write that anchor.
+        case .unstarted: .backlog
         case .started: .inProgress
         case .completed: .done
         case .cancelled: .cancelled
@@ -147,7 +150,7 @@ public enum IssueStatusResolver {
 
     // MARK: Builtin defaults
 
-    /// The 7 locked builtin rows, CONSTRUCTED from the generated contract —
+    /// The 6 locked builtin rows, CONSTRUCTED from the generated contract —
     /// the fallback set used until (or when) the statuses shape has no row.
     public static let builtinDefaults: [ResolvedIssueStatus] = {
         let keys = DomainContract.issueStatusDefaultKeys

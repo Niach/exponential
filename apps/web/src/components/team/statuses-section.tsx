@@ -56,7 +56,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { LABEL_COLORS } from "@/lib/label-colors"
+import { LABEL_COLORS, STATUS_COLORS } from "@/lib/label-colors"
 import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
 
 const CATEGORY_LABEL: Record<IssueStatusCategory, string> = {
@@ -211,7 +211,7 @@ function StatusRow({
                 type="button"
                 aria-label={`Change color of ${option.name}`}
                 disabled={busy}
-                className="rounded-md hover:opacity-80"
+                className="shrink-0 rounded-md hover:opacity-80"
               >
                 <StatusTile option={option} />
               </button>
@@ -220,6 +220,7 @@ function StatusRow({
                 popover to one 20-swatch row wider than a phone screen. */}
             <PopoverContent className="w-64 p-2" align="start">
               <ColorSwatchGrid
+                colors={STATUS_COLORS}
                 value={option.colorHex}
                 onChange={persistColor}
               />
@@ -250,7 +251,7 @@ function StatusRow({
               }
             }}
             disabled={busy}
-            className="h-8 flex-1 border-none px-1 shadow-none focus-visible:ring-0"
+            className="h-7 flex-1 border-none bg-transparent px-1 shadow-none focus-visible:ring-0"
           />
         )}
 
@@ -263,12 +264,16 @@ function StatusRow({
           {count} issue{count === 1 ? `` : `s`}
         </span>
 
-        {isBuiltin && (
+        {/* The lock slot is reserved on custom rows too, so the count, the
+            Default badge and the name column line up across the section. */}
+        {isBuiltin ? (
           <IconTooltip label="Built-in status: reorderable, but not renamable, recolorable or deletable.">
             <span className="flex h-7 w-7 items-center justify-center text-muted-foreground">
               <Lock className="h-3.5 w-3.5" />
             </span>
           </IconTooltip>
+        ) : (
+          <span aria-hidden className="h-7 w-7 shrink-0" />
         )}
 
         <DropdownMenu>
@@ -544,7 +549,11 @@ function CreateStatusForm({
         <span className="mb-1.5 block text-xs text-muted-foreground">
           Color
         </span>
-        <ColorSwatchGrid value={color} onChange={setColor} />
+        <ColorSwatchGrid
+          colors={STATUS_COLORS}
+          value={color}
+          onChange={setColor}
+        />
       </div>
       <div className="flex items-center gap-2">
         <Button
@@ -750,7 +759,7 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
 
   // Until the shape syncs, `options` is the CONSTRUCTED fallback set, whose
   // synthetic `builtin:<key>` ids are not row uuids — every control here is
-  // row-level, so a move/rename/delete on one would send `builtin:todo` to the
+  // row-level, so a move/rename/delete on one would send `builtin:backlog` to the
   // server and bounce off its uuid check. Wait for real rows instead of
   // offering dead controls (desktop guards the same way, settings/statuses.rs).
   if (!ready) {
@@ -817,6 +826,11 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
                       ))}
                   </div>
 
+                  {rows.length === 0 && (
+                    <p className="py-1 text-xs text-muted-foreground">
+                      No statuses yet.
+                    </p>
+                  )}
                   <div className="space-y-2">
                     {rows.map((option, index) => (
                       <StatusRow

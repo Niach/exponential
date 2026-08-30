@@ -415,7 +415,8 @@ CREATE OR REPLACE TRIGGER propagate_board_archived_at
   WHEN (OLD.archived_at IS DISTINCT FROM NEW.archived_at)
   EXECUTE FUNCTION propagate_board_archived_at();
 
--- 10. Seed the 7 locked builtin issue statuses for every NEW team (EXP-314).
+-- 10. Seed the 6 locked builtin issue statuses for every NEW team (EXP-314;
+--     the Todo row left with EXP-685, migration 0091 — `unstarted` starts empty).
 --     A trigger rather than teams.create code because teams are inserted from
 --     TWO places (trpc/teams.ts and bootstrap-cloud's feedback team) and any
 --     future path must never produce a team without builtins — the
@@ -430,7 +431,6 @@ BEGIN
   INSERT INTO issue_statuses (team_id, category, name, color, sort_order, builtin_key)
   VALUES
     (NEW.id, 'backlog', 'Backlog', '#A1A1AA', 1, 'backlog'),
-    (NEW.id, 'unstarted', 'Todo', '#FAFAFA', 1, 'todo'),
     (NEW.id, 'started', 'In Progress', '#EAB308', 1, 'in_progress'),
     (NEW.id, 'started', 'In Review', '#22C55E', 2, 'in_review'),
     (NEW.id, 'completed', 'Done', '#3B82F6', 1, 'done'),
@@ -454,7 +454,6 @@ SELECT t.id, d.category::issue_status_category, d.name, d.color, d.sort_order, d
 FROM teams t
 CROSS JOIN (VALUES
   ('backlog', 'backlog', 'Backlog', '#A1A1AA', 1),
-  ('todo', 'unstarted', 'Todo', '#FAFAFA', 1),
   ('in_progress', 'started', 'In Progress', '#EAB308', 1),
   ('in_review', 'started', 'In Review', '#22C55E', 2),
   ('done', 'completed', 'Done', '#3B82F6', 1),

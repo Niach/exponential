@@ -225,7 +225,7 @@ describe(`planPrAutomationTransition`, () => {
       planPrAutomationTransition({
         event: `opened`,
         automationEnabled: true,
-        current: { status: `todo`, statusId: `s-todo` },
+        current: { status: `backlog`, statusId: `s-backlog` },
         target: customStarted,
       })
     ).toEqual({ status: `in_progress`, statusId: `s-custom-started` })

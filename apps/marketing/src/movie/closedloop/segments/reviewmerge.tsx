@@ -268,7 +268,7 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
                         { text: "Feedback widget created the issue · 1 hr ago" },
                         {
                           status: "in_progress",
-                          text: "Riley Chen changed status from Todo to In Progress · 30 min ago",
+                          text: "Riley Chen changed status from Backlog to In Progress · 30 min ago",
                         },
                       ]}
                       pr={{

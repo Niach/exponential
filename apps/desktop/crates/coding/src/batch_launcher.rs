@@ -34,8 +34,8 @@ pub struct BatchIssueSpec {
     pub issue_identifier: String,
     pub title: String,
     pub description: Option<String>,
-    /// Status snapshot at dialog time — the launcher flips backlog/todo
-    /// issues to `in_progress` at launch (EXP-194).
+    /// Status snapshot at dialog time — the launcher flips backlog issues
+    /// to `in_progress` at launch (EXP-194).
     pub status: IssueStatus,
 }
 

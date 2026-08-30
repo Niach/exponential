@@ -36,7 +36,7 @@ class InboxGroupingTest {
 
     private fun issue(id: String) = IssueEntity(
         id = id, boardId = "b1", number = 1, identifier = "EXP-1", title = "Issue $id",
-        status = "todo", priority = "none", creatorId = "u1", sortOrder = 1.0,
+        status = "backlog", priority = "none", creatorId = "u1", sortOrder = 1.0,
         createdAt = ts, updatedAt = ts,
     )
 

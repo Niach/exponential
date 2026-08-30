@@ -1,7 +1,7 @@
 // The ONE shared fixture world every scene draws from (storyboard §2, corrected
 // against the local-only real-app reference screenshots, untracked since EXP-286).
 
-export type IssueStatus = "backlog" | "todo" | "in_progress" | "done"
+export type IssueStatus = "backlog" | "in_progress" | "done"
 export type Priority = "none" | "urgent" | "high" | "medium" | "low"
 
 export type BoardRow = {
@@ -39,9 +39,9 @@ export const LABELS = {
 // via overrides — this array is the base truth.
 export const BOARD: BoardRow[] = [
   { id: "EXP-139", title: "Release progress bar drifts when issues are cancelled", status: "in_progress", priority: "medium", label: LABELS.bug, assignee: "AC", due: "Jul 14" },
-  { id: "EXP-142", title: "Live-steer terminal reconnect", status: "todo", priority: "high", label: LABELS.bug, assignee: "AC", due: "Jul 15" },
-  { id: "EXP-143", title: "Confirm-merge double-fires on slow connections", status: "todo", priority: "medium", label: LABELS.desktop },
-  { id: "EXP-144", title: "Branch flow graph clips long release names", status: "todo", priority: "low", label: LABELS.desktop, assignee: "AC" },
+  { id: "EXP-142", title: "Live-steer terminal reconnect", status: "backlog", priority: "high", label: LABELS.bug, assignee: "AC", due: "Jul 15" },
+  { id: "EXP-143", title: "Confirm-merge double-fires on slow connections", status: "backlog", priority: "medium", label: LABELS.desktop },
+  { id: "EXP-144", title: "Branch flow graph clips long release names", status: "backlog", priority: "low", label: LABELS.desktop, assignee: "AC" },
   { id: "EXP-146", title: "Offline board cache for the web app", status: "backlog", priority: "none", label: LABELS.web },
   { id: "EXP-147", title: "Widget screenshot annotations on Safari", status: "backlog", priority: "none", label: LABELS.widget },
   { id: "EXP-138", title: "Exit-code badges on orchestrator tabs", status: "done", priority: "medium", assignee: "AC" },

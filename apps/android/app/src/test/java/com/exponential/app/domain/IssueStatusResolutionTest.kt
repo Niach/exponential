@@ -102,12 +102,19 @@ class IssueStatusResolutionTest {
     fun builtinDefaultGlyphsAreTheProductionStatusGlyphs() {
         val byKey = IssueStatusResolver.builtinDefaults.associateBy { it.builtinKey }
         assertEquals("circle-dashed", byKey.getValue(IssueStatus.Backlog).iconName)
-        assertEquals("circle", byKey.getValue(IssueStatus.Todo).iconName)
         assertEquals("progress-2-4", byKey.getValue(IssueStatus.InProgress).iconName)
         assertEquals("progress-3-4", byKey.getValue(IssueStatus.InReview).iconName)
         assertEquals("circle-check", byKey.getValue(IssueStatus.Done).iconName)
         assertEquals("circle-x", byKey.getValue(IssueStatus.Cancelled).iconName)
         assertEquals("copy", byKey.getValue(IssueStatus.Duplicate).iconName)
+        // EXP-685 retired the `todo` builtin, but the `unstarted` CATEGORY (and
+        // its glyph) stays for CUSTOM rows — no builtin default carries it now.
+        assertEquals("circle", IssueStatusResolver.iconName(IssueStatusCategory.Unstarted))
+        assertTrue(
+            IssueStatusResolver.builtinDefaults.none {
+                it.category == IssueStatusCategory.Unstarted
+            }
+        )
     }
 
     // --- started clock table ------------------------------------------------
@@ -146,13 +153,13 @@ class IssueStatusResolutionTest {
             row("dup", "duplicate"),
             row("done", "completed"),
             row("backlog", "backlog"),
-            row("todo", "unstarted"),
+            row("triage", "unstarted"),
             row("cancelled", "cancelled"),
             row("review", "started", sortOrder = 2.0),
             row("progress", "started", sortOrder = 1.0),
         )
         assertEquals(
-            listOf("backlog", "todo", "progress", "review", "done", "cancelled", "dup"),
+            listOf("backlog", "triage", "progress", "review", "done", "cancelled", "dup"),
             IssueStatusResolver.teamStatuses(rows).map { it.id },
         )
     }
@@ -278,6 +285,11 @@ class IssueStatusResolutionTest {
         val resolved = IssueStatusResolver.resolve(issue("blocked"), emptyList())
         assertEquals("builtin:backlog", resolved.id)
         assertEquals(IssueStatus.Backlog, resolved.builtinKey)
+        // EXP-685: `todo` is retired vocabulary — an old row (or an orphan PG
+        // enum label) takes the SAME forward-compat path down to backlog.
+        val retired = IssueStatusResolver.resolve(issue("todo"), emptyList())
+        assertEquals("builtin:backlog", retired.id)
+        assertEquals(IssueStatus.Backlog, retired.builtinKey)
     }
 
     @Test
@@ -306,6 +318,16 @@ class IssueStatusResolutionTest {
                 it.id.startsWith(IssueStatusResolver.BUILTIN_ID_PREFIX)
             }
         )
-        assertNotNull(IssueStatusResolver.builtinDefaults.firstOrNull { it.builtinKey == IssueStatus.Todo })
+        // Every LIVE anchor enum value still has a constructed default (EXP-685
+        // removed `todo` from both sides in lockstep), and the backlog default
+        // — resolve()'s terminal fallback — is one of them.
+        for (status in IssueStatus.entries) {
+            assertNotNull(
+                "no constructed default for ${status.wire}",
+                IssueStatusResolver.builtinDefaults.firstOrNull { it.builtinKey == status },
+            )
+        }
+        assertEquals("builtin:backlog", IssueStatusResolver.backlogDefault.id)
+        assertEquals(IssueStatus.Backlog, IssueStatusResolver.backlogDefault.builtinKey)
     }
 }

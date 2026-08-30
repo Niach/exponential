@@ -177,7 +177,7 @@ fn open_heals_missing_columns_from_an_older_schema() {
             issues(),
             &[insert(
                 "a",
-                json!({"id": "a", "title": "A", "status": "todo", "description": "d"}),
+                json!({"id": "a", "title": "A", "status": "backlog", "description": "d"}),
             )],
             None,
         )
@@ -186,7 +186,7 @@ fn open_heals_missing_columns_from_an_older_schema() {
     let rows = store.read_all(issues()).unwrap();
     assert_eq!(rows.len(), 2);
     let row = row_by_id(&rows, "a");
-    assert_eq!(row.get("status").and_then(Value::as_str), Some("todo"));
+    assert_eq!(row.get("status").and_then(Value::as_str), Some("backlog"));
     assert_eq!(row.get("description").and_then(Value::as_str), Some("d"));
     // …and the pre-existing row survives with the healed columns as NULL.
     let old = row_by_id(&rows, "old");
@@ -403,7 +403,7 @@ fn partial_update_preserves_absent_columns() {
             issues(),
             &[insert(
                 "a",
-                json!({"id": "a", "title": "A", "status": "todo", "priority": "high"}),
+                json!({"id": "a", "title": "A", "status": "backlog", "priority": "high"}),
             )],
             None,
         )
@@ -425,7 +425,7 @@ fn partial_update_preserves_absent_columns() {
     let rows = store.read_all(issues()).unwrap();
     let row = row_by_id(&rows, "a");
     assert_eq!(row.get("title").and_then(Value::as_str), Some("A (renamed)"));
-    assert_eq!(row.get("status").and_then(Value::as_str), Some("todo"));
+    assert_eq!(row.get("status").and_then(Value::as_str), Some("backlog"));
     assert_eq!(row.get("priority").and_then(Value::as_str), Some("high"));
 }
 

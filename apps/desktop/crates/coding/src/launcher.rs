@@ -195,7 +195,7 @@ pub struct LaunchRequest {
     pub issue_id: String,
     /// e.g. `EXP-42` — becomes the branch name (`<prefix><IDENTIFIER>`).
     pub issue_identifier: String,
-    /// Status snapshot at launch time — step 6.5 flips backlog/todo issues
+    /// Status snapshot at launch time — step 6.5 flips backlog issues
     /// to `in_progress` (EXP-194).
     pub issue_status: IssueStatus,
     /// Hostname; also `coding_sessions.device_label`.
@@ -1233,12 +1233,12 @@ pub fn prepare_with_hooks(
         ),
     )?;
 
-    // Step 6.5 (EXP-194) — the LAUNCHER parks backlog/todo issues in
+    // Step 6.5 (EXP-194) — the LAUNCHER parks backlog issues in
     // `in_progress`. Under plan mode the agent's MCP status call would only
     // land after plan approval, so without this the issue lingers in backlog
     // while visibly "coding now". After the session row so a Disabled
     // outcome never flips anything; best-effort — a failed write never
-    // blocks the launch. Only backlog/todo flip: never downgrade
+    // blocks the launch. Only backlog flips: never downgrade
     // in_progress/in_review/done/cancelled/duplicate (client-side snapshot,
     // same guard the dialog's state hints use).
     //
@@ -1250,19 +1250,15 @@ pub fn prepare_with_hooks(
     // team's BUILTIN In Progress row (leaving its custom status). Accepted
     // for v1: parking is a coding-flow convenience, not a status editor.
     let flip_ids: Vec<&str> = match req {
-        PrepareRequest::Issue(issue_req) => matches!(
-            issue_req.issue_status,
-            IssueStatus::Backlog | IssueStatus::Todo
-        )
-        .then_some(issue_req.issue_id.as_str())
-        .into_iter()
-        .collect(),
+        // EXP-685: `todo` is retired — `backlog` is the whole park set now.
+        PrepareRequest::Issue(issue_req) => matches!(issue_req.issue_status, IssueStatus::Backlog)
+            .then_some(issue_req.issue_id.as_str())
+            .into_iter()
+            .collect(),
         PrepareRequest::Batch(batch_req) => batch_req
             .issues
             .iter()
-            .filter(|issue| {
-                matches!(issue.status, IssueStatus::Backlog | IssueStatus::Todo)
-            })
+            .filter(|issue| matches!(issue.status, IssueStatus::Backlog))
             .map(|issue| issue.issue_id.as_str())
             .collect(),
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
@@ -5176,12 +5172,12 @@ mod tests {
     }
 
 
-    /// Step 6.5 (EXP-194): a backlog/todo issue is flipped to `in_progress`
+    /// Step 6.5 (EXP-194): a backlog issue is flipped to `in_progress`
     /// by the LAUNCHER, after the session row (request order proves it), so
     /// the issue never lingers in backlog while plan mode holds the agent's
     /// MCP calls back.
     #[test]
-    fn prepare_flips_a_todo_issue_to_in_progress() {
+    fn prepare_flips_a_backlog_issue_to_in_progress() {
         let dir = temp_dir("flip");
         let worktree = dir.0.join("wt");
         fs::create_dir_all(&worktree).unwrap();
@@ -5197,7 +5193,7 @@ mod tests {
         });
         let deps = make_deps(&base, &dir.0, worktrees);
         let mut req = request("EXP-42");
-        req.issue_status = IssueStatus::Todo;
+        req.issue_status = IssueStatus::Backlog;
 
         match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
             Prepared::Ready(prepared) => assert_eq!(prepared.session_id, "sess-1"),
@@ -5219,10 +5215,10 @@ mod tests {
         );
     }
 
-    /// Step 6.5 only ever PROMOTES backlog/todo — an issue already
+    /// Step 6.5 only ever PROMOTES backlog — an issue already
     /// in_progress (or beyond) is left alone.
     #[test]
-    fn prepare_skips_the_flip_for_non_backlog_todo() {
+    fn prepare_skips_the_flip_for_non_backlog() {
         let dir = temp_dir("no-flip");
         let worktree = dir.0.join("wt");
         fs::create_dir_all(&worktree).unwrap();

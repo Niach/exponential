@@ -35,7 +35,7 @@ final class IssueStatusResolutionTests: XCTestCase {
     private func issue(
         id: String,
         number: Int? = nil,
-        status: String = "todo",
+        status: String = "in_progress",
         statusId: String? = nil,
         priority: IssuePriority = .none,
         updatedAt: String = "2026-07-01 10:00:00+00"
@@ -51,7 +51,7 @@ final class IssueStatusResolutionTests: XCTestCase {
         )
     }
 
-    /// The 7 locked builtin rows exactly as a team is seeded.
+    /// The 6 locked builtin rows exactly as a team is seeded.
     private func seededTeam() -> [IssueStatusEntity] {
         DomainContract.issueStatusDefaultKeys.indices.map { index in
             let key = DomainContract.issueStatusDefaultKeys[index]
@@ -161,7 +161,6 @@ final class IssueStatusResolutionTests: XCTestCase {
     // `status-in-review` to (EXP-273 + EXP-314).
     func testBuiltinDefaultGlyphs() {
         XCTAssertEqual(IssueStatusResolver.builtinDefault(for: .backlog).iconName, "circle-dashed")
-        XCTAssertEqual(IssueStatusResolver.builtinDefault(for: .todo).iconName, "circle")
         XCTAssertEqual(IssueStatusResolver.builtinDefault(for: .inProgress).iconName, "progress-2-4")
         XCTAssertEqual(IssueStatusResolver.builtinDefault(for: .inReview).iconName, "progress-3-4")
         XCTAssertEqual(IssueStatusResolver.builtinDefault(for: .done).iconName, "circle-check")
@@ -172,13 +171,14 @@ final class IssueStatusResolutionTests: XCTestCase {
     func testFallbackTeamIsInCategoryDisplayOrder() {
         XCTAssertEqual(
             IssueStatusResolver.builtinFallbackTeam.map { $0.builtinKey?.rawValue },
-            ["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate"]
+            ["backlog", "in_progress", "in_review", "done", "cancelled", "duplicate"]
         )
     }
 
     func testCategoryAnchorMap() {
         XCTAssertEqual(IssueStatusResolver.anchor(for: .backlog), .backlog)
-        XCTAssertEqual(IssueStatusResolver.anchor(for: .unstarted), .todo)
+        // EXP-685: `todo` is retired, so unstarted anchors to backlog.
+        XCTAssertEqual(IssueStatusResolver.anchor(for: .unstarted), .backlog)
         XCTAssertEqual(IssueStatusResolver.anchor(for: .started), .inProgress)
         XCTAssertEqual(IssueStatusResolver.anchor(for: .completed), .done)
         XCTAssertEqual(IssueStatusResolver.anchor(for: .cancelled), .cancelled)
@@ -398,7 +398,7 @@ final class IssueStatusResolutionTests: XCTestCase {
         filters.toggleStatus(inReview)
         XCTAssertEqual(filters.statusIds, ["row-in_review"])
         XCTAssertTrue(filters.selectsStatus(inReview))
-        XCTAssertFalse(filters.selectsStatus(team.first { $0.builtinKey == .todo }!))
+        XCTAssertFalse(filters.selectsStatus(team.first { $0.builtinKey == .backlog }!))
         filters.toggleStatus(inReview)
         XCTAssertTrue(filters.statusIds.isEmpty)
     }
@@ -421,7 +421,7 @@ final class IssueStatusResolutionTests: XCTestCase {
     func testIssueRowDecodesWithAndWithoutStatusId() throws {
         let base = """
         {"id":"i1","board_id":"b1","number":"1","identifier":"EXP-1","title":"T",
-         "status":"todo","priority":"none","sort_order":"1",
+         "status":"in_progress","priority":"none","sort_order":"1",
          "created_at":"2026-01-01 00:00:00+00","updated_at":"2026-01-01 00:00:00+00"
         """
         let withId = try JSONDecoder().decode(

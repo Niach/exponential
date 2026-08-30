@@ -99,8 +99,8 @@ user's membership.
   `high`, `medium`, `low`), labels, an assignee, a due date, comments, and
   attachments.
 - **Statuses** are per-team rows in six categories (backlog, unstarted,
-  started, completed, cancelled, duplicate). Seven builtins always exist
-  (backlog, todo, in_progress, in_review, done, cancelled, duplicate) and
+  started, completed, cancelled, duplicate). Six builtins always exist
+  (backlog, in_progress, in_review, done, cancelled, duplicate) and
   teams add custom named statuses. Enum-taking tools accept the builtin
   values; `statuses_list` + `statusId` reach the custom rows.
 - **Pull requests**: one PR per issue, on branch `exp/<IDENTIFIER>`. A

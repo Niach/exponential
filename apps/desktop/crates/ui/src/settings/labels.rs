@@ -42,6 +42,16 @@ pub(crate) const LABEL_COLORS: [&str; 20] = [
     "#f43f5e", "#78716c", "#64748b", "#a3a3a3",
 ];
 
+/// Web `STATUS_COLORS` — the label palette plus white (EXP-685: the retired
+/// builtin Todo was the one white status, so a team that wants it back
+/// recreates it byte-identical). Status-only on purpose: labels and boards
+/// keep [`LABEL_COLORS`].
+pub(crate) const STATUS_COLORS: [&str; 21] = [
+    "#ef4444", "#dc2626", "#f97316", "#f59e0b", "#eab308", "#84cc16", "#22c55e", "#10b981",
+    "#14b8a6", "#06b6d4", "#0ea5e9", "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7", "#ec4899",
+    "#f43f5e", "#78716c", "#64748b", "#a3a3a3", "#fafafa",
+];
+
 pub struct LabelsPane {
     nav: Entity<Navigation>,
     /// label id → its name input (created lazily with the window in scope).
@@ -335,6 +345,7 @@ impl LabelsPane {
                             let team_id = team_id.clone();
                             swatch_grid(
                                 &format!("label-swatch-{label_id}"),
+                                &LABEL_COLORS,
                                 Some(current.as_str()),
                                 move |picked, window, cx| {
                                     let team_id = team_id.clone();
@@ -511,6 +522,7 @@ impl Render for LabelsPane {
                             )
                             .child(swatch_grid(
                                 "new-label-swatch",
+                                &LABEL_COLORS,
                                 Some(self.new_color.as_str()),
                                 move |picked, _, cx| {
                                     let picked = picked.to_string();
@@ -577,18 +589,28 @@ impl Render for LabelsPane {
     }
 }
 
-/// Web `ColorSwatchGrid`: the fixed 20-color palette as clickable dots, ring
-/// on the selected one. Shared by the label rows' popover and the create
-/// form — and, since EXP-314, by the Issue statuses pane (custom statuses
-/// draw from the same palette, so the two panes can never drift).
+/// Web `ColorSwatchGrid`: a palette of clickable dots, the selected one
+/// ringed. Shared by the label rows' popover and the create form — and,
+/// since EXP-314, by the Issue statuses pane (which passes
+/// [`STATUS_COLORS`]; labels and boards pass [`LABEL_COLORS`], so the panes
+/// can never drift from web).
+///
+/// Web parity (`ColorSwatchGrid`): selection is drawn INSIDE the swatch's own
+/// box — a 28px cell with a 2px border AROUND a 20px dot — never on the dot
+/// itself. A border on the dot is invisible for a near-white swatch
+/// (EXP-685's white status color), and a ring would be clipped by the
+/// nearest scroll container. The fixed width fits exactly 7 cells per row.
 pub(crate) fn swatch_grid(
     id_prefix: &str,
+    colors: &[&'static str],
     current: Option<&str>,
     on_pick: impl Fn(&str, &mut Window, &mut gpui::App) + Clone + 'static,
     cx: &App,
 ) -> impl IntoElement {
-    let mut grid = h_flex().flex_wrap().gap_1p5().w(gpui::px(190.));
-    for color in LABEL_COLORS {
+    // 7 × 28px cells + 6 × 6px gaps.
+    let mut grid = h_flex().flex_wrap().gap_1p5().w(gpui::px(232.));
+    for color in colors {
+        let color = *color;
         let selected = current == Some(color);
         let fill = parse_hex_color(color).unwrap_or(cx.theme().muted_foreground);
         let on_pick = on_pick.clone();
@@ -597,13 +619,20 @@ pub(crate) fn swatch_grid(
                 .id(ElementId::Name(SharedString::from(format!(
                     "{id_prefix}-{color}"
                 ))))
-                .size_5()
+                .size_7()
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
                 .rounded_full()
-                .bg(fill)
-                .cursor_pointer()
-                .when(selected, |dot| {
-                    dot.border_2().border_color(cx.theme().foreground)
+                .border_2()
+                .border_color(if selected {
+                    cx.theme().foreground
+                } else {
+                    gpui::transparent_black()
                 })
+                .cursor_pointer()
+                .child(div().size_5().rounded_full().bg(fill))
                 .on_click(move |_, window, cx| on_pick(color, window, cx)),
         );
     }

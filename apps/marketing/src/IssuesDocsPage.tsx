@@ -82,13 +82,13 @@ export function IssuesDocsPage() {
           <DocsSection id="statuses" num="02" label="Statuses & priorities">
             <h2>Statuses &amp; priorities</h2>
             <p>
-              Every team starts with seven built-in statuses{` `}
-              (<strong>Backlog</strong>, <strong>Todo</strong>,{` `}
+              Every team starts with six built-in statuses{` `}
+              (<strong>Backlog</strong>,{` `}
               <strong>In Progress</strong>, <strong>In Review</strong>,{` `}
               <strong>Done</strong>, <strong>Cancelled</strong>,{` `}
               <strong>Duplicate</strong>) and adds its own under{` `}
               <strong>Team settings → Statuses</strong>. Any member manages
-              them; the seven builtins are locked (never renamed, recolored or
+              them; the six builtins are locked (never renamed, recolored or
               deleted) but can be reordered.
             </p>
             <p>

@@ -46,7 +46,7 @@ class TimelineCollapseTest {
             number = 1,
             identifier = "EXP-1",
             title = "Title",
-            status = "todo",
+            status = "backlog",
             priority = "none",
             sortOrder = 1.0,
             createdAt = ts,

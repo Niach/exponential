@@ -564,8 +564,7 @@
   align-items: center;
   justify-content: center;
 }
-.ide-group-backlog,
-.ide-group-todo {
+.ide-group-backlog {
   background: rgba(161, 161, 170, 0.1);
 }
 .ide-group-in_progress {

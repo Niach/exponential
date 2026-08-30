@@ -23,7 +23,8 @@ export interface DomainContract {
     startedMax: number
   }
   /**
-   * The 7 locked builtin statuses every team is seeded with (EXP-314) —
+   * The 6 locked builtin statuses every team is seeded with (EXP-314;
+   * Todo retired by EXP-685) —
    * also the fallback set each client constructs locally when the
    * issue_statuses shape hasn't synced. Mirrored by the SQL seed in
    * apps/web/src/db/out/custom/0001_triggers.sql (parity-locked by the web

@@ -24,6 +24,19 @@ class DomainContractLockTest {
         }
     }
 
+    /**
+     * EXP-685 retired the `todo` builtin from the contract, but stored timeline
+     * payloads still carry the bare wire value — it keeps reading "Todo", while
+     * every OTHER unknown value takes the forward-compat path.
+     */
+    @Test
+    fun retiredStatusWireValuesKeepTheirHistoricLabel() {
+        assertEquals("Todo", IssueStatus.labelFor("todo"))
+        assertEquals(IssueStatus.Backlog, IssueStatus.fromWire("todo"))
+        assertEquals(IssueStatus.Backlog, IssueStatus.fromWire("blocked"))
+        assertEquals("blocked", IssueStatus.labelFor("blocked"))
+    }
+
     @Test
     fun issueStatusDisplayOrderMatchesGeneratedContract() {
         assertEquals(

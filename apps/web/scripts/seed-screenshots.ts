@@ -427,7 +427,7 @@ async function main() {
   const seedIssues: Array<{
     title: string
     description?: string
-    status: `backlog` | `todo` | `in_progress` | `in_review` | `done`
+    status: `backlog` | `in_progress` | `in_review` | `done`
     // Optional custom-status row (EXP-314) — dual-written with the anchor
     // `status` enum, exactly like the clients do.
     statusId?: string
@@ -498,7 +498,7 @@ async function main() {
     {
       title: `Push notification deep links open the wrong tab`,
       description: `Tapping a comment push lands on the board instead of the issue. Only happens when the app was fully killed.`,
-      status: `todo`,
+      status: `backlog`,
       priority: `urgent`,
       assigneeId: demoId,
       creatorId: mira,
@@ -508,7 +508,7 @@ async function main() {
     },
     {
       title: `Add drag-and-drop reordering on the board`,
-      status: `todo`,
+      status: `backlog`,
       priority: `high`,
       assigneeId: mira,
       creatorId: demoId,
@@ -517,7 +517,7 @@ async function main() {
     },
     {
       title: `Improve empty states with illustrations`,
-      status: `todo`,
+      status: `backlog`,
       priority: `medium`,
       assigneeId: sofia,
       creatorId: demoId,
@@ -527,7 +527,7 @@ async function main() {
     },
     {
       title: `Offline queue for issue edits`,
-      status: `todo`,
+      status: `backlog`,
       priority: `high`,
       creatorId: jonas,
       labels: [`Feature`],
@@ -765,18 +765,9 @@ async function main() {
       issueId: showcase.id,
       teamId: ws.id,
       boardId: showcase.boardId,
-      actorUserId: demoId,
-      type: `status_changed`,
-      payload: { from: `backlog`, to: `todo` },
-      createdAt: daysAgo(3),
-    },
-    {
-      issueId: showcase.id,
-      teamId: ws.id,
-      boardId: showcase.boardId,
       actorUserId: jonas,
       type: `status_changed`,
-      payload: { from: `todo`, to: `in_progress` },
+      payload: { from: `backlog`, to: `in_progress` },
       createdAt: hoursAgo(30),
     },
   ])

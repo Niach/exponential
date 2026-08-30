@@ -21,7 +21,7 @@ describe(`sanitizeRedirectPath`, () => {
     // REV2-12 auth-guard producer shapes (`location.href` of the blocked
     // navigation): the emailed issue deep link and a search-carrying tab URL
     `/t/acme/boards/exp/issues/EXP-42`,
-    `/t/acme/inbox?tab=my-issues&status=todo`,
+    `/t/acme/inbox?tab=my-issues&status=backlog`,
     // MCP OAuth resume-shaped relative URL
     `/api/auth/mcp/authorize?client_id=x&response_type=code&state=a`,
     // consent.tsx beforeLoad producer shape (ParsedLocation.href is relative)

@@ -20,3 +20,9 @@ export const LABEL_COLORS = [
   `#64748b`,
   `#a3a3a3`,
 ]
+
+// The status picker's palette: the label palette plus white (EXP-685 — the
+// retired builtin Todo was the one white status; a team that wants it back
+// recreates it byte-identical). Status-only on purpose: labels and boards
+// keep LABEL_COLORS, and the mobile palettes never manage statuses.
+export const STATUS_COLORS = [...LABEL_COLORS, `#fafafa`]

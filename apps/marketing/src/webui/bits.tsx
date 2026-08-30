@@ -8,7 +8,6 @@
 import type { Assignee, IssuePriority, IssueStatus, Label } from "../ide/data"
 import {
   ICON_35,
-  IcCircle,
   IcCircleCheck,
   IcCircleDashed,
   IcMinus,
@@ -22,17 +21,15 @@ import {
 /* Builtin status colors — contract issueStatusDefaults. */
 export const STATUS_COLOR: Record<IssueStatus, string> = {
   backlog: `#A1A1AA`,
-  todo: `#FAFAFA`,
   in_progress: `#EAB308`,
   in_review: `#22C55E`,
   done: `#3B82F6`,
 }
 
 /* Group-header washes — the `/10` alpha of the Tailwind token each builtin
-   header uses (zinc-500 / zinc-300 / yellow-500 / green-500 / blue-500). */
+   header uses (zinc-500 / yellow-500 / green-500 / blue-500). */
 export const STATUS_WASH: Record<IssueStatus, string> = {
   backlog: `rgba(113, 113, 122, 0.1)`,
-  todo: `rgba(212, 212, 216, 0.1)`,
   in_progress: `rgba(240, 177, 0, 0.1)`,
   in_review: `rgba(0, 201, 81, 0.1)`,
   done: `rgba(43, 127, 255, 0.1)`,
@@ -85,8 +82,6 @@ export function StatusGlyph({
   switch (status) {
     case `backlog`:
       return <IcCircleDashed size={size} style={style} />
-    case `todo`:
-      return <IcCircle size={size} style={style} />
     case `done`:
       return <IcCircleCheck size={size} style={style} />
     default:
