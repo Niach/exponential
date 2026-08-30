@@ -186,7 +186,7 @@ export const steerRouter = router({
 
   // Remote "Start on my desktop": route a start command to the chosen online
   // device's control socket via the relay. Accepts a single issueId
-  // (wire-unchanged), issueIds (2..30 → a batch run on one shared branch), or
+  // (wire-unchanged), issueIds (1..30 → a batch run on one shared branch), or
   // an actionId (EXP-253 — run a team action on the trunk clone / a scratch
   // dir); exactly one form. Everything is validated + resolved here — the
   // batch and action forms carry a server-resolved repo group because the
@@ -525,7 +525,7 @@ export const steerRouter = router({
         if (!device.caps.includes(`resume-run`)) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
-            message: `That device can't resume runs yet. Update it.`,
+            message: `No agent is signed in on that machine — sign in on the device first`,
           })
         }
         // EXP-662: an issue run resumes into the issue's ONE session slot
@@ -847,9 +847,11 @@ export const steerRouter = router({
         return { ok: true as const }
       }
 
-      // One issue (wire-unchanged) or a batch (2..30). Collapse duplicates so a
-      // caller can't inflate the batch or repeat past the length cap; a batch
-      // that collapses to a single id falls back to the legacy single wire.
+      // One issue (wire-unchanged) or a batch. Collapse duplicates so a caller
+      // can't inflate the batch or repeat past the length cap; the WIRE form
+      // follows the caller's subject, so an issueIds start stays a batch even
+      // when it collapses to one id (EXP-682: every desktop/CLI above the
+      // floor parses the batch body — the single-wire downgrade is gone).
       const ids = [...new Set(input.issueIds ?? [input.issueId!])]
 
       // Every issue must live in ONE team — the membership check is
@@ -919,26 +921,25 @@ export const steerRouter = router({
         planMode: input.planMode,
         resume: input.resume,
       }
-      const result =
-        ids.length === 1
-          ? await relayPostStart(config, {
-              userId: ownerId,
-              deviceId: input.deviceId,
-              ...(shared ? { startedBy: userId } : {}),
-              ...agentStarted,
-              issueId: ids[0]!,
-              ...options,
-            })
-          : await relayPostStart(config, {
-              userId: ownerId,
-              deviceId: input.deviceId,
-              ...(shared ? { startedBy: userId } : {}),
-              ...agentStarted,
-              issueIds: ids,
-              teamId,
-              repo: repo!,
-              ...options,
-            })
+      const result = input.issueId
+        ? await relayPostStart(config, {
+            userId: ownerId,
+            deviceId: input.deviceId,
+            ...(shared ? { startedBy: userId } : {}),
+            ...agentStarted,
+            issueId: input.issueId,
+            ...options,
+          })
+        : await relayPostStart(config, {
+            userId: ownerId,
+            deviceId: input.deviceId,
+            ...(shared ? { startedBy: userId } : {}),
+            ...agentStarted,
+            issueIds: ids,
+            teamId,
+            repo: repo!,
+            ...options,
+          })
       if (!result.ok) {
         if (result.status === 404) {
           // Device offline (or otherwise unroutable) — surface the relay reason.

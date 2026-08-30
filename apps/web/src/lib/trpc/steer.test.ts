@@ -2,11 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TRPCError } from "@trpc/server"
 
 // steer.startSession accepts EITHER a single issueId (wire-unchanged) or
-// issueIds (2..30 → batch). It resolves every issue's team + repo
-// server-side, enforces one-team / one-repo, and routes a legacy body
-// for a single (or duplicate-collapsed) id vs a "fat" batch body (issueIds +
-// teamId + repo, installationId stripped) for 2+. The relay call is
-// mocked, so a caller + a handful of stubs is enough.
+// issueIds (a batch). It resolves every issue's team + repo server-side,
+// enforces one-team / one-repo, and routes the wire body by the caller's
+// SUBJECT: the single-issue body for issueId vs a "fat" batch body (issueIds +
+// teamId + repo, installationId stripped) for issueIds — a batch that
+// collapses to one id stays a batch (EXP-682). The relay call is mocked, so a
+// caller + a handful of stubs is enough.
 //
 // EXP-485/EXP-542: the TARGET MACHINE is resolved purely from the persisted
 // `devices` row — startSession never reads relay presence any more (the
@@ -281,7 +282,7 @@ describe(`steer.startSession — server-side validation`, () => {
 })
 
 describe(`steer.startSession — routed body shape`, () => {
-  it(`routes a single issueId as the legacy single-issue body`, async () => {
+  it(`routes a single issueId as the single-issue body`, async () => {
     queueOwnDevice()
     await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
     const body = lastStartBody()
@@ -295,15 +296,15 @@ describe(`steer.startSession — routed body shape`, () => {
     expect(`repo` in body).toBe(false)
   })
 
-  it(`routes a single-element issueIds as the legacy single-issue body`, async () => {
+  it(`routes a single-element issueIds as a batch body`, async () => {
     queueOwnDevice()
     await caller.startSession({ issueIds: [ISSUE_A], deviceId: `dev-1` })
     const body = lastStartBody()
-    expect(body.issueId).toBe(ISSUE_A)
-    expect(`issueIds` in body).toBe(false)
+    expect(body.issueIds).toEqual([ISSUE_A])
+    expect(`issueId` in body).toBe(false)
   })
 
-  it(`collapses duplicate issueIds to one → legacy single-issue body`, async () => {
+  it(`collapses duplicate issueIds to one, still a batch body`, async () => {
     queueOwnDevice()
     await caller.startSession({
       issueIds: [ISSUE_A, ISSUE_A],
@@ -311,8 +312,8 @@ describe(`steer.startSession — routed body shape`, () => {
     })
     expect(h.getIssueTeamContext).toHaveBeenCalledTimes(1)
     const body = lastStartBody()
-    expect(body.issueId).toBe(ISSUE_A)
-    expect(`issueIds` in body).toBe(false)
+    expect(body.issueIds).toEqual([ISSUE_A])
+    expect(`issueId` in body).toBe(false)
   })
 
   it(`routes 2+ issues as a batch body with the repo group and no installationId`, async () => {
@@ -1457,7 +1458,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
     )
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
     expect((error as TRPCError).message).toBe(
-      `That device can't resume runs yet. Update it.`
+      `No agent is signed in on that machine — sign in on the device first`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
