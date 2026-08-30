@@ -29,9 +29,8 @@ async function handle({ request }: { request: Request }) {
 
   // PKCE (REV-13, required since EXP-543): the client presents an S256
   // code_challenge here and the return page mints a one-time code instead of
-  // leaking the raw session token into the deep link. The challenge-less
-  // legacy token flow is gone — pre-PKCE installed builds (iOS < 0.13.45,
-  // Android < 0.11.0) can no longer sign in.
+  // leaking the raw session token into the deep link. There is no
+  // challenge-less flow — a start without one is a 400.
   const codeChallenge = url.searchParams.get(`code_challenge`)
   const codeChallengeMethod = url.searchParams.get(`code_challenge_method`)
   if (codeChallenge === null || !isValidCodeChallenge(codeChallenge)) {

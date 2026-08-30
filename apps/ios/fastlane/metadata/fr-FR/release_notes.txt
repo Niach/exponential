@@ -1,9 +1,5 @@
-- Quand vous êtes hors ligne, l'app le dit clairement avec un bouton Réessayer, au lieu d'une erreur réseau brute
-- Fusionnez une pull request directement depuis la vue de pilotage d'une session en cours
-- Voyez avec quel compte chaque CLI d'agent est connecté et ce qu'il reste de ses limites, et lancez une connexion sur n'importe laquelle de vos machines depuis votre téléphone
-- Un agent peut confier du travail à un second run et attendre son rapport
-- Un run que vous avez lancé reste ouvert pour la suite ; les runs automatisés remettent un résumé et un résultat lisibles partout, et un run terminé peut reprendre là où il s'est arrêté
-- Tapez # pour insérer une puce d'issue dans les commentaires et les descriptions
-- Les sessions en direct restent connectées lors des changements de réseau et d'app, restent silencieuses pendant les longues attentes et se rétablissent d'elles-mêmes en cas de coupure
-- « Résoudre les conflits » n'est proposé que pour un vrai conflit de fusion
-- Les interrupteurs et la liste des actions ont un look plus net
+- Todo et Backlog ne font plus qu'une liste : tout ce qui était dans Todo se trouve dans le Backlog
+- Les feuilles et menus partagent un style uniforme dans toute l'app
+- L'éditeur conserve vos lignes vides intentionnelles, à l'identique sur chaque plateforme
+- L'utilisation affiche les limites de l'agent qui exécute votre session
+- Les agents s'exécutent toujours sans demandes d'autorisation ; le réglage a disparu

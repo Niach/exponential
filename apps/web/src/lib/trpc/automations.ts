@@ -126,8 +126,9 @@ function assertRunnable(inputs: unknown, enabled: boolean): void {
 // unique per (userId, deviceId), so the same id can exist under several
 // users: usable when any matching row is the caller's own, or is shared with
 // THIS team by an owner who is still a member. The device must also advertise
-// the `automations` cap (a pre-EXP-530 build would accept the binding and
-// never fire) and, when an agent is pinned, advertise that agent.
+// the `automations` cap — an ACTION cap (EXP-409), so its absence really means
+// no agent is signed in on that machine, which is what the refusal says — and,
+// when an agent is pinned, advertise that agent.
 async function assertDeviceUsable(
   deviceId: string,
   teamId: string,
@@ -169,7 +170,9 @@ async function assertDeviceUsable(
     throw bad(`Automation device must be yours or shared with this team`)
   }
   if (!usableRows.some((row) => (row.caps ?? []).includes(`automations`))) {
-    throw bad(`Automation device runs an older build without automation support`)
+    throw bad(
+      `No agent is signed in on that machine — sign in on the device first`
+    )
   }
   if (agent && !usableRows.some((row) => (row.agents ?? []).includes(agent))) {
     throw bad(`${agent} is not available on that device`)

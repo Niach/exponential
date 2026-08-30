@@ -1,9 +1,5 @@
-- Kad ste offline, aplikacija to jasno kaže s gumbom Pokušaj ponovno umjesto sirove mrežne pogreške
-- Spojite pull request izravno iz upravljačkog prikaza tekuće sesije
-- Pogledajte s kojim je računom prijavljen svaki agentov CLI i koliko mu je ostalo od ograničenja te pokrenite prijavu na bilo kojem svom računalu s telefona
-- Agent može predati posao drugom pokretanju i pričekati njegov izvještaj
-- Pokretanje koje ste vi započeli ostaje otvoreno za nastavak; automatska pokretanja predaju sažetak i ishod koje možete pročitati bilo gdje, a završeno pokretanje može se nastaviti ondje gdje je stalo
-- Upišite # za umetanje čipa issuea u komentare i opise
-- Sesije uživo ostaju povezane pri promjeni mreže ili aplikacije, miruju tijekom dugih čekanja i same se oporave ako ispadnu
-- „Riješi sukobe” nudi se samo za stvarni sukob spajanja
-- Prekidači i popis radnji izgledaju urednije
+- Todo i Backlog sada su jedna lista: sve iz Todo sada je u Backlogu
+- Listovi i izbornici dijele jedinstven izgled u cijeloj aplikaciji
+- Uređivač čuva vaše namjerne prazne retke, identično na svakoj platformi
+- Korištenje prikazuje limite agenta koji izvodi vašu sesiju
+- Agenti se uvijek izvode bez upita za dozvole; prekidač je uklonjen

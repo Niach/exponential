@@ -193,7 +193,7 @@ describe(`automations.create`, () => {
     let error = await rejectionOf(
       caller.create({ teamId: TEAM_ID, actionId: ACTION_ID, deviceId: `d`, trigger: schedule })
     )
-    expect((error as TRPCError).message).toContain(`older build`)
+    expect((error as TRPCError).message).toContain(`No agent is signed in`)
 
     selectResults.push([action])
     selectResults.push([ownDevice])

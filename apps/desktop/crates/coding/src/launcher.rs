@@ -1464,7 +1464,6 @@ pub fn prepare_with_hooks(
                 team_id: None,
                 action_id: None,
                 action_name: None,
-                device_label: Some(issue_req.device_label.clone()),
                 started_by_id: attribution.started_by_id.map(str::to_string),
                 device_id: attribution.device_id.map(str::to_string),
                 // EXP-530: only action runs AUTOMATE — but EXP-679's `agent`
@@ -1484,7 +1483,6 @@ pub fn prepare_with_hooks(
                 team_id: Some(batch_req.team_id.clone()),
                 action_id: None,
                 action_name: None,
-                device_label: Some(batch_req.device_label.clone()),
                 started_by_id: attribution.started_by_id.map(str::to_string),
                 device_id: attribution.device_id.map(str::to_string),
                 // EXP-679: echoed like the issue scope above.
@@ -2138,7 +2136,6 @@ fn prepare_action(
             team_id: session.team_id.clone(),
             action_id: Some(req.action_id.clone()),
             action_name: Some(req.action_name.clone()),
-            device_label: Some(req.device_label.clone()),
             started_by_id: attribution(&req.origin, deps)
                 .started_by_id
                 .map(str::to_string),
@@ -2571,7 +2568,6 @@ fn prepare_resume_run(
             team_id: None,
             action_id: None,
             action_name: None,
-            device_label: Some(req.device_label.clone()),
             started_by_id: scope_attribution.started_by_id.map(str::to_string),
             device_id: scope_attribution.device_id.map(str::to_string),
             started_reason: run_reason.map(str::to_string),
@@ -2584,7 +2580,6 @@ fn prepare_resume_run(
             team_id: Some(record.team_id.clone()),
             action_id: None,
             action_name: None,
-            device_label: Some(req.device_label.clone()),
             started_by_id: scope_attribution.started_by_id.map(str::to_string),
             device_id: scope_attribution.device_id.map(str::to_string),
             started_reason: run_reason.map(str::to_string),
@@ -2597,7 +2592,6 @@ fn prepare_resume_run(
             team_id: session.team_id.clone(),
             action_id: Some(record.action_id.clone()),
             action_name: Some(record.action_name.clone()),
-            device_label: Some(req.device_label.clone()),
             started_by_id: scope_attribution.started_by_id.map(str::to_string),
             device_id: scope_attribution.device_id.map(str::to_string),
             started_reason: run_reason.map(str::to_string),

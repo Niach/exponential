@@ -1,9 +1,5 @@
-- När du är offline säger appen det tydligt med en Försök igen-knapp i stället för ett rått nätverksfel
-- Merga en pull request direkt från styrvyn i en pågående session
-- Se vilket konto varje agent-CLI är inloggat med och hur mycket som återstår av dess gränser, och starta en inloggning på vilken som helst av dina maskiner från telefonen
-- En agent kan lämna över arbete till en andra körning och vänta på dess rapport
-- En körning du startade förblir öppen för uppföljning; automatiserade körningar lämnar en sammanfattning och ett utfall som du kan läsa var som helst, och en avslutad körning kan återupptas där den stannade
-- Skriv # för att infoga en ärendechip i kommentarer och beskrivningar
-- Livesessioner förblir anslutna vid nätverks- och appbyten, håller sig tysta under långa väntetider och återhämtar sig själva om de tappas
-- "Lös konflikter" erbjuds bara vid en riktig merge-konflikt
-- Reglage och åtgärdslistan har fått ett renare utseende
+- Todo och Backlog är nu en enda lista: allt som låg i Todo finns nu i Backlog
+- Blad och menyer delar ett enhetligt utseende i hela appen
+- Redigeraren behåller dina avsiktliga tomma rader, identiskt på varje plattform
+- Användning visar gränserna för agenten som kör din session
+- Agenter körs alltid utan behörighetsfrågor; reglaget är borta

@@ -1,9 +1,5 @@
-- Când ești offline, aplicația o spune clar, cu un buton Reîncearcă, în loc de o eroare de rețea brută
-- Îmbină un pull request direct din vizualizarea de dirijare a unei sesiuni în curs
-- Vezi cu ce cont este conectat fiecare CLI de agent și cât mai rămâne din limitele sale și pornește o autentificare pe oricare dintre mașinile tale de pe telefon
-- Un agent poate delega lucru unei a doua rulări și aștepta raportul acesteia
-- O rulare pornită de tine rămâne deschisă pentru continuări; rulările automate predau un rezumat și un rezultat pe care le poți citi oriunde, iar o rulare încheiată poate fi reluată de unde s-a oprit
-- Tastează # pentru a insera un chip de issue în comentarii și descrieri
-- Sesiunile live rămân conectate la schimbarea rețelei sau a aplicației, stau liniștite în așteptările lungi și își revin singure dacă se întrerup
-- „Rezolvă conflictele” apare doar la un conflict de îmbinare real
-- Comutatoarele și lista de acțiuni arată mai curat
+- Todo și Backlog sunt acum o singură listă: tot ce era în Todo se află acum în Backlog
+- Foile și meniurile au un aspect uniform în toată aplicația
+- Editorul păstrează liniile goale intenționate, identic pe fiecare platformă
+- Utilizarea arată limitele agentului care rulează sesiunea ta
+- Agenții rulează întotdeauna fără întrebări de permisiuni; comutatorul a dispărut

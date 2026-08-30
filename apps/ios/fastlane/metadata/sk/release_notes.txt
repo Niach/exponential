@@ -1,9 +1,5 @@
-- Keď ste offline, aplikácia to povie jasne s tlačidlom Skúsiť znova namiesto surovej chyby siete
-- Zlúčte pull request priamo z riadiaceho pohľadu bežiacej relácie
-- Pozrite si, pod akým účtom je prihlásené každé CLI agenta a koľko zostáva z jeho limitov, a spustite prihlásenie na ktoromkoľvek zo svojich strojov z telefónu
-- Agent môže odovzdať prácu druhému behu a počkať na jeho správu
-- Beh, ktorý ste spustili, zostáva otvorený pre doplňujúce otázky; automatické behy odovzdajú zhrnutie a výsledok, ktoré si prečítate kdekoľvek, a dokončený beh možno obnoviť tam, kde skončil
-- Napíšte # na vloženie čipu issue do komentárov a popisov
-- Živé relácie zostávajú pripojené pri zmene siete alebo aplikácie, počas dlhého čakania mlčia a po výpadku sa samy zotavia
-- „Vyriešiť konflikty“ sa ponúka len pri skutočnom konflikte zlúčenia
-- Prepínače a zoznam akcií vyzerajú čistejšie
+- Todo a Backlog sú teraz jeden zoznam: všetko z Todo je teraz v Backlogu
+- Panely a menu majú jednotný vzhľad v celej aplikácii
+- Editor zachováva vaše zámerné prázdne riadky, rovnako na každej platforme
+- Využitie ukazuje limity agenta, ktorý vykonáva vašu reláciu
+- Agenti vždy bežia bez otázok na povolenia; prepínač zmizol

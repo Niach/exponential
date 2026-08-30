@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-one-backlog`,
+    date: `2026-08-30`,
+    title: `One Backlog and a cleaner look`,
+    summary: `Todo and Backlog are now one list, sheets and menus share one uniform look, and the editor keeps your blank lines on every platform.`,
+    body: `- **One Backlog**: the Todo status is retired; everything that sat in Todo now lives in Backlog, and custom statuses gain a white color option.
+- **Uniform sheets and menus**: dialogs, sheets and menus share one look across web, iOS and Android.
+- **Blank lines stick**: the editor preserves intentional blank lines identically on every platform.
+- **Usage per session**: usage shows the limits of the agent actually running your session.
+- **Sharper agent issue tools**: agents can now filter issue lists by label, custom status, category and dates.`,
+  },
+  {
     id: `2026-08-always-skip-permissions`,
     date: `2026-08-30`,
     title: `Agents always skip permissions`,

@@ -198,13 +198,16 @@ struct SessionIdInput<'a> {
 /// `action_id`/`action_name`: the team rides along so a deleted action still
 /// resurrects the row batch-shaped, and the name is the client-held display
 /// snapshot the re-created row keeps.
+/// No `device_label`: the server resolves the label from the `devices`
+/// registry on a heartbeat (it only ever takes a sent label on `start`, the
+/// fallback for the fire-and-forget `devices.register` race), so echoing one
+/// here was dead wire (EXP-672).
 #[derive(Clone, Debug)]
 pub struct HeartbeatScope {
     pub issue_id: Option<String>,
     pub team_id: Option<String>,
     pub action_id: Option<String>,
     pub action_name: Option<String>,
-    pub device_label: Option<String>,
     /// EXP-432: shared-device attribution echoed on every ping so a swept
     /// row resurrects requester-owned instead of flipping to the host. Both
     /// `None` for local/own-device sessions.
@@ -240,8 +243,6 @@ struct HeartbeatInput<'a> {
     action_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     action_name: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    device_label: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     started_by_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -477,7 +478,6 @@ pub fn heartbeat(
             team_id: scope.and_then(|scope| scope.team_id.as_deref()),
             action_id: scope.and_then(|scope| scope.action_id.as_deref()),
             action_name: scope.and_then(|scope| scope.action_name.as_deref()),
-            device_label: scope.and_then(|scope| scope.device_label.as_deref()),
             started_by_id: scope.and_then(|scope| scope.started_by_id.as_deref()),
             device_id: scope.and_then(|scope| scope.device_id.as_deref()),
             started_reason: scope.and_then(|scope| scope.started_reason.as_deref()),
@@ -648,7 +648,6 @@ mod tests {
             team_id: None,
             action_id: None,
             action_name: None,
-            device_label: None,
             started_by_id: Some("user-2".to_string()),
             device_id: Some("dev-1".to_string()),
             started_reason: None,
@@ -696,7 +695,6 @@ mod tests {
             team_id: None,
             action_id: None,
             action_name: None,
-            device_label: Some("testbox".to_string()),
             started_by_id: None,
             device_id: None,
             started_reason: None,
@@ -706,8 +704,9 @@ mod tests {
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request
-            .ends_with(r#"{"id":"sess-1","issueId":"issue-1","deviceLabel":"testbox"}"#));
+        // EXP-672: no `deviceLabel` on the heartbeat wire — the server
+        // resolves the label from the devices registry there.
+        assert!(request.ends_with(r#"{"id":"sess-1","issueId":"issue-1"}"#));
     }
 
     #[test]
@@ -718,7 +717,6 @@ mod tests {
             team_id: Some("ws-1".to_string()),
             action_id: None,
             action_name: None,
-            device_label: None,
             started_by_id: None,
             device_id: None,
             started_reason: None,
@@ -878,7 +876,6 @@ mod tests {
             team_id: Some("ws-1".to_string()),
             action_id: Some("act-1".to_string()),
             action_name: Some("Code review".to_string()),
-            device_label: None,
             started_by_id: None,
             device_id: None,
             started_reason: None,
@@ -905,7 +902,6 @@ mod tests {
             team_id: Some("ws-1".to_string()),
             action_id: Some("act-1".to_string()),
             action_name: Some("Code review".to_string()),
-            device_label: None,
             started_by_id: None,
             device_id: None,
             started_reason: Some("schedule".to_string()),
@@ -959,7 +955,6 @@ mod tests {
             team_id: Some("ws-1".to_string()),
             action_id: Some("act-1".to_string()),
             action_name: Some("Code review".to_string()),
-            device_label: None,
             started_by_id: None,
             device_id: None,
             started_reason: None,
@@ -1038,7 +1033,6 @@ mod tests {
             team_id: None,
             action_id: None,
             action_name: None,
-            device_label: None,
             started_by_id: None,
             device_id: None,
             started_reason: None,

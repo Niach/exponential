@@ -1,9 +1,5 @@
-- Cuando estás sin conexión, la app lo dice claramente con un botón Reintentar, en lugar de un error de red en bruto
-- Fusiona una pull request directamente desde la vista de dirección de una sesión en curso
-- Mira con qué cuenta está iniciada la sesión de cada CLI de agente y cuánto queda de sus límites, e inicia sesión en cualquiera de tus máquinas desde el móvil
-- Un agente puede delegar trabajo a una segunda ejecución y esperar su informe
-- Una ejecución que iniciaste tú sigue abierta para continuar; las automatizadas entregan un resumen y un resultado que puedes leer en cualquier parte, y una ejecución terminada puede reanudarse donde se detuvo
-- Escribe # para insertar un chip de issue en comentarios y descripciones
-- Las sesiones en vivo siguen conectadas al cambiar de red o de app, se mantienen en silencio en las esperas largas y se recuperan solas si se cortan
-- «Resolver conflictos» solo se ofrece ante un conflicto de fusión real
-- Los interruptores y la lista de acciones lucen más limpios
+- Todo y Backlog ahora son una sola lista: todo lo que estaba en Todo vive en Backlog
+- Las hojas y los menús comparten un estilo uniforme en toda la app
+- El editor conserva tus líneas en blanco intencionales, idénticas en todas las plataformas
+- Uso muestra los límites del agente que ejecuta tu sesión
+- Los agentes siempre se ejecutan sin solicitudes de permisos; el ajuste ha desaparecido

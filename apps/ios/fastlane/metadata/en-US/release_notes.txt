@@ -1,9 +1,5 @@
-- You're told plainly when you're offline, with a Retry button, instead of a raw network error
-- Merge a pull request straight from a live session's steering view
-- See which account each agent CLI is signed in with and how much of its limits is left, and start a sign-in on any of your machines from your phone
-- An agent can hand work to a second run and wait for its report
-- A run you started stays open for follow-ups; automated runs report a summary and outcome you can read anywhere, and a finished run can be resumed where it stopped
-- Type # to embed an issue chip in comments and descriptions
-- Live sessions stay connected through network changes and app switches, stay quiet during long waits, and recover on their own when they drop
-- Fix conflicts is offered only for a real merge conflict
-- Toggles and the Actions list got a cleaner look
+- Todo and Backlog are now one list: everything that sat in Todo lives in Backlog
+- Sheets and menus share one uniform look across the app
+- The editor keeps your intentional blank lines, identically on every platform
+- Usage shows the limits of the agent that runs your session
+- Agents always run without permission prompts; the toggle is gone

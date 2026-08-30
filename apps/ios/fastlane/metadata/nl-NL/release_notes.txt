@@ -1,9 +1,5 @@
-- Als je offline bent zegt de app dat duidelijk, met een knop Opnieuw proberen, in plaats van een kale netwerkfout
-- Voeg een pull request samen rechtstreeks vanuit de stuurweergave van een lopende sessie
-- Zie met welk account elke agent-CLI is aangemeld en hoeveel van zijn limieten over is, en start een aanmelding op elk van je machines vanaf je telefoon
-- Een agent kan werk overdragen aan een tweede run en op het rapport wachten
-- Een run die jij startte blijft open voor vervolgvragen; geautomatiseerde runs leveren een samenvatting en uitkomst die je overal kunt lezen, en een afgeronde run kan hervat worden waar hij stopte
-- Typ # om een issue-chip in opmerkingen en beschrijvingen te plaatsen
-- Live sessies blijven verbonden bij netwerk- en app-wisselingen, blijven stil tijdens lang wachten en herstellen zichzelf als ze wegvallen
-- „Conflicten oplossen“ wordt alleen aangeboden bij een echt merge-conflict
-- Schakelaars en de actielijst zien er strakker uit
+- Todo en Backlog zijn nu één lijst: alles wat in Todo stond, staat nu in Backlog
+- Sheets en menu's delen één uniforme stijl in de hele app
+- De editor behoudt je bewuste lege regels, identiek op elk platform
+- Gebruik toont de limieten van de agent die je sessie uitvoert
+- Agents draaien altijd zonder toestemmingsvragen; de schakelaar is weg
