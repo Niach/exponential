@@ -33,9 +33,10 @@ sealed interface ContentBlock {
  * attribute list and per-range inline marks.
  *
  * Invariant: paragraphs are the `'\n'`-delimited lines of [text], so
- * `text.split("\n").size == paragraphs.size`. (Blank lines never appear inside a
- * text block — block separators are stored as a single `'\n'` and re-expanded to
- * `"\n\n"` only at serialize time, exactly like iOS.)
+ * `text.split("\n").size == paragraphs.size`. Block separators are stored as a
+ * single `'\n'` and re-expanded to `"\n\n"` only at serialize time, exactly
+ * like iOS; an EMPTY line is an intentional blank paragraph, persisted as the
+ * `&nbsp;` interchange line (EXP-689).
  */
 data class RichText(
     val text: String,

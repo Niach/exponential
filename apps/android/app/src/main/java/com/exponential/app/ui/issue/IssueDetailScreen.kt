@@ -182,6 +182,17 @@ fun IssueDetailScreen(
     // Files queued for the next comment (EXP-554) — they upload on send.
     val commentAttachments by commentViewModel.pendingAttachments.collectAsStateWithLifecycle()
 
+    // Own-save echo recognition (EXP-689): declared BEFORE the remote sync
+    // effects so, within one composition, the save is on record by the time
+    // its echo is reconciled.
+    val lastSavedTitle by viewModel.lastSavedTitle.collectAsStateWithLifecycle()
+    LaunchedEffect(titleSync, lastSavedTitle) {
+        lastSavedTitle?.let { titleSync.markSaved(it) }
+    }
+    val lastSavedDescription by viewModel.lastSavedDescription.collectAsStateWithLifecycle()
+    LaunchedEffect(descriptionSync, lastSavedDescription) {
+        lastSavedDescription?.let { descriptionSync.markSaved(it) }
+    }
     LaunchedEffect(titleSync, issue?.title) {
         issue?.title?.let { titleSync.syncRemote(it) }
     }

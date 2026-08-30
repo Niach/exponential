@@ -8,6 +8,13 @@
 
 use super::blocks::{BlockKind, ContentBlock, InlineKind, InlineMark, ListType, ParagraphAttrs, RichText};
 
+/// The GFM interchange form of an intentional blank line — a paragraph
+/// holding only a no-break space, written as the entity so it survives every
+/// client's parser as a visually empty paragraph (EXP-7 on web, EXP-689 on
+/// the natives; the WYSIWYG path writes the same marker via
+/// `restore_blank_line_markers`).
+pub const BLANK_LINE_MARKER: &str = "&nbsp;";
+
 /// Serialize the block model to canonical GFM.
 pub fn blocks_to_markdown(blocks: &[ContentBlock]) -> String {
     let mut parts: Vec<String> = Vec::new();
@@ -69,7 +76,26 @@ fn serialize_text(rich: &RichText) -> String {
 
     // Group consecutive code-block lines into single fenced segments; every
     // other line is its own segment.
-    let segments = segment(&attrs);
+    let all_segments = segment(&attrs);
+    // EXP-689: an intentional blank line (two Enters) is an empty plain
+    // paragraph. GFM cannot carry one as bare newlines — every parser folds
+    // `A\n\n\n\nB` into `A\n\nB` — so INTERIOR blank paragraphs are written
+    // as the contract's `&nbsp;` line (web's MarkdownParagraph does exactly
+    // this) and leading/trailing ones are dropped as meaningless spacing.
+    // Blank lines inside a fence are code, untouched.
+    let is_blank_paragraph = |seg: &Segment| {
+        !seg.is_code
+            && attrs[seg.start_line].kind == BlockKind::Paragraph
+            && lines[seg.start_line].trim().is_empty()
+    };
+    let Some(first_content) = all_segments.iter().position(|seg| !is_blank_paragraph(seg)) else {
+        return String::new();
+    };
+    let last_content = all_segments
+        .iter()
+        .rposition(|seg| !is_blank_paragraph(seg))
+        .unwrap_or(first_content);
+    let segments = &all_segments[first_content..=last_content];
     let mut out = String::new();
     for (seg_index, seg) in segments.iter().enumerate() {
         if seg_index > 0 {
@@ -90,6 +116,8 @@ fn serialize_text(rich: &RichText) -> String {
                     .join("\n"),
             );
             out.push_str("\n```");
+        } else if is_blank_paragraph(seg) {
+            out.push_str(BLANK_LINE_MARKER);
         } else {
             let i = seg.start_line;
             out.push_str(&serialize_line(lines[i], attrs[i], &line_marks[i]));
@@ -303,6 +331,14 @@ pub(crate) const CONTRACT_FIXTURES: &[(&str, &str)] = &[
         "# Title\n\nA paragraph with **bold**.\n\n- item 1\n- item 2\n\n> a quote",
     ),
     ("multiple_paragraphs", "First paragraph.\n\nSecond paragraph."),
+    // EXP-689: intentional blank lines. GFM folds bare blank-line runs, so
+    // the contract stores each interior empty paragraph as an `&nbsp;` line
+    // (web MarkdownParagraph, EXP-7).
+    ("blank_line_between_paragraphs", "First\n\n&nbsp;\n\nSecond"),
+    (
+        "two_blank_lines_between_paragraphs",
+        "First\n\n&nbsp;\n\n&nbsp;\n\nSecond",
+    ),
     ("bold_at_start", "**Bold** start"),
     ("multiple_marks_one_line", "A **bold** and *italic* and `code` mix"),
     ("mention_and_issue_ref", "cc @jane@example.com see #EXP-42"),
@@ -358,6 +394,46 @@ mod tests {
     #[test]
     fn plain_paragraph() {
         assert_stable("Hello world");
+    }
+
+    // --- EXP-689: intentional blank lines. ---
+
+    #[test]
+    fn blank_line_parses_to_an_empty_editor_line() {
+        // No invisible U+00A0 in the editor: the marker folds to an empty line.
+        let blocks = super::super::parse::markdown_to_blocks("First\n\n&nbsp;\n\nSecond");
+        assert_eq!(blocks.len(), 1);
+        let ContentBlock::Text { content, .. } = &blocks[0] else {
+            panic!("expected a text block");
+        };
+        assert_eq!(content.text, "First\n\nSecond");
+    }
+
+    #[test]
+    fn editor_typed_blank_line_is_written_as_the_marker() {
+        // Two Enters in the editor = an empty line inside the text block.
+        let blocks = vec![ContentBlock::text(RichText::plain("First\n\nSecond"))];
+        assert_eq!(blocks_to_markdown(&blocks), "First\n\n&nbsp;\n\nSecond");
+    }
+
+    #[test]
+    fn leading_and_trailing_blank_lines_are_dropped() {
+        let blocks = vec![ContentBlock::text(RichText::plain("\n\nOnly line\n"))];
+        assert_eq!(blocks_to_markdown(&blocks), "Only line");
+        assert_eq!(round_trip("&nbsp;\n\nOnly line\n\n&nbsp;"), "Only line");
+    }
+
+    #[test]
+    fn literal_no_break_space_paragraph_converges_to_the_marker() {
+        assert_eq!(
+            round_trip("First\n\n\u{a0}\n\nSecond"),
+            "First\n\n&nbsp;\n\nSecond"
+        );
+    }
+
+    #[test]
+    fn blank_lines_inside_a_fence_stay_code() {
+        assert_stable("```\na\n\nb\n```");
     }
 
     #[test]

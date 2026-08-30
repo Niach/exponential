@@ -1264,7 +1264,9 @@ impl Theme {
             },
             dimensions: ThemeDimensions {
                 editor_padding: 24.0,
-                block_gap: 6.0,
+                // EXP-689: 6px read as a blank line between paragraphs (the
+                // rows already carry block_padding_y above and below).
+                block_gap: 3.0,
                 block_min_height: 28.0,
                 block_padding_y: 4.0,
                 block_padding_x: 12.0,

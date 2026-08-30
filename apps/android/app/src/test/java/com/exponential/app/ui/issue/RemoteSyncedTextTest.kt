@@ -66,6 +66,61 @@ class RemoteSyncedTextTest {
     }
 
     @Test
+    fun echoOfAnEarlierSaveTheUserTypedPastRaisesNoBanner() {
+        // EXP-689: the debounced autosave persists "Hello wor"; the user keeps
+        // typing, and the Electric echo of that save lands once the field
+        // reads "Hello world". Neither the byte check nor normalizeForEcho can
+        // match it — only the save record can. No banner, re-baselined, dirty.
+        val field = RemoteSyncedText(normalizeForEcho = ::stripDraftImages)
+        field.syncRemote("Hello")
+        field.setFocused(true)
+        field.onUserEdit("Hello wor")
+        field.markSaved("Hello wor")
+        field.onUserEdit("Hello world")
+        field.syncRemote("Hello wor")
+        assertNull(field.pendingRemote)
+        assertEquals("Hello world", field.text)
+        assertTrue(field.isDirty)
+        // The next save's echo, arriving with the text unchanged, is the plain
+        // normalizeForEcho path and cleans the field.
+        field.markSaved("Hello world")
+        field.syncRemote("Hello world")
+        assertNull(field.pendingRemote)
+        assertFalse(field.isDirty)
+    }
+
+    @Test
+    fun echoLandingBeforeTheSaveRecordIsDroppedByMarkSaved() {
+        // Belt and braces for the ordering race: the echo was stashed first,
+        // then the save record arrives — the stash is ours, drop it.
+        val field = RemoteSyncedText()
+        field.syncRemote("Hello")
+        field.setFocused(true)
+        field.onUserEdit("Hello wor")
+        field.onUserEdit("Hello world")
+        field.syncRemote("Hello wor")
+        assertEquals("Hello wor", field.pendingRemote)
+        field.markSaved("Hello wor")
+        assertNull(field.pendingRemote)
+        assertEquals("Hello world", field.text)
+        assertTrue(field.isDirty)
+    }
+
+    @Test
+    fun foreignRemoteStillStashesAfterASaveRecord() {
+        // A teammate's edit that is NOT what we saved keeps the conflict path.
+        val field = RemoteSyncedText()
+        field.syncRemote("Hello")
+        field.setFocused(true)
+        field.onUserEdit("Hello wor")
+        field.markSaved("Hello wor")
+        field.onUserEdit("Hello world")
+        field.syncRemote("Hello from a teammate")
+        assertEquals("Hello from a teammate", field.pendingRemote)
+        assertEquals("Hello world", field.text)
+    }
+
+    @Test
     fun cleanUnfocusedRemoteChangeLiveApplies() {
         val field = RemoteSyncedText()
         field.syncRemote("base")

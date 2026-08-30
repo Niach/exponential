@@ -198,6 +198,20 @@ object MarkdownParser {
                     ctx.pendingItemAttrs = null
                     startPara(attrs)
                     renderChildren(node, ctx)
+                    // EXP-689: a whitespace-only plain paragraph is the stored
+                    // form of an intentional blank line (`&nbsp;`, decoded by
+                    // commonmark to U+00A0) — fold it to a genuinely empty
+                    // line so the editor shows no invisible character and the
+                    // serializer writes the `&nbsp;` form back. `lastOrNull`,
+                    // not `currentPara()`: an image inside the paragraph has
+                    // already flushed the run, and a fresh empty paragraph
+                    // here would prepend a blank line to the next block.
+                    val para = paras.lastOrNull()
+                    if (para != null && attrs.kind == BlockKind.Paragraph &&
+                        para.marks.isEmpty() && para.sb.isNotEmpty() && para.sb.isBlank()
+                    ) {
+                        para.sb.clear()
+                    }
                 }
 
                 is Heading -> {

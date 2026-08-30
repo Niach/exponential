@@ -302,8 +302,23 @@ fn visit<'a>(node: &'a AstNode<'a>, collector: &mut BlockCollector, ctx: &mut Re
             } else {
                 ParagraphAttrs::PLAIN
             });
+            let is_plain = attrs.kind == BlockKind::Paragraph;
             collector.start_para(attrs);
             render_children(node, collector, ctx);
+            // EXP-689: a whitespace-only plain paragraph is the stored form of
+            // an intentional blank line (`&nbsp;`, decoded by comrak to
+            // U+00A0) — fold it to a genuinely empty line so the editor shows
+            // no invisible character and the serializer writes the `&nbsp;`
+            // form back. `last_mut`, not `current_para`: an image inside the
+            // paragraph has already flushed the run, and a fresh empty
+            // paragraph here would prepend a blank line to the next block.
+            if is_plain {
+                if let Some(para) = collector.paras.last_mut() {
+                    if para.marks.is_empty() && !para.text.is_empty() && para.text.trim().is_empty() {
+                        para.text.clear();
+                    }
+                }
+            }
         }
 
         NodeValue::Heading(heading) => {

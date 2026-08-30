@@ -168,6 +168,14 @@ fun ProvideMarkdownToolbar(content: @Composable () -> Unit) {
                 if (controller.linkEditTarget == null) controller.railMode = RailMode.Main
             }
         }
+        // EXP-689: the keyboard going away ends the editing gesture, so the
+        // next keyboard must come back with the MAIN rail — not the text or
+        // link sub-rail the user left open. Link mode is exempt while its URL
+        // field is up (the sheet itself owns the IME then). iOS does the same
+        // in MarkdownToolbar.handleHostEndedEditing.
+        LaunchedEffect(imeVisible) {
+            if (!imeVisible && controller.linkEditTarget == null) controller.railMode = RailMode.Main
+        }
         // While the bar is up it floats OVER the bottom of the content, so the
         // content is inset by the bar's measured height — otherwise the bar
         // covers exactly the focused line / the comment composer's send row

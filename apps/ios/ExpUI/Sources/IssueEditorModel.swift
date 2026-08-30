@@ -83,6 +83,13 @@ public final class IssueEditorModel {
     /// Markdown last persisted to the server, used to detect local dirtiness.
     public private(set) var lastSavedMarkdown: String = ""
 
+    /// Markdown handed to an in-flight save (EXP-689). The debounced autosave
+    /// fires while the user keeps typing, so the Electric echo of that save
+    /// lands after `currentMarkdown()` has moved past it and `markSaved` may
+    /// not have run yet — without this record the echo read as a foreign edit
+    /// and flashed the reload banner (a layout jump) on every autosave.
+    private var inFlightSaveMarkdown: String?
+
     /// Per-image upload state for inline status / retry affordances.
     public private(set) var imageUploadStates: [UUID: ImageUploadState] = [:]
 
@@ -297,7 +304,13 @@ public final class IssueEditorModel {
         let normalizedRemote = MarkdownConversion.blocksToMarkdown(
             MarkdownConversion.markdownToBlocks(markdown, baseURL: baseURL)
         )
-        if normalizedRemote == currentMarkdown() {
+        // Ours, or nothing new: the current text, the last persisted text (a
+        // row re-emitted because another column moved), or the text a save
+        // still in flight carries (its echo, arriving mid-typing). None of
+        // these is a teammate's edit, so none may raise the banner.
+        if normalizedRemote == currentMarkdown()
+            || normalizedRemote == lastSavedMarkdown
+            || normalizedRemote == inFlightSaveMarkdown {
             lastSavedMarkdown = normalizedRemote
             pendingRemoteMarkdown = nil
             return
@@ -422,8 +435,15 @@ public final class IssueEditorModel {
         }
     }
 
+    /// The host is about to persist `markdown`. Recorded BEFORE the request
+    /// goes out so the echo can never race `markSaved`.
+    public func markSaving(_ markdown: String) {
+        inFlightSaveMarkdown = markdown
+    }
+
     public func markSaved(_ markdown: String) {
         lastSavedMarkdown = markdown
+        if inFlightSaveMarkdown == markdown { inFlightSaveMarkdown = nil }
         if pendingRemoteMarkdown == markdown { pendingRemoteMarkdown = nil }
     }
 
