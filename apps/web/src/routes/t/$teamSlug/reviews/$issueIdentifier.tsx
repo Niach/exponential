@@ -30,6 +30,7 @@ import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -559,7 +560,7 @@ function ReviewDetailPage() {
       )}
 
       <Dialog open={confirmMergeOpen} onOpenChange={setConfirmMergeOpen}>
-        <DialogContent>
+        <DialogContent mobile="alert">
           <DialogHeader>
             <DialogTitle>
               {isBatch
@@ -576,19 +577,14 @@ function ReviewDetailPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setConfirmMergeOpen(false)}
-            >
-              Cancel
-            </Button>
+            <DialogCancel onClick={() => setConfirmMergeOpen(false)} />
             <Button onClick={confirmMerge}>Merge pull request</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
-        <DialogContent>
+        <DialogContent mobile="alert">
           <DialogHeader>
             <DialogTitle>
               {isBatch
@@ -605,12 +601,7 @@ function ReviewDetailPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setConfirmCloseOpen(false)}
-            >
-              Cancel
-            </Button>
+            <DialogCancel onClick={() => setConfirmCloseOpen(false)} />
             <Button variant="destructive" onClick={confirmClose}>
               Close pull request
             </Button>

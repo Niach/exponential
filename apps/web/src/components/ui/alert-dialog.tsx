@@ -3,6 +3,7 @@ import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
+import { MOBILE_ALERT } from "@/components/ui/dialog-arms"
 
 function AlertDialog({
   ...props
@@ -51,14 +52,18 @@ function AlertDialogContent({
       <AlertDialogOverlay />
       <AlertDialogPrimitive.Content
         data-slot="alert-dialog-content"
-        // Mirrors DialogContent (EXP-369): full-screen page below `sm`, frosted
-        // centered panel from `sm` up, and a flex column that never scrolls
-        // itself so the confirm/cancel footer is always pinned. Alert dialogs
-        // are short by construction (title + description + footer), so none of
-        // them needs a scrolling body — anything longer belongs in a Dialog
-        // with a DialogBody.
+        // Mirrors DialogContent (EXP-369): frosted centered panel from `sm`
+        // up, and a flex column that never scrolls itself so the
+        // confirm/cancel footer is always pinned. Alert dialogs are short by
+        // construction (title + description + footer), so none of them needs a
+        // scrolling body — anything longer belongs in a Dialog with a
+        // DialogBody. Below `sm` EXP-687 made it the compact CENTERED alert
+        // (MOBILE_ALERT, the same arm `DialogContent mobile="alert"` uses):
+        // native `.alert` parity, never a sheet and never a full-screen page —
+        // a yes/no question does not deserve the whole screen.
         className={cn(
-          `fixed inset-0 z-50 flex w-full flex-col gap-4 overflow-hidden bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:inset-auto sm:top-[50%] sm:left-[50%] sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl sm:border sm:border-glass-stroke-card sm:bg-card/85 sm:shadow-2xl sm:shadow-black/40 sm:backdrop-blur-2xl`,
+          `fixed z-50 flex flex-col gap-4 overflow-hidden shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 sm:inset-auto sm:top-[50%] sm:left-[50%] sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl sm:border sm:border-glass-stroke-card sm:bg-card/85 sm:shadow-2xl sm:shadow-black/40 sm:backdrop-blur-2xl`,
+          MOBILE_ALERT,
           className
         )}
         {...props}
@@ -74,7 +79,7 @@ function AlertDialogHeader({
   return (
     <div
       data-slot="alert-dialog-header"
-      className={cn(`flex flex-col gap-2 text-center sm:text-left`, className)}
+      className={cn(`flex flex-col gap-2 text-left`, className)}
       {...props}
     />
   )
@@ -88,7 +93,9 @@ function AlertDialogFooter({
     <div
       data-slot="alert-dialog-footer"
       className={cn(
-        `flex flex-col-reverse gap-2 sm:flex-row sm:justify-end`,
+        // Stacked full-width actions on a phone (EXP-687), the native alert
+        // shape; a row from `sm` up.
+        `flex flex-col-reverse gap-2 max-sm:*:w-full sm:flex-row sm:justify-end`,
         className
       )}
       {...props}

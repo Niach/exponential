@@ -29,6 +29,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogCancel,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -443,7 +444,7 @@ export function WidgetConfigDialog({
       {/* Wide on desktop (EXP-267): this is the longest form dialog in the
           app — since EXP-435 it's organized into General / Form / Appearance
           tabs, with the whole-panel preview beside the appearance knobs. */}
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent mobile="sheet-full" className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{editTarget ? `Edit widget` : `New widget`}</DialogTitle>
           <DialogDescription>
@@ -914,13 +915,7 @@ export function WidgetConfigDialog({
           )}
         </DialogBody>
         <DialogFooter>
-          <Button
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-            disabled={saving}
-          >
-            Cancel
-          </Button>
+          <DialogCancel disabled={saving} />
           <Button onClick={save} disabled={saving || !canSave}>
             {saving ? `Saving…` : editTarget ? `Save` : `Create widget`}
           </Button>

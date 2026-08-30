@@ -4,6 +4,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -68,7 +69,7 @@ export function CancelSubscriptionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent mobile="alert" className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Cancel subscription</DialogTitle>
           <DialogDescription>
@@ -88,13 +89,9 @@ export function CancelSubscriptionDialog({
         </div>
 
         <DialogFooter>
-          <Button
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-            disabled={saving}
-          >
+          <DialogCancel onClick={() => onOpenChange(false)} disabled={saving}>
             Keep subscription
-          </Button>
+          </DialogCancel>
           <Button
             variant="destructive"
             onClick={handleCancel}

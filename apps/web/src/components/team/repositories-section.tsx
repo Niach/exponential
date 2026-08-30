@@ -352,10 +352,10 @@ export function TeamRepositoriesSection({
             teamId={teamId}
             onSelect={setPendingRepo}
             selectedFullName={pendingRepo?.fullName ?? null}
-            // EXP-449: the phone dialog is full-screen, so let the list use
-            // that height (~16rem reserved for header/search/footer chrome)
-            // instead of stopping at 40dvh with dead space below.
-            listClassName="max-h-[min(20rem,40dvh)] max-sm:max-h-[calc(100dvh-16rem)]"
+            // EXP-687: the phone presentation is a content-fitted sheet, so
+            // the list takes half the viewport and the sheet grows to fit it
+            // (it used to reach for the full-screen page's leftover height).
+            listClassName="max-h-[min(20rem,40dvh)] max-sm:max-h-[50dvh]"
             variant="plain"
           />
           {connectError && (

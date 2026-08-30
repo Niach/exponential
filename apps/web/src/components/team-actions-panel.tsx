@@ -29,6 +29,7 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -511,7 +512,7 @@ export function TeamActionsPanel({
           if (!next && !deleting) setDeleteTarget(null)
         }}
       >
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent mobile="alert" className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Delete action</DialogTitle>
             <DialogDescription>
@@ -519,13 +520,10 @@ export function TeamActionsPanel({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              variant="ghost"
+            <DialogCancel
               onClick={() => setDeleteTarget(null)}
               disabled={deleting}
-            >
-              Cancel
-            </Button>
+            />
             <Button
               variant="destructive"
               onClick={() => void confirmDelete()}

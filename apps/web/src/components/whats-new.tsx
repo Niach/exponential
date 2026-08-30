@@ -98,7 +98,7 @@ export function ChangelogSheet({
         side={isMobile ? `bottom` : `right`}
         className={
           isMobile
-            ? `max-h-[85dvh] overflow-y-auto rounded-t-xl pb-[max(1rem,env(safe-area-inset-bottom))]`
+            ? `gap-0 pb-[max(1rem,env(safe-area-inset-bottom))]`
             : `overflow-y-auto sm:max-w-xl`
         }
       >
@@ -108,7 +108,18 @@ export function ChangelogSheet({
             Recent releases and improvements.
           </SheetDescription>
         </SheetHeader>
-        <div className="space-y-6 px-4 pb-6">
+        {/* On mobile the sheet frame stays put and this list scrolls inside
+            the shared 90dvh cap (EXP-687); on desktop the panel itself
+            scrolls, so the wrapper is a plain block. Keyed on `isMobile`
+            (768) like `side`, not on `max-sm:` (640), so the 640-767 band
+            that still gets the bottom sheet can scroll it. */}
+        <div
+          className={
+            isMobile
+              ? `min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pb-6`
+              : `space-y-6 px-4 pb-6`
+          }
+        >
           {CHANGELOG.map((entry, index) => (
             <div key={entry.id}>
               {index > 0 && <Separator className="mb-6" />}

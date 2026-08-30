@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button"
 import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -453,7 +454,7 @@ export function MyMachines({
           if (!open && !busy) setRemoveTarget(null)
         }}
       >
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent mobile="alert" className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Remove machine</DialogTitle>
             <DialogDescription>
@@ -463,9 +464,7 @@ export function MyMachines({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="ghost" disabled={busy} onClick={() => setRemoveTarget(null)}>
-              Cancel
-            </Button>
+            <DialogCancel disabled={busy} onClick={() => setRemoveTarget(null)} />
             <Button variant="destructive" disabled={busy} onClick={() => void remove()}>
               {busy && <LoaderCircle className="animate-spin" />}
               Remove

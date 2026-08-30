@@ -104,13 +104,15 @@ export function IssueDetailMobileBar({
         </div>
       </div>
       <Sheet open={propertiesOpen} onOpenChange={setPropertiesOpen}>
+        {/* The sheet frame is the shared one (grabber, opaque, 90dvh cap);
+            the properties card is the scroll region inside it (EXP-687). */}
         <SheetContent
           data-testid="issue-properties-sheet"
           side="bottom"
-          className="max-h-[80dvh] overflow-y-auto p-2 pb-[max(1rem,env(safe-area-inset-bottom))]"
+          className="gap-0 p-2 pb-[max(1rem,env(safe-area-inset-bottom))]"
         >
           <SheetTitle className="sr-only">Issue properties</SheetTitle>
-          {propertiesNode}
+          <div className="min-h-0 flex-1 overflow-y-auto">{propertiesNode}</div>
         </SheetContent>
       </Sheet>
     </>

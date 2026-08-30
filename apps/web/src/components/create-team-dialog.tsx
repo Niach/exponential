@@ -5,6 +5,7 @@ import { isPlanLimitError } from "@/lib/plan-limit-error"
 import {
   Dialog,
   DialogBody,
+  DialogCancel,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -103,13 +104,10 @@ export function CreateTeamDialog({
             )}
           </DialogBody>
           <DialogFooter>
-            <Button
-              type="button"
+            <DialogCancel
               variant="outline"
               onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
+            />
             <Button type="submit" disabled={!name.trim() || submitting}>
               {submitting ? `Creating...` : `Create team`}
             </Button>

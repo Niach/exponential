@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-08-uniform-mobile-sheets`,
+    date: `2026-08-30`,
+    title: `One look for every sheet and menu`,
+    summary: `Bottom sheets on iOS, Android and the mobile web now share one design, sheets stack on iOS, New issue is a page on every phone, and the "..." menu on iOS opens reliably.`,
+    body: `- **One sheet**: every bottom sheet has a drag handle, a left-aligned title, the same dark surface and no Cancel or close button. Swipe down or tap outside to dismiss. The main action (Create, Save, Start coding) is one full-width button at the bottom.
+- **Same height everywhere**: small sheets such as New board, New label and Add repository size to their content on both platforms, while Start coding, New action, Automation and Device settings fill the screen.
+- **Sheets stack on iOS**: opening Labels or Status from the Properties sheet now slides in on top of it, and closing it takes you back to Properties, the way Android already worked.
+- **New issue is a page**: on iOS and the mobile web the editor opens as a full page with a back arrow and a Create button at the top, matching Android.
+- **Menus**: every Delete, Remove and Kill entry is red with a red icon and no divider, menu icons are the same size on every client, and Move to board uses the same icon everywhere. The "..." button on an iOS issue no longer drops taps or slides in from the bottom.
+- **Mobile web**: confirmations show as a small centered alert, and the issue header folds Share, Subscribe, Move to board and Delete into one "..." menu.`,
+  },
+  {
     id: `2026-08-steering-and-usage-ui`,
     date: `2026-08-30`,
     title: `A calmer steering view`,

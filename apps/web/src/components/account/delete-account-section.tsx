@@ -13,6 +13,7 @@ import {
 import {
   Dialog,
   DialogBody,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -81,7 +82,7 @@ export function DeleteAccountSection() {
           if (!open) closeDialog()
         }}
       >
-        <DialogContent>
+        <DialogContent mobile="alert">
           <DialogHeader>
             <DialogTitle>Delete your account</DialogTitle>
             <DialogDescription>
@@ -126,9 +127,11 @@ export function DeleteAccountSection() {
             </div>
           </DialogBody>
           <DialogFooter>
-            <Button variant="outline" onClick={closeDialog} disabled={deleting}>
-              Cancel
-            </Button>
+            <DialogCancel
+              variant="outline"
+              onClick={closeDialog}
+              disabled={deleting}
+            />
             <Button
               variant="destructive"
               onClick={handleDelete}

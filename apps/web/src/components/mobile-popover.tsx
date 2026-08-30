@@ -7,6 +7,8 @@ import {
 import {
   Sheet,
   SheetContent,
+  SheetHeader,
+  SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -49,17 +51,17 @@ export function MobilePopoverContent({
     return (
       <SheetContent
         side="bottom"
-        showCloseButton={false}
-        className={cn(
-          `flex flex-col gap-0 max-h-[85dvh] p-0 pb-[env(safe-area-inset-bottom)] rounded-t-xl`
-        )}
+        className={cn(`flex flex-col gap-0 p-0 pb-[env(safe-area-inset-bottom)]`)}
       >
-        {mobileTitle && (
-          <div className="px-4 pt-3 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {mobileTitle}
-          </div>
-        )}
-        {children}
+        {/* Every sheet gets the same header (EXP-687): left, headline, never
+            the old micro-caps label. A picker with no title still needs a
+            Radix title for the a11y tree. */}
+        <SheetHeader className="pb-2">
+          <SheetTitle className={mobileTitle ? undefined : `sr-only`}>
+            {mobileTitle ?? `Options`}
+          </SheetTitle>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </SheetContent>
     )
   }

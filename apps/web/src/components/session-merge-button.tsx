@@ -5,6 +5,7 @@ import { Button, type buttonVariants } from "@/components/ui/button"
 import type { VariantProps } from "class-variance-authority"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -91,6 +92,7 @@ export function SessionMergeButton({
         }}
       >
         <DialogContent
+          mobile="alert"
           className="sm:max-w-sm"
           onClick={(e) => e.stopPropagation()}
         >
@@ -101,13 +103,10 @@ export function SessionMergeButton({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              variant="ghost"
+            <DialogCancel
               onClick={() => setConfirmOpen(false)}
               disabled={merging}
-            >
-              Cancel
-            </Button>
+            />
             <Button onClick={merge} disabled={merging}>
               {merging ? (
                 <UiLoadingIcon className="animate-spin" />

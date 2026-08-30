@@ -32,6 +32,7 @@ import { AGENT_LABELS } from "@/components/launch-dialog/launch-options-pane"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -471,7 +472,7 @@ export function AutomationsTab({
           if (!next && !deleting) setDeleteTarget(null)
         }}
       >
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent mobile="alert" className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Delete automation</DialogTitle>
             <DialogDescription>
@@ -483,13 +484,10 @@ export function AutomationsTab({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              variant="ghost"
+            <DialogCancel
               onClick={() => setDeleteTarget(null)}
               disabled={deleting}
-            >
-              Cancel
-            </Button>
+            />
             <Button
               variant="destructive"
               onClick={() => void confirmDelete()}

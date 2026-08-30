@@ -385,6 +385,30 @@ describe(`icon call sites`, () => {
     ).toEqual([])
   })
 
+  it(`"Move to board" draws nav-boards on every web surface (EXP-687)`, () => {
+    // Three menus used to ship three glyphs for one action (folder-input in
+    // the issue row menu, folder-kanban in the board switcher, the iOS one on
+    // the natives). The concept is the fix; a raw lucide import is the
+    // regression, so gate the import as well as the call.
+    for (const file of [
+      `apps/web/src/components/issue-row-menu/submenus.tsx`,
+      `apps/web/src/components/issue-detail-mobile-menu.tsx`,
+      `apps/web/src/components/team/board-switcher-sheet.tsx`,
+    ]) {
+      const source = readFileSync(join(repoRoot, file), `utf8`)
+      expect(source, `${file}: must name the nav-boards concept`).toContain(
+        `conceptIcon(\`nav-boards\`)`
+      )
+      expect(source, `${file}: raw FolderInput import`).not.toMatch(
+        /\bFolderInput\b/
+      )
+      expect(source, `${file}: raw FolderKanban import`).not.toMatch(
+        /\bFolderKanban\b/
+      )
+    }
+    expect(SEMANTIC_ICONS[`nav-boards`]).toBe(`folder-kanban`)
+  })
+
   it(`web imports only canonical, non-deprecated lucide names`, () => {
     // lucide keeps deprecated aliases importable (`MoreHorizontal`,
     // `Loader2`, `AlertTriangle`, …). They still render, so nothing breaks —

@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/card"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -280,7 +281,7 @@ function AdminUserDetail() {
       </Card>
 
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <DialogContent>
+        <DialogContent mobile="alert">
           <DialogHeader>
             <DialogTitle>Delete user?</DialogTitle>
             <DialogDescription>
@@ -290,13 +291,11 @@ function AdminUserDetail() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
+            <DialogCancel
               variant="outline"
               onClick={() => setConfirmDelete(false)}
               disabled={busy}
-            >
-              Cancel
-            </Button>
+            />
             <Button variant="destructive" onClick={handleDelete} disabled={busy}>
               Delete
             </Button>

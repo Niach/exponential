@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button"
 import { BoardGlyph } from "@/components/board-glyph"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -425,7 +426,7 @@ function ReviewsPage() {
           if (!open) setMergeTarget(null)
         }}
       >
-        <DialogContent>
+        <DialogContent mobile="alert">
           <DialogHeader>
             <DialogTitle>
               {mergeTarget && mergeTarget.issues.length > 1
@@ -442,9 +443,7 @@ function ReviewsPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setMergeTarget(null)}>
-              Cancel
-            </Button>
+            <DialogCancel onClick={() => setMergeTarget(null)} />
             <Button onClick={confirmMerge}>Merge pull request</Button>
           </DialogFooter>
         </DialogContent>
@@ -456,7 +455,7 @@ function ReviewsPage() {
           if (!open) setExternalMergeTarget(null)
         }}
       >
-        <DialogContent>
+        <DialogContent mobile="alert">
           <DialogHeader>
             <DialogTitle>{`Merge ${externalMergeTarget?.fullName}#${externalMergeTarget?.pull.number}?`}</DialogTitle>
             <DialogDescription>
@@ -464,9 +463,7 @@ function ReviewsPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setExternalMergeTarget(null)}>
-              Cancel
-            </Button>
+            <DialogCancel onClick={() => setExternalMergeTarget(null)} />
             <Button onClick={confirmExternalMerge}>Merge pull request</Button>
           </DialogFooter>
         </DialogContent>

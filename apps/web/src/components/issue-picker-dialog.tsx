@@ -1,11 +1,6 @@
 import { useState } from "react"
-import { Search, X } from "lucide-react"
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Search } from "lucide-react"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
@@ -56,8 +51,9 @@ export function IssuePickerDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
+        mobile="sheet-full"
         showCloseButton={false}
-        className="p-0 gap-0 flex flex-col overflow-hidden sm:top-[15%] sm:max-h-[60vh] sm:translate-y-0 sm:max-w-lg"
+        className="flex flex-col gap-0 overflow-hidden p-0 max-sm:px-0 sm:top-[15%] sm:max-h-[60vh] sm:max-w-lg sm:translate-y-0"
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
         <div className="flex items-center gap-2 px-3 py-3 border-b border-border/50">
@@ -69,21 +65,6 @@ export function IssuePickerDialog({
             autoFocus
             className="border-none shadow-none focus-visible:ring-0 h-9 text-base md:text-sm"
           />
-          {/* Below `sm` the dialog is a full-screen page (EXP-255), so there is
-              no overlay to tap outside and no Escape key — without this the
-              picker would only be dismissable by picking an issue. Hidden from
-              `sm` up, where the palette look stays chrome-free. */}
-          <DialogClose asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label="Close"
-              className="size-8 shrink-0 text-muted-foreground sm:hidden"
-            >
-              <X className="size-4" />
-            </Button>
-          </DialogClose>
         </div>
         <div className="flex-1 overflow-y-auto">
           {results.length === 0 && (

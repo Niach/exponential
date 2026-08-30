@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -515,8 +516,9 @@ export function CreateIssueDialog({
           type: `submit`,
           disabled: !title.trim() || closeDisabled,
           loading: submitPhase === `creating` || submitPhase === `uploading`,
+          label: `Create`,
         }}
-        headerContent={<span className="text-sm">New issue</span>}
+        headerContent="New issue"
         title={title}
         titleRef={titleRef}
         autoFocus
@@ -593,6 +595,7 @@ export function CreateIssueDialog({
 
       <Dialog open={discardConfirmOpen} onOpenChange={setDiscardConfirmOpen}>
         <DialogContent
+          mobile="alert"
           className="sm:max-w-sm"
           data-testid="discard-draft-confirm"
         >
@@ -604,13 +607,9 @@ export function CreateIssueDialog({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setDiscardConfirmOpen(false)}
-            >
+            <DialogCancel onClick={() => setDiscardConfirmOpen(false)}>
               Keep editing
-            </Button>
+            </DialogCancel>
             <Button type="button" variant="destructive" onClick={handleClose}>
               Discard draft
             </Button>

@@ -12,6 +12,7 @@ import {
 import {
   Dialog,
   DialogBody,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -101,7 +102,7 @@ function SettingsGeneral() {
                 }
               }}
             >
-              <DialogContent>
+              <DialogContent mobile="alert">
                 <DialogHeader>
                   <DialogTitle>Delete team</DialogTitle>
                   <DialogDescription>
@@ -130,7 +131,7 @@ function SettingsGeneral() {
                   )}
                 </DialogBody>
                 <DialogFooter>
-                  <Button
+                  <DialogCancel
                     variant="outline"
                     onClick={() => {
                       setShowDeleteTeam(false)
@@ -138,9 +139,7 @@ function SettingsGeneral() {
                       setDeleteError(``)
                     }}
                     disabled={deletingTeam}
-                  >
-                    Cancel
-                  </Button>
+                  />
                   <Button
                     variant="destructive"
                     onClick={handleDeleteTeam}

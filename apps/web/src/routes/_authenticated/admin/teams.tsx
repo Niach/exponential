@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -241,7 +242,7 @@ function AdminTeams() {
         open={Boolean(confirmDelete)}
         onOpenChange={(open) => !open && setConfirmDelete(null)}
       >
-        <DialogContent>
+        <DialogContent mobile="alert">
           <DialogHeader>
             <DialogTitle>Delete team?</DialogTitle>
             <DialogDescription>
@@ -251,13 +252,11 @@ function AdminTeams() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
+            <DialogCancel
               variant="outline"
               onClick={() => setConfirmDelete(null)}
               disabled={busy !== null}
-            >
-              Cancel
-            </Button>
+            />
             <Button
               variant="destructive"
               onClick={handleDelete}

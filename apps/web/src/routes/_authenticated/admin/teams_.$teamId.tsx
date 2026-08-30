@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -485,7 +486,7 @@ function AdminTeamDetail() {
         open={pendingComp !== null}
         onOpenChange={(open) => !open && setPendingComp(null)}
       >
-        <DialogContent>
+        <DialogContent mobile="alert">
           <DialogHeader>
             <DialogTitle>
               {pendingComp === `none`
@@ -499,13 +500,11 @@ function AdminTeamDetail() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
+            <DialogCancel
               variant="outline"
               onClick={() => setPendingComp(null)}
               disabled={busy}
-            >
-              Cancel
-            </Button>
+            />
             <Button onClick={handleSetComp} disabled={busy}>
               Confirm
             </Button>
@@ -515,7 +514,7 @@ function AdminTeamDetail() {
 
       {/* Delete confirm */}
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <DialogContent>
+        <DialogContent mobile="alert">
           <DialogHeader>
             <DialogTitle>Delete team?</DialogTitle>
             <DialogDescription>
@@ -525,13 +524,11 @@ function AdminTeamDetail() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
+            <DialogCancel
               variant="outline"
               onClick={() => setConfirmDelete(false)}
               disabled={busy}
-            >
-              Cancel
-            </Button>
+            />
             <Button variant="destructive" onClick={handleDelete} disabled={busy}>
               Delete
             </Button>

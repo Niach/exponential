@@ -6,15 +6,10 @@ import { issueSubscriberCollection } from "@/lib/collections"
 import { Button } from "@/components/ui/button"
 import { IconTooltip } from "@/components/icon-tooltip"
 
-// Per-issue subscribe toggle with live state from the issue_subscribers shape.
-// Subscribed users get inbox activity + (plan-gated) push for the issue.
-export function SubscribeToggle({
-  issueId,
-  currentUserId,
-}: {
-  issueId: string
-  currentUserId: string
-}) {
+// Live subscription state + the toggle mutation for one issue, extracted from
+// the button (EXP-687) so the mobile issue-detail `…` menu can offer the same
+// action as a menu ITEM without duplicating the query.
+export function useIssueSubscription(issueId: string, currentUserId: string) {
   const { data: rows } = useLiveQuery(
     (query) =>
       query
@@ -40,6 +35,23 @@ export function SubscribeToggle({
       setBusy(false)
     }
   }
+
+  return { subscribed, busy, toggle }
+}
+
+// Per-issue subscribe toggle with live state from the issue_subscribers shape.
+// Subscribed users get inbox activity + (plan-gated) push for the issue.
+export function SubscribeToggle({
+  issueId,
+  currentUserId,
+}: {
+  issueId: string
+  currentUserId: string
+}) {
+  const { subscribed, busy, toggle } = useIssueSubscription(
+    issueId,
+    currentUserId
+  )
 
   // The button already reads "Subscribe"/"Subscribed", so the tooltip spends its
   // words on what subscribing actually gets you rather than restating the label.

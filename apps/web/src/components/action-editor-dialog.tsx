@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogBody,
+  DialogCancel,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -247,14 +248,10 @@ export function ActionEditorDialog({
           </DialogBody>
 
           <DialogFooter>
-            <Button
-              type="button"
-              variant="ghost"
+            <DialogCancel
               onClick={() => onOpenChange(false)}
               disabled={submitting}
-            >
-              Cancel
-            </Button>
+            />
             <Button type="submit" disabled={!canSubmit || submitting}>
               {submitting ? `Saving…` : `Save changes`}
             </Button>

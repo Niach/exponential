@@ -608,6 +608,7 @@ export function DeviceSettingsDialog({
           on every client. `aria-describedby={undefined}` keeps Radix from
           pointing at a description that no longer exists. */}
       <DialogContent
+        mobile="sheet-full"
         className="gap-4 sm:max-h-[85dvh] sm:max-w-lg"
         aria-describedby={undefined}
       >

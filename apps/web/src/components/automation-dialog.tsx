@@ -33,6 +33,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogCancel,
 } from "@/components/ui/dialog"
 import { GlassGroup, GlassPickerRow } from "@/components/ui/glass-rows"
 
@@ -194,7 +195,7 @@ export function AutomationDialog({
       {/* EXP-616: a bottom sheet on mobile — the body is an ordinary
           DialogBody, so it takes the fixed 94dvh detent's free height and
           scrolls inside it, content anchored to the top. */}
-      <DialogContent mobileSheet className="sm:max-h-[85dvh] sm:max-w-lg">
+      <DialogContent mobile="sheet-full" className="sm:max-h-[85dvh] sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             {editing ? `Edit automation` : `New automation`}
@@ -269,14 +270,7 @@ export function AutomationDialog({
           </DialogBody>
 
           <DialogFooter>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => onOpenChange(false)}
-              disabled={submitting}
-            >
-              Cancel
-            </Button>
+            <DialogCancel disabled={submitting} />
             <Button type="submit" disabled={!canSubmit}>
               {submitting && <LoaderCircle className="animate-spin" />}
               {editing ? `Save changes` : `Create automation`}
