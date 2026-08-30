@@ -9,7 +9,7 @@ import { PROJECT, type Issue, type IssueStatus } from "../ide/data"
 export const WIDGET_FILED_ISSUE: Issue = {
   id: `EXP-14`,
   title: `Screenshot upload never finishes`,
-  status: `todo`,
+  status: `backlog`,
   priority: `none`,
   labels: [{ name: `feedback`, color: `#22c55e` }],
 }
@@ -36,11 +36,10 @@ export const WEB_PROJECTS: DemoProject[] = [
 export const WEB_BOARD = WEB_PROJECTS[0]
 
 /* Group order — the app lists groups by the status rows' contract
-   displayOrder (backlog → todo → started → completed), NOT by the IDE's
+   displayOrder (backlog → started → completed), NOT by the IDE's
    activity-first order. */
 export const WEB_GROUP_ORDER: IssueStatus[] = [
   `backlog`,
-  `todo`,
   `in_progress`,
   `in_review`,
   `done`,

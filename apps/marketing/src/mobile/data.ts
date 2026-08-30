@@ -1,6 +1,6 @@
 export type MobPriority = `none` | `high` | `medium`
 
-export type MobStatus = `in_progress` | `in_review` | `todo` | `backlog` | `done`
+export type MobStatus = `in_progress` | `in_review` | `backlog` | `done`
 
 export type MobIssue = {
   identifier: string
@@ -44,21 +44,15 @@ export const mobGroups: MobGroup[] = [
     ],
   },
   {
-    status: `todo`,
-    label: `Todo`,
+    status: `backlog`,
+    label: `Backlog`,
     issues: [
       {
         identifier: `EXP-12`,
         title: `Attachment paste uploads`,
         priority: `none`,
-        status: `todo`,
+        status: `backlog`,
       },
-    ],
-  },
-  {
-    status: `backlog`,
-    label: `Backlog`,
-    issues: [
       {
         identifier: `EXP-9`,
         title: `Issue board keyboard polish`,
@@ -112,20 +106,20 @@ export const mobAltGroups: MobGroup[] = [
     ],
   },
   {
-    status: `todo`,
-    label: `Todo`,
+    status: `backlog`,
+    label: `Backlog`,
     issues: [
       {
         identifier: `MOB-7`,
         title: `Push notification deep links`,
         priority: `medium`,
-        status: `todo`,
+        status: `backlog`,
       },
       {
         identifier: `MOB-9`,
         title: `Haptics on swipe actions`,
         priority: `none`,
-        status: `todo`,
+        status: `backlog`,
       },
     ],
   },
@@ -171,7 +165,7 @@ export const mobSearchResults: MobIssue[] = [
     identifier: `EXP-19`,
     title: `OAuth error toasts`,
     priority: `none`,
-    status: `todo`,
+    status: `backlog`,
   },
 ]
 

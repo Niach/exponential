@@ -1,6 +1,6 @@
 /* ─── IDE playground fixture data — dogfood: Exponential building Exponential ─── */
 
-export type IssueStatus = `backlog` | `todo` | `in_progress` | `in_review` | `done`
+export type IssueStatus = `backlog` | `in_progress` | `in_review` | `done`
 export type IssuePriority = `none` | `urgent` | `high` | `medium` | `low`
 export type FilterTab = `all` | `active` | `backlog`
 
@@ -40,7 +40,7 @@ export const ISSUES: Issue[] = [
   {
     id: `EXP-12`,
     title: `Attachment paste uploads`,
-    status: `todo`,
+    status: `backlog`,
     priority: `none`,
   },
   {
@@ -77,20 +77,18 @@ export const getIssue = (id: string): Issue =>
 export const GROUP_ORDER: { status: IssueStatus; label: string }[] = [
   { status: `in_progress`, label: `In Progress` },
   { status: `in_review`, label: `In Review` },
-  { status: `todo`, label: `Todo` },
   { status: `backlog`, label: `Backlog` },
   { status: `done`, label: `Done` },
 ]
 
 export const FILTER_STATUSES: Record<FilterTab, IssueStatus[]> = {
-  all: [`in_progress`, `in_review`, `todo`, `backlog`, `done`],
-  active: [`in_progress`, `in_review`, `todo`],
+  all: [`in_progress`, `in_review`, `backlog`, `done`],
+  active: [`in_progress`, `in_review`],
   backlog: [`backlog`],
 }
 
 export const STATUS_LABEL: Record<IssueStatus, string> = {
   backlog: `Backlog`,
-  todo: `Todo`,
   in_progress: `In Progress`,
   in_review: `In Review`,
   done: `Done`,

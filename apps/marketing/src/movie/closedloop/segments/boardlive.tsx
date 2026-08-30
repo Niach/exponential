@@ -1,9 +1,9 @@
 // closedloop/segments/boardlive.tsx — clip 1 (245f, the OPENER since
 // EXP-385): multiplayer vibecoding. Opens FULLY COMPOSED — local frame 0 is
 // the checked-in poster frame (bun run movie:poster): the whole IDE with
-// EXP-151 open in Todo and the phone beside it showing the SAME board in the
-// real mobile app. A presence facepile pops into the titlebar, Mara's colored
-// remote cursor drags EXP-149 Todo → In Progress, the mobile list regroups
+// EXP-151 open in Backlog and the phone beside it showing the SAME board in
+// the real mobile app. A presence facepile pops into the titlebar, Mara's
+// colored remote cursor drags EXP-149 Backlog → In Progress, the list regroups
 // with her AND the push banner drops ("Mara changed EXP-149 to In Progress"),
 // a teammate's live edit flashes onto EXP-150. ONE static framing with a
 // slow push — the camera never jumps (EXP-388). All beats are LOCAL frames.
@@ -106,28 +106,30 @@ const CAMERA_KEYS_PT: CamKey[] = shotKeys([
 // ── Cursors (window-local coords) ───────────────────────────────────────────
 // The list pane starts under the 34px titlebar + the 44px Filter header, so
 // row 0 sits at window y 78 and every row is 28 tall. Contract group order
-// (backlog → todo → in progress → done) puts, BEFORE the drag:
-//   h:backlog 78 · EXP-145 106 · EXP-146 134 · h:todo 162 · EXP-151 190 ·
-//   EXP-149 218 · EXP-150 246 · h:in-progress 274 · EXP-148 302 · h:done 330
-// AFTER it, EXP-149 lands at 302 (under EXP-148) and EXP-150 rises to 218.
-// Cursor Ys are row centers (top + 14).
+// (backlog → in progress → done) puts, BEFORE the drag:
+//   h:backlog 78 · EXP-151 106 · EXP-149 134 · EXP-150 162 · EXP-145 190 ·
+//   EXP-146 218 · h:in-progress 246 · EXP-148 274 · h:done 302 · EXP-144 330 ·
+//   EXP-147 358
+// AFTER it, EXP-149 lands at 274 (under EXP-148) and EXP-150 rises to 134;
+// everything from h:in-progress down is unmoved. Cursor Ys are row centers
+// (top + 14).
 const REMOTE_KEYS: CursorKey[] = [
   { f: B.remoteIn, x: 250, y: 150 },
-  { f: 44, x: 360, y: 232 }, // EXP-149, still in Todo
-  { f: B.dragFrom, x: 360, y: 232 },
-  { f: B.dragTo, x: 360, y: 316 }, // dropped under EXP-148 in In Progress
-  { f: 92, x: 360, y: 316 },
-  { f: 118, x: 430, y: 372 },
-  { f: 150, x: 430, y: 372 },
+  { f: 44, x: 360, y: 148 }, // EXP-149, still in Backlog
+  { f: B.dragFrom, x: 360, y: 148 },
+  { f: B.dragTo, x: 360, y: 288 }, // dropped under EXP-148 in In Progress
+  { f: 92, x: 360, y: 288 },
+  { f: 118, x: 430, y: 344 }, // idles over EXP-144 in Done
+  { f: 150, x: 430, y: 344 },
   { f: B.remoteOut, x: 120, y: 250 },
 ]
 
 const LOCAL_KEYS: CursorKey[] = [
   { f: 0, x: 900, y: 420 },
   { f: 52, x: 900, y: 420 },
-  { f: 80, x: 345, y: 232 }, // EXP-150, where the regroup leaves it
-  { f: 150, x: 345, y: 232 },
-  { f: 168, x: 345, y: 232 },
+  { f: 80, x: 345, y: 148 }, // EXP-150, where the regroup leaves it
+  { f: 150, x: 345, y: 148 },
+  { f: 168, x: 345, y: 148 },
   { f: 190, x: 900, y: 500 },
 ]
 
@@ -135,7 +137,7 @@ const TAB_151: ChromeTab = {
   id: "exp151",
   identifier: NEW_ISSUE_ID,
   label: CL_ISSUE.title,
-  status: "todo",
+  status: "backlog",
 }
 
 // Phone placement in COMP coordinates inside the camera layer (floats over
@@ -165,7 +167,7 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
     ? {
         id: REMOTE_DRAG_ID,
         t: interpolate(frame, [B.dragFrom, B.dragTo], [0, 1], CLAMP_EASE),
-        from: "todo" as const,
+        from: "backlog" as const,
       }
     : undefined
 
@@ -209,7 +211,7 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
               />
             </SidebarPane>
 
-            {/* center: EXP-151 open in Todo — the state feedback wraps into */}
+            {/* center: EXP-151 open in Backlog — the state feedback wraps into */}
             <div
               style={{
                 position: "absolute",
@@ -222,7 +224,7 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
             >
               <IssueDetailPane
                 frame={frame}
-                status="todo"
+                status="backlog"
                 priority="none"
                 issue={CL_ISSUE}
                 width={CENTER_W}

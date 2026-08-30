@@ -56,7 +56,6 @@ import {
 const statusColor: Record<MobStatus, string> = {
   in_progress: `var(--st-progress)`,
   in_review: `var(--st-review)`,
-  todo: `var(--fg)`,
   backlog: `var(--fg-muted)`,
   done: `var(--st-done)`,
 }

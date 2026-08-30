@@ -38,16 +38,14 @@ export const Glyph: React.FC<{
 )
 
 // ── Status + priority glyphs (contract vocabulary, theme tokens) ─────────────
-export type MobileStatus = "backlog" | "todo" | "in_progress" | "done"
+export type MobileStatus = "backlog" | "in_progress" | "done"
 
 export const statusColor = (s: MobileStatus): string =>
   s === "backlog"
     ? C.statusBacklog
-    : s === "todo"
-      ? C.statusTodo
-      : s === "in_progress"
-        ? C.statusInProgress
-        : C.statusDone
+    : s === "in_progress"
+      ? C.statusInProgress
+      : C.statusDone
 
 export const MStatusIcon: React.FC<{ status: MobileStatus; size: number }> = ({
   status,
@@ -57,10 +55,6 @@ export const MStatusIcon: React.FC<{ status: MobileStatus; size: number }> = ({
     {status === "backlog" ? (
       <Glyph size={size} sw={2}>
         <circle cx="12" cy="12" r="9" strokeDasharray="3.6 3.4" />
-      </Glyph>
-    ) : status === "todo" ? (
-      <Glyph size={size} sw={2}>
-        <circle cx="12" cy="12" r="9" />
       </Glyph>
     ) : status === "in_progress" ? (
       <Glyph size={size} sw={2}>
@@ -372,7 +366,6 @@ export type PhoneBoardRow = {
 // web lists group by: backlog → unstarted → started → completed.
 const SECTION_ORDER: { status: MobileStatus; name: string }[] = [
   { status: "backlog", name: "Backlog" },
-  { status: "todo", name: "Todo" },
   { status: "in_progress", name: "In Progress" },
   { status: "done", name: "Done" },
 ]

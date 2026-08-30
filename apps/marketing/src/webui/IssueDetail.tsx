@@ -83,7 +83,6 @@ function Description({ issueId }: { issueId: string }) {
    name and the changed value are the only foreground words in the line. */
 const STATUS_BY_LABEL: Record<string, IssueStatus> = {
   Backlog: `backlog`,
-  Todo: `todo`,
   [`In Progress`]: `in_progress`,
   [`In Review`]: `in_review`,
   Done: `done`,

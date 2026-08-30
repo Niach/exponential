@@ -64,12 +64,6 @@ const ChevronDownIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
   </svg>
 )
 
-const CircleIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
-  <svg {...svgProps(size, 2)}>
-    <circle cx="12" cy="12" r="9" />
-  </svg>
-)
-
 const CircleDashedIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
   <svg {...svgProps(size, 2)}>
     <circle cx="12" cy="12" r="9" strokeDasharray="3.6 3.4" />
@@ -172,12 +166,6 @@ export const StatusIcon: React.FC<{ status: IssueStatus; size?: number }> = ({
       return (
         <span style={{ color: C.statusBacklog, display: `flex` }}>
           <CircleDashedIcon size={size} />
-        </span>
-      )
-    case `todo`:
-      return (
-        <span style={{ color: C.statusTodo, display: `flex` }}>
-          <CircleIcon size={size} />
         </span>
       )
     case `in_progress`:
@@ -397,7 +385,6 @@ export const SidebarPane: React.FC<{
 // → completed. The app groups the board in exactly this order.
 const GROUPS: { status: IssueStatus; label: string; tint: string }[] = [
   { status: `backlog`, label: `Backlog`, tint: C.tintBacklog },
-  { status: `todo`, label: `Todo`, tint: C.tintTodo },
   { status: `in_progress`, label: `In Progress`, tint: C.tintInProgress },
   { status: `done`, label: `Done`, tint: C.tintDone },
 ]

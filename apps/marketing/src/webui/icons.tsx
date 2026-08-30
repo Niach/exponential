@@ -16,7 +16,6 @@ import {
   ChevronRight,
   ChevronUp,
   ChevronsUpDown,
-  Circle,
   CircleCheck,
   CircleDashed,
   CircleDot,
@@ -96,7 +95,6 @@ export const IcKanban = wrap(SquareKanban) // settings-boards
 export const IcMegaphone = wrap(Megaphone) // ui-widget
 
 /* Status / priority */
-export const IcCircle = wrap(Circle) // status-todo
 export const IcCircleDashed = wrap(CircleDashed) // status-backlog
 export const IcCircleCheck = wrap(CircleCheck) // status-done
 export const IcMinus = wrap(Minus) // priority-none

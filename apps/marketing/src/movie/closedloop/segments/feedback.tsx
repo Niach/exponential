@@ -3,8 +3,8 @@
 // the embedded feedback widget. ONE framing on the site the whole clip — no
 // whip-pan: after "Thanks — sent!" the phone rises with the REAL mobile board
 // list, the "New feedback: EXP-151" push drops and the issue row pops into
-// Todo — exactly the state clip 1 opens on, so the loop wraps into the live
-// board. All beats are LOCAL frames.
+// Backlog — exactly the state clip 1 opens on, so the loop wraps into the
+// live board. All beats are LOCAL frames.
 
 import React from "react"
 import { AbsoluteFill, interpolate } from "remotion"
@@ -60,7 +60,7 @@ const B = {
   success: 154, // "Thanks for the report!" holds
   phoneIn: 168, // the phone rises with the mobile board
   pushAt: 176, // "New feedback: EXP-151"
-  insert: 190, // the EXP-151 row pops into Todo
+  insert: 190, // the EXP-151 row pops into Backlog
 } as const
 
 const CAPTIONS = {
@@ -176,8 +176,8 @@ export const FeedbackSegment: React.FC<SegmentProps> = ({
             />
           </BrowserChassis>
 
-          {/* the phone: the report lands as a push + a new Todo row on the
-              real mobile board */}
+          {/* the phone: the report lands as a push + a new Backlog row on
+              the real mobile board */}
           {phoneRise > 0.01 ? (
             <div
               style={{

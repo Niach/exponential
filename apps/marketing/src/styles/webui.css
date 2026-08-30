@@ -503,12 +503,9 @@
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
 }
-/* The `/10` washes: zinc-500 / zinc-300 / yellow-500 / green-500 / blue-500 */
+/* The `/10` washes: zinc-500 / yellow-500 / green-500 / blue-500 */
 .web-wash-backlog {
   background: rgba(113, 113, 122, 0.1);
-}
-.web-wash-todo {
-  background: rgba(212, 212, 216, 0.1);
 }
 .web-wash-in_progress {
   background: rgba(240, 177, 0, 0.1);

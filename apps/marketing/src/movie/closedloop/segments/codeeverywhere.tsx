@@ -4,7 +4,7 @@
 // chip box, the icon-only play circle), the real start sheet slides up
 // (Issues · agent pills · Model · Effort — a long dwell, this IS the film's
 // start-coding dialog) and on Start the desktop reacts SIMULTANEOUSLY — the
-// dock springs open with the session tab, EXP-151 FLIPs Todo → In Progress
+// dock springs open with the session tab, EXP-151 FLIPs Backlog → In Progress
 // and the coding-now pill pops in the properties panel. The "Start sent"
 // toast confirms, the phone flips to the session screen, mirrors the feed,
 // and a typed steer lands highlighted in the terminal. ONE static framing —
@@ -124,7 +124,7 @@ const TAB_151 = (frame: number): ChromeTab => ({
   id: "exp151",
   identifier: NEW_ISSUE_ID,
   label: CL_ISSUE.title,
-  status: frame >= B.simul ? "in_progress" : "todo",
+  status: frame >= B.simul ? "in_progress" : "backlog",
 })
 const DOCK_TABS: DockTab[] = [
   { id: "zsh", label: "zsh" },
@@ -152,7 +152,7 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
   const capSize = captionSize(portrait)
 
   const heroStatus =
-    frame >= B.simul ? ("in_progress" as const) : ("todo" as const)
+    frame >= B.simul ? ("in_progress" as const) : ("backlog" as const)
   // Carried multiplayer state from clip 1: Mara's drag + the live edit.
   const overrides = {
     [NEW_ISSUE_ID]: { status: heroStatus },
@@ -164,7 +164,7 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
       ? {
           id: NEW_ISSUE_ID,
           t: interpolate(frame, [B.simul, B.simul + 16], [0, 1], CLAMP),
-          from: "todo" as const,
+          from: "backlog" as const,
         }
       : undefined
 

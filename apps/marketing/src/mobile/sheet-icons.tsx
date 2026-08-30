@@ -25,7 +25,6 @@ const GREEN = `#22c55e`
 const RED = `#ef4444`
 const ORANGE = `#f97316`
 const BLUE = `#3b82f6`
-const ZINC_50 = `#fafafa`
 
 /* The registry's pie clocks: a lucide-geometry ring plus a filled wedge. */
 function ProgressClock({
@@ -61,8 +60,6 @@ export function MssStatusIcon({ status }: { status: IssueStatus }) {
   switch (status) {
     case `backlog`:
       return <CircleDashed {...props} color={NEUTRAL} className={`mss-glyph mss-status`} />
-    case `todo`:
-      return <Circle {...props} color={ZINC_50} className={`mss-glyph mss-status`} />
     case `in_progress`:
       return (
         <ProgressClock

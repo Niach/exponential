@@ -199,11 +199,6 @@ const IcMinus: React.FC<IconProps> = (p) => (
   </Svg>
 )
 // Status glyphs
-const IcCircle: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
-    <circle cx="12" cy="12" r="9" />
-  </Svg>
-)
 const IcCircleDashed: React.FC<IconProps> = (p) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="9" strokeDasharray="3.6 3.4" />
@@ -232,7 +227,6 @@ const STATUS_META: Record<
   { label: string; color: string; Icon: React.FC<IconProps> }
 > = {
   backlog: { label: "Backlog", color: C.statusBacklog, Icon: IcCircleDashed },
-  todo: { label: "Todo", color: C.statusTodo, Icon: IcCircle },
   in_progress: {
     label: "In Progress",
     color: C.statusInProgress,
@@ -344,7 +338,7 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
   frame,
   codingNow,
   slideInAt,
-  status = "todo",
+  status = "backlog",
   priority = "high",
   issue = HERO_ISSUE,
   codingUser,

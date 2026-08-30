@@ -185,7 +185,7 @@ const XIcon: React.FC<{ size?: number }> = ({ size = 9 }) => (
 
 // Builtin status glyphs for tab chips (EXP-310: status icon + identifier ahead
 // of the title). Pie-clock wedge for started statuses (icons.json progress-2-4).
-export type TabStatus = "backlog" | "todo" | "in_progress" | "done"
+export type TabStatus = "backlog" | "in_progress" | "done"
 
 const TabStatusGlyph: React.FC<{ status: TabStatus; size?: number }> = ({
   status,
@@ -197,14 +197,6 @@ const TabStatusGlyph: React.FC<{ status: TabStatus; size?: number }> = ({
         <span style={{ color: C.statusBacklog, display: "flex" }}>
           <Svg size={size} sw={2}>
             <circle cx="12" cy="12" r="10" strokeDasharray="3.6 3.4" />
-          </Svg>
-        </span>
-      )
-    case "todo":
-      return (
-        <span style={{ color: C.statusTodo, display: "flex" }}>
-          <Svg size={size} sw={2}>
-            <circle cx="12" cy="12" r="10" />
           </Svg>
         </span>
       )

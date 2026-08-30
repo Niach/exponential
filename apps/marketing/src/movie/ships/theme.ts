@@ -54,7 +54,6 @@ export const C = {
   neutral: "#a1a1aa", // board/project dots (EXP-594: indigo retired)
   // status (contract issueStatusDefaults — done is BLUE, not green)
   statusBacklog: "#a1a1aa",
-  statusTodo: "#fafafa",
   statusInProgress: "#eab308",
   statusInReview: "#22c55e",
   statusDone: "#3b82f6",
@@ -65,9 +64,8 @@ export const C = {
   prioLow: "#3b82f6",
   // group header tints — desktop issue_list.rs status_header_tint: the status
   // accent at HEADER_TINT_ALPHA 0.10 (between the 5% hover and 15% active
-  // washes); backlog/todo degrade to the NEUTRAL zinc accent.
+  // washes); backlog degrades to the NEUTRAL zinc accent.
   tintBacklog: "rgba(161,161,170,0.10)",
-  tintTodo: "rgba(161,161,170,0.10)",
   tintInProgress: "rgba(234,179,8,0.10)",
   tintDone: "rgba(59,130,246,0.10)",
   // diff
