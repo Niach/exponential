@@ -239,18 +239,18 @@ final class StyleguideScreenshots: XCTestCase {
             "Properties sheet never showed its property rows"
         )
         snapshot("sg_issue-properties", settle: 2)
-        // "Close" is the GlassSheetChrome ✕ — the app's only one. Let the sheet
-        // finish animating out before the nav-bar back tap, or that tap lands
-        // on the dismissing sheet.
-        app.buttons["Close"].firstMatch.tap()
+        // EXP-687: no sheet has a close button any more. Let the sheet finish
+        // animating out before the nav-bar back tap, or that tap lands on the
+        // dismissing sheet.
+        dismissSheet(app, whileVisible: propertiesHeadline)
         _ = propertiesHeadline.waitForNonExistence(timeout: 10)
         settle(1)
         goBack(app)
 
-        // ── sg_issue-create: the new-issue sheet ────────────────────────────
+        // ── sg_issue-create: the new-issue page ─────────────────────────────
         // The compose button is only mounted on board routes (AppNavigator
-        // `resolvedComposeTarget`), so come back to the issues tab first. The
-        // title field takes focus on appear, so the sheet is captured with the
+        // `composeRoute`), so come back to the issues tab first. The title
+        // field takes focus on appear, so the page is captured with the
         // keyboard up — which is the state a user actually sees.
         app.buttons["tab-issues"].tap()
         XCTAssertTrue(showcaseRowTitle.waitForExistence(timeout: 20), "Board did not come back for the compose shot")
@@ -258,12 +258,16 @@ final class StyleguideScreenshots: XCTestCase {
         XCTAssertTrue(composeButton.waitForExistence(timeout: 15), "Compose button missing on the board")
         composeButton.tap()
         let titleField = app.textFields["issue-title-field"]
-        XCTAssertTrue(titleField.waitForExistence(timeout: 15), "Create-issue sheet did not open")
+        XCTAssertTrue(titleField.waitForExistence(timeout: 15), "Create-issue page did not open")
         focus(titleField)
         titleField.typeText("Prefetch avatars before the first board paint")
         snapshot("sg_issue-create", settle: 2)
-        // Cancel — the styleguide run must not write anything to the seed.
-        app.buttons["Cancel"].firstMatch.tap()
+        // EXP-687: New issue is a PAGE — Back, then confirm the discard. The
+        // styleguide run must not write anything to the seed.
+        app.buttons["Back"].firstMatch.tap()
+        let discardDraft = app.buttons["Discard"].firstMatch
+        if discardDraft.waitForExistence(timeout: 10) { discardDraft.tap() }
+        _ = titleField.waitForNonExistence(timeout: 10)
 
         // ── sg_search: the search view with seeded results ───────────────────
         // EXP-686: Search lost its tab — it is a push off the board header,
@@ -345,7 +349,7 @@ final class StyleguideScreenshots: XCTestCase {
         XCTAssertTrue(chatTab.waitForExistence(timeout: 15), "Start-coding sheet has no Chat tab")
         chatTab.tap()
         snapshot("sg_start-coding-chat", settle: 2)
-        app.buttons["Cancel"].firstMatch.tap()
+        dismissSheet(app, whileVisible: startSheet)
         _ = startSheet.waitForNonExistence(timeout: 10)
         settle(1)
 
@@ -409,7 +413,7 @@ final class StyleguideScreenshots: XCTestCase {
             "Create-action sheet never rendered its form"
         )
         snapshot("sg_action-create", settle: 2)
-        app.buttons["Cancel"].firstMatch.tap()
+        dismissSheet(app, whileVisible: createActionSheet)
         _ = createActionSheet.waitForNonExistence(timeout: 10)
         settle(1)
 
@@ -458,7 +462,7 @@ final class StyleguideScreenshots: XCTestCase {
             "The automation form sheet did not open"
         )
         snapshot("sg_automations", settle: 2)
-        app.buttons["Cancel"].firstMatch.tap()
+        dismissSheet(app, whileVisible: automationSheet)
         _ = automationSheet.waitForNonExistence(timeout: 10)
         settle(1)
 

@@ -81,6 +81,11 @@ struct AgentSessionView: View {
     @State private var agentTab: String?
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showPhotoPicker = false
+    /// EXP-687: the `…` popup is an in-view overlay on this screen's root —
+    /// a presentation launched from inside the UIKit bar item dropped taps and
+    /// slid in from the bottom.
+    @State private var menuAnchor: CGRect = .zero
+    @State private var menuOpen = false
     @FocusState private var inputFocused: Bool
 
     private static let bottomAnchor = "feed-bottom"
@@ -93,6 +98,27 @@ struct AgentSessionView: View {
     /// only appear after a deliberate scroll-up and hide again well before
     /// the finger reaches the true end.
     private static let followSlack: CGFloat = 120
+
+    /// EXP-688: one `…` (the issue-detail pattern) instead of a bare red kill
+    /// glyph. Usage opens the per-window cards; Kill (EXP-268) force-ends a
+    /// live session — owner-only, like everything about one (EXP-312).
+    private var hasToolbarMenu: Bool {
+        model?.agentUsage != nil || model?.canKill == true
+    }
+
+    @ViewBuilder
+    private var toolbarMenuItems: some View {
+        if model?.agentUsage != nil {
+            GlassMenuItem("Usage", icon: AppIcons.uiUsage) {
+                showUsageSheet = true
+            }
+        }
+        if model?.canKill == true {
+            GlassMenuItem("Kill session", icon: AppIcons.codingStop, destructive: true) {
+                showKillConfirm = true
+            }
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -107,6 +133,9 @@ struct AgentSessionView: View {
                     Spacer()
                 }
             }
+        }
+        .glassMenuOverlay(isPresented: $menuOpen, anchor: menuAnchor, presentation: .inline) {
+            toolbarMenuItems
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
@@ -129,33 +158,14 @@ struct AgentSessionView: View {
                         .lineLimit(1)
                 }
             }
-            // EXP-688: one `…` (the issue-detail pattern) instead of a bare
-            // red kill glyph. Usage opens the per-window cards; Kill (EXP-268)
-            // force-ends a live session — owner-only, like everything about a
-            // live session (EXP-312).
             ToolbarItem(placement: .topBarTrailing) {
-                let usage = model?.agentUsage
-                let canKill = model?.canKill == true
-                if usage != nil || canKill {
-                    GlassMenu {
-                        if usage != nil {
-                            GlassMenuItem("Usage", icon: AppIcons.uiUsage) {
-                                showUsageSheet = true
-                            }
-                        }
-                        if canKill {
-                            GlassMenuItem(
-                                "Kill session",
-                                icon: AppIcons.codingStop,
-                                destructive: true
-                            ) {
-                                showKillConfirm = true
-                            }
-                        }
-                    } label: {
-                        AppIcon(AppIcons.uiMore, size: AppIcon.Size.large)
-                    }
-                    .accessibilityLabel("More")
+                if hasToolbarMenu {
+                    GlassMenuBarButton(
+                        icon: AppIcons.uiMore,
+                        accessibilityLabel: "More",
+                        anchor: $menuAnchor,
+                        isPresented: $menuOpen
+                    )
                 }
             }
         }
@@ -1986,47 +1996,46 @@ private struct LatestChangesSheet: View {
     var body: some View {
         let stats = DiffRendering.stats(of: diff)
         let sections = DiffRendering.splitFiles(diff)
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text("Latest changes")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                Spacer()
-                Text("+\(stats.additions)")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.green)
-                Text("−\(stats.deletions)")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.red)
-            }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(sections) { section in
-                        VStack(alignment: .leading, spacing: 0) {
-                            if let filename = section.filename {
-                                Text(filename)
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                            }
-                            DiffPatchBlock(patch: section.patch)
-                                .padding(.horizontal, 8)
-                                .padding(.top, section.filename == nil ? 8 : 0)
-                                .padding(.bottom, 8)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .glassSection()
-                    }
+        GlassSheetChrome(
+            title: "Latest changes",
+            height: .full,
+            headerTrailing: {
+                HStack(spacing: 8) {
+                    Text("+\(stats.additions)")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.green)
+                    Text("−\(stats.deletions)")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.red)
                 }
-                .padding(.bottom, 24)
+            },
+            content: {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(sections) { section in
+                            VStack(alignment: .leading, spacing: 0) {
+                                if let filename = section.filename {
+                                    Text(filename)
+                                        .font(.caption.monospaced())
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                }
+                                DiffPatchBlock(patch: section.patch)
+                                    .padding(.horizontal, 8)
+                                    .padding(.top, section.filename == nil ? 8 : 0)
+                                    .padding(.bottom, 8)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .glassSection()
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 24)
+                }
             }
-        }
-        .padding(16)
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
-        .presentationBackground(.ultraThinMaterial)
+        )
     }
 }

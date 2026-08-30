@@ -384,17 +384,28 @@ extension XCTestCase {
         app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 
-    /// Dismisses a detent sheet that has no close button of its own (the issue
-    /// filter sheet): tap the dimmed area above it, then fall back to a swipe
-    /// down. `anchor` is an element that only exists while the sheet is up.
+    /// Dismisses a sheet. Since EXP-687 NO sheet has a close button, so this is
+    /// the only way out of one: tap the dimmed area above a short sheet, then
+    /// fall back to dragging the sheet's own header down — never a plain
+    /// `swipeDown`, which a full-height sheet's Form just scrolls. `anchor` is
+    /// an element that only exists while the sheet is up.
     @MainActor
     func dismissSheet(_ app: XCUIApplication, whileVisible anchor: XCUIElement) {
         guard anchor.exists else { return }
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.06)).tap()
+        // Key everything on the anchor's frame: a fitted sheet opens well below
+        // any fixed screen fraction, so a tap/drag at a fixed height would land
+        // on the dimming view (harmless) or the status bar (dead). First an
+        // outside tap just above the sheet's edge, then drags from the anchor
+        // itself (a header text, or the top of a sheet container) downwards.
+        let screenHeight = app.frame.height
+        let aboveSheet = max(anchor.frame.minY - 40, 60) / screenHeight
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: aboveSheet)).tap()
         for _ in 0..<3 {
             if !anchor.exists { return }
-            app.swipeDown(velocity: .fast)
-            usleep(500_000)
+            let grip = anchor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02))
+            let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
+            grip.press(forDuration: 0.05, thenDragTo: bottom)
+            usleep(600_000)
         }
     }
 }

@@ -71,43 +71,42 @@ struct AutomationFormSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                actionSection
-                AutomationTriggerForm(draft: $draft, options: filterOptions)
-                LaunchOptionsSection(
-                    variant: .automation,
-                    devices: devices,
-                    deviceId: deviceBinding,
-                    noDeviceNote: AutomationCopy.noAutomationDevice,
-                    availableAgents: availableAgents,
-                    agent: agent,
-                    onAgentChange: selectAgent,
-                    model: $model,
-                    effort: $effort
-                )
-            }
-            // EXP-603: the app background instead of the system grouped-list
-            // gray; rows carry the glass fill.
-            .scrollContentBackground(.hidden)
-            .background(AppBackground())
-            .navigationTitle(editing == nil ? "New automation" : "Edit automation")
-            .navigationBarTitleDisplayMode(.inline)
-            .listSectionSpacing(12)
-            // EXP-594: white control tint — system blue is retired.
-            .tint(DesignTokens.Palette.primary)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+        GlassSheetChrome(
+            title: editing == nil ? "New automation" : "Edit automation",
+            height: .full,
+            content: {
+                Form {
+                    actionSection
+                    AutomationTriggerForm(draft: $draft, options: filterOptions)
+                    LaunchOptionsSection(
+                        variant: .automation,
+                        devices: devices,
+                        deviceId: deviceBinding,
+                        noDeviceNote: AutomationCopy.noAutomationDevice,
+                        availableAgents: availableAgents,
+                        agent: agent,
+                        onAgentChange: selectAgent,
+                        model: $model,
+                        effort: $effort
+                    )
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    // Web-parity wording (EXP-615).
-                    Button(editing == nil ? "Create automation" : "Save changes") { submit() }
-                        .disabled(!canSave)
+                // EXP-603: the sheet's own background shows through the
+                // grouped list; rows carry the glass fill.
+                .scrollContentBackground(.hidden)
+                .listSectionSpacing(12)
+                // EXP-594: white control tint — system blue is retired.
+                .tint(DesignTokens.Palette.primary)
+            },
+            primaryAction: {
+                // Web-parity wording (EXP-615).
+                GlassSubmitButton(
+                    editing == nil ? "Create automation" : "Save changes",
+                    enabled: canSave
+                ) {
+                    submit()
                 }
             }
-        }
-        .presentationDetents([.large])
+        )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("automation-form-sheet")
         .onAppear { seed() }

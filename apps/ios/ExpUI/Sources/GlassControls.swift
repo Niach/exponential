@@ -9,9 +9,9 @@ import SwiftUI
 // approximate: Android labelMedium ≈ `.caption.weight(.medium)`,
 // bodyLarge ≈ `.body.weight(.medium)`.
 //
-// Absent twins, deliberately: the sheet close stays a 30pt inline circle in
-// GlassSheetChrome (Android's GlassSheet close is inline too), and the 52pt
-// `.ultraThinMaterial` floating-bar circles are a different chrome class.
+// Absent twins, deliberately: sheets have no close control at all since
+// EXP-687 (swipe down, both platforms), and the 52pt `.ultraThinMaterial`
+// floating-bar circles are a different chrome class.
 
 // MARK: - Pill
 
@@ -340,6 +340,36 @@ public struct CircleIconButton: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+/// The one back button for a `topBarLeading` slot on a page that hides the
+/// system chevron (EXP-687 made New issue a page) — Android's
+/// `TopBarBackButton`, the same circle around the `ui-back` glyph.
+public struct TopBarBackButton: View {
+    var accessibilityLabel: String = "Back"
+    var enabled: Bool = true
+    let action: () -> Void
+
+    public init(
+        accessibilityLabel: String = "Back",
+        enabled: Bool = true,
+        action: @escaping () -> Void
+    ) {
+        self.accessibilityLabel = accessibilityLabel
+        self.enabled = enabled
+        self.action = action
+    }
+
+    public var body: some View {
+        CircleIconButton(
+            AppIcons.uiBack,
+            accessibilityLabel: accessibilityLabel,
+            size: 32,
+            glyphSize: 17,
+            enabled: enabled,
+            action: action
+        )
     }
 }
 

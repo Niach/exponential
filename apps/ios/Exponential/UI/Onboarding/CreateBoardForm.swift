@@ -2,6 +2,79 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
+/// The create-board form's state, hoisted out of the view (EXP-687) so a host
+/// can own the submit button: `CreateBoardSheet` pins it to the sheet bottom
+/// while the onboarding PAGE keeps its inline one. Android's twin is
+/// `rememberCreateBoardFormState()`.
+@MainActor
+@Observable
+final class CreateBoardDraft {
+    var name = ""
+    var prefix = ""
+    /// Stop deriving the prefix from the name once the user edits it by hand.
+    var prefixEdited = false
+    var color = DEFAULT_LABEL_COLOR
+    var icon = "square-kanban"
+    var repository: BoardRepositoryChoice?
+    var saving = false
+    var errorText: String?
+    /// Plan-cap failures render as a softer nudge than hard errors.
+    var limitText: String?
+
+    /// A repository is optional on every board — creation only needs a name
+    /// and prefix.
+    var canCreate: Bool {
+        !name.trimmingCharacters(in: .whitespaces).isEmpty
+            && !prefix.trimmingCharacters(in: .whitespaces).isEmpty
+            && !saving
+    }
+
+    var submitLabel: String { saving ? "Creating…" : "Create board" }
+
+    func onNameChange(_ value: String) {
+        name = value
+        if !prefixEdited { prefix = CreateBoardForm.derivePrefix(value) }
+    }
+
+    func onPrefixChange(_ value: String) {
+        prefixEdited = true
+        prefix = String(value.uppercased().prefix(4))
+    }
+
+    /// Returns the new board id, or nil when the create failed (the message is
+    /// already on the draft). `saving` is left set on success — the caller
+    /// swaps the form out.
+    func create(accountId: String, teamId: String, boardsApi: BoardsApi) async -> String? {
+        guard canCreate else { return nil }
+        saving = true
+        errorText = nil
+        limitText = nil
+        do {
+            // The repo is optional on every board; send whatever's selected
+            // and let coding affordances gate on its presence later.
+            return try await boardsApi.create(
+                accountId: accountId,
+                CreateBoardInput(
+                    teamId: teamId,
+                    name: name.trimmingCharacters(in: .whitespaces),
+                    prefix: prefix.trimmingCharacters(in: .whitespaces),
+                    color: color,
+                    icon: icon,
+                    repository: repository
+                )
+            )
+        } catch {
+            if error.isPlanLimitError {
+                limitText = error.trpcUserMessage
+            } else {
+                errorText = error.trpcUserMessage
+            }
+            saving = false
+            return nil
+        }
+    }
+}
+
 // The create-first-board form (web onboarding parity, wizard.tsx): a plain
 // form of name, prefix, color, icon, and an ALWAYS-optional repository. One
 // `boards.create` call carries `icon` (never the deprecated `type`). Reused
@@ -14,31 +87,16 @@ struct CreateBoardForm: View {
     /// auto-derived from the name and the color keeps its default — the full
     /// form (prefix + color fields) remains for the regular sheets.
     var minimal = false
+    /// The shared state. A host that pins the submit button (the sheet) passes
+    /// its own; the onboarding page lets the form make one.
+    @State var draft = CreateBoardDraft()
+    /// False when the host renders the submit button itself.
+    var showsSubmit = true
     /// Called with the new board id once `boards.create` succeeds. The
     /// caller owns what happens next (finish onboarding, dismiss a sheet, …).
     let onCreated: (String) -> Void
 
     @Environment(AppDependencies.self) private var deps
-
-    @State private var name = ""
-    @State private var prefix = ""
-    // Stop deriving the prefix from the name once the user edits it by hand.
-    @State private var prefixEdited = false
-    @State private var color = DEFAULT_LABEL_COLOR
-    @State private var icon = "square-kanban"
-    @State private var repository: BoardRepositoryChoice?
-    @State private var saving = false
-    @State private var errorText: String?
-    // Plan-cap failures render as a softer nudge than hard errors.
-    @State private var limitText: String?
-
-    // A repository is optional on every board — creation only needs a name
-    // and prefix.
-    private var canCreate: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty
-            && !prefix.trimmingCharacters(in: .whitespaces).isEmpty
-            && !saving
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -49,10 +107,10 @@ struct CreateBoardForm: View {
             VStack(alignment: .leading, spacing: 8) {
                 fieldLabel("Board name")
                 HStack(spacing: 8) {
-                    IconPicker(selection: $icon, tint: Color(hex: color))
+                    IconPicker(selection: $draft.icon, tint: Color(hex: draft.color))
                     GlassTextField("e.g. Backend API", text: Binding(
-                        get: { name },
-                        set: { onNameChange($0) }
+                        get: { draft.name },
+                        set: { draft.onNameChange($0) }
                     ))
                     .font(.subheadline)
                 }
@@ -62,8 +120,8 @@ struct CreateBoardForm: View {
                 VStack(alignment: .leading, spacing: 8) {
                     fieldLabel("Prefix")
                     GlassTextField("e.g. API", text: Binding(
-                        get: { prefix },
-                        set: { onPrefixChange($0) }
+                        get: { draft.prefix },
+                        set: { draft.onPrefixChange($0) }
                     ))
                     .font(.subheadline.monospaced())
                     .autocorrectionDisabled()
@@ -73,7 +131,7 @@ struct CreateBoardForm: View {
                 // Color
                 VStack(alignment: .leading, spacing: 8) {
                     fieldLabel("Color")
-                    ColorSwatchGrid(selection: $color)
+                    ColorSwatchGrid(selection: $draft.color)
                 }
             }
 
@@ -81,10 +139,10 @@ struct CreateBoardForm: View {
             RepositorySelector(
                 accountId: accountId,
                 teamId: teamId,
-                selection: $repository
+                selection: $draft.repository
             )
 
-            if let errorText {
+            if let errorText = draft.errorText {
                 Text(errorText)
                     .font(.caption)
                     .foregroundStyle(.red)
@@ -94,7 +152,7 @@ struct CreateBoardForm: View {
                     .background(Color.red.opacity(0.1))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-            if let limitText {
+            if let limitText = draft.limitText {
                 HStack(alignment: .top, spacing: 8) {
                     AppIcon(AppIcons.navGettingStarted, size: AppIcon.Size.small)
                         .foregroundStyle(DesignTokens.Semantic.blue)
@@ -108,9 +166,21 @@ struct CreateBoardForm: View {
                 .glassRow()
             }
 
-            GlassSubmitButton(saving ? "Creating…" : "Create board", enabled: canCreate) {
-                Task { await create() }
+            if showsSubmit {
+                GlassSubmitButton(draft.submitLabel, enabled: draft.canCreate) {
+                    Task { await create() }
+                }
             }
+        }
+    }
+
+    private func create() async {
+        if let boardId = await draft.create(
+            accountId: accountId,
+            teamId: teamId,
+            boardsApi: deps.boardsApi
+        ) {
+            onCreated(boardId)
         }
     }
 
@@ -121,16 +191,6 @@ struct CreateBoardForm: View {
     }
 
     // MARK: - Editing
-
-    private func onNameChange(_ value: String) {
-        name = value
-        if !prefixEdited { prefix = Self.derivePrefix(value) }
-    }
-
-    private func onPrefixChange(_ value: String) {
-        prefixEdited = true
-        prefix = String(value.uppercased().prefix(4))
-    }
 
     /// Port of web `derivePrefix` (lib/board.ts): first letter of each word,
     /// uppercased, capped at 4 (the server cap, REV-4). Separators are
@@ -143,39 +203,6 @@ struct CreateBoardForm: View {
             .uppercased()
         return String(letters.prefix(4))
     }
-
-    // MARK: - Create
-
-    private func create() async {
-        guard canCreate else { return }
-        saving = true
-        errorText = nil
-        limitText = nil
-        do {
-            // The repo is optional on every board; send whatever's selected
-            // and let coding affordances gate on its presence later.
-            let boardId = try await deps.boardsApi.create(
-                accountId: accountId,
-                CreateBoardInput(
-                    teamId: teamId,
-                    name: name.trimmingCharacters(in: .whitespaces),
-                    prefix: prefix.trimmingCharacters(in: .whitespaces),
-                    color: color,
-                    icon: icon,
-                    repository: repository
-                )
-            )
-            // Leave `saving` set — the caller swaps this view out on success.
-            onCreated(boardId)
-        } catch {
-            if error.isPlanLimitError {
-                limitText = error.trpcUserMessage
-            } else {
-                errorText = error.trpcUserMessage
-            }
-            saving = false
-        }
-    }
 }
 
 // Sheet wrapper for the empty-state "Create board" entry points (Issues home,
@@ -185,29 +212,40 @@ struct CreateBoardSheet: View {
     let teamId: String
     var onCreated: (String) -> Void = { _ in }
 
+    @Environment(AppDependencies.self) private var deps
     @Environment(\.dismiss) private var dismiss
+    // Owned here, not by the form: the sheet's pinned button is the submit.
+    @State private var draft = CreateBoardDraft()
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                AppBackground()
-                ScrollView {
-                    CreateBoardForm(
-                        accountId: accountId,
-                        teamId: teamId,
-                        onCreated: { boardId in
-                            onCreated(boardId)
-                            dismiss()
-                        }
-                    )
-                    .padding(16)
+        GlassSheetChrome(
+            title: "New board",
+            content: {
+                CreateBoardForm(
+                    accountId: accountId,
+                    teamId: teamId,
+                    draft: draft,
+                    showsSubmit: false,
+                    onCreated: { _ in }
+                )
+                .padding(16)
+            },
+            primaryAction: {
+                GlassSubmitButton(draft.submitLabel, enabled: draft.canCreate) {
+                    Task { await create() }
                 }
             }
-            .navigationTitle("New board")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
-            }
+        )
+    }
+
+    private func create() async {
+        if let boardId = await draft.create(
+            accountId: accountId,
+            teamId: teamId,
+            boardsApi: deps.boardsApi
+        ) {
+            onCreated(boardId)
+            dismiss()
         }
     }
 }

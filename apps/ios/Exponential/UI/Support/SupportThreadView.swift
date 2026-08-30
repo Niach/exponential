@@ -18,6 +18,10 @@ struct SupportThreadView: View {
     /// EXP-603: the board choice used to be a nested `Menu`; a glass menu has
     /// no submenus, so escalation picks its board in a sheet.
     @State private var escalateOpen = false
+    /// EXP-687: the `…` popup is an in-view overlay on this screen's root —
+    /// a presentation launched from inside the UIKit bar item dropped taps.
+    @State private var menuAnchor: CGRect = .zero
+    @State private var menuOpen = false
     @FocusState private var composerFocused: Bool
 
     var body: some View {
@@ -31,13 +35,23 @@ struct SupportThreadView: View {
                 }
             }
         }
+        .glassMenuOverlay(isPresented: $menuOpen, anchor: menuAnchor, presentation: .inline) {
+            if let vm = viewModel, vm.thread != nil {
+                toolbarMenuItems(vm)
+            }
+        }
         .navigationTitle(viewModel?.thread?.title ?? "Support")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .toolbar {
             if let vm = viewModel, vm.thread != nil {
                 ToolbarItem(placement: .topBarTrailing) {
-                    toolbarMenu(vm)
+                    GlassMenuBarButton(
+                        icon: AppIcons.uiMore,
+                        accessibilityLabel: "More",
+                        anchor: $menuAnchor,
+                        isPresented: $menuOpen
+                    )
                 }
             }
         }
@@ -295,24 +309,20 @@ struct SupportThreadView: View {
     // MARK: - Toolbar
 
     @ViewBuilder
-    private func toolbarMenu(_ vm: SupportThreadViewModel) -> some View {
-        GlassMenu {
-            if vm.linkedIssue == nil, !vm.boards.isEmpty {
-                GlassMenuItem("Escalate to issue", icon: AppIcons.uiExternalLink) {
-                    escalateOpen = true
-                }
+    private func toolbarMenuItems(_ vm: SupportThreadViewModel) -> some View {
+        if vm.linkedIssue == nil, !vm.boards.isEmpty {
+            GlassMenuItem("Escalate to issue", icon: AppIcons.uiExternalLink) {
+                escalateOpen = true
             }
-            if vm.isOpen {
-                GlassMenuItem("Close ticket", icon: AppIcons.supportResolved) {
-                    Task { await vm.close() }
-                }
-            } else {
-                GlassMenuItem("Reopen ticket", icon: AppIcons.supportOpen) {
-                    Task { await vm.reopen() }
-                }
+        }
+        if vm.isOpen {
+            GlassMenuItem("Close ticket", icon: AppIcons.supportResolved) {
+                Task { await vm.close() }
             }
-        } label: {
-            AppIcon(AppIcons.uiMore, size: AppIcon.Size.large)
+        } else {
+            GlassMenuItem("Reopen ticket", icon: AppIcons.supportOpen) {
+                Task { await vm.reopen() }
+            }
         }
     }
 

@@ -24,6 +24,10 @@ enum AppRoute: Hashable {
     case support
     case board(accountId: String, id: String)
     case issue(accountId: String, id: String)
+    /// New issue (EXP-687): a pushed PAGE, not a sheet — back icon top-left,
+    /// `Create` pill top-right, exactly like Android's CreateIssueScreen.
+    /// Creating replaces this route with the issue it filed.
+    case createIssue(accountId: String, boardId: String)
     /// One support ticket's conversation (EXP-180 helpdesk) — pushed from the
     /// My Work Support segment or a support_reply push tap.
     case supportThread(accountId: String, threadId: String)
@@ -264,26 +268,10 @@ struct MainNavigator: View {
     // delivered rows, so the active-team alignment couldn't look up its
     // team yet — re-run it on the next boards emission.
     @State private var pendingTeamAlign = false
-    @State private var composeTarget: ComposeTarget?
-    /// The issue a finished compose should land on (EXP-596). Pushed from the
-    /// sheet's `onDismiss`, not the create itself: a push that starts while the
-    /// sheet is still animating away loses the transition.
-    @State private var createdIssue: CreatedIssue?
     /// EXP-631: the Agents FAB's chat request. The bar lives here, the
     /// launcher (with its devices, team and start handlers) lives in
     /// AgentsView — so a tap just bumps a counter the screen watches.
     @State private var chatRequest = 0
-
-    private struct ComposeTarget: Identifiable {
-        let accountId: String
-        let boardId: String
-        var id: String { "\(accountId)/\(boardId)" }
-    }
-
-    private struct CreatedIssue {
-        let accountId: String
-        let issueId: String
-    }
 
     var body: some View {
         ZStack {
@@ -419,7 +407,7 @@ struct MainNavigator: View {
                     reviewsOpen: reviewsOpen,
                     showsSupport: helpdeskEnabled,
                     supportUnread: supportUnread,
-                    showsCompose: resolvedComposeTarget != nil,
+                    showsCompose: composeRoute != nil,
                     showsChat: isOnAgents,
                     onIssues: { path = [] },
                     onDevices: { if !isOnAgents { path = [.agents] } },
@@ -427,7 +415,7 @@ struct MainNavigator: View {
                     onMyWork: { if !isOnMyWork { path = [.myWork] } },
                     onReviews: { if !isOnReviews { path = [.reviews] } },
                     onSupport: { if !isOnSupport { path = [.support] } },
-                    onCompose: { composeTarget = resolvedComposeTarget },
+                    onCompose: { if let route = composeRoute { path.append(route) } },
                     onChat: { chatRequest += 1 }
                 )
             }
@@ -439,23 +427,6 @@ struct MainNavigator: View {
             if !enabled {
                 path.removeAll { $0 == .support }
             }
-        }
-        .sheet(item: $composeTarget, onDismiss: {
-            // Land on what was just filed (EXP-596). "Create more" hands nothing
-            // over, so a run of creates still just returns to the board.
-            if let created = createdIssue {
-                createdIssue = nil
-                appendIssueRoute(accountId: created.accountId, issueId: created.issueId)
-            }
-        }) { target in
-            CreateIssueSheet(
-                boardId: target.boardId,
-                onCreated: { issueId in
-                    createdIssue = CreatedIssue(accountId: target.accountId, issueId: issueId)
-                }
-            )
-            .environment(\.accountId, target.accountId)
-            .presentationBackground(.ultraThinMaterial)
         }
     }
 
@@ -533,14 +504,28 @@ struct MainNavigator: View {
     /// otherwise the Issues tab root composes into its current board. The
     /// other surfaces (Devices, Actions, My Work, Reviews) hide the button —
     /// creating an issue without a board context is ambiguous.
-    private var resolvedComposeTarget: ComposeTarget? {
+    private var composeRoute: AppRoute? {
         if case let .board(accountId, id)? = path.last {
-            return ComposeTarget(accountId: accountId, boardId: id)
+            return .createIssue(accountId: accountId, boardId: id)
         }
         if path.isEmpty, let current = currentBoard {
-            return ComposeTarget(accountId: current.accountId, boardId: current.boardId)
+            return .createIssue(accountId: current.accountId, boardId: current.boardId)
         }
         return nil
+    }
+
+    /// Land on what was just filed (EXP-596) by REPLACING the compose page —
+    /// Back from the issue returns to the board, not to an empty draft. One
+    /// mutation, so the stack animates as a single push.
+    private func replaceTopRoute(with route: AppRoute) {
+        // Only the compose page is swapped out. `createIssue()` is async, so a
+        // notification tap or a link can push something else on top meanwhile;
+        // that must not be clobbered.
+        if case .createIssue = path.last {
+            path[path.count - 1] = route
+        } else {
+            path.append(route)
+        }
     }
 
     /// Thin status banners: a background account the server has version-gated
@@ -640,6 +625,15 @@ struct MainNavigator: View {
         case let .issue(accountId, id):
             IssueDetailView(issueId: id)
                 .environment(\.accountId, accountId)
+        case let .createIssue(accountId, boardId):
+            CreateIssueView(boardId: boardId) { createdId in
+                if let createdId {
+                    replaceTopRoute(with: .issue(accountId: accountId, id: createdId))
+                } else if !path.isEmpty {
+                    path.removeLast()
+                }
+            }
+            .environment(\.accountId, accountId)
         case let .supportThread(accountId, threadId):
             SupportThreadView(threadId: threadId)
                 .environment(\.accountId, accountId)

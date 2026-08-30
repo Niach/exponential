@@ -96,54 +96,48 @@ struct CreateActionSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                identitySection
-                descriptionSection
-                repositorySection
-                automationSection
-                LaunchOptionsSection(
-                    variant: .launch,
-                    devices: devices,
-                    deviceId: deviceBinding,
-                    noDeviceNote: noDeviceNote,
-                    availableAgents: availableAgents,
-                    agent: agent,
-                    onAgentChange: selectAgent,
-                    model: $model,
-                    effort: $effort,
-                    ultracode: $ultracode,
-                    planMode: $planMode,
-                    skipPermissions: $skipPermissions
-                )
-            }
-            // EXP-603: the app background instead of the system grouped-list
-            // gray; rows carry the glass fill.
-            .scrollContentBackground(.hidden)
-            .background(AppBackground())
-            .navigationTitle("New action")
-            .navigationBarTitleDisplayMode(.inline)
-            .listSectionSpacing(12)
-            // EXP-594: white control tint — system blue is retired.
-            .tint(DesignTokens.Palette.primary)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        submit()
-                    } label: {
-                        HStack(spacing: 6) {
-                            AppIcon(AppIcons.actionCreate, size: 14)
-                            Text("Create")
-                        }
+        // The inner NavigationStack stays for the automation push; its own bar
+        // is hidden on the root so the sheet header is the only one (EXP-687).
+        GlassSheetChrome(
+            title: "New action",
+            height: .full,
+            content: {
+                NavigationStack {
+                    Form {
+                        identitySection
+                        descriptionSection
+                        repositorySection
+                        automationSection
+                        LaunchOptionsSection(
+                            variant: .launch,
+                            devices: devices,
+                            deviceId: deviceBinding,
+                            noDeviceNote: noDeviceNote,
+                            availableAgents: availableAgents,
+                            agent: agent,
+                            onAgentChange: selectAgent,
+                            model: $model,
+                            effort: $effort,
+                            ultracode: $ultracode,
+                            planMode: $planMode,
+                            skipPermissions: $skipPermissions
+                        )
                     }
-                    .disabled(!canSubmit)
+                    // EXP-603: the sheet's own background shows through the
+                    // grouped list; rows carry the glass fill.
+                    .scrollContentBackground(.hidden)
+                    .listSectionSpacing(12)
+                    // EXP-594: white control tint — system blue is retired.
+                    .tint(DesignTokens.Palette.primary)
+                    .toolbar(.hidden, for: .navigationBar)
+                }
+            },
+            primaryAction: {
+                GlassSubmitButton("Create", enabled: canSubmit) {
+                    submit()
                 }
             }
-        }
-        .presentationDetents([.large])
+        )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("create-action-sheet")
         .onAppear { seed() }
@@ -261,7 +255,6 @@ struct CreateActionSheet: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(AppBackground())
         .navigationTitle("Automation")
         .navigationBarTitleDisplayMode(.inline)
         .listSectionSpacing(12)

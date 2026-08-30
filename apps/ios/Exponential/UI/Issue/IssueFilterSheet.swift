@@ -17,37 +17,38 @@ struct IssueFilterSheet: View {
     private enum FilterView { case categories, status, priority, labels }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            switch view {
-            case .categories: categoriesView
-            case .status: statusView
-            case .priority: priorityView
-            case .labels: labelsView
+        // "Clear all" is the chrome's header slot; the drill-down's own back
+        // header stays inside the content (EXP-687).
+        GlassSheetChrome(
+            title: "Filters",
+            headerTrailing: {
+                if !vm.filters.isEmpty {
+                    Button("Clear all") { vm.clearFilters() }
+                        .font(.subheadline)
+                        .foregroundStyle(Color.white)
+                }
+            },
+            content: {
+                VStack(alignment: .leading, spacing: 0) {
+                    switch view {
+                    case .categories: categoriesView
+                    case .status: statusView
+                    case .priority: priorityView
+                    case .labels: labelsView
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 16)
+                .animation(nil, value: view)
             }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 24)
-        .animation(nil, value: view)
+        )
     }
 
     // MARK: - Categories
 
     private var categoriesView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("Filters")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                Spacer()
-                if !vm.filters.isEmpty {
-                    Button("Clear all") { vm.clearFilters() }
-                        .font(.subheadline)
-                        .foregroundStyle(Color.white)
-                }
-            }
-            .padding(.bottom, 8)
-
             categoryRow("Status", count: vm.filters.statusIds.count) { view = .status }
             categoryRow("Priority", count: vm.filters.priorities.count) { view = .priority }
             categoryRow("Labels", count: vm.filters.labelIds.count) { view = .labels }
@@ -128,20 +129,20 @@ struct IssueFilterSheet: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .padding(.vertical, 12)
             }
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(filtered, id: \.id) { label in
-                        checkRow(selected: vm.filters.labelIds.contains(label.id)) {
-                            vm.toggleLabel(label.id)
-                        } content: {
-                            Circle()
-                                .fill(Color(hex: label.color) ?? .gray)
-                                .frame(width: 10, height: 10)
-                                .frame(width: 18)
-                            Text(label.name)
-                                .font(.body)
-                                .foregroundStyle(.white)
-                        }
+            // No inner ScrollView: the chrome owns the sheet's one scroller
+            // (and measures it), so the rows list directly here.
+            LazyVStack(spacing: 0) {
+                ForEach(filtered, id: \.id) { label in
+                    checkRow(selected: vm.filters.labelIds.contains(label.id)) {
+                        vm.toggleLabel(label.id)
+                    } content: {
+                        Circle()
+                            .fill(Color(hex: label.color) ?? .gray)
+                            .frame(width: 10, height: 10)
+                            .frame(width: 18)
+                        Text(label.name)
+                            .font(.body)
+                            .foregroundStyle(.white)
                     }
                 }
             }

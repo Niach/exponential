@@ -25,12 +25,6 @@ struct LabelEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var color: String
-    // Natural form height → a fitted `.height` detent (EXP-577: the medium
-    // detent left a third of the sheet empty on both platforms' reference).
-    @State private var contentHeight: CGFloat = 0
-    // Home-indicator inset — part of a `.height` detent (keyboard values are
-    // ignored so a focused field doesn't inflate the sheet).
-    @State private var bottomInset: CGFloat = 0
 
     init(
         title: String = "New label",
@@ -46,68 +40,48 @@ struct LabelEditorSheet: View {
         _color = State(initialValue: initialColor)
     }
 
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(.white)
+        GlassSheetChrome(
+            title: title,
+            content: {
+                VStack(alignment: .leading, spacing: 16) {
+                    GlassTextField("Label name", text: $name)
 
-            GlassTextField("Label name", text: $name)
-
-            FlowLayout(spacing: 8) {
-                ForEach(suggestedLabelColors, id: \.self) { swatch in
-                    Button {
-                        color = swatch
-                    } label: {
-                        Circle()
-                            .fill(Color(hex: swatch) ?? .gray)
-                            .frame(width: swatch == color ? 28 : 22, height: swatch == color ? 28 : 22)
-                            .overlay {
-                                if swatch == color {
-                                    Circle().strokeBorder(.white, lineWidth: 2)
-                                }
+                    FlowLayout(spacing: 8) {
+                        ForEach(suggestedLabelColors, id: \.self) { swatch in
+                            Button {
+                                color = swatch
+                            } label: {
+                                Circle()
+                                    .fill(Color(hex: swatch) ?? .gray)
+                                    .frame(
+                                        width: swatch == color ? 28 : 22,
+                                        height: swatch == color ? 28 : 22
+                                    )
+                                    .overlay {
+                                        if swatch == color {
+                                            Circle().strokeBorder(.white, lineWidth: 2)
+                                        }
+                                    }
                             }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .buttonStyle(.plain)
                 }
-            }
-
-            HStack {
-                Button("Cancel") {
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+            },
+            primaryAction: {
+                GlassSubmitButton(confirmLabel, enabled: !trimmedName.isEmpty) {
+                    onConfirm(trimmedName, color)
                     dismiss()
                 }
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                Button {
-                    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { return }
-                    onConfirm(trimmed, color)
-                    dismiss()
-                } label: {
-                    Text(confirmLabel)
-                        .font(.subheadline.weight(.medium))
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 10)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-        }
-        .padding(20)
-        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { contentHeight = $0 }
-        // Top-aligned: a sheet centers shorter content by default, which
-        // would float the form once the keyboard shrinks the detent.
-        .frame(maxHeight: .infinity, alignment: .top)
-        .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.bottom }) { inset in
-            if inset < 60 { bottomInset = inset }
-        }
-        .presentationDetents(contentHeight > 0 ? [.height(contentHeight + bottomInset)] : [.medium])
-        .presentationDragIndicator(.hidden)
-        .presentationBackground(.ultraThinMaterial)
+        )
     }
 }
 

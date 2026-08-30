@@ -49,30 +49,19 @@ public struct IconPicker: View {
         .buttonStyle(.plain)
         .accessibilityLabel(selection.isEmpty ? "Pick an icon" : "Icon: \(selection)")
         .sheet(isPresented: $isPresented) {
-            NavigationStack {
-                ScrollView {
-                    IconSwatchGrid(
-                        selection: Binding(
-                            get: { selection },
-                            set: { next in
-                                selection = next
-                                isPresented = false
-                            }
-                        ),
-                        allowsNone: allowsNone
-                    )
-                    .padding(16)
-                }
-                .navigationTitle("Icon")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Done") { isPresented = false }
-                    }
-                }
+            GlassSheetChrome(title: "Icon") {
+                IconSwatchGrid(
+                    selection: Binding(
+                        get: { selection },
+                        set: { next in
+                            selection = next
+                            isPresented = false
+                        }
+                    ),
+                    allowsNone: allowsNone
+                )
+                .padding(16)
             }
-            .presentationDetents([.medium, .large])
-            .presentationBackground(.ultraThinMaterial)
             .preferredColorScheme(.dark)
         }
     }
