@@ -17,7 +17,9 @@ import {
   isNotNull,
   isNull,
   lte,
+  notInArray,
   or,
+  sql,
   type SQL,
 } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -43,6 +45,7 @@ import {
   issuePriorityValues,
   issueStatusValues,
   issueStatusCategoryDisplayOrder,
+  issueStatusCategoryValues,
   boardIconValues,
 } from "@/lib/domain"
 import { teamColumns } from "@/lib/team-columns"
@@ -309,7 +312,43 @@ const boardIconEnumSchema = z
     `Unknown icon. Valid names: ${boardIconValues.join(`, `)}`
   )
   .transform((v) => v as (typeof boardIconValues)[number])
-const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, `Expected YYYY-MM-DD`)
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
+const dateOnly = z.string().regex(DATE_ONLY_RE, `Expected YYYY-MM-DD`)
+// Same contract, no inline pattern (budget, see looseEnum below).
+const dateOnlyLoose = z
+  .string()
+  .refine((v) => DATE_ONLY_RE.test(v), `Expected YYYY-MM-DD`)
+// EXP-684: created/updated range bounds. Anything Date.parse accepts — a bare
+// YYYY-MM-DD reads as midnight UTC, so "createdAfter: 2026-08-29" is the
+// whole of that day onward.
+const isoDateTime = z
+  .string()
+  .refine((v) => !Number.isNaN(Date.parse(v)), `Expected an ISO date or datetime`)
+const issueStatusCategoryEnumSchema = z.enum(issueStatusCategoryValues)
+// Enum validated at runtime only (no inline JSON-schema enum) — the budget
+// trick above, for a value list the same tool already spells out once.
+const looseEnum = <T extends string>(values: ReadonlyArray<T>) =>
+  z
+    .string()
+    .refine(
+      (v) => (values as ReadonlyArray<string>).includes(v),
+      `Expected one of: ${values.join(`, `)}`
+    )
+    .transform((v) => v as T)
+const issueListSortFields = [`createdAt`, `updatedAt`, `priority`] as const
+const issueListSort = z
+  .string()
+  .refine(
+    (v) =>
+      (issueListSortFields as ReadonlyArray<string>).includes(
+        v.replace(/^-/, ``)
+      ),
+    `Expected createdAt, updatedAt or priority, optionally -prefixed`
+  )
+  .default(`-createdAt`)
+// Sort rank for priority — the pg enum is declared none-first, which is not
+// an order anyone wants to sort by.
+const issuePriorityRank = sql<number>`case ${issues.priority} when 'urgent' then 4 when 'high' then 3 when 'medium' then 2 when 'low' then 1 else 0 end`
 
 export function registerExponentialTools(
   server: McpServer,
@@ -639,40 +678,92 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_list`,
     {
-      description: `List issues in boards the MCP user can access. Supports filtering by board, status, priority, assignee, due-date range, and a free-text title search. Newest first.`,
+      // EXP-684: every filter a scheduled sweep needs server-side. The schema
+      // is budget-trimmed (context-budget.test.ts): value lists appear once,
+      // their exclude* twins and priority validate at runtime.
+      description: `List issues the MCP user can access. Custom statuses filter by statusId/statusCategory (exponential_statuses_list); exclude* twins invert. created*/updated*: ISO date or datetime. sort: createdAt|updatedAt|priority, -prefix = descending.`,
       inputSchema: {
         boardId: uuidString.optional(),
+        boardIds: z.array(uuidString).optional(),
         teamId: uuidString.optional(),
         status: z.array(issueStatusEnumSchema).optional(),
-        priority: z.array(issuePriorityEnumSchema).optional(),
+        statusId: z.array(uuidString).optional(),
+        statusCategory: z.array(issueStatusCategoryEnumSchema).optional(),
+        excludeStatus: z.array(looseEnum(issueStatusValues)).optional(),
+        excludeStatusId: z.array(uuidString).optional(),
+        excludeStatusCategory: z
+          .array(looseEnum(issueStatusCategoryValues))
+          .optional(),
+        priority: z.array(looseEnum(issuePriorityValues)).optional(),
         assigneeId: z.string().nullable().optional(),
-        dueAfter: dateOnly.optional(),
-        dueBefore: dateOnly.optional(),
-        search: z.string().min(1).max(256).optional(),
+        labelIds: z.array(uuidString).optional(),
+        labelMatch: z.enum([`any`, `all`]).optional(),
+        unlabeled: z.boolean().optional(),
+        hasComments: z.boolean().optional(),
+        commentedBy: z.string().optional(),
+        notCommentedBy: z.string().optional(),
+        createdAfter: isoDateTime.optional(),
+        createdBefore: isoDateTime.optional(),
+        updatedAfter: isoDateTime.optional(),
+        updatedBefore: isoDateTime.optional(),
+        dueAfter: dateOnlyLoose.optional(),
+        dueBefore: dateOnlyLoose.optional(),
+        search: z
+          .string()
+          .refine((v) => v.length >= 1 && v.length <= 256, `1-256 chars`)
+          .optional(),
+        sort: issueListSort,
         limit: z.number().int().min(1).max(200).default(50),
         offset: z.number().int().min(0).default(0),
       },
     },
     async ({
       boardId,
+      boardIds,
       teamId,
       status,
+      statusId,
+      statusCategory,
+      excludeStatus,
+      excludeStatusId,
+      excludeStatusCategory,
       priority,
       assigneeId,
+      labelIds,
+      labelMatch,
+      unlabeled,
+      hasComments,
+      commentedBy,
+      notCommentedBy,
+      createdAfter,
+      createdBefore,
+      updatedAfter,
+      updatedBefore,
       dueAfter,
       dueBefore,
       search,
+      sort,
       limit,
       offset,
     }) => {
       try {
         let allowedBoardIds: Array<string>
 
-        if (boardId) {
-          const board = await getBoardTeamId(boardId)
-          assertBoardGranted(access, board.id, board.teamId)
-          await resolveTeamAccess(user.id, board.teamId)
-          allowedBoardIds = [boardId]
+        // EXP-684: boardIds is the multi-board form of boardId — every named
+        // board is access-checked exactly like the single one.
+        const requestedBoardIds = boardId
+          ? [boardId]
+          : boardIds && boardIds.length > 0
+            ? [...new Set(boardIds)]
+            : null
+
+        if (requestedBoardIds) {
+          for (const id of requestedBoardIds) {
+            const board = await getBoardTeamId(id)
+            assertBoardGranted(access, board.id, board.teamId)
+            await resolveTeamAccess(user.id, board.teamId)
+          }
+          allowedBoardIds = requestedBoardIds
         } else {
           let teamIds: Array<string>
           if (teamId) {
@@ -699,10 +790,51 @@ export function registerExponentialTools(
 
         if (allowedBoardIds.length === 0) return ok([])
 
-        const conditions = [inArray(issues.boardId, allowedBoardIds)]
+        const conditions: Array<SQL> = [
+          inArray(issues.boardId, allowedBoardIds),
+        ]
+
+        // Status: the builtin anchor enum, the precise per-team row, or the
+        // row's category (a custom "Ideas" has no builtin key, so only the
+        // latter two can name it). status_id is trigger-populated for every
+        // writer (populate_issue_status_id), so the row filters key on it
+        // alone; an exclude keeps the (theoretical) NULL row rather than
+        // dropping it into nowhere.
+        const statusIdsInCategories = (
+          categories: Array<(typeof issueStatusCategoryValues)[number]>
+        ) =>
+          sql`(select ${issueStatuses.id} from ${issueStatuses} where ${inArray(issueStatuses.category, categories)})`
         if (status && status.length > 0) {
           conditions.push(inArray(issues.status, status))
         }
+        if (statusId && statusId.length > 0) {
+          conditions.push(inArray(issues.statusId, statusId))
+        }
+        if (statusCategory && statusCategory.length > 0) {
+          conditions.push(
+            sql`${issues.statusId} in ${statusIdsInCategories(statusCategory)}`
+          )
+        }
+        if (excludeStatus && excludeStatus.length > 0) {
+          conditions.push(notInArray(issues.status, excludeStatus))
+        }
+        if (excludeStatusId && excludeStatusId.length > 0) {
+          conditions.push(
+            or(
+              isNull(issues.statusId),
+              notInArray(issues.statusId, excludeStatusId)
+            )!
+          )
+        }
+        if (excludeStatusCategory && excludeStatusCategory.length > 0) {
+          conditions.push(
+            or(
+              isNull(issues.statusId),
+              sql`${issues.statusId} not in ${statusIdsInCategories(excludeStatusCategory)}`
+            )!
+          )
+        }
+
         if (priority && priority.length > 0) {
           conditions.push(inArray(issues.priority, priority))
         }
@@ -711,17 +843,80 @@ export function registerExponentialTools(
         } else if (assigneeId !== undefined) {
           conditions.push(eq(issues.assigneeId, assigneeId))
         }
+
+        // Labels: any-of / all-of over issue_labels, plus the explicit
+        // "no labels at all" the triage sweeps key on.
+        const labelLink = sql`select 1 from ${issueLabels} where ${issueLabels.issueId} = ${issues.id}`
+        if (unlabeled === true) {
+          conditions.push(sql`not exists (${labelLink})`)
+        } else if (unlabeled === false) {
+          conditions.push(sql`exists (${labelLink})`)
+        }
+        if (labelIds && labelIds.length > 0) {
+          const wanted = [...new Set(labelIds)]
+          if (labelMatch === `all`) {
+            conditions.push(
+              sql`(select count(distinct ${issueLabels.labelId}) from ${issueLabels} where ${issueLabels.issueId} = ${issues.id} and ${inArray(issueLabels.labelId, wanted)}) = ${wanted.length}`
+            )
+          } else {
+            conditions.push(
+              sql`exists (${labelLink} and ${inArray(issueLabels.labelId, wanted)})`
+            )
+          }
+        }
+
+        // Comments: presence, and "has/hasn't this user already replied"
+        // so a recurring run does not comment on the same issue twice.
+        const commentLink = sql`select 1 from ${comments} where ${comments.issueId} = ${issues.id}`
+        if (hasComments === true) {
+          conditions.push(sql`exists (${commentLink})`)
+        } else if (hasComments === false) {
+          conditions.push(sql`not exists (${commentLink})`)
+        }
+        if (commentedBy) {
+          conditions.push(
+            sql`exists (${commentLink} and ${eq(comments.authorId, commentedBy)})`
+          )
+        }
+        if (notCommentedBy) {
+          conditions.push(
+            sql`not exists (${commentLink} and ${eq(comments.authorId, notCommentedBy)})`
+          )
+        }
+
+        if (createdAfter) {
+          conditions.push(gte(issues.createdAt, new Date(createdAfter)))
+        }
+        if (createdBefore) {
+          conditions.push(lte(issues.createdAt, new Date(createdBefore)))
+        }
+        if (updatedAfter) {
+          conditions.push(gte(issues.updatedAt, new Date(updatedAfter)))
+        }
+        if (updatedBefore) {
+          conditions.push(lte(issues.updatedAt, new Date(updatedBefore)))
+        }
         if (dueAfter) conditions.push(gte(issues.dueDate, dueAfter))
         if (dueBefore) conditions.push(lte(issues.dueDate, dueBefore))
         if (search) {
           conditions.push(ilike(issues.title, `%${escapeLikePattern(search)}%`))
         }
 
+        const dir = sort.startsWith(`-`) ? desc : asc
+        const sortField = sort.replace(/^-/, ``)
+        const sortExpr =
+          sortField === `updatedAt`
+            ? issues.updatedAt
+            : sortField === `priority`
+              ? issuePriorityRank
+              : issues.createdAt
+
         const rows = await db
           .select()
           .from(issues)
           .where(and(...conditions))
-          .orderBy(desc(issues.createdAt))
+          // createdAt then id break ties so pages never overlap.
+          .orderBy(dir(sortExpr), dir(issues.createdAt), dir(issues.id))
           .limit(limit)
           .offset(offset)
 
@@ -783,11 +978,12 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_create`,
     {
-      description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation).`,
+      description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses_list.`,
       inputSchema: {
         boardId: uuidString,
         title: z.string().min(1).max(500),
         status: issueStatusEnumSchema.optional(),
+        statusId: uuidString.optional(),
         priority: issuePriorityEnumSchema.optional(),
         assigneeId: z.string().nullable().optional(),
         descriptionText: z.string().max(MAX_ISSUE_DESCRIPTION).optional(),

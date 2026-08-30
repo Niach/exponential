@@ -33,6 +33,8 @@ const h = vi.hoisted(() => {
     issues: {
       prFiles: vi.fn(),
       retargetPr: vi.fn(),
+      // EXP-684: statusId passthrough on create.
+      create: vi.fn(),
       update: vi.fn(),
       // EXP-639: the issue path of exponential_pr_merge.
       mergePr: vi.fn(),
@@ -1016,6 +1018,190 @@ describe(`exponential_issues_update statusId passthrough`, () => {
     expect(caller.issues.update).toHaveBeenCalledWith({
       id: UUID,
       statusId: PROJ,
+      description: undefined,
+    })
+  })
+})
+
+// ── EXP-684: exponential_issues_list filters ─────────────────────────────
+// The sweep an automation runs ("created in the last day on boards A+B, not
+// done/cancelled, no labels") must be ONE call, so every predicate renders
+// server-side. The where clause is rendered back to SQL and inspected.
+
+describe(`exponential_issues_list filters (EXP-684)`, () => {
+  const LABEL = `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa`
+  const LABEL2 = `bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb`
+  const BOARD2 = `cccccccc-cccc-cccc-cccc-cccccccccccc`
+
+  function whereSql() {
+    return new PgDialect().sqlToQuery(state.capturedWhere as never)
+  }
+  function orderBySql() {
+    const builder = db.select() as unknown as {
+      orderBy: ReturnType<typeof vi.fn>
+    }
+    const call = builder.orderBy.mock.calls.at(-1) as Array<unknown>
+    return call.map(
+      (expr) => new PgDialect().sqlToQuery(expr as never).sql
+    )
+  }
+  const list = (args: Record<string, unknown>) =>
+    tool(`exponential_issues_list`)({
+      sort: `-createdAt`,
+      limit: 50,
+      offset: 0,
+      ...args,
+    })
+
+  it(`expresses the auto-label sweep in one query`, async () => {
+    await list({
+      boardIds: [PROJ, BOARD2],
+      createdAfter: `2026-08-29T10:00:00Z`,
+      excludeStatus: [`done`, `cancelled`],
+      unlabeled: true,
+    })
+    // Every named board is access-checked like the single-board form.
+    expect(membership.getBoardTeamId).toHaveBeenCalledTimes(2)
+    expect(membership.resolveTeamAccess).toHaveBeenCalledTimes(2)
+    const { sql, params } = whereSql()
+    expect(params).toContain(PROJ)
+    expect(params).toContain(BOARD2)
+    expect(sql).toContain(`"created_at" >= `)
+    expect(params).toContain(`2026-08-29T10:00:00.000Z`)
+    expect(sql).toContain(`"status" not in (`)
+    expect(params).toEqual(expect.arrayContaining([`done`, `cancelled`]))
+    expect(sql).toMatch(
+      /not exists \(select 1 from "issue_labels" where "issue_labels"\."issue_id" = "issues"\."id"\)/
+    )
+  })
+
+  it(`filters custom statuses by row id and by category`, async () => {
+    await list({
+      boardId: PROJ,
+      statusId: [STATUS],
+      statusCategory: [`unstarted`],
+      excludeStatusCategory: [`completed`, `cancelled`],
+      excludeStatusId: [UUID],
+    })
+    const { sql, params } = whereSql()
+    expect(sql).toContain(`"issues"."status_id" in (`)
+    expect(params).toContain(STATUS)
+    // Category filters resolve through issue_statuses, never the anchor enum
+    // (a custom "Ideas" anchors to backlog but lives in unstarted).
+    expect(sql).toMatch(
+      /"issues"\."status_id" in \(select "issue_statuses"\."id" from "issue_statuses" where "issue_statuses"\."category" in \(\$\d+\)\)/
+    )
+    expect(sql).toMatch(
+      /"issues"\."status_id" not in \(select "issue_statuses"\."id" from "issue_statuses" where "issue_statuses"\."category" in \(\$\d+, \$\d+\)\)/
+    )
+    expect(params).toEqual(
+      expect.arrayContaining([`unstarted`, `completed`, `cancelled`, UUID])
+    )
+    // An exclude never drops a row whose status_id is NULL.
+    expect(sql).toContain(`"issues"."status_id" is null or `)
+  })
+
+  it(`matches labels any-of, all-of, and the updated range`, async () => {
+    await list({
+      boardId: PROJ,
+      labelIds: [LABEL, LABEL2, LABEL2],
+      labelMatch: `all`,
+      updatedAfter: `2026-08-01`,
+      updatedBefore: `2026-08-30T23:59:59Z`,
+    })
+    let q = whereSql()
+    // Duplicates in labelIds collapse so the distinct count still matches.
+    expect(q.sql).toMatch(
+      /\(select count\(distinct "issue_labels"\."label_id"\) from "issue_labels" where "issue_labels"\."issue_id" = "issues"\."id" and "issue_labels"\."label_id" in \(\$\d+, \$\d+\)\) = \$\d+/
+    )
+    expect(q.params).toContain(2)
+    expect(q.sql).toContain(`"updated_at" >= `)
+    expect(q.sql).toContain(`"updated_at" <= `)
+    expect(q.params).toContain(`2026-08-01T00:00:00.000Z`)
+
+    await list({ boardId: PROJ, labelIds: [LABEL] })
+    q = whereSql()
+    expect(q.sql).toMatch(
+      /exists \(select 1 from "issue_labels" where "issue_labels"\."issue_id" = "issues"\."id" and "issue_labels"\."label_id" in \(\$\d+\)\)/
+    )
+    expect(q.params).toContain(LABEL)
+  })
+
+  it(`filters on comment presence and author`, async () => {
+    await list({
+      boardId: PROJ,
+      hasComments: false,
+      notCommentedBy: `user-1`,
+      commentedBy: `user-2`,
+    })
+    const { sql, params } = whereSql()
+    expect(sql).toMatch(
+      /not exists \(select 1 from "comments" where "comments"\."issue_id" = "issues"\."id"\)/
+    )
+    expect(sql).toMatch(
+      /not exists \(select 1 from "comments" where "comments"\."issue_id" = "issues"\."id" and "comments"\."author_id" = \$\d+\)/
+    )
+    expect(sql).toMatch(
+      /(?<!not )exists \(select 1 from "comments" where "comments"\."issue_id" = "issues"\."id" and "comments"\."author_id" = \$\d+\)/
+    )
+    expect(params).toEqual(expect.arrayContaining([`user-1`, `user-2`]))
+  })
+
+  it(`sorts by the requested field with a -prefix for descending`, async () => {
+    await list({ boardId: PROJ, sort: `updatedAt` })
+    expect(orderBySql()[0]).toBe(`"issues"."updated_at" asc`)
+    await list({ boardId: PROJ, sort: `-priority` })
+    const [first] = orderBySql()
+    expect(first).toContain(`case "issues"."priority" when 'urgent' then 4`)
+    expect(first).toMatch(/ desc$/)
+    await list({ boardId: PROJ })
+    expect(orderBySql()).toEqual([
+      `"issues"."created_at" desc`,
+      `"issues"."created_at" desc`,
+      `"issues"."id" desc`,
+    ])
+  })
+
+  it(`validates the budget-trimmed (enum-free) inputs at runtime`, () => {
+    const def = collectToolDefs().get(`exponential_issues_list`)!
+    const schema = z.object(def.inputSchema!)
+    const parsed = schema.parse({
+      excludeStatus: [`done`],
+      excludeStatusCategory: [`completed`],
+      priority: [`urgent`],
+      sort: `-updatedAt`,
+      createdAfter: `2026-08-29`,
+      dueBefore: `2026-09-01`,
+    })
+    expect(parsed.sort).toBe(`-updatedAt`)
+    expect(schema.parse({}).sort).toBe(`-createdAt`)
+    expect(schema.safeParse({ excludeStatus: [`nope`] }).success).toBe(false)
+    expect(schema.safeParse({ excludeStatusCategory: [`done`] }).success).toBe(
+      false
+    )
+    expect(schema.safeParse({ priority: [`p1`] }).success).toBe(false)
+    expect(schema.safeParse({ sort: `title` }).success).toBe(false)
+    expect(schema.safeParse({ createdAfter: `yesterday` }).success).toBe(false)
+    expect(schema.safeParse({ dueAfter: `2026-8-1` }).success).toBe(false)
+    expect(schema.safeParse({ search: `` }).success).toBe(false)
+  })
+})
+
+describe(`exponential_issues_create statusId passthrough (EXP-684)`, () => {
+  it(`forwards statusId so an issue can be created in a custom status`, async () => {
+    caller.issues.create.mockResolvedValue({
+      issue: { id: UUID, statusId: STATUS },
+    })
+    const result = await tool(`exponential_issues_create`)({
+      boardId: PROJ,
+      title: `Idea`,
+      statusId: STATUS,
+    })
+    expect(parseOk(result)).toEqual({ id: UUID, statusId: STATUS })
+    expect(caller.issues.create).toHaveBeenCalledWith({
+      boardId: PROJ,
+      title: `Idea`,
+      statusId: STATUS,
       description: undefined,
     })
   })
