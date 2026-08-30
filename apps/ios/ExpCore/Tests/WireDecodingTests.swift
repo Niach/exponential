@@ -18,7 +18,7 @@ final class WireDecodingTests: XCTestCase {
         let issue = try decode(IssueEntity.self, #"""
         {
           "id": "i1", "board_id": "p1", "title": "404",
-          "status": "todo", "priority": "none",
+          "status": "in_progress", "priority": "none",
           "number": "7", "pr_number": "12", "sort_order": "3.5",
           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
         }
@@ -34,7 +34,7 @@ final class WireDecodingTests: XCTestCase {
         let issue = try decode(IssueEntity.self, #"""
         {
           "id": "i1", "board_id": "p1", "title": "Real",
-          "status": "todo", "priority": "none",
+          "status": "in_progress", "priority": "none",
           "number": 7, "sort_order": 3.5,
           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
         }
@@ -376,7 +376,7 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(IssueEntity.self, #"""
         {
           "id": "i1", "board_id": "p1", "title": "t",
-          "status": "todo", "priority": "none", "number": "not-a-number",
+          "status": "in_progress", "priority": "none", "number": "not-a-number",
           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
         }
         """#))
@@ -386,7 +386,7 @@ final class WireDecodingTests: XCTestCase {
         let issue = try decode(IssueEntity.self, #"""
         {
           "id": "i1", "board_id": "p1", "title": "t",
-          "status": "todo", "priority": "none", "number": null,
+          "status": "in_progress", "priority": "none", "number": null,
           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
         }
         """#)

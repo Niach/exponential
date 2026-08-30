@@ -1,8 +1,11 @@
 import { z } from "zod"
 
+// `todo` (the builtin "Todo" status) was retired by EXP-685: migration 0091
+// moved every issue to Backlog and only the PG type keeps the orphan label
+// (see schema.ts issueStatusEnum). Servers normalize the retired token via
+// RETIRED_ISSUE_STATUS_ALIASES; clients treat it as an unknown wire value.
 export const issueStatusValues = [
   `backlog`,
-  `todo`,
   `in_progress`,
   // PR opened, awaiting review/merge — the coding flow parks issues here
   // between "PR opened" and "PR merged" (which lands them in `done`).
@@ -49,17 +52,33 @@ export const ISSUE_STATUS_STARTED_MAX = 4
 // derivations, pr-sync eligibility, MCP tools, old clients) keeps working off
 // the anchor while status_id carries the precise row. Builtin rows anchor to
 // their own builtin_key (the in_review builtin is why `started` can't simply
-// be "the category's only enum value").
+// be "the category's only enum value"). `unstarted` has no builtin since
+// EXP-685 — its customs anchor to `backlog` ("not started" for every
+// enum-only reader). Mirrored by iOS/desktop `anchor()`.
 export const CATEGORY_ANCHOR: Record<IssueStatusCategory, IssueStatus> = {
   backlog: `backlog`,
-  unstarted: `todo`,
+  unstarted: `backlog`,
   started: `in_progress`,
   completed: `done`,
   cancelled: `cancelled`,
   duplicate: `duplicate`,
 }
 
-// The 7 locked builtin statuses every team is seeded with — the local
+// Retired enum tokens a stale client or agent may still send, and the live
+// value each one means now (EXP-685). Server input schemas accept them and
+// normalize BEFORE any write; nothing ever persists a retired token.
+export const RETIRED_ISSUE_STATUS_ALIASES: Record<string, IssueStatus> = {
+  todo: `backlog`,
+}
+
+export function normalizeIssueStatus(value: string): IssueStatus {
+  return (
+    RETIRED_ISSUE_STATUS_ALIASES[value] ??
+    (value as IssueStatus)
+  )
+}
+
+// The 6 locked builtin statuses every team is seeded with — the local
 // fallback set clients construct when the issue_statuses shape hasn't synced
 // (builtin-actions pattern). Hand-mirrors contract.json issueStatusDefaults
 // AND the SQL seed in apps/web/src/db/out/custom/0001_triggers.sql; both
@@ -79,13 +98,6 @@ export const BUILTIN_STATUS_DEFAULTS: BuiltinStatusDefault[] = [
     category: `backlog`,
     name: `Backlog`,
     color: `#A1A1AA`,
-    sortOrder: 1,
-  },
-  {
-    key: `todo`,
-    category: `unstarted`,
-    name: `Todo`,
-    color: `#FAFAFA`,
     sortOrder: 1,
   },
   {
@@ -389,6 +401,14 @@ export type SupportMessageVisibility =
   (typeof supportMessageVisibilityValues)[number]
 
 export const issueStatusSchema = z.enum(issueStatusValues)
+// Mutation INPUT form: also accepts the retired tokens a stale client may
+// still send (EXP-685) and normalizes them — never used for reads/outputs.
+export const issueStatusInputSchema = z
+  .enum([
+    ...issueStatusValues,
+    ...Object.keys(RETIRED_ISSUE_STATUS_ALIASES),
+  ] as [string, ...string[]])
+  .transform((value) => normalizeIssueStatus(value))
 export const issueStatusCategorySchema = z.enum(issueStatusCategoryValues)
 export const issuePrioritySchema = z.enum(issuePriorityValues)
 export const issueSourceSchema = z.enum(issueSourceValues)
@@ -635,7 +655,6 @@ export function getCommentBodyText(body: unknown): string {
 
 export const issueStatusOrder: IssueStatus[] = [
   `backlog`,
-  `todo`,
   `in_progress`,
   `in_review`,
   `done`,

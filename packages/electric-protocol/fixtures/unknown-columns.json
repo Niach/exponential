@@ -9,7 +9,7 @@
     "identifier": "EXP-1",
     "title": "First issue",
     "description": { "text": "Body content" },
-    "status": "todo",
+    "status": "in_progress",
     "priority": "medium",
     "assignee_id": null,
     "creator_id": "user_123",

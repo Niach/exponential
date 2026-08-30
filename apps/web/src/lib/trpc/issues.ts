@@ -58,7 +58,7 @@ import {
   issueDescriptionSchema,
   issuePrioritySchema,
   type IssueStatus,
-  issueStatusSchema,
+  issueStatusInputSchema,
 } from "@/lib/domain"
 import {
   canonicalizeMarkdownImageUrls,
@@ -317,7 +317,7 @@ export const issuesRouter = router({
         .object({
           boardId: z.string().uuid(),
           title: z.string().min(1).max(500),
-          status: issueStatusSchema.optional(),
+          status: issueStatusInputSchema.optional(),
           // EXP-314: a team status row id — the precise-status alternative to
           // the anchor enum (resolveStatusWrite derives the enum from it).
           statusId: z.string().uuid().optional(),
@@ -515,7 +515,7 @@ export const issuesRouter = router({
         .object({
           id: z.string().uuid(),
           title: z.string().min(1).max(500).optional(),
-          status: issueStatusSchema.optional(),
+          status: issueStatusInputSchema.optional(),
           // EXP-314: a team status row id — the precise-status alternative to
           // the anchor enum (resolveStatusWrite derives the enum from it).
           statusId: z.string().uuid().optional(),
@@ -993,7 +993,7 @@ export const issuesRouter = router({
       z
         .object({
           ids: z.array(z.string().uuid()).min(1).max(200),
-          status: issueStatusSchema.optional(),
+          status: issueStatusInputSchema.optional(),
           // EXP-314: a team status row id — the precise-status alternative to
           // the anchor enum (resolveStatusWrite derives the enum from it).
           statusId: z.string().uuid().optional(),

@@ -32,7 +32,7 @@ pub struct BatchPromptArgs<'a> {
 /// (`exponential_pr_open`, `exponential_comments_list`
 /// read-the-thread-first, no `gh`) and carries NO plan-gate text — native
 /// plan mode owns the approval gate. Issue status is not the agent's job
-/// (EXP-194): the launcher flips backlog/todo issues to `in_progress` at
+/// (EXP-194): the launcher flips backlog issues to `in_progress` at
 /// launch, opening the PR flips every issue to `in_review` server-side, and
 /// merging it completes them to `done`.
 pub fn render_batch_prompt(args: &BatchPromptArgs<'_>) -> String {
@@ -112,7 +112,7 @@ mod tests {
                 issue_identifier: "EXP-42".to_string(),
                 title: "Fix login flicker".to_string(),
                 description: Some("Steps in the issue.".to_string()),
-                status: domain::IssueStatus::Todo,
+                status: domain::IssueStatus::InProgress,
             },
             BatchIssueSpec {
                 issue_id: "22222222-2222-4222-8222-222222222222".to_string(),

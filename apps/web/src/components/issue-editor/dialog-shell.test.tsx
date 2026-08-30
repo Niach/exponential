@@ -193,7 +193,8 @@ describe(`IssueEditorDialogShell`, () => {
     fireEvent.click(screen.getByLabelText(`Close dialog`))
     // Priorities are display-ordered (REV2-85) so the mock's options[0] is
     // Urgent, while set-status pickers run settings-order (EXP-426) so theirs
-    // is Backlog. Either way its "select" picks options[1].
+    // is Backlog. Either way its "select" picks options[1] — since EXP-685
+    // retired Todo, the status list's second row is In Progress.
     fireEvent.click(screen.getByText(`Select Backlog`))
     fireEvent.click(screen.getByText(`Select Urgent`))
     fireEvent.click(screen.getByText(`Toggle label`))
@@ -203,7 +204,7 @@ describe(`IssueEditorDialogShell`, () => {
     expect(onTitleChange).toHaveBeenCalledWith(`Updated title`)
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(onStatusChange).toHaveBeenCalledWith(
-      expect.objectContaining({ builtinKey: `todo`, name: `Todo` })
+      expect.objectContaining({ builtinKey: `in_progress`, name: `In Progress` })
     )
     expect(onPriorityChange).toHaveBeenCalledWith(`high`)
     expect(onToggleLabel).toHaveBeenCalledWith(`label-1`)

@@ -1284,7 +1284,7 @@ mod tests {
             "number": 1,
             "identifier": "EXP-1",
             "title": "t",
-            "status": "todo",
+            "status": "backlog",
             "priority": "none"
         }))
         .unwrap();
@@ -1306,7 +1306,7 @@ mod tests {
         let maps = vec![
             obj(json!({
                 "id": "i-1", "board_id": "p-1", "number": "1",
-                "identifier": "EXP-1", "title": "ok", "status": "todo",
+                "identifier": "EXP-1", "title": "ok", "status": "backlog",
                 "priority": "none"
             })),
             // Missing required identifier/title → dropped, not fatal (§5.5).
@@ -1325,7 +1325,7 @@ mod tests {
 
         let issue: Issue = serde_json::from_value(json!({
             "id": "i-1", "board_id": "p-1", "number": 1,
-            "identifier": "EXP-1", "title": "t", "status": "todo",
+            "identifier": "EXP-1", "title": "t", "status": "backlog",
             "priority": "none"
         }))
         .unwrap();

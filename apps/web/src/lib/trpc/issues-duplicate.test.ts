@@ -151,7 +151,7 @@ function currentIssue(
 ): Record<string, unknown> {
   return {
     description: null,
-    status: `todo`,
+    status: `backlog`,
     boardId: `board-1`,
     title: `Issue`,
     priority: `none`,

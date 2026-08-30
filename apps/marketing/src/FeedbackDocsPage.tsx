@@ -126,8 +126,8 @@ export function FeedbackDocsPage() {
               Feedback lands as ordinary issues on a board, so triage is the
               workflow your team already knows: set priority, label it, move
               noise to <strong>Cancelled</strong>, mark repeats as{` `}
-              <strong>Duplicate</strong>, and promote real bugs to{` `}
-              <strong>Todo</strong>. Or bulk-select a batch of them and{` `}
+              <strong>Duplicate</strong>, and pull real bugs into{` `}
+              <strong>In Progress</strong>. Or bulk-select a batch of them and{` `}
               <a href="/docs/coding/#batch-runs">hand it to an agent</a>.
             </p>
             <p>

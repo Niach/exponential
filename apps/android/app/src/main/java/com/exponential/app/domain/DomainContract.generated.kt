@@ -3,15 +3,15 @@
 package com.exponential.app.domain
 
 object DomainContract {
-    val issueStatusValues: List<String> = listOf("backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate")
-    val issueStatusDisplayOrder: List<String> = listOf("backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate")
+    val issueStatusValues: List<String> = listOf("backlog", "in_progress", "in_review", "done", "cancelled", "duplicate")
+    val issueStatusDisplayOrder: List<String> = listOf("backlog", "in_progress", "in_review", "done", "cancelled", "duplicate")
     val issueStatusCategoryValues: List<String> = listOf("backlog", "unstarted", "started", "completed", "cancelled", "duplicate")
     val issueStatusCategoryDisplayOrder: List<String> = listOf("backlog", "unstarted", "started", "completed", "cancelled", "duplicate")
-    val issueStatusDefaultKeys: List<String> = listOf("backlog", "todo", "in_progress", "in_review", "done", "cancelled", "duplicate")
-    val issueStatusDefaultCategories: List<String> = listOf("backlog", "unstarted", "started", "started", "completed", "cancelled", "duplicate")
-    val issueStatusDefaultNames: List<String> = listOf("Backlog", "Todo", "In Progress", "In Review", "Done", "Cancelled", "Duplicate")
-    val issueStatusDefaultColors: List<String> = listOf("#A1A1AA", "#FAFAFA", "#EAB308", "#22C55E", "#3B82F6", "#A1A1AA", "#A1A1AA")
-    val issueStatusDefaultSortOrders: List<Int> = listOf(1, 1, 1, 2, 1, 1, 1)
+    val issueStatusDefaultKeys: List<String> = listOf("backlog", "in_progress", "in_review", "done", "cancelled", "duplicate")
+    val issueStatusDefaultCategories: List<String> = listOf("backlog", "started", "started", "completed", "cancelled", "duplicate")
+    val issueStatusDefaultNames: List<String> = listOf("Backlog", "In Progress", "In Review", "Done", "Cancelled", "Duplicate")
+    val issueStatusDefaultColors: List<String> = listOf("#A1A1AA", "#EAB308", "#22C55E", "#3B82F6", "#A1A1AA", "#A1A1AA")
+    val issueStatusDefaultSortOrders: List<Int> = listOf(1, 1, 2, 1, 1, 1)
     val issuePriorityValues: List<String> = listOf("none", "urgent", "high", "medium", "low")
     val issuePriorityDisplayOrder: List<String> = listOf("urgent", "high", "medium", "low", "none")
     val issueSourceValues: List<String> = listOf("user", "widget", "agent")

@@ -50,7 +50,6 @@ const GROUP_ROW_CHUNK = 400
 // 10%-alpha inline wash from their own hex.
 const statusHeaderBg: Record<IssueStatus, string> = {
   backlog: `bg-zinc-500/10`,
-  todo: `bg-zinc-300/10`,
   in_progress: `bg-yellow-500/10`,
   in_review: `bg-green-500/10`,
   done: `bg-blue-500/10`,

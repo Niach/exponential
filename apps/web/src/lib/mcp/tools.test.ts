@@ -936,12 +936,14 @@ describe(`exponential_statuses_list`, () => {
     // Deliberately shuffled: the tool must order by category display order
     // (backlog, unstarted, started, …), then sortOrder, createdAt, id.
     dbRows.current = [
+      // EXP-685 retired the Todo builtin, so `unstarted` is a customs-only
+      // category now — this row has no builtinKey.
       {
         id: `b`,
-        name: `Todo`,
+        name: `Triage`,
         category: `unstarted`,
         color: `#6b7280`,
-        builtinKey: `todo`,
+        builtinKey: null,
         sortOrder: 1,
         createdAt: at(`2026-01-01T00:00:00Z`),
       },
@@ -968,11 +970,11 @@ describe(`exponential_statuses_list`, () => {
     expect(parseOk(result)).toEqual([
       {
         id: `b`,
-        name: `Todo`,
+        name: `Triage`,
         category: `unstarted`,
         color: `#6b7280`,
         position: 1,
-        builtinKey: `todo`,
+        builtinKey: null,
       },
       {
         id: `c`,
@@ -1106,7 +1108,7 @@ describe(`exponential_pr_open batch session flip`, () => {
       ;(txSelect as { then: unknown }).then = (
         resolve: (v: unknown) => unknown,
         reject: (e: unknown) => unknown
-      ) => Promise.resolve([{ status: `todo` }]).then(resolve, reject)
+      ) => Promise.resolve([{ status: `backlog` }]).then(resolve, reject)
       return fn({
         select: () => txSelect,
         update: () => ({

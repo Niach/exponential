@@ -741,6 +741,7 @@ describe(`reporter resolution guards`, () => {
     expect(isResolutionStatus(`done`)).toBe(true)
     expect(isResolutionStatus(`cancelled`)).toBe(true)
     expect(isResolutionStatus(`backlog`)).toBe(false)
+    // A retired token (EXP-685) is not a resolution either.
     expect(isResolutionStatus(`todo`)).toBe(false)
     expect(isResolutionStatus(`in_progress`)).toBe(false)
     expect(isResolutionStatus(`duplicate`)).toBe(false)

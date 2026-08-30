@@ -158,8 +158,6 @@ public enum TextOpacity {
 // materials are deliberately NOT tokenized.
 public enum StatusColor {
     public static let backlog = DesignTokens.Semantic.neutral
-    /// Web's todo is `text-foreground` (near-white), not gray.
-    public static let todo = Zinc._50
     public static let inProgress = DesignTokens.Semantic.yellow
     /// Up for review (EXP-120) — green, the color `done` used to carry.
     public static let inReview = DesignTokens.Semantic.green

@@ -17,7 +17,6 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IssueStatus {
     Backlog,
-    Todo,
     InProgress,
     InReview,
     Done,
@@ -30,9 +29,8 @@ pub enum IssueStatus {
 impl IssueStatus {
     /// Board display order — mirrors the generated
     /// `ISSUE_STATUS_DISPLAY_ORDER` (locked by test).
-    pub const DISPLAY_ORDER: [IssueStatus; 7] = [
+    pub const DISPLAY_ORDER: [IssueStatus; 6] = [
         IssueStatus::Backlog,
-        IssueStatus::Todo,
         IssueStatus::InProgress,
         IssueStatus::InReview,
         IssueStatus::Done,
@@ -43,7 +41,6 @@ impl IssueStatus {
     pub fn from_wire(value: &str) -> IssueStatus {
         match value {
             "backlog" => IssueStatus::Backlog,
-            "todo" => IssueStatus::Todo,
             "in_progress" => IssueStatus::InProgress,
             "in_review" => IssueStatus::InReview,
             "done" => IssueStatus::Done,
@@ -57,7 +54,6 @@ impl IssueStatus {
     pub fn as_wire(&self) -> Option<&'static str> {
         match self {
             IssueStatus::Backlog => Some("backlog"),
-            IssueStatus::Todo => Some("todo"),
             IssueStatus::InProgress => Some("in_progress"),
             IssueStatus::InReview => Some("in_review"),
             IssueStatus::Done => Some("done"),
@@ -71,7 +67,6 @@ impl IssueStatus {
     pub fn label(&self) -> &'static str {
         match self {
             IssueStatus::Backlog => "Backlog",
-            IssueStatus::Todo => "Todo",
             IssueStatus::InProgress => "In Progress",
             IssueStatus::InReview => "In Review",
             IssueStatus::Done => "Done",
@@ -188,6 +183,9 @@ mod tests {
             .collect();
         assert_eq!(order, contract::ISSUE_STATUS_DISPLAY_ORDER);
         assert_eq!(IssueStatus::from_wire("triaged"), IssueStatus::Unknown);
+        // EXP-685: `todo` is retired — it parses like any other unknown value
+        // (the PG enum keeps the orphan label, no server ever sends it).
+        assert_eq!(IssueStatus::from_wire("todo"), IssueStatus::Unknown);
     }
 
     #[test]

@@ -13,7 +13,7 @@
 //! `exponential_comments_list` (accepts human identifiers, so the prompt
 //! passes the issue identifier — the launcher never needs the UUID). The
 //! desktop never opens the PR itself — Claude does, via MCP. Issue status is
-//! NOT Claude's job: the launcher flips backlog/todo issues to `in_progress`
+//! NOT Claude's job: the launcher flips backlog issues to `in_progress`
 //! at launch (EXP-194 — under plan mode an MCP status call would only land
 //! after plan approval), and the PR lifecycle owns in_review/done. The
 //! plan/approval gate is NOT prompt text anymore: native plan mode

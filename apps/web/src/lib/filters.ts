@@ -10,7 +10,7 @@ import { issuePriorityOptions, issueStatusOptions } from "@/lib/domain"
 export interface IssueFilters {
   // EXP-314 dual-token status filter: a token is either an `issue_statuses`
   // row uuid (the modern form the picker writes) or a legacy anchor-enum value
-  // (`todo`, `done`, …) carried by an older shared/bookmarked URL or an older
+  // (`backlog`, `done`, …) carried by an older shared/bookmarked URL or an older
   // native client. Matching accepts both; the picker normalizes to row ids on
   // the next toggle.
   statusTokens: string[]
@@ -73,14 +73,14 @@ export function hasActiveFilters(filters: IssueFilters): boolean {
 }
 
 // --- URL search-param form (web-only, not mirrored on native) ---------------
-// Filters live in the URL as clean comma-joined values (?status=todo,in_progress
+// Filters live in the URL as clean comma-joined values (?status=done,in_progress
 // &priority=high&labels=<id>,<id>) so a filtered board is shareable and survives
 // a refresh. The issue-detail route accepts the SAME optional params so the
 // prev/next switcher can follow the board's filtered ordering; helpers are
 // shared here so the two routes can't drift.
 //
 // EXP-314 keeps the `status` KEY and widens its allowlist to row uuids — old
-// links (?status=todo) keep working verbatim.
+// links (?status=done) keep working verbatim.
 
 export interface IssueFilterSearch {
   status?: string

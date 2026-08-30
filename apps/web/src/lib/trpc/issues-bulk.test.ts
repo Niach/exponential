@@ -182,7 +182,7 @@ function issueRow(
 ): Record<string, unknown> {
   return {
     id,
-    status: `todo`,
+    status: `backlog`,
     boardId: `proj-1`,
     title: `Issue`,
     priority: `none`,
@@ -325,11 +325,23 @@ describe(`issues.bulkUpdate`, () => {
       issueRow(ID_A, { status: `duplicate`, duplicateOfId: uuid(9) }),
     ])
 
-    await caller.bulkUpdate({ ids: [ID_A], status: `todo` })
+    await caller.bulkUpdate({ ids: [ID_A], status: `backlog` })
 
     expect(updates).toHaveLength(1)
     expect(updates[0]!.set.duplicateOfId).toBeNull()
     expect(updates[0]!.set.completedAt).toBeNull()
+  })
+
+  // EXP-685: `todo` is retired, but a stale client (or an old agent script)
+  // may still send it. The input schema normalizes it BEFORE the write, so
+  // the retired token never reaches a row.
+  it(`normalizes the retired 'todo' status token to backlog`, async () => {
+    seedEligible([issueRow(ID_A, { status: `in_progress` })])
+
+    await caller.bulkUpdate({ ids: [ID_A], status: `todo` as never })
+
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.set.status).toBe(`backlog`)
   })
 
   it(`bulk assign validates the assignee once and only notifies actual changes`, async () => {
@@ -447,8 +459,8 @@ describe(`issues.bulkUpdate`, () => {
   it(`derives transitions from the locked re-read, not the stale eligibility snapshot`, async () => {
     const completedAt = new Date(`2026-01-01T00:00:00.000Z`)
     seedEligible(
-      // Pre-transaction snapshot: still todo, unassigned.
-      [issueRow(ID_A, { status: `todo`, assigneeId: null })],
+      // Pre-transaction snapshot: still backlog, unassigned.
+      [issueRow(ID_A, { status: `backlog`, assigneeId: null })],
       // A concurrent single update already completed + assigned it.
       [issueRow(ID_A, { status: `done`, assigneeId: `other`, completedAt })]
     )

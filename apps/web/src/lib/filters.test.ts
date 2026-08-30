@@ -73,11 +73,11 @@ describe(`matchesFilters status tokens`, () => {
   })
 
   it(`ignores unknown tokens without dropping the other filters`, () => {
-    const issue = makeIssue({ status: `todo`, statusId: null })
+    const issue = makeIssue({ status: `backlog`, statusId: null })
     expect(
       matchesFilters(issue, [], {
         ...emptyFilters,
-        statusTokens: [OTHER_ROW_ID, `todo`],
+        statusTokens: [OTHER_ROW_ID, `backlog`],
       })
     ).toBe(true)
   })
@@ -88,15 +88,18 @@ describe(`filter URL round-trip`, () => {
     expect(isValidStatusToken(ROW_ID)).toBe(true)
     expect(isValidStatusToken(`in_review`)).toBe(true)
     expect(isValidStatusToken(`nonsense`)).toBe(false)
+    // EXP-685 retired `todo`: an old shared URL carrying it drops the token
+    // rather than filtering on a status no team has any more.
+    expect(isValidStatusToken(`todo`)).toBe(false)
 
     expect(
       parseIssueFilterSearch({
-        status: `${ROW_ID},todo,nonsense`,
+        status: `${ROW_ID},backlog,todo,nonsense`,
         priority: `high,bogus`,
         labels: `label-1`,
       })
     ).toEqual({
-      status: `${ROW_ID},todo`,
+      status: `${ROW_ID},backlog`,
       priority: `high`,
       labels: `label-1`,
     })

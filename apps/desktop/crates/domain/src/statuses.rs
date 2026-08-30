@@ -114,7 +114,9 @@ impl IssueStatusCategory {
     pub fn anchor(&self) -> IssueStatus {
         match self {
             IssueStatusCategory::Backlog => IssueStatus::Backlog,
-            IssueStatusCategory::Unstarted => IssueStatus::Todo,
+            // EXP-685: `todo` is retired; the unstarted category anchors to
+            // `backlog` (the server's CATEGORY_ANCHOR moved with it).
+            IssueStatusCategory::Unstarted => IssueStatus::Backlog,
             IssueStatusCategory::Started => IssueStatus::InProgress,
             IssueStatusCategory::Completed => IssueStatus::Done,
             IssueStatusCategory::Cancelled => IssueStatus::Cancelled,
@@ -201,7 +203,7 @@ pub fn status_key_matches(status: &ResolvedStatus, token: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// The 7 builtin defaults (from the generated contract)
+// The 6 builtin defaults (from the generated contract)
 // ---------------------------------------------------------------------------
 
 /// One locally-constructed builtin default. Wire strings come STRAIGHT from
@@ -227,16 +229,16 @@ const fn default_status(index: usize, color: ColorToken) -> DefaultStatus {
     }
 }
 
-/// The 7 builtin statuses every team has, in contract order (backlog, todo,
-/// in_progress, in_review, done, cancelled, duplicate).
-pub const DEFAULT_STATUSES: [DefaultStatus; 7] = [
+/// The 6 builtin statuses every team has, in contract order (backlog,
+/// in_progress, in_review, done, cancelled, duplicate). EXP-685 retired the
+/// 7th (`todo`); the `unstarted` category simply has no builtin any more.
+pub const DEFAULT_STATUSES: [DefaultStatus; 6] = [
     default_status(0, ColorToken::MutedForeground), // backlog
-    default_status(1, ColorToken::Foreground),      // todo
-    default_status(2, ColorToken::Yellow),          // in_progress
-    default_status(3, ColorToken::Green),           // in_review
-    default_status(4, ColorToken::Blue),            // done
-    default_status(5, ColorToken::MutedForeground), // cancelled
-    default_status(6, ColorToken::MutedForeground), // duplicate
+    default_status(1, ColorToken::Yellow),          // in_progress
+    default_status(2, ColorToken::Green),           // in_review
+    default_status(3, ColorToken::Blue),            // done
+    default_status(4, ColorToken::MutedForeground), // cancelled
+    default_status(5, ColorToken::MutedForeground), // duplicate
 ];
 
 /// The color token of a builtin key — the ONE mapping builtin rows (synced
@@ -660,14 +662,13 @@ mod tests {
         let names: Vec<&str> = resolved.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(
             names,
-            vec!["Backlog", "Todo", "In Progress", "In Review", "Done", "Cancelled", "Duplicate"]
+            vec!["Backlog", "In Progress", "In Review", "Done", "Cancelled", "Duplicate"]
         );
         let glyphs: Vec<&str> = resolved.iter().map(|r| r.glyph.file_name()).collect();
         assert_eq!(
             glyphs,
             vec![
                 "circle-dashed",
-                "circle",
                 "progress-2-4",
                 "progress-3-4",
                 "circle-check",
@@ -695,13 +696,13 @@ mod tests {
             row("a", "started", "Building", 1.0, Some("in_progress")),
             row("m", "backlog", "Backlog", 1.0, Some("backlog")),
             row("n", "completed", "Done", 1.0, Some("done")),
-            row("o", "unstarted", "Todo", 1.0, Some("todo")),
+            row("o", "unstarted", "Triage", 1.0, None),
         ];
         let names: Vec<String> = team_resolved_statuses(&rows)
             .into_iter()
             .map(|r| r.name)
             .collect();
-        assert_eq!(names, vec!["Backlog", "Todo", "Building", "QA", "Done"]);
+        assert_eq!(names, vec!["Backlog", "Triage", "Building", "QA", "Done"]);
 
         // Ties break on created_at, then id.
         let mut a = row("b", "backlog", "A", 1.0, None);
@@ -738,7 +739,7 @@ mod tests {
         with_custom.push(custom);
 
         // (a) status_id hits a synced row.
-        let resolved = resolve_status(&issue("todo", Some("custom-1")), &with_custom);
+        let resolved = resolve_status(&issue("backlog", Some("custom-1")), &with_custom);
         assert_eq!(resolved.name, "QA");
         assert_eq!(resolved.row_id.as_deref(), Some("custom-1"));
         assert_eq!(resolved.group_key, "custom-1");
@@ -820,13 +821,13 @@ mod tests {
 
         assert!(status_key_matches(in_progress, &in_progress.group_key));
         assert!(status_key_matches(in_progress, "builtin:in_progress"));
-        assert!(!status_key_matches(in_progress, "builtin:todo"));
+        assert!(!status_key_matches(in_progress, "builtin:backlog"));
         // A row-uuid token matches ONLY that row.
-        let todo = vocabulary
+        let backlog = vocabulary
             .iter()
-            .find(|status| status.builtin_key.as_deref() == Some("todo"))
+            .find(|status| status.builtin_key.as_deref() == Some("backlog"))
             .unwrap();
-        assert!(!status_key_matches(todo, &in_progress.group_key));
+        assert!(!status_key_matches(backlog, &in_progress.group_key));
 
         // A CUSTOM row has no builtin key — only its uuid selects it.
         let custom = resolve_row(&sort_team_statuses(&[row("qa", "started", "QA", 1.0, None)]), 0);

@@ -7,7 +7,6 @@ import java.time.LocalDate
 
 enum class IssueStatus(val wire: String, val label: String) {
     Backlog("backlog", "Backlog"),
-    Todo("todo", "Todo"),
     InProgress("in_progress", "In progress"),
     InReview("in_review", "In review"),
     Done("done", "Done"),
@@ -19,19 +18,28 @@ enum class IssueStatus(val wire: String, val label: String) {
             entries.firstOrNull { it.wire == value } ?: Backlog
 
         /**
+         * Labels for builtins that no longer exist but still appear in stored
+         * timeline payloads. EXP-685 retired `todo`; a historic
+         * "status → todo" event must keep reading "Todo", not a munged wire
+         * value.
+         */
+        private val retiredLabels = mapOf("todo" to "Todo")
+
+        /**
          * Human label for a wire status. Unlike [fromWire] (which falls back
          * to Backlog for UI that needs SOME status), an unknown wire value —
          * e.g. from a newer server — renders verbatim instead of mislabeling.
          */
         fun labelFor(wire: String): String =
-            entries.firstOrNull { it.wire == wire }?.label ?: wire.replace('_', ' ')
+            entries.firstOrNull { it.wire == wire }?.label
+                ?: retiredLabels[wire]
+                ?: wire.replace('_', ' ')
     }
 }
 
 // Lifecycle order (EXP-448 — the order the statuses settings page lays out).
 val issueStatusOrder: List<IssueStatus> = listOf(
     IssueStatus.Backlog,
-    IssueStatus.Todo,
     IssueStatus.InProgress,
     IssueStatus.InReview,
     IssueStatus.Done,
@@ -41,7 +49,6 @@ val issueStatusOrder: List<IssueStatus> = listOf(
 
 fun statusIcon(status: IssueStatus): ImageVector = when (status) {
     IssueStatus.Backlog -> ExpIcons.statusBacklog
-    IssueStatus.Todo -> ExpIcons.statusTodo
     IssueStatus.InProgress -> ExpIcons.statusInProgress
     IssueStatus.InReview -> ExpIcons.statusInReview
     IssueStatus.Done -> ExpIcons.statusDone
@@ -82,7 +89,7 @@ fun priorityIcon(priority: IssuePriority): ImageVector = when (priority) {
 // Canonical in-group issue ordering (EXP-38) — the SAME comparator ships on
 // web, iOS, Android, and desktop; change it only in lockstep with the others.
 // Group order itself is issueStatusOrder above; within a group:
-// - backlog/todo/in_progress: overdue first (dueDate < today), then priority
+// - backlog/in_progress/in_review: overdue first (dueDate < today), then priority
 //   rank urgent(0)→none(4), then dueDate ascending with null last, then issue
 //   `number` ascending (numeric — never the identifier string, never sortOrder).
 // - done: (completedAt ?? updatedAt) descending (latest completed first).
@@ -136,7 +143,7 @@ fun issueComparatorForGroup(
     status: IssueStatus,
     today: String = LocalDate.now().toString(),
 ): Comparator<IssueEntity> = when (status) {
-    IssueStatus.Backlog, IssueStatus.Todo, IssueStatus.InProgress, IssueStatus.InReview ->
+    IssueStatus.Backlog, IssueStatus.InProgress, IssueStatus.InReview ->
         activeIssueComparator(today)
     IssueStatus.Done -> completedIssueComparator()
     IssueStatus.Cancelled, IssueStatus.Duplicate -> updatedDescComparator()

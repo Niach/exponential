@@ -981,7 +981,7 @@ mod tests {
             "number": 1,
             "identifier": "EXP-1",
             "title": "t",
-            "status": "todo",
+            "status": "backlog",
             "status_id": "s-1",
         }))
         .unwrap();
@@ -994,7 +994,7 @@ mod tests {
             "number": 2,
             "identifier": "EXP-2",
             "title": "t",
-            "status": "todo",
+            "status": "backlog",
         }))
         .unwrap();
         assert_eq!(issue.status_id, None);

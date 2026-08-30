@@ -141,10 +141,9 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 // per-team configurable, including "do nothing" (EXP-319). Explicit human
 // resolutions (cancelled/duplicate) and already-reached targets are never
 // overridden, so the webhook/cron/MCP writers stay idempotent.
-const OPENED_FROM_STATUSES = new Set([`backlog`, `todo`, `in_progress`])
+const OPENED_FROM_STATUSES = new Set([`backlog`, `in_progress`])
 const MERGED_FROM_STATUSES = new Set([
   `backlog`,
-  `todo`,
   `in_progress`,
   `in_review`,
 ])

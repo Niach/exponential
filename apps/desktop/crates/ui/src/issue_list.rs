@@ -1615,7 +1615,7 @@ fn assignable_users(board_id: &str, current: Option<&str>, cx: &App) -> Vec<User
 // ---------------------------------------------------------------------------
 
 /// Mirror of the web `IssueRowContextMenu`: header label, Open issue, Mark as
-/// done / Move to todo, Copy issue ID, Mark as duplicate… / Unmark duplicate,
+/// done / Move to backlog, Copy issue ID, Mark as duplicate… / Unmark duplicate,
 /// then Status / Assignee / Priority / Labels /
 /// Move-to-board / Set-due-date submenus, then the Delete-issue confirm
 /// submenu. Mutations are the §4.1 un-gated form.
@@ -1648,14 +1648,15 @@ fn build_row_context_menu(
         );
     }
 
-    // Mark as done / Move to todo (web toggles done ↔ todo). EXP-314: this
-    // convenience toggle stays an ENUM write — the server's trigger derives
-    // `status_id` from it, so it lands on the team's BUILTIN Done/Todo rows
-    // (an issue in a custom status leaves it, by design).
+    // Mark as done / Move to backlog (web toggles done ↔ backlog; EXP-685
+    // retired Todo). EXP-314: this convenience toggle stays an ENUM write —
+    // the server's trigger derives `status_id` from it, so it lands on the
+    // team's BUILTIN Done/Backlog rows (an issue in a custom status leaves
+    // it, by design).
     {
         let is_done = issue.status == IssueStatus::Done;
         let (label, icon) = if is_done {
-            ("Move to todo", ExpIcon::ListTodo)
+            ("Move to backlog", ExpIcon::ListTodo)
         } else {
             ("Mark as done", ExpIcon::CircleCheck)
         };
@@ -1664,7 +1665,7 @@ fn build_row_context_menu(
             move |_, _, cx| {
                 let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
                 input.status = Some(if is_done {
-                    IssueStatus::Todo
+                    IssueStatus::Backlog
                 } else {
                     IssueStatus::Done
                 });
@@ -2234,8 +2235,7 @@ fn status_header_tint(tint: &StatusTint) -> gpui::Hsla {
 /// would be indistinguishable from the white-alpha glass fills the app already
 /// paints everywhere (hover, active, section). They map to the NEUTRAL accent
 /// instead — the same role web's `zinc-500/10` plays for backlog / cancelled /
-/// duplicate. (Web additionally splits todo as `zinc-300/10`; that half-step is
-/// not worth a second neutral token here.)
+/// duplicate.
 fn status_tint_base(token: ColorToken) -> theme::Srgb8 {
     match token {
         ColorToken::Foreground | ColorToken::MutedForeground => t::NEUTRAL,
@@ -2356,14 +2356,13 @@ mod tests {
         // EXP-293 web parity (`statusHeaderBg`): in_progress yellow, in_review
         // green, done blue; every grey status shares the neutral accent. Locked
         // to the GENERATED tokens so the header wash can never drift from the
-        // status icon beside it. EXP-314 keeps this BYTE-identical for the 7
+        // status icon beside it. EXP-314 keeps this BYTE-identical for the 6
         // builtins (their tint is still a ColorToken, never the synced hex).
         for (builtin_key, want) in [
             ("in_progress", t::YELLOW),
             ("in_review", t::GREEN),
             ("done", t::BLUE),
             ("backlog", t::NEUTRAL),
-            ("todo", t::NEUTRAL),
             ("cancelled", t::NEUTRAL),
             ("duplicate", t::NEUTRAL),
             // Forward-compat: an unknown builtin key falls back to muted →

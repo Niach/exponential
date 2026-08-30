@@ -498,7 +498,7 @@ pub struct FetchedIssue {
     pub title: String,
     #[serde(default)]
     pub description: Option<String>,
-    /// The dual-written ANCHOR enum (`backlog`/`todo`/…).
+    /// The dual-written ANCHOR enum (`backlog`/`in_progress`/…).
     #[serde(default)]
     pub status: Option<String>,
     #[serde(default)]
@@ -651,14 +651,14 @@ mod tests {
         let (base, captured) = one_shot_server(
             200,
             r#"{"result":{"data":[
-                {"id":"i-1","identifier":"EXP-1","title":"Fix search","boardId":"p-1","status":"todo","priority":"high"},
+                {"id":"i-1","identifier":"EXP-1","title":"Fix search","boardId":"p-1","status":"in_progress","priority":"high"},
                 {"id":"i-2","identifier":"EXP-2","title":"Later","boardId":"p-1","status":"brand_new_state","priority":"none"}
             ]}}"#,
         );
         let out = search(&client(&base), "ws-1", "descr text", 20).unwrap();
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].identifier, "EXP-1");
-        assert_eq!(out[0].status, IssueStatus::Todo);
+        assert_eq!(out[0].status, IssueStatus::InProgress);
         // EXP-314: `statusId` is optional on the wire — an older server (or a
         // pre-backfill row) decodes to None and the hit still renders via its
         // anchor.

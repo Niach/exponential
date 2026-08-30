@@ -58,15 +58,15 @@ test(`manages custom statuses in settings and uses them on the board`, async ({
 
   await openStatusesSettings(page, teamSlug)
 
-  // The 7 locked builtins are seeded and visible; the backlog builtin is the
+  // The 6 locked builtins are seeded and visible; the backlog builtin is the
   // new-issue default; Duplicate is fixed (no add button); builtins expose no
   // rename input.
   for (const name of [
     `Backlog`,
-    `Todo`,
     `In Progress`,
     `In Review`,
     `Done`,
+    `Cancelled`,
     `Duplicate`,
   ]) {
     await expect(page.getByText(name, { exact: true }).first()).toBeVisible()
@@ -76,6 +76,15 @@ test(`manages custom statuses in settings and uses them on the board`, async ({
     page.getByRole(`button`, { name: `Add Duplicate status` })
   ).toHaveCount(0)
   await expect(page.getByLabel(`Status name`)).toHaveCount(0)
+
+  // EXP-685 retired the Todo builtin, so `unstarted` survives as a
+  // customs-only category: it is the ONE section a fresh team seeds empty,
+  // rendering the muted empty line under its header and still offering Add.
+  await expect(page.getByText(`Todo`, { exact: true })).toHaveCount(0)
+  await expect(page.getByText(`No statuses yet.`)).toHaveCount(1)
+  await expect(
+    page.getByRole(`button`, { name: `Add Unstarted status` })
+  ).toBeEnabled()
 
   // Third + fourth started statuses; the started cap disables the add button.
   await createStatus(page, `Started`, `Rückfrage`)

@@ -664,7 +664,7 @@ fn trigger_note(
     }
 }
 
-/// One event's prompt line: `EXP-142 "Ship it" status Todo → In Progress`.
+/// One event's prompt line: `EXP-142 "Ship it" status Backlog → In Progress`.
 /// The agent gets the identifier first (its MCP handle), then the human
 /// title, then what changed.
 fn event_line(
@@ -1012,18 +1012,18 @@ mod tests {
             line(&event_row(
                 "e1",
                 "status_changed",
-                Some(json!({"fromName": "Todo", "toName": "In Progress"})),
+                Some(json!({"fromName": "Backlog", "toName": "In Progress"})),
             )),
-            "EXP-142 \"Ship it\" status Todo → In Progress"
+            "EXP-142 \"Ship it\" status Backlog → In Progress"
         );
         // Pre-EXP-314 rows carry only the enum anchors — munged, not dropped.
         assert_eq!(
             line(&event_row(
                 "e2",
                 "status_changed",
-                Some(json!({"from": "todo", "to": "in_progress"})),
+                Some(json!({"from": "backlog", "to": "in_progress"})),
             )),
-            "EXP-142 \"Ship it\" status todo → in progress"
+            "EXP-142 \"Ship it\" status backlog → in progress"
         );
         assert_eq!(
             line(&event_row(

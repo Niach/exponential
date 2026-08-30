@@ -25,6 +25,9 @@ func eventVerb(_ type: String) -> String {
 func statusLabel(_ s: String) -> String {
     switch s {
     case "backlog": return "Backlog"
+    // EXP-685: `todo` is retired from the vocabulary, but HISTORIC
+    // status_changed events carry the bare enum payload and must still read
+    // "Todo" instead of falling through to the generic capitalizer.
     case "todo": return "Todo"
     case "in_progress": return "In Progress"
     case "in_review": return "In Review"

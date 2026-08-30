@@ -85,11 +85,13 @@ object IssueStatusResolver {
     internal val CLOCKS_4 = listOf("progress-1-5", "progress-2-5", "progress-3-5", "progress-4-5")
 
     /**
-     * The 7 builtin statuses as they exist on EVERY team, built from the
+     * The builtin statuses as they exist on EVERY team, built from the
      * generated contract defaults (`DomainContract.issueStatusDefault*`). Used
      * when the issue_statuses shape hasn't synced yet — and, because it runs
      * through the same ordering + clock pipeline, its in_progress / in_review
-     * glyphs are exactly the ones the app rendered before EXP-314.
+     * glyphs are exactly the ones the app rendered before EXP-314. EXP-685
+     * retired the `todo` builtin, so the `unstarted` CATEGORY (which stays, for
+     * custom rows) no longer has a builtin default of its own.
      */
     val builtinDefaults: List<ResolvedIssueStatus> = run {
         val keys = DomainContract.issueStatusDefaultKeys
@@ -108,6 +110,24 @@ object IssueStatusResolver {
         }
         order(rows)
     }
+
+    /**
+     * The constructed Backlog default — the terminal fallback of [resolve], and
+     * the ONE row that can never be missing. Since EXP-685 `backlog` is also the
+     * anchor every unknown wire status normalizes to, so this lookup is what
+     * keeps rendering total (web/iOS/desktop degrade to backlog identically).
+     */
+    val backlogDefault: ResolvedIssueStatus =
+        builtinDefaults.firstOrNull { it.builtinKey == IssueStatus.Backlog }
+            ?: ResolvedIssueStatus(
+                id = BUILTIN_ID_PREFIX + IssueStatus.Backlog.wire,
+                rowId = null,
+                name = IssueStatus.Backlog.label,
+                category = IssueStatusCategory.Backlog,
+                colorHex = null,
+                builtinKey = IssueStatus.Backlog,
+                iconName = iconName(IssueStatusCategory.Backlog),
+            )
 
     /** The team's statuses in canonical display order, glyphs assigned. */
     fun teamStatuses(rows: List<IssueStatusEntity>): List<ResolvedIssueStatus> = order(
@@ -143,7 +163,9 @@ object IssueStatusResolver {
         // team with no synced rows at all degrades to the constructed default.
         val key = IssueStatus.fromWire(anchor)
         team.firstOrNull { it.builtinKey == key }?.let { return it }
-        return builtinDefaults.first { it.builtinKey == key }
+        // NON-TOTAL by construction: a retired builtin (EXP-685's `todo`) has no
+        // default row any more, so this lookup must never be a `first { }`.
+        return builtinDefaults.firstOrNull { it.builtinKey == key } ?: backlogDefault
     }
 
     /**

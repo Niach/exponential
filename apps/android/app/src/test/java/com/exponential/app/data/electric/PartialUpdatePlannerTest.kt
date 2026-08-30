@@ -20,7 +20,7 @@ class PartialUpdatePlannerTest {
         val wire: Map<String, JsonElement> = linkedMapOf(
             "title" to JsonPrimitive("hi"),
             "onboarding_completed_at" to JsonPrimitive("2026-01-01"),
-            "status" to JsonPrimitive("todo"),
+            "status" to JsonPrimitive("in_progress"),
         )
         val plan = planPartialUpdate(
             pkColumns = listOf("id"),
@@ -28,7 +28,7 @@ class PartialUpdatePlannerTest {
             wireColumns = wire,
         )
         assertEquals("\"title\" = ?, \"status\" = ?", plan!!.setClause)
-        assertEquals(listOf<Any?>("hi", "todo"), plan.args)
+        assertEquals(listOf<Any?>("hi", "in_progress"), plan.args)
         assertEquals(setOf("onboarding_completed_at"), plan.droppedColumns)
     }
 

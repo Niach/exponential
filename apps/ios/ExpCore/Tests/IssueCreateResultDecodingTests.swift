@@ -55,7 +55,7 @@ final class IssueCreateResultDecodingTests: XCTestCase {
         // mirror rewrites just the description.
         let result = try decode("""
         {"issue":{"id":"issue-3","boardId":"board-1","number":7,"identifier":"EXP-7",
-        "title":"With images","description":"stripped","status":"todo","statusId":null,
+        "title":"With images","description":"stripped","status":"in_progress","statusId":null,
         "priority":"high","assigneeId":null,"creatorId":"user-1","source":"user",
         "dueDate":null,"sortOrder":null,"completedAt":null,"duplicateOfId":null,
         "prUrl":null,"prNumber":null,"prState":null,"branch":null,"prMergedAt":null,
@@ -67,7 +67,7 @@ final class IssueCreateResultDecodingTests: XCTestCase {
         XCTAssertEqual(patched.id, "issue-3")
         XCTAssertEqual(patched.identifier, "EXP-7")
         XCTAssertEqual(patched.title, "With images")
-        XCTAssertEqual(patched.status, "todo")
+        XCTAssertEqual(patched.status, "in_progress")
         XCTAssertEqual(patched.priority, "high")
         XCTAssertEqual(patched.createdAt, "2026-08-22T07:00:00.000Z")
     }

@@ -4,7 +4,6 @@
   "issueStatus": {
     "values": [
       "backlog",
-      "todo",
       "in_progress",
       "in_review",
       "done",
@@ -13,7 +12,6 @@
     ],
     "displayOrder": [
       "backlog",
-      "todo",
       "in_progress",
       "in_review",
       "done",
@@ -46,13 +44,6 @@
       "category": "backlog",
       "name": "Backlog",
       "color": "#A1A1AA",
-      "sortOrder": 1
-    },
-    {
-      "key": "todo",
-      "category": "unstarted",
-      "name": "Todo",
-      "color": "#FAFAFA",
       "sortOrder": 1
     },
     {

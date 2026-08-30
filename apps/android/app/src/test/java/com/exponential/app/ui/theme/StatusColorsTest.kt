@@ -15,9 +15,8 @@ import org.junit.Test
  * REV2-85: the status/priority COLOR IDENTITY is a cross-client contract. The
  * desktop IDE palette is the source of truth (web spells the same roles as
  * Tailwind classes): cancelled is a muted terminal RESOLUTION, not an error,
- * and todo carries the brighter foreground tint that separates it from
- * backlog's neutral gray (Android also renders a dashed-circle backlog glyph —
- * `ExpIcons.statusBacklog`, EXP-273).
+ * and backlog is the neutral gray behind a dashed-circle glyph
+ * (`ExpIcons.statusBacklog`, EXP-273).
  */
 class StatusColorsTest {
 
@@ -32,10 +31,8 @@ class StatusColorsTest {
     }
 
     @Test
-    fun todoIsBrighterThanBacklog() {
-        assertEquals(DesignTokens.Palette.Foreground, statusColor(IssueStatus.Todo))
+    fun backlogIsTheNeutralTone() {
         assertEquals(DesignTokens.Semantic.Neutral, statusColor(IssueStatus.Backlog))
-        assertNotEquals(statusColor(IssueStatus.Backlog), statusColor(IssueStatus.Todo))
     }
 
     @Test

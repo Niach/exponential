@@ -134,14 +134,14 @@ describe(`board-view helpers`, () => {
 
   it(`builds visible groups in status order`, () => {
     const issues = [
-      makeIssue({ id: `issue-1`, status: `todo` }),
+      makeIssue({ id: `issue-1`, status: `in_progress` }),
       makeIssue({ id: `issue-2`, status: `done` }),
       makeIssue({ id: `issue-3`, status: `backlog` }),
     ]
 
     expect(buildVisibleIssueGroups(issues, [])).toEqual([
       { status: `backlog`, issues: [issues[2]] },
-      { status: `todo`, issues: [issues[0]] },
+      { status: `in_progress`, issues: [issues[0]] },
       { status: `done`, issues: [issues[1]] },
     ])
 
@@ -156,24 +156,24 @@ describe(`board-view helpers`, () => {
 
     const overdueLow = makeIssue({
       id: `overdue-low`,
-      status: `todo`,
+      status: `in_progress`,
       priority: `low`,
       dueDate: yesterday,
     })
     const urgentNoDue = makeIssue({
       id: `urgent-nodue`,
-      status: `todo`,
+      status: `in_progress`,
       priority: `urgent`,
     })
     const mediumToday = makeIssue({
       id: `medium-today`,
-      status: `todo`,
+      status: `in_progress`,
       priority: `medium`,
       dueDate: today,
     })
     const noPriority = makeIssue({
       id: `none`,
-      status: `todo`,
+      status: `in_progress`,
       priority: `none`,
     })
 
@@ -184,7 +184,7 @@ describe(`board-view helpers`, () => {
 
     expect(groups).toEqual([
       {
-        status: `todo`,
+        status: `in_progress`,
         issues: [overdueLow, urgentNoDue, mediumToday, noPriority],
       },
     ])
@@ -218,19 +218,19 @@ describe(`board-view helpers`, () => {
     const noDue = makeIssue({
       id: `no-due`,
       number: 1,
-      status: `todo`,
+      status: `in_progress`,
       priority: `high`,
     })
     const dated = makeIssue({
       id: `dated`,
       number: 2,
-      status: `todo`,
+      status: `in_progress`,
       priority: `high`,
       dueDate: tomorrow,
     })
 
     expect(buildVisibleIssueGroups([noDue, dated], [])).toEqual([
-      { status: `todo`, issues: [dated, noDue] },
+      { status: `in_progress`, issues: [dated, noDue] },
     ])
   })
 
@@ -335,18 +335,18 @@ describe(`board-view helpers`, () => {
   // EXP-48: the detail header's prev/next switcher walks the flattened
   // visible-group sequence — group order first, then the in-group sort.
   it(`locates an issue across the flattened group sequence`, () => {
-    const todoUrgent = makeIssue({
-      id: `todo-urgent`,
+    const startedUrgent = makeIssue({
+      id: `started-urgent`,
       identifier: `APP-2`,
       number: 2,
-      status: `todo`,
+      status: `in_progress`,
       priority: `urgent`,
     })
-    const todoLow = makeIssue({
-      id: `todo-low`,
+    const startedLow = makeIssue({
+      id: `started-low`,
       identifier: `APP-3`,
       number: 3,
-      status: `todo`,
+      status: `in_progress`,
       priority: `low`,
     })
     const backlog = makeIssue({
@@ -356,39 +356,39 @@ describe(`board-view helpers`, () => {
       status: `backlog`,
     })
 
-    // Flattened sequence: [backlog-1, todo-urgent, todo-low] (the backlog
-    // group precedes unstarted in the category display order).
-    const groups = rawGroups([backlog, todoLow, todoUrgent])
+    // Flattened sequence: [backlog-1, started-urgent, started-low] (the
+    // backlog group precedes started in the category display order).
+    const groups = rawGroups([backlog, startedLow, startedUrgent])
 
     expect(findIssuePosition(groups, `backlog-1`)).toEqual({
       index: 1,
       total: 3,
       prev: null,
-      next: todoUrgent,
+      next: startedUrgent,
     })
-    expect(findIssuePosition(groups, `todo-urgent`)).toEqual({
+    expect(findIssuePosition(groups, `started-urgent`)).toEqual({
       index: 2,
       total: 3,
       prev: backlog,
-      next: todoLow,
+      next: startedLow,
     })
-    expect(findIssuePosition(groups, `todo-low`)).toEqual({
+    expect(findIssuePosition(groups, `started-low`)).toEqual({
       index: 3,
       total: 3,
-      prev: todoUrgent,
+      prev: startedUrgent,
       next: null,
     })
   })
 
   it(`returns null when the issue is filtered out of the visible groups`, () => {
     const done = makeIssue({ id: `done-1`, status: `done` })
-    const todo = makeIssue({ id: `todo-1`, status: `todo` })
+    const started = makeIssue({ id: `started-1`, status: `in_progress` })
 
     // Status filter hides the done issue from the sequence entirely.
-    const groups = rawGroups([todo], [`todo`])
+    const groups = rawGroups([started], [`in_progress`])
 
     expect(findIssuePosition(groups, done.id)).toBeNull()
-    expect(findIssuePosition(groups, todo.id)).toEqual({
+    expect(findIssuePosition(groups, started.id)).toEqual({
       index: 1,
       total: 1,
       prev: null,
@@ -534,12 +534,12 @@ describe(`board-view custom statuses`, () => {
 
   it(`exposes the resolved option (name/icon/color) on each group`, () => {
     const groups = buildVisibleIssueGroupsRaw()
-    expect(groups[0].status.name).toBe(`Todo`)
-    expect(groups[0].status.icon).toBe(`circle`)
+    expect(groups[0].status.name).toBe(`In Progress`)
+    expect(groups[0].status.icon).toBe(`progress-2-4`)
   })
 
   function buildVisibleIssueGroupsRaw() {
-    return rawGroups([makeIssue({ id: `t`, status: `todo` })])
+    return rawGroups([makeIssue({ id: `t`, status: `in_progress` })])
   }
 
   it(`keeps optionFor in step with the constructed defaults`, () => {

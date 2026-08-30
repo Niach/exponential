@@ -31,7 +31,7 @@ describe(`buildStatusOptions`, () => {
       row({ id: `dup`, category: `duplicate` }),
       row({ id: `done`, category: `completed` }),
       row({ id: `backlog`, category: `backlog` }),
-      row({ id: `todo`, category: `unstarted` }),
+      row({ id: `triage`, category: `unstarted` }),
       row({ id: `cancelled`, category: `cancelled` }),
       row({ id: `progress`, category: `started` }),
     ])
@@ -40,7 +40,7 @@ describe(`buildStatusOptions`, () => {
     // its sections out in, so a list group never contradicts the settings.
     expect(options.map((option) => option.id)).toEqual([
       `backlog`,
-      `todo`,
+      `triage`,
       `progress`,
       `done`,
       `cancelled`,
@@ -158,7 +158,6 @@ describe(`fallbackStatusOptions`, () => {
   it(`renders the default team in the contract display order`, () => {
     expect(defaultStatusOptions().map((option) => option.builtinKey)).toEqual([
       `backlog`,
-      `todo`,
       `in_progress`,
       `in_review`,
       `done`,
@@ -186,9 +185,16 @@ describe(`resolveIssueStatus`, () => {
     }),
     row({
       id: `22222222-2222-2222-2222-222222222222`,
-      name: `Todo`,
+      name: `In Progress`,
+      category: `started`,
+      builtinKey: `in_progress`,
+    }),
+    // EXP-685: `unstarted` survived the Todo retirement as a customs-only
+    // category — a row here has no builtinKey to anchor on.
+    row({
+      id: `44444444-4444-4444-4444-444444444444`,
+      name: `Triage`,
       category: `unstarted`,
-      builtinKey: `todo`,
     }),
     row({
       id: `33333333-3333-3333-3333-333333333333`,
@@ -213,8 +219,22 @@ describe(`resolveIssueStatus`, () => {
 
   it(`falls back to the anchor-enum row`, () => {
     expect(
-      resolveIssueStatus({ status: `todo`, statusId: null }, options, byId).name
-    ).toBe(`Todo`)
+      resolveIssueStatus({ status: `in_progress`, statusId: null }, options, byId)
+        .name
+    ).toBe(`In Progress`)
+  })
+
+  // EXP-685: `todo` is a RETIRED wire token — clients read it as any other
+  // unknown anchor, so a stale row lands in the team's real Backlog group.
+  it(`treats the retired todo anchor as an unknown one`, () => {
+    const resolved = resolveIssueStatus(
+      { status: `todo`, statusId: null },
+      options,
+      byId
+    )
+    expect(resolved.name).toBe(`Backlog`)
+    expect(resolved.id).toBe(`11111111-1111-1111-1111-111111111111`)
+    expect(resolved.builtinKey).toBe(`backlog`)
   })
 
   it(`falls back to a constructed default when no team row anchors it`, () => {
@@ -258,7 +278,7 @@ describe(`resolveIssueStatus`, () => {
         },
         options
       ).name
-    ).toBe(`Todo`)
+    ).toBe(`In Progress`)
   })
 })
 
@@ -281,15 +301,16 @@ describe(`status write payloads`, () => {
 // EXP-448: pickers, list groups and the settings page consume the SAME
 // ordered array — there is no picker-only re-sort left to drift.
 describe(`the single ordered vocabulary`, () => {
-  it(`leads with backlog then todo, in settings-section order`, () => {
+  it(`leads with backlog then in_progress, in settings-section order`, () => {
     const options = defaultStatusOptions()
     expect(options.map((option) => option.builtinKey).slice(0, 2)).toEqual([
       `backlog`,
-      `todo`,
+      `in_progress`,
     ])
+    // EXP-685 retired the Todo builtin, so `unstarted` contributes no default
+    // row — the constructed set jumps straight from backlog to the started pair.
     expect(options.map((option) => option.category)).toEqual([
       `backlog`,
-      `unstarted`,
       `started`,
       `started`,
       `completed`,
@@ -354,6 +375,7 @@ describe(`creatableStatusOptions / statusOptionMatchesToken`, () => {
       statusOptionMatchesToken(option, `55555555-5555-5555-5555-555555555555`)
     ).toBe(true)
     expect(statusOptionMatchesToken(option, `done`)).toBe(true)
+    // `todo` is retired (EXP-685) — it must never match anything.
     expect(statusOptionMatchesToken(option, `todo`)).toBe(false)
   })
 })

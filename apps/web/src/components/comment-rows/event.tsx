@@ -24,11 +24,16 @@ function priorityLabel(value: unknown): string {
 // EXP-314: `status_changed` payloads now carry the human status NAMES
 // (`fromName`/`toName`) alongside the legacy enum anchors, so a custom status
 // reads as itself. Rows written before EXP-314 have no names — fall back to
-// the enum munge.
+// the enum munge. Retired enum tokens keep their historic label (EXP-685:
+// `todo` is gone from the vocabulary, but old events still name it); iOS
+// EventPhrases, Android labelFor and desktop timeline.rs mirror this map.
+const RETIRED_STATUS_LABELS: Record<string, string> = { todo: `Todo` }
+
 function statusLabel(payload: Record<string, unknown>, side: `to` | `from`): string {
   const name = payload[side === `to` ? `toName` : `fromName`]
   if (typeof name === `string` && name.length > 0) return name
-  return String(payload[side] ?? ``).replace(/_/g, ` `)
+  const token = String(payload[side] ?? ``)
+  return RETIRED_STATUS_LABELS[token] ?? token.replace(/_/g, ` `)
 }
 
 function optionalString(value: unknown): string | null {

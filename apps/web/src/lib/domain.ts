@@ -37,12 +37,6 @@ export const issueStatusOptions = [
     color: `text-muted-foreground`,
   },
   {
-    value: `todo`,
-    label: `Todo`,
-    icon: conceptIcon(`status-todo`),
-    color: `text-foreground`,
-  },
-  {
     value: `in_progress`,
     label: `In Progress`,
     icon: conceptIcon(`status-in-progress`),

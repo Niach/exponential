@@ -7,7 +7,7 @@ import org.junit.Test
 /**
  * Locks the canonical in-group issue ordering (EXP-38) — the same contract
  * ships on web, iOS, and desktop, so any change here must happen in lockstep:
- * - backlog/todo/in_progress: overdue first, then priority rank, then dueDate
+ * - backlog/in_progress/in_review: overdue first, then priority rank, then dueDate
  *   ascending (null last), then `number` ascending NUMERICALLY.
  * - done: (completedAt ?? updatedAt) descending.
  * - cancelled/duplicate: updatedAt descending.
@@ -21,7 +21,7 @@ class IssueSortTest {
     private fun issue(
         id: String,
         number: Int = 1,
-        status: String = "todo",
+        status: String = "backlog",
         priority: String = "none",
         dueDate: String? = null,
         completedAt: String? = null,
@@ -45,7 +45,7 @@ class IssueSortTest {
     private fun sortedIds(status: IssueStatus, issues: List<IssueEntity>): List<String> =
         sortIssuesForGroup(status = status, issues = issues, today = today) { it }.map { it.id }
 
-    // --- backlog/todo/in_progress -------------------------------------------
+    // --- backlog/in_progress/in_review ---------------------------------------
 
     @Test
     fun nonTerminalGroupsOrderByPriorityRank() {
@@ -56,7 +56,7 @@ class IssueSortTest {
             issue("high", number = 4, priority = "high"),
             issue("urgent", number = 5, priority = "urgent"),
         )
-        for (status in listOf(IssueStatus.Backlog, IssueStatus.Todo, IssueStatus.InProgress)) {
+        for (status in listOf(IssueStatus.Backlog, IssueStatus.InProgress, IssueStatus.InReview)) {
             assertEquals(
                 listOf("urgent", "high", "medium", "low", "none"),
                 sortedIds(status, issues),
@@ -71,7 +71,7 @@ class IssueSortTest {
             issue("later", number = 2, priority = "high", dueDate = "2026-08-01"),
             issue("sooner", number = 3, priority = "high", dueDate = "2026-07-10"),
         )
-        assertEquals(listOf("sooner", "later", "no-due"), sortedIds(IssueStatus.Todo, issues))
+        assertEquals(listOf("sooner", "later", "no-due"), sortedIds(IssueStatus.InProgress, issues))
     }
 
     @Test
@@ -98,7 +98,7 @@ class IssueSortTest {
         )
         assertEquals(
             listOf("low-overdue", "none-overdue", "urgent-today", "urgent-later"),
-            sortedIds(IssueStatus.Todo, issues),
+            sortedIds(IssueStatus.InProgress, issues),
         )
     }
 
@@ -186,7 +186,7 @@ class IssueSortTest {
             issue("urgent", number = 2, priority = "urgent"),
             issue("overdue", number = 3, priority = "low", dueDate = "2026-07-01"),
         )
-        val expectedActive = sortedIds(IssueStatus.Todo, active)
+        val expectedActive = sortedIds(IssueStatus.InProgress, active)
         for (category in listOf(
             IssueStatusCategory.Backlog,
             IssueStatusCategory.Unstarted,
