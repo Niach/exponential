@@ -131,9 +131,11 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
   }),
   z.object({
     kind: z.literal(`question`),
-    // Question text shares the narration budget — an ExitPlanMode plan rides
-    // here and can be large.
-    text: z.string().max(16 * 1024),
+    // Larger than the narration budget — an ExitPlanMode plan rides here and
+    // real plans clear 16KiB (EXP-691). Desktops truncate at 64KiB UTF-8
+    // BYTES (>= UTF-16 code units, so this cap is satisfied for any script);
+    // raise the two in lockstep only.
+    text: z.string().max(64 * 1024),
     options: z.array(questionOptionSchema).min(1).max(10),
     multiSelect: z.boolean().optional(),
     // Marks an ExitPlanMode plan-approval picker (EXP-97) so clients can
