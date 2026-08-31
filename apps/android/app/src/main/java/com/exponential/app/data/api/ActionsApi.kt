@@ -2,16 +2,23 @@ package com.exponential.app.data.api
 
 import com.exponential.app.data.db.ActionEntity
 import com.exponential.app.domain.DomainContract
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 // Team action prompts (EXP-253). Since EXP-268 actions are Electric-synced
 // (the 15th shape — see SyncManager/ActionEntity), so consumers list them
 // LIVE from the local Room flow instead of tRPC `actions.list`; the ≤64KB
 // markdown `body` is deliberately excluded from sync (tRPC `actions.get`
-// stays the only body path — mobile never needs it: it is view + run only,
-// remote-starting actions on a desktop via `steer.startSession({actionId})`).
+// stays the only body path — the mobile editor (EXP-694) fetches it when the
+// sheet opens, exactly like the web dialog and the desktop editor do).
 
 /**
  * One typed run input an action declares (EXP-257): the run sheet renders a
@@ -174,6 +181,90 @@ fun builtinChatAction(teamId: String): ActionDto = ActionDto(
  */
 fun builtinActions(teamId: String): List<ActionDto> =
     listOf(builtinCreateAction(teamId), builtinFixConflictsAction(teamId))
+
+/** `actions.get`'s / `.update`'s answer — the full row, body included. */
+@Serializable
+data class ActionResult(val action: ActionDto)
+
+@Serializable
+private data class ActionIdInput(val id: String)
+
+/**
+ * The editor's patch (EXP-694): every editable field travels, and a null
+ * [description]/[icon]/[repositoryId] rides as an EXPLICIT JSON null meaning
+ * "cleared" — exactly what the web dialog sends. The router applies a key only
+ * when it is `!== undefined`, so an OMITTED key means "keep", and the shared
+ * Json (`explicitNulls = false`) would drop a null property from a
+ * `@Serializable` class outright — hence the hand-built object with [JsonNull],
+ * the [setSharedInput] pattern. `inputs` and `sortOrder` are deliberately
+ * absent: mobile edits neither, and an omitted key leaves the stored value
+ * alone.
+ */
+internal fun updateActionInput(
+    id: String,
+    name: String,
+    description: String?,
+    icon: String?,
+    repositoryId: String?,
+    body: String,
+): JsonObject = buildJsonObject {
+    put("id", id)
+    put("name", name)
+    put("description", description?.let(::JsonPrimitive) ?: JsonNull)
+    put("icon", icon?.let(::JsonPrimitive) ?: JsonNull)
+    put("repositoryId", repositoryId?.let(::JsonPrimitive) ?: JsonNull)
+    put("body", body)
+}
+
+/**
+ * The action WRITE path (EXP-694 — mobile got the full editor). Reads stay on
+ * the synced shape; only the body, which sync excludes by design, and the
+ * owner-gated update come through tRPC.
+ */
+@Singleton
+class ActionsApi @Inject constructor(private val trpc: TrpcClient) {
+
+    /**
+     * `actions.get` — the ONLY body path (member-gated). Builtins have no
+     * server row: the caller must never ask for one (the server refuses).
+     */
+    suspend fun get(accountId: String, id: String): ActionDto = trpc.query(
+        accountId,
+        path = "actions.get",
+        input = ActionIdInput(id = id),
+        inputSerializer = ActionIdInput.serializer(),
+        outputSerializer = ActionResult.serializer(),
+    ).action
+
+    /**
+     * `actions.update` from the edit sheet — owner-only server-side. Null
+     * [description]/[icon]/[repositoryId] CLEAR those fields (explicit JSON
+     * nulls, see [updateActionInput]); Electric echoes the new metadata back
+     * into the shape, so a success needs no local write.
+     */
+    suspend fun update(
+        accountId: String,
+        id: String,
+        name: String,
+        description: String?,
+        icon: String?,
+        repositoryId: String?,
+        body: String,
+    ): ActionDto = trpc.mutation(
+        accountId,
+        path = "actions.update",
+        input = updateActionInput(
+            id = id,
+            name = name,
+            description = description,
+            icon = icon,
+            repositoryId = repositoryId,
+            body = body,
+        ),
+        inputSerializer = JsonObject.serializer(),
+        outputSerializer = ActionResult.serializer(),
+    ).action
+}
 
 /**
  * Map a synced [ActionEntity] row to the UI's [ActionDto], parsing the stored

@@ -21,9 +21,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
@@ -50,6 +52,10 @@ fun GlassPillButton(
     /** EXP-688: a solid fill under the glass tint, for a pill floating over
      *  scrolling content (the steer screen's Merge pill). */
     opaque: Boolean = false,
+    /** EXP-694: the label's face — monospace for an issue identifier, the
+     *  Agents row's pill (web `font-mono`, iOS `.monospaced()`). Null keeps
+     *  the label style's own family. */
+    fontFamily: FontFamily? = null,
 ) {
     val fg = MaterialTheme.colorScheme.onSurface.copy(
         alpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary,
@@ -71,14 +77,24 @@ fun GlassPillButton(
         } else if (icon != null) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = fg)
         }
-        Text(label, style = MaterialTheme.typography.labelMedium, color = fg)
+        val labelStyle = MaterialTheme.typography.labelMedium
+        Text(
+            label,
+            style = if (fontFamily != null) labelStyle.copy(fontFamily = fontFamily) else labelStyle,
+            color = fg,
+        )
     }
 }
 
 /**
- * Full-width primary on glass — the iOS form submit (`Color.white.opacity(0.15)`
- * enabled / `0.06` disabled, 10pt corners, hairline stroke): "Create board",
- * "Continue". Replaces Material's filled Button on glass forms (EXP-577).
+ * Full-width primary on glass — "Create board", "Continue". Replaces Material's
+ * filled Button on glass forms (EXP-577).
+ *
+ * EXP-694: an ENABLED submit is the solid near-white primary with dark content
+ * and no visible hairline (web's dialog footer / the desktop `.primary()`
+ * button / iOS `GlassSubmitButton` — one look on all four clients). The old
+ * `white.opacity(0.15)` fill read as a disabled control on a #18181B sheet.
+ * Disabled is unchanged: `0.06` fill, `0.10` hairline, tertiary label.
  */
 @Composable
 fun GlassSubmitButton(
@@ -89,22 +105,39 @@ fun GlassSubmitButton(
     icon: (@Composable () -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(10.dp)
+    val content = if (enabled) {
+        DesignTokens.Palette.PrimaryForeground
+    } else {
+        Color.White.copy(alpha = TextEmphasis.Tertiary)
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(Color.White.copy(alpha = if (enabled) 0.15f else 0.06f), shape)
-            .border(GlassTokens.Hairline, Color.White.copy(alpha = 0.10f), shape)
+            .background(
+                if (enabled) DesignTokens.Palette.Primary else Color.White.copy(alpha = 0.06f),
+                shape,
+            )
+            .border(
+                GlassTokens.Hairline,
+                // The fill carries the shape on its own once it is opaque.
+                if (enabled) Color.Transparent else Color.White.copy(alpha = 0.10f),
+                shape,
+            )
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(vertical = 14.dp),
     ) {
-        if (icon != null) icon()
+        // The icon slot (a glyph, or the in-flight spinner) draws in the
+        // button's own content color — white-on-white otherwise.
+        if (icon != null) {
+            CompositionLocalProvider(LocalContentColor provides content) { icon() }
+        }
         Text(
             label,
             style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-            color = Color.White.copy(alpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Tertiary),
+            color = content,
         )
     }
 }

@@ -18,7 +18,6 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import type { ActionRepoOption } from "@/components/action-editor-dialog"
 import { CreateActionDialog } from "@/components/launch-dialog/create-action-dialog"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import { BOARD_ICON_COMPONENTS } from "@/lib/board-icons"
 
@@ -33,9 +32,11 @@ const ActionSuggestionIcon = conceptIcon(`action-suggestion`)
 const ActionAutomationIcon = conceptIcon(`action-automation`)
 
 // One suggestion seed as a row (EXP-530; rows since EXP-618 — native-app
-// parity). "Use" opens the create-action dialog with the description/icon
-// prefilled — the same owner+steer gate as the "New action" button, since it
-// launches the same builtin creator run.
+// parity). EXP-694: the trailing "Use" button is gone on every client — the
+// WHOLE row is the affordance, opening the create-action dialog with the
+// description/icon prefilled. Same owner+steer gate as the "New action"
+// button, since it launches the same builtin creator run; without it the row
+// is inert (no visual button, nothing to press).
 function SuggestionRow({
   suggestion,
   canUse,
@@ -49,8 +50,13 @@ function SuggestionRow({
 }) {
   const RowIcon =
     BOARD_ICON_COMPONENTS[suggestion.icon as BoardIcon] ?? ActionSuggestionIcon
+  const clickable = canUse && !disabled
   return (
-    <GlassRow>
+    <GlassRow
+      interactive={clickable}
+      onClick={clickable ? onUse : undefined}
+      className={canUse && disabled ? `opacity-60` : undefined}
+    >
       <RowIcon className="size-4 shrink-0 text-foreground/70" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
@@ -68,17 +74,6 @@ function SuggestionRow({
           {suggestion.description}
         </div>
       </div>
-      {canUse && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="shrink-0"
-          disabled={disabled}
-          onClick={onUse}
-        >
-          Use
-        </Button>
-      )}
     </GlassRow>
   )
 }

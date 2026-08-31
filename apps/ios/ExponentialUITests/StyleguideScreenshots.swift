@@ -368,7 +368,8 @@ final class StyleguideScreenshots: XCTestCase {
         let deviceSheet = anyElement(app, identified: "device-settings-sheet")
         XCTAssertTrue(deviceSheet.waitForExistence(timeout: 20), "Device settings sheet did not open")
         snapshot("sg_machine-settings", settle: 2)
-        app.buttons["Done"].firstMatch.tap()
+        // EXP-694: the sheet autosaves and has no Done button — swipe it away.
+        dismissSheet(app, whileVisible: deviceSheet)
         _ = deviceSheet.waitForNonExistence(timeout: 10)
         settle(1)
 

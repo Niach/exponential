@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Ellipsis, LoaderCircle, Pencil, Trash2 } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
@@ -232,6 +232,8 @@ export function AutomationsTab({
   steerEnabled,
   teamId,
   showSuggestions = false,
+  editAutomationId = null,
+  onEditAutomationConsumed,
 }: {
   /** The lookup pool for run/automation names — the builtins included, so a
    * fix-conflicts run is named even though it is not listed (EXP-686). */
@@ -244,6 +246,10 @@ export function AutomationsTab({
   /** EXP-686: the desktop-viewport `/automations` page carries the lightbulb
    * to Getting started's suggestions; the mobile tabs have their own tab. */
   showSuggestions?: boolean
+  /** EXP-694: the route's one-shot `?editAutomation=` — a session row's
+   * trailing button opening the automation that started the run. */
+  editAutomationId?: string | null
+  onEditAutomationConsumed?: () => void
 }) {
   const dock = useAgentDock()
   const { data: automationRows } = useLiveQuery(
@@ -315,6 +321,28 @@ export function AutomationsTab({
   const [editing, setEditing] = useState<Automation | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Automation | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  // EXP-694: the route's one-shot edit request, honoured once the synced rows
+  // carry the automation (a deleted or not-yet-synced id just clears). The
+  // form is a WRITE surface with no read-only mode, so it is owner-only — a
+  // non-owner's session row links at the action editor instead and can no
+  // longer reach this param; a hand-typed one just clears.
+  useEffect(() => {
+    if (!editAutomationId || automationRows === undefined) return
+    const target = automations.find(
+      (automation) => automation.id === editAutomationId
+    )
+    onEditAutomationConsumed?.()
+    if (!target || !isOwner) return
+    setEditing(target)
+    setDialogOpen(true)
+  }, [
+    editAutomationId,
+    automationRows,
+    automations,
+    isOwner,
+    onEditAutomationConsumed,
+  ])
 
   const confirmDelete = async () => {
     if (!deleteTarget) return

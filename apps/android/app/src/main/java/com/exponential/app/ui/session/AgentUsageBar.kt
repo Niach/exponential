@@ -43,7 +43,7 @@ import kotlinx.coroutines.delay
 // EXP-484/EXP-688: the agent's rate-limit usage, rendered the same way on all
 // four clients (web `components/agent-usage-bar.tsx`, iOS `AgentUsageBar.swift`,
 // desktop `ui/src/usage_bar.rs`) — one card per reported window, grouped into
-// Current session / Weekly limits / Other. Every rule (grouping, titles,
+// Current session / the untitled weekly limits / Other. Every rule (grouping, titles,
 // captions, the severity thresholds, the stale treatment) comes from the
 // shared `AgentUsagePresentation.usageGroups`; nothing is decided here.
 //
@@ -52,8 +52,9 @@ import kotlinx.coroutines.delay
 // tab of Device settings, never as chrome over the feed.
 
 /**
- * Every reported window as cards. Group headers name the weekly and other
- * groups (the session group's single card already says "Current session").
+ * Every reported window as cards. Only a group that carries a title renders a
+ * header (EXP-694 dropped the weekly one; the session group's single card
+ * already says "Current session").
  * Stale numbers — the last good ones after a failed refresh — render at half
  * opacity with an "as of …" footer rather than vanishing.
  *
@@ -76,7 +77,13 @@ internal fun AgentUsageCards(
     ) {
         groups.forEach { group ->
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (group.key != AgentUsagePresentation.GROUP_SESSION) {
+                // A group renders a header only when it has one to render: the
+                // weekly group's title is empty since EXP-694 (its windows are
+                // plain rows) and the session group's single card is already
+                // titled "Current session".
+                if (group.title.isNotEmpty() &&
+                    group.key != AgentUsagePresentation.GROUP_SESSION
+                ) {
                     Text(
                         group.title,
                         style = MaterialTheme.typography.labelMedium,

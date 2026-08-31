@@ -44,7 +44,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -1118,10 +1118,12 @@ impl Render for GettingStartedView {
     }
 }
 
-/// One suggestion row — the same list shape as an action row (EXP-618), with
-/// "Use" opening the creator dialog prefilled (EXP-686 moved these rows here
-/// from the Actions page and trimmed the button to the bare verb every client
-/// now uses; the glyph inside it went with the label).
+/// One suggestion row — the same list shape as an action row (EXP-618).
+/// EXP-694: the trailing "Use" button is gone on every client; the WHOLE row
+/// is the affordance and opens the creator dialog prefilled (EXP-686 moved
+/// these rows here from the Actions page). Without a runnable agent the row
+/// stays inert — no hover, no pointer, no click — exactly the gate the button
+/// carried, with the reason on a tooltip.
 fn render_suggestion_row(
     suggestion: &crate::action_suggestions::Suggestion,
     team_id: String,
@@ -1141,6 +1143,11 @@ fn render_suggestion_row(
     let chip = if automation.is_some() { "Automation" } else { "Action" };
     let no_agent = crate::coding_flow::no_agent_reason(cx);
     crate::surface::glass_row_card()
+        // Keyed by the stable seed id, not the render index.
+        .id(SharedString::from(format!(
+            "action-suggestion-{}",
+            suggestion.id
+        )))
         .flex()
         .w_full()
         .min_w_0()
@@ -1148,7 +1155,27 @@ fn render_suggestion_row(
         .gap_3()
         .px_3()
         .py_2p5()
-        .hover(move |this| this.bg(row_hover))
+        .when_some(no_agent.clone(), |this, reason| {
+            this.tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new(reason.clone()).build(window, cx)
+            })
+        })
+        .when(no_agent.is_none(), |this| {
+            this.cursor_pointer()
+                .hover(move |this| this.bg(row_hover))
+                .on_click(move |_: &ClickEvent, window, cx| {
+                    // The brief is a SEED, not a commitment — the creator
+                    // dialog opens with it in the editable Description field.
+                    crate::create_action_dialog::open_prefilled(
+                        window,
+                        cx,
+                        team_id.clone(),
+                        Some(description.clone()),
+                        Some(icon.clone()),
+                        automation.clone(),
+                    );
+                })
+        })
         .child(
             div().flex_shrink_0().child(
                 crate::icons::action_icon(Some(suggestion.icon))
@@ -1201,37 +1228,6 @@ fn render_suggestion_row(
                         .line_clamp(3)
                         .child(SharedString::from(suggestion.description)),
                 ),
-        )
-        .child(
-            div().flex_shrink_0().child(
-                // Keyed by the stable seed id, not the render index.
-                Button::new(SharedString::from(format!(
-                    "action-suggestion-{}",
-                    suggestion.id
-                )))
-                    .outline().cursor_pointer()
-                    .web_sm()
-                    .label("Use")
-                    .tooltip(
-                        no_agent
-                            .clone()
-                            .unwrap_or_else(|| "Author this action".into()),
-                    )
-                    .disabled(no_agent.is_some())
-                    .on_click(move |_: &ClickEvent, window, cx| {
-                        // The brief is a SEED, not a commitment — the
-                        // creator dialog opens with it in the editable
-                        // Description field.
-                        crate::create_action_dialog::open_prefilled(
-                            window,
-                            cx,
-                            team_id.clone(),
-                            Some(description.clone()),
-                            Some(icon.clone()),
-                            automation.clone(),
-                        );
-                    }),
-            ),
         )
         .into_any_element()
 }

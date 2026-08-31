@@ -5,8 +5,14 @@
 //! (row 10 / section 12 / card 16). Strokes are 1px on purpose — fractional
 //! hairlines vanish on 1x-scale displays.
 
-use gpui::{div, px, App, Div, InteractiveElement as _, StyleRefinement, Styled};
-use gpui_component::{text::TextViewStyle, v_flex, ActiveTheme as _};
+use gpui::{
+    div, px, AnyElement, App, Div, InteractiveElement as _, ParentElement as _, SharedString,
+    StyleRefinement, Styled,
+};
+use gpui_component::input::Input;
+use gpui_component::searchable_list::{SearchableListDelegate, SearchableListItem};
+use gpui_component::select::Select;
+use gpui_component::{h_flex, text::TextViewStyle, v_flex, ActiveTheme as _};
 use theme::tokens as t;
 
 /// Card surface: radius 16, white 6% fill, white 10% hairline (mobile
@@ -31,6 +37,192 @@ pub(crate) fn glass_row_card() -> Div {
         .border_1()
         .border_color(t::glass::STROKE_ROW.to_hsla())
         .bg(t::glass::FILL_ROW.to_hsla())
+}
+
+/// EXP-694 — the inset-grouped card STACK, the reference look on every client
+/// (Apple's "inset grouped list"; the Android `OptionGroup` / iOS
+/// `glassFormRow` / web `GlassGroup` twin): ONE clipped radius-12 block filled
+/// `FILL_ROW` with NO outer stroke, whose rows fuse into it and are separated
+/// by white-6% hairlines instead of gaps.
+///
+/// This is the other half of the row ladder next to [`glass_row_card`]: that
+/// one is for rows that are separate OBJECTS (list items), this one for rows
+/// that are FIELDS of one form. Pair with [`glass_group_rows`] so the dividers
+/// land automatically; groups stack with an 8px gap.
+pub(crate) fn glass_group() -> Div {
+    v_flex()
+        .w_full()
+        .rounded(px(t::radius::LG))
+        .bg(t::glass::FILL_ROW.to_hsla())
+        .overflow_hidden()
+}
+
+/// A [`glass_group`] filled with `rows` in order, hairline-divided: every row
+/// but the first draws the divider as its OWN top border, so the group stays
+/// one clipped block and the hairlines are full-bleed (the web
+/// `divide-y divide-glass-stroke`).
+pub(crate) fn glass_group_rows(rows: Vec<Div>) -> Div {
+    rows.into_iter()
+        .enumerate()
+        .fold(glass_group(), |group, (ix, row)| {
+            group.child(if ix == 0 { row } else { glass_row_divider(row) })
+        })
+}
+
+/// The hairline a [`glass_group`] row draws above itself — for the rare caller
+/// that assembles a group by hand instead of through [`glass_group_rows`].
+pub(crate) fn glass_row_divider<T: Styled>(row: T) -> T {
+    row.border_t_1()
+        .border_color(t::glass::STROKE_ROW.to_hsla())
+}
+
+/// The row RHYTHM of a [`glass_group`]: 16 horizontal / 12 vertical padding,
+/// vertically centered, leading label + trailing value. Every grouped row
+/// ([`glass_picker_row`], [`glass_toggle_row`], the hand-built ones) starts
+/// here so the stack keeps one baseline.
+///
+/// The toggle rows keep the same 12 even though the mobile twins drop to ~4
+/// there: those platforms' switches carry their own inset padding, while
+/// gpui-component's is a bare 20px pill — same 12 here, same ~44px row on
+/// every client.
+pub(crate) fn glass_row_shell() -> Div {
+    h_flex().w_full().items_center().gap_3().px_4().py_3()
+}
+
+/// A picker row: the label leading at full foreground (with an optional muted
+/// second line), the value trailing at 70% with its own chevron, and NO field
+/// chrome — the group IS the field. Pass the trailing control through
+/// [`glass_picker_select`] (a [`Select`]) or build it as a `dropdown_caret`
+/// button; either way it must arrive stripped of background/border.
+pub(crate) fn glass_picker_row(
+    label: impl Into<SharedString>,
+    description: Option<SharedString>,
+    control: AnyElement,
+    cx: &App,
+) -> Div {
+    let foreground = cx.theme().foreground;
+    glass_row_shell()
+        .child(
+            v_flex()
+                .flex_shrink_0()
+                .gap_0p5()
+                .text_sm()
+                .text_color(foreground)
+                .child(div().child(label.into()))
+                .children(description.map(|description| {
+                    div()
+                        .text_xs()
+                        .text_color(foreground.opacity(0.5))
+                        .child(description)
+                })),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .justify_end()
+                .text_sm()
+                .text_color(foreground.opacity(0.7))
+                .child(control),
+        )
+}
+
+/// Strip a [`Select`]'s field chrome so it reads as the trailing VALUE of a
+/// [`glass_picker_row`]: no fill, no border, no focus ring box
+/// (`appearance(false)`), no box padding or height of its own (the row's
+/// 16/12 is the padding), and the title right-aligned against the caret the
+/// component already draws. The web twin is the `GLASS_PICKER_ROW` trigger
+/// (`bg-transparent border-0 h-auto`).
+pub(crate) fn glass_picker_select<D>(select: Select<D>) -> Select<D>
+where
+    D: SearchableListDelegate + 'static,
+    <D::Item as SearchableListItem>::Value: PartialEq + Clone,
+{
+    select
+        .appearance(false)
+        .h_auto()
+        .px_0()
+        .py_0()
+        .text_right()
+}
+
+/// A TEXT-FIELD row: the label leading, the value typed trailing, and no
+/// field chrome — the web `GlassInputRow` twin (the Name row of the device
+/// editor, the CLI-path row of Settings → Agents). Pass the field through
+/// [`glass_row_input`] so it arrives stripped.
+pub(crate) fn glass_input_row(
+    label: impl Into<SharedString>,
+    input: AnyElement,
+    cx: &App,
+) -> Div {
+    glass_row_shell()
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_sm()
+                .text_color(cx.theme().foreground)
+                .child(label.into()),
+        )
+        .child(div().flex_1().min_w_0().child(input))
+}
+
+/// Strip an [`Input`]'s field chrome so it reads as the trailing VALUE of a
+/// [`glass_input_row`]: no fill, no border, no focus ring, no box padding or
+/// height of its own, and the text right-aligned like a picker's value. The
+/// web twin is `GlassInputRow`'s `border-0 bg-transparent p-0 text-right`.
+pub(crate) fn glass_row_input(input: Input) -> Input {
+    input.appearance(false).h_auto().px_0().py_0().text_right()
+}
+
+/// A toggle row: the label (plus an optional muted description line) leading,
+/// a [`gpui_component::switch::Switch`] trailing. The switch is the caller's —
+/// it owns the id and the click listener — this only places it on the group's
+/// row rhythm. Switches, never checkboxes: EXP-694 standardized the grouped
+/// stacks on one control.
+pub(crate) fn glass_toggle_row(
+    label: impl Into<SharedString>,
+    description: Option<SharedString>,
+    switch: AnyElement,
+    cx: &App,
+) -> Div {
+    let foreground = cx.theme().foreground;
+    glass_row_shell()
+        .child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .gap_0p5()
+                .child(div().text_sm().text_color(foreground).child(label.into()))
+                .children(description.map(|description| {
+                    div()
+                        .text_xs()
+                        .text_color(foreground.opacity(0.5))
+                        .child(description)
+                })),
+        )
+        .child(switch)
+}
+
+/// EXP-694 — the EMBEDDED tab row (S3): a segmented strip stops being a
+/// free-floating capsule above the card and becomes the group's FIRST ROW —
+/// full width, no fill or border of its own, 8px of padding on every side, and
+/// the hairline underneath comes from [`glass_group_rows`]. Fill it with
+/// [`glass_tab_item`] segments, NOT with [`crate::controls::segmented`]'s
+/// capsule container.
+pub(crate) fn glass_tabs_row() -> Div {
+    h_flex().w_full().items_center().gap_1().p_2()
+}
+
+/// One segment of a [`glass_tabs_row`]: [`crate::controls::segmented_item`]
+/// carrying its own 7px vertical padding, since an embedded row has no fixed
+/// capsule height for the segment to stretch into.
+pub(crate) fn glass_tab_item(active: bool, cx: &App) -> Div {
+    // `h_auto` undoes the capsule segment's `h_full`: there is no 36px
+    // container height here, the segment's own padding sets the row height.
+    crate::controls::segmented_item(active, cx)
+        .h_auto()
+        .py(px(7.))
 }
 
 /// Rounded tab-chip base for the hand-rolled tab strips (EXP-277: center

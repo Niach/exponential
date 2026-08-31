@@ -110,10 +110,11 @@ class AgentUsagePresentationTest {
             AgentUsagePresentation.parseUsage(groupsJson)!!,
             nowMs,
         )
-        // Fixed order, and the group titles are the contract.
+        // Fixed order, and the group titles are the contract. The weekly group
+        // carries no title since EXP-694 — its cards are plain rows.
         assertEquals(listOf("session", "weekly", "other"), groups.map { it.key })
         assertEquals(
-            listOf("Current session", "Weekly limits", "Other"),
+            listOf("Current session", "", "Other"),
             groups.map { it.title },
         )
         // `weekly` is the all-models window; a `model:` one names its model;
@@ -225,15 +226,17 @@ class AgentUsagePresentationTest {
         val accounts = AgentUsagePresentation.parseAccounts(accountsJson)!!
         assertEquals(setOf("claude", "codex", "pi"), accounts.keys)
 
+        // EXP-694: the caption is the identity alone — no `signed in as`
+        // prefix, no ` · <plan>` suffix.
         assertEquals(
-            "signed in as danny@yourev.at · max",
+            "danny@yourev.at",
             AgentUsagePresentation.accountCaption(accounts["claude"]),
         )
         assertEquals("signed out", AgentUsagePresentation.accountCaption(accounts["codex"]))
         // pi has no email — its provider line IS the caption.
         assertEquals("anthropic (oauth)", AgentUsagePresentation.accountCaption(accounts["pi"]))
         assertEquals(
-            "signed in as danny@yourev.at",
+            "danny@yourev.at",
             AgentUsagePresentation.accountCaption(
                 AgentAccount(signedIn = true, email = "danny@yourev.at"),
             ),
@@ -242,7 +245,7 @@ class AgentUsagePresentationTest {
         assertEquals("unknown", AgentUsagePresentation.accountCaption(null))
 
         assertEquals(
-            "claude · signed in as danny@yourev.at · max",
+            "claude · danny@yourev.at",
             AgentUsagePresentation.accountRow("claude", accounts["claude"]),
         )
         assertEquals("codex · signed out", AgentUsagePresentation.accountRow("codex", accounts["codex"]))

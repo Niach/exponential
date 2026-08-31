@@ -70,8 +70,10 @@ final class AgentUsagePresentationTests: XCTestCase {
     }
 
     // EXP-688: every reported window is drawn, grouped Current session /
-    // Weekly limits / Other. There is no pinned window any more — the cards
-    // and their titles are the whole contract, locked ×4.
+    // (untitled weekly) / Other. There is no pinned window any more — the
+    // cards and their titles are the whole contract, locked ×4. EXP-694
+    // emptied the weekly group's title: its card titles already say "All
+    // models" / "<Label> only", so every renderer skips the header.
     func testUsageGroupsSplitCurrentWeeklyAndOther() throws {
         let usage = try XCTUnwrap(AgentUsagePresentation.parse("""
             {"fetchedAt":"2026-08-28T09:58:00Z","stale":false,"windows":[
@@ -82,7 +84,7 @@ final class AgentUsagePresentationTests: XCTestCase {
             """))
         let groups = AgentUsagePresentation.usageGroups(usage, now: now)
         XCTAssertEqual(groups.map(\.key), ["session", "weekly", "other"])
-        XCTAssertEqual(groups.map(\.title), ["Current session", "Weekly limits", "Other"])
+        XCTAssertEqual(groups.map(\.title), ["Current session", "", "Other"])
         XCTAssertEqual(groups[0].cards.map(\.title), ["Current session"])
         // The all-models window leads its group; the per-model ones follow in
         // report order.
@@ -178,12 +180,13 @@ final class AgentUsagePresentationTests: XCTestCase {
 
     // claude reports email + plan, codex may be signed out, pi reports a
     // provider and never an email. A machine that never probed is `unknown` —
-    // which is NOT "signed out".
+    // which is NOT "signed out". EXP-694: an email wins outright — no "signed
+    // in as" prefix and no " · <plan>" suffix.
     func testAccountCaptions() throws {
         let accounts = try XCTUnwrap(AgentUsagePresentation.parseAccounts(accountsJson))
         XCTAssertEqual(
             AgentUsagePresentation.accountRow(agent: "claude", account: accounts["claude"]),
-            "claude · signed in as danny@yourev.at · max"
+            "claude · danny@yourev.at"
         )
         XCTAssertEqual(
             AgentUsagePresentation.accountRow(agent: "codex", account: accounts["codex"]),
@@ -201,7 +204,7 @@ final class AgentUsagePresentationTests: XCTestCase {
             AgentUsagePresentation.accountCaption(
                 AgentAccount(signedIn: true, email: "danny@yourev.at")
             ),
-            "signed in as danny@yourev.at"
+            "danny@yourev.at"
         )
         XCTAssertEqual(
             AgentUsagePresentation.accountCaption(AgentAccount(signedIn: true)),

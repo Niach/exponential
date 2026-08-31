@@ -4,9 +4,9 @@ import Foundation
 // action prompts SYNC as the 15th Electric shape (minus `body` — the ≤64KB
 // markdown prompt never rides sync; tRPC `actions.get` stays the only body
 // path, and only the desktop ever executes a body behind its per-device trust
-// prompt). Mobile is view + run only: it lists actions from the local synced
-// store and remote-starts them on a desktop via
-// `steer.startSession({actionId})` — the body itself never matters here.
+// prompt). Mobile lists actions from the local synced store and remote-starts
+// them on a desktop via `steer.startSession({actionId})`; since EXP-694 it also
+// EDITS them (EditActionSheet), which is what `get` (body) and `update` are for.
 
 /// One typed action input (EXP-257): filled in the run dialog and injected
 /// into the prompt by the desktop. `type` is a contract value
@@ -240,8 +240,82 @@ public struct ActionsListResult: Decodable, Sendable {
     }
 }
 
+/// Server envelope: `actions.get` / `actions.update` return `{ action }`.
+public struct ActionResult: Decodable, Sendable {
+    public let action: ActionDto
+
+    public init(action: ActionDto) {
+        self.action = action
+    }
+}
+
+/// A partial `actions.update` payload (EXP-694 — mobile edits actions now).
+/// Mirrors the router's optional inputs with the AutomationsApi omit-vs-null
+/// rule, per field: an OMITTED field (nil) keeps what the row has, while the
+/// two CLEARABLE ones are nested optionals, so `.some(nil)` sends an explicit
+/// null — "no icon" / "no repository".
+public struct ActionPatch: Sendable, Equatable {
+    public var name: String?
+    public var description: String??
+    public var icon: String??
+    public var repositoryId: String??
+    public var body: String?
+
+    public init(
+        name: String? = nil,
+        description: String?? = nil,
+        icon: String?? = nil,
+        repositoryId: String?? = nil,
+        body: String? = nil
+    ) {
+        self.name = name
+        self.description = description
+        self.icon = icon
+        self.repositoryId = repositoryId
+        self.body = body
+    }
+
+    /// Nothing changed — the editor keeps its Save disabled rather than
+    /// sending an id-only mutation.
+    public var isEmpty: Bool {
+        name == nil && description == nil && icon == nil
+            && repositoryId == nil && body == nil
+    }
+}
+
 private struct ListInput: Encodable {
     let teamId: String
+}
+
+private struct IdInput: Encodable {
+    let id: String
+}
+
+private struct UpdateInput: Encodable {
+    let id: String
+    let patch: ActionPatch
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, description, icon, repositoryId, body
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encodeIfPresent(patch.name, forKey: .name)
+        try c.encodeIfPresent(patch.body, forKey: .body)
+        // The unwrapped inner optional is encoded even when nil — an explicit
+        // null is what clears the field server-side.
+        if let description = patch.description {
+            try c.encode(description, forKey: .description)
+        }
+        if let icon = patch.icon {
+            try c.encode(icon, forKey: .icon)
+        }
+        if let repositoryId = patch.repositoryId {
+            try c.encode(repositoryId, forKey: .repositoryId)
+        }
+    }
 }
 
 public final class ActionsApi: Sendable {
@@ -260,5 +334,33 @@ public final class ActionsApi: Sendable {
             input: ListInput(teamId: teamId)
         )
         return result.actions
+    }
+
+    /// Member-gated `actions.get` — the ONLY body path (the synced shape
+    /// excludes the ≤64KB prompt), so the edit sheet fetches it on open.
+    /// Refuses the virtual builtins server-side: they have no row.
+    public func get(accountId: String, id: String) async throws -> ActionDto {
+        let result: ActionResult = try await trpc.query(
+            accountId: accountId,
+            path: "actions.get",
+            input: IdInput(id: id)
+        )
+        return result.action
+    }
+
+    /// Owner-gated `actions.update` — a partial patch (EXP-694). The synced
+    /// row echoes the metadata back, so success needs no local write.
+    @discardableResult
+    public func update(
+        accountId: String,
+        id: String,
+        patch: ActionPatch
+    ) async throws -> ActionDto {
+        let result: ActionResult = try await trpc.mutation(
+            accountId: accountId,
+            path: "actions.update",
+            input: UpdateInput(id: id, patch: patch)
+        )
+        return result.action
     }
 }

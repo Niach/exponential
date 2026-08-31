@@ -52,7 +52,7 @@ function DevicesPage() {
   const navigate = useNavigate()
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
-  const { isMember } = useTeamPermissions(team)
+  const { isMember, isOwner } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
   const dock = useAgentDock()
   const isMobile = useIsMobile()
@@ -133,6 +133,7 @@ function DevicesPage() {
                     key={row.session.id}
                     row={row}
                     teamSlug={teamSlug}
+                    isOwner={isOwner}
                     onOpen={() => dock?.openDock(row.session.id)}
                   />
                 ))}

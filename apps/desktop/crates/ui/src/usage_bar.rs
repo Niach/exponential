@@ -96,6 +96,10 @@ pub(crate) struct UsageCard {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct UsageGroup {
     pub key: &'static str,
+    /// EXP-694: EMPTY means the group renders WITHOUT a heading — the weekly
+    /// group's cards ("All models", "<Model> only") already name themselves,
+    /// and a "Weekly limits" line above them was one label too many.
+    /// Renderers skip an empty title.
     pub title: &'static str,
     pub cards: Vec<UsageCard>,
 }
@@ -103,8 +107,9 @@ pub(crate) struct UsageGroup {
 /// The whole report, grouped the way Claude's own app groups it:
 ///
 /// * `session` → **Current session** (title "Current session");
-/// * `weekly` + `model:*` → **Weekly limits**, the all-models window first
-///   ("All models") then the per-model ones in report order ("Fable only");
+/// * `weekly` + `model:*` → the UNTITLED weekly group (EXP-694), the
+///   all-models window first ("All models") then the per-model ones in report
+///   order ("Fable only");
 /// * everything else (`credits`, codex's `43200`) → **Other**, in report
 ///   order, under its wire label.
 ///
@@ -128,7 +133,7 @@ pub(crate) fn usage_groups(usage: &AgentUsage, now_epoch: i64) -> Vec<UsageGroup
     weekly.append(&mut models);
     [
         ("session", "Current session", session),
-        ("weekly", "Weekly limits", weekly),
+        ("weekly", "", weekly),
         ("other", "Other", other),
     ]
     .into_iter()
@@ -263,13 +268,21 @@ fn parse_window(value: &serde_json::Value) -> Option<UsageWindow> {
 /// 3px hairline, which is what made the toolbar's usage strip unreadable.
 const TRACK_H: f32 = 6.;
 
-/// Every window the machine reported, as one glass card each under its
-/// group heading (the session group needs none — its single card is titled
-/// "Current session"). Renders nothing when the agent reports no windows.
+/// Every window the machine reported, under its group heading (a group with
+/// an empty title renders none, and the session group's single card is
+/// already titled "Current session"). Renders nothing when the agent reports
+/// no windows.
+///
+/// `compact` is the grouped-stack arm (EXP-694, ×4 `compact`): the windows
+/// sit INSIDE the agent's own glass group in the device editor and the
+/// settings panes, so each one is a PLAIN row — no nested `glass_card()`,
+/// because the group around them already draws the surface. `false` keeps
+/// the standalone carded look for any surface that renders them on their own.
 pub(crate) fn render_usage_cards(
     agent: coding::CodingAgent,
     usage: &AgentUsage,
     now_epoch: i64,
+    compact: bool,
     cx: &App,
 ) -> AnyElement {
     let groups = usage_groups(usage, now_epoch);
@@ -280,11 +293,12 @@ pub(crate) fn render_usage_cards(
     let mut body = v_flex()
         .id(SharedString::from(format!("usage-cards-{}", agent.id())))
         .w_full()
-        .gap_2()
+        .gap(px(if compact { 12. } else { 16. }))
         .when(usage.stale, |this| this.opacity(0.55));
     for group in groups {
-        if group.key != "session" {
-            body = body.child(
+        let mut column = v_flex().w_full().gap_2();
+        if !group.title.is_empty() && group.key != "session" {
+            column = column.child(
                 div()
                     .text_xs()
                     .text_color(muted)
@@ -292,20 +306,22 @@ pub(crate) fn render_usage_cards(
             );
         }
         for card in group.cards {
-            body = body.child(render_usage_card(&card, cx));
+            column = column.child(render_usage_card(&card, compact, cx));
         }
+        body = body.child(column);
     }
     body.into_any_element()
 }
 
-fn render_usage_card(card: &UsageCard, cx: &App) -> gpui::Div {
+fn render_usage_card(card: &UsageCard, compact: bool, cx: &App) -> gpui::Div {
     let muted = cx.theme().muted_foreground;
-    let mut body = crate::surface::glass_card()
-        .w_full()
-        .gap_1p5()
-        .px_2p5()
-        .py_2()
-        .child(
+    let mut body = if compact {
+        v_flex().gap_1p5()
+    } else {
+        crate::surface::glass_card().gap_1p5().px_2p5().py_2()
+    }
+    .w_full()
+    .child(
             gpui_component::h_flex()
                 .w_full()
                 .items_center()
@@ -378,7 +394,7 @@ mod tests {
     /// EXP-688, the ×4 grouping contract: three fixed groups in a fixed
     /// order, the all-models window ahead of the per-model ones, the titles
     /// ("All models" / "Fable only" / the wire label for the rest), and the
-    /// two caption forms.
+    /// two caption forms. EXP-694: the weekly group carries NO title.
     #[test]
     fn usage_groups_split_current_weekly_and_other() {
         let now = 1_756_000_000_i64;
@@ -406,7 +422,8 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 ("session", "Current session"),
-                ("weekly", "Weekly limits"),
+                // Untitled since EXP-694: its cards name themselves.
+                ("weekly", ""),
                 ("other", "Other"),
             ]
         );

@@ -223,10 +223,13 @@ impl AutomationDialogView {
         .detach();
     }
 
-    /// The action `Select`: every automatable row, checked on the pick.
-    fn render_action_picker(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    /// The action picker as ONE grouped row (EXP-694): "Action" leading, the
+    /// bound action trailing behind a caret — the S2 rhythm every editor
+    /// control on every client now shares. With nothing automatable to pick,
+    /// the row carries the hint on its second line instead of a control.
+    fn render_action_picker(&self, cx: &mut gpui::Context<Self>) -> gpui::Div {
         let actions = self.automatable_actions(cx);
-        let muted = cx.theme().muted_foreground;
+        let foreground = cx.theme().foreground;
         let label: SharedString = match &self.action_id {
             Some(action_id) => actions
                 .iter()
@@ -238,18 +241,30 @@ impl AutomationDialogView {
             None => "Select action…".into(),
         };
         if actions.is_empty() && self.action_id.is_none() {
-            return div()
-                .text_xs()
-                .text_color(muted)
-                .child(AUTOMATION_REQUIRED_INPUTS_HINT)
-                .into_any_element();
+            return crate::surface::glass_row_shell().child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap_0p5()
+                    .child(div().text_sm().text_color(foreground).child("Action"))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(foreground.opacity(0.5))
+                            .child(AUTOMATION_REQUIRED_INPUTS_HINT),
+                    ),
+            );
         }
         let picked = self.action_id.clone();
         let view = cx.entity().downgrade();
-        Button::new("automation-action")
-            .outline()
+        let trigger = Button::new("automation-action")
+            .ghost()
             .cursor_pointer()
-            .web_input_sm()
+            .h_auto()
+            .px_0()
+            .py_0()
+            .text_color(foreground.opacity(0.7))
+            .dropdown_caret(true)
             .label(label)
             .dropdown_menu(move |mut menu, _window, _cx| {
                 for action in &actions {
@@ -271,33 +286,25 @@ impl AutomationDialogView {
                     );
                 }
                 menu
-            })
-            .into_any_element()
+            });
+        crate::surface::glass_picker_row("Action", None, trigger.into_any_element(), cx)
     }
 }
 
 impl Render for AutomationDialogView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let danger = cx.theme().danger;
-        let muted = cx.theme().muted_foreground;
         // A trigger kind this build predates would be REWRITTEN by a save
         // (the section can only express what it can parse) — block it.
         let unsupported = AutomationEditorState::unsupported(self.synced_trigger.as_ref());
         let disabled = self.submitting || self.action_id.is_none() || unsupported;
 
         let form = v_flex()
-            .gap_4()
-            .child(
-                v_flex()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(muted)
-                            .child("Action"),
-                    )
-                    .child(self.render_action_picker(cx)),
-            )
+            // EXP-694: groups stack at 8.
+            .gap_2()
+            .child(crate::surface::glass_group_rows(vec![
+                self.render_action_picker(cx)
+            ]))
             .child(
                 self.automation
                     .render("automation-dialog", |this| &mut this.automation, cx),

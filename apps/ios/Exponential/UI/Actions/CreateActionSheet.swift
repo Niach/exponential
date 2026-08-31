@@ -124,7 +124,7 @@ struct CreateActionSheet: View {
                     // EXP-603: the sheet's own background shows through the
                     // grouped list; rows carry the glass fill.
                     .scrollContentBackground(.hidden)
-                    .listSectionSpacing(12)
+                    .listSectionSpacing(8)
                     // EXP-594: white control tint — system blue is retired.
                     .tint(DesignTokens.Palette.primary)
                     .toolbar(.hidden, for: .navigationBar)
@@ -145,7 +145,9 @@ struct CreateActionSheet: View {
     // MARK: - Form sections
 
     /// Icon + name on ONE row (web/desktop parity): the glyph the action will
-    /// wear, and an optional name — blank lets the agent pick one.
+    /// wear, and an optional name — blank lets the agent pick one. EXP-694
+    /// (S7): identical to the edit sheet's identity row, headerless — the
+    /// placeholder IS the title on every editor surface now.
     private var identitySection: some View {
         Section {
             HStack(spacing: 12) {
@@ -153,8 +155,6 @@ struct CreateActionSheet: View {
                 TextField("Name (optional)", text: $name)
                     .accessibilityIdentifier("create-action-name")
             }
-        } header: {
-            Text("Name")
         }
         .listRowBackground(glassFormRowFill)
     }
@@ -164,8 +164,6 @@ struct CreateActionSheet: View {
             TextField("What should this action do?", text: $descriptionText, axis: .vertical)
                 .lineLimit(4...10)
                 .accessibilityIdentifier("create-action-description")
-        } header: {
-            Text("Description")
         }
         .listRowBackground(glassFormRowFill)
     }
@@ -255,7 +253,7 @@ struct CreateActionSheet: View {
         .scrollContentBackground(.hidden)
         .navigationTitle("Automation")
         .navigationBarTitleDisplayMode(.inline)
-        .listSectionSpacing(12)
+        .listSectionSpacing(8)
         .tint(DesignTokens.Palette.primary)
         // The machine pool can land after the sheet did — seed on the way in.
         .onAppear { seedAutomationAgent() }

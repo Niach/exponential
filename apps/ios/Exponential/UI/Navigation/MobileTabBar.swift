@@ -8,7 +8,7 @@ import SwiftUI
 /// actions/automations surface, its own entry per EXP-686 — and Reviews — its
 /// own entry per EXP-147; base order per EXP-81) plus a detached circular
 /// button on the right — compose an issue on the board surfaces, start a chat
-/// on Devices (EXP-631). Search is no longer a tab (EXP-686): it is a pushed
+/// on Devices and Actions (EXP-631/EXP-694). Search is no longer a tab (EXP-686): it is a pushed
 /// detail reached from the board header. Attached via
 /// `.overlay(alignment: .bottom)` so content
 /// scrolls underneath it; each bar-visible scrollable reserves clearance with
@@ -28,7 +28,8 @@ struct MobileTabBar: View {
     let supportUnread: Bool
     let showsCompose: Bool
     /// EXP-631: the Devices surface puts a Chat launcher in the compose slot —
-    /// composing an issue is board-scoped and hidden there anyway.
+    /// composing an issue is board-scoped and hidden there anyway. EXP-694:
+    /// the Actions surface does the same.
     let showsChat: Bool
     let onIssues: () -> Void
     let onDevices: () -> Void

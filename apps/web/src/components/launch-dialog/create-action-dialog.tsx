@@ -29,7 +29,11 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { cn } from "@/lib/utils"
-import type { ActionRepoOption } from "@/components/action-editor-dialog"
+import {
+  GROUPED_FIELD,
+  GROUPED_FIELD_ROW,
+  type ActionRepoOption,
+} from "@/components/action-editor-dialog"
 import type { StartCodingOptions } from "@/components/launch-dialog/launch-dialog"
 import { LaunchOptionsPane } from "@/components/launch-dialog/launch-options-pane"
 import { useLaunchOptions } from "@/components/launch-dialog/use-launch-options"
@@ -44,7 +48,6 @@ import {
   DialogCancel,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { GlassGroup, GlassPickerRow } from "@/components/ui/glass-rows"
 import { Textarea } from "@/components/ui/textarea"
 
@@ -59,6 +62,11 @@ import { Textarea } from "@/components/ui/textarea"
 // EXP-615: the automation is a always-visible summary row that slides into its
 // own detail view, so the suggestion-prefilled flow and the plain one are ONE
 // layout (they were two before).
+// EXP-694: the form column is the EDIT dialog's grouped card stack, ×4 with
+// the desktop `create_action_dialog` and the native Create-action sheets —
+// icon + name as one row, the description as the next one with its
+// placeholder as the title, then the repository/automation group. No labels
+// above fields anywhere.
 
 // Radix Select forbids an empty-string item value; the unset optional repo
 // rides this sentinel inside the dialog only.
@@ -290,54 +298,49 @@ export function CreateActionDialog({
                 `pointer-events-none -translate-x-full opacity-0`
             )}
           >
-            <div className="flex shrink-0 flex-col gap-3 sm:min-h-0 sm:shrink sm:overflow-y-auto">
-              {/* EXP-616: the icon + name row LEADS the column, uncaptioned —
-                  the placeholder ("Name (optional)") already says what it is,
-                  so the visible label only cost the column its top edge and
-                  pushed it out of line with the right half's "Agent" label.
-                  The a11y name rides `aria-label` instead. */}
-              <div className="flex items-center gap-2">
-                <IconPicker
-                  id="create-action-icon"
-                  value={icon as BoardIcon | ``}
-                  onChange={setIcon}
-                  allowsNone
-                />
-                <Input
-                  id="create-action-name"
-                  aria-label={nameDef?.label}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder={nameDef?.placeholder}
-                  maxLength={MAX_ACTION_INPUT_TEXT}
-                />
-              </div>
-              {/* The description is its OWN glass card — caption-sized label,
-                  borderless field (the Chat tab's Prompt, EXP-616). */}
-              <div className="flex flex-col gap-1 rounded-lg bg-glass-row p-3">
-                <Label
-                  htmlFor="create-action-description"
-                  className="text-xs text-foreground/50"
-                >
-                  Description
-                </Label>
+            <div className="flex shrink-0 flex-col gap-2 sm:min-h-0 sm:shrink sm:overflow-y-auto">
+              {/* EXP-694: the same grouped editor controls as the Edit-action
+                  dialog (and the desktop/native create sheets) — icon + name
+                  are ONE row of the card, the description the next row, both
+                  chrome-less with the placeholder carrying the title. The
+                  placeholders are the builtin's own input definitions, so the
+                  a11y name still rides `aria-label`. */}
+              <GlassGroup>
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <IconPicker
+                    id="create-action-icon"
+                    value={icon as BoardIcon | ``}
+                    onChange={setIcon}
+                    allowsNone
+                  />
+                  <Input
+                    id="create-action-name"
+                    aria-label={nameDef?.label}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={nameDef?.placeholder}
+                    className={`${GROUPED_FIELD} h-auto min-w-0 flex-1 p-0`}
+                    maxLength={MAX_ACTION_INPUT_TEXT}
+                  />
+                </div>
                 <Textarea
                   id="create-action-description"
+                  aria-label={descriptionDef?.label}
                   autoFocus
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder={descriptionDef?.placeholder}
-                  className="min-h-28 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                  className={`${GROUPED_FIELD_ROW} min-h-28`}
                   // Client parity with the server's per-value cap, so a long
                   // paste is refused at the field instead of at submit.
                   maxLength={MAX_ACTION_INPUT_TEXT}
                 />
-              </div>
+              </GlassGroup>
               {/* EXP-616: ONE grouped card — the repository picker row, and
                   the automation row that slides into its detail view. */}
               <GlassGroup>
                 <GlassPickerRow
-                  label="Repository (optional)"
+                  label="Repository"
                   value={repoId || NO_REPO}
                   onValueChange={(value) =>
                     setRepoId(value === NO_REPO ? `` : value)

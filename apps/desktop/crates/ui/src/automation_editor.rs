@@ -25,12 +25,12 @@
 //! [`render`]: AutomationEditorState::render
 
 use gpui::{
-    div, px, App, AppContext as _, ClickEvent, Context, Entity, InteractiveElement as _,
+    div, px, App, AppContext as _, ClickEvent, Context, Div, Entity, InteractiveElement as _,
     IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
     Window,
 };
 use gpui_component::{
-    button::Button,
+    button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
@@ -44,6 +44,7 @@ use coding::automations::{
 
 use crate::coding_selects::{effort_choices_for, model_choices_for};
 use crate::controls::WebControl as _;
+use crate::surface;
 // EXP-615: the agent/model/effort pins render through the ONE shared launch
 // cluster (its Automation variant leads with the "Device default" pill).
 use crate::launch_options;
@@ -742,14 +743,17 @@ impl AutomationEditorState {
             )
     }
 
+    /// EXP-694: the runner picker is its own grouped row ("Runs on" leading,
+    /// the machine trailing) — the device group every client shows above the
+    /// agent group.
     fn render_device_picker<V: Render>(
         &self,
         prefix: &'static str,
         access: fn(&mut V) -> &mut Self,
         cx: &mut Context<V>,
-    ) -> impl IntoElement {
+    ) -> Div {
         let devices = automation_devices(cx);
-        let muted = cx.theme().muted_foreground;
+        let foreground = cx.theme().foreground;
         let picked = self
             .device_id
             .as_deref()
@@ -764,22 +768,34 @@ impl AutomationEditorState {
             })
             .map(SharedString::from);
         if devices.is_empty() && picked.is_none() {
-            return v_flex().gap_1().child(field_label(cx, "Runs on")).child(
-                div().text_xs().text_color(muted).child(
-                    "No automation-capable device. Run the desktop app or the exponential \
-                     daemon and it will appear here.",
-                ),
-            );
+            return surface::glass_group_rows(vec![surface::glass_row_shell().child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap_0p5()
+                    .child(div().text_sm().text_color(foreground).child("Runs on"))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(foreground.opacity(0.5))
+                            .child(
+                                "No automation-capable device. Run the desktop app or the \
+                                 exponential daemon and it will appear here.",
+                            ),
+                    ),
+            )]);
         }
         let view = cx.entity().downgrade();
         let menu_devices = devices.clone();
         let bound = self.device_id.clone();
         let trigger = Button::new(SharedString::from(format!("{prefix}-device")))
-            .outline()
+            .ghost()
             .cursor_pointer()
-            .web_input_sm()
-            // Full width, like the web select (EXP-615).
-            .w_full()
+            .h_auto()
+            .px_0()
+            .py_0()
+            .text_color(foreground.opacity(0.7))
+            .dropdown_caret(true)
             .label(picked.clone().unwrap_or_else(|| "Select device…".into()))
             .dropdown_menu(move |mut menu, _window, _cx| {
                 for device in &menu_devices {
@@ -812,10 +828,12 @@ impl AutomationEditorState {
                 }
                 menu
             });
-        v_flex()
-            .gap_1()
-            .child(field_label(cx, "Runs on"))
-            .child(trigger)
+        surface::glass_group_rows(vec![surface::glass_picker_row(
+            "Runs on",
+            None,
+            trigger.into_any_element(),
+            cx,
+        )])
     }
 
     /// Agent / Model / Effort — the optional pins, rendered by the SHARED
@@ -830,14 +848,17 @@ impl AutomationEditorState {
         prefix: &'static str,
         access: fn(&mut V) -> &mut Self,
         cx: &mut Context<V>,
-    ) -> impl IntoElement {
+    ) -> Div {
         let agents = self.device_agents(cx);
         let active = self
             .agent
             .as_deref()
             .and_then(|picked| agents.iter().position(|id| id == picked));
         let click_agents = agents.clone();
-        let strip = launch_options::agent_tabs(
+        // EXP-694: the strip is the group's FIRST ROW, not a capsule above a
+        // labeled column — the same embedded tabs the launch and device
+        // pickers lead with.
+        let strip = launch_options::agent_tabs_row(
             prefix,
             launch_options::agent_id_pills(&agents),
             active,
@@ -856,25 +877,14 @@ impl AutomationEditorState {
             cx,
         );
 
-        let section = v_flex()
-            .w_full()
-            .gap_1()
-            .child(field_label(cx, "Agent"))
-            .child(strip);
         // Model/Effort stay VISIBLE while nothing is pinned (web parity,
-        // EXP-615): disabled selects reading "Device default" — a model
-        // belongs to ONE agent, so they only unlock once an agent is picked.
+        // EXP-615): dimmed rows reading "CLI default" — a model belongs to
+        // ONE agent, so they only unlock once an agent is picked.
         let agent = self.agent.as_deref().and_then(coding::CodingAgent::parse);
-        let pin_column = |label: &'static str, control: gpui::AnyElement, cx: &mut Context<V>| {
-            v_flex()
-                .flex_1()
-                .gap_1()
-                .child(field_label(cx, label))
-                .child(control)
-        };
-        let (model_pin, effort_pin): (gpui::AnyElement, gpui::AnyElement) = match agent {
+        let (model_row, effort_row): (Div, Div) = match agent {
             Some(agent) => (
-                launch_options::choice_pin(
+                launch_options::choice_pin_row(
+                    "Model",
                     prefix,
                     "model",
                     model_choices_for(agent),
@@ -882,9 +892,9 @@ impl AutomationEditorState {
                     |state: &mut Self| &mut state.model,
                     access,
                     cx,
-                )
-                .into_any_element(),
-                launch_options::choice_pin(
+                ),
+                launch_options::choice_pin_row(
+                    "Effort",
                     prefix,
                     "effort",
                     effort_choices_for(agent),
@@ -892,32 +902,30 @@ impl AutomationEditorState {
                     |state: &mut Self| &mut state.effort,
                     access,
                     cx,
-                )
-                .into_any_element(),
+                ),
             ),
             None => {
-                let placeholder = |key: &'static str| {
-                    use gpui_component::button::Button;
+                let foreground = cx.theme().foreground;
+                let placeholder = |label: &'static str, key: &'static str| {
                     use gpui_component::Disableable as _;
-                    Button::new(SharedString::from(format!("{prefix}-pin-{key}-off")))
-                        .outline()
-                        .web_input_sm()
-                        .w_full()
+                    let control = Button::new(SharedString::from(format!("{prefix}-pin-{key}-off")))
+                        .ghost()
+                        .h_auto()
+                        .px_0()
+                        .py_0()
+                        .text_color(foreground.opacity(0.7))
+                        .dropdown_caret(true)
                         .label(launch_options::CLI_DEFAULT_LABEL)
                         .disabled(true)
-                        .into_any_element()
+                        .into_any_element();
+                    // `appearance`-free buttons lose the component's own
+                    // disabled dimming, so the row carries it.
+                    surface::glass_picker_row(label, None, control, cx).opacity(0.5)
                 };
-                (placeholder("model"), placeholder("effort"))
+                (placeholder("Model", "model"), placeholder("Effort", "effort"))
             }
         };
-        section.child(
-            h_flex()
-                .w_full()
-                .gap_2()
-                .items_start()
-                .child(pin_column("Model", model_pin, cx))
-                .child(pin_column("Effort", effort_pin, cx)),
-        )
+        surface::glass_group_rows(vec![strip, model_row, effort_row])
     }
 
     /// The agent ids the bound device advertises; a device that advertises

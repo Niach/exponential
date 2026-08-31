@@ -93,7 +93,7 @@ struct AutomationFormSheet: View {
                 // EXP-603: the sheet's own background shows through the
                 // grouped list; rows carry the glass fill.
                 .scrollContentBackground(.hidden)
-                .listSectionSpacing(12)
+                .listSectionSpacing(8)
                 // EXP-594: white control tint — system blue is retired.
                 .tint(DesignTokens.Palette.primary)
             },

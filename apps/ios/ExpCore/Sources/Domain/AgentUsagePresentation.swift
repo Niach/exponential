@@ -131,11 +131,13 @@ public enum AgentUsagePresentation {
     /// Locked ×4 (web `usageGroups`, Android `usageGroups`, desktop
     /// `usage_groups`) against the same fixture:
     ///   - `session` → "Current session" / card title "Current session";
-    ///   - `weekly` + `model:*` → "Weekly limits" / "All models" and
-    ///     "<Label> only", the all-models window first;
+    ///   - `weekly` + `model:*` → NO title (EXP-694: the card titles already
+    ///     say "All models" / "<Label> only", so the group header was noise),
+    ///     the all-models window first;
     ///   - anything else (`credits`, codex's `43200`) → "Other" with the wire
     ///     label, in report order.
-    /// Empty groups are omitted and the group order never varies.
+    /// Empty groups are omitted and the group order never varies. A group with
+    /// an EMPTY title draws no header — every renderer skips it.
     public static func usageGroups(_ usage: AgentUsage, now: Date = Date()) -> [UsageGroup] {
         let windows = usage.windows ?? []
         let session = windows.filter { $0.key == sessionWindowKey }
@@ -147,7 +149,7 @@ public enum AgentUsagePresentation {
         }
         return [
             UsageGroup(key: "session", title: "Current session", windows: session, now: now),
-            UsageGroup(key: "weekly", title: "Weekly limits", windows: weekly, now: now),
+            UsageGroup(key: "weekly", title: "", windows: weekly, now: now),
             UsageGroup(key: "other", title: "Other", windows: other, now: now),
         ].filter { !$0.cards.isEmpty }
     }
@@ -219,20 +221,16 @@ public enum AgentUsagePresentation {
 
     // MARK: - Accounts
 
-    /// The caption after the agent name. Locked ×4: `signed in as <email> ·
-    /// <plan>` / `signed in as <email>` / the bare plan (pi, which reports a
-    /// provider instead of an email) / `signed in` / `signed out`. A missing
-    /// report is `unknown` — the device never probed, which is not "signed
-    /// out".
+    /// The caption after the agent name. Locked ×4 and, since EXP-694, as
+    /// short as it can be: the bare `<email>` (no "signed in as" prefix, no
+    /// " · <plan>" suffix — the row's context already says both) / the bare
+    /// plan (pi, which reports a provider instead of an email) / `signed in` /
+    /// `signed out`. A missing report is `unknown` — the device never probed,
+    /// which is not "signed out".
     public static func accountCaption(_ account: AgentAccount?) -> String {
         guard let account else { return "unknown" }
         guard account.signedIn == true else { return "signed out" }
-        if let email = account.email, !email.isEmpty {
-            if let plan = account.plan, !plan.isEmpty {
-                return "signed in as \(email) · \(plan)"
-            }
-            return "signed in as \(email)"
-        }
+        if let email = account.email, !email.isEmpty { return email }
         if let plan = account.plan, !plan.isEmpty { return plan }
         return "signed in"
     }

@@ -128,6 +128,12 @@ public struct GlassPillButton: View {
 
 /// The styled content of the full-width submit button — for `Link` hosts
 /// (UpdateRequiredView). Everything else uses `GlassSubmitButton`.
+///
+/// EXP-694 (S1, Android `GlassSubmitButton` parity): a LIVE submit is the solid
+/// `primary` fill with `primaryForeground` content and no hairline — the dark
+/// white-alpha glass it used to be read as disabled next to the real disabled
+/// state. Disabled is unchanged (white .06 + hairline, tertiary label), and the
+/// geometry (radius 10, 14pt v-padding) is untouched on both.
 public struct GlassSubmitLabel<Icon: View>: View {
     let label: String
     var enabled: Bool = true
@@ -151,21 +157,26 @@ public struct GlassSubmitLabel<Icon: View>: View {
         HStack(spacing: 8) {
             if loading {
                 ProgressView()
-                    .tint(.white)
+                    .tint(enabled ? DesignTokens.Palette.primaryForeground : Color.white)
             } else {
                 icon
                 Text(label)
             }
         }
         .font(.body.weight(.medium))
-        .foregroundStyle(.white.opacity(enabled ? TextOpacity.primary : TextOpacity.tertiary))
+        .foregroundStyle(
+            enabled
+                ? DesignTokens.Palette.primaryForeground
+                : Color.white.opacity(TextOpacity.tertiary)
+        )
         .frame(maxWidth: .infinity)
         .padding(.vertical, 14)
-        .background(enabled && !loading ? Color.white.opacity(0.15) : Color.white.opacity(0.06))
+        .background(enabled ? DesignTokens.Palette.primary : Color.white.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+        // A filled button needs no hairline — only the disabled glass does.
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+                .stroke(enabled ? Color.clear : Color.white.opacity(0.1), lineWidth: 0.5)
         )
     }
 }

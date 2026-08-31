@@ -1,6 +1,5 @@
 package com.exponential.app
 
-import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
@@ -359,12 +358,9 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_machine-settings")
-        // Scoped to the sheet: "Done" also reads as an issue status elsewhere
-        // in the tree, and an unscoped onFirst() once clicked that instead of
-        // the button (EXP-663).
-        composeRule
-            .onNode(hasText("Done") and hasAnyAncestor(hasTestTag("device-settings-sheet")))
-            .performClick()
+        // EXP-694: the sheet autosaves and carries no bottom button at all —
+        // back (like a swipe down) dismisses it, same as the start sheet.
+        Espresso.pressBack()
         flow.waitForGone(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle(longer = true)
 

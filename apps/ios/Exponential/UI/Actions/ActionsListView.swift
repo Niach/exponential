@@ -2,15 +2,22 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// The Actions surface (EXP-253, view + run only — no manual edit on mobile):
-/// the active team's action prompts, each with a Run affordance that
-/// remote-starts the action on one of the caller's actions-capable desktops.
+/// The Actions surface (EXP-253): the active team's action prompts, each with
+/// a Run affordance that remote-starts the action on one of the caller's
+/// actions-capable desktops.
 /// The "New action" button (EXP-431, in the web-parity "Actions" section
 /// header since EXP-574) opens the dedicated `CreateActionSheet` (EXP-615) —
-/// the "Create action" builtin left the list.
+/// the "Create action" builtin left the list. EXP-694 added the row menu's
+/// "Edit" (the `EditActionSheet`, read-only for non-owners) — editing is no
+/// longer web/desktop-only.
 /// After a successful send the screen waits for the desktop's synced
 /// coding_sessions row and jumps into the existing live steer screen once.
 struct ActionsListView: View {
+    /// EXP-694: the mobile tab bar's Chat FAB is on this tab too now — the bar
+    /// lives in AppNavigator, the launcher here, so a tap just bumps a counter
+    /// (the AgentsView contract, unchanged).
+    var chatRequest: Int = 0
+
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(TeamState.self) private var teamState
@@ -22,6 +29,12 @@ struct ActionsListView: View {
     /// EXP-615: creation has its own sheet — non-nil presents it, carrying a
     /// suggestion's seed when one opened it.
     @State private var createTarget: CreateActionSeed?
+    /// EXP-694: the action being edited (nil = closed). Owners edit, everyone
+    /// else reads.
+    @State private var editTarget: ActionDto?
+    /// EXP-694: the tab bar's Chat FAB — the same Start-coding sheet the
+    /// Devices tab opens, on its Chat tab.
+    @State private var chatSheetPresented = false
     /// Consumed-once navigation target (the SettingsView pendingTeam idiom).
     @State private var sessionTarget: StartedRunWatcher.StartedSession?
     /// EXP-583: the automation form sheet's target (nil = closed; a nil
@@ -83,7 +96,50 @@ struct ActionsListView: View {
 
     var body: some View {
         ZStack {
+            // The Chat sheet hangs off the background and the action editor off
+            // its own zero-size node: this ZStack already owns the run/create/
+            // automation sheets, and stacking presentations on one node is
+            // where SwiftUI starts dropping them (the AgentsView rule).
             AppBackground()
+                .sheet(isPresented: $chatSheetPresented) {
+                    StartCodingSheet(
+                        devices: devices ?? [],
+                        issues: viewModel?.startCandidates ?? [],
+                        preselectedIds: [],
+                        teamId: teamState.activeTeam?.id,
+                        initialTab: .chat,
+                        onStart: { device, issueIds, options in
+                            viewModel?.startCoding(
+                                device: device,
+                                issueIds: issueIds,
+                                options: options,
+                                userId: deps.auth.userId
+                            )
+                        },
+                        onRunAction: { device, chosen, options, inputs in
+                            viewModel?.run(
+                                action: chosen,
+                                device: device,
+                                options: options,
+                                inputs: inputs,
+                                userId: deps.auth.userId
+                            )
+                        }
+                    )
+                }
+
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                // EXP-694: the action editor. Non-owners open it read-only —
+                // the server refuses their write anyway.
+                .sheet(item: $editTarget) { action in
+                    EditActionSheet(
+                        action: action,
+                        canEdit: viewModel?.permissions.isOwner == true
+                    )
+                    .environment(\.accountId, accountId)
+                }
 
             if let vm = viewModel {
                 content(vm)
@@ -108,6 +164,9 @@ struct ActionsListView: View {
             // Refresh presence on every appear (the .task doesn't re-run on
             // pop-back). A no-op until steering resolves enabled.
             Task { await refreshDevices() }
+        }
+        .onChange(of: chatRequest) { _, _ in
+            chatSheetPresented = true
         }
         .onDisappear {
             viewModel?.stopWatching()
@@ -664,44 +723,54 @@ struct ActionsListView: View {
         .tabBarBottomInset()
     }
 
+    /// EXP-694: the whole card IS the affordance — the "Use" pill was the only
+    /// text button sitting where every sibling list puts a glyph, and a
+    /// suggestion row has nothing else to tap.
     private func suggestionCard(_ suggestion: ActionSuggestion) -> some View {
-        HStack(spacing: 12) {
-            AppIcon(suggestion.icon, size: AppIcon.Size.medium)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(suggestion.title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                // EXP-583: what "Use" will set up.
-                Text(suggestion.automation == nil ? "Action" : "Automation")
-                    .font(.caption2.weight(.medium))
+        Button {
+            useSuggestion(suggestion)
+        } label: {
+            HStack(spacing: 12) {
+                AppIcon(suggestion.icon, size: AppIcon.Size.medium)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.white.opacity(0.08), in: Capsule())
-                Text(suggestion.description)
-                    .font(.caption)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(suggestion.title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    // EXP-583: what the tap will set up.
+                    Text(suggestion.automation == nil ? "Action" : "Automation")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.white.opacity(0.08), in: Capsule())
+                    Text(suggestion.description)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(3)
+                }
+
+                Spacer(minLength: 0)
+
+                AppIcon(AppIcons.uiChevronRight, size: 14)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(3)
             }
-
-            Spacer(minLength: 0)
-
-            GlassPillButton("Use") {
-                useSuggestion(suggestion)
-            }
-            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .glassRow()
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .glassRow()
+        // `.plain` is what every tappable glass row in the app wears (the
+        // ended-run rows, the session rows) — the tap feedback is the row's
+        // own highlight, never a blue tint.
+        .buttonStyle(.plain)
         .accessibilityIdentifier("suggestion-row")
     }
 
-    /// "Use" (EXP-686 shortened the label): the create sheet, prefilled with
-    /// the suggestion's
+    /// Tapping a suggestion opens the create sheet, prefilled with the
+    /// suggestion's
     /// description + icon and, for an "Action + automation" seed, its
     /// suggested trigger (EXP-615: the sheet always offers an automation —
     /// the seed only pre-fills one).
@@ -797,6 +866,23 @@ struct ActionsListView: View {
                 // Rebuild the Issues-tab pool at open time — the sheet
                 // self-heals if the read lands after presentation.
                 Task { await viewModel?.refreshStartCandidates() }
+            }
+
+            // EXP-694: editing reached mobile. The builtins have no row to
+            // edit (the server refuses their id), so they wear no menu;
+            // non-owners get the sheet read-only rather than no entry at all.
+            if !action.isBuiltin {
+                GlassMenu {
+                    GlassMenuItem("Edit", icon: AppIcons.uiEdit) {
+                        editTarget = action
+                    }
+                } label: {
+                    AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .padding(6)
+                }
+                .accessibilityLabel("Action actions")
+                .accessibilityIdentifier("action-menu")
             }
         }
         .padding(.horizontal, 12)

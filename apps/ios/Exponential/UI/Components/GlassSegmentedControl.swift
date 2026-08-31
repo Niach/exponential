@@ -7,6 +7,17 @@ import SwiftUI
 /// per-segment count badge (indigo capsule, the Inbox unread count — the
 /// text-bearing `indigoStrong` fill, not the raw accent).
 struct GlassSegmentedControl<Option: Hashable>: View {
+    /// EXP-694 (S3): where the strip sits.
+    /// `.capsule` is the free-standing control — its own material capsule and
+    /// hairline. `.embedded` is the strip as the FIRST ROW of a grouped card:
+    /// no fill, no border, no container padding of its own (the row's insets
+    /// carry the 8pt), so the card behind it is the only surface. The segments
+    /// themselves are identical in both.
+    enum Style {
+        case capsule
+        case embedded
+    }
+
     let options: [Option]
     let selection: Option
     let label: (Option) -> String
@@ -21,6 +32,7 @@ struct GlassSegmentedControl<Option: Hashable>: View {
     /// leaves the segment identifier-less, exactly as before.
     let identifier: (Option) -> String?
     let badge: (Option) -> Int
+    let style: Style
     let onSelect: (Option) -> Void
 
     init(
@@ -29,6 +41,7 @@ struct GlassSegmentedControl<Option: Hashable>: View {
         label: @escaping (Option) -> String,
         identifier: @escaping (Option) -> String? = { _ in nil },
         badge: @escaping (Option) -> Int = { _ in 0 },
+        style: Style = .capsule,
         onSelect: @escaping (Option) -> Void
     ) {
         self.init(
@@ -38,6 +51,7 @@ struct GlassSegmentedControl<Option: Hashable>: View {
             icon: { _ in nil },
             identifier: identifier,
             badge: badge,
+            style: style,
             onSelect: onSelect
         )
     }
@@ -51,6 +65,7 @@ struct GlassSegmentedControl<Option: Hashable>: View {
         icon: @escaping (Option) -> Image?,
         identifier: @escaping (Option) -> String? = { _ in nil },
         badge: @escaping (Option) -> Int = { _ in 0 },
+        style: Style = .capsule,
         onSelect: @escaping (Option) -> Void
     ) {
         self.options = options
@@ -59,20 +74,31 @@ struct GlassSegmentedControl<Option: Hashable>: View {
         self.icon = icon
         self.identifier = identifier
         self.badge = badge
+        self.style = style
         self.onSelect = onSelect
     }
 
+    @ViewBuilder
     var body: some View {
+        switch style {
+        case .capsule:
+            segments
+                .padding(4)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(
+                    Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                )
+        case .embedded:
+            segments
+        }
+    }
+
+    private var segments: some View {
         HStack(spacing: 4) {
             ForEach(options, id: \.self) { option in
                 segmentButton(option)
             }
         }
-        .padding(4)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(
-            Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-        )
     }
 
     private func segmentButton(_ option: Option) -> some View {

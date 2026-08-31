@@ -46,17 +46,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { Switch } from "@/components/ui/switch"
+  GlassGroup,
+  GlassInputRow,
+  GlassPickerRow,
+  GlassSectionHeader,
+  GlassToggleRow,
+} from "@/components/ui/glass-rows"
 import {
   AGENT_LABELS,
   AgentOptionsFields,
@@ -609,19 +605,21 @@ export function DeviceSettingsDialog({
         <DialogHeader>
           <DialogTitle>Device settings</DialogTitle>
         </DialogHeader>
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
+        {/* EXP-694: one inset-grouped card stack — the same rows, in the same
+            order, as the iOS/Android device sheets. 8px between groups. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
           {/* ── Name ─────────────────────────────────────────────────── */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="device-settings-name">Name</Label>
-              {savingName && (
-                <LoaderCircle className="size-3 animate-spin text-muted-foreground" />
-              )}
-            </div>
-            <Input
+          <GlassGroup>
+            <GlassInputRow
               id="device-settings-name"
+              label="Name"
               value={nameDraft}
               maxLength={255}
+              trailing={
+                savingName ? (
+                  <LoaderCircle className="size-3 shrink-0 animate-spin text-muted-foreground" />
+                ) : null
+              }
               onChange={(event) => {
                 setNameDraft(event.target.value)
                 scheduleName()
@@ -641,162 +639,140 @@ export function DeviceSettingsDialog({
                 if (event.key === `Enter`) flushName()
               }}
             />
-            {sectionErrors.name && (
-              <p className="text-xs text-destructive">{sectionErrors.name}</p>
-            )}
-          </div>
+          </GlassGroup>
+          {sectionErrors.name && (
+            <p className="px-1 text-xs text-destructive">
+              {sectionErrors.name}
+            </p>
+          )}
 
           {/* ── Default machine (EXP-622) ────────────────────────────── */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-4">
-              <Label htmlFor="device-settings-default">Default device</Label>
-              <Switch
-                id="device-settings-default"
-                checked={row?.isDefault ?? false}
-                onCheckedChange={(checked) => void setDefault(checked)}
-                disabled={busySection !== null}
-              />
-            </div>
-            {sectionErrors.default && (
-              <p className="text-xs text-destructive">
-                {sectionErrors.default}
-              </p>
-            )}
-          </div>
+          <GlassGroup>
+            <GlassToggleRow
+              id="device-settings-default"
+              label="Default device"
+              checked={row?.isDefault ?? false}
+              onCheckedChange={(checked) => void setDefault(checked)}
+              disabled={busySection !== null}
+            />
+          </GlassGroup>
+          {sectionErrors.default && (
+            <p className="px-1 text-xs text-destructive">
+              {sectionErrors.default}
+            </p>
+          )}
 
           {/* ── Sharing (server machines only, EXP-432) ───────────────── */}
           {kind === `server` && (
-            <div className="space-y-2">
-              <Label htmlFor="device-settings-shared">Shared with team</Label>
-              <Select
-                value={row?.sharedTeamId ?? NOT_SHARED}
-                onValueChange={(value) =>
-                  void setShared(value === NOT_SHARED ? null : value)
-                }
-                disabled={busySection !== null}
-              >
-                <SelectTrigger id="device-settings-shared" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NOT_SHARED}>Not shared</SelectItem>
-                  {teams.map((team) => (
-                    <SelectItem key={team.id} value={team.id}>
-                      {team.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
+            <>
+              <GlassGroup>
+                <GlassPickerRow
+                  label="Shared with"
+                  value={row?.sharedTeamId ?? NOT_SHARED}
+                  onValueChange={(value) =>
+                    void setShared(value === NOT_SHARED ? null : value)
+                  }
+                  disabled={busySection !== null}
+                  options={[
+                    { value: NOT_SHARED, label: `Not shared` },
+                    ...teams.map((team) => ({
+                      value: team.id,
+                      label: team.name,
+                    })),
+                  ]}
+                />
+              </GlassGroup>
+              <p className="px-1 text-xs text-muted-foreground">
                 Teammates of the shared team can start coding sessions on this
                 machine.
               </p>
               {sectionErrors.sharing && (
-                <p className="text-xs text-destructive">
+                <p className="px-1 text-xs text-destructive">
                   {sectionErrors.sharing}
                 </p>
               )}
-            </div>
+            </>
           )}
 
-          <Separator />
-
           {/* ── Agent defaults (server-authoritative, EXP-481) ────────── */}
-          <div className="space-y-3">
-            {(!online || savingDefaults) && (
-              <div className="flex items-center justify-between">
-                {!online ? (
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <OfflineIcon className="size-3" />
-                    Applies when the device comes online.
-                  </span>
-                ) : (
-                  <span />
-                )}
-                {savingDefaults && (
-                  <LoaderCircle className="size-3 animate-spin text-muted-foreground" />
-                )}
-              </div>
-            )}
-            <div className="space-y-2">
-              <Label
-                htmlFor="device-settings-default-agent"
-                className="font-normal text-muted-foreground"
-              >
-                Default agent
-              </Label>
-              <Select
-                value={defaultAgentDraft}
-                onValueChange={(value) => {
-                  setDefaultAgentDraft(value)
-                  scheduleDefaults()
-                }}
-              >
-                <SelectTrigger
-                  id="device-settings-default-agent"
-                  className="w-full"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {editorAgents.map((agent) => (
-                    <SelectItem key={agent} value={agent}>
-                      {AGENT_LABELS[agent] ?? agent}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <AgentOptionsFields
-              idPrefix="device-settings"
-              agent={agentTab}
-              availableAgents={editorAgents}
-              onAgentChange={setAgentTab}
-              model={draft.model}
-              onModelChange={(value) => patchDraft({ model: value })}
-              effortValue={
-                draft.effort === `` ? CLI_DEFAULT_EFFORT : draft.effort
-              }
-              onEffortChange={(value) =>
-                patchDraft({
-                  effort: value === CLI_DEFAULT_EFFORT ? `` : value,
-                })
-              }
-              ultracode={draft.ultracode}
-              onUltracodeChange={(value) => patchDraft({ ultracode: value })}
-              planMode={draft.planMode}
-              onPlanModeChange={(value) => patchDraft({ planMode: value })}
-              /* EXP-688: who this agent is signed in as on this machine, and
-                 what it has spent — under its OWN tab, not a section apart. */
-              renderAgentFooter={(agent) => (
-                <AgentAccountBlock
-                  agent={agent}
-                  row={row}
-                  online={online}
-                  canAgentLogin={deviceCanAgentLogin({ caps: row?.caps ?? [] })}
-                  now={now}
-                  error={sectionErrors[agentLoginKey(agent)] ?? ``}
-                  pending={pendingKey(agentLoginKey(agent))}
-                  result={commandResults[agentLoginKey(agent)] ?? null}
-                  onLogin={startAgentLogin}
-                />
+          {(!online || savingDefaults) && (
+            <div className="flex items-center justify-between px-1">
+              {!online ? (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <OfflineIcon className="size-3" />
+                  Applies when the device comes online.
+                </span>
+              ) : (
+                <span />
               )}
+              {savingDefaults && (
+                <LoaderCircle className="size-3 animate-spin text-muted-foreground" />
+              )}
+            </div>
+          )}
+          <GlassGroup>
+            <GlassPickerRow
+              label="Default agent"
+              value={defaultAgentDraft}
+              onValueChange={(value) => {
+                setDefaultAgentDraft(value)
+                scheduleDefaults()
+              }}
+              options={editorAgents.map((agent) => ({
+                value: agent,
+                label: AGENT_LABELS[agent] ?? agent,
+              }))}
             />
-            {sectionErrors.defaults && (
-              <p className="text-xs text-destructive">
-                {sectionErrors.defaults}
-              </p>
+          </GlassGroup>
+          <AgentOptionsFields
+            idPrefix="device-settings"
+            agent={agentTab}
+            availableAgents={editorAgents}
+            onAgentChange={setAgentTab}
+            model={draft.model}
+            onModelChange={(value) => patchDraft({ model: value })}
+            effortValue={
+              draft.effort === `` ? CLI_DEFAULT_EFFORT : draft.effort
+            }
+            onEffortChange={(value) =>
+              patchDraft({
+                effort: value === CLI_DEFAULT_EFFORT ? `` : value,
+              })
+            }
+            ultracode={draft.ultracode}
+            onUltracodeChange={(value) => patchDraft({ ultracode: value })}
+            planMode={draft.planMode}
+            onPlanModeChange={(value) => patchDraft({ planMode: value })}
+            /* EXP-688: who this agent is signed in as on this machine, and
+               what it has spent — under its OWN tab, not a section apart.
+               EXP-694: rendered as that card's closing rows. */
+            renderAgentFooter={(agent) => (
+              <AgentAccountBlock
+                agent={agent}
+                row={row}
+                online={online}
+                canAgentLogin={deviceCanAgentLogin({ caps: row?.caps ?? [] })}
+                now={now}
+                error={sectionErrors[agentLoginKey(agent)] ?? ``}
+                pending={pendingKey(agentLoginKey(agent))}
+                result={commandResults[agentLoginKey(agent)] ?? null}
+                onLogin={startAgentLogin}
+              />
             )}
-          </div>
-
-          <Separator />
+          />
+          {sectionErrors.defaults && (
+            <p className="px-1 text-xs text-destructive">
+              {sectionErrors.defaults}
+            </p>
+          )}
 
           {/* ── Worktrees (reported inventory + durable commands) ─────── */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Worktrees</Label>
-              {/* EXP-688: icon only — the label repeated the section it sits
-                  in, and the row reads as a heading with an action again. */}
+          <GlassSectionHeader
+            label="Worktrees"
+            className="pt-2"
+            trailing={
+              /* EXP-688: icon only — the label repeated the section it sits
+                 in, and the row reads as a heading with an action again. */
               <Button
                 variant="ghost"
                 className="h-5 w-5 p-0 text-muted-foreground"
@@ -813,18 +789,22 @@ export function DeviceSettingsDialog({
                   <PruneIcon className="size-3" />
                 )}
               </Button>
-            </div>
-            {!online && (worktrees.length > 0 || pendingKey(`prune`)) && (
-              <p className="text-xs text-muted-foreground">
-                This machine is offline — queued changes run when it comes
-                online.
-              </p>
-            )}
-            {sectionErrors.prune && (
-              <p className="text-xs text-destructive">{sectionErrors.prune}</p>
-            )}
+            }
+          />
+          {!online && (worktrees.length > 0 || pendingKey(`prune`)) && (
+            <p className="px-1 pb-1 text-xs text-muted-foreground">
+              This machine is offline — queued changes run when it comes
+              online.
+            </p>
+          )}
+          {sectionErrors.prune && (
+            <p className="px-1 pb-1 text-xs text-destructive">
+              {sectionErrors.prune}
+            </p>
+          )}
+          <GlassGroup>
             {worktrees.length === 0 ? (
-              <p className="py-1 text-xs text-muted-foreground">
+              <p className="px-4 py-3 text-xs text-muted-foreground">
                 No worktrees reported by this machine.
               </p>
             ) : (
@@ -835,7 +815,7 @@ export function DeviceSettingsDialog({
                 return (
                   <div
                     key={worktree.id}
-                    className="space-y-0.5 border-b border-border/30 py-1.5 last:border-b-0"
+                    className="flex flex-col gap-0.5 px-4 py-3"
                   >
                     <div className="flex items-center gap-2">
                       <BranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
@@ -847,7 +827,7 @@ export function DeviceSettingsDialog({
                         {worktree.branch}
                       </span>
                       {worktree.issueIdentifier && (
-                        <span className="shrink-0 rounded-sm border border-border/60 px-1 text-[10px] text-muted-foreground">
+                        <span className="shrink-0 rounded-sm border border-glass-stroke-card px-1 text-[10px] text-muted-foreground">
                           {worktree.issueIdentifier}
                         </span>
                       )}
@@ -895,7 +875,7 @@ export function DeviceSettingsDialog({
                 )
               })
             )}
-          </div>
+          </GlassGroup>
         </div>
 
         <AlertDialog

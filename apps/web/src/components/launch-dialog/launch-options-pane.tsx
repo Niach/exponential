@@ -1,13 +1,13 @@
 import { MonitorOff } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
-import { Label } from "@/components/ui/label"
 import {
   GlassGroup,
   GlassPickerRow,
+  GlassTabsRow,
   GlassToggleRow,
   type GlassPickerOption,
 } from "@/components/ui/glass-rows"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { TabsTrigger } from "@/components/ui/tabs"
 import { ClaudeIcon, CodexIcon, PiIcon } from "@/components/icons/brand-icons"
 import {
   agentAllowsBlankModel,
@@ -29,14 +29,14 @@ import type { SteerDevice } from "@/lib/steer-devices"
 // strip and selects (the agent seeds to the bound device's default launch
 // agent; blank model/effort store NULL), minus the run-time toggles — an
 // unattended run never parks on plan mode.
-// EXP-616 dresses the cluster in the iOS grouped-glass vocabulary: the agent
-// capsule stays uncarded and flush, everything else is a grouped card of
-// label-leading picker/toggle ROWS (`components/ui/glass-rows`). The "Agent"
-// label LEADS the column so it sits on the same baseline as the left half's
-// section label ("Issues"/the name field); the machine, the model and the
-// effort then share ONE card (device first), and the run-time toggles follow
-// as their own — so the caller hands its device picker over as `deviceRow` and
-// this renders it as that card's first row.
+// EXP-616 dresses the cluster in the iOS grouped-glass vocabulary: rows of
+// label-leading pickers and toggles (`components/ui/glass-rows`).
+// EXP-694 collapses it into ONE card on every client (the Android device-edit
+// stack is the reference): the agent strip is the group's EMBEDDED FIRST ROW
+// — no "Agent" label above it, no floating capsule — and model, effort, the
+// run-time toggles and whatever `renderAgentFooter` adds are the rows under
+// it. The device/"Runs on" picker is NOT part of this card: the caller keeps
+// it in its own group ABOVE (see `LaunchOptionsPane`).
 
 export const AGENT_LABELS: Record<string, string> = {
   claude: `Claude Code`,
@@ -105,18 +105,12 @@ interface LaunchToggleProps {
 type AgentOptionsFieldsProps = {
   idPrefix: string
   /**
-   * EXP-616: the caller's device picker row (a `GlassPickerRow`), rendered as
-   * the FIRST row of the model/effort card. Absent where there is nothing to
-   * pick: the device-settings defaults editor edits one machine's own
-   * defaults, and a one-machine launch has no choice to offer, so neither
-   * paints a device row at all.
-   */
-  deviceRow?: React.ReactNode
-  /**
    * EXP-688: what to render UNDER the selected agent's toggles — the device
    * settings dialog puts that agent's account and usage there, so the tab you
    * are editing is the tab that tells you whose account it runs as. The
    * launch dialog passes nothing: a run in flight is no place to sign in.
+   * EXP-694: these are the card's FINAL ROWS, so what it returns must be
+   * row-shaped (`px-4 py-3`), not a loose block.
    */
   renderAgentFooter?: (agent: string) => React.ReactNode
   /** `` in the automation variant = device default. */
@@ -138,7 +132,6 @@ type AgentOptionsFieldsProps = {
 export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
   const {
     idPrefix,
-    deviceRow,
     renderAgentFooter,
     agent,
     availableAgents,
@@ -178,118 +171,85 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
       : []),
   ]
   return (
-    <>
+    // EXP-694: ONE card — the agent strip is its first row, everything the
+    // agent runs with follows underneath.
+    <GlassGroup>
       {availableAgents.length > 1 && (
-        <div className="space-y-2">
-          <Label>Agent</Label>
-          <Tabs value={agent} onValueChange={onAgentChange}>
-            <TabsList className="w-full">
-              {availableAgents.map((value) => {
-                const AgentIcon = AGENT_ICONS[value]
-                return (
-                  <TabsTrigger key={value} value={value} className="flex-1">
-                    {AgentIcon && <AgentIcon className="size-3.5" />}
-                    {AGENT_LABELS[value] ?? value}
-                  </TabsTrigger>
-                )
-              })}
-            </TabsList>
-          </Tabs>
-        </div>
+        <GlassTabsRow value={agent} onValueChange={onAgentChange}>
+          {availableAgents.map((value) => {
+            const AgentIcon = AGENT_ICONS[value]
+            return (
+              <TabsTrigger key={value} value={value}>
+                {AgentIcon && <AgentIcon className="size-3.5" />}
+                {AGENT_LABELS[value] ?? value}
+              </TabsTrigger>
+            )
+          })}
+        </GlassTabsRow>
       )}
-      {/* Where and what the agent runs with — ONE card: the machine leads,
-          model and effort follow. */}
-      <GlassGroup>
-        {deviceRow}
-        <GlassPickerRow
-          label="Model"
-          value={model === `` ? modelSentinel : model}
-          onValueChange={(value) =>
-            onModelChange(value === modelSentinel ? `` : value)
+      <GlassPickerRow
+        label="Model"
+        value={model === `` ? modelSentinel : model}
+        onValueChange={(value) =>
+          onModelChange(value === modelSentinel ? `` : value)
+        }
+        options={modelOptions}
+        disabled={!pinned}
+      />
+      <GlassPickerRow
+        label={
+          agent === `pi`
+            ? `Thinking`
+            : agent === `codex`
+              ? `Reasoning`
+              : `Effort`
+        }
+        value={effortValue === `` ? effortSentinel : effortValue}
+        onValueChange={(value) =>
+          onEffortChange(automation && value === effortSentinel ? `` : value)
+        }
+        options={effortOptions}
+        disabled={
+          automation
+            ? !pinned
+            : toggles!.ultracode && agentSupportsUltracode(agent)
+        }
+      />
+      {/* EXP-694: the run-time switches are rows of the SAME card now — an
+          automation never gets them (nobody is there to steer a plan), and a
+          capability the agent lacks simply drops its row. */}
+      {toggles?.resumeRow && (
+        <GlassToggleRow
+          id={`${idPrefix}-resume`}
+          label="Resume previous session"
+          checked={toggles.resumeRow.checked}
+          onCheckedChange={toggles.resumeRow.onChange}
+          description={
+            <span className="flex items-center gap-1">
+              <ResumeBranchIcon className="size-3 shrink-0" />
+              {`A worktree for ${toggles.resumeRow.identifier} already exists (${toggles.resumeRow.branch}).`}
+            </span>
           }
-          options={modelOptions}
-          disabled={!pinned}
         />
-        <GlassPickerRow
-          label={
-            agent === `pi`
-              ? `Thinking`
-              : agent === `codex`
-                ? `Reasoning`
-                : `Effort`
-          }
-          value={effortValue === `` ? effortSentinel : effortValue}
-          onValueChange={(value) =>
-            onEffortChange(automation && value === effortSentinel ? `` : value)
-          }
-          options={effortOptions}
-          disabled={
-            automation
-              ? !pinned
-              : toggles!.ultracode && agentSupportsUltracode(agent)
-          }
+      )}
+      {toggles && agentSupportsUltracode(agent) && (
+        <GlassToggleRow
+          id={`${idPrefix}-ultracode`}
+          label="Ultracode"
+          checked={toggles.ultracode}
+          onCheckedChange={toggles.onUltracodeChange}
         />
-      </GlassGroup>
-      {toggles && (
-        <LaunchToggles {...toggles} idPrefix={idPrefix} agent={agent} />
+      )}
+      {toggles && agentSupportsPlanMode(agent) && !toggles.planModeHidden && (
+        <GlassToggleRow
+          id={`${idPrefix}-plan-mode`}
+          label="Plan mode"
+          checked={toggles.planMode}
+          onCheckedChange={toggles.onPlanModeChange}
+        />
       )}
       {renderAgentFooter?.(agent)}
-    </>
-  )
-}
-
-function LaunchToggles({
-  idPrefix,
-  agent,
-  ultracode,
-  onUltracodeChange,
-  planMode,
-  onPlanModeChange,
-  planModeHidden = false,
-  resumeRow,
-}: LaunchToggleProps & { idPrefix: string; agent: string }) {
-  // EXP-616: the second grouped card — one switch row per capability,
-  // mirroring the iOS sheet's toggles section. The guard stays outside it so
-  // an agent with no applicable capability paints no empty card.
-  return (
-    <>
-      {(resumeRow ||
-        agentSupportsUltracode(agent) ||
-        (agentSupportsPlanMode(agent) && !planModeHidden)) && (
-        <GlassGroup>
-          {resumeRow && (
-            <GlassToggleRow
-              id={`${idPrefix}-resume`}
-              label="Resume previous session"
-              checked={resumeRow.checked}
-              onCheckedChange={resumeRow.onChange}
-              description={
-                <span className="flex items-center gap-1">
-                  <ResumeBranchIcon className="size-3 shrink-0" />
-                  {`A worktree for ${resumeRow.identifier} already exists (${resumeRow.branch}).`}
-                </span>
-              }
-            />
-          )}
-          {agentSupportsUltracode(agent) && (
-            <GlassToggleRow
-              id={`${idPrefix}-ultracode`}
-              label="Dynamic workflows (ultracode)"
-              checked={ultracode}
-              onCheckedChange={onUltracodeChange}
-            />
-          )}
-          {agentSupportsPlanMode(agent) && !planModeHidden && (
-            <GlassToggleRow
-              id={`${idPrefix}-plan-mode`}
-              label="Plan mode"
-              checked={planMode}
-              onCheckedChange={onPlanModeChange}
-            />
-          )}
-        </GlassGroup>
-      )}
-    </>
+    </GlassGroup>
   )
 }
 
@@ -346,28 +306,31 @@ export function LaunchOptionsPane({
   }
 
   return (
-    <div className="flex shrink-0 flex-col gap-3 sm:min-h-0 sm:shrink sm:overflow-y-auto">
+    // EXP-694: 8px between groups, the same rhythm the native sheets use.
+    <div className="flex shrink-0 flex-col gap-2 sm:min-h-0 sm:shrink sm:overflow-y-auto">
+      {devices.length > 1 && (
+        /* EXP-694: WHERE it runs is its own card above WHAT it runs with —
+           mirrors the automations sheet's "Runs on" group.
+           EXP-615: "Device", byte-identical on all four clients — a machine
+           here can equally be a headless CLI daemon. */
+        <GlassGroup>
+          <GlassPickerRow
+            label="Device"
+            value={device?.deviceId ?? ``}
+            onValueChange={onDeviceChange}
+            placeholder="Select a device"
+            options={devices.map((candidate) => ({
+              value: candidate.deviceId,
+              // EXP-432: teammates' shared servers carry their owner.
+              label: `${candidate.deviceLabel || candidate.deviceId}${
+                candidate.owner ? ` — ${candidate.owner.name}` : ``
+              }`,
+            }))}
+          />
+        </GlassGroup>
+      )}
       <AgentOptionsFields
         idPrefix="start-coding"
-        deviceRow={
-          devices.length > 1 ? (
-            /* EXP-615: "Device", byte-identical on all four clients — a
-               machine here can equally be a headless CLI daemon. */
-            <GlassPickerRow
-              label="Device"
-              value={device?.deviceId ?? ``}
-              onValueChange={onDeviceChange}
-              placeholder="Select a device"
-              options={devices.map((candidate) => ({
-                value: candidate.deviceId,
-                // EXP-432: teammates' shared servers carry their owner.
-                label: `${candidate.deviceLabel || candidate.deviceId}${
-                  candidate.owner ? ` — ${candidate.owner.name}` : ``
-                }`,
-              }))}
-            />
-          ) : null
-        }
         agent={agent}
         availableAgents={availableAgents}
         onAgentChange={onAgentChange}

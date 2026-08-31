@@ -216,12 +216,25 @@ export function TeamActionsPanel({
   view,
   tab = `actions`,
   onTabChange,
+  editActionId = null,
+  onEditActionConsumed,
+  editAutomationId = null,
+  onEditAutomationConsumed,
 }: {
   team: Team
   view: ActionsPanelView
   /** `tabs` view only — the controlled tab, i.e. the route's `?tab=`. */
   tab?: ActionsPanelTab
   onTabChange?: (tab: ActionsPanelTab) => void
+  /** EXP-694: the route's one-shot `?editAction=` — a session row's trailing
+   * button opening the action it ran. Cleared through the callback as soon as
+   * the synced row is there to edit. */
+  editActionId?: string | null
+  onEditActionConsumed?: () => void
+  /** EXP-694: the same for `?editAutomation=`, handed to the Automations tab
+   * (the only view that hosts the automation editor). */
+  editAutomationId?: string | null
+  onEditAutomationConsumed?: () => void
 }) {
   const { data: session } = useSession()
   const { isMember, isOwner } = useTeamPermissions(team)
@@ -326,6 +339,20 @@ export function TeamActionsPanel({
   const [deleteTarget, setDeleteTarget] = useState<TeamAction | null>(null)
   const [deleting, setDeleting] = useState(false)
 
+  // EXP-694: the route's one-shot edit request, honoured as soon as the
+  // synced rows carry the action (a deleted or not-yet-synced id just
+  // clears — the button that sent it is a shortcut, not a guarantee). A
+  // non-owner gets the SAME dialog read-only (`readOnly` below): every member
+  // may run an action, so every member may read the prompt they ran.
+  useEffect(() => {
+    if (!editActionId || sortedActions === null) return
+    const target = sortedActions.find((action) => action.id === editActionId)
+    onEditActionConsumed?.()
+    if (!target) return
+    setEditing(target)
+    setEditorOpen(true)
+  }, [editActionId, sortedActions, onEditActionConsumed])
+
   const confirmDelete = async () => {
     if (!deleteTarget) return
     setDeleting(true)
@@ -412,6 +439,8 @@ export function TeamActionsPanel({
       steerEnabled={steerEnabled}
       teamId={teamId}
       showSuggestions={showSuggestions}
+      editAutomationId={editAutomationId}
+      onEditAutomationConsumed={onEditAutomationConsumed}
     />
   )
 
@@ -503,6 +532,7 @@ export function TeamActionsPanel({
           onOpenChange={setEditorOpen}
           repos={repos}
           action={editing}
+          readOnly={!isOwner}
         />
       )}
 

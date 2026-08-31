@@ -32,7 +32,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.DeviceLatestVersions
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.deviceUpdateAvailable
+import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.CodingSessionDisplayState
@@ -49,9 +52,14 @@ import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.codingSessionDisplayState
+import com.exponential.app.ui.actions.ActionEditSheet
+import com.exponential.app.ui.actions.ActionsViewModel
+import com.exponential.app.ui.actions.AutomationFormSheet
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
+import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -76,8 +84,9 @@ import com.exponential.app.ui.theme.glassSection
  * sessions currently running (EXP-312: live sessions are owner-only, so a
  * teammate's session never lists here). Tapping a running row jumps straight
  * into the live steer viewer when the relay is configured; otherwise it falls
- * back to the issue detail. The trailing info button always opens the issue
- * detail.
+ * back to the issue detail. EXP-694: the trailing control names what the run is
+ * about — an issue's identifier pill opening the issue, or the action /
+ * automation glyph opening its editor.
  */
 @Composable
 fun AgentsScreen(
@@ -88,6 +97,11 @@ fun AgentsScreen(
     // coding sheet on its Chat tab.
     chatRequest: Int = 0,
     viewModel: AgentsViewModel = hiltViewModel(),
+    // EXP-694: a session row's trailing control opens the run's ACTION or its
+    // AUTOMATION, so the list needs the Actions surface's rows and its
+    // owner-gated automation mutation. Reused rather than mirrored into
+    // AgentsViewModel (both models read the same synced shapes).
+    actionsViewModel: ActionsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val devices by viewModel.devices.collectAsStateWithLifecycle()
@@ -97,6 +111,18 @@ fun AgentsScreen(
     val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
     val merging by viewModel.merging.collectAsStateWithLifecycle()
     val mergeErrors by viewModel.mergeErrors.collectAsStateWithLifecycle()
+    // EXP-694 (S6): the rows behind a session's trailing action/automation
+    // button, plus the automation form's own plumbing.
+    val actionsState by actionsViewModel.state.collectAsStateWithLifecycle()
+    val automations by actionsViewModel.automations.collectAsStateWithLifecycle()
+    val automationDevices by actionsViewModel.automationDevices.collectAsStateWithLifecycle()
+    val automationBusy by actionsViewModel.automationBusy.collectAsStateWithLifecycle()
+    val automationError by actionsViewModel.automationError.collectAsStateWithLifecycle()
+    val isTeamOwner by actionsViewModel.isTeamOwner.collectAsStateWithLifecycle()
+
+    // The action / automation whose editor is open (non-null = sheet open).
+    var editActionId by remember { mutableStateOf<String?>(null) }
+    var editAutomation by remember { mutableStateOf<AutomationEntity?>(null) }
 
     // The device the launcher sheet was opened from (non-null = sheet open).
     var sheetDevice by remember { mutableStateOf<SteerDevice?>(null) }
@@ -237,6 +263,24 @@ fun AgentsScreen(
                             // — the server resolves a batch PR to ALL linked
                             // issues (Reviews pattern).
                             val mergeIssue = row.issue ?: row.batchPrIssue
+                            // EXP-694 (S6): the trailing control names what the
+                            // run is about — an issue's identifier, or the
+                            // action/automation's own glyph. A chat or batch
+                            // run has neither, and gets no button at all.
+                            val rowAction = row.session.actionId?.let { id ->
+                                actionsState.actions.firstOrNull { it.id == id }
+                            }
+                            val rowAutomation = row.session.automationId?.let { id ->
+                                automations.firstOrNull { it.id == id }
+                            }
+                            // An automated run edits the AUTOMATION (owner-only,
+                            // like the Automations tab); everything else — an
+                            // unresolved automation, or a member — edits the
+                            // action, whose sheet is read-only for members
+                            // anyway. Destination AND label come off this one
+                            // resolution (iOS AgentsView.editTarget), so the
+                            // button can never announce what it doesn't open.
+                            val editsAutomation = rowAutomation != null && isTeamOwner
                             AgentSessionRow(
                                 session = row.session,
                                 issue = row.issue,
@@ -255,7 +299,26 @@ fun AgentsScreen(
                                         row.session.issueId?.let(onOpenIssue)
                                     }
                                 },
-                                onInfo = { row.session.issueId?.let(onOpenIssue) },
+                                // The pill shows only once the issue itself has
+                                // synced — it IS the identifier.
+                                issueIdentifier = row.issue?.identifier,
+                                actionIcon = row.session.actionId?.let {
+                                    rowAction?.icon?.let(ExpIcons::byName) ?: ExpIcons.actionDefault
+                                },
+                                actionLabel = if (editsAutomation) {
+                                    "Edit automation"
+                                } else {
+                                    "Edit action"
+                                },
+                                onOpenIssue = { row.session.issueId?.let(onOpenIssue) },
+                                onOpenAction = {
+                                    if (editsAutomation) {
+                                        actionsViewModel.clearAutomationError()
+                                        editAutomation = rowAutomation
+                                    } else {
+                                        row.session.actionId?.let { editActionId = it }
+                                    }
+                                },
                                 onMerge = { mergeTarget = row },
                                 // A REAL conflict only (EXP-533); the recovery
                                 // run rebases the PR's branch, so it needs one
@@ -312,6 +375,37 @@ fun AgentsScreen(
             onStart = viewModel::startCoding,
             onRunAction = viewModel::runAction,
             onDismiss = { fixTargetIssueId = null },
+        )
+    }
+
+    // EXP-694 (S6): the run's action, opened straight off its session row —
+    // the full editor, read-only for members.
+    editActionId?.let { id ->
+        ActionEditSheet(actionId = id, onDismiss = { editActionId = null })
+    }
+
+    // An automated run opens the automation that fired it instead (the
+    // Automations tab's own form, owner-gated).
+    editAutomation?.let { automation ->
+        AutomationFormSheet(
+            actions = actionsState.actions,
+            devices = automationDevices,
+            busy = automationBusy,
+            error = automationError,
+            editing = automation,
+            onSubmit = { actionId, deviceId, trigger, agent, model, effort ->
+                actionsViewModel.updateAutomation(
+                    automationId = automation.id,
+                    actionId = actionId,
+                    deviceId = deviceId,
+                    trigger = trigger,
+                    agent = agent,
+                    model = model,
+                    effort = effort,
+                    onDone = { editAutomation = null },
+                )
+            },
+            onDismiss = { editAutomation = null },
         )
     }
 
@@ -567,15 +661,15 @@ private fun MachineRow(
         // the clients). Offline machines can't take a start (the relay refuses
         // it), nor can ones with every agent signed out (EXP-409), so the
         // affordance is simply absent.
+        // EXP-694: on the shared glass circle (iOS `CircleIconButton` parity),
+        // not a bare primary-tinted glyph in an M3 touch box.
         if (startable) {
-            IconButton(onClick = onStart, modifier = Modifier.padding(start = 8.dp)) {
-                Icon(
-                    ExpIcons.actionRun,
-                    contentDescription = "Start coding",
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
+            CircleIconButton(
+                ExpIcons.actionRun,
+                contentDescription = "Start coding",
+                onClick = onStart,
+                modifier = Modifier.padding(start = 8.dp),
+            )
         }
         // Rename / Update / Remove all mutate the OWNER's registry row, so a
         // teammate's shared machine carries no menu at all (EXP-432).
@@ -695,7 +789,16 @@ private fun AgentSessionRow(
     merging: Boolean,
     failure: MergeFailure?,
     onClick: () -> Unit,
-    onInfo: () -> Unit,
+    // EXP-694 (S6): the trailing control. An issue run wears a glass pill with
+    // its IDENTIFIER, an action / automation run the circular button with that
+    // action's glyph; a chat or batch run gets neither (it opens nothing the
+    // row doesn't already open). This replaced the unconditional info glyph,
+    // which was a plain no-op on every issueless run.
+    issueIdentifier: String?,
+    actionIcon: ImageVector?,
+    actionLabel: String,
+    onOpenIssue: () -> Unit,
+    onOpenAction: () -> Unit,
     onMerge: () -> Unit,
     canFixConflicts: Boolean,
     onFixConflicts: () -> Unit,
@@ -793,12 +896,23 @@ private fun AgentSessionRow(
                     }
                 }
             }
-            IconButton(onClick = onInfo) {
-                Icon(
-                    ExpIcons.uiInfo,
-                    contentDescription = "Open issue",
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            when {
+                issueIdentifier != null -> GlassPillButton(
+                    label = issueIdentifier,
+                    onClick = onOpenIssue,
+                    modifier = Modifier.padding(start = 8.dp),
+                    // Identifiers are monospaced everywhere (web `font-mono`,
+                    // iOS `.monospaced()`, and this app's own inbox/run rows).
+                    fontFamily = FontFamily.Monospace,
+                )
+                actionIcon != null -> CircleIconButton(
+                    actionIcon,
+                    contentDescription = actionLabel,
+                    onClick = onOpenAction,
+                    modifier = Modifier.padding(start = 8.dp),
+                    // The in-list circle (iOS CircleIconButton(28, 15) parity).
+                    size = 28.dp,
+                    glyphSize = 15.dp,
                 )
             }
         }

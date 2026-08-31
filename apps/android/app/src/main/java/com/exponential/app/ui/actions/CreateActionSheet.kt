@@ -245,17 +245,22 @@ fun CreateActionSheet(
             }
             Spacer(Modifier.height(8.dp))
 
-            GlassTextField(
-                value = description,
-                onValueChange = {
-                    description = it.take(DomainContract.actionInputTextMax)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                placeholder = "What should this action do?",
-                minLines = 4,
-            )
+            // EXP-694 (S7): the brief sits INSIDE the card stack like the edit
+            // sheet's description and prompt — the field's own fill/hairline
+            // would double the group's chrome, so it drops both and the
+            // placeholder carries the title.
+            OptionGroup {
+                GlassTextField(
+                    value = description,
+                    onValueChange = {
+                        description = it.take(DomainContract.actionInputTextMax)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "What should this action do?",
+                    minLines = 4,
+                    bordered = false,
+                )
+            }
             Spacer(Modifier.height(8.dp))
 
             OptionGroup {

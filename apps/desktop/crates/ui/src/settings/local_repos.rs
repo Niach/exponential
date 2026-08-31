@@ -23,13 +23,17 @@
 //!   start/end creates or frees a worktree locally). Phase 1 is cheap enough
 //!   that liberal invalidation is free. Refresh stays as the manual escape
 //!   hatch.
-//! - **Worktrees** (EXP-369): the scan carries each clone's linked worktrees,
-//!   and the row expands into them. Per worktree: a confirmed force-remove
-//!   and a terminal button whose dropdown mirrors the terminal dock's "+"
-//!   (installed agents + "New shell"), launched at THAT worktree's path. The
-//!   force-remove is **blocked while a coding session holds that worktree's
-//!   branch** — the same guard as "Remove local copy", one level down (a
-//!   `--force` remove would otherwise yank a running agent's cwd).
+//! - **Worktrees** (EXP-369, regrouped in EXP-694): the scan carries each
+//!   clone's linked worktrees, and the pane renders ALL of them as ONE flat
+//!   inset-grouped list — the Device settings dialog's look, no per-clone
+//!   nesting and no expander (a clone with no worktrees simply contributes no
+//!   row; its maintenance row still appears in the "Local repositories" group
+//!   below). Per worktree: a confirmed force-remove and a terminal button
+//!   whose dropdown mirrors the terminal dock's "+" (installed agents + "New
+//!   shell"), launched at THAT worktree's path. The force-remove is
+//!   **blocked while a coding session holds that worktree's branch** — the
+//!   same guard as "Remove local copy", one level down (a `--force` remove
+//!   would otherwise yank a running agent's cwd).
 //! - **Prune merged worktrees** (EXP-465): [`coding::prune::prune_landed`]
 //!   under the [`crate::worktree_prune`] policy — worktrees whose work has
 //!   LANDED on the default branch (merged PR, or git-confirmed for finished/
@@ -37,7 +41,10 @@
 //!   along with their branches and any stale landed prefix branches. Tracked
 //!   modifications always skip (reported); untracked-only debris does not.
 //!   All git ops are `std::process::Command("git")` with explicit argv
-//!   (masterplan L5) — no `gh`, no git library, no shell.
+//!   (masterplan L5) — no `gh`, no git library, no shell. EXP-694: the
+//!   section header carries the Device-settings broom, which sweeps EVERY
+//!   clone (each still under its own policy and its own inline report); a
+//!   clone row keeps the same broom for itself alone.
 //! - **Remove local copy**: delete the clone dir + its `.worktrees` sibling
 //!   behind a confirm dialog. **Blocked while a coding session is running** on
 //!   one of the clone's worktrees (the Remove button disables with the reason).
@@ -50,14 +57,15 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    div, prelude::FluentBuilder as _, App, Entity, FontWeight, IntoElement, ParentElement, Render,
-    SharedString, Styled, Subscription, Window,
+    div, prelude::FluentBuilder as _, App, Div, Entity, FontWeight, IntoElement, ParentElement,
+    Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     menu::DropdownMenu as _,
     skeleton::Skeleton,
+    spinner::Spinner,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use std::collections::HashMap;
@@ -72,6 +80,7 @@ use crate::controls::WebControl as _;
 use crate::file_tree::{self, OpenAgentShellHere, OpenTerminalHere};
 use crate::native_dialog::{self, AlertSpec};
 use crate::repo_resolver::{repo_resolver_for_window, RepoResolver};
+use crate::surface;
 
 use super::{card_title, section};
 use crate::icons::registry;
@@ -166,8 +175,6 @@ pub struct LocalReposPane {
     /// a newer one.
     generation: u64,
     actions: HashMap<String, ActionState>,
-    /// Clones (by `full_name`) whose worktree list is unfolded (EXP-369).
-    expanded: HashSet<String>,
     /// The window's shared repo resolver, bound on first render (the pane is
     /// constructed without a window): it maps a scanned `owner/name` back to
     /// the team's `repositories` row id, which the agent launches need.
@@ -216,7 +223,6 @@ impl LocalReposPane {
             scanning: false,
             generation: 0,
             actions: HashMap::new(),
-            expanded: HashSet::new(),
             resolver: None,
             _subscriptions: subscriptions,
         }
@@ -541,11 +547,27 @@ impl LocalReposPane {
         native_dialog::open_alert(window, cx, spec);
     }
 
-    fn toggle_expanded(&mut self, full_name: &str, cx: &mut gpui::Context<Self>) {
-        if !self.expanded.remove(full_name) {
-            self.expanded.insert(full_name.to_string());
+    /// EXP-694: the Worktrees section's prune affordance is MACHINE-wide,
+    /// like the Device settings dialog's broom — the flat list is not grouped
+    /// by clone any more, so neither is the sweep. Each clone still runs its
+    /// own [`Self::run_prune`] (its own policy, its own inline report).
+    fn run_prune_all(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let clones: Vec<(String, PathBuf)> = match &self.scan {
+            Scan::Ready(entries) => entries
+                .iter()
+                .filter(|entry| !entry.worktrees.is_empty())
+                .map(|entry| (entry.full_name.clone(), entry.clone_path.clone()))
+                .collect(),
+            Scan::Idle => Vec::new(),
+        };
+        for (full_name, clone) in clones {
+            self.run_prune(full_name, clone, window, cx);
         }
-        cx.notify();
+    }
+
+    /// Whether any clone is mid-prune/-remove (the header broom's spinner).
+    fn any_busy(&self) -> bool {
+        self.actions.values().any(|action| action.busy)
     }
 
     /// The confirm dialog for "Remove local copy" (web `boards.delete`
@@ -580,25 +602,20 @@ impl LocalReposPane {
         native_dialog::open_alert(window, cx, spec);
     }
 
-    /// One clone row: name, disk usage + the worktree expander, and the two
-    /// actions — followed by the worktree sub-rows while expanded.
-    /// `worktrees_used` is the per-worktree live-session gate, parallel to
-    /// `repo.worktrees`.
-    #[allow(clippy::too_many_arguments)]
+    /// One CLONE row of the "Local repositories" group (EXP-694): name, disk
+    /// usage + worktree count, its own broom and the confirmed
+    /// "Remove local copy". The worktrees themselves are no longer nested
+    /// here — they are the flat group above, across every clone.
     fn render_repo_row(
         &self,
         ix: usize,
         repo: &RepoEntry,
         in_use: bool,
-        worktrees_used: &[bool],
-        repository_id: Option<&String>,
-        installed: &[CodingAgent],
         cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
+    ) -> Div {
         let action = self.actions.get(&repo.full_name);
         let busy = action.map(|a| a.busy).unwrap_or(false);
         let count = repo.worktrees.len();
-        let expanded = self.expanded.contains(&repo.full_name);
         let worktrees_label = if count == 1 {
             "1 worktree".to_string()
         } else {
@@ -625,27 +642,7 @@ impl LocalReposPane {
                     }),
             )
             .child(div().child("·"))
-            .map(|meta| {
-                // Nothing to unfold at zero — the count stays plain text.
-                if count == 0 {
-                    return meta.child(SharedString::from(worktrees_label));
-                }
-                let full_name = repo.full_name.clone();
-                meta.child(
-                    Button::new(("repo-worktrees", ix))
-                        .ghost()
-                        .web_xs()
-                        .icon(if expanded {
-                            registry::UI_CHEVRON_DOWN
-                        } else {
-                            registry::UI_CHEVRON_RIGHT
-                        })
-                        .label(SharedString::from(worktrees_label))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.toggle_expanded(&full_name, cx);
-                        })),
-                )
-            });
+            .child(SharedString::from(worktrees_label));
 
         let name_col = v_flex()
             .flex_1()
@@ -666,9 +663,9 @@ impl LocalReposPane {
             let full_name = repo.full_name.clone();
             let clone = repo.clone_path.clone();
             Button::new(("repo-prune", ix))
-                .outline()
-                .web_xs()
-                .label("Prune merged worktrees")
+                .ghost()
+                .web_icon_xs()
+                .icon(registry::UI_CLEAN)
                 .tooltip(
                     "Remove worktrees whose work has landed on the default branch \
                      (merged PR, squash merges included, or a finished issue) and \
@@ -676,7 +673,7 @@ impl LocalReposPane {
                      files are never discarded; live sessions are never touched.",
                 )
                 .loading(busy)
-                .disabled(busy)
+                .disabled(busy || count == 0)
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.run_prune(full_name.clone(), clone.clone(), window, cx);
                 }))
@@ -708,29 +705,21 @@ impl LocalReposPane {
             button
         };
 
-        let mut row = v_flex()
-            .gap_2()
-            .px_3()
-            .py_2()
-            .rounded(cx.theme().radius)
-            .border_1()
-            .border_color(super::row_stroke(cx))
+        let row = surface::glass_row_shell()
             .child(
-                h_flex()
-                    .gap_3()
-                    .items_center()
-                    .child(
-                        Icon::new(registry::UI_FOLDER)
-                            .small()
-                            .text_color(cx.theme().muted_foreground),
-                    )
-                    .child(name_col)
-                    .child(h_flex().gap_1().flex_shrink_0().child(prune).child(remove)),
-            );
+                Icon::new(registry::UI_FOLDER)
+                    .small()
+                    .text_color(cx.theme().muted_foreground),
+            )
+            .child(name_col)
+            .child(h_flex().gap_1().flex_shrink_0().child(prune).child(remove));
 
-        if let Some((is_error, text)) = action.and_then(|a| a.message.clone()) {
-            row = row.child(
+        // A prune/remove report lands under its own row, inside the group.
+        match action.and_then(|a| a.message.clone()) {
+            Some((is_error, text)) => v_flex().w_full().child(row).child(
                 div()
+                    .px_4()
+                    .pb_3()
                     .text_xs()
                     .text_color(if is_error {
                         cx.theme().danger
@@ -738,31 +727,16 @@ impl LocalReposPane {
                         cx.theme().muted_foreground
                     })
                     .child(text),
-            );
+            ),
+            None => row,
         }
-
-        if expanded {
-            let mut list = v_flex().gap_0p5().pl_7();
-            for (wt_ix, worktree) in repo.worktrees.iter().enumerate() {
-                list = list.child(self.render_worktree_row(
-                    ix,
-                    wt_ix,
-                    repo,
-                    worktree,
-                    repository_id,
-                    installed,
-                    busy,
-                    worktrees_used.get(wt_ix).copied().unwrap_or(false),
-                    cx,
-                ));
-            }
-            row = row.child(list);
-        }
-        row
     }
 
-    /// One worktree sub-row (EXP-369): branch (or directory) over its path,
-    /// with the terminal dropdown and the confirmed force-remove on the right.
+    /// One worktree row of the FLAT worktrees group (EXP-369/694): its repo +
+    /// branch (or directory) over the path on disk, with the terminal
+    /// dropdown and the confirmed force-remove on the right. Not grouped by
+    /// clone any more — the machine's worktrees are ONE list, the way the
+    /// Device settings dialog shows them.
     #[allow(clippy::too_many_arguments)]
     fn render_worktree_row(
         &self,
@@ -775,7 +749,7 @@ impl LocalReposPane {
         busy: bool,
         in_use: bool,
         cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
+    ) -> Div {
         let path = worktree.path.to_string_lossy().into_owned();
         // Element ids are (repo, worktree)-unique — gpui has no 3-tuple id.
         let terminal_id = SharedString::from(format!("worktree-terminal-{repo_ix}"));
@@ -853,27 +827,41 @@ impl LocalReposPane {
             button
         };
 
-        h_flex()
+        let muted = cx.theme().muted_foreground;
+        surface::glass_row_shell()
             .gap_2()
-            .items_center()
-            .py_1()
+            .min_w_0()
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .child(Icon::new(registry::UI_BRANCH).xsmall().text_color(muted)),
+            )
             .child(
                 v_flex()
                     .flex_1()
                     .min_w_0()
                     .child(
-                        div()
+                        // The flat list spans every clone, so the row names
+                        // its repo (the device dialog's `repo branch` line).
+                        h_flex()
+                            .gap_1()
+                            .min_w_0()
                             .text_xs()
+                            .font_family(theme::terminal::FONT_FAMILY)
                             .whitespace_nowrap()
                             .overflow_hidden()
-                            .text_ellipsis()
+                            .child(
+                                div()
+                                    .text_color(muted)
+                                    .child(SharedString::from(repo.full_name.clone())),
+                            )
                             .child(worktree.label()),
                     )
                     .child(
                         div()
                             .text_xs()
                             .font_family(theme::terminal::FONT_FAMILY)
-                            .text_color(cx.theme().muted_foreground.opacity(0.7))
+                            .text_color(muted.opacity(0.7))
                             .whitespace_nowrap()
                             .overflow_hidden()
                             .text_ellipsis()
@@ -906,7 +894,35 @@ impl Render for LocalReposPane {
             .unwrap_or_default();
 
         // The count would be a REPO count — misleading under this title.
-        let mut body = section(cx).child(card_title("Worktrees"));
+        // EXP-694: the broom sits in the header, machine-wide, exactly like
+        // the Device settings dialog's.
+        let sweeping = self.any_busy();
+        let has_worktrees = matches!(&self.scan, Scan::Ready(repos)
+            if repos.iter().any(|repo| !repo.worktrees.is_empty()));
+        let mut body = section(cx).child(
+            h_flex()
+                .w_full()
+                .items_center()
+                .justify_between()
+                .child(card_title("Worktrees"))
+                .child(
+                    Button::new("local-repos-prune-all")
+                        .ghost()
+                        .web_icon_xs()
+                        .map(|button| {
+                            if sweeping {
+                                button.child(Spinner::new().xsmall())
+                            } else {
+                                button.icon(registry::UI_CLEAN)
+                            }
+                        })
+                        .tooltip("Prune merged worktrees")
+                        .disabled(sweeping || !has_worktrees)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.run_prune_all(window, cx);
+                        })),
+                ),
+        );
 
         body = body.child(
             div()
@@ -932,15 +948,12 @@ impl Render for LocalReposPane {
             }
             Scan::Ready(repos) if repos.is_empty() => {
                 body = body.child(
-                    div()
-                        .px_3()
-                        .py_2()
-                        .rounded(cx.theme().radius)
-                        .border_1()
-                        .border_color(super::row_stroke(cx))
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("No repositories cloned locally yet."),
+                    surface::glass_group_rows(vec![surface::glass_row_shell().child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("No repositories cloned locally yet."),
+                    )]),
                 );
             }
             Scan::Ready(repos) => {
@@ -969,19 +982,49 @@ impl Render for LocalReposPane {
                     })
                     .collect();
                 let repository_ids = self.repository_ids(cx);
-                let mut list = v_flex().gap_2();
-                for (ix, (repo, in_use, worktrees_used)) in rows.iter().enumerate() {
-                    list = list.child(self.render_repo_row(
-                        ix,
-                        repo,
-                        *in_use,
-                        worktrees_used,
-                        repository_ids.get(&repo.full_name),
-                        &installed,
-                        cx,
-                    ));
+                // EXP-694: ONE flat group of worktrees across every clone —
+                // no per-repo nesting, and a clone with none contributes
+                // nothing to it (it still gets its maintenance row below).
+                let mut worktree_rows: Vec<Div> = Vec::new();
+                for (repo_ix, (repo, _, worktrees_used)) in rows.iter().enumerate() {
+                    let busy = self
+                        .actions
+                        .get(&repo.full_name)
+                        .map(|action| action.busy)
+                        .unwrap_or(false);
+                    for (wt_ix, worktree) in repo.worktrees.iter().enumerate() {
+                        worktree_rows.push(self.render_worktree_row(
+                            repo_ix,
+                            wt_ix,
+                            repo,
+                            worktree,
+                            repository_ids.get(&repo.full_name),
+                            &installed,
+                            busy,
+                            worktrees_used.get(wt_ix).copied().unwrap_or(false),
+                            cx,
+                        ));
+                    }
                 }
-                body = body.child(list);
+                body = body.child(if worktree_rows.is_empty() {
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("No worktrees on this machine.")
+                } else {
+                    surface::glass_group_rows(worktree_rows)
+                });
+
+                // The clones themselves — disk usage and the maintenance
+                // actions — as their own flat group underneath.
+                let clone_rows: Vec<Div> = rows
+                    .iter()
+                    .enumerate()
+                    .map(|(ix, (repo, in_use, _))| self.render_repo_row(ix, repo, *in_use, cx))
+                    .collect();
+                body = body
+                    .child(card_title("Local repositories"))
+                    .child(surface::glass_group_rows(clone_rows));
             }
         }
 

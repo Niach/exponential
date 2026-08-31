@@ -268,9 +268,10 @@ struct MainNavigator: View {
     // delivered rows, so the active-team alignment couldn't look up its
     // team yet — re-run it on the next boards emission.
     @State private var pendingTeamAlign = false
-    /// EXP-631: the Agents FAB's chat request. The bar lives here, the
-    /// launcher (with its devices, team and start handlers) lives in
-    /// AgentsView — so a tap just bumps a counter the screen watches.
+    /// EXP-631: the Devices/Actions FAB's chat request. The bar lives here,
+    /// the launcher (with its devices, team and start handlers) lives in
+    /// AgentsView / ActionsListView — so a tap just bumps a counter the
+    /// visible screen watches (EXP-694 put the FAB on Actions too).
     @State private var chatRequest = 0
 
     var body: some View {
@@ -408,7 +409,10 @@ struct MainNavigator: View {
                     showsSupport: helpdeskEnabled,
                     supportUnread: supportUnread,
                     showsCompose: composeRoute != nil,
-                    showsChat: isOnAgents,
+                    // EXP-694: Actions launches chats too. Neither surface has
+                    // a board context, so `composeRoute` is nil on both and the
+                    // one FAB slot never clashes.
+                    showsChat: isOnAgents || isOnActions,
                     onIssues: { path = [] },
                     onDevices: { if !isOnAgents { path = [.agents] } },
                     onActions: { if !isOnActions { path = [.actions] } },
@@ -608,7 +612,7 @@ struct MainNavigator: View {
             AgentsView(chatRequest: chatRequest)
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case .actions:
-            ActionsListView()
+            ActionsListView(chatRequest: chatRequest)
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case .myWork:
             MyWorkView()

@@ -1,7 +1,12 @@
 //! EXP-481: the Device settings dialog — the desktop twin of the web's
 //! `device-settings-dialog.tsx`, opened from a machines row's "Edit…".
 //!
-//! Per-SECTION commit, mirroring the web dialog:
+//! EXP-694: the dialog AUTOSAVES, mirroring the web one — there is no Save
+//! button anywhere. The name settles for [`NAME_SAVE_DEBOUNCE`] (or commits
+//! on blur/Enter); every picker and switch writes on change, the way the
+//! default-device toggle always has. One write runs at a time, so a change
+//! made mid-flight parks in `queued` and replays off the CONTROLS when the
+//! executor frees up. Each section keeps its own write path:
 //!
 //! | Section        | Write path                                            |
 //! |----------------|-------------------------------------------------------|
@@ -30,18 +35,17 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, size, App, AppContext as _, Entity, IntoElement,
-    ParentElement, Render, SharedString, Styled, Subscription, Window,
+    div, prelude::FluentBuilder as _, px, size, App, AppContext as _, Div, Entity, IntoElement,
+    ParentElement, Render, SharedString, Styled, Subscription, Task, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
-    input::{Input, InputState},
+    input::{Input, InputEvent, InputState},
     select::Select,
     spinner::Spinner,
     switch::Switch,
-    tab::{Tab, TabBar, TabVariant},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, Size,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -54,8 +58,10 @@ use crate::coding_selects::{
     AGENT_CHOICES,
 };
 use crate::icons::registry;
+use crate::launch_options::{AgentDefaultsGroup, AgentPill, DefaultsToggle};
 use crate::native_dialog::{self, AlertSpec, DialogContent, DialogSpec};
 use crate::queries;
+use crate::surface;
 
 /// "Not shared" sentinel in the sharing select (the web dialog's Radix
 /// sentinel twin — a select row needs a non-empty value).
@@ -65,6 +71,12 @@ const NOT_SHARED: &str = "__not_shared__";
 /// keep their commands queued server-side — poll slowly).
 const COMMAND_POLL_ONLINE: Duration = Duration::from_secs(2);
 const COMMAND_POLL_OFFLINE: Duration = Duration::from_secs(8);
+
+/// EXP-694: the dialog AUTOSAVES — there is no Save button anywhere. Typing
+/// settles for this long before the rename goes out (the web dialog's 800ms
+/// twin); a blur commits it immediately. Everything else (the pickers, the
+/// switches, the sharing row) writes straight through on change.
+const NAME_SAVE_DEBOUNCE: Duration = Duration::from_millis(800);
 
 /// Whether a synced devices row reads ONLINE: `last_seen_at` within the
 /// contract window of `now_ms`. Negative ages (clock skew — the server
@@ -133,6 +145,18 @@ struct LoginNote {
     code: Option<String>,
 }
 
+/// EXP-694: what a section's OPTIMISTIC dedupe advance has to be undone to
+/// when its write never lands. The autosave advances the baseline before the
+/// tRPC call resolves (so a pick made mid-flight still writes last-wins); a
+/// failure has to put it back, or re-committing the SAME value dedupes itself
+/// away and the write is never retried. One slot is enough: `run_section`
+/// runs exactly one write at a time.
+enum SectionRollback {
+    Label(String),
+    Share(String),
+    Defaults(Box<coding::Settings>),
+}
+
 /// EXP-484: what a machine last reported about its agent CLIs, resolved for
 /// rendering — the accounts, the usage snapshots, when the usage was taken,
 /// and the device caps that decide whether a sign-in may be started here.
@@ -191,41 +215,134 @@ pub(crate) fn login_affordance(
     })
 }
 
-/// The sentence the device editor shows above the login pill — the same
-/// `account_caption` facts, but the wire's terse `unknown` / `signed out`
-/// become full sentences (web `accountLine`, iOS/Android device sheets).
+/// EXP-484/694: what one agent's OWN tab says above the login pill, where the
+/// agent is already the heading — just the ADDRESS: no `<agent> ·` prefix, no
+/// `signed in as` and no ` · <plan>` tail (the plan is the agent app's
+/// business, not this row's). An account with no email (pi reports a provider,
+/// never an address) falls back to the bare plan, and the two negative cases
+/// read as sentences. Byte-identical to the web `accountLine`
+/// (`lib/agent-usage.ts`) and its iOS/Android twins.
 pub(crate) fn account_line(account: Option<&coding::agent_accounts::AgentAccount>) -> String {
     match account {
+        // Never probed is NOT "not signed in".
         None => "Sign-in status unknown".to_string(),
         Some(account) if !account.signed_in => "Not signed in".to_string(),
-        Some(_) => account_caption(account),
-    }
-}
-
-/// EXP-484: one agent's caption — `signed in as a@b.c · max`, `signed out`,
-/// `anthropic (oauth)` (pi names a provider, never an address), `unknown`.
-/// Byte-identical to the web `accountRow` (`lib/agent-usage.ts`) and its
-/// iOS/Android twins, minus the `<agent> ·` prefix those carry: EXP-688 put
-/// the block INSIDE that agent's own tab, which already names it.
-pub(crate) fn account_caption(
-    account: Option<&coding::agent_accounts::AgentAccount>,
-) -> String {
-    match account {
-        // Never probed is NOT "signed out".
-        None => "unknown".to_string(),
-        Some(account) if !account.signed_in => "signed out".to_string(),
         Some(account) => {
             let email = account.email.as_deref().filter(|value| !value.is_empty());
             let plan = account.plan.as_deref().filter(|value| !value.is_empty());
             match (email, plan) {
-                (Some(email), Some(plan)) => format!("signed in as {email} · {plan}"),
-                (Some(email), None) => format!("signed in as {email}"),
+                (Some(email), _) => email.to_string(),
                 // pi reports a provider, never an address.
                 (None, Some(plan)) => plan.to_string(),
                 (None, None) => "signed in".to_string(),
             }
         }
     }
+}
+
+/// EXP-484/694: what THIS install's agent CLIs last reported — the hub's live
+/// snapshot, with the doctor's probe standing in before the first collection
+/// (a machine with agents installed is never blank). Shared with Settings →
+/// Agents, which renders the same account/usage rows for the local machine.
+pub(crate) fn own_agent_status(
+    cx: &mut App,
+) -> (
+    coding::agent_accounts::AgentAccounts,
+    coding::agent_usage::AgentUsageMap,
+) {
+    let hub = CodingHub::global(cx);
+    let hub = hub.read(cx);
+    let status = hub.agent_status.clone().unwrap_or_default();
+    let mut accounts = status.accounts;
+    if accounts.is_empty() {
+        if let Some(report) = hub.doctor.report.as_ref() {
+            accounts = report.agent_accounts(&coding::agent_accounts::now_iso());
+        }
+    }
+    (accounts, status.usage)
+}
+
+/// EXP-694: the account + usage ROWS of one agent's grouped defaults stack —
+/// the same two rows in this dialog and in Settings → Agents, so the two
+/// panes cannot drift.
+///
+/// Row 1 is the account line ([`account_line`] — the address alone) with the
+/// Login / Switch-account pill when this client may start one; row 2 is the
+/// usage windows while the numbers are FRESH — stale limits beside a live
+/// machine read as current ones, so they degrade to an "as of …" line
+/// instead. Both are flat: the group around them draws the surface.
+#[allow(clippy::too_many_arguments)] // two call sites, one row set
+pub(crate) fn agent_account_rows<V: Render>(
+    agent: CodingAgent,
+    account: Option<&coding::agent_accounts::AgentAccount>,
+    usage: Option<&coding::agent_usage::AgentUsage>,
+    usage_at: Option<&str>,
+    affordance: Option<LoginAffordance>,
+    pending: bool,
+    on_login: impl Fn(&mut V, bool, &mut gpui::Context<V>) + 'static,
+    cx: &mut gpui::Context<V>,
+) -> Vec<Div> {
+    let muted = cx.theme().muted_foreground;
+    let foreground = cx.theme().foreground;
+    let now = chrono::Utc::now().timestamp();
+
+    let mut account_row = surface::glass_row_shell().child(
+        div()
+            .flex_1()
+            .min_w_0()
+            .truncate()
+            .text_sm()
+            .text_color(foreground)
+            .child(SharedString::from(account_line(account))),
+    );
+    if let Some(affordance) = affordance {
+        account_row = account_row.child(surface::glass_pill(
+            Button::new(SharedString::from(format!("agent-login-{}", agent.id())))
+                .ghost()
+                .web_xs()
+                .icon(if affordance.switch {
+                    registry::UI_SWAP
+                } else {
+                    registry::UI_SIGN_IN
+                })
+                .label(affordance.label)
+                .disabled(pending)
+                .on_click(cx.listener(move |view: &mut V, _, _, cx| {
+                    on_login(view, affordance.switch, cx);
+                })),
+            false,
+        ));
+    }
+    let mut rows = vec![account_row];
+
+    let fresh = usage.filter(|usage| {
+        !usage.windows.is_empty() && crate::usage_bar::is_fresh(&usage.fetched_at, now)
+    });
+    if let Some(usage) = fresh {
+        // EXP-694: inside the agent's own group the windows are plain rows —
+        // the group already draws the surface.
+        let cards = crate::usage_bar::render_usage_cards(agent, usage, now, true, cx);
+        rows.push(surface::glass_row_shell().child(div().flex_1().min_w_0().child(cards)));
+    } else if usage.is_some() || account.is_some() {
+        // Say when the numbers were taken instead of pretending they are
+        // current.
+        let stamp = account
+            .map(|account| account.checked_at.clone())
+            .or_else(|| usage_at.map(str::to_string))
+            .unwrap_or_default();
+        let as_of = crate::usage_bar::as_of_label(&stamp, now);
+        if !as_of.is_empty() {
+            rows.push(
+                surface::glass_row_shell().child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(SharedString::from(as_of)),
+                ),
+            );
+        }
+    }
+    rows
 }
 
 /// EXP-484: tolerant parse of a `{ agent: T }` jsonb column. Entries that do
@@ -270,16 +387,32 @@ pub struct DeviceSettingsView {
     agent_tab: CodingAgent,
     editor_agents: Vec<CodingAgent>,
     /// The current baseline as a Settings value (drafts overlay it): the
-    /// clamped launch_defaults column, kept LIVE by [`Self::resync`]. The
-    /// Save button derives its dirty state from drafted != seeded — no
-    /// sticky flag, so a programmatic control rewrite can't strand it.
+    /// clamped launch_defaults column, kept LIVE by [`Self::resync`]. EXP-694
+    /// autosave keys off drafted != seeded — a programmatic control rewrite
+    /// (a resync, a rebuilt select) can therefore never echo back as a write.
     seeded: coding::Settings,
     /// The row label/share value at the last (re)seed — the "has the user
     /// diverged?" reference for the two non-defaults inputs.
     seeded_label: String,
     seeded_share: String,
+    /// EXP-694: the label/share values the autosave last SENT — the dedupe
+    /// that keeps a debounce landing next to a blur (or a resync echo) from
+    /// writing the same value twice.
+    last_saved_label: String,
+    last_saved_share: String,
+    /// The pending debounced rename (dropping it cancels — the shell's
+    /// `queue_save_*` idiom).
+    name_save: Option<Task<()>>,
     // -- section state --
     busy_section: Option<&'static str>,
+    /// EXP-694: the dedupe baseline the in-flight section advanced past, under
+    /// the section it belongs to — restored when THAT section's write fails,
+    /// so the same value stays retryable.
+    rollback: Option<(&'static str, SectionRollback)>,
+    /// EXP-694: sections whose autosave arrived while another write was in
+    /// flight ([`Self::run_section`] runs one at a time) — replayed when it
+    /// lands, so no change is ever silently dropped.
+    queued: Vec<&'static str>,
     section_errors: HashMap<String, SharedString>,
     tracked: Vec<TrackedCommand>,
     polling: bool,
@@ -428,9 +561,35 @@ impl DeviceSettingsView {
             &pi_model_select,
             &pi_thinking_select,
         ] {
-            // Dirty derives from drafted != seeded — just re-render.
-            subscriptions.push(cx.observe(select, |_: &mut Self, _, cx| cx.notify()));
+            // EXP-694 autosave: a picked value IS the save (the guard in
+            // `save_defaults` swallows the programmatic rewrites).
+            subscriptions.push(cx.observe(select, |this: &mut Self, _, cx| {
+                this.save_defaults(cx);
+                cx.notify();
+            }));
         }
+        subscriptions.push(cx.observe(&share_select, |this: &mut Self, _, cx| {
+            this.save_sharing(cx);
+            cx.notify();
+        }));
+        // EXP-694: the name saves debounced while typing and immediately on
+        // blur / Enter — no Save button.
+        subscriptions.push(cx.subscribe(&name_input, |this: &mut Self, _, event: &InputEvent, cx| {
+            match event {
+                InputEvent::Change => this.queue_name_save(cx),
+                InputEvent::Blur | InputEvent::PressEnter { .. } => {
+                    this.name_save = None;
+                    this.save_name(cx);
+                }
+                InputEvent::Focus => {}
+            }
+        }));
+        // EXP-694: the debounce's other half. The dialog is a native window —
+        // Escape, the titlebar ✕ and the opener-died sweep all just
+        // `remove_window`, and none of them fires a blur — so a rename typed
+        // inside the 800ms would be dropped on the floor. Flush it as the view
+        // is released (the web dialog's unmount flush / iOS's `.onDisappear`).
+        cx.on_release(|this, cx| this.flush_pending_name(cx)).detach();
 
         Self {
             device_row_id,
@@ -456,8 +615,16 @@ impl DeviceSettingsView {
                 .shared_team_id
                 .clone()
                 .unwrap_or_else(|| NOT_SHARED.to_string()),
+            last_saved_label: row.label.clone().unwrap_or_default(),
+            last_saved_share: row
+                .shared_team_id
+                .clone()
+                .unwrap_or_else(|| NOT_SHARED.to_string()),
+            name_save: None,
             seeded,
             busy_section: None,
+            rollback: None,
+            queued: Vec::new(),
             section_errors: HashMap::new(),
             tracked: Vec::new(),
             polling: false,
@@ -556,6 +723,7 @@ impl DeviceSettingsView {
             if self.name_input.read(cx).value().trim() == self.seeded_label.trim() {
                 self.name_input
                     .update(cx, |input, cx| input.set_value(label.clone(), window, cx));
+                self.last_saved_label = label.clone();
             }
             self.seeded_label = label;
         }
@@ -569,6 +737,7 @@ impl DeviceSettingsView {
                 self.share_select.update(cx, |select, cx| {
                     select.set_selected_value(&SharedString::from(share.clone()), window, cx)
                 });
+                self.last_saved_share = share.clone();
             }
             self.seeded_share = share;
         }
@@ -608,12 +777,6 @@ impl DeviceSettingsView {
         cx.notify();
     }
 
-    /// Whether the controls have moved off the baseline (the Save button's
-    /// enable state) — derived, never stored.
-    fn defaults_dirty(&self, cx: &App) -> bool {
-        self.drafted(cx) != self.seeded
-    }
-
     /// The drafted launch defaults: the seed baseline with the control
     /// values overlaid (only launch-default fields matter downstream).
     fn drafted(&self, cx: &App) -> coding::Settings {
@@ -644,6 +807,22 @@ impl DeviceSettingsView {
         }
     }
 
+    /// Put back the dedupe baseline this section advanced optimistically — a
+    /// write that never went out (or came back failed) must leave the value
+    /// retryable (the web `runSection`'s catch twin). A slot belonging to
+    /// another section is left alone: its own write is still in flight.
+    fn roll_back(&mut self, section: &'static str) {
+        if self.rollback.as_ref().map(|(owner, _)| *owner) != Some(section) {
+            return;
+        }
+        match self.rollback.take() {
+            Some((_, SectionRollback::Label(label))) => self.last_saved_label = label,
+            Some((_, SectionRollback::Share(share))) => self.last_saved_share = share,
+            Some((_, SectionRollback::Defaults(seeded))) => self.seeded = *seeded,
+            None => {}
+        }
+    }
+
     /// Run one section's mutation on the background executor; inline error
     /// on failure (per-section commit — the web `runSection` twin).
     fn run_section(
@@ -653,9 +832,11 @@ impl DeviceSettingsView {
         cx: &mut gpui::Context<Self>,
     ) {
         if self.busy_section.is_some() {
+            self.roll_back(section);
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
+            self.roll_back(section);
             return;
         };
         self.busy_section = Some(section);
@@ -668,22 +849,97 @@ impl DeviceSettingsView {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.busy_section = None;
-                if let Err(err) = result {
-                    this.set_error(section, Some(err.user_message().into()));
+                match result {
+                    // Landed — the optimistic baseline IS the truth now.
+                    Ok(()) => {
+                        if this.rollback.as_ref().map(|(owner, _)| *owner) == Some(section) {
+                            this.rollback = None;
+                        }
+                    }
+                    Err(err) => {
+                        this.set_error(section, Some(err.user_message().into()));
+                        this.roll_back(section);
+                    }
                 }
+                this.drain_queued(cx);
                 cx.notify();
             });
         })
         .detach();
     }
 
+    /// EXP-694: park a section whose autosave arrived mid-write (once — the
+    /// replay reads the CONTROLS, so the latest value goes out either way).
+    fn queue_section(&mut self, section: &'static str) {
+        if !self.queued.contains(&section) {
+            self.queued.push(section);
+        }
+    }
+
+    /// Replay the oldest parked section now that the executor is free; its
+    /// own completion drains the next one.
+    fn drain_queued(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.queued.is_empty() {
+            return;
+        }
+        match self.queued.remove(0) {
+            "name" => self.save_name(cx),
+            "sharing" => self.save_sharing(cx),
+            "defaults" => self.save_defaults(cx),
+            _ => {}
+        }
+    }
+
     // -- section commits -------------------------------------------------------
+
+    /// EXP-694: hold the rename until the typing settles ([`NAME_SAVE_DEBOUNCE`]);
+    /// a newer keystroke replaces (and so cancels) the pending task.
+    fn queue_name_save(&mut self, cx: &mut gpui::Context<Self>) {
+        self.name_save = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(NAME_SAVE_DEBOUNCE).await;
+            let _ = this.update(cx, |this, cx| this.save_name(cx));
+        }));
+    }
+
+    /// EXP-694: pay out what the debounce still owes as the dialog goes away.
+    /// TAKING the task first is what keeps this single-shot and race-free: a
+    /// blur/Enter commit already cleared it, a landed debounce already
+    /// advanced `last_saved_label`, and either way nothing is written twice.
+    /// There is no view left to report to, so the write goes out bare.
+    fn flush_pending_name(&mut self, cx: &mut App) {
+        if self.name_save.take().is_none() {
+            return;
+        }
+        let label = self.name_input.read(cx).value().trim().to_string();
+        if label.is_empty() || label == self.last_saved_label {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        let device_id = self.device_id.clone();
+        cx.background_executor()
+            .spawn(async move {
+                let _ = api::devices::rename(&trpc, &device_id, &label);
+            })
+            .detach();
+    }
 
     fn save_name(&mut self, cx: &mut gpui::Context<Self>) {
         let label = self.name_input.read(cx).value().trim().to_string();
-        if label.is_empty() {
+        // A blank name is not a rename, and neither is the value already sent
+        // (a blur landing right behind the debounce).
+        if label.is_empty() || label == self.last_saved_label {
             return;
         }
+        if self.busy_section.is_some() {
+            self.queue_section("name");
+            return;
+        }
+        // Advance the dedupe now (a pick made mid-flight still writes
+        // last-wins) but keep what it replaced: a failed write puts it back.
+        let previous = std::mem::replace(&mut self.last_saved_label, label.clone());
+        self.rollback = Some(("name", SectionRollback::Label(previous)));
         let device_id = self.device_id.clone();
         self.run_section(
             "name",
@@ -694,6 +950,15 @@ impl DeviceSettingsView {
 
     fn save_sharing(&mut self, cx: &mut gpui::Context<Self>) {
         let picked = selected(&self.share_select, cx);
+        if picked == self.last_saved_share {
+            return; // a resync echo, not a pick
+        }
+        if self.busy_section.is_some() {
+            self.queue_section("sharing");
+            return;
+        }
+        let previous = std::mem::replace(&mut self.last_saved_share, picked.clone());
+        self.rollback = Some(("sharing", SectionRollback::Share(previous)));
         let team_id = (picked != NOT_SHARED).then_some(picked);
         let device_id = self.device_id.clone();
         self.run_section(
@@ -716,12 +981,23 @@ impl DeviceSettingsView {
         );
     }
 
+    /// EXP-694: the defaults AUTOSAVE — every select and switch writes
+    /// straight through, the way the default-device toggle always has. The
+    /// baseline guard is what makes that safe: a rewrite the dialog itself
+    /// performed (a resync, a rebuilt select) drafts back to the baseline and
+    /// writes nothing.
     fn save_defaults(&mut self, cx: &mut gpui::Context<Self>) {
         let drafted = self.drafted(cx);
-        // Adopt the draft as the baseline right away (Save disables): the
-        // hub observer (own) / the row's Electric echo (remote) confirms it.
-        self.seeded = drafted.clone();
+        // A failed write stays retryable: the own-device path's hub already
+        // holds the value in memory (so the baseline reads clean), which
+        // makes the standing error the thing that re-arms the next commit.
+        if drafted == self.seeded && !self.section_errors.contains_key("defaults") {
+            return;
+        }
         if self.own {
+            // Adopt the draft as the baseline right away: the hub observer
+            // confirms it a tick later.
+            self.seeded = drafted.clone();
             // Own device: the file is right here — save through the hub
             // (which re-runs the doctor, re-advertises, and pushes the
             // server copy via device_sync).
@@ -746,6 +1022,14 @@ impl DeviceSettingsView {
             cx.notify();
             return;
         }
+        // Remote device: one write at a time — a pick made mid-flight parks
+        // and replays off the CONTROLS, so the last one always lands.
+        if self.busy_section.is_some() {
+            self.queue_section("defaults");
+            return;
+        }
+        let previous = std::mem::replace(&mut self.seeded, drafted.clone());
+        self.rollback = Some(("defaults", SectionRollback::Defaults(Box::new(previous))));
         // Remote device: unconditional owner edit of the server copy — the
         // machine converges on its next heartbeat/nudge.
         let wire = serde_json::to_value(coding::defaults_wire(&drafted))
@@ -1004,44 +1288,52 @@ impl DeviceSettingsView {
         })
     }
 
+    /// EXP-694: one switch row of a grouped stack — the label leading, the
+    /// `Switch` trailing, on the shared 16/12 row rhythm.
     fn toggle_row(
         id: &'static str,
         label: &'static str,
         checked: bool,
         on_click: impl Fn(&mut Self, &bool, &mut gpui::Context<Self>) + 'static,
         cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        h_flex()
-            .items_center()
-            .justify_between()
-            .gap_3()
-            .child(div().text_sm().child(label))
-            .child(
-                Switch::new(id)
-                    .checked(checked)
-                    .on_click(cx.listener(move |this, checked: &bool, _, cx| {
-                        on_click(this, checked, cx);
-                        cx.notify();
-                    })),
-            )
+    ) -> Div {
+        surface::glass_toggle_row(
+            label,
+            None,
+            Switch::new(id)
+                .checked(checked)
+                .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+                    on_click(this, checked, cx);
+                    cx.notify();
+                }))
+                .into_any_element(),
+            cx,
+        )
     }
 
-    fn labeled_select(
+    /// EXP-694: a [`ChoiceSelect`] as a grouped picker row — the label
+    /// leading, the value trailing behind the select's own caret, no field
+    /// chrome (the group IS the field).
+    fn picker_row(
         label: &'static str,
+        description: Option<SharedString>,
         select: &ChoiceSelect,
         cx: &App,
-    ) -> impl IntoElement {
-        v_flex()
-            .gap_1()
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(label),
-            )
-            .child(Select::new(select).web_input_sm())
+    ) -> Div {
+        surface::glass_picker_row(
+            label,
+            description,
+            surface::glass_picker_select(Select::new(select)).into_any_element(),
+            cx,
+        )
     }
 
+    /// The per-agent defaults as the SHARED grouped picker
+    /// ([`AgentDefaultsGroup`], the same component the Start-coding cluster
+    /// and Settings → Agents render): the embedded agent tabs row, Model, the
+    /// agent's effort label, its toggles, then that agent's account + usage
+    /// rows — one inset-grouped stack, no capsule strip, no Save button
+    /// (EXP-694: every control writes through).
     fn render_defaults_section(
         &mut self,
         online: bool,
@@ -1062,76 +1354,90 @@ impl DeviceSettingsView {
             .position(|agent| *agent == agent_tab)
             .unwrap_or(0);
         let clicked = tab_agents.clone();
-        let tabs = h_flex().w_full().justify_center().child(
-            TabBar::new("device-agent-tabs")
-                .with_variant(TabVariant::Pill)
-                .with_size(Size::Small)
-                .selected_index(active_ix)
-                .on_click(cx.listener(move |this, ix: &usize, _, cx| {
-                    if let Some(agent) = clicked.get(*ix).copied() {
-                        this.agent_tab = agent;
-                        cx.notify();
-                    }
-                }))
-                .children(tab_agents.iter().map(|agent| {
-                    Tab::new().child(
-                        h_flex()
-                            .gap_1p5()
-                            .items_center()
-                            .child(Icon::from(agent_icon(*agent)).size_3p5())
-                            .child(SharedString::from(agent.label())),
-                    )
-                })),
-        );
+        let pills: Vec<AgentPill> = tab_agents
+            .iter()
+            .map(|agent| AgentPill {
+                label: SharedString::from(agent.label()),
+                icon: Some(agent_icon(*agent)),
+                dimmed: false,
+                note: None,
+            })
+            .collect();
+        // EXP-688: the agent's account + usage ride INSIDE the agent's own
+        // group, under its toggles.
+        let account_rows = self.render_agent_account(agent_tab, online, &status, cx);
+        let (model, effort) = match agent_tab {
+            CodingAgent::Claude => (self.model_select.clone(), self.effort_select.clone()),
+            CodingAgent::Codex => (
+                self.codex_model_select.clone(),
+                self.codex_effort_select.clone(),
+            ),
+            CodingAgent::Pi => (
+                self.pi_model_select.clone(),
+                self.pi_thinking_select.clone(),
+            ),
+        };
+        let mut group = AgentDefaultsGroup::new(
+            "device-defaults",
+            agent_tab,
+            pills,
+            Some(active_ix),
+            move |this: &mut Self, ix, _window, cx| {
+                if let Some(agent) = clicked.get(ix).copied() {
+                    this.agent_tab = agent;
+                    cx.notify();
+                }
+            },
+            model,
+            effort,
+        )
+        .effort_disabled(agent_tab == CodingAgent::Claude && self.claude_ultracode)
+        .trailing(account_rows);
+        if agent_tab == CodingAgent::Claude {
+            group = group
+                .toggle(DefaultsToggle::new(
+                    "device-claude-ultracode",
+                    "Ultracode",
+                    self.claude_ultracode,
+                    |this: &mut Self, on, cx| {
+                        this.claude_ultracode = on;
+                        this.save_defaults(cx);
+                    },
+                ))
+                .toggle(DefaultsToggle::new(
+                    "device-claude-plan",
+                    "Plan mode",
+                    self.claude_plan_mode,
+                    |this: &mut Self, on, cx| {
+                        this.claude_plan_mode = on;
+                        this.save_defaults(cx);
+                    },
+                ));
+        }
+        if agent_tab == CodingAgent::Pi {
+            group = group.toggle(DefaultsToggle::new(
+                "device-pi-plan",
+                "Plan mode",
+                self.pi_plan_mode,
+                |this: &mut Self, on, cx| {
+                    this.pi_plan_mode = on;
+                    this.save_defaults(cx);
+                },
+            ));
+        }
 
         // EXP-686: no section title — the "Default agent" row already names
         // what the block is.
         let mut body = v_flex()
-            .gap_3()
-            .child(Self::labeled_select("Default agent", &self.agent_select, cx))
-            .child(tabs);
-        body = match agent_tab {
-            CodingAgent::Claude => body
-                .child(Self::labeled_select("Model", &self.model_select, cx))
-                .child(Self::labeled_select("Effort", &self.effort_select, cx))
-                .child(Self::toggle_row(
-                    "device-claude-plan",
-                    "Plan mode",
-                    self.claude_plan_mode,
-                    |this, checked, _| this.claude_plan_mode = *checked,
-                    cx,
-                ))
-                .child(Self::toggle_row(
-                    "device-claude-ultracode",
-                    "Dynamic workflows (ultracode)",
-                    self.claude_ultracode,
-                    |this, checked, _| this.claude_ultracode = *checked,
-                    cx,
-                )),
-            CodingAgent::Codex => body
-                .child(Self::labeled_select("Model", &self.codex_model_select, cx))
-                .child(Self::labeled_select(
-                    "Reasoning effort",
-                    &self.codex_effort_select,
-                    cx,
-                )),
-            CodingAgent::Pi => body
-                .child(Self::labeled_select("Model", &self.pi_model_select, cx))
-                .child(Self::labeled_select(
-                    "Thinking level",
-                    &self.pi_thinking_select,
-                    cx,
-                ))
-                .child(Self::toggle_row(
-                    "device-pi-plan",
-                    "Plan mode",
-                    self.pi_plan_mode,
-                    |this, checked, _| this.pi_plan_mode = *checked,
-                    cx,
-                )),
-        };
-        // EXP-688: the agent's account + usage, under its own toggles.
-        body = body.child(self.render_agent_account(agent_tab, online, &status, cx));
+            .w_full()
+            .gap_2()
+            .child(surface::glass_group_rows(vec![Self::picker_row(
+                "Default agent",
+                None,
+                &self.agent_select,
+                cx,
+            )]))
+            .child(group.render(cx));
         if !online {
             body = body.child(
                 div()
@@ -1140,17 +1446,14 @@ impl DeviceSettingsView {
                     .child("Applies when the device comes online."),
             );
         }
-        let busy = self.busy_section == Some("defaults");
-        body = body.child(
-            h_flex().justify_end().child(
-                Button::new("device-defaults-save")
-                    .primary()
-                    .web_sm()
-                    .label(if busy { "Saving…" } else { "Save defaults" })
-                    .disabled(!self.defaults_dirty(cx) || busy)
-                    .on_click(cx.listener(|this, _, _, cx| this.save_defaults(cx))),
-            ),
-        );
+        if self.busy_section == Some("defaults") {
+            body = body.child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Saving…"),
+            );
+        }
         if let Some(error) = self.error_line("defaults", cx) {
             body = body.child(error);
         }
@@ -1177,17 +1480,8 @@ impl DeviceSettingsView {
     /// machine with agents installed is never blank.
     fn agent_status(&self, cx: &mut App) -> DeviceAgentStatus {
         let row = self.row(cx);
-        let hub = CodingHub::global(cx);
-        let hub = hub.read(cx);
         let (accounts, usage) = if self.own {
-            let status = hub.agent_status.clone().unwrap_or_default();
-            let mut accounts = status.accounts;
-            if accounts.is_empty() {
-                if let Some(report) = hub.doctor.report.as_ref() {
-                    accounts = report.agent_accounts(&coding::agent_accounts::now_iso());
-                }
-            }
-            (accounts, status.usage)
+            own_agent_status(cx)
         } else {
             let accounts = parse_agent_map::<coding::agent_accounts::AgentAccount>(
                 row.as_ref().and_then(|row| row.agent_accounts.as_ref()),
@@ -1220,101 +1514,54 @@ impl DeviceSettingsView {
     /// defaults tab — the standalone "Agents" section is gone, because it
     /// repeated the same three agents one screen further down.
     ///
-    /// Caption (no agent prefix — the tab names it), the Login /
-    /// Switch-account pill under the same gating as before, whatever the
-    /// last sign-in handed back, and the usage cards while the numbers are
-    /// FRESH: stale limits beside a live machine read as current ones, so
-    /// they degrade to an "as of …" line instead.
+    /// EXP-694: it is no longer a block but the LAST ROWS of the agent's own
+    /// group ([`agent_account_rows`], shared with Settings → Agents), plus
+    /// this dialog's remote-sign-in extras: the waiting note, whatever the
+    /// last sign-in handed back, and the inline error.
     fn render_agent_account(
         &mut self,
         agent: CodingAgent,
         online: bool,
         status: &DeviceAgentStatus,
         cx: &mut gpui::Context<Self>,
-    ) -> gpui::Div {
+    ) -> Vec<Div> {
         let muted = cx.theme().muted_foreground;
-        let now = chrono::Utc::now().timestamp();
         let account = status.accounts.get(agent.id());
         let signed_in = account.map(|account| account.signed_in).unwrap_or(false);
         let affordance = login_affordance(agent, self.own, online, &status.caps, signed_in);
         let key = login_key(agent);
         let pending = self.command_pending(&key);
 
-        let mut header = h_flex()
-            .w_full()
-            .items_center()
-            .gap_2()
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(account_line(account))),
-            );
-        if let Some(affordance) = affordance {
-            header = header.child(crate::surface::glass_pill(
-                Button::new(SharedString::from(format!("device-login-{}", agent.id())))
-                    .ghost()
-                    .web_xs()
-                    .icon(if affordance.switch {
-                        registry::UI_SWAP
-                    } else {
-                        registry::UI_SIGN_IN
-                    })
-                    .label(affordance.label)
-                    .disabled(pending)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.start_login(agent, affordance.switch, cx);
-                    })),
-                false,
-            ));
-        }
-        let mut body = v_flex().w_full().gap_2().child(header);
-
-        let fresh = status
-            .usage
-            .get(agent.id())
-            .filter(|usage| {
-                !usage.windows.is_empty() && crate::usage_bar::is_fresh(&usage.fetched_at, now)
-            });
-        if let Some(usage) = fresh {
-            body = body.child(crate::usage_bar::render_usage_cards(agent, usage, now, cx));
-        } else if status.usage.contains_key(agent.id()) || account.is_some() {
-            // Say when the numbers were taken instead of pretending they are
-            // current.
-            let stamp = account
-                .map(|account| account.checked_at.clone())
-                .or_else(|| status.usage_at.clone())
-                .unwrap_or_default();
-            let as_of = crate::usage_bar::as_of_label(&stamp, now);
-            if !as_of.is_empty() {
-                body = body.child(
-                    div()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(SharedString::from(as_of)),
-                );
-            }
-        }
+        let mut rows = agent_account_rows(
+            agent,
+            account,
+            status.usage.get(agent.id()),
+            status.usage_at.as_deref(),
+            affordance,
+            pending,
+            move |this: &mut Self, switch, cx| this.start_login(agent, switch, cx),
+            cx,
+        );
 
         if pending {
-            body = body.child(
-                div().text_xs().text_color(muted).child(if online {
-                    "Waiting for the sign-in link…"
-                } else {
-                    "This machine is offline — the sign-in runs when it comes online."
-                }),
+            rows.push(
+                surface::glass_row_shell().child(
+                    div().text_xs().text_color(muted).child(if online {
+                        "Waiting for the sign-in link…"
+                    } else {
+                        "This machine is offline — the sign-in runs when it comes online."
+                    }),
+                ),
             );
         }
         if let Some(note) = self.login_notes.get(agent.id()) {
-            body = body.child(self.render_login_note(agent, note, cx));
+            let note = self.render_login_note(agent, note, cx);
+            rows.push(surface::glass_row_shell().child(div().flex_1().min_w_0().child(note)));
         }
         if let Some(error) = self.error_line(&key, cx) {
-            body = body.child(error);
+            rows.push(surface::glass_row_shell().child(error));
         }
-        body
+        rows
     }
 
     /// The link a finished login handed back (plus Codex's device code).
@@ -1417,7 +1664,7 @@ impl DeviceSettingsView {
                     })),
             );
 
-        let mut body = v_flex().gap_2().child(header);
+        let mut body = v_flex().w_full().gap_2().child(header);
         if !online && (!worktrees.is_empty() || prune_pending) {
             body = body.child(div().text_xs().text_color(muted).child(
                 "This machine is offline — queued changes run when it comes online.",
@@ -1434,6 +1681,9 @@ impl DeviceSettingsView {
                     .child("No worktrees reported by this machine."),
             );
         }
+        // EXP-694: the hairline-underlined list became ONE grouped stack —
+        // the same card the defaults wear, one worktree per row.
+        let mut rows: Vec<Div> = Vec::new();
         for (index, worktree) in worktrees.iter().enumerate() {
             let repo = worktree.repo_full_name.clone().unwrap_or_default();
             let branch = worktree.branch.clone().unwrap_or_default();
@@ -1445,14 +1695,9 @@ impl DeviceSettingsView {
                 Some("untracked") => Some("untracked files"),
                 _ => None,
             };
-            let mut row = h_flex()
-                .w_full()
+            let mut row = surface::glass_row_shell()
                 .min_w_0()
-                .items_center()
                 .gap_2()
-                .py_1()
-                .border_b_1()
-                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
                 .child(
                     div()
                         .flex_shrink_0()
@@ -1524,12 +1769,18 @@ impl DeviceSettingsView {
                         );
                     })),
             );
-            body = body.child(row);
-            if let Some(error) = self.error_line(&key, cx) {
-                body = body.child(error);
+            // A failed removal reports under its own row, inside the group.
+            match self.error_line(&key, cx) {
+                Some(error) => rows.push(
+                    v_flex()
+                        .w_full()
+                        .child(row)
+                        .child(div().px_4().pb_3().child(error)),
+                ),
+                None => rows.push(row),
             }
         }
-        body
+        body.child(surface::glass_group_rows(rows))
     }
 }
 
@@ -1543,95 +1794,55 @@ impl Render for DeviceSettingsView {
             .map(|row| row.is_server())
             .unwrap_or(false);
 
-        let name_busy = self.busy_section == Some("name");
-        let mut name_section = v_flex()
-            .gap_2()
-            .child(Self::section_title("Name", cx))
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(div().flex_1().child(Input::new(&self.name_input).web_input_sm()))
-                    .child(
-                        Button::new("device-name-save")
-                            .outline()
-                            .web_sm()
-                            .label(if name_busy { "Saving…" } else { "Save" })
-                            .disabled(name_busy)
-                            .on_click(cx.listener(|this, _, _, cx| this.save_name(cx))),
-                    ),
-            );
-        if let Some(error) = self.error_line("name", cx) {
-            name_section = name_section.child(error);
-        }
-
-        let sharing_busy = self.busy_section == Some("sharing");
-        let mut sharing_section = v_flex()
-            .gap_2()
-            .child(Self::section_title("Sharing", cx))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child("Teammates of the shared team can start coding sessions on this machine."),
-            )
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(div().flex_1().child(Select::new(&self.share_select).web_input_sm()))
-                    .child(
-                        Button::new("device-share-save")
-                            .outline()
-                            .web_sm()
-                            .label(if sharing_busy { "Saving…" } else { "Save" })
-                            .disabled(sharing_busy || self.share_teams.is_empty())
-                            .on_click(cx.listener(|this, _, _, cx| this.save_sharing(cx))),
-                    ),
-            );
-        if let Some(error) = self.error_line("sharing", cx) {
-            sharing_section = sharing_section.child(error);
-        }
-
-        // EXP-622: the default-machine toggle — a straight-through write, so
-        // no Save button; the switch mirrors the live row.
+        // EXP-694: the device's own fields as THREE inset-grouped cards on the
+        // shared 8px group rhythm — the name typed into its row (autosaved, no
+        // Save button), the default-device switch (EXP-622: a straight-through
+        // write, which is now what every control here does), and the sharing
+        // picker. One card per section, exactly as the Android/iOS/web dialogs
+        // render them.
         let is_default = row.as_ref().and_then(|row| row.is_default).unwrap_or(false);
-        let default_busy = self.busy_section == Some("default");
-        // EXP-686: the toggle row alone — its own label says "Default
-        // device", so the section title and the helper paragraph were pure
-        // repetition.
-        let mut default_section = v_flex()
+        let mut body = v_flex()
+            .w_full()
             .gap_2()
-            .child(Self::toggle_row(
+            .child(surface::glass_group_rows(vec![surface::glass_input_row(
+                "Name",
+                surface::glass_row_input(Input::new(&self.name_input)).into_any_element(),
+                cx,
+            )]))
+            .child(surface::glass_group_rows(vec![Self::toggle_row(
                 "device-default",
                 "Default device",
                 is_default,
                 move |this, checked, cx| this.save_default(*checked, cx),
                 cx,
-            ));
-        if default_busy {
-            default_section = default_section.child(
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child("Saving…"),
-            );
+            )]));
+        if server {
+            body = body.child(surface::glass_group_rows(vec![surface::glass_picker_row(
+                "Shared with",
+                Some(SharedString::from(
+                    "Teammates of that team can start coding sessions on this machine.",
+                )),
+                surface::glass_picker_select(Select::new(&self.share_select))
+                    .disabled(self.share_teams.is_empty())
+                    .into_any_element(),
+                cx,
+            )]));
         }
-        if let Some(error) = self.error_line("default", cx) {
-            default_section = default_section.child(error);
+        // The autosave says nothing while it succeeds; a write in flight or a
+        // failed one reports under the group it belongs to.
+        for section in ["name", "default", "sharing"] {
+            if self.busy_section == Some(section) {
+                body = body.child(div().text_xs().text_color(muted).child("Saving…"));
+            }
+            if let Some(error) = self.error_line(section, cx) {
+                body = body.child(error);
+            }
         }
 
         let defaults_section = self.render_defaults_section(online, cx);
         let worktrees_section = self.render_worktrees_section(online, cx);
-
-        let mut body = v_flex()
-            .w_full()
-            .gap_5()
-            .child(name_section)
-            .child(default_section);
-        if server {
-            body = body.child(sharing_section);
-        }
+        // Every group in the dialog sits on the SAME 8px rhythm (the ×4
+        // parity look) — the worktrees section included.
         body.child(defaults_section).child(worktrees_section)
     }
 }
@@ -1662,8 +1873,8 @@ mod tests {
         assert!(!row_is_online(None, now_ms));
     }
 
-    /// EXP-484: the caption, byte-identical to the web `accountRow` (minus
-    /// the agent prefix — EXP-688).
+    /// EXP-484/694: the line, byte-identical to the web `accountLine` — the
+    /// address alone, with no `signed in as` prefix and no ` · <plan>` tail.
     #[test]
     fn account_label_variants() {
         let account = |signed_in: bool, email: Option<&str>, plan: Option<&str>| {
@@ -1674,27 +1885,28 @@ mod tests {
                 checked_at: "2026-08-28T10:00:00.000Z".to_string(),
             }
         };
+        // The plan is dropped even when the machine reported one.
         assert_eq!(
-            account_caption(Some(&account(true, Some("a@b.c"), Some("max")))),
-            "signed in as a@b.c · max"
+            account_line(Some(&account(true, Some("a@b.c"), Some("max")))),
+            "a@b.c"
         );
         assert_eq!(
-            account_caption(Some(&account(false, None, None))),
-            "signed out"
+            account_line(Some(&account(true, Some("a@b.c"), None))),
+            "a@b.c"
         );
-        // pi names a provider, never an address.
         assert_eq!(
-            account_caption(Some(&account(true, None, Some("anthropic (oauth)")))),
+            account_line(Some(&account(false, None, None))),
+            "Not signed in"
+        );
+        // pi names a provider, never an address — it keeps the bare plan.
+        assert_eq!(
+            account_line(Some(&account(true, None, Some("anthropic (oauth)")))),
             "anthropic (oauth)"
         );
-        // Email without a plan, and a signed-in account naming neither.
-        assert_eq!(
-            account_caption(Some(&account(true, Some("a@b.c"), None))),
-            "signed in as a@b.c"
-        );
-        assert_eq!(account_caption(Some(&account(true, None, None))), "signed in");
+        // A signed-in account naming neither.
+        assert_eq!(account_line(Some(&account(true, None, None))), "signed in");
         // Never probed is NOT signed out.
-        assert_eq!(account_caption(None), "unknown");
+        assert_eq!(account_line(None), "Sign-in status unknown");
     }
 
     /// EXP-484: who may start a sign-in. The own machine always can; a
