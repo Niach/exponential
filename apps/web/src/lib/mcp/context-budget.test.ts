@@ -197,11 +197,19 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
   )
   // EXP-679: the person-started variant must not mention a tool it does not
   // get, and must stay inside the same two budgets.
-  const person = mcpServerInstructions({ sessionsEnd: false })
+  const person = mcpServerInstructions({ sessionsEnd: false, reportBug: true })
   expect(person).not.toContain(`exponential_sessions_end`)
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_end`)
   expect(person.length).toBeLessThan(2_000)
   expect(person.split(`\n\n`)[0].length).toBeLessThanOrEqual(512)
+  // FEED-21: the report-bug trigger follows the tool's EXP-496 cloud gate — a
+  // self-hosted instance never registers the tool, so it must not name it.
+  const selfHosted = mcpServerInstructions({
+    sessionsEnd: true,
+    reportBug: false,
+  })
+  expect(selfHosted).not.toContain(`exponential_report_bug`)
+  expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_report_bug`)
 })
 
 it(`keeps CLAUDE.md under Claude Code's 40k-char performance warning`, () => {

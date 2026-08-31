@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { users } from "@/db/auth-schema"
 import { registerExponentialTools } from "./tools"
 import { mcpServerInstructions } from "./instructions"
+import { buildRuntimeConfig } from "@/lib/runtime-config"
 import type { McpAccess } from "./scope"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
 
@@ -28,8 +29,14 @@ export function createExponentialMcpServer(
     // Loaded up front by every client even when tool definitions are
     // deferred behind tool search — see instructions.ts for the byte budget.
     // EXP-679: the guidance follows the gates, so a person-started run is
-    // never told about a tool it does not have.
-    { instructions: mcpServerInstructions(gates) }
+    // never told about a tool it does not have. FEED-21: reportBug mirrors
+    // the EXP-496 registration check in tools.ts exactly.
+    {
+      instructions: mcpServerInstructions({
+        sessionsEnd: gates.sessionsEnd,
+        reportBug: Boolean(buildRuntimeConfig().feedbackWidget?.widgetKey),
+      }),
+    }
   )
   registerExponentialTools(server, user, request, access, sessionId, gates)
   return server
