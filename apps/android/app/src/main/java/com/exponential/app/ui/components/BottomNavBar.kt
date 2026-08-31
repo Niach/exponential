@@ -55,12 +55,11 @@ internal val BottomBarPillFill = Color(0xF2151518)
 // pill; keep them in sync here instead of hardcoding 96.dp per screen (EXP-36).
 val BottomBarInset = 96.dp
 
-// Live-session green, matching the steer UI's "Coding now" badge.
-private val AgentsLiveGreen = Color(0xFF34D399)
-
 // EXP-214 dot colors: the Devices dot escalates to amber while a session
 // waits on a plan approval / question; the Reviews dot is the review green
-// (the in_review issue-status tint).
+// (the in_review issue-status tint). EXP-699: Devices shares the semantic
+// green — every platform's live dot is the same color now.
+private val AgentsLiveGreen = DesignTokens.Semantic.Green
 private val AgentsNeedsInputAmber = DesignTokens.Semantic.Yellow
 private val ReviewsGreen = DesignTokens.Semantic.Green
 

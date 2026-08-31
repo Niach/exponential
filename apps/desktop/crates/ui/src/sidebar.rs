@@ -652,7 +652,8 @@ const BOARD_ROW_GROUP: &str = "rail-board-row";
 const SYNCING_LABEL: &str = "Syncing\u{2026}";
 
 /// A rail entry's status badge (EXP-509 — the Source Control entry outgrew
-/// the plain dot): the classic colored dot (Reviews green, Support amber), a
+/// the plain dot): the classic colored dot (EXP-699: Inbox/Support primary,
+/// Reviews green, Devices green/amber — the mobile tab-bar palette), a
 /// small status ICON (SC attention triangle / error cross), or the spinning
 /// refresh glyph while a sync is pulling.
 #[derive(Clone)]
@@ -763,8 +764,10 @@ impl RailView {
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // The Support icon gates on the team row's helpdesk_enabled flag.
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
-            // The Support dot is a live read over unread support_reply rows.
+            // The Inbox and Support dots are live reads over unread rows.
             cx.observe(&collections.notifications, |_, _, cx| cx.notify()),
+            // The Devices dot is a live read over my coding_sessions rows.
+            cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
             // EXP-311: the account button's avatar rides the users shape
             // (profile image URL) plus the async avatar-byte cache.
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
@@ -922,6 +925,7 @@ impl RailView {
         icon: Icon,
         label: &'static str,
         screen: Screen,
+        badge: Option<RailBadge>,
         accent: Hsla,
         expanded: bool,
         cx: &mut gpui::Context<Self>,
@@ -929,7 +933,7 @@ impl RailView {
         let active = resolved_screen(&self.nav, cx).as_ref() == Some(&screen);
         if expanded {
             let target = screen.clone();
-            return rail_row(id, icon, label, active, None, cx)
+            return rail_row(id, icon, label, active, badge, cx)
                 .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                     navigate(window, cx, target.clone());
                 }))
@@ -960,6 +964,15 @@ impl RailView {
                         .w(px(2.))
                         .rounded_full()
                         .bg(accent),
+                )
+            })
+            .when_some(badge, |this, badge| {
+                this.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .child(rail_badge_element(badge, 10., cx)),
                 )
             })
             .into_any_element()
@@ -1319,14 +1332,32 @@ impl Render for RailView {
         let has_reviews = active_team_id(&self.nav, cx)
             .map(|id| !queries::review_issues(cx, &id).is_empty())
             .unwrap_or(false);
+        // Inbox badge (EXP-699): any unread renderable notification — the
+        // primary-tinted dot the mobile tab bars show.
+        let inbox_badge = queries::inbox_unread(cx)
+            .then(|| RailBadge::Dot(theme::tokens::PRIMARY.to_hsla()));
+        // Devices badge (EXP-699): any of MY live coding sessions in the
+        // team — green, amber while one waits on a plan approval / question.
+        let agents = active_team_id(&self.nav, cx)
+            .map(|id| queries::agents_running(cx, &id))
+            .unwrap_or_default();
+        let devices_badge = agents.running.then(|| {
+            RailBadge::Dot(if agents.needs_input {
+                theme::tokens::YELLOW.to_hsla()
+            } else {
+                theme::tokens::GREEN.to_hsla()
+            })
+        });
         // Support tool (EXP-180): rendered ONLY while the active team's
         // synced row carries helpdesk_enabled = true. The badge lights on
-        // unread helpdesk activity in that team (EXP-182).
+        // unread helpdesk activity in that team (EXP-182); primary dot like
+        // Inbox (EXP-699 — unread, not a warning).
         let support_icon = helpdesk_enabled(&self.nav, cx).then(|| {
             let support_unread = active_team_id(&self.nav, cx)
                 .map(|id| queries::support_unread(cx, &id))
                 .unwrap_or(false);
-            let support_badge = support_unread.then(|| RailBadge::Dot(cx.theme().warning));
+            let support_badge =
+                support_unread.then(|| RailBadge::Dot(theme::tokens::PRIMARY.to_hsla()));
             self.rail_tool_icon(
                 "rail-support",
                 Icon::from(icons::registry::NAV_SUPPORT),
@@ -1610,9 +1641,9 @@ impl Render for RailView {
             .child(search)
             .child(self.divider(expanded, cx))
             // Middle zone — scrollable so many boards never push the pinned
-            // Settings/Account off small windows. Rail order (EXP-253):
-            // [Inbox, Reviews, Support, Actions] / boards + "+" /
-            // [Files, Source Control].
+            // Settings/Account off small windows. Rail order (EXP-699, the
+            // mobile tab-bar order): [Inbox, Support, Devices, Actions,
+            // Automations, Reviews] / boards + "+" / [Files, Source Control].
             .child(crate::scroll_pane::v_scroll_pane(
                 "rail-scroll",
                 &self.rail_scroll,
@@ -1626,6 +1657,39 @@ impl Render for RailView {
                         ToolWindow::Inbox,
                         "Inbox",
                         "Inbox",
+                        inbox_badge,
+                        accent,
+                        expanded,
+                        cx,
+                    ))
+                    .children(support_icon)
+                    // EXP-686: Devices · Actions · Automations, the three
+                    // surfaces the old Agents entry bundled.
+                    .child(self.rail_screen_entry(
+                        "rail-devices",
+                        Icon::from(icons::registry::NAV_DEVICES),
+                        "Devices",
+                        Screen::Devices,
+                        devices_badge,
+                        accent,
+                        expanded,
+                        cx,
+                    ))
+                    .child(self.rail_screen_entry(
+                        "rail-actions",
+                        Icon::from(icons::registry::NAV_ACTIONS),
+                        "Actions",
+                        Screen::Actions,
+                        None,
+                        accent,
+                        expanded,
+                        cx,
+                    ))
+                    .child(self.rail_screen_entry(
+                        "rail-automations",
+                        Icon::from(icons::registry::NAV_AUTOMATIONS),
+                        "Automations",
+                        Screen::Automations,
                         None,
                         accent,
                         expanded,
@@ -1644,37 +1708,6 @@ impl Render for RailView {
                         expanded,
                         cx,
                     ))
-                    // EXP-525/EXP-686: the three full-page entries sit above
-                    // Support (web sidebar order is Inbox · Reviews ·
-                    // Devices · Actions · Automations · Support).
-                    .child(self.rail_screen_entry(
-                        "rail-devices",
-                        Icon::from(icons::registry::NAV_DEVICES),
-                        "Devices",
-                        Screen::Devices,
-                        accent,
-                        expanded,
-                        cx,
-                    ))
-                    .child(self.rail_screen_entry(
-                        "rail-actions",
-                        Icon::from(icons::registry::NAV_ACTIONS),
-                        "Actions",
-                        Screen::Actions,
-                        accent,
-                        expanded,
-                        cx,
-                    ))
-                    .child(self.rail_screen_entry(
-                        "rail-automations",
-                        Icon::from(icons::registry::NAV_AUTOMATIONS),
-                        "Automations",
-                        Screen::Automations,
-                        accent,
-                        expanded,
-                        cx,
-                    ))
-                    .children(support_icon)
                     .child(self.divider(expanded, cx))
                     .children(boards_header)
                     .children(board_icons)

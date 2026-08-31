@@ -536,6 +536,70 @@ pub fn support_unread(cx: &App, team_id: &str) -> bool {
         })
 }
 
+/// EXP-699: the rail's Inbox dot — any unread notification the inbox can
+/// render (issue-keyed rows need the issue AND its board synced, issue-less
+/// rows count only as `support_reply`): the [`inbox`] renderability rule
+/// without the grouping work.
+pub fn inbox_unread(cx: &App) -> bool {
+    let collections = Store::global(cx).collections();
+    let issues = collections.issues.read(cx);
+    let boards = collections.boards.read(cx);
+    collections
+        .notifications
+        .read(cx)
+        .iter()
+        .any(|notification| {
+            if notification.read_at.is_some() {
+                return false;
+            }
+            match notification.issue_id.as_deref() {
+                Some(issue_id) => issues
+                    .get(issue_id)
+                    .is_some_and(|issue| boards.get(&issue.board_id).is_some()),
+                None => {
+                    notification.kind.as_deref()
+                        == Some(domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY)
+                }
+            }
+        })
+}
+
+/// EXP-699: the rail's Devices dot — is any of MY coding sessions in this
+/// team live right now, and does one of them wait on input (the amber
+/// escalation)? Mirrors web's `useAgentsRunningCount` scoping: own sessions
+/// only, active team, staleness-filtered.
+#[derive(Default)]
+pub(crate) struct AgentsRunning {
+    pub running: bool,
+    pub needs_input: bool,
+}
+
+pub(crate) fn agents_running(cx: &App, team_id: &str) -> AgentsRunning {
+    let Some(account) = active_account(cx) else {
+        return AgentsRunning::default();
+    };
+    let now = chrono::Utc::now().timestamp();
+    let mut result = AgentsRunning::default();
+    for session in Store::global(cx)
+        .collections()
+        .coding_sessions
+        .read(cx)
+        .iter()
+    {
+        if session.user_id.as_deref() != Some(account.user_id.as_str())
+            || session.team_id.as_deref() != Some(team_id)
+            || !coding_session_is_live(session, now)
+        {
+            continue;
+        }
+        result.running = true;
+        if coding_session_display(session, None) == CodingSessionDisplay::NeedsInput {
+            result.needs_input = true;
+        }
+    }
+    result
+}
+
 /// The pure grouping core of [`inbox`]. `resolve_issue` returns the synced
 /// issue (only while its board is synced too); `resolve_team` returns a
 /// synced team's name — `None` collapses the row into the generic Support

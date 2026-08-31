@@ -81,11 +81,12 @@ function SupportDot({ teamId }: { teamId?: string }) {
 }
 
 // Review green (EXP-214): open PRs are "stuff to do", colored like the
-// in_review issue status.
+// in_review issue status. green-500/yellow-400 match the natives'
+// semantic tokens (EXP-699).
 function ReviewsDot({ boards }: { boards: Board[] | undefined }) {
   const count = useReviewsOpenPrCount(boards)
   if (count === 0) return null
-  return <TabDot className="bg-emerald-500" />
+  return <TabDot className="bg-green-500" />
 }
 
 // Amber while any live session waits on a plan approval / question
@@ -94,7 +95,7 @@ function DevicesDot({ teamId }: { teamId?: string }) {
   const { data: session } = useSession()
   const { count, needsInput } = useAgentsRunningCount(teamId, session?.user?.id)
   if (count === 0) return null
-  return <TabDot className={needsInput ? `bg-amber-500` : `bg-emerald-500`} />
+  return <TabDot className={needsInput ? `bg-yellow-400` : `bg-green-500`} />
 }
 
 function TabDot({ className }: { className: string }) {
