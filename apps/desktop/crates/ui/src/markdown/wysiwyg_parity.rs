@@ -15,7 +15,7 @@ use gpui_markdown_editor::{
 };
 
 use super::serialize::CONTRACT_FIXTURES;
-use super::{scan_issue_refs, scan_mentions};
+use super::{normalize_for_wysiwyg, scan_issue_refs, scan_mentions};
 
 #[gpui::test]
 async fn contract_fixtures_survive_wysiwyg_round_trip(cx: &mut TestAppContext) {
@@ -46,6 +46,41 @@ async fn intra_word_asterisk_escapes_once_then_stays_stable(cx: &mut TestAppCont
     let editor = cx.new(|cx| MarkdownEditor::from_markdown(cx, first.clone(), None));
     let second = editor.update(cx, |editor, cx| editor.markdown(cx));
     assert_eq!(second, first);
+}
+
+/// EXP-697: the `\`-at-end-of-line hard break web, iOS and Android write is
+/// not in the vendored engine's escape table, so it used to reach the reader
+/// as a LITERAL backslash and get written straight back out. The host pre-pass
+/// (`normalize_for_wysiwyg`) hands the engine the two-space spelling it does
+/// round-trip, so the break survives and the backslash never shows up.
+#[gpui::test]
+async fn backslash_hard_breaks_reach_the_engine_as_two_space_breaks(cx: &mut TestAppContext) {
+    let round_trip = |markdown: &str, cx: &mut TestAppContext| {
+        let editor = cx.new(|cx| {
+            MarkdownEditor::from_markdown(cx, normalize_for_wysiwyg(markdown), None)
+        });
+        editor.update(cx, |editor, cx| editor.markdown(cx))
+    };
+
+    for (stored, expected) in [
+        ("alpha\\\nbeta", "alpha  \nbeta"),
+        ("> alpha\\\n> beta", "> alpha  \n> beta"),
+        ("- alpha\\\n  beta", "- alpha  \n  beta"),
+    ] {
+        let saved = round_trip(stored, cx);
+        assert_eq!(saved, expected, "hard break lost for {stored:?}");
+        // …and the form it now stores is a fixpoint.
+        assert_eq!(round_trip(&saved, cx), saved, "not a fixpoint: {saved:?}");
+    }
+
+    // An ESCAPED backslash at end of line is a literal character plus a soft
+    // break, not a hard break — it must survive as the character.
+    assert_eq!(round_trip("back\\\\\nmore", cx), "back\\\\\nmore");
+    // Code is never touched.
+    assert_eq!(
+        round_trip("```\nalpha\\\nbeta\n```", cx),
+        "```\nalpha\\\nbeta\n```"
+    );
 }
 
 /// EXP-322: chip TITLES are display-only. They are injected into the string

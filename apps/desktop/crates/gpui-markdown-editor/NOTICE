@@ -129,6 +129,42 @@ so any parse/serialize asymmetry silently rewrote the other clients' content)
   in src/editor/document.rs (block-level: escaped markers import as
   paragraphs and round-trip byte-identically).
 
+Escapes are a WIRE concept (EXP-697 — a typed backslash was impossible)
+- src/components/markdown/inline.rs (`EscapeMode`, threaded through
+  `parse_until` / `parse_inline_link` / `parse_inline_html_container`):
+  upstream ran ONE normalizer over both markdown read off the wire and the
+  VISIBLE text re-parsed on every keystroke, so the escape arm deleted a
+  typed `\` the moment the next character was ASCII punctuation — there was
+  no way to type a backslash (a Windows path, `a\*b`) into a paragraph.
+  `from_markdown_with_link_references` keeps `Interpret`;
+  `replace_visible_range_with_link_references` (the typing/IME/paste path)
+  uses `Literal`, where a visible backslash is just text. Only the escape arm
+  and the link-label recursion are mode-aware: the escape-SKIPPING lookaheads
+  (`has_closing_delimiter`, `locate_script_close`, `locate_inline_link`) stay
+  in wire mode, which can only make them find FEWER closers than the literal
+  body pass would — so a "yes" still implies the body closes and a "no" just
+  leaves the opener literal. Nothing is dropped either way.
+- src/components/markdown/inline.rs (`literal_char_needs_escape`): a
+  backslash at the END of a fragment (or before a newline) now escapes too.
+  Emitting it bare was lossy, because whatever comes NEXT on the wire supplies
+  the character it would escape — a styled run (`a\` + **b** serialized to
+  `a\**b**`, re-parsing as `a*` plus a stray `*b**`), a hard break, or the
+  next character typed through the markdown-space edit path. One-time byte
+  churn for stored text ending in a bare `\`, then a fixpoint.
+- src/components/block/runtime/mod.rs (`escape_markdown_space_insertion`):
+  the link-bearing edit path splices typed text into MARKDOWN space and
+  re-parses, so a typed `\` is written as `\\` there (offsets into the
+  insertion shift with it). Nothing else about that path changed — it has
+  always interpreted typed delimiters, and so does the visible-text path.
+- Tests: `*_exp697` in the inline test module (a typed backslash survives
+  char-by-char typing and round-trips; typed markers still normalize; a
+  backslash inside a link label survives; a trailing backslash keeps its
+  escape; wire parsing still unescapes) and in
+  src/components/block/runtime/tests.rs (typing `C:\Users\me.txt` into a
+  paragraph, and a backslash typed beside an inline link).
+  `preserves_escaped_marker_sequences_as_literal_text` updated: the trailing
+  backslash is now escaped, making that fixture byte-identical end to end.
+
 Host integration seams (EXP-261 — additive API for the Exponential desktop)
 - api.rs / editor/mod.rs / editor/render.rs: `MarkdownEditorOptions.embedded`
   (auto-height mode: host-owned scrolling, full-width rows, no row

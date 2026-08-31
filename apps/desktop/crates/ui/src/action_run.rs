@@ -152,7 +152,7 @@ pub(crate) fn repo_picker_row<V: gpui::Render>(
     pick: fn(&mut V, Option<ActionRepoRow>, &mut gpui::Context<V>),
     cx: &mut gpui::Context<V>,
 ) -> gpui::Div {
-    use gpui::{IntoElement as _, Styled as _};
+    use gpui::{IntoElement as _, ParentElement as _, Styled as _};
     use gpui_component::button::{Button, ButtonVariants as _};
     use gpui_component::ActiveTheme as _;
 
@@ -168,7 +168,9 @@ pub(crate) fn repo_picker_row<V: gpui::Render>(
         .py_0()
         .text_color(cx.theme().foreground.opacity(0.7))
         .dropdown_caret(true)
-        .label(value);
+        // EXP-697: NOT `.label()` — upstream draws that in a `flex_none` box,
+        // so a long `owner/repo` wraps onto a second line.
+        .child(crate::surface::picker_value_label(value));
     let control = repo_menu(trigger, repos, optional, pick, cx).into_any_element();
     crate::surface::glass_picker_row(label, None, control, cx)
 }

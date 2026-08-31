@@ -58,6 +58,19 @@ fn style_flag_for(format: InlineFormat) -> StyleFlag {
     }
 }
 
+/// EXP-697 vendoring: typed or pasted text spliced into MARKDOWN space (the
+/// link-bearing edit path) is source, so a backslash the user meant literally
+/// has to be written as one — otherwise the re-parse reads it as an escape and
+/// swallows it. The visible-text path reaches the same result through
+/// `EscapeMode::Literal`. Nothing else is escaped: the markdown-space path has
+/// always interpreted typed delimiters (`**bold**`), and so does the other one.
+fn escape_markdown_space_insertion(new_text: &str) -> std::borrow::Cow<'_, str> {
+    if !new_text.contains('\\') {
+        return std::borrow::Cow::Borrowed(new_text);
+    }
+    std::borrow::Cow::Owned(new_text.replace('\\', "\\\\"))
+}
+
 /// Editing semantics for the current block.
 ///
 /// Rich blocks edit the attribute-based text tree, while source mode and code
@@ -771,7 +784,19 @@ impl Block {
         let markdown_range = self.current_range_to_markdown_range(visible_range.clone());
         let mut markdown = self.record.title.serialize_markdown();
         let replaced_text = markdown[markdown_range.clone()].to_string();
-        markdown.replace_range(markdown_range.clone(), new_text);
+        // EXP-697: unlike the visible-text path this edit lands in MARKDOWN
+        // space, where a bare `\` is an escape marker the re-parse below would
+        // consume (typing `\` then `.` left just `.`). Write the insertion as
+        // source so it comes back as the characters the user pressed; offsets
+        // into it shift by the backslashes ahead of them.
+        let inserted = escape_markdown_space_insertion(new_text);
+        let inserted_offset = |offset: usize| {
+            offset
+                + new_text
+                    .get(..offset)
+                    .map_or(0, |head| head.matches('\\').count())
+        };
+        markdown.replace_range(markdown_range.clone(), &inserted);
 
         let next_title = InlineTextTree::from_markdown_with_link_references(
             &markdown,
@@ -779,14 +804,15 @@ impl Block {
         );
         let map = next_title.markdown_offset_map();
         let selected_markdown = selected_range_relative.as_ref().map(|relative| {
-            markdown_range.start + relative.start..markdown_range.start + relative.end
+            markdown_range.start + inserted_offset(relative.start)
+                ..markdown_range.start + inserted_offset(relative.end)
         });
         let cursor_markdown = selected_markdown
             .as_ref()
             .map(|range| range.end)
-            .unwrap_or(markdown_range.start + new_text.len());
+            .unwrap_or(markdown_range.start + inserted.len());
         let marked_markdown = if mark_inserted_text && !new_text.is_empty() {
-            Some(markdown_range.start..markdown_range.start + new_text.len())
+            Some(markdown_range.start..markdown_range.start + inserted.len())
         } else {
             None
         };

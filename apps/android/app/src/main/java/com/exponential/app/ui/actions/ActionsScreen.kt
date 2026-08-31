@@ -250,11 +250,11 @@ fun ActionsScreen(
                             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            // EXP-574 (web parity): "Actions · count" header
-                            // with the "New action" entry (EXP-431) as its
-                            // trailing control.
+                            // EXP-574 (web parity): the "Actions" header with
+                            // the "New action" entry (EXP-431) as its trailing
+                            // control.
                             item(key = "__actions_header__") {
-                                SectionLabel(title = "Actions", count = state.actions.size) {
+                                SectionLabel(title = "Actions") {
                                     GlassPillButton(
                                         label = "New action",
                                         icon = ExpIcons.actionCreate,
@@ -386,10 +386,9 @@ fun ActionsScreen(
     }
 }
 
-// One action: its curated glyph, name (+ a small repo indicator when the
-// action clones a repository), optional description, how many automations
-// point at it (EXP-583), a trailing play button and (EXP-694) the row
-// overflow with Edit.
+// One action: its curated glyph, name, optional description, how many
+// automations point at it (EXP-583), a trailing play button and (EXP-694) the
+// row overflow with Edit.
 @Composable
 private fun ActionRow(
     action: ActionDto,
@@ -417,24 +416,15 @@ private fun ActionRow(
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    action.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (action.repositoryId != null) {
-                    Spacer(Modifier.width(6.dp))
-                    Icon(
-                        ExpIcons.actionRepository,
-                        contentDescription = "Runs in a repository",
-                        modifier = Modifier.size(12.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                }
-            }
+            // EXP-697: no repo glyph beside the name — the row says what the
+            // action is, not where it runs.
+            Text(
+                action.name,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             val description = action.description
             if (!description.isNullOrBlank()) {
                 Text(
@@ -535,10 +525,10 @@ private fun AutomationsContent(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // EXP-574 (web parity): counted section header, with the owner-only
-        // create entry as its trailing control.
+        // EXP-574 (web parity): section header, with the owner-only create
+        // entry as its trailing control.
         item(key = "__automations_header__") {
-            SectionLabel(title = "Automations", count = automations.size) {
+            SectionLabel(title = "Automations") {
                 if (isOwner) {
                     GlassPillButton(
                         label = "New automation",
@@ -595,7 +585,6 @@ private fun AutomationsContent(
             item(key = "__recent_runs_header__") {
                 SectionLabel(
                     title = "Recent automated runs",
-                    count = runs.size,
                     modifier = Modifier.padding(top = 12.dp),
                 )
             }
@@ -932,12 +921,11 @@ private fun SuggestionKindChip(label: String) {
     )
 }
 
-// The web `SectionLabel` (agent-session-row.tsx): title · count · spacer ·
-// optional trailing control (EXP-574 layout parity).
+// The web `SectionLabel` (agent-session-row.tsx): title · spacer · optional
+// trailing control (EXP-574 layout parity; EXP-697 dropped the count).
 @Composable
 private fun SectionLabel(
     title: String,
-    count: Int,
     modifier: Modifier = Modifier,
     trailing: (@Composable () -> Unit)? = null,
 ) {
@@ -950,11 +938,6 @@ private fun SectionLabel(
             title,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
-        )
-        Text(
-            "$count",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
         Spacer(Modifier.weight(1f))
         trailing?.invoke()

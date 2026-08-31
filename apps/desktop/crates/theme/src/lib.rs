@@ -139,7 +139,15 @@ pub fn exponential_dark() -> ThemeColor {
     c.muted_foreground = muted_foreground;
     c.accent = accent;
     c.accent_foreground = t::ACCENT_FOREGROUND.to_hsla();
-    c.popover = t::POPOVER.to_hsla();
+    // EXP-697: popovers and dropdown menus wear the mobile GLASS MENU fill —
+    // the card glass tint composited over the opaque popover surface, i.e.
+    // white 6% over #171717 == #252525. Android spells the same value
+    // `GlassTokens.OpaqueCardFill` (`ui/theme/Glass.kt`) and iOS derives it in
+    // `GlassMenu.swift`; the generator does not own it on any platform, so it
+    // is computed here from the same two tokens rather than hard-coded.
+    // Opaque on purpose: gpui has no in-scene backdrop blur, so a translucent
+    // menu would show the list scrolling underneath it.
+    c.popover = t::POPOVER.to_hsla().blend(t::glass::FILL_CARD.to_hsla());
     c.popover_foreground = t::POPOVER_FOREGROUND.to_hsla();
 
     // ---- Primary / secondary (+ derived hover/active) -----------------------
@@ -655,7 +663,24 @@ mod tests {
         assert_hsla_eq(c.border, tokens::BORDER.to_hsla(), "border");
         assert_hsla_eq(c.sidebar, tokens::SIDEBAR.to_hsla(), "sidebar");
         assert_hsla_eq(c.danger, tokens::DESTRUCTIVE.to_hsla(), "danger");
-        assert_hsla_eq(c.popover, tokens::POPOVER.to_hsla(), "popover");
+        // EXP-697: the glass menu fill — white 6% over #171717 == #252525,
+        // opaque, byte-equal to Android's `GlassTokens.OpaqueCardFill`.
+        assert_hsla_eq(
+            c.popover,
+            tokens::POPOVER.to_hsla().blend(tokens::glass::FILL_CARD.to_hsla()),
+            "popover",
+        );
+        let popover = gpui::Rgba::from(c.popover);
+        assert!(approx(popover.a, 1.0), "popover must stay opaque");
+        assert_eq!(
+            (
+                (popover.r * 255.).round() as u8,
+                (popover.g * 255.).round() as u8,
+                (popover.b * 255.).round() as u8,
+            ),
+            (0x25, 0x25, 0x25),
+            "popover must be the shared opaque glass menu fill #252525"
+        );
 
         // The web zinc border is translucent white — categorically different
         // from stock neutral-800; proves we are not on component defaults.

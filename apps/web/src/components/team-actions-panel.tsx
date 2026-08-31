@@ -64,7 +64,6 @@ import { getActionIcon } from "@/lib/board-icons"
 const ActionCreateIcon = conceptIcon(`action-create`)
 // EXP-530: the automation glyph is a cross-client concept too.
 const ActionAutomationIcon = conceptIcon(`action-automation`)
-const ActionRepositoryIcon = conceptIcon(`action-repository`)
 // EXP-615: running is a play icon button on every client — no text label.
 const ActionRunIcon = conceptIcon(`action-run`)
 
@@ -116,7 +115,6 @@ function ActionMenu({
 // EXP-257 desktop card grid unified onto this shape).
 function ActionRow({
   action,
-  repoName,
   automationCount,
   isOwner,
   canRun,
@@ -126,7 +124,6 @@ function ActionRow({
   onDelete,
 }: {
   action: TeamAction
-  repoName: string | undefined
   /** How many automations target this action (EXP-583) — the schedules and
    * event watchers themselves live on the Automations tab. */
   automationCount: number
@@ -144,18 +141,6 @@ function ActionRow({
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
           <span className="truncate font-medium">{action.name}</span>
-          {/* FEED-15: native parity — a small "runs in a repository" glyph
-              (the repo name in its tooltip) instead of the full-name badge
-              that ate the name on phones. */}
-          {repoName && (
-            <span
-              className="inline-flex shrink-0"
-              title={`Runs in ${repoName}`}
-              aria-label={`Runs in ${repoName}`}
-            >
-              <ActionRepositoryIcon className="size-3 text-muted-foreground/70" />
-            </span>
-          )}
         </div>
         {action.description && (
           <div className="line-clamp-2 text-xs text-muted-foreground">
@@ -322,11 +307,6 @@ export function TeamActionsPanel({
       active = false
     }
   }, [teamId, isMember])
-  const repoNameById = useMemo(
-    () => new Map(repos.map((repo) => [repo.id, repo.fullName])),
-    [repos]
-  )
-
   // The unified launch dialog, opened here via an action's Run (Actions tab
   // pre-selected — its Issues tab keeps working for a device picked inside).
   const [launchActionId, setLaunchActionId] = useState<string | null>(null)
@@ -372,9 +352,6 @@ export function TeamActionsPanel({
 
   const actionItemProps = (action: TeamAction) => ({
     action,
-    repoName: action.repositoryId
-      ? repoNameById.get(action.repositoryId)
-      : undefined,
     automationCount: automationCountByAction.get(action.id) ?? 0,
     isOwner,
     canRun: steerEnabled,
@@ -395,7 +372,6 @@ export function TeamActionsPanel({
     <>
       <GlassSectionHeader
         label="Actions"
-        count={sortedActions?.length ?? 0}
         trailing={
           !showSuggestions && !canCreateAction ? undefined : (
             <>

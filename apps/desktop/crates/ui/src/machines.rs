@@ -21,7 +21,8 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     menu::{DropdownMenu as _, PopupMenuItem},
-    ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    notification::Notification,
+    ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 
 use crate::controls::WebControl as _;
@@ -327,7 +328,7 @@ impl MachinesSection {
                 .ghost().cursor_pointer()
                 .xsmall()
                 .icon(registry::UI_MORE)
-                .dropdown_menu(move |menu, _window, _cx| {
+                .dropdown_menu(move |menu, _window, cx| {
                     let edit_section = section.clone();
                     let edit_id = device_id.clone();
                     let remove_section = section.clone();
@@ -371,10 +372,12 @@ impl MachinesSection {
                                 }),
                         )
                     })
-                    .separator()
                     .item(
-                        PopupMenuItem::new("Remove…")
-                            .icon(Icon::new(registry::UI_DELETE))
+                        crate::controls::danger_menu_item(
+                            "Remove…",
+                            Icon::new(registry::UI_DELETE),
+                            cx,
+                        )
                             .on_click(move |_, window, cx| {
                                 let Some(section) = remove_section.upgrade() else {
                                     return;
@@ -557,45 +560,93 @@ impl MachinesSection {
     }
 }
 
-/// The web "Add a server" dialog (EXP-480): the install one-liner for the
-/// headless `exponential` CLI, with OK = copy to clipboard. The script is
-/// served by the CLOUD marketing site for every instance (self-hosted ships
-/// no marketing pages), so the snippet always names the target instance
-/// explicitly via `EXP_INSTANCE` — the web `buildServerInstallSnippet` shape
-/// exactly. Shared (EXP-470): opened from this section's band and from the
-/// Getting-started page's server card.
+/// Where the desktop app's builds live — the "Download desktop app" target.
+const DESKTOP_RELEASES_URL: &str = "https://github.com/Niach/exponential/releases/latest";
+
+/// The "Add device" dialog (EXP-697, one spec with the web twin): the desktop
+/// app first — it is what actually runs coding sessions — then the install
+/// one-liner for the headless `exponential` CLI as the always-on-server path.
+/// The script is served by the CLOUD marketing site for every instance
+/// (self-hosted ships no marketing pages), so the snippet always names the
+/// target instance explicitly via `EXP_INSTANCE` — the web
+/// `buildServerInstallSnippet` shape exactly. Shared (EXP-470): opened from
+/// this section's band and from the Getting-started page's server card.
 pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
     let origin = queries::active_account(cx)
         .map(|account| account.instance_url.trim_end_matches('/').to_string())
         .unwrap_or_else(|| "https://app.exponential.at".to_string());
+    // The clipboard gets the ONE-LINE command; the box shows it wrapped over
+    // two lines so the snippet never needs a horizontal scroll.
     let snippet =
         format!("curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE={origin} sh");
-    let content_snippet = SharedString::from(snippet.clone());
+    let line_two = SharedString::from(format!("  EXP_INSTANCE={origin} sh"));
     let spec = AlertSpec::new(
-        "Add a server",
-        "Run this on any Linux or macOS machine. It installs the \
-         exponential CLI, signs you in with a device code, and registers \
-         the machine here.",
-        "Copy",
+        "Add device",
+        "To run coding sessions, install the desktop app.",
+        "Done",
     )
-    // Description + the wrapped two-line snippet box.
-    .height(px(264.))
+    .without_cancel()
+    .height(px(320.))
     .content(move |_, cx| {
-        div()
-            .mt_2()
-            .p_2()
-            .rounded(px(theme::tokens::radius::SM))
-            .border_1()
-            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-            .text_xs()
-            .font_family(theme::terminal::FONT_FAMILY)
-            .text_color(cx.theme().foreground)
-            .child(content_snippet.clone())
+        let snippet = snippet.clone();
+        let foreground = cx.theme().foreground;
+        gpui_component::v_flex()
+            .gap_3()
+            .child(
+                gpui_component::h_flex().child(
+                    Button::new("add-device-download")
+                        .outline()
+                        .web_sm()
+                        .icon(Icon::new(registry::UI_DOWNLOAD))
+                        .label("Download desktop app")
+                        .on_click(|_, _, cx| {
+                            crate::settings::open_url(cx, DESKTOP_RELEASES_URL.to_string());
+                        }),
+                ),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Or install the Exponential CLI on a server:"),
+            )
+            .child(
+                div()
+                    .relative()
+                    .p_2()
+                    .pr_8()
+                    .rounded(px(theme::tokens::radius::SM))
+                    .border_1()
+                    .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                    .text_xs()
+                    .font_family(theme::terminal::FONT_FAMILY)
+                    .text_color(foreground)
+                    .child(
+                        gpui_component::v_flex()
+                            .child("curl -fsSL https://exponential.at/install.sh |")
+                            .child(line_two.clone()),
+                    )
+                    .child(
+                        div().absolute().top_1().right_1().child(
+                            Button::new("add-device-copy")
+                                .ghost()
+                                .cursor_pointer()
+                                .xsmall()
+                                .icon(Icon::new(registry::UI_COPY))
+                                .tooltip("Copy install command")
+                                .on_click(move |_, window, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(
+                                        snippet.clone(),
+                                    ));
+                                    window.push_notification(
+                                        Notification::success("Copied install command"),
+                                        cx,
+                                    );
+                                }),
+                        ),
+                    ),
+            )
             .into_any_element()
-    })
-    .on_ok(move |_, cx| {
-        cx.write_to_clipboard(ClipboardItem::new_string(snippet.clone()));
-        true
     });
     native_dialog::open_alert(window, cx, spec);
 }
@@ -716,12 +767,13 @@ impl Render for MachinesSection {
             .collect();
 
         // EXP-642: the web `GlassSectionHeader` — a plain-text heading with
-        // no count, the "Add server" control trailing.
+        // no count, the "Add device" control trailing (EXP-697: the dialog
+        // leads with the desktop app, so the button no longer says server).
         let add_server = Button::new("machines-add-server")
             .outline().cursor_pointer()
             .web_xs()
             .icon(registry::UI_ADD)
-            .label("Add server")
+            .label("Add device")
             .on_click(|_: &gpui::ClickEvent, window, cx| {
                 open_add_server_dialog(window, cx);
             })
@@ -737,7 +789,6 @@ impl Render for MachinesSection {
             .min_w_0()
             .child(crate::actions_view::section_heading(
                 "My machines",
-                None,
                 Some(add_server),
                 cx,
             ))
@@ -774,7 +825,6 @@ impl Render for MachinesSection {
                         .pt_4()
                         .child(crate::actions_view::section_heading(
                             "Team machines",
-                            None,
                             None,
                             cx,
                         ))

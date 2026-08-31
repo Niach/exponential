@@ -1,6 +1,7 @@
 // "My machines" (EXP-403): the caller's registered devices — desktops and
 // headless `exponential` daemon servers — with live online state, last-seen
-// fallback, and the "Add server" install one-liner. Since EXP-481 the rows
+// fallback, and the "Add device" dialog (EXP-697: desktop download + the
+// CLI install one-liner). Since EXP-481 the rows
 // ride the synced devices shape (useRemoteStart composes them) and the ⋯
 // menu collapses to Edit + Remove — rename, team sharing (EXP-432), agent
 // defaults and worktree management all live in the Device settings dialog.
@@ -19,7 +20,7 @@ import {
   showDeviceUpdateButton,
   type SteerDevice,
 } from "@/lib/steer-devices"
-import { CopySnippetButton } from "@/components/getting-started/mcp-setup-tabs"
+import { desktopDownloadHref } from "@/lib/desktop-download"
 import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
 import { Button } from "@/components/ui/button"
 import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
@@ -53,6 +54,8 @@ const UpdateIcon = conceptIcon(`ui-update`)
 const EditIcon = conceptIcon(`ui-edit`)
 const RemoveIcon = conceptIcon(`ui-delete`)
 const MoreIcon = conceptIcon(`ui-more`)
+const CopyIcon = conceptIcon(`ui-copy`)
+const CheckIcon = conceptIcon(`ui-check`)
 
 // The install script is served by the CLOUD marketing site for every
 // instance — self-hosted deployments ship only the web app (no marketing
@@ -60,6 +63,32 @@ const MoreIcon = conceptIcon(`ui-more`)
 // EXP_INSTANCE and the script itself is identical everywhere.
 export function buildServerInstallSnippet(origin: string): string {
   return `curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE=${origin} sh`
+}
+
+/** The icon-only copy control living INSIDE the install-snippet box
+ * (EXP-697 — the add-device dialog, shared layout with the IDE's). */
+function CopyIconButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="absolute top-1.5 right-1.5 size-7 text-muted-foreground"
+      aria-label="Copy install command"
+      title="Copy install command"
+      onClick={() => {
+        void navigator.clipboard.writeText(text)
+        setCopied(true)
+        window.setTimeout(() => setCopied(false), 1_500)
+      }}
+    >
+      {copied ? (
+        <CheckIcon className="size-3.5" />
+      ) : (
+        <CopyIcon className="size-3.5" />
+      )}
+    </Button>
+  )
 }
 
 // The row's second line (native `deviceStatusLine` parity): a live dot +
@@ -143,15 +172,15 @@ export function MyMachines({
     }
   }
 
-  const snippet = useMemo(
+  const origin = useMemo(
     () =>
-      buildServerInstallSnippet(
-        typeof window === `undefined`
-          ? `https://app.exponential.at`
-          : window.location.origin
-      ),
+      typeof window === `undefined`
+        ? `https://app.exponential.at`
+        : window.location.origin,
     []
   )
+  const snippet = buildServerInstallSnippet(origin)
+  const userAgent = typeof navigator === `undefined` ? `` : navigator.userAgent
 
   const remove = async () => {
     if (!removeTarget || busy) return
@@ -179,7 +208,7 @@ export function MyMachines({
             onClick={() => setAddServerOpen(true)}
           >
             <AddIcon className="size-3.5" />
-            Add server
+            Add device
           </Button>
         }
       />
@@ -189,7 +218,7 @@ export function MyMachines({
       ) : mine.length === 0 ? (
         <div className="flex items-center gap-2 px-1 py-3 text-xs text-muted-foreground">
           <OfflineIcon className="size-3.5 shrink-0" />
-          No machines yet. Open the Exponential desktop app, or add a server.
+          No machines yet. Open the Exponential desktop app, or add a device.
         </div>
       ) : (
         <div className="flex flex-col gap-2">
@@ -421,22 +450,34 @@ export function MyMachines({
         </div>
       )}
 
+      {/* EXP-697: the add-device dialog — byte-matched copy and layout with
+          the IDE's (`machines.rs` open_add_server_dialog). Desktop download
+          first, then the CLI one-liner shown on two fixed lines (never a
+          horizontal scroll) with the copy control inside the box. No footer. */}
       <Dialog open={addServerOpen} onOpenChange={setAddServerOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Add a server</DialogTitle>
+            <DialogTitle>Add device</DialogTitle>
             <DialogDescription>
-              Run this on any Linux or macOS machine. It installs the
-              `exponential` CLI, signs you in with a device code, and
-              registers the machine here.
+              To run coding sessions, install the desktop app.
             </DialogDescription>
           </DialogHeader>
-          <pre className="overflow-auto rounded-md border bg-muted/30 p-3 text-left text-xs">
-            {snippet}
-          </pre>
-          <DialogFooter className="sm:justify-start">
-            <CopySnippetButton label="Copy" text={snippet} />
-          </DialogFooter>
+          <div className="flex flex-col gap-4">
+            <Button asChild className="w-fit">
+              <a href={desktopDownloadHref(userAgent)} target="_blank" rel="noreferrer">
+                Download desktop app
+              </a>
+            </Button>
+            <p className="text-sm text-muted-foreground">
+              Or install the Exponential CLI on a server:
+            </p>
+            <div className="relative">
+              <pre className="rounded-md border bg-muted/30 p-3 pr-10 text-left text-xs whitespace-pre-wrap">
+                {`curl -fsSL https://exponential.at/install.sh |\n  EXP_INSTANCE=${origin} sh`}
+              </pre>
+              <CopyIconButton text={snippet} />
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

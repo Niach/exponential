@@ -258,7 +258,11 @@ pub(crate) fn choice_pin_row<V: Render, S: 'static>(
         .py_0()
         .text_color(foreground.opacity(0.7))
         .dropdown_caret(true)
-        .label(SharedString::from(pin_label(choices, picked)));
+        // EXP-697: NOT `.label()` — upstream draws that in a `flex_none` box,
+        // so a long model name wraps onto a second line.
+        .child(surface::picker_value_label(SharedString::from(pin_label(
+            choices, picked,
+        ))));
     let control = pin_menu(trigger, choices, picked, pick, access, cx).into_any_element();
     surface::glass_picker_row(label, None, control, cx)
 }

@@ -2928,3 +2928,58 @@ async fn word_range_at_picks_word_and_gap_runs_exp282(cx: &mut TestAppContext) {
         assert_eq!(block.word_range_at(0), 0..0);
     });
 }
+
+#[gpui::test]
+async fn typing_a_backslash_stays_visible_in_a_paragraph_exp697(cx: &mut TestAppContext) {
+    // EXP-697: a typed backslash used to vanish as soon as the next character
+    // was ASCII punctuation, because the visible text was re-read as markdown
+    // source on every keystroke.
+    let block = cx.new(|cx| {
+        Block::with_record(
+            cx,
+            BlockRecord::new(BlockKind::Paragraph, InlineTextTree::from_markdown("")),
+        )
+    });
+
+    block.update(cx, |block, cx| {
+        block.selected_range = 0..0;
+        block.sync_inline_projection_for_focus(true);
+        for ch in "C:\\Users\\me.txt".chars() {
+            let caret = block.cursor_offset();
+            block.replace_text_in_visible_range(caret..caret, &ch.to_string(), None, false, cx);
+        }
+    });
+
+    block.read_with(cx, |block, _cx| {
+        assert_eq!(block.record.title.visible_text(), "C:\\Users\\me.txt");
+    });
+}
+
+#[gpui::test]
+async fn typing_a_backslash_beside_a_link_stays_visible_exp697(cx: &mut TestAppContext) {
+    // A paragraph holding an inline link edits in MARKDOWN space, so the
+    // inserted characters land in source and are re-parsed as markdown.
+    let block = cx.new(|cx| {
+        Block::with_record(
+            cx,
+            BlockRecord::new(
+                BlockKind::Paragraph,
+                InlineTextTree::from_markdown("see [x](https://example.com) "),
+            ),
+        )
+    });
+
+    block.update(cx, |block, cx| {
+        let end = block.record.title.visible_text().len();
+        block.selected_range = end..end;
+        block.sync_inline_projection_for_focus(true);
+        for ch in "a\\.b".chars() {
+            let caret = block.cursor_offset();
+            block.replace_text_in_visible_range(caret..caret, &ch.to_string(), None, false, cx);
+        }
+    });
+
+    block.read_with(cx, |block, _cx| {
+        assert_eq!(block.record.title.visible_text(), "see x a\\.b");
+    });
+}

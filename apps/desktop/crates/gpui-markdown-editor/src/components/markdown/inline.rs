@@ -1205,7 +1205,10 @@ impl InlineTextTree {
         }
         temp.append_tree(after);
         temp.normalize_fragments();
-        temp.normalize_inline_syntax_with_link_references(reference_definitions)
+        // EXP-697 vendoring: the text being re-normalized here is what the user
+        // SEES, not markdown source, so a visible backslash stays literal (see
+        // [`EscapeMode`]).
+        temp.normalize_inline_syntax_with_escapes(reference_definitions, EscapeMode::Literal)
     }
 
     /// Like `replace_visible_range` but skips marker normalization so
@@ -1255,6 +1258,14 @@ impl InlineTextTree {
         &self,
         reference_definitions: &LinkReferenceDefinitions,
     ) -> InlineEditResult {
+        self.normalize_inline_syntax_with_escapes(reference_definitions, EscapeMode::Interpret)
+    }
+
+    fn normalize_inline_syntax_with_escapes(
+        &self,
+        reference_definitions: &LinkReferenceDefinitions,
+        escapes: EscapeMode,
+    ) -> InlineEditResult {
         let visible_text = self.visible_text();
         let tokens = flatten_tokens(&self.fragments);
         let mut builder = NormalizeBuilder::new(visible_text.len());
@@ -1267,6 +1278,7 @@ impl InlineTextTree {
             &mut builder,
             false,
             reference_definitions,
+            escapes,
         );
         InlineEditResult {
             tree: InlineTextTree::from_fragments(builder.fragments),
@@ -1480,6 +1492,32 @@ struct ParseResult {
     closed: bool,
 }
 
+/// EXP-697 vendoring: whether a normalization pass is reading MARKDOWN off the
+/// wire or re-normalizing text the user can already SEE.
+///
+/// A backslash escape is a WIRE concept: `\*` is two source bytes standing for
+/// one visible `*`. Upstream ran the same escape arm on both passes, so every
+/// keystroke re-interpreted the visible text as source and a typed `\` was
+/// deleted the moment the next character was ASCII punctuation — literally no
+/// way to type a backslash into a paragraph. The serializer already writes a
+/// visible `\` back out as `\\` (`literal_char_needs_escape`), so keeping the
+/// escape arm off the visible pass is the exact inverse of the wire pass:
+/// visible `\*` saves as `\\\*` and re-parses to visible `\*`.
+///
+/// Only the escape arm in [`parse_until`] and the link-label recursion below it
+/// are mode-aware. The escape-skipping lookaheads (`has_closing_delimiter`,
+/// `locate_script_close`, `locate_inline_link`) stay in wire mode on purpose:
+/// skipping can only make them find FEWER closers than the literal pass would,
+/// so a `has_closing_delimiter` "yes" still implies the body pass closes, and a
+/// "no" merely leaves the opener as literal text. Nothing is dropped either way.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EscapeMode {
+    /// Markdown source: `\` before ASCII punctuation is consumed as an escape.
+    Interpret,
+    /// Visible text: a backslash the user can see is literal text.
+    Literal,
+}
+
 /// Builds the output fragments during normalization (marker parsing).
 /// Keeps track of the visible-to-normalized offset mapping so that
 /// selections and cursors can be mapped to the normalized tree.
@@ -1593,6 +1631,7 @@ fn parse_until(
     builder: &mut NormalizeBuilder,
     inside_code: bool,
     reference_definitions: &LinkReferenceDefinitions,
+    escapes: EscapeMode,
 ) -> ParseResult {
     let body_start = index;
     while index < tokens.len() {
@@ -1656,6 +1695,7 @@ fn parse_until(
         }
 
         if !inside_code
+            && escapes == EscapeMode::Interpret
             && tokens[index].ch == '\\'
             && let Some(escaped_len) = escaped_sequence_token_len(tokens, index)
         {
@@ -1686,6 +1726,7 @@ fn parse_until(
                 extra_html_style,
                 builder,
                 reference_definitions,
+                escapes,
             ) {
                 index = next_index;
                 continue;
@@ -1699,6 +1740,7 @@ fn parse_until(
                     extra_html_style,
                     builder,
                     reference_definitions,
+                    escapes,
                 )
             {
                 index = next_index;
@@ -1735,6 +1777,7 @@ fn parse_until(
                         builder,
                         is_code_delim,
                         reference_definitions,
+                        escapes,
                     );
                     if parsed.closed {
                         index = parsed.next_index;
@@ -1859,13 +1902,14 @@ fn parse_inline_link(
     extra_html_style: Option<HtmlInlineStyle>,
     builder: &mut NormalizeBuilder,
     reference_definitions: &LinkReferenceDefinitions,
+    escapes: EscapeMode,
 ) -> Option<usize> {
     let located = locate_inline_link(tokens, index, reference_definitions)?;
     let label_end = located.label_end;
     let label_tokens = &tokens[index + 1..label_end];
     let label_markdown = tokens_to_string(label_tokens);
     let mut label_result = InlineTextTree::plain(label_markdown)
-        .normalize_inline_syntax_with_link_references(reference_definitions);
+        .normalize_inline_syntax_with_escapes(reference_definitions, escapes);
     apply_extra_style_to_fragments(
         &mut label_result.tree.fragments,
         extra_style,
@@ -1997,6 +2041,7 @@ fn parse_inline_html_container(
     extra_html_style: Option<HtmlInlineStyle>,
     builder: &mut NormalizeBuilder,
     reference_definitions: &LinkReferenceDefinitions,
+    escapes: EscapeMode,
 ) -> Option<usize> {
     let tag = locate_inline_html_open_tag(tokens, index)?;
     if tag.self_closing || !is_inline_tag(&tag.name) || has_dangerous_attrs(&tag.attrs) {
@@ -2023,6 +2068,7 @@ fn parse_inline_html_container(
         builder,
         false,
         reference_definitions,
+        escapes,
     );
     for token in &tokens[close_start..=close_end] {
         builder.drop_token(token);
@@ -2808,12 +2854,21 @@ fn literal_char_needs_escape(scan: &mut LiteralEscapeScan<'_>, index: usize, ch:
     // intra-word `*` (see NOTICE).
     let at_line_start = prev.is_none();
     match ch {
-        // A backslash is only special before ASCII punctuation — except in
-        // the visible sequence `!\[`, which the parse side keeps verbatim
+        // A backslash is special before ASCII punctuation — except in the
+        // visible sequence `!\[`, which the parse side keeps verbatim
         // (escaped-literal image syntax; see `escaped_sequence_token_len`):
         // that backslash must go out bare so the wire form stays `!\[`.
+        //
+        // EXP-697: it is equally special at the END of a fragment and before a
+        // newline, where what follows is not this fragment's business. Emitting
+        // it bare there was lossy: the very next thing on the wire supplies the
+        // character it escapes — a styled run (`a\` + **b** -> `a\**b**`, which
+        // re-parses to `a*` plus a stray `*b**`), a hard break (`a\` + newline),
+        // or the next character typed through the markdown-space edit path.
         '\\' => {
-            next.is_some_and(|c| c.is_ascii_punctuation())
+            (next.is_none()
+                || next == Some('\n')
+                || next.is_some_and(|c| c.is_ascii_punctuation()))
                 && !(next == Some('[') && prev == Some('!'))
         }
         // `*` can open (next non-space) or close (prev non-space) emphasis
@@ -3936,9 +3991,11 @@ mod tests {
         let tree = InlineTextTree::from_markdown("\\*\\*<u>text</u>\\\\");
 
         assert_eq!(tree.visible_text(), "**<u>text</u>\\");
-        // EXP-261 vendoring: a trailing backslash precedes no punctuation and
-        // needs no escape.
-        assert_eq!(tree.serialize_markdown(), "\\*\\*<u>text</u>\\");
+        // EXP-697: a backslash at the end of a fragment keeps its escape —
+        // whatever follows it on the wire (a styled run, a hard break, the
+        // next character typed) would otherwise be the thing it escapes. The
+        // input is now byte-identical through the round trip.
+        assert_eq!(tree.serialize_markdown(), "\\*\\*<u>text</u>\\\\");
     }
 
     #[test]
@@ -4743,6 +4800,114 @@ mod tests {
 
         // Raw inline-image markdown itself still round-trips verbatim.
         assert_serializes_to_fixpoint_exp261("![alt](./img.png)", "![alt](./img.png)");
+    }
+
+    /// Type `text` one character at a time into an empty tree, the way the
+    /// block runtime feeds keystrokes through `replace_visible_range`.
+    fn type_visible_text_exp697(text: &str) -> InlineTextTree {
+        let mut tree = InlineTextTree::plain(String::new());
+        for ch in text.chars() {
+            let at = tree.visible_len();
+            tree = tree
+                .replace_visible_range(
+                    at..at,
+                    &ch.to_string(),
+                    InlineInsertionAttributes::default(),
+                )
+                .tree;
+        }
+        tree
+    }
+
+    #[test]
+    fn a_typed_backslash_stays_visible_exp697() {
+        // Every keystroke re-normalizes the VISIBLE text. Upstream ran the
+        // wire escape arm there too, so the backslash vanished the moment the
+        // next character was ASCII punctuation — no way to type one at all.
+        let tree = type_visible_text_exp697("\\");
+        assert_eq!(tree.visible_text(), "\\");
+
+        let tree = type_visible_text_exp697("\\.");
+        assert_eq!(tree.visible_text(), "\\.");
+        // The serializer is the exact inverse: a visible `\` before
+        // punctuation goes out escaped, and the wire form re-parses to it.
+        assert_eq!(tree.serialize_markdown(), "\\\\.");
+        assert_eq!(InlineTextTree::from_markdown("\\\\.").visible_text(), "\\.");
+
+        // The shapes people actually type a backslash for.
+        for typed in ["C:\\Users\\me", "a\\*b", "\\\\server\\share", "50\\% off"] {
+            let tree = type_visible_text_exp697(typed);
+            assert_eq!(tree.visible_text(), typed, "typing {typed:?}");
+            assert_eq!(
+                InlineTextTree::from_markdown(&tree.serialize_markdown()).visible_text(),
+                typed,
+                "round trip of typed {typed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn typed_markdown_markers_still_normalize_exp697() {
+        // Only the escape arm is off on the visible pass; the delimiters that
+        // make the editor a WYSIWYG one keep working.
+        let tree = type_visible_text_exp697("**bold**");
+        assert_eq!(tree.visible_text(), "bold");
+        assert_eq!(tree.serialize_markdown(), "**bold**");
+
+        let tree = type_visible_text_exp697("a `code` b");
+        assert_eq!(tree.visible_text(), "a code b");
+        assert_eq!(tree.serialize_markdown(), "a `code` b");
+    }
+
+    #[test]
+    fn a_backslash_typed_into_a_link_label_stays_visible_exp697() {
+        // The label recursion inherits the caller's mode, so an edit inside a
+        // link label does not eat the backslash either.
+        let tree = type_visible_text_exp697("[a\\.b](https://example.com)");
+        assert_eq!(tree.visible_text(), "a\\.b");
+        assert_eq!(
+            tree.serialize_markdown(),
+            "[a\\\\.b](https://example.com)"
+        );
+        assert_eq!(
+            InlineTextTree::from_markdown(&tree.serialize_markdown()).visible_text(),
+            "a\\.b"
+        );
+    }
+
+    #[test]
+    fn a_trailing_backslash_keeps_its_escape_exp697() {
+        // `a\` followed by a styled run used to serialize as `a\**b**`, which
+        // re-parses to `a*` plus a stray `*b**`.
+        let mut tree = InlineTextTree::plain("a\\b");
+        assert!(tree.toggle_bold(2..3));
+        let serialized = tree.serialize_markdown();
+        assert_eq!(serialized, "a\\\\**b**");
+        assert_eq!(
+            InlineTextTree::from_markdown(&serialized).visible_text(),
+            "a\\b"
+        );
+
+        // Same at the end of a hard-broken line.
+        let tree = InlineTextTree::plain("a\\\nb");
+        let serialized = tree.serialize_markdown();
+        assert_eq!(serialized, "a\\\\\nb");
+        assert_eq!(
+            InlineTextTree::from_markdown(&serialized).visible_text(),
+            "a\\\nb"
+        );
+    }
+
+    #[test]
+    fn wire_parsing_still_interprets_escapes_exp697() {
+        // The mode split must not weaken the wire side: content stored by the
+        // other clients still unescapes exactly as before.
+        assert_eq!(InlineTextTree::from_markdown("1\\. x").visible_text(), "1. x");
+        assert_eq!(InlineTextTree::from_markdown("a\\*b").visible_text(), "a*b");
+        assert_eq!(
+            InlineTextTree::from_markdown("back\\\\slash").visible_text(),
+            "back\\slash"
+        );
     }
 
     #[test]

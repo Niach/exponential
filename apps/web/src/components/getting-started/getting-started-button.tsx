@@ -8,16 +8,15 @@ import { useGettingStartedProgressContext } from "@/hooks/use-getting-started-pr
 
 // Sidebar-footer re-entry point for the "Getting started" cards (EXP-88):
 // the inline block on the empty board disappears once issues exist, so this
-// keeps the setup guidance reachable. EXP-548: rendered until every entry is
-// done (no dismissal), and not at all while the signals still load — the
-// desktop rail entry follows the exact same rule. EXP-686: the sheet itself
-// lives at the team layout (`getting-started-sheet.tsx`), so the Actions and
-// Automations lightbulbs can open it once this entry has hidden itself.
+// keeps the setup guidance reachable. EXP-697: ALWAYS rendered (a completed
+// checklist used to hide it) — the sheet doubles as the way back to the
+// suggestions and install snippets, so the entry stays. Only the initial
+// signal load hides it, to avoid a flash of state.
 export function GettingStartedButton() {
-  const { loading, complete } = useGettingStartedProgressContext()
+  const { loading } = useGettingStartedProgressContext()
   const sheet = useGettingStartedSheet()
 
-  if (loading || complete) return null
+  if (loading) return null
 
   return (
     <SidebarMenuItem>

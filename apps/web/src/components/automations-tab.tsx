@@ -391,11 +391,7 @@ export function AutomationsTab({
     <>
       <div className="space-y-6">
         <div>
-          <GlassSectionHeader
-            label="Automations"
-            count={automations.length}
-            trailing={headerTrailing}
-          />
+          <GlassSectionHeader label="Automations" trailing={headerTrailing} />
           {automations.length === 0 ? (
             <div className="px-1 py-3 text-sm text-muted-foreground">
               No automations yet.
@@ -422,10 +418,7 @@ export function AutomationsTab({
         </div>
 
         <div>
-          <GlassSectionHeader
-            label="Recent automated runs"
-            count={automatedRuns.length}
-          />
+          <GlassSectionHeader label="Recent automated runs" />
           {automatedRuns.length === 0 ? (
             <div className="px-1 py-3 text-sm text-muted-foreground">
               Nothing has fired yet.

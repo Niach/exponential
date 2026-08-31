@@ -951,6 +951,10 @@ pub(crate) struct AlertSpec {
     ok_variant: ButtonVariant,
     /// Total window height, titlebar strip included (see [`AlertSpec::height`]).
     height: Pixels,
+    /// Whether the footer draws Cancel next to OK. `false` (EXP-697) is for
+    /// the informational alerts that only have something to dismiss — the
+    /// window's own ✕ / Escape does the same job as a Cancel there.
+    cancel: bool,
     /// Extra block between the description and the footer.
     content: Option<AlertContentFn>,
     /// Return `true` to close the window (a `false` keeps it open — the
@@ -971,9 +975,17 @@ impl AlertSpec {
             ok_variant: ButtonVariant::Primary,
             // EXP-285: trimmed 240 → 220 — alerts size closer to content.
             height: px(220.),
+            cancel: true,
             content: None,
             on_ok: Rc::new(|_, _| true),
         }
+    }
+
+    /// Drop the Cancel button — an informational alert has nothing to cancel,
+    /// only to dismiss (EXP-697). Escape / ✕ still close the window.
+    pub(crate) fn without_cancel(mut self) -> Self {
+        self.cancel = false;
+        self
     }
 
     pub(crate) fn ok_variant(mut self, variant: ButtonVariant) -> Self {
@@ -1064,13 +1076,15 @@ impl Render for AlertView {
                     .flex_shrink_0()
                     .justify_end()
                     .gap_2()
-                    .child(
-                        Button::new("native-alert-cancel")
-                            .outline().cursor_pointer()
-                            .web_sm()
-                            .label("Cancel")
-                            .on_click(|_, window, cx| close_dialog_window(window, cx)),
-                    )
+                    .when(self.spec.cancel, |this| {
+                        this.child(
+                            Button::new("native-alert-cancel")
+                                .outline().cursor_pointer()
+                                .web_sm()
+                                .label("Cancel")
+                                .on_click(|_, window, cx| close_dialog_window(window, cx)),
+                        )
+                    })
                     .child(
                         Button::new("native-alert-ok")
                             .with_variant(self.spec.ok_variant)

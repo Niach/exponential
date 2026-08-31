@@ -1153,12 +1153,12 @@ impl RailView {
                             }),
                         );
                     }
-                    menu = menu.separator();
                 }
+                // EXP-697: no dividers in menus (the mobile glass-menu
+                // contract) — the "Switch team" label carries the grouping.
                 menu
                     .menu_with_icon("New team", registry::UI_ADD, Box::new(CreateTeam))
                     .menu_with_icon("Join team", registry::UI_INVITE, Box::new(JoinTeam))
-                    .separator()
                     .menu("Sign out", Box::new(SignOut))
             })
     }

@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.R
@@ -95,11 +96,17 @@ internal fun PickerRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // EXP-697: the LABEL keeps its width and the VALUE takes the rest.
+        // The other way round (a weighted label next to an unweighted value)
+        // measures the value first at full width, so a long picked name — an
+        // action's, say — squeezed the label down to a wrapped column of
+        // single letters.
         Text(
             label,
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
-            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         Text(
             value,
@@ -109,6 +116,8 @@ internal fun PickerRow(
             ),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f).padding(start = 8.dp),
         )
         Icon(
             ExpIcons.uiChevronRight,

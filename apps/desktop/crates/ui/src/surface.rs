@@ -128,6 +128,28 @@ pub(crate) fn glass_picker_row(
         )
 }
 
+/// How wide a picker row's trailing VALUE may grow before it ellipsises
+/// (EXP-697). It has to be a PIXEL cap, not a percentage: the trigger sits
+/// inside gpui-component's own `Popup` wrapper div, which we cannot style, and
+/// a flex item's automatic minimum size is only clamped by a DEFINITE
+/// `max_size` (taffy `flexbox.rs`, "4.5. Automatic Minimum Size of Flex
+/// Items"). Without it the wrapper is sized to the label's min-content width
+/// and a long name wraps onto a second line instead of truncating. 240 clears
+/// the label column in every dialog that carries a picker row.
+const PICKER_VALUE_MAX_W: f32 = 240.;
+
+/// The trailing label of a `dropdown_menu` picker trigger, capped and
+/// ellipsised (EXP-697). Pass it to [`gpui::ParentElement::child`] on the
+/// trigger `Button` INSTEAD of `Button::label`: upstream renders `label` in a
+/// `flex_none` box that neither shrinks nor truncates, so a long name wraps to
+/// two lines and blows the row's height.
+pub(crate) fn picker_value_label(label: impl Into<SharedString>) -> Div {
+    div()
+        .max_w(px(PICKER_VALUE_MAX_W))
+        .truncate()
+        .child(label.into())
+}
+
 /// Strip a [`Select`]'s field chrome so it reads as the trailing VALUE of a
 /// [`glass_picker_row`]: no fill, no border, no focus ring box
 /// (`appearance(false)`), no box padding or height of its own (the row's

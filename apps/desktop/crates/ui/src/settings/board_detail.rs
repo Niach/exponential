@@ -422,8 +422,8 @@ impl BoardDetailPane {
                 // repos — offer an explicit reload for repos connected on
                 // another client (doubles as the Failed state's retry).
                 let pane = pane.clone();
-                menu.separator()
-                    .item(PopupMenuItem::new("Refresh list").on_click(move |_, _, cx| {
+                // EXP-697: no dividers in menus.
+                menu.item(PopupMenuItem::new("Refresh list").on_click(move |_, _, cx| {
                         pane.update(cx, |this, cx| {
                             this.repos = RepoLoad::Idle;
                             cx.notify();

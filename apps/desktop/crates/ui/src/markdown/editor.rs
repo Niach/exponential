@@ -697,7 +697,8 @@ fn attach_image_context_menu(
             }
         }
         if let Some((editor, block_id)) = editor.clone() {
-            menu = menu.separator().item(
+            // EXP-697: no dividers in menus.
+            menu = menu.item(
                 PopupMenuItem::element(|_, cx| {
                     div()
                         .text_color(cx.theme().danger)

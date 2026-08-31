@@ -902,10 +902,13 @@ html {
 }
 
 /* EXP-587: the static insert strip under a desktop editor (emoji / image /
-   attach). Rail buttons, no chrome: it reads as part of the text box. */
+   attach). Rail buttons, no chrome: it reads as part of the text box.
+   EXP-697: the side padding lines the FIRST GLYPH up with the text above —
+   .tiptap-content insets 1.25rem and the 14px glyph sits 7px into its 28px
+   button, so the bar starts 7px short of the text inset. */
 .editor-insert-bar {
   margin-top: 2px;
-  padding: 0;
+  padding: 0 calc(1.25rem - 7px);
 }
 
 /* The link mode's URL field — the rail's only text input. */

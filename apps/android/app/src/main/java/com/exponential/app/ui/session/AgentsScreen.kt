@@ -195,7 +195,7 @@ fun AgentsScreen(
                             ownDevices.isEmpty() -> item(key = "__no_machine__") {
                                 HintRow(
                                     "No machines yet. Open the Exponential desktop app, or add a " +
-                                        "server on the web.",
+                                        "device on the web.",
                                 )
                             }
                             else -> items(ownDevices, key = { "dev_${it.deviceId}" }) { device ->

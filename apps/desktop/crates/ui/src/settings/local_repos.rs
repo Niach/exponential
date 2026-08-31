@@ -785,7 +785,8 @@ impl LocalReposPane {
                             repository_id.is_none(),
                         );
                     }
-                    menu.separator().menu_with_icon(
+                    // EXP-697: no dividers in menus.
+                    menu.menu_with_icon(
                         "New shell",
                         Icon::new(registry::NAV_TERMINAL),
                         Box::new(OpenTerminalHere { path: path.clone() }),

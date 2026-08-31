@@ -28,10 +28,11 @@
 //! restore. It is deliberately NOT a checklist entry: no new `EntryKey`, and
 //! `ENTRY_TITLES`/`ENTRY_DESCRIPTIONS` stay byte-equal with the web.
 //!
-//! There is NO dismissal (EXP-548): the rail entry (and the page, which
-//! leaves on its own) simply disappears once every visible entry is done,
-//! and stays hidden while the one-shots are still unanswered — exactly the
-//! web rule (`loading || complete`).
+//! There is NO dismissal (EXP-548) and, since EXP-697, no auto-hide either:
+//! the rail entry stays for good once the one-shots have answered (the web
+//! rule is `loading` alone now), and a complete checklist no longer evicts
+//! the page. Nothing persists a "hidden" flag on either side — the EXP-470
+//! `gettingStartedDismissedAt` stamp was deleted in EXP-589.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -562,9 +563,11 @@ impl GettingStartedProgress {
     }
 }
 
-/// Whether the rail shows the Getting-started entry (EXP-548, the web
-/// sidebar rule): signed in with an active team, signals answered, and NOT
-/// every entry done. Rendering the rail is what keeps the signals fresh.
+/// Whether the rail shows the Getting-started entry (the web sidebar rule):
+/// signed in with an active team and the signals answered. EXP-697 dropped the
+/// EXP-548 "hide once every entry is done" clause on both clients — the page
+/// stays reachable for good, and only the initial loading state hides the
+/// entry. Rendering the rail is what keeps the signals fresh.
 pub(crate) fn getting_started_visible(nav: &Entity<Navigation>, cx: &mut App) -> bool {
     if queries::active_account(cx).is_none() {
         return false;
@@ -576,7 +579,7 @@ pub(crate) fn getting_started_visible(nav: &Entity<Navigation>, cx: &mut App) ->
     progress.update(cx, |progress, cx| {
         progress.ensure(&team_id, false, cx);
         let snapshot = progress.snapshot(&team_id, cx);
-        !snapshot.loading && !snapshot.complete
+        !snapshot.loading
     })
 }
 
@@ -956,7 +959,7 @@ fn team_settings_url(team_id: &str, section: &str, cx: &App) -> Option<String> {
 }
 
 impl Render for GettingStartedView {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
         let team_id = active_team_id(&self.nav, cx);
         // EXP-686: the tab is navigation state, read fresh every render — the
@@ -985,19 +988,12 @@ impl Render for GettingStartedView {
                     entries,
                     done,
                     total,
-                    complete,
+                    complete: _,
                 } = snapshot;
 
-                // EXP-548: no dismissal — the moment the last entry completes
-                // the rail entry is gone, so the page leaves too (the web
-                // sheet unmounts with its button). Deferred: never mutate the
-                // navigation from inside a render pass. EXP-686: only on the
-                // checklist tab — the suggestions tab is reachable from the
-                // Actions/Automations lightbulb precisely BECAUSE the
-                // checklist may already be complete.
-                if complete && tab == GettingStartedTab::FirstSteps {
-                    window.defer(cx, |window, cx| set_screen(window, cx, None));
-                }
+                // EXP-697: a complete checklist no longer evicts the page —
+                // the rail entry is permanent now, so leaving on the last
+                // check would strand the user mid-read.
 
                 // The progress bar belongs to the checklist, not to the page.
                 let progress: gpui::AnyElement = if loading
@@ -1051,16 +1047,13 @@ impl Render for GettingStartedView {
                                     render_suggestion_row(suggestion, team_id.clone(), cx)
                                 })
                                 .collect();
+                        // NO gap on the headed section (EXP-697): the
+                        // header's `pb_2` IS the 8px to the list, so the
+                        // rows carry their own gapped column.
                         v_flex()
                             .min_w_0()
-                            .gap_2()
-                            .child(section_heading(
-                                "Suggestions",
-                                Some(crate::action_suggestions::ACTION_SUGGESTIONS.len()),
-                                None,
-                                cx,
-                            ))
-                            .children(rows)
+                            .child(section_heading("Suggestions", None, cx))
+                            .child(v_flex().min_w_0().gap_2().children(rows))
                             .into_any_element()
                     }
                 };
