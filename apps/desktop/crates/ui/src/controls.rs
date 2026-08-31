@@ -14,7 +14,7 @@ use gpui::{
     div, px, App, Div, FontWeight, InteractiveElement as _, ParentElement as _, SharedString,
     Styled,
 };
-use gpui_component::{v_flex, ActiveTheme as _, Icon, Sizable, Size};
+use gpui_component::{menu::PopupMenuItem, v_flex, ActiveTheme as _, Icon, Sizable, Size};
 use theme::tokens as t;
 
 /// Web `h-9` (Button default / Input).
@@ -156,6 +156,22 @@ pub(crate) fn glass_icon_button(
         .icon(icon)
         .border_1()
         .border_color(t::glass::STROKE_CARD.to_hsla())
+}
+
+/// A DESTRUCTIVE popup-menu item (EXP-697): label AND glyph in the theme's
+/// danger red, matching the iOS/Android glass menus where delete/remove always
+/// reads red. `PopupMenuItem` has no danger variant upstream, so the label
+/// rides `PopupMenuItem::element` — the only escape hatch that lets a menu row
+/// paint its own text color.
+pub(crate) fn danger_menu_item(
+    label: impl Into<SharedString>,
+    icon: Icon,
+    cx: &App,
+) -> PopupMenuItem {
+    let danger = cx.theme().danger;
+    let label = label.into();
+    PopupMenuItem::element(move |_, _| div().text_color(danger).child(label.clone()))
+        .icon(icon.text_color(danger))
 }
 
 /// Web segmented `TabsList` capsule (`components/ui/tabs.tsx`): h-9 full-width

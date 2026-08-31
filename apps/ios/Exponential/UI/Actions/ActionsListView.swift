@@ -352,10 +352,10 @@ struct ActionsListView: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    // EXP-574 (web parity): "Actions · count" header with the
+                    // EXP-574 (web parity): the "Actions" header with the
                     // "New action" entry (EXP-431) as its trailing control.
                     HStack(spacing: 6) {
-                        sectionLabel("Actions", count: vm.actions.count)
+                        sectionLabel("Actions")
                         Spacer(minLength: 0)
                         newActionButton
                     }
@@ -386,16 +386,13 @@ struct ActionsListView: View {
         }
     }
 
-    /// The web `SectionLabel` pair — "Actions 6", "Automations 2" — heading
-    /// each segment's list (EXP-574 layout parity).
-    private func sectionLabel(_ title: String, count: Int) -> some View {
+    /// The web `SectionLabel` — "Actions", "Automations" — heading each
+    /// segment's list (EXP-574 layout parity; EXP-697 dropped the count).
+    private func sectionLabel(_ title: String) -> some View {
         HStack(spacing: 6) {
             Text(title)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white)
-            Text("\(count)")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         }
         .padding(.horizontal, 4)
     }
@@ -421,9 +418,9 @@ struct ActionsListView: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    // EXP-574 (web parity): counted section headers.
+                    // EXP-574 (web parity): section headers.
                     HStack(spacing: 6) {
-                        sectionLabel("Automations", count: vm.automations.count)
+                        sectionLabel("Automations")
                         Spacer(minLength: 0)
                         if vm.permissions.isOwner {
                             newAutomationButton(vm)
@@ -458,7 +455,7 @@ struct ActionsListView: View {
     @ViewBuilder
     private func recentAutomatedRuns(_ vm: ActionsViewModel) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionLabel("Recent automated runs", count: vm.automationRuns.count)
+            sectionLabel("Recent automated runs")
                 .padding(.top, 12)
             // EXP-637: a resume is a remote start like any other — the same
             // "waiting for the desktop" caption reports it here too.
@@ -825,18 +822,12 @@ struct ActionsListView: View {
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(action.name)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    if action.repositoryId != nil {
-                        // Small repo indicator: this action clones its repo.
-                        AppIcon(AppIcons.actionRepository, size: 11)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .accessibilityLabel("Runs in a repository")
-                    }
-                }
+                // EXP-697: no repo glyph beside the name — the row says what
+                // the action is, not where it runs.
+                Text(action.name)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
                 if let description = action.description, !description.isEmpty {
                     Text(description)
                         .font(.caption)

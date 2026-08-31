@@ -53,7 +53,7 @@ export function IssuePickerDialog({
       <DialogContent
         mobile="sheet-full"
         showCloseButton={false}
-        className="flex flex-col gap-0 overflow-hidden p-0 max-sm:px-0 sm:top-[15%] sm:max-h-[60vh] sm:max-w-lg sm:translate-y-0"
+        className="flex flex-col gap-0 overflow-hidden p-0 sm:p-0 max-sm:px-0 sm:top-[15%] sm:max-h-[60vh] sm:max-w-lg sm:translate-y-0"
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
         <div className="flex items-center gap-2 px-3 py-3 border-b border-border/50">

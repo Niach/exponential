@@ -203,7 +203,7 @@ pub(crate) fn comment_row(
                     )
                     .dropdown_menu({
                         let timeline = cx.entity();
-                        move |menu, _, _| {
+                        move |menu, _, cx| {
                             let timeline_edit = timeline.clone();
                             let timeline_delete = timeline.clone();
                             let edit_id = edit_id.clone();
@@ -214,7 +214,12 @@ pub(crate) fn comment_row(
                                 });
                             }))
                             .item(
-                                PopupMenuItem::new("Delete").on_click(move |_, _, cx| {
+                                crate::controls::danger_menu_item(
+                                    "Delete",
+                                    Icon::new(registry::UI_DELETE),
+                                    cx,
+                                )
+                                .on_click(move |_, _, cx| {
                                     timeline_delete.update(cx, |timeline, cx| {
                                         timeline.delete_comment(&delete_id, cx);
                                     });

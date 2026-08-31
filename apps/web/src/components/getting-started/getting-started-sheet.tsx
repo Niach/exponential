@@ -132,9 +132,9 @@ export function SuggestionsButton() {
   const sheet = useGettingStartedSheet()
   return (
     <Button
-      variant="ghost"
+      variant="glass"
       size="icon"
-      className="size-6 text-muted-foreground"
+      className="size-6"
       aria-label="Suggestions"
       title="Suggestions"
       onClick={() => sheet.open(`suggestions`)}

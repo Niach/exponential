@@ -265,7 +265,9 @@ impl AutomationDialogView {
             .py_0()
             .text_color(foreground.opacity(0.7))
             .dropdown_caret(true)
-            .label(label)
+            // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
+            // box, so a long action name wraps onto a second line.
+            .child(crate::surface::picker_value_label(label))
             .dropdown_menu(move |mut menu, _window, _cx| {
                 for action in &actions {
                     let view = view.clone();

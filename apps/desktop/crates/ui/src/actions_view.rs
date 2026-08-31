@@ -22,7 +22,6 @@
 //! `actions.get` on open). ▶ Run opens the unified Start-coding dialog's
 //! Actions tab, which owns agent/model/effort and the typed input fields.
 
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, App, ClickEvent, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
     Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
@@ -47,14 +46,17 @@ const PAGE_COLUMN_W: f32 = 1024.;
 
 /// The web `GlassSectionHeader` (`components/ui/glass-rows.tsx`, EXP-616): a
 /// PLAIN-TEXT heading — no band, no fill, no border — `px_1 pt_1 pb_2`, label
-/// `text_sm` MEDIUM at 70% foreground, the optional count `text_xs` at 50%,
-/// then a spacer and the optional trailing control.
+/// `text_sm` MEDIUM at 70% foreground, then a spacer and the optional trailing
+/// control. EXP-697 dropped the row count that used to trail the label.
 /// Shared with [`crate::machines::MachinesSection`] and
 /// [`crate::automations_view`] so every page section carries the identical
 /// header design (EXP-642 replaced the old fused band).
+///
+/// The `pb_2` IS the gap to the list below it — a section wrapper that adds
+/// its own `gap_2` doubles it (EXP-697); keep the rows in a nested
+/// `v_flex().gap_2()` instead.
 pub(crate) fn section_heading(
     label: &'static str,
-    count: Option<usize>,
     trailing: Option<gpui::AnyElement>,
     cx: &App,
 ) -> gpui::AnyElement {
@@ -74,12 +76,6 @@ pub(crate) fn section_heading(
                 .text_color(foreground.opacity(0.7))
                 .child(SharedString::from(label)),
         )
-        .children(count.map(|count| {
-            div()
-                .text_xs()
-                .text_color(foreground.opacity(0.5))
-                .child(SharedString::from(format!("{count}")))
-        }))
         .child(div().flex_1())
         .children(trailing)
         .into_any_element()
@@ -122,13 +118,14 @@ pub(crate) fn page_scaffold(
 
 /// The subtle icon-only lightbulb every list header carries next to its
 /// "New …" button (EXP-686): the curated action suggestions moved to the
-/// Getting-started page's second tab, and this is the way back to them —
-/// reachable even once the checklist is complete and its rail entry is gone.
-pub(crate) fn suggestions_button(id: &'static str) -> gpui::AnyElement {
-    Button::new(id)
-        .ghost()
-        .web_icon_sm()
-        .icon(Icon::from(registry::ACTION_SUGGESTION))
+/// Getting-started page's second tab, and this is the way back to them from
+/// the list they seed.
+///
+/// EXP-697: it wears the shared round glass affordance
+/// ([`crate::controls::glass_icon_button`]) instead of a bare ghost icon, so
+/// it reads as a control next to the outlined "New …" button.
+pub(crate) fn suggestions_button(id: &'static str, cx: &App) -> gpui::AnyElement {
+    crate::controls::glass_icon_button(id, Icon::from(registry::ACTION_SUGGESTION), cx)
         .tooltip("Suggestions")
         .on_click(|_: &ClickEvent, window, cx| {
             navigate(
@@ -145,14 +142,6 @@ pub(crate) fn suggestions_button(id: &'static str) -> gpui::AnyElement {
 pub struct ActionsView {
     nav: Entity<Navigation>,
     scroll: ScrollHandle,
-    /// `repositories.list` rows for the rows' repo glyphs, keyed by the team
-    /// they belong to (a team switch refetches).
-    repos: Option<(String, Vec<crate::action_run::ActionRepoRow>)>,
-    /// The team the current fetch belongs to (set before the spawn so a
-    /// render storm can't stack requests).
-    repos_key: Option<String>,
-    /// Bumped per fetch — a stale response checks it before landing.
-    repos_seq: u64,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -175,51 +164,12 @@ impl ActionsView {
         Self {
             nav,
             scroll: ScrollHandle::new(),
-            repos: None,
-            repos_key: None,
-            repos_seq: 0,
             _subscriptions: subscriptions,
         }
     }
 
     fn team_id(&self, cx: &App) -> Option<String> {
         active_team_id(&self.nav, cx)
-    }
-
-    /// Fetch the team's repos once per team — the rows' repo glyphs only
-    /// need the id → fullName join. A failed fetch degrades to glyph-less
-    /// rows.
-    fn ensure_repos(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
-        if self.repos_key.as_deref() == Some(team_id) {
-            return;
-        }
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        self.repos_key = Some(team_id.to_string());
-        self.repos_seq += 1;
-        let seq = self.repos_seq;
-        let team = team_id.to_string();
-        cx.spawn(async move |this, cx| {
-            let fetch_team = team.clone();
-            let result = cx
-                .background_executor()
-                .spawn(async move { crate::action_run::fetch_repositories(&trpc, &fetch_team) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.repos_seq != seq {
-                    return;
-                }
-                match result {
-                    Ok(rows) => {
-                        this.repos = Some((team, rows));
-                        cx.notify();
-                    }
-                    Err(err) => log::warn!("actions: repositories.list failed: {err}"),
-                }
-            });
-        })
-        .detach();
     }
 
     /// ▶ Run — open the unified Start-coding dialog's Actions tab with this
@@ -264,8 +214,7 @@ impl ActionsView {
     // -- render -------------------------------------------------------------
 
     /// One action row — the mobile/web `ActionRow` shape (EXP-618): glyph ·
-    /// [name + small repo glyph, 2-line description, automation count] ·
-    /// ▶ Run · owner ⋯ menu.
+    /// [name, 2-line description, automation count] · ▶ Run · owner ⋯ menu.
     fn render_action_row(
         &self,
         index: usize,
@@ -279,16 +228,9 @@ impl ActionsView {
         // EXP-642: the web `GlassRow` hover (`hover:bg-glass-active/50`).
         let row_hover = theme.list_active.opacity(0.5);
         let run_id = action.id.clone();
-        let repo_name = action.repository_id.as_deref().and_then(|repo_id| {
-            self.repos.as_ref().and_then(|(_, rows)| {
-                rows.iter()
-                    .find(|row| row.id == repo_id)
-                    .map(|row| row.full_name.clone())
-            })
-        });
 
-        // FEED-15 (native parity): a small "runs in a repository" glyph next
-        // to the name instead of the old full-name badge.
+        // EXP-697 retired the FEED-15 "runs in a repository" glyph: the name
+        // stands alone.
         let title_row = gpui_component::h_flex()
             .w_full()
             .min_w_0()
@@ -302,16 +244,7 @@ impl ActionsView {
                     .truncate()
                     .text_color(theme.foreground)
                     .child(SharedString::from(action.name.clone())),
-            )
-            .when(repo_name.is_some(), |this| {
-                this.child(
-                    div().flex_shrink_0().child(
-                        Icon::from(registry::ACTION_REPOSITORY)
-                            .xsmall()
-                            .text_color(muted),
-                    ),
-                )
-            });
+            );
 
         let mut middle = gpui_component::v_flex()
             .flex_1()
@@ -410,7 +343,7 @@ impl ActionsView {
                         .ghost().cursor_pointer()
                         .xsmall()
                         .icon(Icon::from(registry::UI_MORE))
-                        .dropdown_menu(move |menu, _window, _cx| {
+                        .dropdown_menu(move |menu, _window, cx| {
                             let edit_id = edit_id.clone();
                             let delete_view = delete_view.clone();
                             let delete_id = delete_id.clone();
@@ -427,8 +360,11 @@ impl ActionsView {
                                     }),
                             )
                             .item(
-                                PopupMenuItem::new("Delete")
-                                    .icon(Icon::from(registry::UI_DELETE))
+                                crate::controls::danger_menu_item(
+                                    "Delete",
+                                    Icon::from(registry::UI_DELETE),
+                                    cx,
+                                )
                                     .on_click(move |_, window, cx| {
                                         let Some(view) = delete_view.upgrade() else {
                                             return;
@@ -501,10 +437,6 @@ impl Render for ActionsView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
         let team_id = self.team_id(cx);
-        if let Some(team_id) = team_id.as_deref() {
-            let team_id = team_id.to_string();
-            self.ensure_repos(&team_id, cx);
-        }
         let (mut actions, ready) = match team_id.as_deref() {
             Some(team_id) => queries::team_actions(cx, team_id),
             None => (Vec::new(), true),
@@ -555,10 +487,10 @@ impl Render for ActionsView {
         let trailing = gpui_component::h_flex()
             .items_center()
             .gap_1()
-            .child(suggestions_button("actions-suggestions"))
+            .child(suggestions_button("actions-suggestions", cx))
             .children(new_action)
             .into_any_element();
-        let header = section_heading("Actions", Some(actions.len()), Some(trailing), cx);
+        let header = section_heading("Actions", Some(trailing), cx);
 
         let rows: Vec<gpui::AnyElement> = actions
             .iter()
@@ -586,14 +518,17 @@ impl Render for ActionsView {
         if !rows.is_empty() {
             body = body.child(gpui_component::v_flex().min_w_0().gap_2().children(rows));
         }
+        // NO gap on the section (EXP-697): the header's own `pb_2` IS the
+        // 8px to the list — a gap here doubles it. The rows keep their gap
+        // inside `body`.
         let mut actions_section = gpui_component::v_flex()
             .min_w_0()
-            .gap_2()
             .child(header)
             .child(body.children(nudge));
         if loading {
             actions_section = actions_section.child(
                 div()
+                    .pt_2()
                     .text_xs()
                     .text_color(muted)
                     .child("Loading actions…"),

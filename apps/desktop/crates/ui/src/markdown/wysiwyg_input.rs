@@ -1,6 +1,6 @@
 //! EXP-271: what the vendored WYSIWYG engine needs done to markdown BEFORE it
 //! sees it, so a description written on any other client renders the way it
-//! does everywhere else. Two transforms, one line scan, one entry point
+//! does everywhere else. Three transforms behind one entry point
 //! ([`normalize_for_wysiwyg`]) — applied at both of `WysiwygDescription`'s
 //! load paths — plus one paired transform on the way back out
 //! ([`restore_blank_line_markers`], documented at its definition).
@@ -28,7 +28,19 @@
 //! back as `![](/api/attachments/x)after` (fixed in
 //! `apps/web/src/lib/markdown-image.tsx`, same issue).
 //!
-//! Both transforms are deliberately narrow. Canonical input is returned
+//! **3. A backslash hard break becomes the two-space hard break** (EXP-697).
+//! GFM has two spellings for a hard line break inside a block: two trailing
+//! spaces, and a trailing `\`. The vendored engine only understands the first
+//! one — its inline escape table never sees a newline, so the backslash falls
+//! through to literal text and the reader gets a visible `\` at the end of
+//! every broken line, which the serializer then writes back out unchanged so
+//! it never self-heals. Web (tiptap-markdown), iOS and Android all emit the
+//! backslash form, so this is the shape real descriptions arrive in. The two
+//! forms are interchangeable GFM, and no byte-parity fixture pins the
+//! backslash one, so rewriting it on the way in is enough: the engine holds
+//! the hard break it already round-trips and saves emit the two-space form.
+//!
+//! All three transforms are deliberately narrow. Canonical input is returned
 //! byte-identical; code — fenced, indented, or a span — is never touched at
 //! all; and only paragraph text is split, so images inside lists, quotes,
 //! tables, headings, HTML blocks or link labels stay exactly where they are
@@ -36,6 +48,7 @@
 //! text). Content already stored in a non-canonical form converges on the
 //! next save.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -44,6 +57,8 @@ use crate::attachments_row::{extract_image_occurrences, ImageOccurrence};
 /// Prepare `markdown` for the vendored WYSIWYG engine. Returns the input
 /// unchanged when there is nothing to normalize.
 pub fn normalize_for_wysiwyg(markdown: &str) -> String {
+    let hard_breaks = normalize_hard_breaks(markdown);
+    let markdown: &str = &hard_breaks;
     if !markdown.contains('&') && !markdown.contains("![") {
         return markdown.to_string();
     }
@@ -491,6 +506,119 @@ fn strip_block_indent(line: &str) -> Option<&str> {
     (!body.is_empty()).then_some(body)
 }
 
+// -- 3. Backslash hard breaks ----------------------------------------------
+
+/// Rewrite every `\`-at-end-of-line hard break as the two-space form the
+/// vendored engine understands (see the module docs). Returns the input
+/// borrowed when it holds none.
+fn normalize_hard_breaks(markdown: &str) -> Cow<'_, str> {
+    if !markdown.contains("\\\n") {
+        return Cow::Borrowed(markdown);
+    }
+
+    let lines: Vec<&str> = markdown.split('\n').collect();
+    let mut out: Vec<Cow<'_, str>> = Vec::with_capacity(lines.len());
+    let mut fence: Option<(u8, usize)> = None;
+    let mut breakable = false;
+    let mut fresh = true;
+    let mut changed = false;
+
+    for (index, line) in lines.iter().enumerate() {
+        if let Some((ch, len)) = fence {
+            out.push(Cow::Borrowed(*line));
+            if closes_fence(line, ch, len) {
+                fence = None;
+                fresh = true;
+            }
+            continue;
+        }
+        if line.trim().is_empty() {
+            out.push(Cow::Borrowed(*line));
+            fresh = true;
+            continue;
+        }
+        if let Some(opener) = fence_opener(line) {
+            fence = Some(opener);
+            out.push(Cow::Borrowed(*line));
+            fresh = false;
+            continue;
+        }
+        if fresh {
+            breakable = !opens_unbreakable_block(line);
+            fresh = false;
+        }
+
+        // A hard break needs a line to break INTO: a trailing `\` that ends
+        // the block is literal text on every other client, and blanking it to
+        // two spaces would silently delete the character.
+        let continues = lines
+            .get(index + 1)
+            .is_some_and(|next| !next.trim().is_empty());
+        match (breakable && continues)
+            .then(|| hard_break_backslash(line))
+            .flatten()
+        {
+            Some(offset) => {
+                changed = true;
+                out.push(Cow::Owned(format!("{}  ", &line[..offset])));
+            }
+            None => out.push(Cow::Borrowed(*line)),
+        }
+    }
+
+    if changed {
+        Cow::Owned(out.join("\n"))
+    } else {
+        Cow::Borrowed(markdown)
+    }
+}
+
+/// Byte offset of the hard-break backslash ending `line`, if it has one.
+///
+/// `back\\` is an ESCAPED literal backslash plus a soft break, so only an odd
+/// trailing run counts; a backslash inside a code span is code. (A code span
+/// straddling the break is not detected — the same one-line scan the entity
+/// and image transforms use — but a `\` there is rendered text either way.)
+fn hard_break_backslash(line: &str) -> Option<usize> {
+    if !line.ends_with('\\') {
+        return None;
+    }
+    let run = line.bytes().rev().take_while(|byte| *byte == b'\\').count();
+    if run % 2 == 0 {
+        return None;
+    }
+    let offset = line.len() - 1;
+    // Nothing but the break on the line: the two-space form would be a blank
+    // line, which ends the block instead of continuing it.
+    if line[..offset].trim().is_empty() {
+        return None;
+    }
+    (!code_span_ranges(line)
+        .iter()
+        .any(|span| span.contains(&offset)))
+    .then_some(offset)
+}
+
+/// Whether the block this line opens can hold no hard break at all: code, a
+/// single-line construct (heading, thematic break, table row) or raw HTML. A
+/// trailing `\` there is literal text, never a break — unlike in a paragraph,
+/// blockquote or list item, which all continue onto the next line.
+fn opens_unbreakable_block(line: &str) -> bool {
+    let Some(body) = strip_block_indent(line) else {
+        // Four or more leading spaces: indented code block.
+        return true;
+    };
+    if is_thematic_break(body) {
+        return true;
+    }
+    // Heading, HTML block, table row.
+    if matches!(body.as_bytes()[0], b'#' | b'<' | b'|') {
+        return true;
+    }
+    // A table row need not start with `|` (`a | b\n--- | ---`).
+    line.contains('|')
+}
+
 #[cfg(test)]
 mod tests {
     use super::normalize_for_wysiwyg as normalize;
@@ -701,6 +829,65 @@ mod tests {
     #[test]
     fn is_idempotent() {
         let once = normalize("before ![alt](/api/attachments/abc) after");
+        assert_eq!(normalize(&once), once);
+    }
+
+    // -- 3. Backslash hard breaks ------------------------------------------
+
+    #[test]
+    fn rewrites_the_backslash_hard_break_web_ios_and_android_store() {
+        assert_eq!(normalize("alpha\\\nbeta"), "alpha  \nbeta");
+        assert_eq!(normalize("a\\\nb\\\nc"), "a  \nb  \nc");
+        // Blockquotes and list items continue onto their next line too.
+        assert_eq!(normalize("> alpha\\\n> beta"), "> alpha  \n> beta");
+        assert_eq!(normalize("- alpha\\\n  beta"), "- alpha  \n  beta");
+        assert_eq!(normalize("1. alpha\\\n   beta"), "1. alpha  \n   beta");
+    }
+
+    #[test]
+    fn keeps_an_escaped_literal_backslash_at_end_of_line() {
+        // `\\` is an ESCAPED backslash — literal text plus a soft break, not a
+        // hard break. Only an odd trailing run ends in a break marker.
+        assert_unchanged("back\\\\\nmore");
+        assert_eq!(normalize("back\\\\\\\nmore"), "back\\\\  \nmore");
+    }
+
+    #[test]
+    fn never_rewrites_a_backslash_that_is_not_a_hard_break() {
+        // Nothing to break into: the trailing `\` ends its block and stays
+        // literal text, exactly as every other client renders it.
+        assert_unchanged("alpha\\\n\nbeta");
+        assert_unchanged("alpha\\");
+        // Mid-line and non-EOL backslashes are prose.
+        assert_unchanged("back\\slash here\nmore");
+        assert_unchanged("C:\\Users\\me\nnext line");
+        // A bare break marker would become a blank line and end the block.
+        assert_unchanged("alpha\n\\\nbeta");
+    }
+
+    #[test]
+    fn never_rewrites_a_backslash_inside_code() {
+        assert_unchanged("```\nalpha\\\nbeta\n```");
+        assert_unchanged("~~~sh\nprintf a\\\nb\n~~~");
+        // An unclosed fence runs to the end of the document.
+        assert_unchanged("```\nalpha\\\nbeta");
+        assert_unchanged("    alpha\\\n    beta");
+        assert_unchanged("a `x\\` y\nnext");
+    }
+
+    #[test]
+    fn never_rewrites_a_backslash_in_a_single_line_construct() {
+        // A heading, thematic break, table row or HTML block holds no hard
+        // break, so the backslash there is a character the user typed.
+        assert_unchanged("# heading\\\nparagraph");
+        assert_unchanged("| a | b\\ |\n| --- | --- |");
+        assert_unchanged("a | b\\\n--- | ---");
+        assert_unchanged("<div>x\\\n</div>");
+    }
+
+    #[test]
+    fn the_hard_break_rewrite_is_a_fixpoint() {
+        let once = normalize("alpha\\\nbeta");
         assert_eq!(normalize(&once), once);
     }
 

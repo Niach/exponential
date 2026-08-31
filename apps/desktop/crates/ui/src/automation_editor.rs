@@ -796,7 +796,11 @@ impl AutomationEditorState {
             .py_0()
             .text_color(foreground.opacity(0.7))
             .dropdown_caret(true)
-            .label(picked.clone().unwrap_or_else(|| "Select device…".into()))
+            // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
+            // box, so a long device name wraps onto a second line.
+            .child(surface::picker_value_label(
+                picked.clone().unwrap_or_else(|| "Select device…".into()),
+            ))
             .dropdown_menu(move |mut menu, _window, _cx| {
                 for device in &menu_devices {
                     let view = view.clone();

@@ -623,9 +623,8 @@ impl CreateBoardDialogView {
                             }
                         }
                         if !github_repos.is_empty() {
-                            if !registry.is_empty() {
-                                menu = menu.separator();
-                            }
+                            // EXP-697: no dividers in menus — the "GitHub"
+                            // label already separates the two groups.
                             menu = menu.label("GitHub");
                             for repo in &github_repos {
                                 let view = view.clone();

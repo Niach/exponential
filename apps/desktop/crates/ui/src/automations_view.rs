@@ -226,7 +226,7 @@ impl AutomationsView {
                     .cursor_pointer()
                     .xsmall()
                     .icon(Icon::from(registry::UI_MORE))
-                    .dropdown_menu(move |menu, _window, _cx| {
+                    .dropdown_menu(move |menu, _window, cx| {
                         let edit_id = edit_id.clone();
                         let delete_view = delete_view.clone();
                         let delete_id = delete_id.clone();
@@ -242,8 +242,11 @@ impl AutomationsView {
                                 }),
                         )
                         .item(
-                            PopupMenuItem::new("Delete")
-                                .icon(Icon::from(registry::UI_DELETE))
+                            crate::controls::danger_menu_item(
+                                "Delete",
+                                Icon::from(registry::UI_DELETE),
+                                cx,
+                            )
                                 .on_click(move |_, window, cx| {
                                     let Some(view) = delete_view.upgrade() else {
                                         return;
@@ -329,14 +332,14 @@ impl AutomationsView {
         let mut body = gpui_component::v_flex().min_w_0().gap_6().child(rows);
 
         // The cross-action run log — the answer to "did the automations fire?"
-        let mut recent = gpui_component::v_flex().min_w_0().gap_2().child(section_heading(
-            "Recent automated runs",
-            Some(runs.len().min(RECENT_RUNS_CAP)),
-            None,
-            cx,
-        ));
+        // NO gap on the headed section (EXP-697): the header's `pb_2` IS the
+        // 8px to the list, so the run rows live in their own gapped column.
+        let recent = gpui_component::v_flex()
+            .min_w_0()
+            .child(section_heading("Recent automated runs", None, cx));
+        let mut run_rows = gpui_component::v_flex().min_w_0().gap_2();
         if runs.is_empty() {
-            recent = recent.child(
+            run_rows = run_rows.child(
                 div()
                     .px_3()
                     .text_xs()
@@ -374,7 +377,7 @@ impl AutomationsView {
                 });
             let toggle_id = session_id.clone();
             let resume_id = session_id.clone();
-            recent = recent.child(render_run_row(
+            run_rows = run_rows.child(render_run_row(
                 index,
                 session,
                 expanded,
@@ -398,7 +401,7 @@ impl AutomationsView {
                 cx,
             ));
         }
-        body = body.child(recent);
+        body = body.child(recent.child(run_rows));
         body.into_any_element()
     }
 }
@@ -438,17 +441,15 @@ impl Render for AutomationsView {
         let trailing = gpui_component::h_flex()
             .items_center()
             .gap_1()
-            .child(suggestions_button("automations-suggestions"))
+            .child(suggestions_button("automations-suggestions", cx))
             .children(new_automation)
             .into_any_element();
-        let header = section_heading("Automations", Some(automations.len()), Some(trailing), cx);
+        let header = section_heading("Automations", Some(trailing), cx);
 
         let body = self.render_automations(&actions, &automations, team_id.as_deref(), is_owner, cx);
-        let section = gpui_component::v_flex()
-            .min_w_0()
-            .gap_2()
-            .child(header)
-            .child(body);
+        // NO gap here (EXP-697) — the header's `pb_2` is the spacing to the
+        // list; the body carries its own row gaps.
+        let section = gpui_component::v_flex().min_w_0().child(header).child(body);
 
         page_scaffold(
             "automations-screen-scroll",

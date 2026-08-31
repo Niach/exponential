@@ -1541,10 +1541,9 @@ impl TerminalDockPanel {
                         .disabled(true),
                     );
                 }
-                // `separator` no-ops on an empty menu — no leading rule when
-                // there are no agent items.
+                // EXP-697: no dividers in menus.
                 let shell_panel = panel.clone();
-                menu.separator().item(
+                menu.item(
                     PopupMenuItem::new("New shell")
                         .icon(Icon::new(registry::NAV_TERMINAL))
                         .on_click(move |_, window, cx| {

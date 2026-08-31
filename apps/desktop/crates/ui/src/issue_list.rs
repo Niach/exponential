@@ -1702,8 +1702,6 @@ fn build_row_context_menu(
         );
     }
 
-    menu = menu.separator();
-
     // Status submenu (option icons + right-side check). The trigger mirrors
     // the row's status icon: the CURRENT status, not a generic glyph (EXP-59).
     {
@@ -1883,7 +1881,8 @@ fn build_row_context_menu(
             }
             if due.is_some() {
                 let issue_id = issue_id.clone();
-                menu = menu.separator().item(
+                // EXP-697: no dividers in menus.
+                menu = menu.item(
                     PopupMenuItem::new("Clear due date")
                         .icon(Icon::new(registry::UI_CLOSE))
                         .on_click(move |_, _, cx| {
@@ -1898,28 +1897,46 @@ fn build_row_context_menu(
         });
     }
 
-    // Delete issue → nested confirm (web's destructive submenu).
+    // Delete issue (EXP-697): ONE red item, not a nested confirm submenu —
+    // a submenu label cannot be colored, and every other client confirms a
+    // destructive action through a dialog instead.
     {
         let issue_id = issue.id.clone();
-        menu = menu.separator().submenu_with_icon(
-            Some(Icon::new(registry::UI_DELETE)),
-            "Delete issue",
-            window,
-            cx,
-            move |menu, _, _| {
-                let issue_id = issue_id.clone();
-                menu.item(
-                    PopupMenuItem::new("Confirm delete")
-                        .icon(Icon::new(registry::UI_DELETE))
-                        .on_click(move |_, _, cx| {
-                            spawn_issue_delete(cx, issue_id.clone());
-                        }),
-                )
-            },
+        let identifier = issue.identifier.clone();
+        menu = menu.item(
+            crate::controls::danger_menu_item(
+                "Delete issue",
+                Icon::new(registry::UI_DELETE),
+                cx,
+            )
+            .on_click(move |_, window, cx| {
+                prompt_issue_delete(issue_id.clone(), identifier.clone(), window, cx);
+            }),
         );
     }
 
     menu
+}
+
+/// The destructive confirm behind every "Delete issue" affordance (EXP-697) —
+/// the shared alert window the machines/actions removes already use.
+pub(crate) fn prompt_issue_delete(
+    issue_id: String,
+    identifier: String,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let spec = crate::native_dialog::AlertSpec::new(
+        "Delete issue",
+        format!("Delete {identifier}? This cannot be undone."),
+        "Delete",
+    )
+    .ok_variant(gpui_component::button::ButtonVariant::Danger)
+    .on_ok(move |_, cx| {
+        spawn_issue_delete(cx, issue_id.clone());
+        true
+    });
+    crate::native_dialog::open_alert(window, cx, spec);
 }
 
 /// Web `getDueDatePresets` (`lib/issue-due-date.ts`): Tomorrow, end of the

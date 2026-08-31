@@ -127,7 +127,7 @@ export function ActionSuggestionsPanel({ team }: { team: Team }) {
 
   return (
     <>
-      <GlassSectionHeader label="Suggestions" count={suggestions.length} />
+      <GlassSectionHeader label="Suggestions" />
       <div className="flex flex-col gap-2">
         {suggestions.map((suggestion) => (
           <SuggestionRow

@@ -451,7 +451,9 @@ impl ActionEditorDialogView {
             .py_0()
             .text_color(cx.theme().foreground.opacity(0.7))
             .dropdown_caret(true)
-            .label(label)
+            // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
+            // box, so a long `owner/repo` wraps onto a second line.
+            .child(crate::surface::picker_value_label(label))
             .disabled(self.repos.is_none());
         let Some(rows) = self.repos.clone() else {
             return trigger.into_any_element();

@@ -6,12 +6,11 @@ import {
 } from "@tanstack/react-router"
 import { MyMachines } from "@/components/my-machines"
 import { SessionRow } from "@/components/agent-session-row"
-import { GlassSectionHeader } from "@/components/ui/glass-rows"
+import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import { useSteerConfig } from "@/components/agent-session"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
 import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
 import { useAgentsData } from "@/hooks/use-agents-data"
-import { useIsMobile } from "@/hooks/use-mobile"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
@@ -20,11 +19,9 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 
 // Team Devices view (EXP-686 — the old Agents route, minus the actions
 // surface: Actions and Automations are their own routes now): the caller's
-// online desktops and servers, the remote-start entry point. On mobile (<md)
-// the page mirrors the native apps: My desktops → Running only. On desktop
-// viewports there is NO Live section — the AgentDock bottom strip already
-// shows every live session. The LaunchDialog here serves the device rows'
-// "Start coding".
+// online desktops and servers, the remote-start entry point, and the native
+// apps' Running section below them on every viewport (EXP-697). The
+// LaunchDialog here serves the device rows' "Start coding".
 //
 // EXP-631: `?chat=1` is the mobile FAB's one-shot open — the tab bar owns the
 // button, this route owns the launcher, so the request rides the URL (the
@@ -55,7 +52,6 @@ function DevicesPage() {
   const { isMember, isOwner } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
   const dock = useAgentDock()
-  const isMobile = useIsMobile()
 
   const currentUserId = session?.user?.id
   const teamId = team?.id
@@ -118,15 +114,15 @@ function DevicesPage() {
           />
         )}
 
-        {/* Mobile mirrors the native apps' Running section; on desktop the
-            AgentDock bottom strip already surfaces the caller's live
-            sessions. */}
-        {isMobile &&
-          (isLoading ? (
-            <div className="text-muted-foreground p-6 text-sm">Loading…</div>
-          ) : running.length > 0 ? (
-            <div className="mb-6">
-              <GlassSectionHeader label="Running" />
+        {/* The native apps' Running section, on every viewport (EXP-697 —
+            it used to be mobile-only because the AgentDock strip covers
+            desktop, but the machines page lists sessions everywhere now). */}
+        {isLoading ? (
+          <div className="text-muted-foreground p-6 text-sm">Loading…</div>
+        ) : (
+          <div className="mb-6">
+            <GlassSectionHeader label="Running" />
+            {running.length > 0 ? (
               <div className="flex flex-col gap-2">
                 {running.map((row) => (
                   <SessionRow
@@ -138,8 +134,13 @@ function DevicesPage() {
                   />
                 ))}
               </div>
-            </div>
-          ) : null)}
+            ) : (
+              <GlassRow className="text-sm text-muted-foreground">
+                No agents running right now.
+              </GlassRow>
+            )}
+          </div>
+        )}
       </div>
 
       <LaunchDialog

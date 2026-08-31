@@ -218,9 +218,13 @@ export function AutomationDialog({
                     return {
                       value: action.id,
                       disabled: hasRequiredInputs(action),
+                      // EXP-697: the icon must flow INLINE with the name —
+                      // preflight makes svg display:block, which pushed the
+                      // name onto a second line inside the picker's
+                      // truncating value span.
                       label: (
                         <>
-                          <ActionIcon className="size-4 shrink-0" />
+                          <ActionIcon className="mr-1.5 inline size-4 align-text-bottom" />
                           {action.name}
                         </>
                       ),

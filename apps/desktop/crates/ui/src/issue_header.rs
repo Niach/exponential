@@ -1011,11 +1011,14 @@ impl IssueHeader {
             .xsmall()
             .icon(Icon::new(registry::UI_DELETE).text_color(cx.theme().muted_foreground))
             .tooltip("Delete issue")
-            .dropdown_menu(move |menu, _window, _cx| {
+            .dropdown_menu(move |menu, _window, cx| {
                 let issue_id = issue_id.clone();
                 menu.item(
-                    PopupMenuItem::new("Confirm delete")
-                        .icon(Icon::new(registry::UI_DELETE))
+                    crate::controls::danger_menu_item(
+                        "Confirm delete",
+                        Icon::new(registry::UI_DELETE),
+                        cx,
+                    )
                         .on_click(move |_, window, cx| {
                             crate::issue_list::spawn_issue_delete(cx, issue_id.clone());
                             go_back(window, cx);
