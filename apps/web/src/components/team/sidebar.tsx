@@ -15,7 +15,7 @@ import {
 } from "@/hooks/use-unread-notifications"
 import { isAdminUser } from "@/lib/auth/app-user"
 import { useSignOut } from "@/hooks/use-sign-out"
-import { getInitials } from "@/lib/utils"
+import { cn, getInitials } from "@/lib/utils"
 import { firstName } from "@/lib/user-display"
 import type { Board, Team } from "@/db/schema"
 import {
@@ -57,7 +57,6 @@ import {
   SidebarHeader,
   SidebarMenu,
   SidebarMenuAction,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
@@ -82,38 +81,47 @@ const NavTeamSwitcherIcon = conceptIcon(`nav-team-switcher`)
 const UiAddIcon = conceptIcon(`ui-add`)
 const UiCheckIcon = conceptIcon(`ui-check`)
 
-// Live unread count from the per-user notifications shape.
+// EXP-699: nav badges are dots, never counts — same colors and logic as
+// the mobile tab bars on all four clients.
+function NavDot({ className }: { className: string }) {
+  return (
+    <span
+      className={cn(
+        `pointer-events-none absolute right-2 top-1/2 size-2 -translate-y-1/2 rounded-full`,
+        className
+      )}
+    />
+  )
+}
+
+// Unread notifications from the per-user shape.
 function InboxUnreadBadge() {
   const unread = useUnreadNotificationCount()
   if (unread === 0) return null
-  return <SidebarMenuBadge>{unread > 99 ? `99+` : unread}</SidebarMenuBadge>
+  return <NavDot className="bg-primary" />
 }
 
 // Unread helpdesk activity in THIS team, for the Support entry.
 function SupportUnreadBadge({ teamId }: { teamId?: string }) {
   const unread = useUnreadSupportCount(teamId)
   if (unread === 0) return null
-  return <SidebarMenuBadge>{unread > 99 ? `99+` : unread}</SidebarMenuBadge>
+  return <NavDot className="bg-primary" />
 }
 
-// Open-PR count across the team's boards (DISTINCT PRs — EXP-131).
-function ReviewsCountBadge({ boards }: { boards: Board[] | undefined }) {
+// Any open PR across the team's boards.
+function ReviewsOpenBadge({ boards }: { boards: Board[] | undefined }) {
   const count = useReviewsOpenPrCount(boards)
   if (count === 0) return null
-  return <SidebarMenuBadge>{count > 99 ? `99+` : count}</SidebarMenuBadge>
+  return <NavDot className="bg-green-500" />
 }
 
-// Live count of running coding sessions in the team, for the Devices entry.
+// Any of MY live coding sessions in the team, for the Devices entry.
 // Amber while any session waits on a plan approval / question (EXP-214).
 function DevicesRunningBadge({ teamId }: { teamId?: string }) {
   const { data: session } = useSession()
   const { count, needsInput } = useAgentsRunningCount(teamId, session?.user?.id)
   if (count === 0) return null
-  return (
-    <SidebarMenuBadge className={needsInput ? `text-amber-400` : undefined}>
-      {count > 99 ? `99+` : count}
-    </SidebarMenuBadge>
-  )
+  return <NavDot className={needsInput ? `bg-yellow-400` : `bg-green-500`} />
 }
 
 interface TeamSidebarProps {
@@ -307,6 +315,9 @@ export function TeamSidebar({
             <SidebarContent>
               <SidebarGroup>
                 <SidebarGroupContent>
+                  {/* EXP-699: mobile order — Inbox, Support, Devices,
+                      Actions, Automations (an Actions segment on mobile),
+                      Reviews. */}
                   <SidebarMenu>
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild>
@@ -317,15 +328,17 @@ export function TeamSidebar({
                       </SidebarMenuButton>
                       <InboxUnreadBadge />
                     </SidebarMenuItem>
-                    <SidebarMenuItem>
-                      <SidebarMenuButton asChild>
-                        <Link to="/t/$teamSlug/reviews" params={{ teamSlug }}>
-                          <NavReviewsIcon className="h-4 w-4" />
-                          <span>Reviews</span>
-                        </Link>
-                      </SidebarMenuButton>
-                      <ReviewsCountBadge boards={boards} />
-                    </SidebarMenuItem>
+                    {team?.helpdeskEnabled === true && (
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <Link to="/t/$teamSlug/support" params={{ teamSlug }}>
+                            <NavSupportIcon className="h-4 w-4" />
+                            <span>Support</span>
+                          </Link>
+                        </SidebarMenuButton>
+                        <SupportUnreadBadge teamId={team?.id} />
+                      </SidebarMenuItem>
+                    )}
                     {/* EXP-686: Devices · Actions · Automations, the three
                         surfaces the old Agents entry bundled. */}
                     <SidebarMenuItem>
@@ -356,17 +369,15 @@ export function TeamSidebar({
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
-                    {team?.helpdeskEnabled === true && (
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <Link to="/t/$teamSlug/support" params={{ teamSlug }}>
-                            <NavSupportIcon className="h-4 w-4" />
-                            <span>Support</span>
-                          </Link>
-                        </SidebarMenuButton>
-                        <SupportUnreadBadge teamId={team?.id} />
-                      </SidebarMenuItem>
-                    )}
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild>
+                        <Link to="/t/$teamSlug/reviews" params={{ teamSlug }}>
+                          <NavReviewsIcon className="h-4 w-4" />
+                          <span>Reviews</span>
+                        </Link>
+                      </SidebarMenuButton>
+                      <ReviewsOpenBadge boards={boards} />
+                    </SidebarMenuItem>
                   </SidebarMenu>
                 </SidebarGroupContent>
               </SidebarGroup>
