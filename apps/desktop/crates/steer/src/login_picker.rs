@@ -232,7 +232,7 @@ pub(crate) fn join_wrapped_url(lines: &[String], start: usize) -> String {
 }
 
 /// The anchor-less variant used by the EXP-484 login DRIVER: the first
-/// `https://` row on the grid, wrap-joined, kept only when it points at a
+/// `https://` on the grid, wrap-joined, kept only when it points at a
 /// trusted host. `claude auth login --claudeai` prints its sign-in URL with
 /// none of [`detect`]'s TUI anchors around it — that flow is a plain
 /// non-interactive command, not the mid-session `/login` screen — so the
@@ -240,11 +240,28 @@ pub(crate) fn join_wrapped_url(lines: &[String], start: usize) -> String {
 /// emitter deliberately keeps using [`detect`] (EXP-430 behaviour is
 /// untouched): the trusted-host test is all that stands between the grid and
 /// a published link, and an anchored screen is the stronger signal.
+///
+/// The URL may start MID-line (EXP-695): claude ≥2.1.25x prints `If the
+/// browser didn't open, visit: https://…` inline, hard-wrapping the link
+/// over the following rows — so the scan finds `https://` anywhere on a row,
+/// slices from there, and reconstructs across the wrap. A link followed by
+/// prose on its own row ends at the whitespace instead.
 pub fn detect_trusted_url(lines: &[String]) -> Option<String> {
-    let start = lines
+    let (start, at) = lines
         .iter()
-        .position(|line| line.trim_start().starts_with("https://"))?;
-    let url = join_wrapped_url(lines, start);
+        .enumerate()
+        .find_map(|(idx, line)| line.find("https://").map(|at| (idx, at)))?;
+    let first = lines[start][at..].trim_end();
+    let url = match first.find(char::is_whitespace) {
+        // Prose follows on the same row — the link ended before it.
+        Some(end) => first[..end].to_string(),
+        // The link runs to the row's edge: append the wrapped rows below.
+        None => {
+            let mut url = first.to_string();
+            url.push_str(&join_wrapped_url(lines, start + 1));
+            url
+        }
+    };
     is_trusted_login_url(&url).then_some(url)
 }
 
@@ -656,6 +673,39 @@ mod tests {
             None
         );
         assert_eq!(detect_trusted_url(&repl_screen()), None);
+    }
+
+    /// EXP-695: claude ≥2.1.25x prints the link INLINE after prose — `If the
+    /// browser didn't open, visit: https://…` — hard-wrapped at the grid
+    /// width. The driver used to require a row STARTING with `https://` and
+    /// never published this screen's link, so a remote sign-in dead-ended.
+    #[test]
+    fn detect_trusted_url_reads_the_inline_visit_format() {
+        let inline = screen(&[
+            "Opening browser to sign in…",
+            "If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redir",
+            "ect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainf",
+            "erence+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload&code_challenge=j7BY1qKMJ1Y2LC5xNqD5VUJayK_UZb",
+            "Pl_FCJLsmPZzk&code_challenge_method=S256&state=joiGbKCc8WwbICmveDWnCjihN6dnqxVjkxcYKIMI6SE",
+            "Paste code here if prompted >",
+        ]);
+        // Still nothing for the anchored EXP-430 emitter path.
+        assert_eq!(detect(&inline), None);
+        assert_eq!(detect_trusted_url(&inline).as_deref(), Some(FULL_URL));
+
+        // A link with prose AFTER it on the same row ends at the whitespace
+        // instead of swallowing the sentence.
+        let short = screen(&[
+            "If the browser didn't open, visit: https://claude.ai/oauth/authorize?code=abc then return here.",
+        ]);
+        assert_eq!(
+            detect_trusted_url(&short).as_deref(),
+            Some("https://claude.ai/oauth/authorize?code=abc")
+        );
+
+        // Off-domain links stay refused mid-line too.
+        let spoof = screen(&["visit: https://evil.test/oauth/authorize?code=true"]);
+        assert_eq!(detect_trusted_url(&spoof), None);
     }
 
     /// EXP-444: only Anthropic-owned hosts may travel verbatim through the
