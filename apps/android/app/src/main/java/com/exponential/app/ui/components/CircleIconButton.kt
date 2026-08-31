@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
@@ -31,6 +32,10 @@ import com.exponential.app.ui.theme.TextEmphasis
  *
  * [tint] overrides the secondary-emphasis glyph color (the red kill switch);
  * [enabled] dims the glyph to quaternary and drops the tap.
+ *
+ * EXP-694: [size]/[glyphSize] make the circle scalable — 38/20 is the nav-bar
+ * default, 28/15 the in-list size (iOS `CircleIconButton(28, 15)` parity: the
+ * worktrees prune sweep, the session-row action buttons).
  */
 @Composable
 fun CircleIconButton(
@@ -40,13 +45,15 @@ fun CircleIconButton(
     modifier: Modifier = Modifier,
     tint: Color? = null,
     enabled: Boolean = true,
+    size: Dp = 38.dp,
+    glyphSize: Dp = 20.dp,
 ) {
     val glyph = tint ?: MaterialTheme.colorScheme.onSurface.copy(
         alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
     )
     Box(
         modifier = modifier
-            .size(38.dp)
+            .size(size)
             .clip(CircleShape)
             .background(GlassTokens.RowFill, CircleShape)
             .border(GlassTokens.Hairline, GlassTokens.StrokeRow, CircleShape)
@@ -56,7 +63,7 @@ fun CircleIconButton(
         Icon(
             icon,
             contentDescription = contentDescription,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(glyphSize),
             tint = glyph,
         )
     }

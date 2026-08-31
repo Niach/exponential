@@ -17,26 +17,33 @@
 //! module existed (a pill strip here, a dropdown there); everything visual
 //! lives here now, so they cannot drift again.
 //!
+//! EXP-694: the cluster renders as ONE inset-grouped stack
+//! ([`crate::surface::glass_group`]) — the tabs are its first ROW, the
+//! model/effort selects are picker rows, the toggles are switch rows. The
+//! capsule strip ([`agent_tabs`]) survives only for the surfaces that have not
+//! moved onto a group yet.
+//!
 //! The state-owning half follows the [`crate::automation_editor`] idiom: the
 //! host keeps a plain field and passes a `fn(&mut V) -> &mut Self` accessor,
 //! so the callbacks reach back into it without a second entity.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, App, Context, InteractiveElement as _, IntoElement, ParentElement, Render,
-    SharedString, StatefulInteractiveElement as _, Styled, Window,
+    div, App, Context, Div, InteractiveElement as _, IntoElement, ParentElement, Render,
+    SharedString, StatefulInteractiveElement as _, Stateful, Styled, Window,
 };
-use gpui_component::{
-    checkbox::Checkbox, h_flex, select::Select, v_flex, ActiveTheme as _, Icon,
-};
+use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_component::switch::Switch;
+use gpui_component::{select::Select, v_flex, ActiveTheme as _, Icon};
 
 use coding::{CodingAgent, LaunchOptions};
 
 use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
 };
-use crate::controls::WebControl as _;
 use crate::icons::ExpIcon;
+use crate::surface;
 
 /// Which surface the cluster is rendering for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -143,35 +150,57 @@ pub(crate) fn agent_label(id: &str) -> String {
     }
 }
 
-/// The ONE agent strip (EXP-201, shared since EXP-615): the same web-capsule
-/// tabs on every surface — launch dialogs and automation editors alike.
-/// `active` is `None` only while an automation has no device bound yet
-/// (nothing highlighted).
-pub(crate) fn agent_tabs<V: Render>(
+/// The segments of an agent strip — the pills themselves, container-free, so
+/// the free-floating capsule ([`agent_tabs`]) and the EMBEDDED group row
+/// ([`agent_tabs_row`]) draw the exact same tabs.
+fn agent_segments<V: Render>(
+    id: &'static str,
+    pills: Vec<AgentPill>,
+    active: Option<usize>,
+    on_select: impl Fn(&mut V, usize, &mut Window, &mut Context<V>) + 'static,
+    embedded: bool,
+    cx: &mut Context<V>,
+) -> Vec<Stateful<Div>> {
+    let muted = cx.theme().muted_foreground;
+    let on_select = std::rc::Rc::new(on_select);
+    pills
+        .into_iter()
+        .enumerate()
+        .map(|(ix, pill)| {
+            let on_select = on_select.clone();
+            let selected = active == Some(ix);
+            let segment = if embedded {
+                surface::glass_tab_item(selected, cx)
+            } else {
+                crate::controls::segmented_item(selected, cx)
+            };
+            segment
+                .id((id, ix))
+                .when(pill.dimmed, |this| this.opacity(0.45))
+                .children(pill.icon.map(|icon| Icon::from(icon).size_3p5()))
+                .child(pill.label)
+                .when_some(pill.note, |this, note| {
+                    this.child(div().text_xs().text_color(muted).child(note))
+                })
+                .on_click(cx.listener(move |this, _: &gpui::ClickEvent, window, cx| {
+                    on_select(this, ix, window, cx);
+                }))
+        })
+        .collect()
+}
+
+/// EXP-694 — the same strip as the FIRST ROW of a
+/// [`crate::surface::glass_group`]: no capsule of its own, 8px padding, the
+/// hairline below drawn by the group. This is what every grouped agent picker
+/// (launch, automation pins, device defaults) leads with.
+pub(crate) fn agent_tabs_row<V: Render>(
     id: &'static str,
     pills: Vec<AgentPill>,
     active: Option<usize>,
     on_select: impl Fn(&mut V, usize, &mut Window, &mut Context<V>) + 'static,
     cx: &mut Context<V>,
-) -> impl IntoElement {
-    let muted = cx.theme().muted_foreground;
-    // The web TabsList capsule: full width, equal segments — the same
-    // primitive the subject tabs use, not a loose centered pill row.
-    let on_select = std::rc::Rc::new(on_select);
-    crate::controls::segmented(cx).children(pills.into_iter().enumerate().map(|(ix, pill)| {
-        let on_select = on_select.clone();
-        crate::controls::segmented_item(active == Some(ix), cx)
-            .id((id, ix))
-            .when(pill.dimmed, |this| this.opacity(0.45))
-            .children(pill.icon.map(|icon| Icon::from(icon).size_3p5()))
-            .child(pill.label)
-            .when_some(pill.note, |this, note| {
-                this.child(div().text_xs().text_color(muted).child(note))
-            })
-            .on_click(cx.listener(move |this, _: &gpui::ClickEvent, window, cx| {
-                on_select(this, ix, window, cx);
-            }))
-    }))
+) -> Div {
+    surface::glass_tabs_row().children(agent_segments(id, pills, active, on_select, true, cx))
 }
 
 /// A labeled field column with an optional muted hint under the control.
@@ -192,10 +221,26 @@ pub(crate) fn labeled_field(
         })
 }
 
-/// One [`Variant::Automation`] choice pin: "Device default" + the agent's own
-/// choice list, writing through the `pick` accessor on the host's state `S`.
-#[allow(clippy::too_many_arguments)] // two call sites, one per pin
-pub(crate) fn choice_pin<V: Render, S: 'static>(
+/// The label a pin shows for `picked` — the choice's own label, or the
+/// "CLI default" sentinel while nothing is pinned.
+fn pin_label(choices: &'static [(&'static str, &'static str)], picked: Option<&str>) -> String {
+    picked
+        .and_then(|value| {
+            choices
+                .iter()
+                .find(|(_, choice)| *choice == value)
+                .map(|(label, _)| (*label).to_string())
+        })
+        .unwrap_or_else(|| CLI_DEFAULT_LABEL.to_string())
+}
+
+/// One [`Variant::Automation`] choice pin as a GROUPED picker row (EXP-694,
+/// S2): the label leading, the pinned value trailing at 70% behind a caret,
+/// no field chrome, and the "CLI default" sentinel while nothing is pinned.
+/// Writes through the `pick` accessor on the host's state `S`.
+#[allow(clippy::too_many_arguments)] // one per pin, same shape as `choice_pin`
+pub(crate) fn choice_pin_row<V: Render, S: 'static>(
+    label: impl Into<SharedString>,
     prefix: &'static str,
     key: &'static str,
     choices: &'static [(&'static str, &'static str)],
@@ -203,26 +248,33 @@ pub(crate) fn choice_pin<V: Render, S: 'static>(
     pick: fn(&mut S) -> &mut Option<String>,
     access: fn(&mut V) -> &mut S,
     cx: &mut Context<V>,
-) -> impl IntoElement {
-    use gpui_component::button::Button;
-    use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
+) -> Div {
+    let foreground = cx.theme().foreground;
+    let trigger = Button::new(SharedString::from(format!("{prefix}-pin-{key}")))
+        .ghost()
+        .cursor_pointer()
+        .h_auto()
+        .px_0()
+        .py_0()
+        .text_color(foreground.opacity(0.7))
+        .dropdown_caret(true)
+        .label(SharedString::from(pin_label(choices, picked)));
+    let control = pin_menu(trigger, choices, picked, pick, access, cx).into_any_element();
+    surface::glass_picker_row(label, None, control, cx)
+}
 
-    let label = picked
-        .and_then(|value| {
-            choices
-                .iter()
-                .find(|(_, choice)| *choice == value)
-                .map(|(label, _)| (*label).to_string())
-        })
-        .unwrap_or_else(|| CLI_DEFAULT_LABEL.to_string());
+/// Hangs a pin's choice menu off an already-dressed `trigger`.
+fn pin_menu<V: Render, S: 'static>(
+    trigger: Button,
+    choices: &'static [(&'static str, &'static str)],
+    picked: Option<&str>,
+    pick: fn(&mut S) -> &mut Option<String>,
+    access: fn(&mut V) -> &mut S,
+    cx: &mut Context<V>,
+) -> impl IntoElement {
     let current = picked.map(str::to_string);
     let view = cx.entity().downgrade();
-    Button::new(SharedString::from(format!("{prefix}-pin-{key}")))
-        .outline()
-        .cursor_pointer()
-        .web_input_sm()
-        .w_full()
-        .label(SharedString::from(label))
+    trigger
         .dropdown_menu(move |mut menu, _window, _cx| {
             let default_view = view.clone();
             let current = current.clone();
@@ -261,6 +313,175 @@ pub(crate) fn choice_pin<V: Render, S: 'static>(
             }
             menu
         })
+}
+
+/// One switch row of an [`AgentDefaultsGroup`]: the label, its state, and
+/// what a flip writes back into the host view.
+pub(crate) struct DefaultsToggle<V: Render> {
+    id: SharedString,
+    label: SharedString,
+    checked: bool,
+    #[allow(clippy::type_complexity)]
+    on_click: Box<dyn Fn(&mut V, bool, &mut Context<V>) + 'static>,
+}
+
+impl<V: Render> DefaultsToggle<V> {
+    pub(crate) fn new(
+        id: impl Into<SharedString>,
+        label: impl Into<SharedString>,
+        checked: bool,
+        on_click: impl Fn(&mut V, bool, &mut Context<V>) + 'static,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            checked,
+            on_click: Box::new(on_click),
+        }
+    }
+
+    fn row(self, cx: &mut Context<V>) -> Div {
+        let on_click = self.on_click;
+        surface::glass_toggle_row(
+            self.label,
+            None,
+            Switch::new(self.id)
+                .checked(self.checked)
+                .on_click(cx.listener(move |view: &mut V, on: &bool, _, cx| {
+                    on_click(view, *on, cx);
+                    cx.notify();
+                }))
+                .into_any_element(),
+            cx,
+        )
+    }
+}
+
+/// EXP-694 S4 — the ONE agent picker every desktop surface renders: a single
+/// inset-grouped stack of `[embedded agent tabs] / Model / <effort> /
+/// <toggles>`, hairline-divided, no loose controls and no free-floating
+/// capsule. The Start-coding cluster ([`LaunchOptionsSection::render`]), the
+/// Device settings dialog and Settings → Agents all build the same group
+/// through this builder; only the STATE behind the selects differs (one
+/// launch draft here, a per-agent defaults map there), plus the rows each
+/// surface splices in:
+///
+/// - [`Self::leading`] — between the tabs and Model (the CLI-path row).
+/// - [`Self::after_effort`] — between the effort row and the toggles (the
+///   Start-coding resume row).
+/// - [`Self::trailing`] — under the toggles (the account + usage rows).
+pub(crate) struct AgentDefaultsGroup<V: Render> {
+    prefix: &'static str,
+    agent: CodingAgent,
+    pills: Vec<AgentPill>,
+    active: Option<usize>,
+    #[allow(clippy::type_complexity)]
+    on_select: Box<dyn Fn(&mut V, usize, &mut Window, &mut Context<V>) + 'static>,
+    model: ChoiceSelect,
+    effort: ChoiceSelect,
+    effort_disabled: bool,
+    toggles: Vec<DefaultsToggle<V>>,
+    leading: Vec<Div>,
+    after_effort: Vec<Div>,
+    trailing: Vec<Div>,
+}
+
+impl<V: Render> AgentDefaultsGroup<V> {
+    pub(crate) fn new(
+        prefix: &'static str,
+        agent: CodingAgent,
+        pills: Vec<AgentPill>,
+        active: Option<usize>,
+        on_select: impl Fn(&mut V, usize, &mut Window, &mut Context<V>) + 'static,
+        model: ChoiceSelect,
+        effort: ChoiceSelect,
+    ) -> Self {
+        Self {
+            prefix,
+            agent,
+            pills,
+            active,
+            on_select: Box::new(on_select),
+            model,
+            effort,
+            effort_disabled: false,
+            toggles: Vec::new(),
+            leading: Vec::new(),
+            after_effort: Vec::new(),
+            trailing: Vec::new(),
+        }
+    }
+
+    /// Ultracode owns the effort level while it is on (EXP-206) — the row
+    /// dims and says so instead of offering a pick the argv ignores.
+    pub(crate) fn effort_disabled(mut self, disabled: bool) -> Self {
+        self.effort_disabled = disabled;
+        self
+    }
+
+    pub(crate) fn toggle(mut self, toggle: DefaultsToggle<V>) -> Self {
+        self.toggles.push(toggle);
+        self
+    }
+
+    pub(crate) fn leading(mut self, rows: Vec<Div>) -> Self {
+        self.leading = rows;
+        self
+    }
+
+    pub(crate) fn after_effort(mut self, rows: Vec<Div>) -> Self {
+        self.after_effort = rows;
+        self
+    }
+
+    pub(crate) fn trailing(mut self, rows: Vec<Div>) -> Self {
+        self.trailing = rows;
+        self
+    }
+
+    pub(crate) fn render(self, cx: &mut Context<V>) -> Div {
+        let Self {
+            prefix,
+            agent,
+            pills,
+            active,
+            on_select,
+            model,
+            effort,
+            effort_disabled,
+            toggles,
+            leading,
+            after_effort,
+            trailing,
+        } = self;
+        let mut rows: Vec<Div> = vec![agent_tabs_row(prefix, pills, active, on_select, cx)];
+        rows.extend(leading);
+        rows.push(surface::glass_picker_row(
+            "Model",
+            None,
+            surface::glass_picker_select(Select::new(&model)).into_any_element(),
+            cx,
+        ));
+        rows.push(surface::glass_picker_row(
+            agent.effort_label(),
+            // The hint the two-column layout carried under the Effort select
+            // (EXP-206) becomes the row's own second line.
+            effort_disabled.then(|| SharedString::from("ultracode sets effort")),
+            surface::glass_picker_select(Select::new(&effort))
+                .disabled(effort_disabled)
+                // `appearance(false)` drops the component's own disabled
+                // dimming with the rest of the field chrome — put it back.
+                .when(effort_disabled, |select| select.opacity(0.5))
+                .into_any_element(),
+            cx,
+        ));
+        rows.extend(after_effort);
+        for toggle in toggles {
+            rows.push(toggle.row(cx));
+        }
+        rows.extend(trailing);
+        surface::glass_group_rows(rows)
+    }
 }
 
 /// The [`Variant::Launch`] cluster's own state: which agent runs, its
@@ -363,9 +584,14 @@ impl LaunchOptionsSection {
         }
     }
 
-    /// The whole [`Variant::Launch`] cluster: agent strip · Model/Effort ·
-    /// [`resume_row`] · toggles. `hide_plan_mode` drops the Plan-mode row
-    /// (the resume case — [`Self::options`] clamps it off regardless).
+    /// The whole [`Variant::Launch`] cluster as ONE inset-grouped stack
+    /// (EXP-694 S4): the SHARED [`AgentDefaultsGroup`] — the embedded agent
+    /// tabs row, the Model and effort picker rows, the optional `resume_row`,
+    /// then the capability-gated toggles — every one a hairline-divided row of
+    /// a single [`crate::surface::glass_group`], no loose controls, no
+    /// free-floating capsule, no checkboxes. `hide_plan_mode` drops the
+    /// Plan-mode row (the resume case — [`Self::options`] clamps it off
+    /// regardless).
     pub(crate) fn render<V: Render>(
         &self,
         prefix: &'static str,
@@ -389,8 +615,12 @@ impl LaunchOptionsSection {
             .position(|agent| *agent == self.agent)
             .unwrap_or(0);
         let click_agents = pickable.clone();
-        let strip = agent_tabs(
+        let agent = self.agent;
+        let effort_disabled = self.ultracode && agent.supports_ultracode();
+
+        let mut group = AgentDefaultsGroup::new(
             prefix,
+            agent,
             launch_pills(&pickable, &unauthed),
             Some(active_ix),
             move |view: &mut V, ix, window, cx| {
@@ -399,70 +629,31 @@ impl LaunchOptionsSection {
                     cx.notify();
                 }
             },
-            cx,
-        );
-
-        let agent = self.agent;
-        let ultracode = self.ultracode;
-        let effort_hint =
-            (ultracode && agent.supports_ultracode()).then_some("ultracode sets effort");
-        let choices = h_flex()
-            .gap_3()
-            .w_full()
-            // Top-align (h_flex centers): the Effort column grows an
-            // "ultracode sets effort" hint line, which would otherwise sink
-            // the Model label below the shared baseline.
-            .items_start()
-            .child(labeled_field(
-                "Model",
-                Select::new(&self.model).web_input_sm().into_any_element(),
-                None,
-                cx,
-            ))
-            .child(labeled_field(
-                agent.effort_label(),
-                Select::new(&self.effort)
-                    .web_input_sm()
-                    .disabled(ultracode && agent.supports_ultracode())
-                    .into_any_element(),
-                effort_hint,
-                cx,
-            ));
-
-        let mut section = v_flex().w_full().gap_3().child(strip).child(choices);
+            self.model.clone(),
+            self.effort.clone(),
+        )
+        .effort_disabled(effort_disabled);
         if let Some(resume_row) = resume_row {
-            section = section.child(resume_row);
+            group = group.after_effort(vec![surface::glass_row_shell().child(resume_row)]);
         }
-        // The capability-gated toggles (EXP-201; hint-free since EXP-206).
-        let show_plan = agent.supports_plan_mode() && !hide_plan_mode;
-        if agent.supports_ultracode() || show_plan {
-            let mut toggles = v_flex().gap_2();
-            if agent.supports_ultracode() {
-                toggles = toggles.child(
-                    Checkbox::new(SharedString::from(format!("{prefix}-ultracode")))
-                        .label("Dynamic workflows (ultracode)")
-                        .checked(self.ultracode)
-                        .on_click(cx.listener(move |view: &mut V, on: &bool, _, cx| {
-                            access(view).ultracode = *on;
-                            cx.notify();
-                        }))
-                        .into_any_element(),
-                );
-            }
-            if show_plan {
-                toggles = toggles.child(
-                    Checkbox::new(SharedString::from(format!("{prefix}-plan-mode")))
-                        .label("Plan mode")
-                        .checked(self.plan_mode)
-                        .on_click(cx.listener(move |view: &mut V, on: &bool, _, cx| {
-                            access(view).plan_mode = *on;
-                            cx.notify();
-                        }))
-                        .into_any_element(),
-                );
-            }
-            section = section.child(toggles);
+        // The capability-gated toggles (EXP-201; hint-free since EXP-206) —
+        // switches on the group's row rhythm since EXP-694.
+        if agent.supports_ultracode() {
+            group = group.toggle(DefaultsToggle::new(
+                format!("{prefix}-ultracode"),
+                "Ultracode",
+                self.ultracode,
+                move |view: &mut V, on, _| access(view).ultracode = on,
+            ));
         }
-        section.into_any_element()
+        if agent.supports_plan_mode() && !hide_plan_mode {
+            group = group.toggle(DefaultsToggle::new(
+                format!("{prefix}-plan-mode"),
+                "Plan mode",
+                self.plan_mode,
+                move |view: &mut V, on, _| access(view).plan_mode = on,
+            ));
+        }
+        group.render(cx).into_any_element()
     }
 }

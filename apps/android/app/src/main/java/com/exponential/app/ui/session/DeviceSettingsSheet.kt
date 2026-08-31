@@ -49,7 +49,6 @@ import com.exponential.app.data.db.DeviceWorktreeEntity
 import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.parseAgentLoginResult
-import com.exponential.app.ui.components.AgentSegmentedTabs
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.DEFAULT_AGENT
@@ -57,17 +56,16 @@ import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GroupDivider
+import com.exponential.app.ui.components.LaunchOptionsSection
+import com.exponential.app.ui.components.LaunchOptionsVariant
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.SectionLabel
 import com.exponential.app.ui.components.SheetHeight
-import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.components.defaultModelFor
-import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.effortValuesFor
-import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.components.modelValuesFor
 import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.icons.ExpIcons
@@ -159,14 +157,13 @@ fun DeviceSettingsSheet(
     }
 
     // EXP-686: the static sheet title — the machine's own name is the editable
-    // field right below it. Edits save themselves, so "Done" is only a dismiss
-    // (the swipe-down gesture does the same).
+    // field right below it. EXP-694: no bottom button at all — edits save
+    // themselves, so a "Done" that only dismissed duplicated the drag handle.
     GlassSheet(
         title = "Device settings",
         onDismiss = onDismiss,
         modifier = Modifier.testTag("device-settings-sheet"),
         height = SheetHeight.Full,
-        primaryAction = SheetPrimaryAction(label = "Done", onClick = onDismiss),
     ) {
         Column(
             modifier = Modifier
@@ -306,97 +303,63 @@ fun DeviceSettingsSheet(
                     },
                 )
             }
-            Spacer(Modifier.height(4.dp))
-            if (editableAgents.size > 1) {
-                // EXP-615: the same one-capsule agent strip the launch
-                // dialogs render.
-                AgentSegmentedTabs(
-                    agents = editableAgents,
-                    selected = agentTab,
-                    onSelect = { agentTab = it },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-                Spacer(Modifier.height(4.dp))
-            }
+            Spacer(Modifier.height(8.dp))
+            // EXP-694: the SAME agent card every launch surface renders — the
+            // embedded agent tabs, model/effort, the toggles and this agent's
+            // account/usage, in one inset-grouped card.
             val draft = drafts[agentTab] ?: agentDraft(device, agentTab)
-            OptionGroup {
-                val modelOptions = if (agentTab == DEFAULT_AGENT) {
-                    modelValuesFor(agentTab)
-                } else {
-                    listOf(CLI_DEFAULT_MODEL) + modelValuesFor(agentTab)
-                }
-                PickerRow(
-                    label = "Model",
-                    value = modelLabel(draft.model),
-                    options = modelOptions,
-                    selected = draft.model,
-                    optionLabel = ::modelLabel,
-                    onSelect = { next -> editDraft(agentTab) { it.copy(model = next) } },
-                )
-                GroupDivider()
-                PickerRow(
-                    label = when (agentTab) {
-                        "codex" -> "Reasoning"
-                        "pi" -> "Thinking"
-                        else -> "Effort"
-                    },
-                    value = effortLabel(draft.effort),
-                    options = listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(agentTab),
-                    selected = draft.effort,
-                    optionLabel = ::effortLabel,
-                    enabled = !(agentTab == DEFAULT_AGENT && draft.ultracode),
-                    onSelect = { next -> editDraft(agentTab) { it.copy(effort = next) } },
-                )
-                if (agentTab == DEFAULT_AGENT) {
-                    GroupDivider()
-                    SwitchRow(
-                        title = "Ultracode",
-                        checked = draft.ultracode,
-                        onCheckedChange = { next ->
-                            editDraft(agentTab) { it.copy(ultracode = next) }
-                        },
-                    )
-                }
-                if (supportsPlanMode(agentTab)) {
-                    GroupDivider()
-                    SwitchRow(
-                        title = "Plan mode",
-                        checked = draft.planMode,
-                        onCheckedChange = { next ->
-                            editDraft(agentTab) { it.copy(planMode = next) }
-                        },
-                    )
-                }
+            LaunchOptionsSection(
+                variant = LaunchOptionsVariant.Device,
+                // The sheet already IS the machine — no "Runs on" row.
+                devices = emptyList(),
+                device = null,
+                onDeviceChange = {},
+                agent = agentTab,
+                availableAgents = editableAgents,
+                onAgentChange = { agentTab = it },
+                model = draft.model,
+                onModelChange = { next -> editDraft(agentTab) { it.copy(model = next) } },
+                effort = draft.effort,
+                onEffortChange = { next -> editDraft(agentTab) { it.copy(effort = next) } },
+                ultracode = draft.ultracode,
+                onUltracodeChange = { next ->
+                    editDraft(agentTab) { it.copy(ultracode = next) }
+                },
+                planMode = draft.planMode,
+                onPlanModeChange = { next ->
+                    editDraft(agentTab) { it.copy(planMode = next) }
+                },
                 // EXP-688: the machine's sign-in and usage for THIS agent
                 // live in the agent's own card — the standalone "Agents"
                 // section repeated the agent list a second time.
-                GroupDivider()
-                AgentAccountBlock(
-                    agent = agentTab,
-                    account = device.agentAccounts?.get(agentTab),
-                    usage = device.agentUsage?.get(agentTab),
-                    usageAt = device.agentUsageAt,
-                    state = commandStates[agentLoginCommandKey(agentTab)],
-                    // The command opens a login flow ON the machine and
-                    // publishes its URL back, so it needs a machine that is
-                    // ours, online, and new enough to advertise the cap. pi
-                    // has no remote sign-in at all (the server refuses it).
-                    canLogin = device.online && device.canAgentLogin &&
-                        device.isMine && agentTab != "pi",
-                    onLogin = { switchAccount ->
-                        if (switchAccount && agentTab == "codex") {
-                            switchConfirmAgent = agentTab
-                        } else {
-                            viewModel.agentLogin(
-                                device.deviceId,
-                                agentTab,
-                                switchAccount,
-                                device.online,
-                            )
-                        }
-                    },
-                )
-            }
+                accountSlot = {
+                    AgentAccountBlock(
+                        agent = agentTab,
+                        account = device.agentAccounts?.get(agentTab),
+                        usage = device.agentUsage?.get(agentTab),
+                        usageAt = device.agentUsageAt,
+                        state = commandStates[agentLoginCommandKey(agentTab)],
+                        // The command opens a login flow ON the machine and
+                        // publishes its URL back, so it needs a machine that is
+                        // ours, online, and new enough to advertise the cap. pi
+                        // has no remote sign-in at all (the server refuses it).
+                        canLogin = device.online && device.canAgentLogin &&
+                            device.isMine && agentTab != "pi",
+                        onLogin = { switchAccount ->
+                            if (switchAccount && agentTab == "codex") {
+                                switchConfirmAgent = agentTab
+                            } else {
+                                viewModel.agentLogin(
+                                    device.deviceId,
+                                    agentTab,
+                                    switchAccount,
+                                    device.online,
+                                )
+                            }
+                        },
+                    )
+                },
+            )
             ErrorCaption(defaultsError)
             Spacer(Modifier.height(8.dp))
 
@@ -421,13 +384,17 @@ fun DeviceSettingsSheet(
                         )
                     } else {
                         // EXP-688: icon-only, at the trailing edge of the
-                        // section header (web/desktop/iOS parity).
+                        // section header (web/desktop/iOS parity). EXP-694
+                        // sizes it 28/15 — the in-list circle iOS uses; the
+                        // 38dp nav-bar default towered over the label.
                         CircleIconButton(
                             ExpIcons.uiClean,
                             "Prune merged worktrees",
                             onClick = {
                                 viewModel.pruneWorktrees(device.deviceId, device.online)
                             },
+                            size = 28.dp,
+                            glyphSize = 15.dp,
                         )
                     }
                 }

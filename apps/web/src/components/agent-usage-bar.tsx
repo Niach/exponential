@@ -25,9 +25,10 @@ export function agentLabel(agent: string): string {
   return AGENT_LABELS[agent] ?? agent
 }
 
-/** Every window the machine reported, grouped. `compact` tightens the
- * spacing for the device-settings tabs, where the cards sit under an account
- * line rather than alone in a sheet. */
+/** Every window the machine reported, grouped. `compact` is the
+ * device-settings tab arm (EXP-694): the windows are FLAT rows inside the
+ * agent's own glass group — no nested card chrome — because the group around
+ * them already draws the surface. The sheet arm keeps its standalone cards. */
 export function AgentUsageCards({
   usage,
   now,
@@ -48,15 +49,21 @@ export function AgentUsageCards({
     >
       {groups.map((group) => (
         <div key={group.key} className="space-y-1.5">
-          {/* The session group needs no header — its single card is titled
-              "Current session" already. */}
-          {group.key !== `session` && (
+          {/* Header-skip rule shared with Android/desktop: empty titles render
+              no header (the weekly group's cards name themselves, EXP-694) and
+              neither does the session group — its single card is already
+              titled "Current session". */}
+          {group.title.length > 0 && group.key !== `session` && (
             <p className="text-[11px] text-muted-foreground">{group.title}</p>
           )}
           {group.cards.map((card) => (
             <div
               key={card.key}
-              className="space-y-1.5 rounded-xl border border-glass-stroke-card bg-glass-card px-3 py-2"
+              className={cn(
+                `space-y-1.5`,
+                !compact &&
+                  `rounded-xl border border-glass-stroke-card bg-glass-card px-3 py-2`
+              )}
             >
               <div className="flex items-center gap-2">
                 <span className="min-w-0 flex-1 truncate text-xs">

@@ -3,7 +3,7 @@ import ExpUI
 import SwiftUI
 
 /// EXP-688: agent rate-limit usage as CARDS — one per window the machine
-/// reported, grouped Current session / Weekly limits / Other.
+/// reported, grouped Current session / (untitled weekly) / Other.
 ///
 /// This replaces the EXP-484 hairline strip and its radio "pinned window"
 /// rows: there is no tracked-window concept any more on any client. The device
@@ -16,18 +16,20 @@ import SwiftUI
 /// agent's tab in Device settings (`compact`).
 
 /// Every group the report yields, headers and all. Session cards carry no
-/// header — the card itself already says "Current session".
+/// header — the card itself already says "Current session" — and neither does
+/// any group the rules left untitled (EXP-694's weekly group).
 struct AgentUsageCards: View {
     let usage: AgentUsage
-    /// Device settings renders the same cards a shade tighter, inside a form
-    /// row that already has its own chrome.
+    /// Device settings renders the same numbers as FLAT rows (EXP-694): no
+    /// card chrome of their own, because the grouped row they sit in already
+    /// has it.
     var compact = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: compact ? 12 : 16) {
             ForEach(AgentUsagePresentation.usageGroups(usage, now: Date())) { group in
                 VStack(alignment: .leading, spacing: 8) {
-                    if group.key != "session" {
+                    if group.key != "session", !group.title.isEmpty {
                         Text(group.title)
                             .font(.caption)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -47,12 +49,33 @@ struct AgentUsageCards: View {
 /// One card: title + `n% used`, the severity-toned track, and the caption
 /// (`resets in 2h 10m`, or the idle session window's "Starts when a message is
 /// sent") when the rules produced one.
+///
+/// EXP-694: `compact` is a FLAT row — no `.glassRow()` and no horizontal
+/// padding, because the grouped card hosting it already draws both. Only the
+/// standalone Usage sheet still carries card chrome.
 struct AgentUsageCardRow: View {
     let card: UsageCard
     var compact = false
 
+    @ViewBuilder
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        if compact {
+            content
+                .padding(.vertical, 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
+        } else {
+            content
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassRow()
+                .accessibilityElement(children: .combine)
+        }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: compact ? 6 : 8) {
             HStack(spacing: 8) {
                 Text(card.title)
                     .font(compact ? .subheadline.weight(.medium) : .body.weight(.medium))
@@ -70,11 +93,6 @@ struct AgentUsageCardRow: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, compact ? 8 : 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassRow()
-        .accessibilityElement(children: .combine)
     }
 
     /// A window the machine reported without a number draws an empty rail and

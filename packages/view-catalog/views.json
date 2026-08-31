@@ -1080,9 +1080,9 @@
         "settleMs": 600
       },
       "notes": {
-        "web-mobile": "Editing is web/desktop only (EXP-257); mobile views and runs actions but never edits them.",
-        "ios": "Editing is web/desktop only.",
-        "android": "Editing is web/desktop only."
+        "web-mobile": "Editable on every client since EXP-694; mobile capture pending the next shots run.",
+        "ios": "Edit sheet shipped with EXP-694; capture pending the next shots run.",
+        "android": "Edit sheet shipped with EXP-694; capture pending the next shots run."
       },
       "desktop": {
         "drive": {

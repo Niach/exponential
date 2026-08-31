@@ -891,15 +891,15 @@ fun StartCodingSheet(
                 // single checked issue + agent on a resume-capable
                 // machine; the caption names the worktree so "why is this
                 // offered" is answerable at a glance (desktop copy).
+                // EXP-694: bare rows — the section renders them inside the
+                // agent card, so this must not open a group of its own.
                 resumeSlot = resumeCandidate?.let { worktree ->
                     {
-                        OptionGroup {
-                            SwitchRow(
-                                title = "Resume previous session",
-                                checked = resume,
-                                onCheckedChange = { resume = it },
-                            )
-                        }
+                        SwitchRow(
+                            title = "Resume previous session",
+                            checked = resume,
+                            onCheckedChange = { resume = it },
+                        )
                         Text(
                             "A worktree for ${checkedInOrder.firstOrNull()?.identifier} " +
                                 "already exists (${worktree.branch}).",
@@ -907,9 +907,12 @@ fun StartCodingSheet(
                             color = MaterialTheme.colorScheme.onSurface.copy(
                                 alpha = TextEmphasis.Tertiary,
                             ),
-                            modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
+                            modifier = Modifier.padding(
+                                start = 16.dp,
+                                end = 16.dp,
+                                bottom = 8.dp,
+                            ),
                         )
-                        Spacer(Modifier.height(4.dp))
                     }
                 },
             )

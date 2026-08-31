@@ -37,6 +37,11 @@ final class AgentsViewModel {
     /// EXP-481: the synced worktree inventory (shape 18) — the Start-coding
     /// sheet's resume probe and the device-settings worktree list.
     var worktrees: [DeviceWorktreeEntity] = []
+    /// EXP-694: the synced actions/automations, account-wide (a session names
+    /// its own team). The session rows' trailing control resolves its glyph and
+    /// its editor target through these — no network read.
+    var actions: [ActionDto] = []
+    var automations: [AutomationDto] = []
 
     /// The team the surrounding view currently shows — kept current by
     /// `AgentsView` (the sessions observation is account-wide, the list is
@@ -62,6 +67,10 @@ final class AgentsViewModel {
     private var deviceTask: Task<Void, Never>?
     private var worktreeTask: Task<Void, Never>?
     private var userTask: Task<Void, Never>?
+    // EXP-694: the action/automation stores behind the session rows' editor
+    // buttons.
+    private var actionTask: Task<Void, Never>?
+    private var automationTask: Task<Void, Never>?
     /// EXP-656: wakes when our own `devices` shape completes a poll — the
     /// missing foreground re-derivation hook. Presence is only as current as
     /// that cursor, so a machine's badge must repaint the moment it advances
@@ -161,6 +170,30 @@ final class AgentsViewModel {
                 }
             } catch {}
         }
+        // EXP-694: the session rows' trailing control names the ACTION a run
+        // came from (its glyph, and the editor the button opens), so the two
+        // action-side shapes ride along here.
+        let actionObservation = ValueObservation.tracking { db in
+            try ActionEntity.fetchAll(db)
+        }
+        actionTask = Task { [weak self] in
+            do {
+                for try await rows in actionObservation.values(in: pool) {
+                    self?.actions = rows.map { ActionDto(entity: $0) }
+                }
+            } catch {}
+        }
+        let automationObservation = ValueObservation.tracking { db in
+            try AutomationEntity.fetchAll(db)
+        }
+        automationTask = Task { [weak self] in
+            do {
+                for try await rows in automationObservation.values(in: pool) {
+                    self?.automations = rows.map { AutomationDto(entity: $0) }
+                }
+            } catch {}
+        }
+
         let userObservation = ValueObservation.tracking { db in
             try UserEntity.fetchAll(db)
         }
@@ -215,6 +248,10 @@ final class AgentsViewModel {
         worktreeTask = nil
         userTask?.cancel()
         userTask = nil
+        actionTask?.cancel()
+        actionTask = nil
+        automationTask?.cancel()
+        automationTask = nil
         freshnessTask?.cancel()
         freshnessTask = nil
     }

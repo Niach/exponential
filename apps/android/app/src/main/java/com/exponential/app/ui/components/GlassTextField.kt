@@ -32,6 +32,11 @@ import com.exponential.app.ui.theme.TextEmphasis
  * placeholder, so this takes a plain [placeholder] string instead of a `label`
  * slot. [containerColor] lets a caller tint the fill (the helpdesk internal-note
  * amber); the stroke stays the glass hairline and brightens on focus.
+ *
+ * EXP-694: [bordered] = false drops the fill AND the hairline for a field that
+ * lives INSIDE a grouped card (`OptionGroup`) — the description / prompt
+ * editors, which used to float outside the card stack as their own chromed
+ * boxes. The group owns the chrome then, and the field is just its text.
  */
 @Composable
 fun GlassTextField(
@@ -50,13 +55,14 @@ fun GlassTextField(
     visualTransformation: VisualTransformation = VisualTransformation.None,
     textStyle: TextStyle = LocalTextStyle.current,
     containerColor: Color = GlassTokens.CardFill,
+    bordered: Boolean = true,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
     TextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier.glassFieldBorder(focused),
+        modifier = if (bordered) modifier.glassFieldBorder(focused) else modifier,
         enabled = enabled,
         textStyle = textStyle,
         placeholder = placeholder?.let { { GlassPlaceholder(it) } },
@@ -70,7 +76,7 @@ fun GlassTextField(
         maxLines = maxLines,
         interactionSource = interactionSource,
         shape = GlassFieldShape,
-        colors = glassTextFieldColors(containerColor),
+        colors = glassTextFieldColors(if (bordered) containerColor else Color.Transparent),
     )
 }
 

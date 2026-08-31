@@ -20,6 +20,7 @@ import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -167,12 +168,15 @@ fun GlassSheet(
                         top = 12.dp,
                         bottom = 16.dp,
                     ),
+                    // EXP-694: both take the button's own content color — an
+                    // enabled submit is now a solid near-white fill, so a white
+                    // glyph would vanish on it.
                     icon = when {
                         primaryAction.loading -> ({
                             CircularProgressIndicator(
                                 modifier = Modifier.size(16.dp),
                                 strokeWidth = 2.dp,
-                                color = Color.White.copy(alpha = TextEmphasis.Secondary),
+                                color = LocalContentColor.current,
                             )
                         })
                         primaryAction.icon != null -> ({
@@ -180,7 +184,6 @@ fun GlassSheet(
                                 primaryAction.icon,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
-                                tint = Color.White.copy(alpha = TextEmphasis.Primary),
                             )
                         })
                         else -> null

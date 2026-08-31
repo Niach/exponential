@@ -7,9 +7,11 @@
 // (it never holds, copies or refreshes a credential); this only renders the
 // synced row. EXP-688 moved it out of a standalone "Agents" section and under
 // each agent's own defaults, so the tab you are editing is the tab that tells
-// you whose account it runs as. Hand-mirrored on iOS
-// (`DeviceSettingsSheet`), Android (`DeviceSettingsSheet.kt`) and the desktop
-// IDE (`ui/src/device_settings.rs`) — same captions, same gating.
+// you whose account it runs as. EXP-694 folds it INTO that tab's glass group
+// as its closing rows (the account line is the bare email now, the usage
+// windows are flat rows). Hand-mirrored on iOS (`DeviceSettingsSheet`),
+// Android (`DeviceSettingsSheet.kt`) and the desktop IDE
+// (`ui/src/device_settings.rs`) — same captions, same gating.
 import { LoaderCircle } from "lucide-react"
 import type { Device, DeviceAgentAccount } from "@/db/schema"
 import { conceptIcon } from "@/lib/icons.generated"
@@ -66,7 +68,9 @@ export function AgentAccountBlock({
   const asOf = account?.checkedAt ?? row?.agentUsageAt ?? null
 
   return (
-    <div className="space-y-2">
+    // EXP-694: the FINAL ROWS of the agent's own glass group — the row rhythm
+    // (16h/12v) is ours, the divider above comes from the group.
+    <div className="flex flex-col gap-2 px-4 py-3">
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           {accountLine(account)}

@@ -16,20 +16,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { GlassGroup, GlassPickerRow } from "@/components/ui/glass-rows"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
-// Edit dialog for team actions (EXP-253) — owner-only (the server enforces
-// it), EDIT-ONLY since EXP-257: new actions are authored by the builtin
-// "Create action" run, so the manual create path (and its templates) is gone.
+// Edit dialog for team actions (EXP-253) — owner-only writes (the server
+// enforces it; a non-owner opens the same dialog `readOnly`, exactly as the
+// native sheets do). EDIT-ONLY since EXP-257: new actions are authored by the
+// builtin "Create action" run, so the manual create path (and its templates)
+// is gone.
 // The body is the GFM prompt an interactive agent session executes on a
 // member's desktop — synced rows exclude it (EXP-268), so the dialog fetches
 // it via tRPC `actions.get` on open.
@@ -47,11 +42,22 @@ export interface ActionRepoOption {
 // "no repository" choice.
 const NO_REPO = `none`
 
+// EXP-694 — the editor controls are the SAME on every client: fields sit as
+// rows inside the grouped card stack, with no label above them (the
+// placeholder carries the title) and no chrome of their own (the group's fill
+// and hairlines ARE the field). Mirrors the desktop `action_editor_dialog` and
+// the native Create/Edit action sheets. Exported because the New-action dialog
+// (`create-action-dialog.tsx`) is the same form and must not re-derive them.
+export const GROUPED_FIELD = `rounded-none border-0 bg-transparent text-sm shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm`
+// 16h/12v is the row padding of the whole ladder (GlassPickerRow/ToggleRow).
+export const GROUPED_FIELD_ROW = `${GROUPED_FIELD} px-4 py-3`
+
 export function ActionEditorDialog({
   open,
   onOpenChange,
   repos,
   action,
+  readOnly = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -59,6 +65,11 @@ export function ActionEditorDialog({
   repos: ActionRepoOption[]
   /** The action being edited (never the builtin — it has no editable body). */
   action: TeamAction
+  /** EXP-694: writes are owner-only (the server enforces it), so a NON-owner
+   * who reaches this dialog from a session row reads the action instead of
+   * filling in a form whose save would be refused — the same read-only sheet
+   * iOS (`EditActionSheet`) and Android (`ActionEditSheet`) fall back to. */
+  readOnly?: boolean
 }) {
   const [name, setName] = useState(``)
   const [description, setDescription] = useState(``)
@@ -110,7 +121,7 @@ export function ActionEditorDialog({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!canSubmit || submitting) return
+    if (readOnly || !canSubmit || submitting) return
     setSubmitting(true)
     setNameError(null)
     setError(null)
@@ -146,11 +157,14 @@ export function ActionEditorDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Wide on desktop (EXP-267): metadata left, prompt right — the prompt
           is the tall field, so splitting columns keeps the dialog 16:9-ish
-          instead of a narrow tower. On mobile the base dialog is a
-          full-screen page and the grid stacks to one column. */}
-      <DialogContent className="sm:max-h-[85dvh] sm:max-w-4xl">
+          instead of a narrow tower. EXP-694: on mobile it is the tall sheet
+          every other big form uses, and the grid stacks to one column. */}
+      <DialogContent
+        mobile="sheet-full"
+        className="sm:max-h-[85dvh] sm:max-w-4xl"
+      >
         <DialogHeader>
-          <DialogTitle>Edit action</DialogTitle>
+          <DialogTitle>{readOnly ? `Action` : `Edit action`}</DialogTitle>
         </DialogHeader>
 
         <form
@@ -163,13 +177,16 @@ export function ActionEditorDialog({
               growing to the viewport cap with whitespace beside it. Mobile
               keeps the base single-column body scroll. */}
           <DialogBody className="grid gap-4 sm:min-h-0 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] sm:gap-x-6 sm:overflow-y-visible">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="action-name">Name</Label>
-                <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2">
+              <GlassGroup>
+                {/* Icon and name are ONE row on every client — the glyph
+                    picker leads, the name types straight into the row. */}
+                <div className="flex items-center gap-3 px-4 py-3">
                   <IconPicker
+                    id="action-icon"
                     value={icon}
                     onChange={(next) => setIcon(next as BoardIcon)}
+                    disabled={readOnly}
                   />
                   <Input
                     id="action-name"
@@ -178,66 +195,59 @@ export function ActionEditorDialog({
                       setName(e.target.value)
                       setNameError(null)
                     }}
-                    placeholder="Code review sweep"
-                    className="flex-1"
-                    autoFocus
+                    placeholder="Name"
+                    className={`${GROUPED_FIELD} h-auto min-w-0 flex-1 p-0`}
+                    autoFocus={!readOnly}
+                    readOnly={readOnly}
                   />
                 </div>
-                {nameError && (
-                  <p className="text-xs text-destructive">{nameError}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="action-description">
-                  Description (optional)
-                </Label>
                 <Textarea
                   id="action-description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="What this action does, for the list"
-                  className="min-h-16"
+                  placeholder="Description"
+                  className={`${GROUPED_FIELD_ROW} min-h-16`}
+                  readOnly={readOnly}
                 />
-              </div>
+              </GlassGroup>
+              {nameError && (
+                <p className="px-1 text-xs text-destructive">{nameError}</p>
+              )}
 
-              <div className="space-y-2">
-                <Label htmlFor="action-repository">Repository (optional)</Label>
-                <Select value={repoValue} onValueChange={setRepoValue}>
-                  <SelectTrigger id="action-repository" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NO_REPO}>None</SelectItem>
-                    {repos.map((repo) => (
-                      <SelectItem key={repo.id} value={repo.id}>
-                        {repo.fullName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  With a repository the run clones it first; without one the
-                  agent works in a scratch directory.
-                </p>
-              </div>
+              <GlassGroup>
+                <GlassPickerRow
+                  label="Repository"
+                  value={repoValue}
+                  onValueChange={setRepoValue}
+                  disabled={readOnly}
+                  options={[
+                    { value: NO_REPO, label: `None` },
+                    ...repos.map((repo) => ({
+                      value: repo.id,
+                      label: repo.fullName,
+                    })),
+                  ]}
+                />
+              </GlassGroup>
+              <p className="px-1 text-xs text-muted-foreground">
+                With a repository the run clones it first; without one the
+                agent works in a scratch directory.
+              </p>
             </div>
 
             <div className="flex min-h-0 flex-col gap-2">
-              <Label htmlFor="action-body">Prompt</Label>
-              <Textarea
-                id="action-body"
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                placeholder={
-                  bodyLoading
-                    ? `Loading prompt…`
-                    : `The markdown prompt the agent runs with…`
-                }
-                disabled={bodyLoading}
-                rows={12}
-                className="min-h-48 flex-1 resize-none field-sizing-fixed font-mono text-xs"
-              />
+              <GlassGroup className="min-h-0 flex-1">
+                <Textarea
+                  id="action-body"
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  placeholder={bodyLoading ? `Loading prompt…` : `Prompt`}
+                  disabled={bodyLoading}
+                  readOnly={readOnly}
+                  rows={12}
+                  className={`${GROUPED_FIELD_ROW} min-h-48 flex-1 resize-none field-sizing-fixed font-mono text-xs`}
+                />
+              </GlassGroup>
             </div>
 
             {error && (
@@ -247,15 +257,20 @@ export function ActionEditorDialog({
             )}
           </DialogBody>
 
-          <DialogFooter>
-            <DialogCancel
-              onClick={() => onOpenChange(false)}
-              disabled={submitting}
-            />
-            <Button type="submit" disabled={!canSubmit || submitting}>
-              {submitting ? `Saving…` : `Save changes`}
-            </Button>
-          </DialogFooter>
+          {/* Read-only draws no footer at all — the same "no bottom strip"
+              the native read-only sheets resolve to (iOS `EditActionSheet`);
+              the dialog's own close control dismisses it. */}
+          {!readOnly && (
+            <DialogFooter>
+              <DialogCancel
+                onClick={() => onOpenChange(false)}
+                disabled={submitting}
+              />
+              <Button type="submit" disabled={!canSubmit || submitting}>
+                {submitting ? `Saving…` : `Save changes`}
+              </Button>
+            </DialogFooter>
+          )}
         </form>
       </DialogContent>
     </Dialog>

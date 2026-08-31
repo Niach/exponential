@@ -145,7 +145,7 @@ describe(`usageGroups`, () => {
       },
       {
         key: `weekly`,
-        title: `Weekly limits`,
+        title: ``,
         cards: [
           {
             key: `weekly`,
@@ -223,6 +223,11 @@ describe(`usageGroups`, () => {
     ])
   })
 
+  it(`gives the weekly group no title — its cards name themselves`, () => {
+    const groups = usageGroups(USAGE, NOW)
+    expect(groups.find((group) => group.key === `weekly`)?.title).toBe(``)
+  })
+
   it(`is empty without windows`, () => {
     expect(usageGroups({ windows: [] }, NOW)).toEqual([])
     expect(usageGroups(null, NOW)).toEqual([])
@@ -275,14 +280,17 @@ describe(`formatResetCountdown`, () => {
 })
 
 describe(`accountCaption`, () => {
-  it(`names the account and the plan`, () => {
+  it(`is the email alone — no prefix, no plan tail`, () => {
     expect(
       accountCaption({
         signedIn: true,
         email: `danny@example.com`,
         plan: `Max`,
       })
-    ).toBe(`signed in as danny@example.com · Max`)
+    ).toBe(`danny@example.com`)
+    expect(accountCaption({ signedIn: true, email: `danny@example.com` })).toBe(
+      `danny@example.com`
+    )
   })
 
   it(`says signed out`, () => {
@@ -302,10 +310,23 @@ describe(`accountCaption`, () => {
 })
 
 describe(`accountLine`, () => {
-  it(`drops the prefix and spells out the negatives`, () => {
+  it(`is the email alone — no prefix, no plan tail`, () => {
     expect(
       accountLine({ signedIn: true, email: `danny@example.com`, plan: `Max` })
-    ).toBe(`signed in as danny@example.com · Max`)
+    ).toBe(`danny@example.com`)
+    expect(accountLine({ signedIn: true, email: `danny@example.com` })).toBe(
+      `danny@example.com`
+    )
+  })
+
+  it(`falls back to the bare plan without an email (pi)`, () => {
+    expect(accountLine({ signedIn: true, plan: `anthropic (oauth)` })).toBe(
+      `anthropic (oauth)`
+    )
+    expect(accountLine({ signedIn: true })).toBe(`signed in`)
+  })
+
+  it(`spells out the negatives`, () => {
     expect(accountLine({ signedIn: false })).toBe(`Not signed in`)
     expect(accountLine(null)).toBe(`Sign-in status unknown`)
   })
@@ -319,7 +340,7 @@ describe(`accountRow`, () => {
         email: `danny@example.com`,
         plan: `Max`,
       })
-    ).toBe(`claude · signed in as danny@example.com · Max`)
+    ).toBe(`claude · danny@example.com`)
     expect(accountRow(`codex`, { signedIn: false })).toBe(`codex · signed out`)
     expect(accountRow(`pi`, null)).toBe(`pi · unknown`)
   })

@@ -1,14 +1,17 @@
 import { useState, type ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
+import { eq, useLiveQuery } from "@tanstack/react-db"
 import { ChevronDown, LoaderCircle } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import type { AgentSessionRow } from "@/hooks/use-agents-data"
-import type { CodingSession } from "@/db/schema"
+import type { CodingSession, SyncedAction } from "@/db/schema"
 import {
   sessionDisplayState,
   type SessionDisplayState,
 } from "@/components/issue-coding-rows"
 import { relativeTime } from "@/components/comment-rows/format"
+import { actionCollection } from "@/lib/collections"
+import { getActionIcon } from "@/lib/board-icons"
 import { trpc } from "@/lib/trpc-client"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -16,10 +19,9 @@ import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { SessionMergeButton } from "@/components/session-merge-button"
 import { GlassRow } from "@/components/ui/glass-rows"
 
-// EXP-616: the trailing bare glyph that opens the linked issue — the iOS
-// carded row's secondary destination, a cross-client concept never a raw
-// lucide import.
-const IssueDetailsIcon = conceptIcon(`ui-info`)
+// EXP-530: the automation glyph is a cross-client concept — the fallback when
+// an automation run's action row has not synced (or was deleted).
+const ActionAutomationIcon = conceptIcon(`action-automation`)
 
 // The live coding-session row shared by the team Devices page and the
 // Automations runs list (EXP-253/EXP-686) — extracted from the old Agents
@@ -94,13 +96,35 @@ export function RunningIndicator({
   )
 }
 
+/** The action a run belongs to, off the synced (body-less) `actions` shape —
+ * it carries the glyph the row's trailing button draws. An automation run
+ * carries its automation's `action_id` too, so ONE lookup serves both.
+ * Issue/chat/batch rows have no `actionId` and run no query at all. */
+function useRunAction(actionId: string | null): SyncedAction | undefined {
+  const { data } = useLiveQuery(
+    (query) =>
+      actionId
+        ? query
+            .from({ actions: actionCollection })
+            .where(({ actions }) => eq(actions.id, actionId))
+        : undefined,
+    [actionId]
+  )
+  return ((data ?? []) as SyncedAction[])[0]
+}
+
 export function SessionRow({
   row,
   teamSlug,
+  isOwner,
   onOpen,
 }: {
   row: AgentSessionRow
   teamSlug: string
+  /** EXP-694: the caller's team role, from `useTeamPermissions` — it decides
+   * WHICH editor the trailing button opens (a row must not resolve it itself:
+   * the hook fetches the team's billing plan, once per row). */
+  isOwner: boolean
   onOpen: () => void
 }) {
   const { session, issue, board } = row
@@ -114,10 +138,25 @@ export function SessionRow({
   // label, and greyed-out "Paused" while it is offline (the agent is parked,
   // not gone; it resumes when the machine comes back).
   const { device, paused } = row
+  // EXP-694: the trailing button is the row's SECOND destination, one shape
+  // per kind — the issue's identifier as a glass pill, an action/automation
+  // run's own glyph as a glass circle opening its editor, and nothing at all
+  // for a chat or batch run (there is nothing behind it to open).
+  const runAction = useRunAction(session.actionId)
+  // An automation run edits the AUTOMATION only for a team owner (that form
+  // is a write surface with no read-only mode); every other member lands in
+  // the action editor, which opens read-only by itself — iOS `editTarget`,
+  // Android `onOpenAction`. The label follows the DESTINATION, never the kind.
+  const editsAutomation = Boolean(session.automationId) && isOwner
+  const RunIcon = runAction
+    ? getActionIcon(runAction)
+    : editsAutomation
+      ? ActionAutomationIcon
+      : getActionIcon({})
 
   // FEED-15: the native two-line row — dot | identifier + title, then the
   // parked-state label + "device · started …" byline | icon-only Merge and
-  // the bare issue-details glyph — instead of the old four-column grid whose
+  // the kind's own trailing button — instead of the old four-column grid whose
   // inline state label collided with the buttons on phones. Every row is the
   // caller's own (EXP-312), so the byline names the machine, never the person.
   return (
@@ -133,7 +172,7 @@ export function SessionRow({
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
-          {/* EXP-616: plain text — the trailing info glyph owns issue
+          {/* EXP-616: plain text — the trailing button owns issue
               navigation now (iOS parity). */}
           <span className="shrink-0 font-mono text-xs text-muted-foreground">
             {isAction
@@ -177,21 +216,52 @@ export function SessionRow({
             issueId={prIssue.id}
           />
         )}
-        {issue && board && (
-          <Link
-            to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
-            params={{
-              teamSlug,
-              boardSlug: board.slug,
-              issueIdentifier: issue.identifier,
-            }}
-            onClick={(e) => e.stopPropagation()}
-            aria-label="Issue details"
-            className="flex size-8 shrink-0 items-center justify-center rounded-full text-foreground/70 hover:text-foreground"
-          >
-            <IssueDetailsIcon className="size-4" />
-          </Link>
-        )}
+        {issue && board ? (
+          <Button asChild variant="glass" size="xs" className="font-mono">
+            <Link
+              to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+              params={{
+                teamSlug,
+                boardSlug: board.slug,
+                issueIdentifier: issue.identifier,
+              }}
+              onClick={(e) => e.stopPropagation()}
+              aria-label={`Open ${issue.identifier}`}
+              title={issue.identifier}
+            >
+              {issue.identifier}
+            </Link>
+          </Button>
+        ) : editsAutomation && session.automationId ? (
+          <Button asChild variant="glass" size="icon" className="size-8">
+            <Link
+              to="/t/$teamSlug/actions"
+              params={{ teamSlug }}
+              search={{
+                tab: `automations`,
+                editAutomation: session.automationId,
+              }}
+              onClick={(e) => e.stopPropagation()}
+              aria-label="Edit automation"
+              title="Edit automation"
+            >
+              <RunIcon className="size-4" />
+            </Link>
+          </Button>
+        ) : session.actionId ? (
+          <Button asChild variant="glass" size="icon" className="size-8">
+            <Link
+              to="/t/$teamSlug/actions"
+              params={{ teamSlug }}
+              search={{ editAction: session.actionId }}
+              onClick={(e) => e.stopPropagation()}
+              aria-label="Edit action"
+              title="Edit action"
+            >
+              <RunIcon className="size-4" />
+            </Link>
+          </Button>
+        ) : null}
       </div>
     </GlassRow>
   )

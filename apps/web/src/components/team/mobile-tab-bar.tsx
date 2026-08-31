@@ -238,10 +238,22 @@ export function MobileTabBar({
       </nav>
       {/* EXP-631: the Devices tab's FAB slot starts a chat instead of an
           issue — the same launcher the device rows open, on its Chat tab
-          (native parity: iOS/Android hide compose on Devices too). */}
+          (native parity: iOS/Android hide compose on Devices too).
+          EXP-694: the Actions tab gets the same chat FAB — there is no issue
+          to compose there either, and every client offers chat from both. */}
       {onDevices ? (
         <Link
           to="/t/$teamSlug/devices"
+          params={{ teamSlug }}
+          search={{ chat: 1 }}
+          aria-label="Start chat"
+          className={FAB_CLASS}
+        >
+          <ActionChatIcon className="size-5" />
+        </Link>
+      ) : onActions ? (
+        <Link
+          to="/t/$teamSlug/actions"
           params={{ teamSlug }}
           search={{ chat: 1 }}
           aria-label="Start chat"

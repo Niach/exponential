@@ -29,7 +29,10 @@ data class UsageCard(
     val caption: String,
 )
 
-/** A titled run of [UsageCard]s — "Current session", "Weekly limits", "Other". */
+/**
+ * A run of [UsageCard]s — "Current session", the untitled weekly limits, "Other".
+ * An empty [title] means the group renders its cards with no header (EXP-694).
+ */
 data class UsageGroup(
     val key: String,
     val title: String,
@@ -128,6 +131,9 @@ object AgentUsagePresentation {
      * and everything else (credits, codex's month) under "Other". Empty groups
      * are omitted and the order is fixed.
      *
+     * EXP-694: the weekly group carries NO title — its cards are plain rows in
+     * the surrounding group, so renderers skip an empty title.
+     *
      * There is no picking any more: the pinned-window concept is gone, so this
      * is the ONLY selection rule and all four clients render the same list.
      */
@@ -148,7 +154,7 @@ object AgentUsagePresentation {
         return buildList {
             if (session.isNotEmpty()) add(UsageGroup(GROUP_SESSION, "Current session", session))
             val weeklyCards = weekly + models
-            if (weeklyCards.isNotEmpty()) add(UsageGroup(GROUP_WEEKLY, "Weekly limits", weeklyCards))
+            if (weeklyCards.isNotEmpty()) add(UsageGroup(GROUP_WEEKLY, "", weeklyCards))
             if (other.isNotEmpty()) add(UsageGroup(GROUP_OTHER, "Other", other))
         }
     }
@@ -240,8 +246,8 @@ object AgentUsagePresentation {
     // ── Account captions ─────────────────────────────────────────────────────
 
     /**
-     * What one agent's sign-in reads as: `signed in as <email> · <plan>`,
-     * `signed in as <email>`, the bare plan for an account with no email (pi's
+     * What one agent's sign-in reads as. EXP-694 reduced it to the identity
+     * alone: the bare email, the bare plan for an account with no email (pi's
      * `anthropic (oauth)`), `signed in`, `signed out`, or `unknown` when the
      * machine reported nothing for the agent.
      */
@@ -251,14 +257,13 @@ object AgentUsagePresentation {
         val email = account.email?.takeIf { it.isNotBlank() }
         val plan = account.plan?.takeIf { it.isNotBlank() }
         return when {
-            email != null && plan != null -> "signed in as $email · $plan"
-            email != null -> "signed in as $email"
+            email != null -> email
             plan != null -> plan
             else -> "signed in"
         }
     }
 
-    /** The whole row: `claude · signed in as danny@yourev.at · max`. */
+    /** The whole row: `claude · danny@yourev.at`. */
     fun accountRow(agent: String, account: AgentAccount?): String =
         "$agent · ${accountCaption(account)}"
 

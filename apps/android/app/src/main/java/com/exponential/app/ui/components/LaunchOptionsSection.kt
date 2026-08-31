@@ -17,23 +17,32 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 // The ONE device/agent/model/effort block every launch surface renders
 // (EXP-615): the Start-coding sheet's Issues / Actions / Chat tabs, the
-// create-action sheet and the automation editor all used to grow their own
-// copy, which is how the three dialogs drifted apart across the clients. Two
-// variants only:
+// create-action sheet, the automation editor and (EXP-694) the device-settings
+// sheet all used to grow their own copy, which is how the dialogs drifted apart
+// across the clients. Three variants:
 //
 //  * [LaunchOptionsVariant.Launch] — a run starting NOW: the machine picker,
-//    the agent capsule, model/effort and the launch toggles.
+//    the agent tabs, model/effort and the launch toggles.
 //  * [LaunchOptionsVariant.Automation] — a binding that runs LATER: the same
 //    rows minus the toggles. EXP-615 dropped its old "Device default" agent
 //    option: the strip seeds to the bound machine's own default launch agent,
-//    so both variants render the SAME three-segment capsule and model/effort
+//    so every variant renders the SAME three-segment strip and model/effort
 //    fall back to the launch "CLI default" sentinel.
+//  * [LaunchOptionsVariant.Device] — one machine's stored per-agent defaults:
+//    no machine picker (the sheet IS the machine), plus the [accountSlot] with
+//    that agent's sign-in and usage.
+//
+// EXP-694 folds all of it into ONE grouped card: the agent tabs are the card's
+// first row (embedded — no capsule of their own), then Model / Effort /
+// (Resume) / Ultracode / Plan mode / (account), hairline-divided. The device
+// picker keeps its own group above, and groups sit 8dp apart everywhere.
 
-enum class LaunchOptionsVariant { Launch, Automation }
+enum class LaunchOptionsVariant { Launch, Automation, Device }
 
 /**
- * The agent strip as ONE segmented capsule (brand icon + label per agent) —
- * web/iOS/desktop parity, replacing the loose pill row.
+ * The agent strip (brand icon + label per agent) — web/iOS/desktop parity.
+ * [embedded] renders it as a grouped card's first row instead of a
+ * free-floating capsule (EXP-694).
  */
 @Composable
 internal fun AgentSegmentedTabs(
@@ -41,6 +50,7 @@ internal fun AgentSegmentedTabs(
     selected: String,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
+    embedded: Boolean = false,
 ) {
     if (agents.isEmpty()) return
     GlassSegmentedControl(
@@ -58,6 +68,7 @@ internal fun AgentSegmentedTabs(
                 modifier = Modifier.size(14.dp),
             )
         },
+        embedded = embedded,
     )
 }
 
@@ -74,9 +85,12 @@ internal fun deviceOptionLabel(device: SteerDevice): String {
 /**
  * The shared options block. [devices] are the candidates already filtered by
  * the host (per-tab caps for a launch, the `automations` cap for a binding);
- * [noDeviceNote] renders instead of the picker when none qualifies.
- * [resumeSlot] is the Launch variant's optional resume group, which sits
- * between the model/effort rows and the toggles.
+ * [noDeviceNote] renders instead of the picker when none qualifies. The Device
+ * variant renders no machine row at all — the sheet already names it.
+ *
+ * [resumeSlot] (Launch) and [accountSlot] (Device) are ROWS of the one group,
+ * not groups of their own: they are rendered after their own [GroupDivider], so
+ * a caller passes bare rows and never its own [OptionGroup].
  */
 @Composable
 internal fun LaunchOptionsSection(
@@ -98,59 +112,69 @@ internal fun LaunchOptionsSection(
     onPlanModeChange: (Boolean) -> Unit = {},
     planModeHidden: Boolean = false,
     resumeSlot: (@Composable () -> Unit)? = null,
+    accountSlot: (@Composable () -> Unit)? = null,
 ) {
     val automation = variant == LaunchOptionsVariant.Automation
+    val deviceVariant = variant == LaunchOptionsVariant.Device
 
     // ── Device ───────────────────────────────────────────────────────────────
-    if (devices.isEmpty()) {
-        if (noDeviceNote != null) {
+    // Its own group above the agent card (every client).
+    if (!deviceVariant) {
+        if (devices.isEmpty()) {
+            if (noDeviceNote != null) {
+                OptionGroup {
+                    Text(
+                        noDeviceNote,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = TextEmphasis.Secondary,
+                        ),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        } else if (automation || devices.size > 1) {
+            // A single launch candidate needs no picker; a binding always names
+            // the machine it will fire on.
             OptionGroup {
-                Text(
-                    noDeviceNote,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                PickerRow(
+                    // A binding row says where it fires; a launch picks the
+                    // device — same wording as web/iOS/desktop on both.
+                    label = if (automation) "Runs on" else "Device",
+                    value = device?.let(::deviceOptionLabel) ?: "Select",
+                    options = devices.map { it.deviceId },
+                    selected = device?.deviceId,
+                    optionLabel = { id ->
+                        devices.firstOrNull { it.deviceId == id }?.let(::deviceOptionLabel) ?: id
+                    },
+                    onSelect = onDeviceChange,
                 )
             }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(8.dp))
         }
-    } else if (automation || devices.size > 1) {
-        // A single launch candidate needs no picker; a binding always names
-        // the machine it will fire on.
-        OptionGroup {
-            PickerRow(
-                // A binding row says where it fires; a launch picks the device
-                // — same wording as web/iOS/desktop on both.
-                label = if (automation) "Runs on" else "Device",
-                value = device?.let(::deviceOptionLabel) ?: "Select",
-                options = devices.map { it.deviceId },
-                selected = device?.deviceId,
-                optionLabel = { id ->
-                    devices.firstOrNull { it.deviceId == id }?.let(::deviceOptionLabel) ?: id
-                },
-                onSelect = onDeviceChange,
-            )
-        }
-        Spacer(Modifier.height(4.dp))
     }
 
-    // ── Agent ────────────────────────────────────────────────────────────────
-    // A lone option is not a choice — both variants hide the strip then.
-    if (availableAgents.size > 1) {
-        AgentSegmentedTabs(
-            agents = availableAgents,
-            selected = agent,
-            onSelect = onAgentChange,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        )
-        Spacer(Modifier.height(4.dp))
-    }
-
-    // ── Model / Effort ───────────────────────────────────────────────────────
-    // Both variants speak the launch "CLI default" sentinel (EXP-615); a
-    // binding offers it for EVERY agent, because a blank pin is what stores
-    // NULL on the row and lets the machine decide.
+    // ── The agent card ───────────────────────────────────────────────────────
+    // EXP-694: tabs + model/effort + toggles + account are ONE inset-grouped
+    // card on all four clients.
+    val showsPlanMode = !automation && supportsPlanMode(agent) && !planModeHidden
     OptionGroup {
+        // A lone option is not a choice — every variant hides the strip then.
+        if (availableAgents.size > 1) {
+            AgentSegmentedTabs(
+                agents = availableAgents,
+                selected = agent,
+                onSelect = onAgentChange,
+                modifier = Modifier.padding(8.dp),
+                embedded = true,
+            )
+            GroupDivider()
+        }
+
+        // Every variant speaks the launch "CLI default" sentinel (EXP-615); a
+        // binding offers it for EVERY agent, because a blank pin is what stores
+        // NULL on the row and lets the machine decide.
         PickerRow(
             label = "Model",
             value = modelLabel(model),
@@ -178,38 +202,41 @@ internal fun LaunchOptionsSection(
             enabled = automation || !ultracode,
             onSelect = onEffortChange,
         )
-    }
-    Spacer(Modifier.height(4.dp))
 
-    if (automation) return
-
-    resumeSlot?.invoke()
-
-    // ── Toggles ──────────────────────────────────────────────────────────────
-    // ONE group: claude gets Ultracode + Plan mode, pi just Plan mode
-    // (EXP-441 — pi stays otherwise unguarded), codex neither. Plan mode is
-    // hidden entirely while resuming — a resume never re-enters it (EXP-202,
-    // desktop parity) — so skip the empty group shell when nothing is left.
-    val showsPlanMode = supportsPlanMode(agent) && !planModeHidden
-    if (agent == DEFAULT_AGENT || showsPlanMode) {
-        OptionGroup {
+        // ── Toggles ──────────────────────────────────────────────────────────
+        // claude gets Ultracode + Plan mode, pi just Plan mode (EXP-441 — pi
+        // stays otherwise unguarded), codex neither; a binding gets none. Plan
+        // mode is hidden entirely while resuming — a resume never re-enters it
+        // (EXP-202, desktop parity).
+        if (!automation) {
+            if (resumeSlot != null) {
+                GroupDivider()
+                resumeSlot()
+            }
             if (agent == DEFAULT_AGENT) {
+                GroupDivider()
                 SwitchRow(
                     title = "Ultracode",
                     checked = ultracode,
                     onCheckedChange = onUltracodeChange,
                 )
-                if (showsPlanMode) {
-                    GroupDivider()
-                }
             }
             if (showsPlanMode) {
+                GroupDivider()
                 SwitchRow(
                     title = "Plan mode",
                     checked = planMode,
                     onCheckedChange = onPlanModeChange,
                 )
             }
+        }
+
+        // EXP-688/EXP-694: the machine's sign-in and usage for THIS agent are
+        // the card's last rows — a standalone "Agents" section repeated the
+        // agent list a second time.
+        if (accountSlot != null) {
+            GroupDivider()
+            accountSlot()
         }
     }
 }

@@ -151,7 +151,11 @@ export interface UsageCard {
 
 export interface UsageGroup {
   key: UsageGroupKey
-  title: `Current session` | `Weekly limits` | `Other`
+  /** EXP-694: empty means the group renders WITHOUT a heading — the weekly
+   * group's cards ("All models", "<Model> only") already name themselves, and
+   * a "Weekly limits" line above them was one label too many. Renderers skip
+   * an empty title. */
+  title: `Current session` | `` | `Other`
   cards: UsageCard[]
 }
 
@@ -180,7 +184,8 @@ function cardCaption(window: DeviceUsageWindow, now: Date): string {
 /** EXP-688: every reported window, grouped the way the agent's own app groups
  * them — the current session, the weekly limits (all models first, then the
  * per-model ones in report order), then everything else in report order.
- * Empty groups are omitted; the group order is fixed. */
+ * Empty groups are omitted; the group order is fixed. EXP-694: the weekly
+ * group carries NO title. */
 export function usageGroups(
   usage: DeviceAgentUsage | null | undefined,
   now: Date
@@ -209,7 +214,7 @@ export function usageGroups(
   if (weekly.length > 0 || models.length > 0) {
     groups.push({
       key: `weekly`,
-      title: `Weekly limits`,
+      title: ``,
       cards: [...weekly, ...models],
     })
   }
@@ -219,36 +224,42 @@ export function usageGroups(
   return groups
 }
 
-/** What one agent's sign-in reads as: `signed in as <email> · <plan>`,
- * `signed in as <email>`, the bare plan for an account with no email (pi
- * reports a provider, never an address), `signed in`, `signed out`, or
- * `unknown` when the machine reported nothing for the agent (never probed is
- * not "signed out"). */
+/** What one agent's sign-in reads as. EXP-694 reduced it to the identity
+ * alone: the bare email (no `signed in as` prefix and no ` · <plan>` tail —
+ * the row's context already says both), the bare plan for an account with no
+ * email (pi reports a provider, never an address), `signed in`, `signed out`,
+ * or `unknown` when the machine reported nothing for the agent (never probed
+ * is not "signed out"). */
 export function accountCaption(
   account: DeviceAgentAccount | null | undefined
 ): string {
   if (!account) return `unknown`
   if (!account.signedIn) return `signed out`
   const email = account.email && account.email.length > 0 ? account.email : null
+  if (email) return email
   const plan = account.plan && account.plan.length > 0 ? account.plan : null
-  if (email && plan) return `signed in as ${email} · ${plan}`
-  if (email) return `signed in as ${email}`
   if (plan) return plan
   return `signed in`
 }
 
-/** EXP-688: the same sentence inside an agent's OWN tab, where the agent is
- * already the heading — no `claude · ` prefix, and the two negative cases read
- * as sentences instead of as states. */
+/** EXP-688/694: what one agent's OWN tab says, where the agent is already the
+ * heading — just the ADDRESS: no `claude · ` prefix, no `signed in as` and no
+ * ` · <plan>` tail (the plan is the agent app's business, not this row's). An
+ * account with no email (pi reports a provider, never an address) falls back
+ * to the bare plan, and the two negative cases read as sentences. */
 export function accountLine(
   account: DeviceAgentAccount | null | undefined
 ): string {
   if (!account) return `Sign-in status unknown`
   if (!account.signedIn) return `Not signed in`
-  return accountCaption(account)
+  const email = account.email && account.email.length > 0 ? account.email : null
+  if (email) return email
+  const plan = account.plan && account.plan.length > 0 ? account.plan : null
+  if (plan) return plan
+  return `signed in`
 }
 
-/** The whole row: `claude · signed in as danny@example.com · Max`. */
+/** The whole row: `claude · danny@example.com`. */
 export function accountRow(
   agent: string,
   account: DeviceAgentAccount | null | undefined

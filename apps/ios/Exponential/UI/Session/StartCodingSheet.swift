@@ -354,7 +354,7 @@ struct StartCodingSheet: View {
                 // EXP-603: the sheet's own background shows through the grouped
                 // list instead of the system gray; rows carry the glass fill.
                 .scrollContentBackground(.hidden)
-                .listSectionSpacing(12)
+                .listSectionSpacing(8)
                 // EXP-594: white control tint — system blue is retired (toggles,
                 // menu pickers).
                 .tint(DesignTokens.Palette.primary)

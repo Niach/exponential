@@ -128,7 +128,6 @@ pub(crate) fn repo_dropdown<V: gpui::Render>(
 ) -> impl gpui::IntoElement {
     use crate::controls::WebControl as _;
     use gpui_component::button::Button;
-    use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 
     let label: SharedString = match picked {
         Some(repo) => repo.full_name.clone().into(),
@@ -136,36 +135,80 @@ pub(crate) fn repo_dropdown<V: gpui::Render>(
         // own ellipsis form like every other picker in these dialogs.
         None => "Select a repository…".into(),
     };
+    let trigger = Button::new(id).outline().web_input_sm().label(label);
+    repo_menu(trigger, repos, optional, pick, cx)
+}
+
+/// EXP-694 — the same dropdown as a GROUPED picker row (S2/S7): the label
+/// leading, the picked repo trailing at 70% behind a caret, and no field
+/// chrome — the group IS the field. Same behavior as [`repo_dropdown`]; only
+/// the trigger's clothes differ (the launch_options `choice_pin_row` idiom).
+pub(crate) fn repo_picker_row<V: gpui::Render>(
+    label: impl Into<SharedString>,
+    id: SharedString,
+    picked: Option<&ActionRepoRow>,
+    repos: Vec<ActionRepoRow>,
+    optional: bool,
+    pick: fn(&mut V, Option<ActionRepoRow>, &mut gpui::Context<V>),
+    cx: &mut gpui::Context<V>,
+) -> gpui::Div {
+    use gpui::{IntoElement as _, Styled as _};
+    use gpui_component::button::{Button, ButtonVariants as _};
+    use gpui_component::ActiveTheme as _;
+
+    let value: SharedString = match picked {
+        Some(repo) => repo.full_name.clone().into(),
+        None => "Select a repository…".into(),
+    };
+    let trigger = Button::new(id)
+        .ghost()
+        .cursor_pointer()
+        .h_auto()
+        .px_0()
+        .py_0()
+        .text_color(cx.theme().foreground.opacity(0.7))
+        .dropdown_caret(true)
+        .label(value);
+    let control = repo_menu(trigger, repos, optional, pick, cx).into_any_element();
+    crate::surface::glass_picker_row(label, None, control, cx)
+}
+
+/// Hangs the repository choices off an already-dressed `trigger`.
+fn repo_menu<V: gpui::Render>(
+    trigger: gpui_component::button::Button,
+    repos: Vec<ActionRepoRow>,
+    optional: bool,
+    pick: fn(&mut V, Option<ActionRepoRow>, &mut gpui::Context<V>),
+    cx: &mut gpui::Context<V>,
+) -> impl gpui::IntoElement {
+    use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
+
     let view = cx.entity().downgrade();
-    Button::new(id)
-        .outline()
-        .web_input_sm()
-        .label(label)
-        .dropdown_menu(move |mut menu, _window, _cx| {
-            if optional {
-                let view = view.clone();
-                menu = menu.item(PopupMenuItem::new("None").on_click(move |_, _, cx| {
-                    if let Some(view) = view.upgrade() {
-                        view.update(cx, |view, cx| pick(view, None, cx));
-                    }
-                }));
-            }
-            for repo in &repos {
-                let view = view.clone();
-                let repo = repo.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(SharedString::from(repo.full_name.clone())).on_click(
-                        move |_, _, cx| {
-                            if let Some(view) = view.upgrade() {
-                                let repo = repo.clone();
-                                view.update(cx, |view, cx| pick(view, Some(repo), cx));
-                            }
-                        },
-                    ),
-                );
-            }
-            menu
-        })
+    trigger.dropdown_menu(move |mut menu, _window, _cx| {
+        if optional {
+            let view = view.clone();
+            menu = menu.item(PopupMenuItem::new("None").on_click(move |_, _, cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |view, cx| pick(view, None, cx));
+                }
+            }));
+        }
+        for repo in &repos {
+            let view = view.clone();
+            let repo = repo.clone();
+            menu = menu.item(
+                PopupMenuItem::new(SharedString::from(repo.full_name.clone())).on_click(
+                    move |_, _, cx| {
+                        if let Some(view) = view.upgrade() {
+                            let repo = repo.clone();
+                            view.update(cx, |view, cx| pick(view, Some(repo), cx));
+                        }
+                    },
+                ),
+            );
+        }
+        menu
+    })
 }
 
 /// The EXP-530 poison-pill hook: called ONCE on every path that ends a start

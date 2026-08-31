@@ -7,8 +7,10 @@
 //! action run. Nothing is written to the server here — the agent authors the
 //! action with `exponential_actions_create`.
 //!
-//! Layout (web parity): icon picker + Name on one row, Description, the
-//! optional Repository, then an ALWAYS-visible Automation row summarising
+//! Layout (web parity, EXP-694 grouped): icon picker + Name are ONE row of a
+//! [`crate::surface::glass_group`] with the Description textarea under them —
+//! placeholder-titled, no labels above — then a second group holding the
+//! optional Repository and an ALWAYS-visible Automation row summarising
 //! what will be bound ("No automation" when nothing is). Clicking it slides
 //! the shared [`crate::automation_editor`] section over the form inside the
 //! SAME frame — one fixed dialog size, no resize between the two halves. The
@@ -40,7 +42,7 @@ use crate::controls::WebControl as _;
 use crate::automation_editor::{automation_devices, AutomationEditorState, AutomationSpec};
 use crate::coding_flow::CodingHub;
 use crate::icons::registry;
-use crate::launch_options::{self, LaunchOptionsSection};
+use crate::launch_options::LaunchOptionsSection;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 
@@ -388,58 +390,51 @@ impl CreateActionDialogView {
 
     /// The always-visible Automation row: glyph · "Automation" + summary ·
     /// chevron. Clicking it opens the detail (and, on the first open, adopts
-    /// the single automation-capable machine as the runner).
-    fn automation_row(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    /// the single automation-capable machine as the runner). EXP-694: a row
+    /// OF the repository group (the web `GlassGroup` twin), so the stateful
+    /// row rides inside a plain wrapper the group can divide.
+    fn automation_row(&self, cx: &mut gpui::Context<Self>) -> gpui::Div {
         let theme = cx.theme();
-        let muted = theme.muted_foreground;
-        let hover = theme.list_hover;
+        let foreground = theme.foreground;
+        let hover = theme.list_active.opacity(0.5);
         let summary = self.automation_summary(cx);
-        div()
-            .id("ca-automation-row")
-            .w_full()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_2()
-            .px_3()
-            .py_2()
-            .rounded(theme.radius)
-            .border_1()
-            .border_color(theme.border)
-            .cursor_pointer()
-            .hover(move |this| this.bg(hover))
-            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                if !this.automation_set {
-                    this.automation_set = true;
-                    this.automation.seed_default_device(cx);
-                }
-                this.pane = Pane::Automation;
-                cx.notify();
-            }))
-            .child(
-                Icon::from(registry::ACTION_AUTOMATION)
-                    .xsmall()
-                    .text_color(muted),
-            )
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(div().text_sm().text_color(theme.foreground).child("Automation"))
-                    .child(
-                        div()
-                            .text_xs()
-                            .truncate()
-                            .text_color(muted)
-                            .child(summary),
-                    ),
-            )
-            .child(
-                Icon::from(registry::UI_CHEVRON_RIGHT)
-                    .xsmall()
-                    .text_color(muted),
-            )
-            .into_any_element()
+        div().w_full().child(
+            crate::surface::glass_row_shell()
+                .id("ca-automation-row")
+                .cursor_pointer()
+                .hover(move |this| this.bg(hover))
+                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                    if !this.automation_set {
+                        this.automation_set = true;
+                        this.automation.seed_default_device(cx);
+                    }
+                    this.pane = Pane::Automation;
+                    cx.notify();
+                }))
+                .child(
+                    Icon::from(registry::ACTION_AUTOMATION)
+                        .xsmall()
+                        .text_color(foreground.opacity(0.5)),
+                )
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .child(div().text_sm().text_color(foreground).child("Automation"))
+                        .child(
+                            div()
+                                .text_xs()
+                                .truncate()
+                                .text_color(foreground.opacity(0.5))
+                                .child(summary),
+                        ),
+                )
+                .child(
+                    Icon::from(registry::UI_CHEVRON_RIGHT)
+                        .xsmall()
+                        .text_color(foreground.opacity(0.5)),
+                ),
+        )
     }
 
     /// The detail pane's header: back · "Automation" · Remove automation.
@@ -504,7 +499,8 @@ impl CreateActionDialogView {
             },
             cx,
         );
-        let repo_field = action_run::repo_dropdown(
+        let repo_row = action_run::repo_picker_row(
+            "Repository",
             "ca-repo".into(),
             self.repo.as_ref(),
             self.team_repos.clone(),
@@ -515,35 +511,38 @@ impl CreateActionDialogView {
             },
             cx,
         );
+        // EXP-694: the same grouped controls as the edit dialog — icon + Name
+        // are ONE row, the description is a chrome-less textarea whose
+        // placeholder (the builtin's own input definition) is its title.
+        let name_row = crate::surface::glass_row_shell().child(icon_picker).child(
+            div().flex_1().min_w_0().child(
+                Input::new(&self.name)
+                    .appearance(false)
+                    .h_auto()
+                    .px_0()
+                    .py_0(),
+            ),
+        );
+        let description_row = div().w_full().child(
+            Textarea::new(&self.description)
+                .appearance(false)
+                .h(px(120.))
+                .w_full()
+                .px_4()
+                .py_3(),
+        );
         v_flex()
             .flex_1()
             .min_w_0()
-            .gap_3()
-            .child(launch_options::labeled_field(
-                "Name (optional)",
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .gap_2()
-                    .child(icon_picker)
-                    .child(div().flex_1().min_w_0().child(Input::new(&self.name).web_input_sm()))
-                    .into_any_element(),
-                None,
-                cx,
-            ))
-            .child(launch_options::labeled_field(
-                "Description",
-                Textarea::new(&self.description).h(px(120.)).into_any_element(),
-                None,
-                cx,
-            ))
-            .child(launch_options::labeled_field(
-                "Repository (optional)",
-                repo_field.into_any_element(),
-                None,
-                cx,
-            ))
-            .child(self.automation_row(cx))
+            .gap_2()
+            .child(crate::surface::glass_group_rows(vec![
+                name_row,
+                description_row,
+            ]))
+            .child(crate::surface::glass_group_rows(vec![
+                repo_row,
+                self.automation_row(cx),
+            ]))
             .into_any_element()
     }
 

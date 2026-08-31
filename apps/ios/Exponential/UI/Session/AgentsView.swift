@@ -14,8 +14,9 @@ import SwiftUI
 /// sessions in the active account (EXP-312 — teammates' runs are owner-only, so
 /// they are not listed at all). Session rows open the live agent session view
 /// directly when the relay is configured (the same viewer AgentPrCard presents
-/// from an issue), else fall back to the issue detail; the trailing info
-/// affordance always goes to the issue detail. When the relay is off the
+/// from an issue), else fall back to the issue detail; the trailing control
+/// (EXP-694) names the run's subject — an issue-identifier pill to the issue,
+/// the action's glyph to its editor, nothing on chat/batch runs. When the relay is off the
 /// machines section is absent (web parity — nothing here can be started) and
 /// the tab shows the full-screen empty state until a session appears.
 struct AgentsView: View {
@@ -65,6 +66,9 @@ struct AgentsView: View {
     // usually a conflict, so the failing row's caption offers the builtin
     // recovery run on any reachable machine.
     @State private var fixTarget: FixConflictsTarget?
+    /// EXP-694 (S6): the action/automation editor a session row's trailing
+    /// button opened.
+    @State private var sessionEditTarget: SessionEditTarget?
 
     /// The row a merge confirm is pending for. Only the ids are captured —
     /// the alert copy is fixed, and the row itself may re-sync underneath
@@ -90,6 +94,28 @@ struct AgentsView: View {
         let id: String
     }
 
+    /// EXP-694 (S6): what a session row's trailing button opens. ONE item (not
+    /// two `.sheet(item:)`s) because the two cases are mutually exclusive and a
+    /// node presents one sheet.
+    private enum SessionEditTarget: Identifiable {
+        case action(ActionDto)
+        case automation(AutomationDto)
+
+        var id: String {
+            switch self {
+            case let .action(action): "action-\(action.id)"
+            case let .automation(automation): "automation-\(automation.id)"
+            }
+        }
+
+        var accessibilityLabel: String {
+            switch self {
+            case .action: "Edit action"
+            case .automation: "Edit automation"
+            }
+        }
+    }
+
     var body: some View {
         ZStack {
             // The Chat sheet hangs off the background, not the ZStack: that
@@ -113,6 +139,37 @@ struct AgentsView: View {
                             runAction(on: chosenDevice, action: action, options: options, inputs: inputs)
                         }
                     )
+                }
+
+            // EXP-694 (S6): the session rows' action/automation editor, on its
+            // own zero-size node for the same one-presentation-per-node reason
+            // the Chat sheet has one.
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .sheet(item: $sessionEditTarget) { target in
+                    switch target {
+                    case let .action(action):
+                        EditActionSheet(action: action, canEdit: canEditActions)
+                            .environment(\.accountId, accountId)
+                    case let .automation(automation):
+                        AutomationFormSheet(
+                            teamId: automation.teamId,
+                            actions: viewModel?.actions ?? [],
+                            devices: (viewModel?.devices ?? []).filter(\.canRunAutomations),
+                            editing: automation,
+                            onSubmit: { actionId, deviceId, trigger, launch in
+                                saveAutomation(
+                                    automation,
+                                    actionId: actionId,
+                                    deviceId: deviceId,
+                                    trigger: trigger,
+                                    launch: launch
+                                )
+                            }
+                        )
+                        .environment(\.accountId, accountId)
+                    }
                 }
 
             if let vm = viewModel {
@@ -704,15 +761,97 @@ struct AgentsView: View {
                 .accessibilityLabel("Merge")
             }
 
-            if let issue = row.issue {
-                NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
-                    AppIcon(AppIcons.uiInfo, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .frame(width: 32, height: 32)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Open issue")
+            sessionTrailingControl(row)
+        }
+    }
+
+    /// EXP-694 (S6): the row's trailing affordance names WHAT the run is
+    /// about, instead of the old `ui-info` glyph that only ever appeared on
+    /// issue runs. An issue run wears its identifier as a pill straight to the
+    /// issue; an action or automation run wears that action's own glyph and
+    /// opens its editor. A chat or batch run points at nothing, so it gets
+    /// nothing.
+    @ViewBuilder
+    private func sessionTrailingControl(_ row: AgentsViewModel.Row) -> some View {
+        if let issue = row.issue, let identifier = issue.identifier, !identifier.isEmpty {
+            NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
+                GlassPillLabel(identifier)
+                    .monospaced()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open issue \(identifier)")
+        } else if let action = sessionAction(row) {
+            let target = editTarget(for: row, action: action)
+            CircleIconButton(
+                action.icon ?? AppIcons.actionDefault,
+                accessibilityLabel: target.accessibilityLabel,
+                size: 28,
+                glyphSize: 15
+            ) {
+                sessionEditTarget = target
+            }
+        }
+    }
+
+    /// The action a run came from, off the synced store (`action_id` nulls
+    /// when the action is deleted — the row keeps its name snapshot, but there
+    /// is nothing left to edit, so no button).
+    private func sessionAction(_ row: AgentsViewModel.Row) -> ActionDto? {
+        guard let actionId = row.session.actionId else { return nil }
+        return viewModel?.actions.first { $0.id == actionId }
+    }
+
+    /// The automation that fired the run (EXP-583: `automation_id`, NULL on
+    /// person-started runs and on pre-EXP-583 automated ones).
+    private func sessionAutomation(_ row: AgentsViewModel.Row) -> AutomationDto? {
+        guard let automationId = row.session.automationId else { return nil }
+        return viewModel?.automations.first { $0.id == automationId }
+    }
+
+    /// An automation-started run edits the AUTOMATION when we can resolve it
+    /// and the caller owns the team (the form is a write surface with no
+    /// read-only mode); everything else lands in the action editor, which is
+    /// read-only for non-owners by itself.
+    private func editTarget(for row: AgentsViewModel.Row, action: ActionDto) -> SessionEditTarget {
+        if let automation = sessionAutomation(row), canEditActions {
+            return .automation(automation)
+        }
+        return .action(action)
+    }
+
+    /// Owner-only writes (the actions/automations routers are owner-gated) —
+    /// the same mirror every other surface reads.
+    private var canEditActions: Bool {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return false }
+        return TeamPermissions.resolve(
+            team: teamState.activeTeam,
+            currentUserId: deps.auth.userId,
+            isAdmin: deps.auth.isAdmin,
+            dbPool: pool
+        ).isOwner
+    }
+
+    /// Saves an edited automation (EXP-583's owner-gated `automations.update`).
+    /// The synced row echoes the change back, so there is no local write.
+    private func saveAutomation(
+        _ automation: AutomationDto,
+        actionId: String,
+        deviceId: String,
+        trigger: AutomationTrigger,
+        launch: AutomationLaunchPatch
+    ) {
+        Task {
+            do {
+                try await deps.automationsApi.update(
+                    accountId: accountId,
+                    id: automation.id,
+                    actionId: actionId,
+                    deviceId: deviceId,
+                    trigger: trigger,
+                    launch: launch
+                )
+            } catch {
+                deviceError = error.userFacingMessage
             }
         }
     }

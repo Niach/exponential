@@ -135,17 +135,12 @@ struct DeviceSettingsSheet: View {
                 // EXP-603: the sheet's own background shows through the
                 // grouped list; rows carry the glass fill.
                 .scrollContentBackground(.hidden)
-                .listSectionSpacing(12)
-            },
-            primaryAction: {
-                GlassSubmitButton("Done") {
-                    flushAll()
-                    dismiss()
-                }
+                .listSectionSpacing(8)
             }
         )
-        // A swipe down is an exit now (there is no Cancel), so the pending
-        // edits have to flush on every way out — not just the button.
+        // EXP-694: no Done button — every field autosaves, so the only exits
+        // are a swipe down and the scrim, and both have to flush what the
+        // debounce still owes.
         .onDisappear { flushAll() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("device-settings-sheet")
@@ -165,9 +160,6 @@ struct DeviceSettingsSheet: View {
             guard seeded, !defaultsPending, !savingDefaults else { return }
             applyDefaults(device, keepTab: true)
         }
-        // Closing (Done, swipe-down, or the row vanishing) must not drop a
-        // debounced edit.
-        .onDisappear { flushAll() }
         // EXP-594: white control tint — system blue is retired (toggles,
         // menu pickers).
         .tint(DesignTokens.Palette.primary)
@@ -448,11 +440,16 @@ struct DeviceSettingsSheet: View {
         return DomainContract.codingAgentValues.filter { set.contains($0) }
     }
 
+    /// EXP-694: the agent block is the SHARED `LaunchOptionsSection` — the
+    /// sheet used to hand-roll the same tabs/model/effort/toggle rows, which is
+    /// how it drifted (bare tabs bleeding to the screen edge, no brand marks).
+    /// Only "Default agent" stays here, as its own leading card: it is a
+    /// property of the MACHINE, not of the agent whose tab is open.
+    @ViewBuilder
     private func defaultsSection(_ device: SteerDevice) -> some View {
         let agents = editableAgents(device)
-        let tabs = tabAgents(device)
-        return Section {
-            if agents.count > 1 {
+        if agents.count > 1 {
+            Section {
                 GlassPickerRow(
                     "Default agent",
                     selection: defaultAgentBinding,
@@ -460,50 +457,37 @@ struct DeviceSettingsSheet: View {
                     label: { LaunchVocabulary.agentLabel($0) }
                 )
             }
-            if tabs.count > 1 {
-                // Which agent's options are on screen — a view choice, never
-                // an edit, so it deliberately bypasses the autosave.
-                GlassSegmentedControl(
-                    options: tabs,
-                    selection: selectedAgent,
-                    label: { LaunchVocabulary.agentLabel($0) },
-                    onSelect: { selectedAgent = $0 }
-                )
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-            }
-            if let draft = drafts[selectedAgent] {
-                GlassPickerRow(
-                    "Model",
-                    selection: draftBinding(\.model),
-                    options: LaunchVocabulary.modelValues(for: selectedAgent),
-                    label: { LaunchVocabulary.modelLabel($0) }
-                )
-                GlassPickerRow(
-                    LaunchVocabulary.effortTitle(for: selectedAgent),
-                    selection: draftBinding(\.effort),
-                    options: [LaunchVocabulary.cliDefault] + LaunchVocabulary.effortValues(for: selectedAgent),
-                    label: { $0 == LaunchVocabulary.cliDefault ? "CLI default" : LaunchVocabulary.effortLabel($0) },
-                    enabled: !(selectedAgent == "claude" && draft.ultracode)
-                )
-                if selectedAgent == "claude" {
-                    Toggle("Ultracode", isOn: draftBinding(\.ultracode))
-                }
-                if LaunchVocabulary.supportsPlanMode(selectedAgent) {
-                    Toggle("Plan mode", isOn: draftBinding(\.planMode))
-                }
-            }
-            // EXP-688: the agent's own account and limits, right under its
-            // options instead of in a section of their own.
-            accountBlock(device, agent: selectedAgent)
-            usageBlock(device, agent: selectedAgent)
-        } footer: {
-            if !device.isOnline {
-                Text("Applies when the device comes online.")
-            }
+            .listRowBackground(glassFormRowFill)
         }
-        .listRowBackground(glassFormRowFill)
+        LaunchOptionsSection(
+            variant: .device,
+            devices: [],
+            deviceId: .constant(deviceId),
+            noDeviceNote: "",
+            // Which agent's options are on screen — a view choice, never an
+            // edit, so it deliberately bypasses the autosave.
+            availableAgents: tabAgents(device),
+            agent: selectedAgent,
+            onAgentChange: { selectedAgent = $0 },
+            model: draftBinding(\.model),
+            effort: draftBinding(\.effort),
+            ultracode: draftBinding(\.ultracode),
+            planMode: draftBinding(\.planMode),
+            // A report-only agent (EXP-688) has no editable defaults — its tab
+            // carries the account and usage rows alone.
+            showsOptions: drafts[selectedAgent] != nil,
+            footerNote: device.isOnline ? nil : "Applies when the device comes online.",
+            accountFooter: {
+                // EXP-688: the agent's own account and limits, right under its
+                // options instead of in a section of their own.
+                AnyView(
+                    Group {
+                        accountBlock(device, agent: selectedAgent)
+                        usageBlock(device, agent: selectedAgent)
+                    }
+                )
+            }
+        )
     }
 
     /// Like `draftBinding`, a choke point that only a USER pick runs through —
@@ -857,17 +841,19 @@ struct DeviceSettingsSheet: View {
                 if pendingCommands[worktree.id] != nil {
                     ProgressView().controlSize(.small)
                 } else {
-                    Button {
+                    // EXP-694: the same small glass circle as the header's
+                    // Prune — the bare glyph it used to be matched neither.
+                    // A live session holds the branch: the machine would
+                    // refuse anyway, so the button goes dim instead.
+                    CircleIconButton(
+                        AppIcons.uiDelete,
+                        accessibilityLabel: "Remove worktree",
+                        size: 28,
+                        glyphSize: 15,
+                        enabled: !worktree.busy
+                    ) {
                         removeTarget = worktree
-                    } label: {
-                        AppIcon(AppIcons.uiDelete, size: AppIcon.Size.small)
-                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
-                    // A live session holds the branch — the machine would
-                    // refuse anyway; don't offer it.
-                    .disabled(worktree.busy)
-                    .accessibilityLabel("Remove worktree")
                 }
             }
             if let message = commandErrors[worktree.id] {

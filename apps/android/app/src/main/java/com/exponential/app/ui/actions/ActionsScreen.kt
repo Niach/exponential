@@ -53,6 +53,7 @@ import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.nextScheduleRun
 import com.exponential.app.domain.triggerSummary
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EndedRunRow
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
@@ -63,6 +64,7 @@ import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.StartCodingSheet
+import com.exponential.app.ui.issue.SubjectTab
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerRunCaptionRow
@@ -106,6 +108,10 @@ private const val SEGMENT_SUGGESTIONS = "suggestions"
 @Composable
 fun ActionsScreen(
     onOpenSteer: (codingSessionId: String) -> Unit,
+    // EXP-694: the bottom bar's Chat FAB reaches the Actions tab too (the bar
+    // lives in AppNavHost, the launcher lives here) — every bump opens the
+    // Start-coding sheet on its Chat tab, exactly like AgentsScreen.
+    chatRequest: Int = 0,
     viewModel: ActionsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -141,6 +147,20 @@ fun ActionsScreen(
     // The owner-only automation form: true = creating, non-null row = editing.
     var automationForm by remember { mutableStateOf(false) }
     var automationEditTarget by remember { mutableStateOf<AutomationEntity?>(null) }
+    // EXP-694: the action whose editor is open (non-null = sheet open).
+    var editActionId by remember { mutableStateOf<String?>(null) }
+
+    // The tab bar's Chat launcher — the same sheet AgentsScreen opens, on its
+    // Chat tab. Skips the initial composition so returning to the tab doesn't
+    // re-open it.
+    var chatSheetOpen by remember { mutableStateOf(false) }
+    var seenChatRequest by remember { mutableStateOf(chatRequest) }
+    LaunchedEffect(chatRequest) {
+        if (chatRequest != seenChatRequest) {
+            seenChatRequest = chatRequest
+            chatSheetOpen = true
+        }
+    }
 
     // The desktop picked the start up — jump into the live viewer ONCE.
     LaunchedEffect(startedSessionId) {
@@ -260,6 +280,10 @@ fun ActionsScreen(
                                         it.actionId == action.id
                                     },
                                     onRun = { sheetAction = action },
+                                    // EXP-694: editing an action is a mobile
+                                    // affordance now; the sheet itself is
+                                    // read-only for non-owners.
+                                    onEdit = { editActionId = action.id },
                                 )
                             }
                         }
@@ -280,6 +304,24 @@ fun ActionsScreen(
             onRunAction = viewModel::runAction,
             onDismiss = { sheetAction = null },
         )
+    }
+
+    if (chatSheetOpen) {
+        StartCodingSheet(
+            devices = devices ?: emptyList(),
+            issues = startCandidates,
+            preselectedIds = emptySet(),
+            initialTab = SubjectTab.Chat,
+            onStart = viewModel::startCoding,
+            onRunAction = viewModel::runAction,
+            onDismiss = { chatSheetOpen = false },
+        )
+    }
+
+    // EXP-694: the full action editor (icon, name, description, repository and
+    // the tRPC-fetched prompt body).
+    editActionId?.let { id ->
+        ActionEditSheet(actionId = id, onDismiss = { editActionId = null })
     }
 
     // EXP-615: authoring an action is its own sheet — a form, not a run picker.
@@ -346,9 +388,16 @@ fun ActionsScreen(
 
 // One action: its curated glyph, name (+ a small repo indicator when the
 // action clones a repository), optional description, how many automations
-// point at it (EXP-583), and a trailing play button.
+// point at it (EXP-583), a trailing play button and (EXP-694) the row
+// overflow with Edit.
 @Composable
-private fun ActionRow(action: ActionDto, automationCount: Int, onRun: () -> Unit) {
+private fun ActionRow(
+    action: ActionDto,
+    automationCount: Int,
+    onRun: () -> Unit,
+    onEdit: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -418,13 +467,37 @@ private fun ActionRow(action: ActionDto, automationCount: Int, onRun: () -> Unit
             }
         }
         // EXP-615: an icon-only play button, like every other Run affordance.
-        IconButton(onClick = onRun, modifier = Modifier.padding(start = 8.dp)) {
-            Icon(
-                ExpIcons.actionRun,
-                contentDescription = "Run",
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.primary,
-            )
+        // EXP-694: on the shared glass circle (iOS `CircleIconButton` parity),
+        // not a bare primary-tinted glyph in an M3 touch box.
+        CircleIconButton(
+            ExpIcons.actionRun,
+            contentDescription = "Run",
+            onClick = onRun,
+            modifier = Modifier.padding(start = 8.dp),
+        )
+        // Builtins are shipped prompts with no team row to edit (the list
+        // carries none today — the guard keeps it that way).
+        if (!action.isBuiltin) {
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(
+                        ExpIcons.uiMore,
+                        contentDescription = "Action options",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
+                GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    GlassMenuItem(
+                        text = { Text("Edit") },
+                        leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            onEdit()
+                        },
+                    )
+                }
+            }
         }
     }
 }
@@ -839,13 +912,8 @@ private fun SuggestionRow(suggestion: ActionSuggestion, onUse: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Text(
-            "Use",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-            maxLines = 1,
-            modifier = Modifier.padding(start = 8.dp),
-        )
+        // EXP-694: no trailing "Use" text — the whole row IS the affordance
+        // (it always was; the label only looked like a second button).
     }
 }
 

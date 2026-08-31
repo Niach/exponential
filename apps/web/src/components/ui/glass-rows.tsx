@@ -1,6 +1,8 @@
 import * as React from "react"
 import { Check, ChevronRight } from "lucide-react"
 
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -15,6 +17,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Switch } from "@/components/ui/switch"
+import { Tabs, TabsList } from "@/components/ui/tabs"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
 
@@ -102,6 +105,73 @@ function GlassGroup({ className, ...props }: React.ComponentProps<`div`>) {
       )}
       {...props}
     />
+  )
+}
+
+// EXP-694 — the EMBEDDED tab row. A segmented strip stops being a
+// free-floating capsule floating above a card and becomes the group's FIRST
+// ROW: full width, no fill of its own, no capsule border, 8px of padding on
+// every side, and the hairline underneath comes from the group's `divide-y`.
+// The segments themselves are unchanged (equal width, rounded pills, the
+// active one filled `bg-glass-active`). Mirrors the iOS/Android
+// `GlassSegmentedControl` embedded style and the desktop `glass_tabs_row`.
+const GLASS_TABS_ROW = `flex h-auto w-full rounded-none border-0 bg-transparent p-2 [&>[data-slot=tabs-trigger]]:h-auto [&>[data-slot=tabs-trigger]]:flex-1 [&>[data-slot=tabs-trigger]]:py-1.5`
+
+function GlassTabsRow({
+  value,
+  onValueChange,
+  className,
+  children,
+}: {
+  value: string
+  onValueChange: (value: string) => void
+  className?: string
+  /** `TabsTrigger`s — the row supplies the `Tabs` root they need. */
+  children: React.ReactNode
+}) {
+  return (
+    <Tabs
+      data-slot="glass-tabs-row"
+      value={value}
+      onValueChange={onValueChange}
+      className="gap-0"
+    >
+      <TabsList className={cn(GLASS_TABS_ROW, className)}>{children}</TabsList>
+    </Tabs>
+  )
+}
+
+/** A text field that reads as a picker row: label leading, the value typed
+ * trailing, no field chrome of its own — the group around it IS the field
+ * (EXP-694, the Name row of the device sheet on every client). `trailing`
+ * carries the row's own status glyph (the autosave spinner). */
+function GlassInputRow({
+  id,
+  label,
+  trailing,
+  className,
+  ...inputProps
+}: Omit<React.ComponentProps<typeof Input>, `className`> & {
+  id: string
+  label: string
+  trailing?: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div
+      data-slot="glass-input-row"
+      className={cn(`flex items-center gap-3 px-4 py-3`, className)}
+    >
+      <Label htmlFor={id} className="shrink-0 font-normal text-foreground">
+        {label}
+      </Label>
+      <Input
+        id={id}
+        className="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-right text-sm text-foreground/70 shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm"
+        {...inputProps}
+      />
+      {trailing}
+    </div>
   )
 }
 
@@ -275,6 +345,8 @@ export {
   GlassSectionHeader,
   GlassRow,
   GlassGroup,
+  GlassTabsRow,
+  GlassInputRow,
   GlassPickerRow,
   GlassToggleRow,
 }

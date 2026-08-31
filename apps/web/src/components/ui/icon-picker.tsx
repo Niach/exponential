@@ -15,6 +15,9 @@ interface IconPickerProps {
   // Offers a "No icon" reset and renders a placeholder when unset.
   allowsNone?: boolean
   id?: string
+  // Read-only surfaces (a non-owner's action editor) still SHOW the glyph;
+  // the grid just never opens.
+  disabled?: boolean
 }
 
 const PlaceholderIcon = conceptIcon(`ui-icon-placeholder`)
@@ -30,6 +33,7 @@ export function IconPicker({
   color,
   allowsNone = false,
   id,
+  disabled = false,
 }: IconPickerProps) {
   const [open, setOpen] = useState(false)
   const Icon = value ? BOARD_ICON_COMPONENTS[value] : undefined
@@ -40,6 +44,7 @@ export function IconPicker({
           id={id}
           type="button"
           variant="outline"
+          disabled={disabled}
           aria-label={value ? `Icon: ${value}` : `Pick an icon`}
           title={value || `Pick an icon`}
           className={`h-9 w-9 shrink-0 p-0 ${Icon ? `` : `border-dashed text-muted-foreground`}`}

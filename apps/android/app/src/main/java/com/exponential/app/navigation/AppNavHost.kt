@@ -339,9 +339,10 @@ private fun AuthenticatedNav(
             navController.popBackStack("support-inbox", inclusive = true)
         }
     }
-    // EXP-631: the Agents surface's FAB starts a chat instead. The bar lives
-    // out here, the launcher (with its devices and start handlers) lives in
-    // AgentsScreen — so a tap just bumps a counter the screen watches.
+    // EXP-631: the Devices surface's FAB starts a chat instead (EXP-694: the
+    // Actions tab too). The bar lives out here, the launcher (with its devices
+    // and start handlers) lives in the screens — so a tap just bumps a counter
+    // the visible screen watches.
     var chatRequest by remember { mutableStateOf(0) }
     // The single add-issue affordance: the FAB shows while a board is in
     // view — the Issues tab root (its resolved current board) or a pushed
@@ -415,6 +416,7 @@ private fun AuthenticatedNav(
             // since EXP-686; NOT helpdesk-gated.
             ActionsScreen(
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
+                chatRequest = chatRequest,
             )
         }
         composable("personal") {
@@ -648,7 +650,9 @@ private fun AuthenticatedNav(
             showsSupport = helpdeskEnabled,
             supportUnread = supportUnread,
             showsCompose = composeBoardId != null,
-            showsChat = currentRoute == "agents",
+            // EXP-694: the Actions tab has no compose FAB either, so the free
+            // slot carries the same Chat launcher the Devices tab does.
+            showsChat = currentRoute == "agents" || currentRoute == "actions",
             onIssues = { navController.popBackStack("home", inclusive = false) },
             onDevices = {
                 if (currentRoute != "agents") {

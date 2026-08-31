@@ -54,15 +54,27 @@ fun <T> GlassSegmentedControl(
     // otherwise wrap at phone widths. Segment labels never wrap regardless
     // (one line, ellipsized).
     textStyle: TextStyle? = null,
+    // EXP-694: the strip as the FIRST ROW of a grouped card instead of a
+    // free-floating capsule — no own fill, no hairline, no container padding
+    // (the group's row padding provides it). Segments are unchanged, so the
+    // active pill still reads the same inside the card.
+    embedded: Boolean = false,
 ) {
     val capsule = RoundedCornerShape(percent = 50)
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(capsule)
-            .background(GlassTokens.RowFill, capsule)
-            .border(GlassTokens.Hairline, Color.White.copy(alpha = 0.12f), capsule)
-            .padding(4.dp),
+            .then(
+                if (embedded) {
+                    Modifier
+                } else {
+                    Modifier
+                        .clip(capsule)
+                        .background(GlassTokens.RowFill, capsule)
+                        .border(GlassTokens.Hairline, Color.White.copy(alpha = 0.12f), capsule)
+                        .padding(4.dp)
+                },
+            ),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

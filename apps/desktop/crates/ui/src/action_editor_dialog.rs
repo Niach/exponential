@@ -13,6 +13,12 @@
 //! the batched update omits `inputs`, leaving them untouched. EXP-583 took
 //! the Automation section out too: automations are their own rows now, edited
 //! in [`crate::automation_dialog`] from the Automations tab.
+//!
+//! EXP-694: the fields wear the inset-grouped stack every client's editors
+//! now wear ([`crate::surface::glass_group`]) — icon + Name are ONE row, the
+//! description and the prompt are chrome-less textareas whose PLACEHOLDER is
+//! their title (no label above), and the repository is a picker row. Mirrors
+//! web `action-editor-dialog.tsx` and the native Create/Edit action sheets.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -94,20 +100,19 @@ impl ActionEditorDialogView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
-        let name = cx.new(|cx| InputState::new(window, cx).placeholder("Code review sweep"));
+        // EXP-694: the placeholders ARE the field titles — same three strings
+        // on every client (web `action-editor-dialog.tsx`).
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder("Name"));
         name.update(cx, |state, cx| {
             state.set_value(action.name.clone(), window, cx);
         });
-        let description = cx.new(|cx| {
-            TextareaState::new(window, cx).placeholder("What this action does, for the list")
-        });
+        let description =
+            cx.new(|cx| TextareaState::new(window, cx).placeholder("Description"));
         description.update(cx, |state, cx| {
             state.set_value(action.description.clone().unwrap_or_default(), window, cx);
         });
-        let body = cx.new(|cx| {
-            TextareaState::new(window, cx)
-                .placeholder("The markdown prompt the agent runs with…")
-        });
+        // Swapped for "Prompt" the moment `actions.get` lands (web parity).
+        let body = cx.new(|cx| TextareaState::new(window, cx).placeholder("Loading prompt…"));
 
         // Enter submits from the one-line fields; in the prompt it inserts a
         // newline (hence no shell-level `on_enter`).
@@ -181,6 +186,9 @@ impl ActionEditorDialogView {
                     }
                     Err(err) => view.error = Some(err.user_message().into()),
                 }
+                view.body.update(cx, |state, cx| {
+                    state.set_placeholder("Prompt", window, cx);
+                });
                 view.body_loading = false;
                 cx.notify();
             });
@@ -277,13 +285,6 @@ impl ActionEditorDialogView {
     }
 }
 
-fn field_label(cx: &App, label: &'static str) -> impl IntoElement {
-    div()
-        .text_sm()
-        .text_color(cx.theme().muted_foreground)
-        .child(label)
-}
-
 impl Render for ActionEditorDialogView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         if !self.focused_once {
@@ -315,35 +316,49 @@ impl Render for ActionEditorDialogView {
             },
             cx,
         );
-        let mut name_field = v_flex().gap_2().child(field_label(cx, "Name")).child(
-            h_flex()
-                .gap_2()
-                .items_center()
-                .child(icon_picker)
-                .child(div().flex_1().child(Input::new(&self.name).web_input_sm())),
-        );
-        if let Some(name_error) = self.name_error.clone() {
-            name_field = name_field.child(div().text_xs().text_color(danger).child(name_error));
-        }
-        let form = v_flex()
-            .gap_4()
-            .child(name_field)
+        // The glyph picker leads the row, the name types straight into it —
+        // the group's fill and hairlines ARE the field chrome.
+        let name_row = crate::surface::glass_row_shell()
+            .child(icon_picker)
             .child(
-                v_flex()
-                    .gap_2()
-                    .child(field_label(cx, "Description (optional)"))
-                    .child(Textarea::new(&self.description).h(px(64.))),
-            )
-            .child(
-                v_flex()
-                    .gap_2()
-                    .child(field_label(cx, "Repository (optional)"))
-                    .child(self.render_repo_picker(cx))
-                    .child(div().text_xs().text_color(muted).child(
-                        "With a repository the run clones it first; without one the agent \
-                         works in a scratch directory.",
-                    )),
+                div().flex_1().min_w_0().child(
+                    Input::new(&self.name)
+                        .appearance(false)
+                        .h_auto()
+                        .px_0()
+                        .py_0(),
+                ),
             );
+        let description_row = div().w_full().child(
+            Textarea::new(&self.description)
+                .appearance(false)
+                .h(px(72.))
+                .w_full()
+                .px_4()
+                .py_3(),
+        );
+        let mut form = v_flex()
+            .gap_2()
+            .child(crate::surface::glass_group_rows(vec![
+                name_row,
+                description_row,
+            ]));
+        if let Some(name_error) = self.name_error.clone() {
+            form = form.child(div().px_1().text_xs().text_color(danger).child(name_error));
+        }
+        let form = form
+            .child(crate::surface::glass_group_rows(vec![
+                crate::surface::glass_picker_row(
+                    "Repository",
+                    None,
+                    self.render_repo_picker(cx),
+                    cx,
+                ),
+            ]))
+            .child(div().px_1().text_xs().text_color(muted).child(
+                "With a repository the run clones it first; without one the agent \
+                 works in a scratch directory.",
+            ));
         let left = div()
             .w(px(280.))
             .flex_shrink_0()
@@ -356,20 +371,18 @@ impl Render for ActionEditorDialogView {
             ));
 
         // -- right column: the prompt (the scrollable field) ----------------
-        let right = v_flex()
-            .flex_1()
-            .min_w_0()
-            .min_h_0()
-            .gap_2()
-            .child(field_label(cx, "Prompt"))
-            .child(
-                div().flex_1().min_h_0().child(
-                    Textarea::new(&self.body)
-                        .h_full()
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .disabled(self.body_loading),
-                ),
-            );
+        // One group, one field: the placeholder is the title here too.
+        let right = v_flex().flex_1().min_w_0().min_h_0().child(
+            crate::surface::glass_group().flex_1().min_h_0().child(
+                Textarea::new(&self.body)
+                    .appearance(false)
+                    .h_full()
+                    .px_4()
+                    .py_3()
+                    .font_family(theme::terminal::FONT_FAMILY)
+                    .disabled(self.body_loading),
+            ),
+        );
 
         let footer = h_flex()
             .flex_shrink_0()
@@ -417,7 +430,9 @@ impl Render for ActionEditorDialogView {
 }
 
 impl ActionEditorDialogView {
-    /// The web repository `Select`: "None" + one entry per connected repo.
+    /// The web repository `Select`: "None" + one entry per connected repo,
+    /// dressed as the trailing VALUE of a grouped picker row (EXP-694) — no
+    /// fill, no border, the caret the group's chevron.
     fn render_repo_picker(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let label: SharedString = match (&self.repos, &self.repo_id) {
             (None, _) => "Loading repositories…".into(),
@@ -429,10 +444,14 @@ impl ActionEditorDialogView {
             (Some(_), None) => "None".into(),
         };
         let trigger = Button::new("action-edit-repo")
-            .outline().cursor_pointer()
-            .web_input_sm()
+            .ghost()
+            .cursor_pointer()
+            .h_auto()
+            .px_0()
+            .py_0()
+            .text_color(cx.theme().foreground.opacity(0.7))
+            .dropdown_caret(true)
             .label(label)
-            .w_full()
             .disabled(self.repos.is_none());
         let Some(rows) = self.repos.clone() else {
             return trigger.into_any_element();
