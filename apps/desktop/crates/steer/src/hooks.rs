@@ -56,9 +56,13 @@ pub const HOOK_CONFIG_ENV: &str = "EXP_HOOK_CONFIG";
 /// (`Task` before it) — both dispatch shapes are identical (EXP-356).
 pub const PRE_TOOL_USE_MATCHER: &str = "ExitPlanMode|AskUserQuestion|Task|Agent";
 
-/// Largest hook body accepted (a plan is the big one; claude caps its own
-/// payloads far below this).
-pub const MAX_BODY_BYTES: usize = 64 * 1024;
+/// Largest hook body accepted. A `PreToolUse:ExitPlanMode` payload carries
+/// the whole plan verbatim in `tool_input`, and real plans cleared the old
+/// 64KiB cap (EXP-691) — a rejected body dropped the plan card's entire
+/// text, leaving only the generic headline. The listener is loopback-only
+/// and bearer-authed, and the emitter truncates every string downstream, so
+/// a generous cap costs one bounded allocation per delivery.
+pub const MAX_BODY_BYTES: usize = 1024 * 1024;
 
 /// Per-connection socket timeout — a hook that stalls must never pin a
 /// handler thread.

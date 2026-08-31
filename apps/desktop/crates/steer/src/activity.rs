@@ -87,8 +87,12 @@ pub const NARRATION_MAX: usize = 16 * 1024;
 pub const TOOL_NAME_MAX: usize = 128;
 pub const TOOL_DETAIL_MAX: usize = 1024;
 pub const DIFF_MAX: usize = 512 * 1024;
-/// Question text shares the narration budget (an ExitPlanMode plan rides it).
-pub const QUESTION_TEXT_MAX: usize = NARRATION_MAX;
+/// Question text used to share the narration budget, but an ExitPlanMode plan
+/// rides here and real plans clear 16KiB (EXP-691) — the relay's
+/// `question.text` cap is raised in lockstep (`protocol.ts`). Anything larger
+/// still truncates, with an explicit marker ([`truncate_marked`]) instead of
+/// a silent mid-sentence cut.
+pub const QUESTION_TEXT_MAX: usize = 64 * 1024;
 pub const OPTION_LABEL_MAX: usize = 256;
 pub const OPTION_DESCRIPTION_MAX: usize = 1024;
 pub const QUESTION_HEADER_MAX: usize = 256;
@@ -383,12 +387,33 @@ fn mcp_expu_key(worktree: &Path) -> Option<String> {
 /// awaiting their tool_result (the answers live on the RESULT entry).
 #[derive(Default)]
 pub struct TranscriptState {
-    /// Grid-emitted plan questions whose transcript twins are still owed —
-    /// claude flushes the `ExitPlanMode` transcript entry only AFTER the
-    /// picker is answered, so each grid emission pre-pays one transcript
-    /// plan question that must then be swallowed instead of re-shown as
-    /// freshly pending (EXP-150).
-    pub suppress_plan_questions: usize,
+    /// EXP-691: the hooks sidecar is wired, so the plan card is (or is about
+    /// to be) published from its `PlanProposed` hook by identity — the
+    /// transcript's `ExitPlanMode` twin is then ALWAYS swallowed. Mirrors
+    /// [`Self::suppress_ask_questions`]: claude no longer withholds the
+    /// entry until the picker is answered but flushes it the moment the tool
+    /// is CALLED, before the hook drains — the old per-emission counter
+    /// (EXP-150) therefore published an id-less duplicate card ahead of the
+    /// real one and then stayed armed, eating the next legitimate plan.
+    pub suppress_plan_twins: bool,
+    /// Armed by the legacy grid-only plan fallback (no sidecar, an old
+    /// claude that withholds the entry until answered): the NEXT plan twin
+    /// is that publication's post-answer echo. A bool, not a counter — one
+    /// plan picker exists at a time, and a bool cannot over-arm.
+    pub swallow_next_plan_twin: bool,
+    /// `ExitPlanMode` tool_use ids seen on the transcript whose tool_result
+    /// has not flushed yet. The result IS the resolution evidence (EXP-691),
+    /// and a non-empty list at grid-fallback time means the twin already
+    /// flushed (immediate-flush claude) — the fallback must then neither
+    /// double the card nor arm [`Self::swallow_next_plan_twin`].
+    pub pending_plans: Vec<String>,
+    /// `ExitPlanMode` tool_use ids whose tool_result flushed since the last
+    /// emitter look — the "plan resolved" signal that still arrives while
+    /// the viewport is scrolled (EXP-347; the grid watcher is sticky there).
+    /// Set on RESULT flush, never on the tool_use twin: claude now flushes
+    /// the twin while the picker is still up (EXP-691), and treating that as
+    /// resolution disarmed the free-text reroute mid-approval.
+    pub resolved_plans: Vec<String>,
     /// Normalized texts of grid-published `AskUserQuestion` questions — their
     /// transcript twins (flushed post-answer) are swallowed by text identity
     /// (counting is unreliable: tab revisits and the review screen make grid
@@ -416,18 +441,13 @@ pub struct TranscriptState {
     /// picker that no longer exists (their `question_resolved` already went
     /// by, so the stepper would wedge forever).
     pub resolved_asks: Vec<String>,
-    /// EXP-483: `ExitPlanMode` tool_use ids the plan HOOK saw — when the
-    /// withheld twin entry flushes, prose in that same entry anchors above
-    /// the already-published plan card (`beforeQuestionId`). Kept separate
-    /// from [`Self::suppress_plan_questions`], a bare counter that cannot
-    /// tell a hook-published card (id = tool_use id) from the id-less grid
-    /// fallback.
+    /// EXP-483: `ExitPlanMode` tool_use ids the plan HOOK saw — when a twin
+    /// entry flushes LATER than its hook (a withholding claude), prose in
+    /// that same entry anchors above the already-published plan card
+    /// (`beforeQuestionId`). On immediate-flush claude the twin usually
+    /// beats the hook, the id is never consumed here, and the plan's
+    /// tool_result cleans it up instead ([`note_plan_results`]).
     pub hook_published_plans: HashSet<String>,
-    /// EXP-347: a suppressed plan twin flushed since the last emitter look —
-    /// claude only flushes the `ExitPlanMode` entry once the picker is
-    /// answered, so this is the "plan resolved" signal that still arrives
-    /// while the viewport is scrolled (the grid watcher is sticky there).
-    pub plan_twin_flushed: bool,
     /// EXP-350: the hooks sidecar is wired, so every `Task` call already
     /// publishes a descriptive `subagent` card — the main transcript's own
     /// bare "Task" tool headline is then dropped instead of doubling each
@@ -476,6 +496,10 @@ const TASK_EVENTS_CAP: usize = 32;
 const RECENT_GRID_QUESTIONS_CAP: usize = 16;
 /// Un-resulted AskUserQuestion tool_use cap.
 const PENDING_ASKS_CAP: usize = 8;
+/// Un-resulted `ExitPlanMode` tool_use cap (EXP-691) — one plan approval is
+/// pending at a time; the cap only bounds a session whose results never
+/// flush.
+const PENDING_PLANS_CAP: usize = 4;
 /// Resolved-ask memory cap (EXP-610) — only a hook racing its own ask's
 /// resolution inside one tick ever reads this back.
 const RESOLVED_ASKS_CAP: usize = 8;
@@ -554,21 +578,40 @@ pub fn process_transcript_line(
                     (state.suppress_ask_questions && !ask_ids.is_empty())
                         .then(|| ask_ids[0].clone())
                 });
-            // EXP-483: a hook-published plan whose withheld twin this entry
-            // carries — consumed here so the set never outlives its flush.
-            let hook_plan =
-                exit_plan_mode_id(&entry).filter(|id| state.hook_published_plans.remove(id));
+            // EXP-691: remember the plan tool_use — its tool_result is the
+            // resolution evidence, and "a twin already flushed" gates the
+            // grid fallback.
+            let plan_id = exit_plan_mode_id(&entry);
+            if let Some(id) = &plan_id {
+                if !state.pending_plans.iter().any(|p| p == id) {
+                    state.pending_plans.push(id.clone());
+                    if state.pending_plans.len() > PENDING_PLANS_CAP {
+                        let excess = state.pending_plans.len() - PENDING_PLANS_CAP;
+                        state.pending_plans.drain(..excess);
+                    }
+                }
+            }
+            // EXP-483: a hook-published plan whose twin this entry carries —
+            // consumed here so the prose can anchor above the published card.
+            let hook_plan = plan_id.filter(|id| state.hook_published_plans.remove(id));
             let mut events: Vec<ActivityEvent> = parse_assistant_entry(&entry, redactor)
                 .into_iter()
                 .filter(|event| match event {
-                    // The late twin of a plan already published at pending
-                    // time (EXP-150 grid watcher / the EXP-249 plan hook).
+                    // The twin of a plan the hook publishes by identity
+                    // (EXP-691: swallowed whether the hook already drained —
+                    // `hook_plan` — or is about to, `suppress_plan_twins`),
+                    // or the post-answer echo of a legacy grid-only card.
+                    // Never a resolution signal: on immediate-flush claude
+                    // the picker is still up ([`note_plan_results`] owns
+                    // resolution now).
                     ActivityEvent::Question {
                         plan_mode: Some(true),
                         ..
-                    } if state.suppress_plan_questions > 0 => {
-                        state.suppress_plan_questions -= 1;
-                        state.plan_twin_flushed = true;
+                    } if hook_plan.is_some()
+                        || state.suppress_plan_twins
+                        || state.swallow_next_plan_twin =>
+                    {
+                        state.swallow_next_plan_twin = false;
                         false
                     }
                     // The late twin of an already-published AskUserQuestion —
@@ -609,6 +652,7 @@ pub fn process_transcript_line(
         }
         Some("user") => {
             collect_task_events(&entry, state);
+            note_plan_results(&entry, state);
             let mut events = take_ask_answers(&entry, redactor, state);
             events.extend(parse_user_entry(&entry, redactor, state));
             events
@@ -848,6 +892,38 @@ fn record_pending_asks(entry: &Value, state: &mut TranscriptState) -> Vec<String
     ids
 }
 
+/// EXP-691: an `ExitPlanMode` tool_result is the transcript's plan-resolution
+/// evidence — claude writes it the moment the picker is answered (approved or
+/// rejected), on both the withholding and the immediate-flush transcript
+/// behaviors, so it works even while the grid watcher is scroll-stuck. Only
+/// ids recorded off an `ExitPlanMode` tool_use are read; the result's content
+/// is never published (the EXP-78 privacy stance).
+fn note_plan_results(entry: &Value, state: &mut TranscriptState) {
+    let Some(content) = entry
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_array)
+    else {
+        return;
+    };
+    for block in content {
+        if block.get("type").and_then(Value::as_str) != Some("tool_result") {
+            continue;
+        }
+        let Some(tid) = block.get("tool_use_id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(pos) = state.pending_plans.iter().position(|id| id == tid) else {
+            continue;
+        };
+        state.pending_plans.remove(pos);
+        state.resolved_plans.push(truncate(tid, ID_MAX));
+        // The EXP-483 anchor can no longer be consumed by a twin flush (the
+        // twin came and went) — drop it so the set never grows across plans.
+        state.hook_published_plans.remove(tid);
+    }
+}
+
 /// An `AskUserQuestion` tool_result → one semantic `question_resolved` keyed
 /// by the ask's `tool_use_id` (= the `askId` the question events carried),
 /// which retires every card of that ask (EXP-249). It carries the collected
@@ -1063,18 +1139,17 @@ fn parse_ask_user_question(
 }
 
 /// `ExitPlanMode` → a plan-approval `question` (text = the plan markdown when
-/// present). This transcript path is the DEGRADED fallback (EXP-150): the
-/// pending-time question normally comes from the grid watcher with the REAL
-/// picker rows, and this twin is suppressed. When it does fire (grid
-/// detection missed a re-worded picker), only the two approve keys are
-/// offered — key "3" is no longer safe to send blind (on claude v2.1.211 it
-/// launches "refine with Ultraplan on Claude Code on the web", not "keep
-/// planning").
+/// present). This transcript path is the hookless fallback (EXP-150): with
+/// the sidecar wired the twin is suppressed and the card comes from the hook
+/// plus the grid watcher's REAL picker rows. When it does fire, only the two
+/// approve keys are offered — key "3" is no longer safe to send blind (on
+/// claude v2.1.211 it launches "refine with Ultraplan on Claude Code on the
+/// web", not "keep planning").
 fn parse_exit_plan_mode(input: Option<&Value>, redactor: &Redactor) -> ActivityEvent {
     let plan = input
         .and_then(|i| i.get("plan"))
         .and_then(Value::as_str)
-        .map(|p| truncate(&redactor.redact(p), QUESTION_TEXT_MAX))
+        .map(|p| truncate_marked(&redactor.redact(p), QUESTION_TEXT_MAX))
         .filter(|p| !p.trim().is_empty());
     ActivityEvent::Question {
         text: plan.unwrap_or_else(|| "Plan ready for approval.".to_string()),
@@ -2214,11 +2289,10 @@ impl SteerState {
                         .insert(truncate(id, ID_MAX));
                 }
                 let id = tool_use_id.unwrap_or_else(|| format!("plan-{}", self.plan_seq));
-                let text = truncate(&redactor.redact(&plan), QUESTION_TEXT_MAX);
-                // claude flushes the ExitPlanMode transcript entry only once
-                // the picker is answered — the twin it will produce is this
-                // same plan, already published here.
-                transcript.suppress_plan_questions += 1;
+                let text = truncate_marked(&redactor.redact(&plan), QUESTION_TEXT_MAX);
+                // The transcript twin needs no arming here: with the sidecar
+                // wired, `suppress_plan_twins` swallows it whether it flushes
+                // before or after this delivery (EXP-691).
                 self.plan = Some(PendingPlan {
                     id: truncate(&id, ID_MAX),
                     text: if text.trim().is_empty() {
@@ -2521,7 +2595,12 @@ impl SteerState {
             return;
         }
         plan.degraded = true;
-        sender.send(ActivityEvent::narration(plan.text.clone()));
+        // A plan can exceed the narration budget (EXP-691: the question cap
+        // is larger) — re-truncate for this channel.
+        sender.send(ActivityEvent::narration(truncate_marked(
+            &plan.text,
+            NARRATION_MAX,
+        )));
     }
 
     /// The plan picker settled on screen: publish the hook's real plan body
@@ -2555,6 +2634,23 @@ impl SteerState {
             sender,
         );
         true
+    }
+
+    /// EXP-691: the flushed `ExitPlanMode` tool_result names a plan — the
+    /// transcript's own resolution edge, the one signal that still arrives
+    /// while the grid watcher is scroll-stuck. Retires the pending card only
+    /// when the id matches (a same-tick NEWER plan proposal must not be
+    /// resolved by its predecessor's result); either way the answered picker
+    /// is off the keyboard, which is what [`Self::take_resolution`] reports.
+    fn resolve_plan_from_result(&mut self, tool_use_id: &str, sender: &ActivitySender) {
+        self.resolution_seen = true;
+        if self
+            .plan
+            .as_ref()
+            .is_some_and(|plan| plan.id == tool_use_id)
+        {
+            self.resolve_plan(sender);
+        }
     }
 
     /// The plan picker left the screen — answered, dismissed, or superseded.
@@ -3625,6 +3721,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     let mut transcript_state = TranscriptState {
         suppress_task_headlines: config.hooks.is_some(),
         suppress_ask_questions: config.hooks.is_some(),
+        suppress_plan_twins: config.hooks.is_some(),
         ..TranscriptState::default()
     };
     let mut steer = SteerState::default();
@@ -3694,13 +3791,12 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         //    writes an assistant entry to the JSONL before the PreToolUse
         //    hook fires / the picker paints, so tailing first guarantees
         //    already-flushed prose reaches the wire ahead of a same-tick
-        //    question card. Twin suppression stays safe under this order: a
-        //    hook-armed twin only flushes once a human ANSWERS the picker —
-        //    human-seconds after the hook that armed it drained. The one
-        //    residual hazard is the hookless legacy plan fallback (step 3): a
-        //    picker painted, answered, and flushed inside ONE tick would tail
-        //    its twin before the stale grid paint arms the suppression —
-        //    needs no sidecar plus sub-tick answering; accepted.
+        //    question card. Twin suppression is identity/flag-based, never
+        //    order-based (EXP-610 for asks, EXP-691 for plans): claude may
+        //    flush an ExitPlanMode/AskUserQuestion entry the moment the tool
+        //    is called — BEFORE its own hook drains — or withhold it until
+        //    the picker is answered; the wired flags swallow the twin on
+        //    either timing.
         if let Some(path) = current.clone() {
             offset = tail_transcript(
                 &path,
@@ -3724,10 +3820,11 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         steer.plan_timeout(&sender);
         steer.permission_timeout(&sender);
 
-        // 3) Picker watch on the live grid: the transcript cannot show a
-        //    PENDING plan approval or AskUserQuestion (claude flushes their
-        //    entries only once the picker is answered — EXP-150/EXP-197), but
-        //    the picker is on screen exactly while it is pending.
+        // 3) Picker watch on the live grid: the transcript never carries the
+        //    picker's REAL option rows and (on withholding claudes) cannot
+        //    show a PENDING plan approval or AskUserQuestion at all
+        //    (EXP-150/EXP-197) — the picker is on screen exactly while it is
+        //    pending.
         if let Some(term) = &config.term {
             let lines = screen_lines(term);
             let grid_offset = display_offset(term);
@@ -3735,25 +3832,42 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                 Some(Transition::Show(snapshot)) => {
                     let options = plan_publish_options(snapshot.options, &redactor);
                     if !steer.confirm_plan_from_grid(options.clone(), &sender) {
-                        // No hook knows this plan (an old claude, or a sidecar
-                        // that never came up): an id-less card with a headline
-                        // instead of the body. EXP-249 dropped the
-                        // `~/.claude/plans` mtime guessing that used to fill it
-                        // in — it mixed up concurrent sessions, and the hook
-                        // carries the exact plan.
-                        sender.send(ActivityEvent::Question {
-                            text: "Plan ready for approval.".to_string(),
-                            options,
-                            multi_select: None,
-                            plan_mode: Some(true),
-                            id: None,
-                            ask_id: None,
-                            index: None,
-                            total: None,
-                            header: None,
-                            at: None,
-                        });
-                        transcript_state.suppress_plan_questions += 1;
+                        // No hook knows this plan (an old claude, a sidecar
+                        // that never came up, or a plan already degraded to
+                        // narration): an id-less card with a headline instead
+                        // of the body. EXP-249 dropped the `~/.claude/plans`
+                        // mtime guessing that used to fill it in — it mixed
+                        // up concurrent sessions, and the hook carries the
+                        // exact plan. EXP-691: on immediate-flush claude the
+                        // twin already flushed (`pending_plans` non-empty) —
+                        // hookless, the transcript published the FULL plan
+                        // body as an id-less card, and a generic card here
+                        // would present the plan twice, so skip it; wired,
+                        // that twin was swallowed and this card is still the
+                        // only one.
+                        let twin_flushed = !transcript_state.pending_plans.is_empty();
+                        if transcript_state.suppress_plan_twins || !twin_flushed {
+                            sender.send(ActivityEvent::Question {
+                                text: "Plan ready for approval.".to_string(),
+                                options,
+                                multi_select: None,
+                                plan_mode: Some(true),
+                                id: None,
+                                ask_id: None,
+                                index: None,
+                                total: None,
+                                header: None,
+                                at: None,
+                            });
+                        }
+                        // Old-claude withholding, no sidecar: the twin echoes
+                        // AFTER the answer — pre-pay exactly one swallow.
+                        // Never armed once a twin has already flushed: that
+                        // late arm is what doubled the plan and then ate the
+                        // next legitimate card (EXP-691).
+                        if !transcript_state.suppress_plan_twins && !twin_flushed {
+                            transcript_state.swallow_next_plan_twin = true;
+                        }
                     }
                 }
                 Some(Transition::Resolved) => steer.resolve_plan(&sender),
@@ -4114,14 +4228,18 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         // 6) EXP-347: a resolution learned this tick — from the hooks (Stop /
         //     SessionEnd, step 2), the grid (plan Transition::Resolved, step
         //     3), or the transcript flush tailed in step 1 (a QuestionResolved
-        //     or the suppressed plan twin, both of which claude only writes
-        //     once the picker is ANSWERED) — means no picker owns the keyboard
-        //     anymore. Clear the sticky grid memory and push the publisher's
-        //     flag NOW rather than at the next step-4 publish: while the
-        //     viewport is scrolled the grid recompute never runs, and a stale
-        //     `true` reroutes a remote message's Esc into a live turn,
-        //     cancelling it.
-        if steer.take_resolution() || std::mem::take(&mut transcript_state.plan_twin_flushed) {
+        //     answers-flush, or an ExitPlanMode tool_result — EXP-691: the
+        //     RESULT, not the tool_use twin, is what claude only writes once
+        //     the picker is ANSWERED) — means no picker owns the keyboard
+        //     anymore. Retire a scroll-stuck plan card by its result id, then
+        //     clear the sticky grid memory and push the publisher's flag NOW
+        //     rather than at the next step-4 publish: while the viewport is
+        //     scrolled the grid recompute never runs, and a stale `true`
+        //     reroutes a remote message's Esc into a live turn, cancelling it.
+        for id in std::mem::take(&mut transcript_state.resolved_plans) {
+            steer.resolve_plan_from_result(&id, &sender);
+        }
+        if steer.take_resolution() {
             grid_picker_visible = false;
             if let Some(steering) = &config.steering {
                 steering.link.set_grid_picker_pending(false);
@@ -4320,6 +4438,25 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
         end -= 1;
     }
     s[..end].to_string()
+}
+
+/// Appended when [`truncate_marked`] cuts a string — an unmarked hard cut
+/// read as the text simply ENDING mid-sentence (EXP-691: a long plan looked
+/// finished but wasn't).
+pub(crate) const TRUNCATION_MARKER: &str = "\n\n[truncated]";
+
+/// [`truncate`], but a cut string ends in [`TRUNCATION_MARKER`] (still within
+/// `max` bytes) so viewers can tell truncation from completion.
+pub(crate) fn truncate_marked(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        return s.to_string();
+    }
+    if max <= TRUNCATION_MARKER.len() {
+        return truncate(s, max);
+    }
+    let mut out = truncate(s, max - TRUNCATION_MARKER.len());
+    out.push_str(TRUNCATION_MARKER);
+    out
 }
 
 #[cfg(test)]
@@ -5011,7 +5148,8 @@ mod tests {
             other => panic!("expected one question, got {other:?}"),
         }
 
-        // Oversized plan is truncated to the relay cap.
+        // Oversized plan is truncated to the relay cap — with an explicit
+        // marker instead of a silent mid-sentence cut (EXP-691).
         let big = serde_json::json!({
             "type": "assistant",
             "message": { "content": [
@@ -5023,6 +5161,7 @@ mod tests {
         match &parse_transcript_line(&big, &redactor)[..] {
             [ActivityEvent::Question { text, .. }] => {
                 assert_eq!(text.len(), QUESTION_TEXT_MAX);
+                assert!(text.ends_with(TRUNCATION_MARKER));
             }
             other => panic!("expected one question, got {other:?}"),
         }
@@ -5150,11 +5289,11 @@ mod tests {
         )
         .unwrap();
 
-        // One grid-emitted plan question is owed a transcript twin: the FIRST
-        // transcript plan question is swallowed, later ones pass through
-        // (grid detection missed ⇒ degraded fallback still works).
+        // The legacy grid-only publication pre-paid exactly one swallow: the
+        // FIRST transcript plan question is swallowed, later ones pass
+        // through (grid detection missed ⇒ degraded fallback still works).
         let mut state = TranscriptState {
-            suppress_plan_questions: 1,
+            swallow_next_plan_twin: true,
             ..Default::default()
         };
         let mut events: Vec<ActivityEvent> = Vec::new();
@@ -5164,14 +5303,10 @@ mod tests {
             &mut |line| process_transcript_line(line, &redactor, &mut state),
             &mut |event| events.push(event),
         );
-        assert_eq!(state.suppress_plan_questions, 0);
-        // EXP-347: a suppressed twin only flushes once the plan picker is
-        // ANSWERED — the emitter reads this flag to drop the publisher's
-        // grid-picker reroute signal even while the viewport is scrolled.
-        assert!(
-            state.plan_twin_flushed,
-            "the consumed twin flags a resolution"
-        );
+        assert!(!state.swallow_next_plan_twin);
+        // EXP-691: a twin flush is NOT a resolution — on immediate-flush
+        // claude the picker is still up; only the tool_result resolves.
+        assert!(state.resolved_plans.is_empty());
         match &events[..] {
             [ActivityEvent::Narration { text, .. }, ActivityEvent::Question { plan_mode, .. }] => {
                 assert_eq!(text, "On it.");
@@ -5180,6 +5315,75 @@ mod tests {
             other => panic!("expected narration + one plan question, got {other:?}"),
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn wired_sidecar_swallows_every_transcript_plan_twin() {
+        // EXP-691: with hooks wired the twin is swallowed whether it flushes
+        // before the hook drains (immediate-flush claude — the EXP-694
+        // double) or after the answer (withholding claude) — never counted,
+        // so a flush can no longer race the arming.
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState {
+            suppress_plan_twins: true,
+            ..Default::default()
+        };
+        let entry = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "tool_use", "id": "toolu_plan1", "name": "ExitPlanMode",
+                  "input": { "plan": "## Plan\n1. Do the thing" } },
+            ]}
+        })
+        .to_string();
+        assert_eq!(process_transcript_line(&entry, &redactor, &mut state), vec![]);
+        assert_eq!(state.pending_plans, vec!["toolu_plan1".to_string()]);
+        // A re-tailed copy (offset reset) is swallowed too, not re-recorded.
+        assert_eq!(process_transcript_line(&entry, &redactor, &mut state), vec![]);
+        assert_eq!(state.pending_plans.len(), 1);
+    }
+
+    #[test]
+    fn exit_plan_mode_tool_result_is_the_resolution_edge() {
+        // EXP-691: the RESULT flush — not the tool_use twin — is what claude
+        // only writes once the picker is answered; it drives the scrolled-
+        // viewport resolution and retires the card by id.
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState {
+            suppress_plan_twins: true,
+            ..Default::default()
+        };
+        let tool_use = serde_json::json!({
+            "type": "assistant",
+            "message": { "content": [
+                { "type": "tool_use", "id": "toolu_plan1", "name": "ExitPlanMode",
+                  "input": { "plan": "## Plan" } },
+            ]}
+        })
+        .to_string();
+        assert_eq!(process_transcript_line(&tool_use, &redactor, &mut state), vec![]);
+        // Immediate-flush order: the hook drains AFTER the twin flushed, so
+        // its EXP-483 anchor entry is never consumed by a flush.
+        state.hook_published_plans.insert("toolu_plan1".to_string());
+        let tool_result = serde_json::json!({
+            "type": "user",
+            "message": { "content": [
+                { "type": "tool_result", "tool_use_id": "toolu_plan1",
+                  "content": "User has approved your plan." },
+            ]}
+        })
+        .to_string();
+        assert_eq!(
+            process_transcript_line(&tool_result, &redactor, &mut state),
+            vec![],
+            "the result's content is never published"
+        );
+        assert_eq!(state.resolved_plans, vec!["toolu_plan1".to_string()]);
+        assert!(state.pending_plans.is_empty());
+        assert!(
+            state.hook_published_plans.is_empty(),
+            "the unconsumed anchor is cleaned up with the result"
+        );
     }
 
     /// The transcript pair claude flushes once an AskUserQuestion is answered
@@ -5436,7 +5640,7 @@ mod tests {
     fn withheld_plan_entry_prose_anchors_above_the_hook_published_plan() {
         let redactor = Redactor::new(vec![]);
         let mut state = TranscriptState {
-            suppress_plan_questions: 1,
+            suppress_plan_twins: true,
             ..Default::default()
         };
         state.hook_published_plans.insert("toolu_plan1".to_string());
@@ -5457,8 +5661,8 @@ mod tests {
                 at: None,
             }]
         );
-        assert_eq!(state.suppress_plan_questions, 0);
-        assert!(state.plan_twin_flushed);
+        // EXP-691: the twin flush is no resolution — only the tool_result is.
+        assert!(state.resolved_plans.is_empty());
         assert!(
             state.hook_published_plans.is_empty(),
             "the anchor is consumed with the twin"
@@ -5492,11 +5696,11 @@ mod tests {
 
     #[test]
     fn grid_fallback_plan_twin_prose_stays_unanchored() {
-        // The counter-only suppression (id-less grid plan card) swallows the
+        // The flag-only suppression (id-less grid plan card) swallows the
         // twin but must not anchor the prose — no card id exists to match.
         let redactor = Redactor::new(vec![]);
         let mut state = TranscriptState {
-            suppress_plan_questions: 1,
+            swallow_next_plan_twin: true,
             ..Default::default()
         };
         let entry = serde_json::json!({
@@ -5857,9 +6061,9 @@ mod tests {
         );
         // Nothing is published until the picker confirms on screen.
         assert!(drained(&rx).is_empty());
-        assert_eq!(
-            transcript.suppress_plan_questions, 1,
-            "the twin is pre-paid"
+        assert!(
+            transcript.hook_published_plans.contains("toolu_plan"),
+            "the twin is swallowed by identity (EXP-691)"
         );
 
         let published = steer.confirm_plan_from_grid(

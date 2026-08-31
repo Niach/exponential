@@ -1,12 +1,12 @@
 //! Plan-approval picker detection on the live terminal grid (EXP-150).
 //!
-//! The activity emitter's transcript tail cannot see a PENDING plan approval:
-//! `claude` (observed on v2.1.211) flushes a turn's transcript entries —
-//! including the `ExitPlanMode` tool_use — only once the plan picker is
-//! answered, so the transcript-derived plan `question` used to reach viewers
-//! only AFTER approval, and then looked answerable. The desktop owns the
-//! parsed terminal grid, and the picker IS on screen exactly while it is
-//! pending — so the emitter watches the grid instead:
+//! The transcript tail is no basis for a plan card's TIMING: old `claude`
+//! (observed on v2.1.211) flushed the `ExitPlanMode` tool_use entry only once
+//! the plan picker was answered (the card would have looked answerable only
+//! AFTER approval), while current builds flush it the moment the tool is
+//! called (EXP-691) — and neither carries the picker's REAL option rows. The
+//! desktop owns the parsed terminal grid, and the picker IS on screen exactly
+//! while it is pending — so the emitter watches the grid:
 //!
 //! * [`detect`] recognizes the picker on a plain-text screen snapshot
 //!   ([`terminal::screen_lines`]) and parses the REAL option labels/keys off
