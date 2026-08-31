@@ -12,15 +12,26 @@
 // EXP-679: the close-out paragraph is per-caller, like the tool itself — only
 // an unattended run is told about exponential_sessions_end, because only an
 // unattended run has it registered.
-import type { McpToolGates } from "./gates"
+//
+// FEED-21: the report-bug paragraph follows the tool's own EXP-496 gate (the
+// instance has a feedback widget, i.e. cloud) — a deferred tool description is
+// invisible until an agent already thinks to search for it, so the trigger has
+// to live here. `reportBug` is per-instance, not per-caller, which is why it
+// is a plain flag next to the gates instead of a McpToolGates field.
 
-export function mcpServerInstructions(
-  gates: Pick<McpToolGates, `sessionsEnd`>
-): string {
+export function mcpServerInstructions(gates: {
+  sessionsEnd: boolean
+  reportBug: boolean
+}): string {
   const paragraphs = [
     `Exponential is this team's issue tracker: issues on boards with comments, labels and the PRs that close them. In a coding session the flow is exponential_issues_get, exponential_comments_list, implement, commit and push, then exponential_pr_open. Never set an issue to 'in_review' yourself; PR tools move issues. Search for exponential_* tools for boards, labels, statuses, members, attachments, notifications, actions, automations, sessions, devices, helpdesk, repos and teams.`,
     `exponential_pr_open takes 'issueId' for one issue, 'issueIds' plus 'head' for one combined PR over several, or 'repositoryId' plus 'head' for a chore PR with no issue at all. exponential_pr_merge mirrors that: 'issueId'/'issueIds', or 'repositoryId' plus 'prNumber'. Merging your own pull request never ends your session. If a merge is refused because the base is stale, call exponential_pr_retarget, rebase onto the new base, force-push with --force-with-lease, then merge again.`,
   ]
+  if (gates.reportBug) {
+    paragraphs.push(
+      `When Exponential ITSELF misbehaves while you work — a tool result that contradicts its docs, a dropped remote start, a sync or UI glitch — file it right then with exponential_report_bug. That tool reports bugs in Exponential to its developers; it is never for issues in the user's own project.`
+    )
+  }
   if (gates.sessionsEnd) {
     paragraphs.push(
       `This run is unattended (an automation or another agent started it). When you are done, call exponential_sessions_end LAST with a one-paragraph summary of what you did — whether you finished, stopped for a human or changed nothing; leave the worktree clean first. That call ends the run; nobody is watching, so do not wait for replies.`
@@ -32,4 +43,5 @@ export function mcpServerInstructions(
 /** The full variant — what the context budget measures. */
 export const MCP_SERVER_INSTRUCTIONS = mcpServerInstructions({
   sessionsEnd: true,
+  reportBug: true,
 })

@@ -3622,7 +3622,7 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_report_bug`,
       {
-        description: `File a bug report about Exponential itself (the issue tracker) to the Exponential team. Not for issues in the user's own project.`,
+        description: `File a bug report about Exponential itself (the issue tracker — any client, these MCP tools, sync, relays) to the Exponential team. Use it the moment Exponential misbehaves or a tool result misleads you mid-task. Not for issues in the user's own project.`,
         inputSchema: {
           title: z.string().min(1).max(500),
           description: z.string().min(1).max(10_000),
