@@ -20,7 +20,9 @@
 //! exits — OR the user closes the tab, which never fires an exit hook — and
 //! the run answers its command, drops the agent's cached identity and
 //! re-probes, so the machine's row (and the Tools pane) tells the truth
-//! within a beat.
+//! within a beat. A CLEAN exit also closes the tab itself (EXP-695): a
+//! finished sign-in has nothing left to read, while a failed one keeps its
+//! tab so the error stays on screen.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -133,7 +135,9 @@ pub(crate) fn confirm_switch_then(
 /// update windows to find the dock.
 fn start(agent: CodingAgent, switch: bool, remote: Option<RemoteLogin>, cx: &mut App) {
     let settings = CodingHub::global(cx).read(cx).settings.clone();
-    let plan = agent_login::login_plan(&settings, agent);
+    // EXP-695: a REMOTE sign-in must not pop a browser on this machine —
+    // the requester gets the link through the command result instead.
+    let plan = agent_login::login_plan(&settings, agent, remote.is_some());
     cx.spawn(async move |cx| {
         if switch {
             let settings = settings.clone();
@@ -251,11 +255,24 @@ fn spawn_login_tab(
         run.abandon("This machine has no window to run the sign-in in.", cx);
         return;
     };
-    let exit_run = Arc::clone(&run);
-    let exit_hook: terminal::tab::ExitHook = Box::new(move |_, _, cx| exit_run.finish(cx));
     let opened = handle.update(cx, |_, window, cx| {
         let panel = crate::coding_flow::window_terminal_dock(window, cx)?;
         let manager = panel.read(cx).manager().clone();
+        // EXP-695: a login tab has served its purpose the moment the CLI
+        // exits CLEANLY — close it instead of leaving a "finished" strip to
+        // collect. A failed exit keeps the tab so the error stays readable.
+        // Deferred, because the hook fires inside the manager's own update.
+        let exit_run = Arc::clone(&run);
+        let exit_manager = manager.clone();
+        let exit_hook: terminal::tab::ExitHook = Box::new(move |tab, exit, cx| {
+            exit_run.finish(cx);
+            if exit.success {
+                let manager = exit_manager.clone();
+                cx.defer(move |cx| {
+                    manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
+                });
+            }
+        });
         let tab = panel
             .update(cx, |panel, cx| {
                 panel.launch_agent_login(agent, &plan, Some(exit_hook), cx)

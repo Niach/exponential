@@ -48,9 +48,17 @@ pub struct LoginPlan {
 }
 
 /// The login plan for `agent`, against this machine's configured binaries.
-pub fn login_plan(settings: &Settings, agent: CodingAgent) -> LoginPlan {
+///
+/// `remote` = the sign-in was queued by an `agent_login` device command
+/// (EXP-695): nobody is necessarily sitting at this machine, so the CLI must
+/// not pop a browser HERE — the requester gets the link and opens it on
+/// their own device. The agent CLIs launch the sign-in URL through
+/// `$BROWSER` when it is set, so the plan pins `BROWSER=true` (`true` the
+/// no-op command — claude's own background PTYs use the same value to
+/// suppress exactly this).
+pub fn login_plan(settings: &Settings, agent: CodingAgent, remote: bool) -> LoginPlan {
     let program = settings.resolved_path_for(agent);
-    match agent {
+    let mut plan = match agent {
         // Verified on 2.1.251: `--claudeai` picks the subscription method
         // outright, so there is no picker to drive.
         CodingAgent::Claude => LoginPlan {
@@ -75,7 +83,11 @@ pub fn login_plan(settings: &Settings, agent: CodingAgent) -> LoginPlan {
             typed_after_ready: Some("/login\r".to_string()),
             ready_anchor: Some(PI_PROMPT.to_string()),
         },
+    };
+    if remote {
+        plan.spawn.env.push(("BROWSER".to_string(), "true".to_string()));
     }
+    plan
 }
 
 /// pi's input prompt.
@@ -222,20 +234,38 @@ mod tests {
             pi_path: "/bin/pi".into(),
             ..Settings::default()
         };
-        let claude = login_plan(&settings, CodingAgent::Claude);
+        let claude = login_plan(&settings, CodingAgent::Claude, false);
         assert_eq!(claude.spawn.program, "/bin/claude");
         assert_eq!(claude.spawn.args, vec!["auth", "login", "--claudeai"]);
         assert_eq!(claude.typed_after_ready, None, "no picker to drive");
 
-        let codex = login_plan(&settings, CodingAgent::Codex);
+        let codex = login_plan(&settings, CodingAgent::Codex, false);
         assert_eq!(codex.spawn.args, vec!["login", "--device-auth"]);
         assert_eq!(codex.typed_after_ready, None);
 
         // pi has no login command: run it and type the slash command.
-        let pi = login_plan(&settings, CodingAgent::Pi);
+        let pi = login_plan(&settings, CodingAgent::Pi, false);
         assert!(pi.spawn.args.is_empty());
         assert_eq!(pi.typed_after_ready.as_deref(), Some("/login\r"));
         assert_eq!(pi.ready_anchor.as_deref(), Some("❯"));
+    }
+
+    /// EXP-695: a remote sign-in must not open a browser on the machine —
+    /// the requester gets the link instead. A local one keeps the CLI's own
+    /// browser launch.
+    #[test]
+    fn a_remote_login_suppresses_the_device_browser() {
+        let settings = Settings {
+            claude_path: "/bin/claude".into(),
+            ..Settings::default()
+        };
+        let local = login_plan(&settings, CodingAgent::Claude, false);
+        assert!(local.spawn.env.is_empty());
+        let remote = login_plan(&settings, CodingAgent::Claude, true);
+        assert_eq!(
+            remote.spawn.env,
+            vec![("BROWSER".to_string(), "true".to_string())]
+        );
     }
 
     #[test]

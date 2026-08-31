@@ -150,7 +150,9 @@ fn drive(
         }
     }
 
-    let plan = agent_login::login_plan(settings, agent);
+    // Always a remote sign-in here (EXP-695): the daemon must never pop a
+    // browser on the machine — the requester opens the published link.
+    let plan = agent_login::login_plan(settings, agent, true);
     let mut emulator = Emulator::new(COLS, ROWS);
     let mut pty = match pty::open(&plan.spawn, COLS, ROWS) {
         Ok(pty) => pty,
