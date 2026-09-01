@@ -5,6 +5,7 @@ import {
   attachments,
   issues,
   boards,
+  sessionAttachments,
   teamMembers,
   teams,
 } from "@/db/schema"
@@ -259,6 +260,35 @@ export async function getAttachmentTeamContext(attachmentId: string) {
     // Trashed or archived board ⇒ block attachment byte reads for as long as
     // it stays hidden (restored automatically on restore/unarchive).
     .where(and(eq(attachments.id, attachmentId), boardVisible()))
+    .limit(1)
+
+  if (!attachmentContext) {
+    throw new TRPCError({
+      code: `NOT_FOUND`,
+      message: `Attachment not found`,
+    })
+  }
+
+  return attachmentContext
+}
+
+// EXP-702: server-only steer images (session_attachments). Served by the
+// same /api/attachments/{id} read route as issue attachments — this is its
+// fallback lookup when the id has no attachments row. No board, so no
+// trash/archive predicate; team membership is the whole gate.
+export async function getSessionAttachmentTeamContext(attachmentId: string) {
+  const db = await getDb()
+  const [attachmentContext] = await db
+    .select({
+      attachmentId: sessionAttachments.id,
+      storageKey: sessionAttachments.storageKey,
+      teamId: sessionAttachments.teamId,
+      contentType: sessionAttachments.contentType,
+      filename: sessionAttachments.filename,
+      sizeBytes: sessionAttachments.sizeBytes,
+    })
+    .from(sessionAttachments)
+    .where(eq(sessionAttachments.id, attachmentId))
     .limit(1)
 
   if (!attachmentContext) {

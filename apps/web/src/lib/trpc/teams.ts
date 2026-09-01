@@ -6,11 +6,12 @@ import {
   publicProcedure,
   generateTxId,
 } from "@/lib/trpc"
-import { attachments, teams, teamMembers } from "@/db/schema"
+import { teams, teamMembers } from "@/db/schema"
 import { asc, eq } from "drizzle-orm"
 import { teamColumns } from "@/lib/team-columns"
 import { emailEnabled } from "@/lib/email-enabled"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
+import { collectTeamStorageKeys } from "@/lib/storage/team-storage-keys"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { recordConversionEvent } from "@/lib/conversion/events"
 import { randomBytes } from "crypto"
@@ -199,12 +200,7 @@ export const teamsRouter = router({
       // team-less state back into onboarding.
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        storageKeys = (
-          await tx
-            .select({ storageKey: attachments.storageKey })
-            .from(attachments)
-            .where(eq(attachments.teamId, input.teamId))
-        ).map((row) => row.storageKey)
+        storageKeys = await collectTeamStorageKeys(tx, [input.teamId])
         await tx.delete(teams).where(eq(teams.id, input.teamId))
         return { ok: true, txId }
       })

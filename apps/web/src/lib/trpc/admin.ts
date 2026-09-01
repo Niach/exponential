@@ -25,6 +25,7 @@ import {
   type PlanTier,
 } from "@/lib/billing"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
+import { collectTeamStorageKeys } from "@/lib/storage/team-storage-keys"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
@@ -927,12 +928,7 @@ export const adminRouter = router({
       let storageKeys: string[] = []
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        storageKeys = (
-          await tx
-            .select({ storageKey: attachments.storageKey })
-            .from(attachments)
-            .where(eq(attachments.teamId, input.teamId))
-        ).map((row) => row.storageKey)
+        storageKeys = await collectTeamStorageKeys(tx, [input.teamId])
         await tx.delete(teams).where(eq(teams.id, input.teamId))
         return { ok: true, txId }
       })

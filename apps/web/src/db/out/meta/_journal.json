@@ -659,6 +659,13 @@
       "when": 1788260488183,
       "tag": "0093_chunky_mister_fear",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1788270000236,
+      "tag": "0094_session_attachments",
+      "breakpoints": true
     }
   ]
 }

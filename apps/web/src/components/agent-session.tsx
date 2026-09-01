@@ -47,7 +47,7 @@ import {
 } from "@/lib/steer-session-store"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
-import { uploadIssueImageFile } from "@/lib/storage/issue-image-upload"
+import { uploadSessionImageFile } from "@/lib/storage/issue-image-upload"
 import {
   buildSteerImageMessage,
   MAX_STEER_IMAGES,
@@ -828,7 +828,7 @@ export function AgentSessionView({
                 // the send button should dim honestly for that gap.
                 live={live && connected}
                 onSend={sendMessage}
-                issueId={session.issueId}
+                sessionId={session.id}
                 placeholder={
                   planPending ? `Tell Claude what to change…` : undefined
                 }
@@ -1790,7 +1790,7 @@ function MessageComposer({
   store,
   live,
   onSend,
-  issueId,
+  sessionId,
   placeholder,
 }: {
   store: SteerSessionStore
@@ -1798,7 +1798,10 @@ function MessageComposer({
    *  (EXP-621), so a connection flap never eats the draft. */
   live: boolean
   onSend: (text: string) => boolean
-  issueId: string | null
+  /** Every steer image uploads to the session's own server-only store
+   *  (EXP-702) — issue runs included, so steering screenshots never clutter
+   *  the issue's Files section. */
+  sessionId: string
   /** Context-aware hint (e.g. the plan-approval "Tell Claude what to
    *  change…"); the default stays the generic prompt. */
   placeholder?: string
@@ -1839,7 +1842,7 @@ function MessageComposer({
   const send = async () => {
     if (sending || !live) return
     if (!text.trim() && pending.length === 0) return
-    if (pending.length === 0 || !issueId) {
+    if (pending.length === 0) {
       if (onSend(text)) store.clearDraftAfterSend()
       return
     }
@@ -1851,7 +1854,7 @@ function MessageComposer({
       for (const image of pending) {
         let uploadedId = image.uploadedId
         if (!uploadedId) {
-          const uploaded = await uploadIssueImageFile(issueId, image.file)
+          const uploaded = await uploadSessionImageFile(sessionId, image.file)
           uploadedId = uploaded.id
           store.setDraftImageUploaded(image.url, uploadedId)
         }
@@ -1878,7 +1881,7 @@ function MessageComposer({
     <div
       className="rounded-2xl border border-border bg-muted/40"
       onDrop={(event) => {
-        if (issueId === null || event.dataTransfer.files.length === 0) return
+        if (event.dataTransfer.files.length === 0) return
         event.preventDefault()
         addFiles(Array.from(event.dataTransfer.files))
       }}
@@ -1918,7 +1921,7 @@ function MessageComposer({
           }
         }}
         onPaste={(e) => {
-          if (!issueId || e.clipboardData.files.length === 0) return
+          if (e.clipboardData.files.length === 0) return
           e.preventDefault()
           addFiles(Array.from(e.clipboardData.files))
         }}
@@ -1932,36 +1935,32 @@ function MessageComposer({
         )}
       />
       <div className="flex items-center gap-1 px-2 pb-2">
-        {issueId !== null && (
-          <>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept={acceptedImageContentTypes.join(`,`)}
-              className="hidden"
-              onChange={(e) => {
-                filePickerOpenRef.current = false
-                if (e.target.files) addFiles(Array.from(e.target.files))
-                e.target.value = ``
-              }}
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="shrink-0 text-muted-foreground"
-              aria-label="Attach image"
-              title="Attach image"
-              disabled={sending}
-              onClick={() => {
-                filePickerOpenRef.current = true
-                fileInputRef.current?.click()
-              }}
-            >
-              <UiAddIcon />
-            </Button>
-          </>
-        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept={acceptedImageContentTypes.join(`,`)}
+          className="hidden"
+          onChange={(e) => {
+            filePickerOpenRef.current = false
+            if (e.target.files) addFiles(Array.from(e.target.files))
+            e.target.value = ``
+          }}
+        />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0 text-muted-foreground"
+          aria-label="Attach image"
+          title="Attach image"
+          disabled={sending}
+          onClick={() => {
+            filePickerOpenRef.current = true
+            fileInputRef.current?.click()
+          }}
+        >
+          <UiAddIcon />
+        </Button>
         <div className="flex-1" />
         <Button
           variant="ghost"
