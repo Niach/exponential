@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::App;
+use gpui::{App, AppContext as _};
 use sync::Store;
 
 use domain::board::{build_filtered_issues, build_status_groups};
@@ -1045,6 +1045,379 @@ pub(crate) fn coding_session_display(
 }
 
 // ---------------------------------------------------------------------------
+// Launch device candidates (EXP-696)
+// ---------------------------------------------------------------------------
+
+/// EXP-696: one machine the Start-coding dialog can start a run on — this
+/// IDE itself, one of the caller's other registered devices, or a teammate's
+/// shared server.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct LaunchDevice {
+    /// The steer TEXT id (`devices.device_id`) — `steer.startSession`'s
+    /// target, and what this install compares itself against.
+    pub(crate) device_id: String,
+    /// The SYNCED row's uuid — the `device_worktrees` join key. Empty for a
+    /// local entry whose row has not synced yet.
+    pub(crate) row_id: String,
+    /// The picker's line, [`launch_device_label`]-formatted.
+    pub(crate) label: String,
+    /// The agent CLIs the machine can actually run right now.
+    pub(crate) agents: Vec<coding::CodingAgent>,
+    /// Its published launch defaults, clamped onto a default `Settings`
+    /// (the same clamp `device_settings::baseline_for` runs for remote rows).
+    pub(crate) defaults: coding::Settings,
+    /// This IDE — the local launch paths, not `steer.startSession`.
+    pub(crate) is_own: bool,
+    /// EXP-622: the caller's default machine (never a teammate's flag).
+    pub(crate) is_default: bool,
+}
+
+/// The picker line for a candidate machine — web `launch-options-pane`
+/// parity (`"<label> — <owner>"` for a teammate's shared server), plus the
+/// desktop-only "This device" marker for the machine the IDE runs on.
+pub(crate) fn launch_device_label(
+    label: &str,
+    device_id: &str,
+    owner: Option<&str>,
+    is_own: bool,
+) -> String {
+    let base = match label.trim() {
+        "" => device_id,
+        label => label,
+    };
+    if is_own {
+        return format!("{base} — This device");
+    }
+    match owner.map(str::trim).filter(|owner| !owner.is_empty()) {
+        Some(owner) => format!("{base} — {owner}"),
+        None => base.to_string(),
+    }
+}
+
+/// The launch defaults a device advertises, clamped onto a default
+/// [`coding::Settings`]. The synced jsonb may itself arrive as a JSON
+/// STRING (§5.5 TEXT storage) — parse through that before the patch.
+pub(crate) fn device_launch_settings(value: Option<&serde_json::Value>) -> coding::Settings {
+    let mut settings = coding::Settings::default();
+    let Some(value) = value else {
+        return settings;
+    };
+    let parsed = match value {
+        serde_json::Value::String(raw) => serde_json::from_str::<serde_json::Value>(raw).ok(),
+        other => Some(other.clone()),
+    };
+    if let Some(patch) =
+        parsed.and_then(|value| serde_json::from_value::<coding::DefaultsPatch>(value).ok())
+    {
+        coding::apply_defaults_patch(&mut settings, &patch);
+    }
+    settings
+}
+
+/// EXP-696: the REMOTE candidates for the launch device picker — every
+/// synced row that is ONLINE and advertises at least one runnable agent, and
+/// nothing else (web `launch-dialog.tsx`'s `candidateDevices`: EXP-639 made
+/// the whole fleet above the version floor advertise the per-tab caps, so
+/// only those two filters remain and `steer.startSession` re-checks the
+/// agent server-side). `own_device_id` is dropped here — this IDE is added
+/// by [`launch_devices`] from LOCAL state, so it stays a candidate even
+/// before its own row has synced.
+pub(crate) fn remote_launch_devices<'a>(
+    rows: impl Iterator<Item = &'a domain::rows::DeviceRow>,
+    now_ms: i64,
+    me_user_id: &str,
+    own_device_id: &str,
+    owner_name: &dyn Fn(&str) -> Option<String>,
+) -> Vec<LaunchDevice> {
+    let mut devices: Vec<LaunchDevice> = rows
+        .filter_map(|row| {
+            let device_id = row.device_id.clone().filter(|id| !id.is_empty())?;
+            if device_id == own_device_id {
+                return None;
+            }
+            if !crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms) {
+                return None;
+            }
+            let agents: Vec<coding::CodingAgent> = coding::CodingAgent::ALL
+                .into_iter()
+                .filter(|agent| row.agent_ids().iter().any(|id| id == agent.id()))
+                .collect();
+            if agents.is_empty() {
+                return None;
+            }
+            let owned = row.user_id.as_deref() == Some(me_user_id);
+            let owner = (!owned)
+                .then(|| row.user_id.as_deref().and_then(owner_name))
+                .flatten();
+            Some(LaunchDevice {
+                label: launch_device_label(
+                    row.label.as_deref().unwrap_or_default(),
+                    &device_id,
+                    owner.as_deref(),
+                    false,
+                ),
+                row_id: row.id.clone(),
+                agents,
+                defaults: device_launch_settings(row.launch_defaults.as_ref()),
+                is_own: false,
+                // EXP-622: a teammate's flag is THEIR preference, never ours.
+                is_default: owned && row.is_default.unwrap_or(false),
+                device_id,
+            })
+        })
+        .collect();
+    // Every candidate is online, so a plain label order is stable (EXP-623 —
+    // heartbeats must not reorder a picker the user is reading).
+    devices.sort_by(|a, b| {
+        a.label
+            .to_lowercase()
+            .cmp(&b.label.to_lowercase())
+            .then_with(|| a.device_id.cmp(&b.device_id))
+    });
+    devices
+}
+
+struct OwnDeviceIdGlobal(String);
+impl gpui::Global for OwnDeviceIdGlobal {}
+
+/// EXP-696: this install's steer device id, resolved ONCE per process.
+/// `steer::persistent_device_id` READS (and on a first run writes)
+/// settings.json, so it must never sit on a render pass — the machines list
+/// asks for it every frame.
+pub(crate) fn own_device_id(cx: &mut App) -> String {
+    if let Some(global) = cx.try_global::<OwnDeviceIdGlobal>() {
+        return global.0.clone();
+    }
+    let id = steer::persistent_device_id(&AuthContext::global(cx).data_dir);
+    cx.set_global(OwnDeviceIdGlobal(id.clone()));
+    id
+}
+
+/// How long a FAILED `steer.config` fetch stays un-rearmed. The error path
+/// notifies, every observer's handler reads the cache again, and an ungated
+/// re-arm turns that into one fetch per notify while the network is down.
+const STEER_CONFIG_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// EXP-696: the process-wide `steer.config` answer. Remote start exists only
+/// when the instance runs a relay, and that is INSTANCE config (it moves on a
+/// deploy, not on a heartbeat) — so it is fetched once and cached here.
+#[derive(Default)]
+pub(crate) struct SteerConfigCache {
+    /// `None` until the first answer lands; `Some(false)` = relay off, which
+    /// is a normal state and never an error (§8.2).
+    pub(crate) enabled: Option<bool>,
+    requested: bool,
+    /// When the last fetch failed — the [`STEER_CONFIG_RETRY`] cooldown's
+    /// anchor. Cleared by a successful answer.
+    failed_at: Option<std::time::Instant>,
+}
+
+impl SteerConfigCache {
+    /// Whether a fetch may be armed at `now`: nothing in flight (or already
+    /// answered), and a failed attempt has cooled down.
+    fn may_request(&self, now: std::time::Instant) -> bool {
+        if self.requested {
+            return false;
+        }
+        match self.failed_at {
+            Some(failed_at) => now.duration_since(failed_at) >= STEER_CONFIG_RETRY,
+            None => true,
+        }
+    }
+}
+
+struct SteerConfigGlobal(gpui::Entity<SteerConfigCache>);
+impl gpui::Global for SteerConfigGlobal {}
+
+/// The cache entity — surfaces observe it so the answer landing re-renders
+/// them. Reading it also kicks the ONE fetch (a failed one re-arms, so a
+/// transport blip cannot pin the app to "local only" for the session).
+pub(crate) fn steer_config(cx: &mut App) -> gpui::Entity<SteerConfigCache> {
+    let entity = match cx.try_global::<SteerConfigGlobal>() {
+        Some(global) => global.0.clone(),
+        None => {
+            let entity = cx.new(|_| SteerConfigCache::default());
+            cx.set_global(SteerConfigGlobal(entity.clone()));
+            entity
+        }
+    };
+    if entity.read(cx).may_request(std::time::Instant::now()) {
+        if let Some(trpc) = trpc_client(cx) {
+            entity.update(cx, |this, _| this.requested = true);
+            let entity = entity.clone();
+            cx.spawn(async move |cx| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { api::steer::config(&trpc) })
+                    .await;
+                let _ = entity.update(cx, |this, cx| {
+                    match result {
+                        Ok(config) => {
+                            this.enabled = Some(config.enabled);
+                            this.failed_at = None;
+                        }
+                        Err(err) => {
+                            log::warn!("[ui] steer.config failed: {err}");
+                            // Re-armed by the next read AFTER the cooldown —
+                            // this very notify re-enters `steer_config` from
+                            // every observer, so an ungated re-arm would
+                            // storm the transport (see `may_request`).
+                            this.requested = false;
+                            this.failed_at = Some(std::time::Instant::now());
+                        }
+                    }
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+    }
+    entity
+}
+
+/// Whether this instance can start runs on ANOTHER machine right now. Unknown
+/// (not yet answered, or the fetch failed) reads FALSE: a picker that cannot
+/// start anything is worse than no picker (EXP-696 — relay off must look
+/// exactly like the app did before remote start existed).
+pub(crate) fn remote_start_enabled(cx: &mut App) -> bool {
+    steer_config(cx).read(cx).enabled.unwrap_or(false)
+}
+
+/// EXP-696: the launch device candidates, THIS machine first. The local
+/// entry is built from local state (the hub's settings + the doctor's
+/// runnable agents) rather than from its synced row: the IDE can always
+/// start a run on itself, whether or not its heartbeat has landed. Other
+/// machines only ever join the list while the instance runs a steer relay.
+pub(crate) fn launch_devices(cx: &mut App) -> Vec<LaunchDevice> {
+    let own_device_id = own_device_id(cx);
+    let hub = crate::coding_flow::CodingHub::global(cx);
+    let (settings, report) = {
+        let hub = hub.read(cx);
+        (hub.settings.clone(), hub.doctor.report.clone())
+    };
+    let mut agents = report
+        .as_ref()
+        .map(|report| report.installed_agents())
+        .unwrap_or_default();
+    if agents.is_empty() {
+        // The doctor has not landed (or nothing is signed in) — the LOCAL
+        // gate is `launch_blocker`'s per-agent doctor check, which names the
+        // real reason; the picker must not hide this machine meanwhile.
+        agents = coding::CodingAgent::ALL.to_vec();
+    }
+    let remote_enabled = remote_start_enabled(cx);
+    let Some(store) = Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let collections = store.collections().clone();
+    let own_row = collections
+        .devices
+        .read(cx)
+        .iter()
+        .find(|row| row.device_id.as_deref() == Some(own_device_id.as_str()))
+        .cloned();
+    let own = LaunchDevice {
+        label: launch_device_label(
+            own_row
+                .as_ref()
+                .and_then(|row| row.label.as_deref())
+                .unwrap_or(""),
+            &own_device_id,
+            None,
+            true,
+        ),
+        row_id: own_row.as_ref().map(|row| row.id.clone()).unwrap_or_default(),
+        agents,
+        defaults: settings,
+        is_own: true,
+        is_default: own_row
+            .as_ref()
+            .and_then(|row| row.is_default)
+            .unwrap_or(false),
+        device_id: own_device_id.clone(),
+    };
+    let me = active_account(cx).map(|account| account.user_id).unwrap_or_default();
+    let users = collections.users.read(cx);
+    let owner_name = |user_id: &str| {
+        users
+            .get(user_id)
+            .and_then(|user| user.name.clone())
+            .filter(|name| !name.is_empty())
+    };
+    let mut devices = vec![own];
+    if remote_enabled {
+        devices.extend(remote_launch_devices(
+            collections.devices.read(cx).iter(),
+            chrono::Utc::now().timestamp_millis(),
+            &me,
+            &own_device_id,
+            &owner_name,
+        ));
+    }
+    devices
+}
+
+/// EXP-696: which machine a device settle lands on, returning its
+/// `device_id`.
+///
+/// The chain mirrors web `use-launch-options.ts` (`defaultDeviceId(devices)
+/// ?? devices[0]`) with the desktop's own machine folded in: a still-valid
+/// current pick, else the caller's preselect, else the user's DEFAULT
+/// machine (EXP-622 — uniform across platforms), else this machine, else the
+/// first candidate.
+///
+/// `current_is_explicit` makes a pick the USER (or a caller's ▶) made
+/// STICKY: it survives its machine dropping out of the candidate list — one
+/// lapsed heartbeat must never silently retarget the run at this machine
+/// with this machine's defaults. The dialog blocks the launch and names the
+/// offline machine instead, and the pick resumes when it comes back.
+pub(crate) fn settled_device(
+    devices: &[LaunchDevice],
+    current: Option<&str>,
+    current_is_explicit: bool,
+    preselect: Option<&str>,
+) -> Option<String> {
+    let known = |id: &str| devices.iter().any(|device| device.device_id == id);
+    if let Some(current) = current.filter(|id| known(id) || current_is_explicit) {
+        return Some(current.to_string());
+    }
+    // A preselect is explicit too, so it is adopted even before (or after)
+    // its row is a candidate — the blocker then says why it cannot start.
+    if let Some(preselect) = preselect {
+        return Some(preselect.to_string());
+    }
+    devices
+        .iter()
+        .find(|device| device.is_default)
+        .or_else(|| devices.iter().find(|device| device.is_own))
+        .or_else(|| devices.first())
+        .map(|device| device.device_id.clone())
+}
+
+/// EXP-696/EXP-481 (web `resumeWorktree`): the synced worktree row that makes
+/// "Resume previous session" offerable on a REMOTE machine for
+/// `(device row, issue identifier, agent)` — same device row, matching
+/// identifier (case-insensitive), and either no recorded `.exp-agents`
+/// marker (any agent may resume) or the chosen agent among them.
+pub(crate) fn resume_worktree<'a>(
+    worktrees: impl Iterator<Item = &'a domain::rows::DeviceWorktreeRow>,
+    device_row_id: &str,
+    issue_identifier: &str,
+    agent: &str,
+) -> Option<&'a domain::rows::DeviceWorktreeRow> {
+    if device_row_id.is_empty() {
+        return None;
+    }
+    let wanted = issue_identifier.to_lowercase();
+    worktrees.filter(|row| row.device_row_id.as_deref() == Some(device_row_id)).find(|row| {
+        row.issue_identifier
+            .as_deref()
+            .is_some_and(|identifier| identifier.to_lowercase() == wanted)
+            && row.offers_agent(agent)
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Create-flow sync gate (§4.1 "awaitTxId" analog)
 // ---------------------------------------------------------------------------
 
@@ -1646,5 +2019,253 @@ mod tests {
         // Non-open PR states never review.
         assert!(!is_reviewable(&issue(Some("merged"))));
         assert!(!is_reviewable(&issue(None)));
+    }
+
+    // -- EXP-696 launch device candidates -------------------------------------
+
+    const NOW_MS: i64 = 1_754_900_000_000;
+
+    fn seen(offset_secs: i64) -> String {
+        chrono::DateTime::from_timestamp(NOW_MS / 1_000 + offset_secs, 0)
+            .unwrap()
+            .to_rfc3339()
+    }
+
+    fn launch_device_row(
+        id: &str,
+        device_id: &str,
+        label: &str,
+        user_id: &str,
+        agents: &[&str],
+        offset_secs: i64,
+    ) -> domain::rows::DeviceRow {
+        serde_json::from_value(json!({
+            "id": id,
+            "device_id": device_id,
+            "label": label,
+            "user_id": user_id,
+            "kind": "desktop",
+            "agents": agents,
+            "last_seen_at": seen(offset_secs),
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn launch_device_labels_mark_this_device_and_shared_owners() {
+        assert_eq!(
+            launch_device_label("buildbox", "dev-1", None, true),
+            "buildbox — This device"
+        );
+        assert_eq!(
+            launch_device_label("buildbox", "dev-1", Some("Ada"), false),
+            "buildbox — Ada"
+        );
+        // No owner (one of the caller's own machines) = the bare name.
+        assert_eq!(launch_device_label("buildbox", "dev-1", None, false), "buildbox");
+        // A blank owner name never renders a dangling separator.
+        assert_eq!(launch_device_label("buildbox", "dev-1", Some("  "), false), "buildbox");
+        // An unnamed row falls back to its device id.
+        assert_eq!(launch_device_label("  ", "dev-1", None, false), "dev-1");
+    }
+
+    #[test]
+    fn remote_candidates_need_online_and_a_runnable_agent() {
+        let rows = vec![
+            launch_device_row("r-1", "dev-online", "Zeta", "me", &["claude"], -30),
+            // Offline: the relay would refuse the start with device_offline.
+            launch_device_row("r-2", "dev-offline", "Alpha", "me", &["claude"], -600),
+            // EXP-409: online but every CLI is signed out — nothing runnable.
+            launch_device_row("r-3", "dev-signed-out", "Beta", "me", &[], -30),
+            launch_device_row("r-4", "dev-mate", "Gamma", "mate", &["codex"], -30),
+            // This machine is added from LOCAL state, never from its row.
+            launch_device_row("r-5", "dev-own", "Local", "me", &["claude"], -30),
+        ];
+        let owner = |user_id: &str| (user_id == "mate").then(|| "Ada".to_string());
+        let devices = remote_launch_devices(rows.iter(), NOW_MS, "me", "dev-own", &owner);
+        let ids: Vec<&str> = devices
+            .iter()
+            .map(|device| device.device_id.as_str())
+            .collect();
+        // Sorted by label: "Gamma — Ada" before "Zeta".
+        assert_eq!(ids, ["dev-mate", "dev-online"]);
+        assert_eq!(devices[0].label, "Gamma — Ada");
+        assert_eq!(devices[0].agents, vec![coding::CodingAgent::Codex]);
+        assert!(devices.iter().all(|device| !device.is_own));
+    }
+
+    #[test]
+    fn remote_candidate_defaults_come_from_the_advertised_launch_defaults() {
+        let mut row = launch_device_row("r-1", "dev-1", "Buildbox", "me", &["codex"], -30);
+        row.launch_defaults = Some(json!({
+            "defaultAgent": "codex",
+            "agents": {"codex": {"model": "gpt-5.6-terra", "effort": "high"}},
+        }));
+        let owner = |_: &str| None;
+        let devices = remote_launch_devices(
+            std::iter::once(&row),
+            NOW_MS,
+            "me",
+            "dev-own",
+            &owner,
+        );
+        let settings = &devices[0].defaults;
+        assert_eq!(settings.default_agent, coding::CodingAgent::Codex);
+        assert_eq!(settings.codex_model, "gpt-5.6-terra");
+        assert_eq!(settings.codex_effort, "high");
+    }
+
+    #[test]
+    fn launch_defaults_parse_through_a_json_string_column() {
+        // §5.5: a jsonb column can arrive as a JSON STRING.
+        let raw = json!(r#"{"defaultAgent":"pi"}"#);
+        assert_eq!(
+            device_launch_settings(Some(&raw)).default_agent,
+            coding::CodingAgent::Pi
+        );
+        // Absent / unparsable degrades to the static defaults, never panics.
+        assert_eq!(
+            device_launch_settings(None).default_agent,
+            coding::Settings::default().default_agent
+        );
+        assert_eq!(
+            device_launch_settings(Some(&json!("not json"))).default_agent,
+            coding::Settings::default().default_agent
+        );
+    }
+
+    #[test]
+    fn remote_resume_matches_device_issue_and_agent() {
+        let worktree = |id: &str, device: &str, identifier: &str, agents: serde_json::Value| {
+            serde_json::from_value::<domain::rows::DeviceWorktreeRow>(json!({
+                "id": id,
+                "device_row_id": device,
+                "issue_identifier": identifier,
+                "branch": format!("exp/{identifier}"),
+                "agents": agents,
+            }))
+            .unwrap()
+        };
+        let rows = vec![
+            worktree("w-1", "r-other", "EXP-1", json!(["claude"])),
+            worktree("w-2", "r-1", "exp-1", json!(["claude"])),
+            worktree("w-3", "r-1", "EXP-2", json!(["codex"])),
+            // Pre-marker worktree: any agent may resume it.
+            worktree("w-4", "r-1", "EXP-3", serde_json::Value::Null),
+        ];
+        // Case-insensitive identifier match, scoped to the device row.
+        assert_eq!(
+            resume_worktree(rows.iter(), "r-1", "EXP-1", "claude")
+                .map(|row| row.id.as_str()),
+            Some("w-2")
+        );
+        // Another device's worktree never offers.
+        assert!(resume_worktree(rows.iter(), "r-1", "EXP-9", "claude").is_none());
+        // The marker gates the agent…
+        assert!(resume_worktree(rows.iter(), "r-1", "EXP-2", "claude").is_none());
+        assert!(resume_worktree(rows.iter(), "r-1", "EXP-2", "codex").is_some());
+        // …and no marker means any agent.
+        assert!(resume_worktree(rows.iter(), "r-1", "EXP-3", "pi").is_some());
+        // A device whose row has not synced has no join key at all.
+        assert!(resume_worktree(rows.iter(), "", "EXP-1", "claude").is_none());
+    }
+
+    fn candidate(device_id: &str, is_own: bool, is_default: bool) -> LaunchDevice {
+        LaunchDevice {
+            device_id: device_id.to_string(),
+            row_id: format!("row-{device_id}"),
+            label: device_id.to_string(),
+            agents: vec![coding::CodingAgent::Claude],
+            defaults: coding::Settings::default(),
+            is_own,
+            is_default,
+        }
+    }
+
+    /// EXP-622 parity: an IMPLICIT settle prefers the user's DEFAULT machine
+    /// over this one, exactly like web's `defaultDeviceId(devices) ??
+    /// devices[0]` — then this machine, then the first candidate.
+    #[test]
+    fn device_settle_prefers_the_users_default_machine() {
+        let with_default = vec![
+            candidate("dev-own", true, false),
+            candidate("dev-build", false, true),
+        ];
+        assert_eq!(
+            settled_device(&with_default, None, false, None).as_deref(),
+            Some("dev-build")
+        );
+        // No default flagged anywhere: this machine.
+        let no_default = vec![candidate("dev-mate", false, false), candidate("dev-own", true, false)];
+        assert_eq!(
+            settled_device(&no_default, None, false, None).as_deref(),
+            Some("dev-own")
+        );
+        // Neither (this machine's entry has not been built): the first row.
+        let foreign = vec![candidate("dev-mate", false, false)];
+        assert_eq!(
+            settled_device(&foreign, None, false, None).as_deref(),
+            Some("dev-mate")
+        );
+        assert_eq!(settled_device(&[], None, false, None), None);
+    }
+
+    /// An EXPLICIT pick is sticky: it survives its machine leaving the
+    /// candidate list (a lapsed heartbeat), while an implicit one re-settles.
+    /// A caller's preselect counts as explicit and is adopted whether or not
+    /// its row is a candidate yet.
+    #[test]
+    fn device_settle_keeps_an_explicit_pick_when_its_machine_drops_out() {
+        let devices = vec![
+            candidate("dev-own", true, false),
+            candidate("dev-build", false, true),
+        ];
+        // Still a candidate: kept either way.
+        assert_eq!(
+            settled_device(&devices, Some("dev-build"), false, None).as_deref(),
+            Some("dev-build")
+        );
+        // Gone from the list: an explicit pick stands, an implicit one
+        // re-settles onto the default machine.
+        assert_eq!(
+            settled_device(&devices, Some("dev-gone"), true, None).as_deref(),
+            Some("dev-gone")
+        );
+        assert_eq!(
+            settled_device(&devices, Some("dev-gone"), false, None).as_deref(),
+            Some("dev-build")
+        );
+        // A preselect beats the fallback chain, candidate or not.
+        assert_eq!(
+            settled_device(&devices, None, false, Some("dev-own")).as_deref(),
+            Some("dev-own")
+        );
+        assert_eq!(
+            settled_device(&devices, None, false, Some("dev-syncing")).as_deref(),
+            Some("dev-syncing")
+        );
+    }
+
+    /// A FAILED `steer.config` fetch re-arms only after its cooldown — the
+    /// error path notifies, and every observer reading the cache back would
+    /// otherwise re-spawn the fetch on the spot.
+    #[test]
+    fn steer_config_refetch_waits_out_the_cooldown() {
+        let start = std::time::Instant::now();
+        let fresh = SteerConfigCache::default();
+        assert!(fresh.may_request(start));
+        // In flight: never a second fetch.
+        let in_flight = SteerConfigCache {
+            requested: true,
+            ..Default::default()
+        };
+        assert!(!in_flight.may_request(start));
+        let failed = SteerConfigCache {
+            failed_at: Some(start),
+            ..Default::default()
+        };
+        assert!(!failed.may_request(start));
+        assert!(!failed.may_request(start + STEER_CONFIG_RETRY - std::time::Duration::from_secs(1)));
+        assert!(failed.may_request(start + STEER_CONFIG_RETRY));
     }
 }

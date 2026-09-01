@@ -40,6 +40,19 @@
 //! [`crate::action_run::start_action_run`] instead of `coding::prepare`
 //! directly.
 //!
+//! EXP-696: WHERE the run happens is its own **Device** group ABOVE that
+//! cluster (web/mobile parity), rendered only when there is more than one
+//! candidate — this machine plus every ONLINE synced device advertising a
+//! runnable agent, and only while `steer.config` says the instance runs a
+//! relay. Picking another machine re-seeds the whole options cluster off
+//! ITS advertisement and swaps the launch for one `steer.startSession` with
+//! the same subject; the local doctor gate does not apply to it (that
+//! machine's own advertisement does, and the server re-checks it). An
+//! EXPLICIT pick — the row's, or a caller's ▶ preselect — is STICKY: when its
+//! machine falls out of the candidates the dialog keeps pointing at it, keeps
+//! the Device row on screen and BLOCKS the launch, instead of silently
+//! retargeting the run at this machine with this machine's options.
+//!
 //! EXP-291: the dialog renders as a full-height column — only the BODY
 //! (subject strip + the two columns) scrolls; the Cancel / Start action bar
 //! is pinned to the window's bottom edge and is always reachable, however
@@ -66,8 +79,9 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState, Textarea, TextareaState},
     menu::{DropdownMenu as _, PopupMenuItem},
+    notification::Notification,
     scroll::{Scrollbar, ScrollbarAxis},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 use sync::Store;
 
@@ -162,18 +176,22 @@ pub fn open_for_issue(window: &mut Window, cx: &mut App, issue_id: String) {
         None,
         None,
         SubjectTab::Issues,
+        None,
     );
 }
 
 /// Open the dialog from the bulk bar with the selection pre-checked.
 /// `on_launched` fires once on a successful launch (EXP-439 — the bulk bar
-/// clears its selection there).
+/// clears its selection there). EXP-696: `preselected_device_id` preselects
+/// the machine the run starts on (the machines list's ▶ passes its own row);
+/// `None` = this machine, as every other entry point.
 pub fn open_for_selection(
     window: &mut Window,
     cx: &mut App,
     team_id: String,
     issue_ids: Vec<String>,
     on_launched: Option<OnLaunched>,
+    preselected_device_id: Option<String>,
 ) {
     open(
         window,
@@ -184,6 +202,7 @@ pub fn open_for_selection(
         None,
         on_launched,
         SubjectTab::Issues,
+        preselected_device_id,
     );
 }
 
@@ -199,6 +218,7 @@ pub fn open_for_action(window: &mut Window, cx: &mut App, team_id: String, actio
         None,
         None,
         SubjectTab::Actions,
+        None,
     );
 }
 
@@ -214,6 +234,7 @@ pub fn open_for_chat(window: &mut Window, cx: &mut App, team_id: String) {
         None,
         None,
         SubjectTab::Chat,
+        None,
     );
 }
 
@@ -236,6 +257,7 @@ pub fn open_for_fix_conflicts(
         Some(issue_id),
         None,
         SubjectTab::Actions,
+        None,
     );
 }
 
@@ -251,6 +273,8 @@ fn open(
     // The subject the caller seeded — each `open_*` entry names its own tab
     // (an action preselect only ever makes sense on Actions).
     tab: SubjectTab,
+    // EXP-696: the machine to preselect in the Device row (`None` = this one).
+    preselect_device: Option<String>,
 ) {
     // EXP-268: widescreen two-column layout (web `sm:max-w-3xl` parity —
     // picker left, options right); the launched terminal tab lands back in
@@ -273,6 +297,7 @@ fn open(
                 preselect_pr,
                 on_launched,
                 tab,
+                preselect_device.clone(),
                 opener,
                 window,
                 cx,
@@ -320,6 +345,16 @@ struct IssueRow {
     /// (EXP-119 filters closed rows out of the pool) — it flags a re-run.
     /// `None` = plain row.
     state_hint: Option<&'static str>,
+}
+
+/// EXP-696: what the REMOTE resume row shows — the target machine's synced
+/// worktree for the checked issue.
+struct RemoteResume {
+    /// The worktree's branch (`exp/<IDENTIFIER>`), empty on an old report.
+    branch: String,
+    /// When the machine last reported the worktree (ISO), for the "…ended"
+    /// line's relative time.
+    reported_at: Option<String>,
 }
 
 /// One issue's `repositories.forIssue` probe state.
@@ -412,6 +447,28 @@ pub struct StartCodingDialogView {
     /// EXP-615: the ONE shared options cluster (agent pills, model/effort,
     /// toggles) — the same component the create-action dialog renders.
     launch: LaunchOptionsSection,
+    /// EXP-696: the machine the run starts on (`None` before the first
+    /// settle). The routing switch is its candidate's `is_own` flag: this
+    /// machine takes the LOCAL launch paths, anything else goes out as one
+    /// `steer.startSession`.
+    device_id: Option<String>,
+    /// Whether [`Self::device_id`] is a pick the USER made (the Device row, or
+    /// a caller's ▶ preselect) rather than a settle's fallback. An explicit
+    /// pick is STICKY — see [`queries::settled_device`].
+    device_explicit: bool,
+    /// Whether the pick currently resolves to a candidate. `false` = its
+    /// machine has dropped out (offline / no runnable agent): the launch is
+    /// blocked instead of quietly re-pointing at this one.
+    device_resolved: bool,
+    /// The pick's last known label — the candidate row is gone while its
+    /// machine is offline, and the blocker still has to name it.
+    device_label: Option<String>,
+    /// The caller's preselect (a machines-row ▶), adopted by the first
+    /// [`Self::settle_device`].
+    pending_device_preselect: Option<String>,
+    /// The candidate list the picker last settled against — recomputed on
+    /// every `devices` delta so a machine coming online mid-dialog appears.
+    devices: Vec<queries::LaunchDevice>,
     launching: bool,
     error: Option<SharedString>,
     /// EXP-439: fired ONCE after a successful issue-subject launch — the bulk
@@ -429,6 +486,7 @@ impl StartCodingDialogView {
         preselect_pr: Option<String>,
         on_launched: Option<OnLaunched>,
         tab: SubjectTab,
+        preselect_device: Option<String>,
         opener: AnyWindowHandle,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
@@ -522,7 +580,24 @@ impl StartCodingDialogView {
         let local_sessions = coding_flow::LocalSessions::global(cx);
         let synced_sessions = Store::global(cx).collections().coding_sessions.clone();
         let synced_actions = Store::global(cx).collections().actions.clone();
+        let synced_devices = Store::global(cx).collections().devices.clone();
+        let synced_worktrees = Store::global(cx).collections().device_worktrees.clone();
+        // EXP-696: remote start exists only behind a relay — until
+        // `steer.config` answers, this machine is the only candidate.
+        let steer_config = queries::steer_config(cx);
         let subscriptions = vec![
+            cx.observe_in(&steer_config, window, |this: &mut Self, _, window, cx| {
+                this.settle_device(window, cx);
+                cx.notify();
+            }),
+            // EXP-696: the Device row is a live read of the `devices` shape —
+            // a machine going offline (or coming back) re-settles the pick.
+            cx.observe_in(&synced_devices, window, |this: &mut Self, _, window, cx| {
+                this.settle_device(window, cx);
+                cx.notify();
+            }),
+            // EXP-696: the REMOTE resume row reads `device_worktrees`.
+            cx.observe(&synced_worktrees, |_: &mut Self, _, cx| cx.notify()),
             // EXP-268: the Actions tab is a live read of the synced shape —
             // an MCP-authored action appears while the dialog is open.
             cx.observe_in(&synced_actions, window, |this: &mut Self, _, window, cx| {
@@ -599,6 +674,12 @@ impl StartCodingDialogView {
             list_scroll: ScrollHandle::new(),
             body_scroll: ScrollHandle::new(),
             launch: LaunchOptionsSection::new(window, cx),
+            device_id: None,
+            device_explicit: false,
+            device_resolved: false,
+            device_label: None,
+            pending_device_preselect: preselect_device,
+            devices: Vec::new(),
             launching: false,
             error: None,
             on_launched,
@@ -613,11 +694,179 @@ impl StartCodingDialogView {
         // the observer above keeps it live); repos stay a tRPC prefetch.
         this.refresh_actions(window, cx);
         this.fetch_team_repos(cx);
+        // EXP-696: settle the machine BEFORE the agent reconcile — a remote
+        // preselect re-seeds the whole options cluster off that machine's
+        // advertisement, and the local reconcile below must not undo it.
+        this.settle_device(window, cx);
         // The doctor usually ran long before the dialog opens — if the
         // settings default agent isn't installed, preselect one that is
         // (EXP-206: the tab strip only shows installed agents).
         this.launch.reconcile_agent(window, cx);
         this
+    }
+
+    // -- device picker (EXP-696) ----------------------------------------------
+
+    /// Recompute the candidate machines and settle the pick
+    /// ([`queries::settled_device`] holds the chain, web
+    /// `use-launch-options.ts`' settle effect). A pick that newly RESOLVES to
+    /// a candidate re-points the options cluster at that machine; one whose
+    /// machine dropped out keeps everything exactly as it was — reseeding
+    /// there is the silent retarget this guards against.
+    fn settle_device(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.devices = queries::launch_devices(cx);
+        let preselect = self.pending_device_preselect.take();
+        if preselect.is_some() {
+            self.device_explicit = true;
+        }
+        let next = queries::settled_device(
+            &self.devices,
+            self.device_id.as_deref(),
+            self.device_explicit,
+            preselect.as_deref(),
+        );
+        let label = next.as_deref().and_then(|id| {
+            self.devices
+                .iter()
+                .find(|device| device.device_id == id)
+                .map(|device| device.label.clone())
+        });
+        let resolved = label.is_some();
+        if let Some(label) = label {
+            self.device_label = Some(label);
+        }
+        let changed = next != self.device_id;
+        self.device_id = next;
+        let reseed = resolved && (changed || !self.device_resolved);
+        self.device_resolved = resolved;
+        if reseed {
+            self.apply_device_defaults(window, cx);
+        }
+    }
+
+    /// Explicit pick from the Device row.
+    fn set_device(&mut self, device_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.device_explicit = true;
+        self.pending_device_preselect = None;
+        if self.device_id.as_deref() == Some(device_id.as_str()) && self.device_resolved {
+            return;
+        }
+        let label = self
+            .devices
+            .iter()
+            .find(|device| device.device_id == device_id)
+            .map(|device| device.label.clone());
+        self.device_resolved = label.is_some();
+        if let Some(label) = label {
+            self.device_label = Some(label);
+        }
+        self.device_id = Some(device_id);
+        if self.device_resolved {
+            self.apply_device_defaults(window, cx);
+        }
+    }
+
+    /// EXP-696: the sticky pick whose machine has left the candidate list —
+    /// its heartbeat lapsed (or it stopped advertising a runnable agent).
+    /// Some(label) blocks the launch and keeps the Device row on screen so
+    /// the run can be re-pointed instead of landing here by surprise.
+    fn offline_pick(&self) -> Option<&str> {
+        if self.device_resolved || self.device_id.is_none() {
+            return None;
+        }
+        Some(self.device_label.as_deref().unwrap_or("The selected device"))
+    }
+
+    /// Re-point the shared options cluster at the settled machine: a remote
+    /// target hands it that machine's advertised agents + published launch
+    /// defaults, this machine hands it back to the doctor + `CodingHub`.
+    fn apply_device_defaults(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let remote = self
+            .remote_device()
+            .map(|device| launch_options::RemoteDefaults {
+                agents: device.agents.clone(),
+                settings: device.defaults.clone(),
+            });
+        self.launch.set_remote(remote, window, cx);
+    }
+
+    /// The settled machine, or `None` while nothing has settled.
+    fn selected_device(&self) -> Option<&queries::LaunchDevice> {
+        let device_id = self.device_id.as_deref()?;
+        self.devices
+            .iter()
+            .find(|device| device.device_id == device_id)
+    }
+
+    /// The settled machine when it is NOT this one — the remote-start route.
+    fn remote_device(&self) -> Option<&queries::LaunchDevice> {
+        self.selected_device().filter(|device| !device.is_own)
+    }
+
+    /// EXP-696: the Device row — its own glass group above the agent options,
+    /// exactly where web and mobile put it. Rendered only with MORE THAN ONE
+    /// candidate: with a single machine there is nothing to choose, and the
+    /// dialog reads exactly as it did before remote start existed. A sticky
+    /// pick whose machine went offline always keeps the row — that is the
+    /// only way to re-point the run.
+    fn device_picker(&self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
+        let offline = self.offline_pick();
+        if self.devices.len() < 2 && offline.is_none() {
+            return None;
+        }
+        let foreground = cx.theme().foreground;
+        let picked: SharedString = match offline {
+            Some(label) => format!("{label} — offline"),
+            None => self
+                .selected_device()
+                .map(|device| device.label.clone())
+                .unwrap_or_else(|| "Select device…".to_string()),
+        }
+        .into();
+        let view = cx.entity().downgrade();
+        let candidates = self.devices.clone();
+        let bound = self.device_id.clone();
+        let trigger = Button::new("sc-device")
+            .ghost()
+            .cursor_pointer()
+            .h_auto()
+            .px_0()
+            .py_0()
+            .text_color(foreground.opacity(0.7))
+            .dropdown_caret(true)
+            // NOT `.label()` — upstream draws that in a `flex_none` box, so a
+            // long machine name wraps onto a second line (EXP-697).
+            .child(crate::surface::picker_value_label(picked))
+            .dropdown_menu(move |mut menu, _window, _cx| {
+                for device in &candidates {
+                    let view = view.clone();
+                    let device_id = device.device_id.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(SharedString::from(device.label.clone()))
+                            .checked(bound.as_deref() == Some(device_id.as_str()))
+                            .on_click(move |_, window, cx| {
+                                let Some(view) = view.upgrade() else {
+                                    return;
+                                };
+                                let device_id = device_id.clone();
+                                view.update(cx, |this, cx| {
+                                    this.set_device(device_id, window, cx);
+                                    cx.notify();
+                                });
+                            }),
+                    );
+                }
+                menu
+            });
+        Some(
+            crate::surface::glass_group_rows(vec![crate::surface::glass_picker_row(
+                "Device",
+                None,
+                trigger.into_any_element(),
+                cx,
+            )])
+            .into_any_element(),
+        )
     }
 
     // -- Actions tab (EXP-257) ------------------------------------------------
@@ -1041,7 +1290,21 @@ impl StartCodingDialogView {
     /// picked agent: a resume relaunches the RECORDED agent's transcript
     /// (D2), the row just says so.
     fn resume_candidate(&self) -> Option<(&IssueRow, &RunRecord)> {
-        // Resume is an ISSUE concept — the Actions tab never offers it.
+        // EXP-696: the local run registry describes THIS machine only — a
+        // remote target resumes off its own synced worktree row instead (and
+        // an offline pick is a remote target whose row is out of reach).
+        if self.remote_device().is_some() || self.offline_pick().is_some() {
+            return None;
+        }
+        let row = self.resume_issue()?;
+        let record = self.resumables.get(&row.issue_id)?.as_ref()?;
+        Some((row, record))
+    }
+
+    /// The one checked issue a resume could apply to at all — resume is an
+    /// ISSUE concept (the Actions and Chat tabs never offer it) and a batch
+    /// has no per-issue worktree.
+    fn resume_issue(&self) -> Option<&IssueRow> {
         if self.subject_tab != SubjectTab::Issues {
             return None;
         }
@@ -1049,14 +1312,34 @@ impl StartCodingDialogView {
             return None;
         }
         let issue_id = self.checked.iter().next()?;
-        let record = self.resumables.get(issue_id)?.as_ref()?;
-        let row = self.rows.iter().find(|row| &row.issue_id == issue_id)?;
-        Some((row, record))
+        self.rows.iter().find(|row| &row.issue_id == issue_id)
     }
 
-    /// Whether the launch will actually RESUME (checkbox on + a candidate).
-    fn resume_active(&self) -> bool {
-        self.resume && self.resume_candidate().is_some()
+    /// EXP-696 (web `resumeWorktree`): the REMOTE resume offer — the target
+    /// machine's synced `device_worktrees` row for the single checked issue,
+    /// resumable by the picked agent. `steer.startSession`'s `resume: true`
+    /// continues that worktree's session there.
+    fn remote_resume(&self, cx: &App) -> Option<RemoteResume> {
+        let device = self.remote_device()?;
+        let row = self.resume_issue()?;
+        let collections = Store::global(cx).collections();
+        let worktrees = collections.device_worktrees.read(cx);
+        let worktree = queries::resume_worktree(
+            worktrees.iter(),
+            &device.row_id,
+            &row.identifier,
+            self.launch.agent.id(),
+        )?;
+        Some(RemoteResume {
+            branch: worktree.branch.clone().unwrap_or_default(),
+            reported_at: worktree.reported_at.clone(),
+        })
+    }
+
+    /// Whether the launch will actually RESUME (checkbox on + a candidate —
+    /// this machine's run registry, or the target machine's worktree row).
+    fn resume_active(&self, cx: &App) -> bool {
+        self.resume && (self.resume_candidate().is_some() || self.remote_resume(cx).is_some())
     }
 
     fn toggle_checked(&mut self, issue_id: String, on: bool, cx: &mut gpui::Context<Self>) {
@@ -1074,28 +1357,58 @@ impl StartCodingDialogView {
         if self.launching {
             return Some("Starting…".into());
         }
-        let hub = CodingHub::global(cx);
-        // EXP-662: a resume runs the RECORDED agent, not the picked one — so
-        // that is the one whose tooling has to be there.
-        let gated_agent = match self.resume_active() {
-            true => self
-                .resume_candidate()
-                .map(|(_, record)| record.agent)
-                .unwrap_or(self.launch.agent),
-            false => self.launch.agent,
-        };
-        match hub.read(cx).doctor.report.as_ref() {
-            None => return Some("Checking local tools…".into()),
-            // Per-agent gate (EXP-201): only git + the SELECTED agent block.
-            Some(report) => {
-                if let Some(failed) = report.first_failure_for(gated_agent) {
+        // EXP-696: the picked machine dropped out of the candidates while the
+        // dialog was open. Starting anyway would run HERE, with this
+        // machine's agent/model/effort — so it blocks until the machine is
+        // back or the user re-points the Device row.
+        if let Some(label) = self.offline_pick() {
+            return Some(
+                format!("{label} is offline — reconnect it or pick another device.").into(),
+            );
+        }
+        // EXP-696: the LOCAL tooling gate applies to a local run only — the
+        // doctor probes THIS machine's CLIs and clone root, and neither
+        // decides anything about another machine. A remote start is gated on
+        // the target's own advertisement (which `steer.startSession`
+        // re-checks server-side).
+        match self.remote_device() {
+            Some(device) => {
+                if !device.agents.contains(&self.launch.agent) {
                     return Some(
-                        failed
-                            .error
-                            .clone()
-                            .unwrap_or_else(|| format!("{} is not available", failed.tool))
-                            .into(),
+                        format!(
+                            "{} can't run {}.",
+                            device.label,
+                            self.launch.agent.label()
+                        )
+                        .into(),
                     );
+                }
+            }
+            None => {
+                let hub = CodingHub::global(cx);
+                // EXP-662: a resume runs the RECORDED agent, not the picked
+                // one — so that is the one whose tooling has to be there.
+                let gated_agent = match self.resume_active(cx) {
+                    true => self
+                        .resume_candidate()
+                        .map(|(_, record)| record.agent)
+                        .unwrap_or(self.launch.agent),
+                    false => self.launch.agent,
+                };
+                match hub.read(cx).doctor.report.as_ref() {
+                    None => return Some("Checking local tools…".into()),
+                    // Per-agent gate (EXP-201): only git + the SELECTED agent block.
+                    Some(report) => {
+                        if let Some(failed) = report.first_failure_for(gated_agent) {
+                            return Some(
+                                failed
+                                    .error
+                                    .clone()
+                                    .unwrap_or_else(|| format!("{} is not available", failed.tool))
+                                    .into(),
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -1209,7 +1522,7 @@ impl StartCodingDialogView {
     /// RESUME never re-enters plan mode (EXP-202): the plan already happened
     /// in the conversation being continued.
     fn options(&self, cx: &App) -> LaunchOptions {
-        self.launch.options(self.resume_active(), cx)
+        self.launch.options(self.resume_active(cx), cx)
     }
 
     /// Snapshot the checked set into a [`BatchLaunchRequest`] (2+ checked).
@@ -1256,6 +1569,11 @@ impl StartCodingDialogView {
     fn launch(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if self.launching || self.launch_blocker(cx).is_some() {
             return;
+        }
+        // EXP-696: another machine runs it — one `steer.startSession` with the
+        // same subject, and the target's own launcher does the rest.
+        if self.remote_device().is_some() {
+            return self.launch_remote(window, cx);
         }
         // EXP-615: a CHAT launch is an action launch — the hidden builtin,
         // its two inputs, and the same runner (which resolves the repo and
@@ -1349,7 +1667,7 @@ impl StartCodingDialogView {
             // be nudged, and only while the picker is on that same agent (D2)
             // — otherwise the picker is describing a different program.
             let record = self
-                .resume_active()
+                .resume_active(cx)
                 .then(|| self.resume_candidate().map(|(_, record)| record.clone()))
                 .flatten();
             if let Some(record) = record {
@@ -1406,6 +1724,135 @@ impl StartCodingDialogView {
             window,
             cx,
         );
+    }
+
+    /// EXP-696: build the `steer.startSession` payload for the current tab —
+    /// the SAME subject the local paths launch, addressed at another machine.
+    /// Exactly one subject: `issue_id` for a single checked issue,
+    /// `issue_ids` for a batch, `action_id` (+ `team_id` for a builtin,
+    /// + `inputs`) for the Actions and Chat tabs. `None` = nothing to send
+    /// (a race the blocker just re-checked).
+    fn remote_start_input(&self, device_id: String, cx: &App) -> Option<api::steer::StartSessionInput> {
+        let options = self.options(cx);
+        let mut input = api::steer::StartSessionInput {
+            device_id,
+            agent: Some(options.agent.id().to_string()),
+            // Blank IS the "CLI default" sentinel here; the server's
+            // per-agent vocabulary has no empty member, so omit it.
+            model: Some(options.model.clone()).filter(|model| !model.is_empty()),
+            effort: Some(options.effort.clone()).filter(|effort| !effort.is_empty()),
+            ultracode: Some(options.ultracode),
+            plan_mode: Some(options.plan_mode),
+            ..Default::default()
+        };
+        match self.subject_tab {
+            SubjectTab::Chat => {
+                let repo = self.chat_repo.clone()?;
+                let prompt = self.chat_prompt.read(cx).value().trim().to_string();
+                let action = api::actions::builtin_chat_action(&self.team_id);
+                let mut inputs = std::collections::BTreeMap::new();
+                for definition in &action.inputs {
+                    let value = if definition.key == "prompt" {
+                        prompt.clone()
+                    } else {
+                        repo.id.clone()
+                    };
+                    inputs.insert(definition.key.clone(), value);
+                }
+                input.action_id = Some(action.id);
+                // A builtin has no DB row to derive the team from.
+                input.team_id = Some(self.team_id.clone());
+                input.inputs = Some(inputs);
+            }
+            SubjectTab::Actions => {
+                let action = self.selected_action()?.clone();
+                let inputs: std::collections::BTreeMap<String, String> = self
+                    .collect_action_inputs(&action, cx)
+                    .into_iter()
+                    .map(|filled| (filled.key, filled.value))
+                    .collect();
+                let builtin = api::actions::is_builtin_action_id(&action.id);
+                input.team_id = builtin.then(|| self.team_id.clone());
+                input.inputs = (!inputs.is_empty()).then_some(inputs);
+                input.action_id = Some(action.id);
+            }
+            SubjectTab::Issues => {
+                let mut checked: Vec<String> = self
+                    .rows
+                    .iter()
+                    .filter(|row| self.checked.contains(&row.issue_id))
+                    .map(|row| row.issue_id.clone())
+                    .collect();
+                match checked.len() {
+                    0 => return None,
+                    1 => {
+                        input.issue_id = checked.pop();
+                        // EXP-481: `resume` is a single-issue flag — it
+                        // continues the machine's existing worktree.
+                        if self.resume_active(cx) {
+                            input.resume = Some(true);
+                        }
+                    }
+                    _ => input.issue_ids = Some(checked),
+                }
+            }
+        }
+        Some(input)
+    }
+
+    /// EXP-696: hand the run to another machine. The mutation is the whole
+    /// launch — the target's own launcher resolves the repo, mints its token
+    /// and spawns the agent — so success just closes the dialog with a note
+    /// on the opener window; a refusal renders in the dialog's error slot.
+    fn launch_remote(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(device) = self.remote_device() else {
+            return;
+        };
+        let device_label = device.label.clone();
+        let device_id = device.device_id.clone();
+        let Some(input) = self.remote_start_input(device_id, cx) else {
+            return;
+        };
+        let Some(trpc) = queries::trpc_client(cx) else {
+            self.error = Some("Sign in and wait for sync before starting a session.".into());
+            cx.notify();
+            return;
+        };
+        self.launching = true;
+        self.error = None;
+        cx.notify();
+        let opener = self.opener;
+        cx.spawn_in(window, async move |this, window| {
+            let result = window
+                .background_executor()
+                .spawn(async move { api::steer::start_session(&trpc, &input) })
+                .await;
+            if result.is_ok() {
+                // The agent tab opens on the OTHER machine, so say where the
+                // run went — on the window that asked for it (EXP-284: this
+                // dialog is its own native window, and is about to close).
+                let note = Notification::success(SharedString::from(format!(
+                    "Start sent to {device_label}."
+                )));
+                let _ = opener.update(window, |_, window, cx| {
+                    window.push_notification(note, cx);
+                });
+            }
+            let _ = this.update_in(window, |this, window, cx| {
+                this.launching = false;
+                match result {
+                    Ok(()) => {
+                        if let Some(on_launched) = this.on_launched.take() {
+                            on_launched(cx);
+                        }
+                        native_dialog::close_dialog_window(window, cx);
+                    }
+                    Err(err) => this.error = Some(err.user_message().into()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Shared prepare→spawn tail for both modes: background
@@ -1601,6 +2048,61 @@ impl StartCodingDialogView {
                         .text_xs()
                         .text_color(muted.opacity(0.7))
                         .child(note),
+                )
+            })
+    }
+
+    /// EXP-696: the REMOTE machine's resume row. There is no local run record
+    /// to name an agent or a transcript from — the offer is the target's
+    /// synced worktree (web parity), so the copy says exactly that.
+    fn remote_resume_row(
+        &self,
+        resume: &RemoteResume,
+        device_label: &str,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let muted = cx.theme().muted_foreground;
+        let where_line: SharedString = match resume.branch.trim() {
+            "" => format!("A worktree for this issue is still on {device_label}."),
+            branch => format!("A {branch} worktree is still on {device_label}."),
+        }
+        .into();
+        let when: Option<SharedString> = resume
+            .reported_at
+            .as_deref()
+            .and_then(crate::comments::parse_epoch)
+            .map(|seen| {
+                format!(
+                    "Last reported {}.",
+                    crate::comments::relative_time_epoch(seen, chrono::Utc::now().timestamp())
+                )
+                .into()
+            });
+        v_flex()
+            .gap_0p5()
+            .child(
+                Checkbox::new("sc-resume-remote")
+                    .label("Resume previous session")
+                    .checked(self.resume)
+                    .on_click(cx.listener(|this, on: &bool, _, cx| {
+                        this.resume = *on;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                div()
+                    .pl_6()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(where_line),
+            )
+            .when_some(when, |this, when| {
+                this.child(
+                    div()
+                        .pl_6()
+                        .text_xs()
+                        .text_color(muted.opacity(0.7))
+                        .child(when),
                 )
             })
     }
@@ -2057,7 +2559,7 @@ impl StartCodingDialogView {
                         "Start chat"
                     } else if self.subject_tab == SubjectTab::Actions {
                         "Run action"
-                    } else if self.resume_active() {
+                    } else if self.resume_active(cx) {
                         "Resume coding"
                     } else {
                         "Start coding"
@@ -2133,10 +2635,24 @@ impl Render for StartCodingDialogView {
 
         // ---- resume (EXP-202/EXP-662): single checked issue with a recorded
         //      run offers "Resume previous session" ----
-        let resume_active = self.resume_active();
-        let resume_row = self
-            .resume_candidate()
-            .map(|(row, record)| self.resume_row(row, record, cx).into_any_element());
+        let resume_active = self.resume_active(cx);
+        // EXP-696: local runs offer this install's own run record; a remote
+        // target offers ITS synced worktree instead.
+        let remote_resume = self.remote_resume(cx).map(|resume| {
+            let label = self
+                .remote_device()
+                .map(|device| device.label.clone())
+                .unwrap_or_default();
+            (resume, label)
+        });
+        let resume_row = match &remote_resume {
+            Some((resume, label)) => {
+                Some(self.remote_resume_row(resume, label, cx).into_any_element())
+            }
+            None => self
+                .resume_candidate()
+                .map(|(row, record)| self.resume_row(row, record, cx).into_any_element()),
+        };
 
         let blocker = self.launch_blocker(cx);
         // EXP-268: two-column widescreen layout (web `launch-dialog.tsx`
@@ -2269,13 +2785,21 @@ impl Render for StartCodingDialogView {
         // model/effort, toggles) — the web `LaunchOptionsPane` twin. A resume
         // never re-enters plan mode, so its row is hidden while the resume
         // checkbox is on (`options()` clamps it off regardless).
-        let right = v_flex().flex_1().min_w_0().child(self.launch.render(
-            "sc-launch",
-            |this: &mut Self| &mut this.launch,
-            resume_row,
-            resume_active,
-            cx,
-        ));
+        // EXP-696: WHERE it runs is its own group ABOVE what it runs with —
+        // the web `LaunchOptionsPane` order, and only with a choice to make.
+        let device_picker = self.device_picker(cx);
+        let right = v_flex()
+            .flex_1()
+            .min_w_0()
+            .gap_2()
+            .children(device_picker)
+            .child(self.launch.render(
+                "sc-launch",
+                |this: &mut Self| &mut this.launch,
+                resume_row,
+                resume_active,
+                cx,
+            ));
 
         let mut body = v_flex().w_full().gap_3().child(self.subject_tabs(cx));
         body = body.child(

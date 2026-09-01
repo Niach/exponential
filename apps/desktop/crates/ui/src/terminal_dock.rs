@@ -71,7 +71,7 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 use gpui::Task;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use terminal::{TabId, TabKind, TerminalManager, TerminalManagerEvent, TerminalView};
@@ -79,7 +79,9 @@ use terminal::{TabId, TabKind, TerminalManager, TerminalManagerEvent, TerminalVi
 use crate::coding_flow::{CodingHub, TokenRefreshers};
 use crate::icons::{registry, ExpIcon};
 use crate::navigation;
+use crate::queries::CodingSessionDisplay;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
+use crate::steer_viewer::SteerSessionView;
 
 /// Stable serialization name for the panel registry (§3.3: never change it).
 pub const PANEL_NAME: &str = "TerminalDock";
@@ -351,6 +353,27 @@ pub struct TerminalDockPanel {
     /// The 3s poll behind [`Self::changes`]. Lives as long as the panel; it
     /// only shells out to git while the dock is OPEN on a session tab.
     _changes_poll: Task<()>,
+    /// EXP-696: the steering viewers behind the REMOTE chips, keyed by
+    /// coding-session id.
+    ///
+    /// **Lifetime rule**: a viewer is created LAZILY on the first click of
+    /// its chip and then kept connected for as long as the chip is displayed
+    /// — collapsing the dock or switching to another tab does not drop the
+    /// socket (the web dock keeps its stores alive the same way, and a
+    /// reconnect would replay the journal only to re-render what the reader
+    /// was already looking at). Dialing every live remote session up front,
+    /// on the other hand, would open a relay socket per row nobody opened.
+    steer_views: HashMap<String, Entity<SteerSessionView>>,
+    /// The REMOTE chips the strip paints, CACHED. Building them is a scan of
+    /// `coding_sessions` plus issue/device joins and a fistful of `String`s,
+    /// and the dock repaints on every viewer frame and composer keystroke —
+    /// so it is rebuilt on the row/device/session deltas it depends on and on
+    /// the [`CHANGES_POLL`] tick (the staleness clock), never per render.
+    /// `Rc` so a render can hold the list while `&mut self` methods run.
+    remote_chips: std::rc::Rc<Vec<RemoteChip>>,
+    /// The steered session the dock is CURRENTLY showing instead of a
+    /// terminal, if any. Runtime-only — never serialized into the layout.
+    active_steer: Option<String>,
     /// EXP-523: the open/close slide, `None` at rest. See [`DockSlide`].
     dock_slide: Option<DockSlide>,
     /// Dropping the task cancels the slide — same cancellation semantics as
@@ -384,6 +407,13 @@ impl TerminalDockPanel {
                     // §6.13: the panel expands when a tab is created — also
                     // the path Phase 5's play button / remote start rides.
                     TerminalManagerEvent::TabOpened(_) => {
+                        // EXP-696: the new tab becomes the VISIBLE content —
+                        // the same thing every other activation path does
+                        // (chip click, overflow menu, ctrl-tab). Without it a
+                        // launch behind an open steer view kept painting the
+                        // remote feed while the keyboard went to the new,
+                        // invisible PTY.
+                        this.active_steer = None;
                         this.expand_dock(window, cx);
                         this.focus_active_terminal(window, cx);
                     }
@@ -446,13 +476,39 @@ impl TerminalDockPanel {
         let collections =
             sync::Store::try_global(cx).map(|store| store.collections().clone());
         if let Some(collections) = collections {
-            cx.observe(&collections.issues, |_, _, cx| cx.notify()).detach();
+            // The remote chips carry issue identifiers/titles, so an issue
+            // delta re-projects them (EXP-696).
+            cx.observe(&collections.issues, |this: &mut Self, _, cx| {
+                this.rebuild_remote_chips(cx);
+                cx.notify();
+            })
+            .detach();
             cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify())
                 .detach();
             cx.observe(&collections.boards, |_, _, cx| cx.notify()).detach();
+            // EXP-696: the REMOTE session chips are a projection of the
+            // synced rows — a row going live, ending or going stale adds or
+            // drops a chip (and, on the ended edge, tears its viewer down).
+            cx.observe_in(&collections.coding_sessions, window, |this, _, window, cx| {
+                let _ = this.reconcile_steer_views(window, cx);
+                cx.notify();
+            })
+            .detach();
+            // A host going offline greys its chip (EXP-550) and, since the
+            // device rows carry the labels, renames one too.
+            cx.observe(&collections.devices, |this: &mut Self, _, cx| {
+                this.rebuild_remote_chips(cx);
+                cx.notify();
+            })
+            .detach();
         }
         let local_sessions = crate::coding_flow::LocalSessions::global(cx);
-        cx.observe(&local_sessions, |_, _, cx| cx.notify()).detach();
+        // A session this process picks up stops being remote (its tab owns it).
+        cx.observe(&local_sessions, |this: &mut Self, _, cx| {
+            this.rebuild_remote_chips(cx);
+            cx.notify();
+        })
+        .detach();
         let merge_state = crate::pr_merge::MergeState::global(cx);
         cx.observe(&merge_state, |_, _, cx| cx.notify()).detach();
 
@@ -471,8 +527,22 @@ impl TerminalDockPanel {
         // EXP-688: the Latest-changes poll. One timer for the panel's life —
         // it resolves the active session tab itself and does no git work at
         // all while the dock is collapsed.
-        let changes_poll = cx.spawn(async move |this, cx| loop {
-            let Ok(job) = this.update(cx, |this, cx| this.changes_job(cx)) else {
+        //
+        // EXP-696: it is also the steer reconcile's CLOCK. A chip's liveness
+        // is a staleness window on the row (`coding_session_is_live`), so a
+        // host that dies without writing a final row goes stale by TIME and
+        // no `coding_sessions` delta ever arrives — the observer-only
+        // reconcile then left `active_steer` pointing at a chip that is no
+        // longer painted (cmd-w dead, the orphaned viewer redialing the relay
+        // forever). Cheap enough for the idle beat: it is a projection of
+        // rows already in memory, and it repaints only when it changed.
+        let changes_poll = cx.spawn_in(window, async move |this, window| loop {
+            let Ok(job) = this.update_in(window, |this, window, cx| {
+                if this.reconcile_steer_views(window, cx) {
+                    cx.notify();
+                }
+                this.changes_job(cx)
+            }) else {
                 return; // panel gone with its window
             };
             let beat = match job {
@@ -482,14 +552,14 @@ impl TerminalDockPanel {
                     worktree,
                     base_ref,
                 } => {
-                    let files = cx
+                    let files = window
                         .background_executor()
                         .spawn(async move {
                             coding::scm::branch_diff(&worktree, base_ref.as_deref()).ok()
                         })
                         .await;
                     if this
-                        .update(cx, |this, cx| this.apply_changes(tab, files, cx))
+                        .update_in(window, |this, _, cx| this.apply_changes(tab, files, cx))
                         .is_err()
                     {
                         return;
@@ -497,7 +567,7 @@ impl TerminalDockPanel {
                     CHANGES_POLL
                 }
             };
-            cx.background_executor().timer(beat).await;
+            window.background_executor().timer(beat).await;
         });
 
         Self {
@@ -510,6 +580,9 @@ impl TerminalDockPanel {
             changes: None,
             changes_diff: cx.new(|cx| crate::diff::DiffView::new(window, cx)),
             _changes_poll: changes_poll,
+            steer_views: HashMap::new(),
+            remote_chips: std::rc::Rc::new(Vec::new()),
+            active_steer: None,
             dock_slide: None,
             _dock_slide_task: None,
             _subscription: subscription,
@@ -757,6 +830,27 @@ impl TerminalDockPanel {
         }
     }
 
+    /// Focus what the dock is SHOWING (EXP-696): the steered composer when a
+    /// steer view owns the content area, else the active terminal. Focusing
+    /// the terminal while a steer view is painted typed into a PTY nobody
+    /// could see — the expand paths take this instead of the raw terminal
+    /// focus. An empty, tab-less dock focuses nothing (EXP-369: expanding
+    /// never starts anything).
+    fn focus_visible_content(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if let Some(view) = self
+            .active_steer
+            .as_deref()
+            .and_then(|id| self.steer_views.get(id))
+            .cloned()
+        {
+            view.update(cx, |view, cx| view.focus_composer(window, cx));
+            return;
+        }
+        if !self.manager.read(cx).is_empty() {
+            self.focus_active_terminal(window, cx);
+        }
+    }
+
     /// Manager indices of the tabs the dock still shows (EXP-65: undocked
     /// tabs render in their own windows and are hidden here).
     fn visible_indices(&self, cx: &App) -> Vec<usize> {
@@ -772,6 +866,9 @@ impl TerminalDockPanel {
 
     /// Ctrl-tab / ctrl-shift-tab step over VISIBLE tabs only (an undocked
     /// tab must not flash through the dock while cycling).
+    /// EXP-696: ctrl-tab cycles the WHOLE strip — the local terminal tabs
+    /// first (manager order), then the remote steer chips (newest run first),
+    /// exactly as they are painted.
     fn activate_visible_step(
         &mut self,
         forward: bool,
@@ -779,20 +876,42 @@ impl TerminalDockPanel {
         cx: &mut gpui::Context<Self>,
     ) {
         let visible = self.visible_indices(cx);
-        if visible.is_empty() {
+        // The cached projection — cycling needs the ids, not the chrome.
+        let remote: Vec<String> = self
+            .remote_chips
+            .iter()
+            .map(|chip| chip.session_id.clone())
+            .collect();
+        let len = visible.len() + remote.len();
+        if len == 0 {
             return;
         }
-        let current_pos = self
-            .manager
-            .read(cx)
-            .active_index()
-            .and_then(|active| visible.iter().position(|ix| *ix == active));
+        let current_pos = match self.active_steer.as_deref() {
+            Some(active) => remote
+                .iter()
+                .position(|id| id == active)
+                .map(|pos| visible.len() + pos),
+            None => self
+                .manager
+                .read(cx)
+                .active_index()
+                .and_then(|active| visible.iter().position(|ix| *ix == active)),
+        };
         let next_pos = match current_pos {
-            Some(pos) if forward => (pos + 1) % visible.len(),
-            Some(pos) => (pos + visible.len() - 1) % visible.len(),
+            Some(pos) if forward => (pos + 1) % len,
+            Some(pos) => (pos + len - 1) % len,
             None => 0,
         };
-        self.activate_tab(visible[next_pos], window, cx);
+        match next_pos.checked_sub(visible.len()) {
+            Some(remote_pos) => {
+                let session_id = remote[remote_pos].clone();
+                self.activate_steer(&session_id, window, cx);
+            }
+            None => {
+                self.active_steer = None;
+                self.activate_tab(visible[next_pos], window, cx);
+            }
+        }
     }
 
     /// Make the manager's `manager_ix`th tab the active one and focus its
@@ -807,6 +926,161 @@ impl TerminalDockPanel {
         self.manager
             .update(cx, |manager, cx| manager.activate(manager_ix, cx));
         self.focus_active_terminal(window, cx);
+    }
+
+    // ── EXP-696: remote (steered) session chips ────────────────────────────
+
+    /// The user's OTHER live coding sessions, as strip chips. Empty when the
+    /// instance runs no steer relay: without one there is nothing to view,
+    /// and a chip that opens a dead feed is worse than no chip (the
+    /// `remote_start_enabled` rule, §8.2).
+    fn build_remote_chips(cx: &mut App) -> Vec<RemoteChip> {
+        if !crate::queries::remote_start_enabled(cx) {
+            return Vec::new();
+        }
+        let own_device_id = crate::queries::own_device_id(cx);
+        let Some(me) = crate::queries::active_account(cx).map(|account| account.user_id) else {
+            return Vec::new();
+        };
+        let Some(store) = sync::Store::try_global(cx) else {
+            return Vec::new();
+        };
+        // Belt and braces: a session this process hosts already has a tab.
+        let local: HashSet<String> = crate::coding_flow::LocalSessions::global_ref(cx)
+            .map(|sessions| sessions.read(cx).session_ids().into_iter().collect())
+            .unwrap_or_default();
+        let collections = store.collections().clone();
+        let now = chrono::Utc::now().timestamp();
+        let sessions = collections.coding_sessions.read(cx);
+        let rows = remote_session_rows(sessions.iter(), &me, &own_device_id, &local, now);
+        if rows.is_empty() {
+            return Vec::new();
+        }
+        let issues = collections.issues.read(cx);
+        let devices = collections.devices.read(cx);
+        rows.into_iter()
+            .map(|session| {
+                let issue = session
+                    .issue_id
+                    .as_deref()
+                    .and_then(|issue_id| issues.get(issue_id));
+                let presentation = crate::queries::session_device_presentation(
+                    session,
+                    devices.iter(),
+                    now * 1_000,
+                );
+                let display = crate::queries::coding_session_display(
+                    session,
+                    issue.and_then(|issue| issue.pr_state.as_deref()),
+                );
+                let paused = crate::queries::session_is_paused(display, &presentation);
+                RemoteChip {
+                    session_id: session.id.clone(),
+                    identifier: issue.map(|issue| SharedString::from(issue.identifier.clone())),
+                    title: remote_chip_title(session, issue),
+                    device: presentation.label.map(SharedString::from),
+                    display,
+                    paused,
+                    // Web `ownsLiveRow`: the row is the caller's and still
+                    // live, and a paused host is never killed (it resumes).
+                    killable: !paused,
+                    measured: std::cell::Cell::new(None),
+                }
+            })
+            .collect()
+    }
+
+    /// Re-project [`Self::remote_chips`]; `true` when the strip actually
+    /// changed (the callers repaint on that alone — an unchanged rebuild also
+    /// KEEPS the chips' measured widths, which is the point of caching them
+    /// on the chip).
+    fn rebuild_remote_chips(&mut self, cx: &mut App) -> bool {
+        let chips = Self::build_remote_chips(cx);
+        if *self.remote_chips == chips {
+            return false;
+        }
+        self.remote_chips = std::rc::Rc::new(chips);
+        true
+    }
+
+    /// Show `session_id`'s steering view as the dock's content, dialing the
+    /// relay on the first activation. Also the entry point the issue-detail
+    /// "coding now" pill rides.
+    pub(crate) fn activate_steer(
+        &mut self,
+        session_id: &str,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if !self.steer_views.contains_key(session_id) {
+            let id = session_id.to_string();
+            let view = cx.new(|cx| SteerSessionView::new(id.clone(), window, cx));
+            // No `cx.observe(&view, notify)`: the dock's own chrome reads
+            // nothing off the viewer (the chips are a projection of the
+            // synced rows), and gpui already marks a notifying view's
+            // ANCESTORS dirty (`Window::mark_view_dirty` walks the view
+            // path), which is what invalidates the Dock's cached panel
+            // element. The observer only added a second repaint per feed
+            // frame and per composer keystroke.
+            self.steer_views.insert(id, view);
+        }
+        self.active_steer = Some(session_id.to_string());
+        self.expand_dock(window, cx);
+        // Without this the hidden terminal grid keeps the keyboard.
+        if let Some(view) = self.steer_views.get(session_id).cloned() {
+            view.update(cx, |view, cx| view.focus_composer(window, cx));
+        }
+        cx.notify();
+    }
+
+    /// Re-project the chips and drop the viewers whose chip is gone (the row
+    /// ended, went stale, or the account changed). A session that ends while
+    /// it is NOT the active content just disappears; the active one falls
+    /// back to the terminal side — or collapses the dock when nothing is
+    /// left, the mirror of the `TabClosed` behavior.
+    ///
+    /// Runs on the `coding_sessions` observer AND on the poll clock: chip
+    /// liveness is a staleness WINDOW, so a host that dies without writing a
+    /// final row produces no delta at all. Returns whether the chips changed.
+    fn reconcile_steer_views(
+        &mut self,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> bool {
+        let changed = self.rebuild_remote_chips(cx);
+        if self.steer_views.is_empty() {
+            return changed;
+        }
+        let live: HashSet<&str> = self
+            .remote_chips
+            .iter()
+            .map(|chip| chip.session_id.as_str())
+            .collect();
+        let gone: Vec<String> = self
+            .steer_views
+            .keys()
+            .filter(|id| !live.contains(id.as_str()))
+            .cloned()
+            .collect();
+        let mut fell_back = false;
+        for id in gone {
+            if let Some(view) = self.steer_views.remove(&id) {
+                view.update(cx, |view, _| view.shutdown());
+            }
+            if self.active_steer.as_deref() == Some(id.as_str()) {
+                self.active_steer = None;
+                fell_back = true;
+            }
+        }
+        if fell_back {
+            if self.manager.read(cx).is_empty() && self.steer_views.is_empty() {
+                self.collapse_dock(window, cx);
+            } else {
+                self.focus_active_terminal(window, cx);
+            }
+            return true;
+        }
+        changed
     }
 
     /// Pop the tab out into its own native window (EXP-65). The tab stays in
@@ -935,12 +1209,20 @@ impl TerminalDockPanel {
         self.new_shell_tab(window, cx);
     }
 
+    /// EXP-696: cmd-w on a STEER chip is a deliberate NO-OP. A remote chip
+    /// lives as long as its synced row does — there is no local tab to close,
+    /// and the only thing "closing" it could mean is killing someone's
+    /// running agent, which must never happen without the chip's own
+    /// confirmed X. (Local tabs close exactly as before.)
     fn on_close_tab(
         &mut self,
         _: &CloseTerminalTab,
         _window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
+        if self.active_steer.is_some() {
+            return;
+        }
         self.manager.update(cx, |manager, cx| manager.close_active(cx));
     }
 
@@ -981,9 +1263,14 @@ impl TerminalDockPanel {
     /// left overflowing tabs cut off). Chip widths are measured, not guessed
     /// (the EXP-326 lesson), against the recorded [`Self::chips_slot_width`];
     /// the SELECTED tab is always kept visible.
+    ///
+    /// EXP-696: the strip additionally lists the user's LIVE sessions hosted
+    /// on other machines, after the local tabs. Clicking one of those swaps
+    /// the dock's content for its steering view instead of a terminal grid.
     fn render_strip(
         &self,
         metas: &[TabMeta],
+        remote: &[RemoteChip],
         selected_ix: usize,
         collapsed: bool,
         window: &Window,
@@ -1001,9 +1288,17 @@ impl TerminalDockPanel {
         // EXP-497: partition the chips against the slot's painted width. The
         // `+` new-session menu rides INSIDE the slot right after the chips —
         // an xsmall icon button (`size_5`) plus one gap comes off the budget.
-        let widths: Vec<f32> = metas
+        let entries: Vec<StripEntry<'_>> = metas
             .iter()
-            .map(|meta| measure_tab_chip_width(meta, window))
+            .map(StripEntry::Local)
+            .chain(remote.iter().map(StripEntry::Remote))
+            .collect();
+        let widths: Vec<f32> = entries
+            .iter()
+            .map(|entry| match entry {
+                StripEntry::Local(meta) => measure_tab_chip_width(meta, window),
+                StripEntry::Remote(chip) => measure_remote_chip_width(chip, window),
+            })
             .collect();
         let plus_reserve = 1.25 * f32::from(window.rem_size()) + crate::screens::chip_gap(window);
         let available = self
@@ -1013,114 +1308,43 @@ impl TerminalDockPanel {
             &widths,
             available,
             crate::screens::chip_gap(window),
-            crate::screens::overflow_button_width(window, metas.len().saturating_sub(1)),
-            (!metas.is_empty()).then_some(selected_ix),
+            crate::screens::overflow_button_width(window, entries.len().saturating_sub(1)),
+            (!entries.is_empty()).then_some(selected_ix),
         );
-        let hidden: Vec<usize> = (0..metas.len())
+        let hidden: Vec<usize> = (0..entries.len())
             .filter(|ix| !visible.contains(ix))
             .collect();
 
-        let chips = visible.into_iter().map(|ix| {
-            let meta = &metas[ix];
-            let id = meta.id;
-            let manager_ix = meta.manager_ix;
-            let chip = crate::surface::tab_chip(ix == selected_ix, cx)
-                .id(("terminal-tab", ix))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    cx.stop_propagation();
-                    // EXP-688: from the collapsed strip a chip click is also
-                    // "open the dock" — the tab it names has to become
-                    // visible, not just active.
-                    if collapsed {
-                        this.expand_dock(window, cx);
-                    }
-                    this.activate_tab(manager_ix, window, cx);
-                }))
-                // Middle-click closes (EXP-497 — the center tabs' EXP-235
-                // behavior; same as the chip's own close button, so the
-                // TabClosed watcher handles focus/collapse).
-                .on_mouse_down(
-                    MouseButton::Middle,
-                    cx.listener(move |this, _, _window, cx| {
-                        cx.stop_propagation();
-                        this.manager
-                            .update(cx, |manager, cx| manager.close_tab(id, cx));
-                    }),
-                );
-            // EXP-325: an issue-session tab renders the center issue-tab
-            // treatment (status glyph + mono identifier + synced title,
-            // mirroring `screens::render_tab_strip`); everything else keeps
-            // the plain terminal title.
-            let chip = match &meta.issue {
-                Some(issue) => chip
-                    .child(crate::icons::resolved_status_icon(&issue.status, cx).xsmall())
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .whitespace_nowrap()
-                            .child(issue.identifier.clone()),
-                    )
-                    .when_some(issue.title.clone(), |chip, title| {
-                        chip.child(div().max_w(px(180.)).truncate().child(title))
-                    }),
-                None => chip.child(div().max_w(px(180.)).truncate().child(meta.title.clone())),
-            };
-            chip.child(
-                    h_flex()
-                        .gap_0p5()
-                        .items_center()
-                        .when_some(meta.exit_code, |this, code| {
-                            let color = if code == 0 {
-                                cx.theme().success
-                            } else {
-                                cx.theme().danger
-                            };
-                            this.child(
-                                div()
-                                    .text_xs()
-                                    .px_1()
-                                    .rounded(px(3.))
-                                    .bg(color.opacity(0.15))
-                                    .text_color(color)
-                                    .child(SharedString::from(code.to_string())),
-                            )
-                        })
-                        .child(
-                            Button::new(("close-terminal-tab", ix))
-                                .ghost().cursor_pointer()
-                                .xsmall()
-                                .icon(registry::UI_CLOSE)
-                                .on_click(cx.listener(
-                                    move |this, _: &ClickEvent, _window, cx| {
-                                        cx.stop_propagation();
-                                        this.manager
-                                            .update(cx, |manager, cx| manager.close_tab(id, cx));
-                                    },
-                                )),
-                        ),
-                )
-        });
+        let chips: Vec<AnyElement> = visible
+            .into_iter()
+            .map(|ix| match &entries[ix] {
+                StripEntry::Local(meta) => {
+                    self.render_local_chip(meta, ix, selected_ix, collapsed, cx)
+                }
+                StripEntry::Remote(chip) => {
+                    self.render_remote_chip(chip, ix, selected_ix, cx)
+                }
+            })
+            .collect();
         // EXP-497: the hidden tabs collapse into a "+N" dropdown; clicking
         // one activates it. Keyed by TabId, not strip index — the menu's
         // closures run at click time, and a tab closed while the dropdown is
         // open shifts every index after it (the center strip's EXP-288
         // rationale; the TabId is the stable identity here).
         let overflow_button = (!hidden.is_empty()).then(|| {
-            type HiddenEntry = (
-                TabId,
-                Option<domain::statuses::ResolvedStatus>,
-                SharedString,
-            );
+            /// A hidden strip entry: a local tab (by id) or a remote session
+            /// (by coding-session id), plus the row's glyph and label.
+            enum HiddenEntry {
+                Local(TabId, Option<domain::statuses::ResolvedStatus>, SharedString),
+                Remote(String, SharedString),
+            }
             let hidden_entries: Vec<HiddenEntry> = hidden
                 .iter()
-                .map(|&ix| {
-                    let meta = &metas[ix];
+                .map(|&ix| match &entries[ix] {
                     // The menu rows mirror the chips: issue sessions carry
                     // the status glyph + "IDENT title", the rest their plain
                     // terminal title.
-                    match &meta.issue {
+                    StripEntry::Local(meta) => match &meta.issue {
                         Some(issue) => {
                             let label = match &issue.title {
                                 Some(title) => SharedString::from(format!(
@@ -1129,9 +1353,18 @@ impl TerminalDockPanel {
                                 )),
                                 None => issue.identifier.clone(),
                             };
-                            (meta.id, Some(issue.status.clone()), label)
+                            HiddenEntry::Local(meta.id, Some(issue.status.clone()), label)
                         }
-                        None => (meta.id, None, meta.title.clone()),
+                        None => HiddenEntry::Local(meta.id, None, meta.title.clone()),
+                    },
+                    StripEntry::Remote(chip) => {
+                        let label = match chip.identifier.as_ref() {
+                            Some(identifier) => {
+                                SharedString::from(format!("{identifier} {}", chip.title))
+                            }
+                            None => chip.title.clone(),
+                        };
+                        HiddenEntry::Remote(chip.session_id.clone(), label)
                     }
                 })
                 .collect();
@@ -1143,27 +1376,44 @@ impl TerminalDockPanel {
                 .tooltip("More tabs")
                 .dropdown_menu(move |mut menu, _window, cx| {
                     menu = menu.scrollable(true).max_h(px(320.));
-                    for (id, status, label) in &hidden_entries {
+                    for entry in &hidden_entries {
                         let panel = panel.clone();
-                        let id = *id;
-                        let mut item = PopupMenuItem::new(label.clone());
-                        if let Some(status) = status {
-                            item = item.icon(crate::icons::resolved_status_icon(status, cx));
+                        match entry {
+                            HiddenEntry::Local(id, status, label) => {
+                                let id = *id;
+                                let mut item = PopupMenuItem::new(label.clone());
+                                if let Some(status) = status {
+                                    item =
+                                        item.icon(crate::icons::resolved_status_icon(status, cx));
+                                }
+                                menu = menu.item(item.on_click(move |_, window, cx| {
+                                    let _ = panel.update(cx, |this, cx| {
+                                        let Some(ix) = this
+                                            .manager
+                                            .read(cx)
+                                            .tabs()
+                                            .iter()
+                                            .position(|tab| tab.id == id)
+                                        else {
+                                            return;
+                                        };
+                                        this.active_steer = None;
+                                        this.activate_tab(ix, window, cx);
+                                    });
+                                }));
+                            }
+                            HiddenEntry::Remote(session_id, label) => {
+                                let session_id = session_id.clone();
+                                let item = PopupMenuItem::new(label.clone())
+                                    .icon(Icon::new(registry::UI_DEVICE));
+                                menu = menu.item(item.on_click(move |_, window, cx| {
+                                    let session_id = session_id.clone();
+                                    let _ = panel.update(cx, |this, cx| {
+                                        this.activate_steer(&session_id, window, cx);
+                                    });
+                                }));
+                            }
                         }
-                        menu = menu.item(item.on_click(move |_, window, cx| {
-                            let _ = panel.update(cx, |this, cx| {
-                                let Some(ix) = this
-                                    .manager
-                                    .read(cx)
-                                    .tabs()
-                                    .iter()
-                                    .position(|tab| tab.id == id)
-                                else {
-                                    return;
-                                };
-                                this.activate_tab(ix, window, cx);
-                            });
-                        }));
                     }
                     menu
                 })
@@ -1176,7 +1426,12 @@ impl TerminalDockPanel {
             Some(slide) => slide.opening,
             None => !collapsed,
         };
-        let active_tab = metas.get(selected_ix).map(|meta| meta.id);
+        // "Open in new window" undocks a LOCAL tab; a steered session has no
+        // terminal grid to pop out, so the button disables on a steer chip.
+        let active_tab = match entries.get(selected_ix) {
+            Some(StripEntry::Local(meta)) => Some(meta.id),
+            _ => None,
+        };
 
         // Clicking the strip's empty space toggles the dock — the whole
         // strip is the toggle (chip/button handlers stop propagation).
@@ -1227,10 +1482,9 @@ impl TerminalDockPanel {
                     this.expand_dock(window, cx);
                     // EXP-369: expanding NEVER starts anything — with zero
                     // sessions the dock opens on its launch cards; with
-                    // sessions the active terminal takes focus back.
-                    if !this.manager.read(cx).is_empty() {
-                        this.focus_active_terminal(window, cx);
-                    }
+                    // sessions the visible content takes focus back (EXP-696:
+                    // an open steer view keeps it, and keeps the keyboard).
+                    this.focus_visible_content(window, cx);
                 }
             }))
             .child(
@@ -1241,7 +1495,7 @@ impl TerminalDockPanel {
                     .text_color(cx.theme().muted_foreground)
                     .child(Icon::new(registry::NAV_TERMINAL).xsmall())
                     // The word only when no chip names the dock.
-                    .when(metas.is_empty(), |this| {
+                    .when(entries.is_empty(), |this| {
                         this.child(div().text_xs().child("Terminal"))
                     }),
             )
@@ -1308,13 +1562,170 @@ impl TerminalDockPanel {
                                     this.collapse_dock(window, cx);
                                 } else {
                                     this.expand_dock(window, cx);
-                                    if !this.manager.read(cx).is_empty() {
-                                        this.focus_active_terminal(window, cx);
-                                    }
+                                    this.focus_visible_content(window, cx);
                                 }
                             })),
                     ),
             )
+    }
+
+    /// One LOCAL terminal tab's chip (EXP-325/EXP-497) — extracted from
+    /// `render_strip` when the strip grew its second chip KIND (EXP-696).
+    fn render_local_chip(
+        &self,
+        meta: &TabMeta,
+        ix: usize,
+        selected_ix: usize,
+        collapsed: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let id = meta.id;
+        let manager_ix = meta.manager_ix;
+        let chip = crate::surface::tab_chip(ix == selected_ix, cx)
+            .id(("terminal-tab", ix))
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                // EXP-688: from the collapsed strip a chip click is also
+                // "open the dock" — the tab it names has to become
+                // visible, not just active.
+                if collapsed {
+                    this.expand_dock(window, cx);
+                }
+                // EXP-696: a local chip always returns the dock to the
+                // terminal side.
+                this.active_steer = None;
+                this.activate_tab(manager_ix, window, cx);
+            }))
+            // Middle-click closes (EXP-497 — the center tabs' EXP-235
+            // behavior; same as the chip's own close button, so the
+            // TabClosed watcher handles focus/collapse).
+            .on_mouse_down(
+                MouseButton::Middle,
+                cx.listener(move |this, _, _window, cx| {
+                    cx.stop_propagation();
+                    this.manager
+                        .update(cx, |manager, cx| manager.close_tab(id, cx));
+                }),
+            );
+        // EXP-325: an issue-session tab renders the center issue-tab
+        // treatment (status glyph + mono identifier + synced title,
+        // mirroring `screens::render_tab_strip`); everything else keeps
+        // the plain terminal title.
+        let chip = match &meta.issue {
+            Some(issue) => chip
+                .child(crate::icons::resolved_status_icon(&issue.status, cx).xsmall())
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .whitespace_nowrap()
+                        .child(issue.identifier.clone()),
+                )
+                .when_some(issue.title.clone(), |chip, title| {
+                    chip.child(div().max_w(px(180.)).truncate().child(title))
+                }),
+            None => chip.child(div().max_w(px(180.)).truncate().child(meta.title.clone())),
+        };
+        chip.child(
+            h_flex()
+                .gap_0p5()
+                .items_center()
+                .when_some(meta.exit_code, |this, code| {
+                    let color = if code == 0 {
+                        cx.theme().success
+                    } else {
+                        cx.theme().danger
+                    };
+                    this.child(
+                        div()
+                            .text_xs()
+                            .px_1()
+                            .rounded(px(3.))
+                            .bg(color.opacity(0.15))
+                            .text_color(color)
+                            .child(SharedString::from(code.to_string())),
+                    )
+                })
+                .child(
+                    Button::new(("close-terminal-tab", ix))
+                        .ghost()
+                        .cursor_pointer()
+                        .xsmall()
+                        .icon(registry::UI_CLOSE)
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                            cx.stop_propagation();
+                            this.manager
+                                .update(cx, |manager, cx| manager.close_tab(id, cx));
+                        })),
+                ),
+        )
+        .into_any_element()
+    }
+
+    /// EXP-696: one REMOTE session's chip — the web dock tab, translated:
+    /// a status dot, the mono identifier, the subject, and the host machine's
+    /// name (with several machines it is the only thing telling two runs
+    /// apart). The X KILLS the run behind a confirm; it never merely hides
+    /// the chip, which lives as long as the synced row does. A run this
+    /// client may not kill (a paused host — it resumes on its own) shows no X
+    /// at all rather than a button with nothing to do.
+    fn render_remote_chip(
+        &self,
+        chip: &RemoteChip,
+        ix: usize,
+        selected_ix: usize,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let tone = remote_chip_tone(chip.display, chip.paused, cx);
+        let session_id = chip.session_id.clone();
+        let kill_id = chip.session_id.clone();
+        let kill_label = chip.device.clone();
+        crate::surface::tab_chip(ix == selected_ix, cx)
+            .id(("steer-tab", ix))
+            .when(chip.paused, |this| this.opacity(0.6))
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                this.activate_steer(&session_id, window, cx);
+            }))
+            .child(div().flex_shrink_0().size_1p5().rounded_full().bg(tone))
+            .when_some(chip.identifier.clone(), |this, identifier| {
+                this.child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .whitespace_nowrap()
+                        .child(identifier),
+                )
+            })
+            .child(div().max_w(px(180.)).truncate().child(chip.title.clone()))
+            .when_some(chip.device.clone(), |this, device| {
+                this.child(
+                    div()
+                        .max_w(px(110.))
+                        .truncate()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(SharedString::from(format!(" · {device}"))),
+                )
+            })
+            .when(chip.killable, |this| {
+                this.child(
+                    Button::new(("kill-steer-tab", ix))
+                        .ghost()
+                        .cursor_pointer()
+                        .xsmall()
+                        .icon(registry::UI_CLOSE)
+                        .tooltip("Kill session")
+                        .on_click(cx.listener(move |_this, _: &ClickEvent, window, cx| {
+                            cx.stop_propagation();
+                            prompt_kill_remote(kill_id.clone(), kill_label.clone(), window, cx);
+                        })),
+                )
+            })
+            .into_any_element()
     }
 
     /// The merge button for the ACTIVE session tab whose PR is open (issue
@@ -2321,6 +2732,241 @@ fn open_pr_issue_on_branch<'a>(
     issues.next()
 }
 
+// ---------------------------------------------------------------------------
+// EXP-696: remote session chips
+// ---------------------------------------------------------------------------
+
+/// One chip for a coding session running on ANOTHER of the user's machines
+/// (a second desktop, the headless CLI daemon, a shared server). Clicking it
+/// opens the steering view; the chip lives as long as the synced row is live.
+struct RemoteChip {
+    session_id: String,
+    /// The linked issue's identifier, when its row has synced.
+    identifier: Option<SharedString>,
+    title: SharedString,
+    /// The host machine's name — web's tabs carry it, and with several
+    /// machines it is the only thing telling two runs of one issue apart.
+    device: Option<SharedString>,
+    display: CodingSessionDisplay,
+    paused: bool,
+    killable: bool,
+    /// `(rem size bits, width)` of the last [`measure_remote_chip_width`] —
+    /// the strip re-measures every chip on every repaint, and measuring
+    /// SHAPES three labels. Interior mutability so `render` stays `&self`;
+    /// the chip is rebuilt (memo and all) whenever its content changes.
+    measured: std::cell::Cell<Option<(u32, f32)>>,
+}
+
+impl PartialEq for RemoteChip {
+    /// The memo is not identity — two chips describing the same row are the
+    /// same chip whether or not either has been measured yet.
+    fn eq(&self, other: &Self) -> bool {
+        self.session_id == other.session_id
+            && self.identifier == other.identifier
+            && self.title == other.title
+            && self.device == other.device
+            && self.display == other.display
+            && self.paused == other.paused
+            && self.killable == other.killable
+    }
+}
+
+/// The user's live sessions hosted ELSEWHERE, newest start first.
+///
+/// The device filter is what makes this correct for the CLI daemon: the
+/// daemon registers its own `device_id` even when it runs on this very
+/// machine, so its runs are remote to the IDE — which is exactly right, the
+/// IDE has no terminal tab for them. Pure (unit-tested).
+fn remote_session_rows<'a>(
+    sessions: impl Iterator<Item = &'a domain::rows::CodingSession>,
+    user_id: &str,
+    own_device_id: &str,
+    local_session_ids: &HashSet<String>,
+    now_epoch: i64,
+) -> Vec<&'a domain::rows::CodingSession> {
+    let mut rows: Vec<&domain::rows::CodingSession> = sessions
+        .filter(|session| session.user_id.as_deref() == Some(user_id))
+        .filter(|session| {
+            session
+                .device_id
+                .as_deref()
+                .is_some_and(|device_id| device_id != own_device_id)
+        })
+        .filter(|session| !local_session_ids.contains(&session.id))
+        .filter(|session| crate::queries::coding_session_is_live(session, now_epoch))
+        .collect();
+    // Newest first (web `useAgentsData`); the id is the tiebreak so the strip
+    // order is stable across renders.
+    rows.sort_by(|a, b| {
+        b.started_at
+            .cmp(&a.started_at)
+            .then_with(|| b.id.cmp(&a.id))
+    });
+    rows
+}
+
+/// The chip's subject line (web `sessionIdentity`): the issue title, the
+/// action name, else "Batch".
+fn remote_chip_title(
+    session: &domain::rows::CodingSession,
+    issue: Option<&domain::rows::Issue>,
+) -> SharedString {
+    if let Some(issue) = issue {
+        let title = issue.title.trim();
+        return SharedString::from(if title.is_empty() {
+            "Untitled issue".to_string()
+        } else {
+            title.to_string()
+        });
+    }
+    if session.issue_id.is_some() {
+        return SharedString::from("Issue syncing…");
+    }
+    match session.action_name.as_deref() {
+        Some(name) if !name.trim().is_empty() => SharedString::from(name.to_string()),
+        _ => SharedString::from("Batch"),
+    }
+}
+
+/// The chip dot's tone, mirroring the web tab's dot rules.
+fn remote_chip_tone(display: CodingSessionDisplay, paused: bool, cx: &App) -> gpui::Hsla {
+    if paused {
+        return cx.theme().muted_foreground.opacity(0.4);
+    }
+    match display {
+        CodingSessionDisplay::NeedsInput => theme::tokens::YELLOW.to_hsla(),
+        CodingSessionDisplay::Done => theme::tokens::BLUE.to_hsla(),
+        CodingSessionDisplay::Review | CodingSessionDisplay::Running => {
+            theme::tokens::GREEN.to_hsla()
+        }
+    }
+}
+
+/// The chip X's confirm, sharing the web's `useKillSession` copy.
+fn prompt_kill_remote(
+    session_id: String,
+    device: Option<SharedString>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let spec = crate::native_dialog::AlertSpec::new(
+        "Kill this coding session?",
+        crate::steer_viewer::kill_description(device.as_deref()),
+        "Kill session",
+    )
+    .ok_variant(gpui_component::button::ButtonVariant::Danger)
+    .on_ok(move |_, cx| {
+        crate::steer_viewer::kill_session(&session_id, cx);
+        true
+    });
+    crate::native_dialog::open_alert(window, cx, spec);
+}
+
+/// EXP-696: open `session_id`'s steering view in this window's bottom dock —
+/// the routine both the chip click and the issue-detail "coding now" pill
+/// ride. A session this process HOSTS focuses its terminal tab instead (there
+/// is nothing to steer remotely about a run whose PTY is right here).
+pub(crate) fn open_steer_session(session_id: &str, window: &mut Window, cx: &mut App) {
+    let Some(panel) = crate::coding_flow::window_terminal_dock(window, cx) else {
+        return;
+    };
+    let local_tab = crate::coding_flow::LocalSessions::global_ref(cx).and_then(|sessions| {
+        let sessions = sessions.read(cx);
+        sessions
+            .session_by_id(session_id)
+            .map(|session| session.tab)
+    });
+    let session_id = session_id.to_string();
+    panel.update(cx, |panel, cx| match local_tab {
+        Some(tab) => {
+            panel.active_steer = None;
+            let Some(ix) = panel
+                .manager
+                .read(cx)
+                .tabs()
+                .iter()
+                .position(|candidate| candidate.id == tab)
+            else {
+                return;
+            };
+            panel.expand_dock(window, cx);
+            panel.activate_tab(ix, window, cx);
+        }
+        None => panel.activate_steer(&session_id, window, cx),
+    });
+}
+
+/// One entry of the (local tabs + remote sessions) strip. Local chips come
+/// first, in manager order; remote ones follow, newest run first.
+enum StripEntry<'a> {
+    Local(&'a TabMeta),
+    Remote(&'a RemoteChip),
+}
+
+/// Measured width of a remote chip, mirroring its layout piece for piece the
+/// way [`measure_tab_chip_width`] mirrors a local one (EXP-326: "fits" means
+/// fits, so labels are SHAPED, never guessed).
+fn measure_remote_chip_width(chip: &RemoteChip, window: &Window) -> f32 {
+    // Memoized per chip: the labels only change when the chip is rebuilt,
+    // and the rem size is the one thing that can move under a live chip.
+    let rem_bits = f32::from(window.rem_size()).to_bits();
+    if let Some((bits, width)) = chip.measured.get() {
+        if bits == rem_bits {
+            return width;
+        }
+    }
+    let width = shape_remote_chip_width(chip, window);
+    chip.measured.set(Some((rem_bits, width)));
+    width
+}
+
+/// The measurement itself (see [`measure_remote_chip_width`], which memoizes
+/// it).
+fn shape_remote_chip_width(chip: &RemoteChip, window: &Window) -> f32 {
+    /// `tab_chip`'s `px_2`, both sides.
+    const CHIP_PADDING_REMS: f32 = 0.5 * 2.;
+    /// The `size_1p5` status dot.
+    const DOT_REMS: f32 = 0.375;
+    /// An icon-only xsmall `Button` — `size_5` (the chip's kill button).
+    const XSMALL_BUTTON_REMS: f32 = 1.25;
+    const TITLE_MAX_W: f32 = 180.;
+    const DEVICE_MAX_W: f32 = 110.;
+
+    let rem = f32::from(window.rem_size());
+    let base_font = window.text_style().font();
+    let mut children: Vec<f32> = vec![DOT_REMS * rem];
+    if let Some(identifier) = chip.identifier.as_ref() {
+        let mut mono = base_font.clone();
+        mono.family = theme::terminal::FONT_FAMILY.into();
+        children.push(crate::screens::measure_text(
+            window,
+            identifier,
+            mono,
+            gpui::rems(0.75),
+        ));
+    }
+    children.push(
+        crate::screens::measure_text(window, &chip.title, base_font.clone(), gpui::rems(0.875))
+            .min(TITLE_MAX_W),
+    );
+    if let Some(device) = chip.device.as_ref() {
+        children.push(
+            crate::screens::measure_text(
+                window,
+                &format!(" · {device}"),
+                base_font.clone(),
+                gpui::rems(0.75),
+            )
+            .min(DEVICE_MAX_W),
+        );
+    }
+    if chip.killable {
+        children.push(XSMALL_BUTTON_REMS * rem);
+    }
+    let gaps = crate::screens::chip_gap(window) * children.len().saturating_sub(1) as f32;
+    CHIP_PADDING_REMS * rem + gaps + children.into_iter().sum::<f32>()
+}
+
 impl Panel for TerminalDockPanel {
     fn panel_name(&self) -> &'static str {
         PANEL_NAME
@@ -2347,7 +2993,9 @@ impl Panel for TerminalDockPanel {
     /// full content swap would not repaint.
     fn set_active(&mut self, active: bool, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if active {
-            self.focus_active_terminal(window, cx);
+            // EXP-696: whatever the dock SHOWS takes the keyboard — a steered
+            // session's composer, else the active terminal.
+            self.focus_visible_content(window, cx);
         }
         cx.notify();
     }
@@ -2406,9 +3054,26 @@ impl Render for TerminalDockPanel {
             )
         };
         let tab_count = self.manager.read(cx).len();
-        let selected_ix = active_id
-            .and_then(|id| metas.iter().position(|meta| meta.id == id))
-            .unwrap_or(0);
+        // EXP-696: the user's live sessions on OTHER machines ride the strip
+        // after the local tabs; the active one takes the content area. The
+        // list is the CACHED projection (rebuilt on its deltas + the poll
+        // clock) — never rebuilt per repaint.
+        let remote = self.remote_chips.clone();
+        let active_steer = self
+            .active_steer
+            .clone()
+            .filter(|id| remote.iter().any(|chip| chip.session_id == *id))
+            .and_then(|id| self.steer_views.get(&id).cloned());
+        let selected_ix = match self.active_steer.as_deref().filter(|_| active_steer.is_some()) {
+            Some(active) => remote
+                .iter()
+                .position(|chip| chip.session_id == active)
+                .map(|pos| metas.len() + pos)
+                .unwrap_or(0),
+            None => active_id
+                .and_then(|id| metas.iter().position(|meta| meta.id == id))
+                .unwrap_or(0),
+        };
 
         // EXP-688: the strip is ABSOLUTE at the bottom edge and the content
         // fills the band above it, so opening the dock grows the content
@@ -2437,8 +3102,14 @@ impl Render for TerminalDockPanel {
             None
         } else {
             let body = v_flex().w_full().overflow_hidden();
-            Some(match active_view {
-                Some(active_view) => self.pin_content(
+            Some(match (active_steer, active_view) {
+                // EXP-696: a steered session owns the whole content area —
+                // no Latest-changes bar (the diff is on the other machine)
+                // and no exit strip (there is no local child to exit).
+                (Some(view), _) => {
+                    self.pin_content(body.child(div().flex_1().min_h_0().child(view)))
+                }
+                (None, Some(active_view)) => self.pin_content(
                     body
                         // min_h(0) so the flex child can shrink with the
                         // dock; the grid element itself guards the 0-height
@@ -2449,15 +3120,19 @@ impl Render for TerminalDockPanel {
                 ),
                 // Tabs exist but none is visible/active here — every one is
                 // undocked (or the active tab just popped out mid-frame).
-                None if tab_count > 0 => self.pin_content(body.child(self.render_undocked_hint(cx))),
+                (None, None) if tab_count > 0 => {
+                    self.pin_content(body.child(self.render_undocked_hint(cx)))
+                }
                 // EXP-369: an expanded, empty dock offers its launch cards —
                 // nothing spawns until the user picks something.
-                None => self.pin_content(body.child(self.render_empty_dock_options(window, cx))),
+                (None, None) => {
+                    self.pin_content(body.child(self.render_empty_dock_options(window, cx)))
+                }
             })
         };
 
         root.children(content)
-            .child(self.render_strip(&metas, selected_ix, collapsed, window, cx))
+            .child(self.render_strip(&metas, &remote, selected_ix, collapsed, window, cx))
     }
 }
 
@@ -2750,5 +3425,108 @@ mod tests {
         assert!((ours - slide.applied).abs() <= 0.5, "our own write is not a collision");
         let dragged = 264.;
         assert!((dragged - slide.applied).abs() > 0.5, "a drag must be detected");
+    }
+
+    // ── EXP-696: remote session chips ──────────────────────────────────────
+
+    /// Rows are heartbeat-dated so `coding_session_is_live` keeps them:
+    /// 2026-07-17T12:00:00Z, beating a minute ago.
+    const NOW: i64 = 1784289600;
+
+    fn remote_row(
+        id: &str,
+        user_id: &str,
+        device_id: Option<&str>,
+        started_at: &str,
+    ) -> domain::rows::CodingSession {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "issue_id": "issue-1",
+            "user_id": user_id,
+            "device_id": device_id,
+            "status": "running",
+            "started_at": started_at,
+            "updated_at": "2026-07-17T11:59:00Z",
+        }))
+        .unwrap()
+    }
+
+    /// Only the caller's own live rows, hosted somewhere that is not this
+    /// install, newest run first.
+    #[test]
+    fn remote_chips_keep_only_other_devices_own_live_rows() {
+        let rows = vec![
+            remote_row("mine-old", "me", Some("laptop"), "2026-07-17T10:00:00Z"),
+            remote_row("mine-new", "me", Some("server"), "2026-07-17T11:00:00Z"),
+            remote_row("here", "me", Some("this-ide"), "2026-07-17T11:30:00Z"),
+            remote_row("theirs", "someone", Some("laptop"), "2026-07-17T11:45:00Z"),
+        ];
+        let picked = remote_session_rows(
+            rows.iter(),
+            "me",
+            "this-ide",
+            &HashSet::new(),
+            NOW,
+        );
+        let ids: Vec<&str> = picked.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, vec!["mine-new", "mine-old"]);
+    }
+
+    /// A row this process HOSTS already has a terminal tab — it must never
+    /// also grow a steer chip (belt-and-braces next to the device filter).
+    #[test]
+    fn remote_chips_skip_sessions_this_process_hosts() {
+        let rows = vec![remote_row(
+            "sess-1",
+            "me",
+            Some("laptop"),
+            "2026-07-17T11:00:00Z",
+        )];
+        let local: HashSet<String> = ["sess-1".to_string()].into_iter().collect();
+        assert!(remote_session_rows(rows.iter(), "me", "this-ide", &local, NOW).is_empty());
+    }
+
+    /// An ENDED or stale row drops off the strip entirely (web parity: a
+    /// stale run renders as absent, never as a dead tab).
+    #[test]
+    fn remote_chips_drop_ended_and_stale_rows() {
+        let ended: domain::rows::CodingSession = serde_json::from_value(serde_json::json!({
+            "id": "ended",
+            "user_id": "me",
+            "device_id": "laptop",
+            "status": "ended",
+            "updated_at": "2026-07-17T11:59:00Z",
+        }))
+        .unwrap();
+        let stale: domain::rows::CodingSession = serde_json::from_value(serde_json::json!({
+            "id": "stale",
+            "user_id": "me",
+            "device_id": "laptop",
+            "status": "running",
+            // 3h old — past the 2h contract window.
+            "updated_at": "2026-07-17T09:00:00Z",
+        }))
+        .unwrap();
+        let rows = vec![ended, stale];
+        assert!(remote_session_rows(rows.iter(), "me", "this-ide", &HashSet::new(), NOW).is_empty());
+    }
+
+    /// A pre-EXP-549 row with no `device_id` cannot be proven to live
+    /// elsewhere — it stays off the strip rather than claiming to be remote.
+    #[test]
+    fn remote_chips_ignore_rows_without_a_device() {
+        let rows = vec![remote_row("sess-1", "me", None, "2026-07-17T11:00:00Z")];
+        assert!(remote_session_rows(rows.iter(), "me", "this-ide", &HashSet::new(), NOW).is_empty());
+    }
+
+    /// The subject line falls back the way the web `sessionIdentity` does.
+    #[test]
+    fn the_chip_title_names_the_action_batch_or_syncing_issue() {
+        let mut row = remote_row("sess-1", "me", Some("laptop"), "2026-07-17T11:00:00Z");
+        assert_eq!(remote_chip_title(&row, None).as_ref(), "Issue syncing…");
+        row.issue_id = None;
+        assert_eq!(remote_chip_title(&row, None).as_ref(), "Batch");
+        row.action_name = Some("Nightly triage".to_string());
+        assert_eq!(remote_chip_title(&row, None).as_ref(), "Nightly triage");
     }
 }

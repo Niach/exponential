@@ -488,6 +488,36 @@ impl<V: Render> AgentDefaultsGroup<V> {
     }
 }
 
+/// EXP-696: which agent a device settle lands on, byte-for-byte the web
+/// `use-launch-options.ts` rule: the machine's OWN default agent when it can
+/// actually run there, else the standing pick when that machine can run it,
+/// else its first agent. `available` empty (an old row advertising nothing)
+/// keeps the standing pick — the blocker names the real reason.
+pub(crate) fn settled_agent(
+    available: &[CodingAgent],
+    device_default: CodingAgent,
+    current: CodingAgent,
+) -> CodingAgent {
+    if available.contains(&device_default) {
+        return device_default;
+    }
+    if available.contains(&current) {
+        return current;
+    }
+    available.first().copied().unwrap_or(current)
+}
+
+/// EXP-696: what a REMOTE target machine advertises — the agent CLIs it can
+/// run and the launch defaults it published. A cluster carrying one of these
+/// stops consulting the LOCAL doctor and the LOCAL `CodingHub`: neither says
+/// anything about another machine (web `use-launch-options.ts`' device
+/// settle).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RemoteDefaults {
+    pub(crate) agents: Vec<CodingAgent>,
+    pub(crate) settings: coding::Settings,
+}
+
 /// The [`Variant::Launch`] cluster's own state: which agent runs, its
 /// model/effort picks and the capability-gated toggles. Seeded from
 /// [`coding::Settings`]' per-AGENT fields; switching the agent tab re-seeds
@@ -501,6 +531,9 @@ pub(crate) struct LaunchOptionsSection {
     pub(crate) ultracode: bool,
     /// Native plan mode (`--permission-mode plan`; pi via its extension).
     pub(crate) plan_mode: bool,
+    /// EXP-696: `Some` while the run targets another machine — its agents
+    /// and its published defaults replace the local doctor + hub everywhere.
+    remote: Option<RemoteDefaults>,
 }
 
 impl LaunchOptionsSection {
@@ -520,7 +553,65 @@ impl LaunchOptionsSection {
             ),
             ultracode,
             plan_mode,
+            remote: None,
         }
+    }
+
+    /// The settings the seeds come from: the TARGET machine's published
+    /// defaults for a remote run, this install's own for a local one.
+    fn seed_settings(&self, cx: &mut App) -> coding::Settings {
+        match &self.remote {
+            Some(remote) => remote.settings.clone(),
+            None => crate::coding_flow::CodingHub::global(cx).read(cx).settings.clone(),
+        }
+    }
+
+    /// The agents the strip may offer: exactly what a remote target
+    /// advertises (EXP-201 — the server re-checks the same list), else the
+    /// local doctor's pickable set.
+    pub(crate) fn pickable(&self, cx: &mut App) -> Vec<CodingAgent> {
+        match &self.remote {
+            Some(remote) => remote.agents.clone(),
+            None => pickable_agents(
+                crate::coding_flow::CodingHub::global(cx)
+                    .read(cx)
+                    .doctor
+                    .report
+                    .as_ref(),
+            ),
+        }
+    }
+
+    /// EXP-696: point the cluster at a different machine (`None` = this one)
+    /// and RE-SEED off it — the target's own default agent wins, else the
+    /// current pick when it can run there, else its first agent; model,
+    /// effort and the toggles follow that agent's defaults on that machine.
+    /// The web twin is `use-launch-options.ts`' device-seed effect.
+    pub(crate) fn set_remote(
+        &mut self,
+        remote: Option<RemoteDefaults>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.remote = remote;
+        let settings = self.seed_settings(cx);
+        let available = self.pickable(cx);
+        self.agent = settled_agent(&available, settings.default_agent, self.agent);
+        self.reseed(&settings, window, cx);
+    }
+
+    /// Rebuild the model/effort selects + toggles for [`Self::agent`] from
+    /// `settings`.
+    fn reseed(&mut self, settings: &coding::Settings, window: &mut Window, cx: &mut App) {
+        let agent = self.agent;
+        self.model = choice_select(model_choices_for(agent), settings.model_for(agent), window, cx);
+        self.effort = choice_select(
+            effort_choices_for(agent),
+            settings.effort_for(agent),
+            window,
+            cx,
+        );
+        (self.ultracode, self.plan_mode) = agent_defaults(settings, agent);
     }
 
     /// Switch the agent tab (EXP-201): rebuild the model/effort selects from
@@ -531,15 +622,8 @@ impl LaunchOptionsSection {
             return;
         }
         self.agent = agent;
-        let settings = crate::coding_flow::CodingHub::global(cx).read(cx).settings.clone();
-        self.model = choice_select(model_choices_for(agent), settings.model_for(agent), window, cx);
-        self.effort = choice_select(
-            effort_choices_for(agent),
-            settings.effort_for(agent),
-            window,
-            cx,
-        );
-        (self.ultracode, self.plan_mode) = agent_defaults(&settings, agent);
+        let settings = self.seed_settings(cx);
+        self.reseed(&settings, window, cx);
     }
 
     /// Keep the selection on a RUNNABLE agent: when the doctor report
@@ -548,6 +632,16 @@ impl LaunchOptionsSection {
     /// first runnable agent (mirrors the remote pickers, which only offer the
     /// device's advertised agents).
     pub(crate) fn reconcile_agent(&mut self, window: &mut Window, cx: &mut App) {
+        // EXP-696: a remote target's list is authoritative — the local
+        // doctor knows nothing about that machine's CLIs.
+        if let Some(remote) = self.remote.clone() {
+            if !remote.agents.contains(&self.agent) {
+                if let Some(&first) = remote.agents.first() {
+                    self.set_agent(first, window, cx);
+                }
+            }
+            return;
+        }
         let report = crate::coding_flow::CodingHub::global(cx)
             .read(cx)
             .doctor
@@ -609,11 +703,16 @@ impl LaunchOptionsSection {
             .doctor
             .report
             .clone();
-        let pickable = pickable_agents(report.as_ref());
-        let unauthed: Vec<CodingAgent> = report
-            .as_ref()
-            .map(|report| report.unauthed_agents())
-            .unwrap_or_default();
+        let pickable = self.pickable(cx);
+        // EXP-696: a remote machine advertises only what it can RUN — its
+        // signed-out CLIs never reach the picker, so nothing there is dimmed.
+        let unauthed: Vec<CodingAgent> = match self.remote {
+            Some(_) => Vec::new(),
+            None => report
+                .as_ref()
+                .map(|report| report.unauthed_agents())
+                .unwrap_or_default(),
+        };
         let active_ix = pickable
             .iter()
             .position(|agent| *agent == self.agent)
@@ -659,5 +758,43 @@ impl LaunchOptionsSection {
             ));
         }
         group.render(cx).into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// EXP-696: the device settle's agent rule (web
+    /// `use-launch-options.ts`), which is what keeps a remote start from
+    /// asking a machine to run a CLI it does not have.
+    #[test]
+    fn device_settle_prefers_the_machines_own_default_agent() {
+        let all = CodingAgent::ALL.to_vec();
+        // The machine's default wins over the standing pick.
+        assert_eq!(
+            settled_agent(&all, CodingAgent::Codex, CodingAgent::Claude),
+            CodingAgent::Codex
+        );
+        // A default the machine cannot run keeps a still-runnable pick.
+        assert_eq!(
+            settled_agent(
+                &[CodingAgent::Claude, CodingAgent::Codex],
+                CodingAgent::Pi,
+                CodingAgent::Codex
+            ),
+            CodingAgent::Codex
+        );
+        // Neither runnable → the machine's first agent.
+        assert_eq!(
+            settled_agent(&[CodingAgent::Pi], CodingAgent::Claude, CodingAgent::Codex),
+            CodingAgent::Pi
+        );
+        // Nothing advertised at all → the standing pick stands (the launch
+        // blocker names the reason instead of the picker going blank).
+        assert_eq!(
+            settled_agent(&[], CodingAgent::Claude, CodingAgent::Codex),
+            CodingAgent::Codex
+        );
     }
 }

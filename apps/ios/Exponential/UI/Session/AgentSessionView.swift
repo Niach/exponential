@@ -53,6 +53,7 @@ struct AgentSessionView: View {
     let session: CodingSessionEntity
 
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.dismiss) private var dismiss
     /// A cache of the SteerSessionStore lookup (EXP-621) — the model itself is
     /// app-scoped, so this view neither creates nor tears it down.
     @State private var model: AgentSessionModel?
@@ -86,6 +87,10 @@ struct AgentSessionView: View {
     /// slid in from the bottom.
     @State private var menuAnchor: CGRect = .zero
     @State private var menuOpen = false
+    /// EXP-696: whether THIS screen ever saw the run live — the auto-back on
+    /// the ended edge only fires after that, so a finished run's feed opened
+    /// from a list stays browsable.
+    @State private var sawLiveSession = false
     @FocusState private var inputFocused: Bool
 
     private static let bottomAnchor = "feed-bottom"
@@ -196,6 +201,20 @@ struct AgentSessionView: View {
         .onChange(of: photoItems) { _, newItems in
             guard !newItems.isEmpty else { return }
             Task { await ingestPhotos(newItems) }
+        }
+        // EXP-696: leave the screen when the run finishes under the viewer
+        // (kill, merge, the agent's own exit — the synced row edge covers every
+        // path). Gated on having SEEN the run live here first: the model
+        // attaches after onAppear, so a plain false→true onChange would also
+        // fire when opening an ALREADY-ended run's feed, which must stay put.
+        // Row status, not `isOver`: a relay `bye` alone shouldn't yank a
+        // screen the row still calls live.
+        .onChange(of: model?.sessionEnded) { _, ended in
+            if ended == false {
+                sawLiveSession = true
+            } else if ended == true && sawLiveSession {
+                dismiss()
+            }
         }
         // No scenePhase handler here: foreground revival (EXP-243) is
         // app-scoped since EXP-621 — the root handler reconnects every retained

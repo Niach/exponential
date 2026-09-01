@@ -200,6 +200,32 @@ export function AgentDock({
     }
   }, [expandedId, expandedRows, expandedSession])
 
+  // EXP-696: a session that ENDS while you're watching it closes the dock —
+  // and with it the tab, since `running` already excludes ended rows.
+  // EDGE-triggered on the live→ended transition, never on the status alone:
+  // an already-ended run can be opened deliberately (the Automations tab's
+  // "Recent automated runs" calls openDock() on finished rows), and a status
+  // test would slam that shut on the first render.
+  const prevExpandedStatusRef = useRef<{
+    id: string
+    status: string
+  } | null>(null)
+  useEffect(() => {
+    const status = expandedSession?.status ?? null
+    if (!expandedId || status === null) {
+      prevExpandedStatusRef.current = null
+      return
+    }
+    const previous =
+      prevExpandedStatusRef.current?.id === expandedId
+        ? prevExpandedStatusRef.current.status
+        : null
+    prevExpandedStatusRef.current = { id: expandedId, status }
+    if (status === `ended` && previous !== null && previous !== `ended`) {
+      dock?.collapseDock()
+    }
+  }, [expandedId, expandedSession?.status])
+
   // EXP-523: `panelRow` is `expandedRow` while open, then the OUTGOING row for
   // one exit animation; `panelOpen` is what the CSS reads. Keyed on the
   // session id because `expandedRow` is a fresh object every render.

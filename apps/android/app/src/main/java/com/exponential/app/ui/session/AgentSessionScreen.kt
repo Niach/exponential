@@ -262,6 +262,22 @@ fun AgentSessionScreen(
     // network revivals are the store's job, not this screen's.
     LaunchedEffect(Unit) { viewModel.ensureConnected() }
     val sessionEnded = session?.status == DomainContract.codingSessionStatusEnded
+    // EXP-696: leave the screen when the run finishes under the viewer (kill,
+    // merge, the agent's own exit — the synced row edge covers every path).
+    // Edge-triggered: a screen opened onto an ALREADY-ended run (a finished
+    // automation's feed) must stay put, so only the live→ended flip pops.
+    // The latch arms only on a REAL live row — the session flow starts as
+    // null, and arming on that snapshot would pop a restored screen whose
+    // run ended while the process was dead.
+    var wasLive by remember { mutableStateOf(false) }
+    LaunchedEffect(session?.status) {
+        val status = session?.status ?: return@LaunchedEffect
+        if (status != DomainContract.codingSessionStatusEnded) {
+            wasLive = true
+        } else if (wasLive) {
+            onBack()
+        }
+    }
     // A trailing question/plan means the session is blocked on a human — the
     // header flips to "Needs your input" so it never looks silently stuck.
     val awaitingInput = phase == AgentPhase.Live &&

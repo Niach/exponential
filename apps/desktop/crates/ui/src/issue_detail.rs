@@ -2035,8 +2035,14 @@ pub(crate) fn issue_web_url(issue: &Issue, cx: &App) -> Option<String> {
 /// rows (so a rename shows immediately, not the start-time hostname), and an
 /// in-flight session whose host went offline (lid closed) reads "paused" in
 /// neutral grey instead of claiming to be live.
-pub(crate) fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoElement> {
-    let collections = Store::global(cx).collections();
+///
+/// EXP-696: the pill is now the ENTRY POINT to steering — clicking one of the
+/// caller's own runs opens it in the bottom dock (a remote run as a steering
+/// view, a run this process hosts as its terminal tab). Look unchanged; only
+/// the cursor and the click are new, and a run that is neither (a teammate's,
+/// or a relay-less instance) stays inert.
+pub(crate) fn coding_now_pill(issue_id: &str, cx: &mut App) -> Option<impl IntoElement> {
+    let collections = Store::global(cx).collections().clone();
     let now = chrono::Utc::now().timestamp();
     let session = collections
         .coding_sessions
@@ -2096,8 +2102,26 @@ pub(crate) fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoEleme
     // device ("Danny Strähhuber needs input · MacBook Pro"). Truncation needs
     // the whole width chain definite: `w_full` + `min_w_0` on the row, then
     // `flex_1 min_w_0 overflow_hidden` on the text div itself.
+    // EXP-696: steerable when the run is the caller's own — a LOCAL one
+    // focuses its terminal tab, a remote one needs the relay (no relay, no
+    // viewer, so no click).
+    let steer_target = {
+        let me = crate::queries::active_account(cx).map(|account| account.user_id);
+        let own_device_id = crate::queries::own_device_id(cx);
+        let local = crate::coding_flow::LocalSessions::global_ref(cx)
+            .is_some_and(|sessions| sessions.read(cx).session_by_id(&session.id).is_some());
+        let remote = session
+            .device_id
+            .as_deref()
+            .is_some_and(|device_id| device_id != own_device_id)
+            && crate::queries::remote_start_enabled(cx);
+        (session.user_id.is_some() && session.user_id == me && (local || remote))
+            .then(|| session.id.clone())
+    };
+
     Some(
         h_flex()
+            .id("coding-now-pill")
             .w_full()
             .min_w_0()
             .gap_1p5()
@@ -2108,6 +2132,12 @@ pub(crate) fn coding_now_pill(issue_id: &str, cx: &App) -> Option<impl IntoEleme
             .border_color(tone.to_hsla().opacity(0.4))
             .items_center()
             .text_xs()
+            .when_some(steer_target, |pill, session_id| {
+                pill.cursor_pointer()
+                    .on_click(move |_, window, cx| {
+                        crate::terminal_dock::open_steer_session(&session_id, window, cx);
+                    })
+            })
             .child(
                 div()
                     .flex_shrink_0()
