@@ -339,6 +339,43 @@ export async function relayPostKill(
   }
 }
 
+const RELAY_INPUT_TIMEOUT_MS = 3_000
+
+/**
+ * POST /sessions/:id/input — inject text as user input into a live session's
+ * agent (EXP-700 parent↔child messages). Best-effort and never throws; an old
+ * relay 404s and reads as not-delivered, so callers must degrade with
+ * guidance instead of assuming the message landed.
+ */
+export async function relayPostInput(
+  config: SteerRelayConfig,
+  sessionId: string,
+  text: string,
+  fetchImpl: RelayFetch = globalThis.fetch
+): Promise<{ delivered: boolean }> {
+  try {
+    const res = await fetchImpl(
+      `${steerServerHttpBase(config)}/sessions/${encodeURIComponent(sessionId)}/input`,
+      {
+        method: `POST`,
+        headers: {
+          "content-type": `application/json`,
+          "x-relay-secret": config.secret,
+        },
+        body: JSON.stringify({ text }),
+        signal: AbortSignal.timeout(RELAY_INPUT_TIMEOUT_MS),
+      }
+    )
+    if (!res.ok) return { delivered: false }
+    const json = (await res.json().catch(() => null)) as {
+      delivered?: boolean
+    } | null
+    return { delivered: json?.delivered === true }
+  } catch {
+    return { delivered: false }
+  }
+}
+
 const RELAY_NUDGE_TIMEOUT_MS = 3_000
 
 /**

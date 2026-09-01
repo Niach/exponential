@@ -690,6 +690,52 @@ describe(`session rooms`, () => {
     expect(pub.lastFrame(`kill`)).toMatchObject({ t: `kill` })
   })
 
+  // EXP-700: server-side text injection (POST /sessions/:id/input) — the
+  // web app relaying a parent/child message into the agent as owner input.
+  test(`injectInput chunks text to the publisher and submits with a separate \\r`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+
+    const text = `a`.repeat(5_000)
+    expect(hub.injectInput(`sess-1`, text)).toBe(true)
+    const inputs = pub.framesOf(`input`)
+    expect(inputs.map((f) => (f.data as string).length)).toEqual([4096, 904, 1])
+    expect(inputs.at(-1)).toMatchObject({ data: `\r` })
+    expect(inputs.map((f) => f.data).join(``)).toBe(`${text}\r`)
+    // Publisher-bound only — the audience channel never sees input.
+    expect(member.framesOf(`input`).length).toBe(0)
+  })
+
+  test(`injectInput never splits a surrogate pair at the chunk boundary`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+
+    // 4095 ascii chars put the astral char's lead surrogate exactly on the
+    // 4096 boundary — the chunk must stretch by one to keep the pair whole.
+    const text = `${`a`.repeat(4_095)}\u{1f600}b`
+    expect(hub.injectInput(`sess-1`, text)).toBe(true)
+    const inputs = pub.framesOf(`input`)
+    expect(inputs.map((f) => (f.data as string).length)).toEqual([4097, 1, 1])
+    for (const f of inputs) {
+      // A lone surrogate would round-trip as U+FFFD; every chunk must stay
+      // well-formed on its own.
+      expect(f.data as string).toBe(
+        Buffer.from(f.data as string, `utf8`).toString(`utf8`)
+      )
+    }
+    expect(inputs.map((f) => f.data).join(``)).toBe(`${text}\r`)
+  })
+
+  test(`injectInput reports an unreachable session`, () => {
+    const hub = new Hub()
+    expect(hub.injectInput(`nope`, `hello`)).toBe(false)
+
+    const pub = connectPublisher(hub)
+    hub.onClose(pub)
+    expect(hub.injectInput(`sess-1`, `hello`)).toBe(false)
+  })
+
   test(`bye closes the room and evicts members`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)

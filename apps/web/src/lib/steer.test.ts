@@ -4,6 +4,7 @@ import {
   buildSteerTicketClaims,
   getSteerRelayConfig,
   mintSteerTicket,
+  relayPostInput,
   relayPostKill,
   relayPostNudge,
   relayPostStart,
@@ -255,10 +256,12 @@ describe(`relay admin HTTP`, () => {
     )
     await relayPostKill(config, `sess-1`, fetchImpl)
     await relayPostNudge(config, `user-1`, `dev-1`, fetchImpl)
+    await relayPostInput(config, `sess-1`, `hello`, fetchImpl)
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
       `http://steer-relay:4002/start`,
       `http://steer-relay:4002/sessions/sess-1/kill`,
       `http://steer-relay:4002/devices/user-1/dev-1/nudge`,
+      `http://steer-relay:4002/sessions/sess-1/input`,
     ])
 
     const minted = mintSteerTicket(config, { kind: `control`, userId: `u` })
@@ -518,5 +521,58 @@ describe(`relay admin HTTP`, () => {
     await expect(
       relayPostNudge(CONFIG, `owner`, `dev-1`, downFetch)
     ).resolves.toEqual({ delivered: false })
+  })
+
+  // EXP-700: text injection — same best-effort/never-throws contract as
+  // kill; an old relay's 404 must read as not-delivered, never as an error.
+  it(`input posts the text, reports delivery and never throws`, async () => {
+    const okFetch = vi
+      .fn<RelayFetch>()
+      .mockResolvedValue(fakeResponse(200, { ok: true, delivered: true }))
+    await expect(
+      relayPostInput(CONFIG, `session-1`, `hello there`, okFetch)
+    ).resolves.toEqual({ delivered: true })
+    expect(okFetch).toHaveBeenCalledWith(
+      `https://steer.example.com/sessions/session-1/input`,
+      {
+        method: `POST`,
+        headers: {
+          "content-type": `application/json`,
+          "x-relay-secret": `test-secret`,
+        },
+        body: JSON.stringify({ text: `hello there` }),
+        signal: expect.any(AbortSignal),
+      }
+    )
+
+    const oldRelayFetch = vi
+      .fn<RelayFetch>()
+      .mockResolvedValue(fakeResponse(404, { error: `Not found` }))
+    await expect(
+      relayPostInput(CONFIG, `session-1`, `hello`, oldRelayFetch)
+    ).resolves.toEqual({ delivered: false })
+
+    const downFetch = vi
+      .fn<RelayFetch>()
+      .mockRejectedValue(new Error(`ECONNREFUSED`))
+    await expect(
+      relayPostInput(CONFIG, `session-1`, `hello`, downFetch)
+    ).resolves.toEqual({ delivered: false })
+  })
+
+  it(`input bounds a hung relay with an armed timeout signal`, async () => {
+    const hungFetch = vi.fn<RelayFetch>().mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener(`abort`, () =>
+            reject(new DOMException(`The operation timed out.`, `TimeoutError`))
+          )
+        })
+    )
+    const call = relayPostInput(CONFIG, `session-1`, `hello`, hungFetch)
+    const signal = hungFetch.mock.calls[0]?.[1]?.signal
+    expect(signal).toBeInstanceOf(AbortSignal)
+    expect(signal?.aborted).toBe(false)
+    await expect(call).resolves.toEqual({ delivered: false })
   })
 })

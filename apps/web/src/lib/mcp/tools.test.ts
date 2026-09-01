@@ -210,6 +210,18 @@ vi.mock(`@/lib/trpc/repositories`, () => ({
   loadRepositoryForTeam: vi.fn(),
 }))
 vi.mock(`@/lib/coding-session-end`, () => ({ endSessionByAgent: vi.fn() }))
+// EXP-700: the relay injection rail. Partial mocks — the formatters and the
+// one-select lookup stay real (the lookup runs against the drizzle stub), so
+// ask_parent/message tests exercise the actual message convention.
+vi.mock(`@/lib/steer`, async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getSteerRelayConfig: vi.fn(),
+  relayPostInput: vi.fn(),
+}))
+vi.mock(`@/lib/steer-child-messages`, async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  notifyParentOfChildEnd: vi.fn(),
+}))
 
 import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
 import { recordIssueEvent } from "@/lib/integrations/activity"
@@ -217,6 +229,8 @@ import { applyPrLifecycleStatusInTx } from "@/lib/integrations/pr-sync"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
 import { noteAgentIssueActivity } from "@/lib/integrations/pr-actor-claims"
 import { endSessionByAgent } from "@/lib/coding-session-end"
+import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
+import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 import {
   createPullRequest,
   getPullRequest,
@@ -354,6 +368,10 @@ beforeEach(() => {
   membership.getUserTeamIds.mockResolvedValue([`ws-1`])
   assertWithinStorageLimit.mockResolvedValue(undefined)
   insertValues.mockResolvedValue(undefined)
+  // EXP-700: relay off by default; individual tests arm it.
+  vi.mocked(getSteerRelayConfig).mockReturnValue(null)
+  vi.mocked(relayPostInput).mockResolvedValue({ delivered: false })
+  vi.mocked(notifyParentOfChildEnd).mockResolvedValue({ delivered: false })
 })
 
 // ── Caller-backed tools (delegate → ok/err) ──────────────────────────────────
@@ -1339,7 +1357,7 @@ const SESSION = `66666666-6666-4666-8666-666666666666`
 describe(`exponential_sessions_end`, () => {
   // EXP-679: the tool only registers for an unattended run, so these cases
   // hand in the gate the route would have resolved for one.
-  const UNATTENDED = { helpdesk: true, sessionsEnd: true }
+  const UNATTENDED = { helpdesk: true, sessionsEnd: true, askParent: false }
 
   it(`refuses outside a launched session, naming the missing header`, async () => {
     const result = await collectTools(USER, null, UNATTENDED).get(
@@ -1368,10 +1386,54 @@ describe(`exponential_sessions_end`, () => {
       status: `ended`,
       alreadyEnded: false,
       keptOpen: false,
+      reportedToParent: false,
     })
     expect(endSessionByAgent).toHaveBeenCalledWith(db, SESSION, `user-1`, {
       summary: `Stuck on the migration.`,
     })
+    // EXP-700: a first real end reports into a live parent (the helper
+    // no-ops for parentless runs).
+    expect(notifyParentOfChildEnd).toHaveBeenCalledWith(db, SESSION, {
+      summary: `Stuck on the migration.`,
+      endedBy: `agent`,
+    })
+  })
+
+  // EXP-700: only the FIRST real end notifies the parent — a retried
+  // close-out (alreadyEnded) or a kept-open person-started run never does.
+  it(`does not notify the parent again on a retried close-out`, async () => {
+    vi.mocked(endSessionByAgent).mockResolvedValue({
+      sessionId: SESSION,
+      status: `ended`,
+      alreadyEnded: true,
+      keptOpen: false,
+    })
+
+    const result = await collectTools(USER, SESSION, UNATTENDED).get(
+      `exponential_sessions_end`
+    )!({ summary: `retry` })
+
+    expect(parseOk(result)).toMatchObject({
+      alreadyEnded: true,
+      reportedToParent: false,
+    })
+    expect(notifyParentOfChildEnd).not.toHaveBeenCalled()
+  })
+
+  it(`does not notify the parent for a kept-open run`, async () => {
+    vi.mocked(endSessionByAgent).mockResolvedValue({
+      sessionId: SESSION,
+      status: `running`,
+      alreadyEnded: false,
+      keptOpen: true,
+    })
+
+    const result = await collectTools(USER, SESSION, UNATTENDED).get(
+      `exponential_sessions_end`
+    )!({ summary: `s` })
+
+    expect(parseOk(result)).toMatchObject({ keptOpen: true })
+    expect(notifyParentOfChildEnd).not.toHaveBeenCalled()
   })
 
   // EXP-686 dropped the self-reported outcome. A desktop/CLI build from
@@ -1392,6 +1454,7 @@ describe(`exponential_sessions_end`, () => {
     const tools = collectTools(USER, SESSION, {
       helpdesk: true,
       sessionsEnd: false,
+      askParent: false,
     })
     expect(tools.has(`exponential_sessions_end`)).toBe(false)
   })
@@ -1405,6 +1468,231 @@ describe(`exponential_sessions_end`, () => {
 
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`not allowed here`)
+  })
+})
+
+// ── EXP-700: the child's ask rail ────────────────────────────────────────────
+describe(`exponential_sessions_ask_parent`, () => {
+  const PARENT = `77777777-7777-4777-8777-777777777777`
+  const AGENT_CHILD = { helpdesk: true, sessionsEnd: true, askParent: true }
+  const RELAY = { url: `https://relay.test`, secret: `s` }
+
+  // The row loadChildParentContext's one select serves: the child, its issue
+  // identifier and the joined parent status.
+  const childRow = (over: Record<string, unknown> = {}) => ({
+    id: SESSION,
+    userId: `user-1`,
+    hostUserId: null,
+    startedReason: `agent`,
+    parentSessionId: PARENT,
+    actionName: null,
+    issueIdentifier: `EXP-12`,
+    parentStatus: `running`,
+    ...over,
+  })
+
+  it(`is not registered without its gate`, () => {
+    const tools = collectTools(USER, SESSION, {
+      helpdesk: true,
+      sessionsEnd: true,
+      askParent: false,
+    })
+    expect(tools.has(`exponential_sessions_ask_parent`)).toBe(false)
+  })
+
+  it(`refuses outside a launched session, naming the missing header`, async () => {
+    const result = await collectTools(USER, null, AGENT_CHILD).get(
+      `exponential_sessions_ask_parent`
+    )!({ question: `Which env?` })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`X-Exp-Session-Id`)
+  })
+
+  it(`delivers the question into the parent's channel and says to wait`, async () => {
+    dbRows.current = [childRow()]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    vi.mocked(relayPostInput).mockResolvedValue({ delivered: true })
+
+    const result = await collectTools(USER, SESSION, AGENT_CHILD).get(
+      `exponential_sessions_ask_parent`
+    )!({ question: `Which env?` })
+
+    expect(relayPostInput).toHaveBeenCalledWith(
+      RELAY,
+      PARENT,
+      `[Exponential child run EXP-12 ${SESSION.slice(0, 8)} asks — reply with exponential_sessions_message sessionId=${SESSION}] Which env?`
+    )
+    expect(parseOk(result)).toMatchObject({ delivered: true })
+    expect((parseOk(result) as { note: string }).note).toContain(
+      `end your turn`
+    )
+  })
+
+  it(`refuses a run without an agent parent linkage`, async () => {
+    dbRows.current = [childRow({ startedReason: `schedule`, parentSessionId: null })]
+
+    const result = await collectTools(USER, SESSION, AGENT_CHILD).get(
+      `exponential_sessions_ask_parent`
+    )!({ question: `q` })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`no live starter`)
+    expect(relayPostInput).not.toHaveBeenCalled()
+  })
+
+  it(`points an orphaned child at its close-out when the parent has ended`, async () => {
+    dbRows.current = [childRow({ parentStatus: `ended` })]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+
+    const result = await collectTools(USER, SESSION, AGENT_CHILD).get(
+      `exponential_sessions_ask_parent`
+    )!({ question: `q` })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`exponential_sessions_end`)
+    expect(relayPostInput).not.toHaveBeenCalled()
+  })
+
+  it(`degrades with guidance when the relay cannot deliver`, async () => {
+    dbRows.current = [childRow()]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    vi.mocked(relayPostInput).mockResolvedValue({ delivered: false })
+
+    const result = await collectTools(USER, SESSION, AGENT_CHILD).get(
+      `exponential_sessions_ask_parent`
+    )!({ question: `q` })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`exponential_sessions_end`)
+  })
+
+  it(`degrades with guidance when the relay is not configured`, async () => {
+    dbRows.current = [childRow()]
+
+    const result = await collectTools(USER, SESSION, AGENT_CHILD).get(
+      `exponential_sessions_ask_parent`
+    )!({ question: `q` })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`exponential_sessions_end`)
+    expect(relayPostInput).not.toHaveBeenCalled()
+  })
+})
+
+// ── EXP-700: the owner-scoped steer/answer rail ──────────────────────────────
+describe(`exponential_sessions_message`, () => {
+  const TARGET = `88888888-8888-4888-8888-888888888888`
+  const RELAY = { url: `https://relay.test`, secret: `s` }
+
+  const targetRow = (over: Record<string, unknown> = {}) => ({
+    teamId: `ws-1`,
+    boardId: `proj-1`,
+    userId: `user-1`,
+    hostUserId: null,
+    status: `running`,
+    parentSessionId: null,
+    ...over,
+  })
+
+  it(`refuses messaging your own session`, async () => {
+    const result = await collectTools(USER, SESSION).get(
+      `exponential_sessions_message`
+    )!({ sessionId: SESSION, message: `hi` })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`your own session`)
+  })
+
+  it(`injects with the starter prefix for a header-less caller`, async () => {
+    dbRows.current = [targetRow()]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    vi.mocked(relayPostInput).mockResolvedValue({ delivered: true })
+
+    const result = await collectTools(USER, null).get(
+      `exponential_sessions_message`
+    )!({ sessionId: TARGET, message: `Use staging.` })
+
+    expect(relayPostInput).toHaveBeenCalledWith(
+      RELAY,
+      TARGET,
+      `[Message from your starter via exponential_sessions_message] Use staging.`
+    )
+    expect(parseOk(result)).toEqual({
+      ok: true,
+      sessionId: TARGET,
+      delivered: true,
+    })
+  })
+
+  it(`uses the parent-answer prefix when answering its own child`, async () => {
+    dbRows.current = [targetRow({ parentSessionId: SESSION })]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    vi.mocked(relayPostInput).mockResolvedValue({ delivered: true })
+
+    await collectTools(USER, SESSION).get(`exponential_sessions_message`)!({
+      sessionId: TARGET,
+      message: `Use staging.`,
+    })
+
+    expect(relayPostInput).toHaveBeenCalledWith(
+      RELAY,
+      TARGET,
+      `[Answer from your parent run ${SESSION.slice(0, 8)} via exponential_sessions_message] Use staging.`
+    )
+  })
+
+  it(`refuses a session the caller neither owns nor hosts`, async () => {
+    dbRows.current = [targetRow({ userId: `other`, hostUserId: `other-2` })]
+
+    const result = await collectTools(USER, null).get(
+      `exponential_sessions_message`
+    )!({ sessionId: TARGET, message: `hi` })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`owner or host`)
+    expect(relayPostInput).not.toHaveBeenCalled()
+  })
+
+  it(`refuses an ended session`, async () => {
+    dbRows.current = [targetRow({ status: `ended` })]
+
+    const result = await collectTools(USER, null).get(
+      `exponential_sessions_message`
+    )!({ sessionId: TARGET, message: `hi` })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`not live`)
+  })
+
+  it(`hides an out-of-grant session as not found`, async () => {
+    dbRows.current = [targetRow()]
+    const confined: McpAccess = {
+      full: false,
+      fullTeamIds: new Set(),
+      grantedBoardIds: new Set(),
+      visibleTeamIds: new Set(),
+    }
+
+    const result = await collectTools(USER, null, ALL_MCP_TOOL_GATES, confined).get(
+      `exponential_sessions_message`
+    )!({ sessionId: TARGET, message: `hi` })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`Session not found`)
+  })
+
+  it(`errors when the relay cannot deliver`, async () => {
+    dbRows.current = [targetRow()]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    vi.mocked(relayPostInput).mockResolvedValue({ delivered: false })
+
+    const result = await collectTools(USER, null).get(
+      `exponential_sessions_message`
+    )!({ sessionId: TARGET, message: `hi` })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`Not delivered`)
   })
 })
 
@@ -2615,7 +2903,11 @@ describe(`exponential_helpdesk_* gating`, () => {
 
   it(`registers the whole family under the default gates and none when off`, () => {
     for (const name of HELPDESK_TOOLS) expect(tools.has(name)).toBe(true)
-    const off = collectTools(USER, null, { helpdesk: false, sessionsEnd: false })
+    const off = collectTools(USER, null, {
+      helpdesk: false,
+      sessionsEnd: false,
+      askParent: false,
+    })
     for (const name of [...off.keys()]) {
       expect(name.startsWith(`exponential_helpdesk_`)).toBe(false)
     }

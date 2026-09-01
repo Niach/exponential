@@ -56,6 +56,7 @@ describe(`resolveMcpToolGates`, () => {
     expect(await resolveMcpToolGates(`u`, FULL_ACCESS)).toEqual({
       helpdesk: false,
       sessionsEnd: false,
+      askParent: false,
     })
     expect(h.db.select).not.toHaveBeenCalled()
   })
@@ -66,6 +67,7 @@ describe(`resolveMcpToolGates`, () => {
     expect(await resolveMcpToolGates(`u`, FULL_ACCESS)).toEqual({
       helpdesk: true,
       sessionsEnd: false,
+      askParent: false,
     })
     const { sql, params } = renderWhere()
     expect(sql).toContain(`"id" in`)
@@ -78,6 +80,7 @@ describe(`resolveMcpToolGates`, () => {
     expect(await resolveMcpToolGates(`u`, FULL_ACCESS)).toEqual({
       helpdesk: false,
       sessionsEnd: false,
+      askParent: false,
     })
   })
 
@@ -93,6 +96,7 @@ describe(`resolveMcpToolGates`, () => {
     expect(await resolveMcpToolGates(`u`, scoped)).toEqual({
       helpdesk: true,
       sessionsEnd: false,
+      askParent: false,
     })
     const { params } = renderWhere()
     expect(params).toContain(WS)
@@ -112,6 +116,7 @@ describe(`resolveMcpToolGates`, () => {
     expect(await resolveMcpToolGates(`u`, scoped)).toEqual({
       helpdesk: false,
       sessionsEnd: false,
+      askParent: false,
     })
     expect(h.db.select).not.toHaveBeenCalled()
   })
@@ -157,5 +162,70 @@ describe(`resolveMcpToolGates — sessionsEnd (EXP-679)`, () => {
     h.dbRows.current = []
     const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
     expect(gates.sessionsEnd).toBe(false)
+  })
+})
+
+// EXP-700: askParent opens only for a run another run started — same single
+// lookup, stricter predicate (started_reason='agent' AND a stamped parent).
+describe(`resolveMcpToolGates — askParent (EXP-700)`, () => {
+  const RUN = `44444444-4444-4444-4444-444444444444`
+  const PARENT = `55555555-5555-4555-8555-555555555555`
+
+  it(`is off without a session header`, async () => {
+    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, null)
+    expect(gates.askParent).toBe(false)
+    expect(h.db.select).not.toHaveBeenCalled()
+  })
+
+  it(`is on for the caller's own agent-started run with a linked parent`, async () => {
+    h.dbRows.current = [
+      {
+        userId: `u`,
+        hostUserId: null,
+        startedReason: `agent`,
+        parentSessionId: PARENT,
+      },
+    ]
+    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
+    expect(gates).toMatchObject({ sessionsEnd: true, askParent: true })
+  })
+
+  it(`is off for an automation-started run (no parent to ask)`, async () => {
+    h.dbRows.current = [
+      {
+        userId: `u`,
+        hostUserId: null,
+        startedReason: `schedule`,
+        parentSessionId: null,
+      },
+    ]
+    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
+    expect(gates).toMatchObject({ sessionsEnd: true, askParent: false })
+  })
+
+  it(`is off for an agent-started run whose parent was never stamped`, async () => {
+    h.dbRows.current = [
+      {
+        userId: `u`,
+        hostUserId: null,
+        startedReason: `agent`,
+        parentSessionId: null,
+      },
+    ]
+    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
+    expect(gates).toMatchObject({ sessionsEnd: true, askParent: false })
+  })
+
+  it(`is off when the run is someone else's`, async () => {
+    h.dbRows.current = [
+      {
+        userId: `other`,
+        hostUserId: `other-host`,
+        startedReason: `agent`,
+        parentSessionId: PARENT,
+      },
+    ]
+    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
+    expect(gates.askParent).toBe(false)
   })
 })

@@ -7,6 +7,7 @@ import {
   startedReasonValues,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, type Context } from "@/lib/trpc"
+import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 import { actions, automations, codingSessions, devices, issues } from "@/db/schema"
 import {
   assertTeamMember,
@@ -830,6 +831,14 @@ export const codingSessionsRouter = router({
         })
         .where(eq(codingSessions.id, input.id))
         .returning()
+
+      // EXP-700: a client end is an agent-started child that vanished
+      // WITHOUT its close-out — tell a live parent so it is not left waiting
+      // forever. Best-effort (internally caught, relay 3s-bounded).
+      await notifyParentOfChildEnd(ctx.db, input.id, {
+        summary: null,
+        endedBy: `client`,
+      })
 
       return { session }
     }),

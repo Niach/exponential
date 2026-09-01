@@ -34,6 +34,7 @@ export function createExponentialMcpServer(
     {
       instructions: mcpServerInstructions({
         sessionsEnd: gates.sessionsEnd,
+        askParent: gates.askParent,
         reportBug: Boolean(buildRuntimeConfig().feedbackWidget?.widgetKey),
       }),
     }

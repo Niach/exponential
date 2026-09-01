@@ -97,6 +97,15 @@ import { TokenBucketLimiter } from "@/lib/widget/rate-limit"
 import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
 import { visibleDeviceRows } from "@/lib/trpc/devices"
 import { endSessionByAgent } from "@/lib/coding-session-end"
+import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
+import {
+  formatChildQuestion,
+  formatParentAnswer,
+  formatStarterMessage,
+  loadChildParentContext,
+  notifyParentOfChildEnd,
+  PARENT_LIVE_STATUSES,
+} from "@/lib/steer-child-messages"
 import { err, ok } from "./helpers"
 import { ALWAYS_LOAD_META } from "./always-load"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
@@ -2145,7 +2154,93 @@ export function registerExponentialTools(
           const result = await endSessionByAgent(db, sessionId, user.id, {
             summary,
           })
-          return ok(result)
+          // EXP-700: a just-ended agent-started child reports into its live
+          // parent's channel. Only a FIRST real end notifies — alreadyEnded
+          // (retries, lost races) and keptOpen never do.
+          let reportedToParent = false
+          if (result.status === `ended` && !result.alreadyEnded) {
+            const { delivered } = await notifyParentOfChildEnd(db, sessionId, {
+              summary,
+              endedBy: `agent`,
+            })
+            reportedToParent = delivered
+          }
+          return ok({ ...result, reportedToParent })
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+  }
+
+  // EXP-700: only an agent-started run (started_reason='agent' with a linked
+  // parent) can ask its starter a question. NON-blocking on purpose — agent
+  // CLIs time out long-held tool calls — so the answer arrives later as an
+  // injected user message, the same rail a human steers with.
+  if (gates.askParent) {
+    server.registerTool(
+      `exponential_sessions_ask_parent`,
+      {
+        description: `Ask the run that started this one a question only it can answer; it lands in that run's channel. Non-blocking: on success STOP working and end your turn — the answer arrives later as a user message. Act on it, then still finish with exponential_sessions_end. If delivery fails, finish anyway and note the open question in your summary.`,
+        _meta: ALWAYS_LOAD_META,
+        inputSchema: {
+          question: z.string().min(1).max(4_000),
+        },
+      },
+      async ({ question }) => {
+        const fallback = `Do not wait for an answer: finish your work, then call exponential_sessions_end and include the open question in your summary.`
+        try {
+          if (!sessionId) {
+            return err(
+              new Error(
+                `No coding session: exponential_sessions_ask_parent only works inside a session started by the Exponential launcher (missing X-Exp-Session-Id).`
+              )
+            )
+          }
+          // The gate is context hygiene; re-check ownership and the linkage.
+          const child = await loadChildParentContext(db, sessionId)
+          if (
+            !child ||
+            (child.userId !== user.id && child.hostUserId !== user.id) ||
+            child.startedReason !== `agent` ||
+            !child.parentSessionId
+          ) {
+            return err(new Error(`This run has no live starter to ask.`))
+          }
+          if (
+            !child.parentStatus ||
+            !(PARENT_LIVE_STATUSES as readonly string[]).includes(
+              child.parentStatus
+            )
+          ) {
+            return err(
+              new Error(`Your starter's session has ended. ${fallback}`)
+            )
+          }
+          const config = getSteerRelayConfig()
+          if (!config) {
+            return err(
+              new Error(
+                `The steer relay is not configured, so the question cannot be delivered. ${fallback}`
+              )
+            )
+          }
+          const { delivered } = await relayPostInput(
+            config,
+            child.parentSessionId,
+            formatChildQuestion(child, question)
+          )
+          if (!delivered) {
+            return err(
+              new Error(
+                `The question could not be delivered to your starter (its session is not reachable). ${fallback}`
+              )
+            )
+          }
+          return ok({
+            delivered: true,
+            note: `Question delivered. Stop working NOW and end your turn; the answer will arrive as a user message. After acting on it, still finish with exponential_sessions_end.`,
+          })
         } catch (e) {
           return err(e)
         }
@@ -2319,6 +2414,71 @@ export function registerExponentialTools(
     }
   )
 
+  // EXP-700: send text into a live session's agent — the parent's half of
+  // the ask/answer rail (a child asks via exponential_sessions_ask_parent),
+  // and a generic owner-scoped steer. Unconditional and deferred on purpose:
+  // a header-less expu_ orchestrator must be able to answer runs it started.
+  server.registerTool(
+    `exponential_sessions_message`,
+    {
+      description: `Send text into a live coding session you own or host; it arrives as user input to that agent, prefixed with its source. Use it to answer a child run's exponential_sessions_ask_parent question (sessionId = the child's session UUID from the bracketed message) or to steer a run you started. Never your own session.`,
+      inputSchema: {
+        sessionId: uuidString,
+        message: z.string().min(1).max(4_000),
+      },
+    },
+    async ({ sessionId: targetId, message }) => {
+      try {
+        if (sessionId && targetId === sessionId) {
+          throw new Error(
+            `That is your own session: you cannot message yourself.`
+          )
+        }
+        const [row] = await db
+          .select({
+            teamId: codingSessions.teamId,
+            boardId: codingSessions.boardId,
+            userId: codingSessions.userId,
+            hostUserId: codingSessions.hostUserId,
+            status: codingSessions.status,
+            parentSessionId: codingSessions.parentSessionId,
+          })
+          .from(codingSessions)
+          .where(eq(codingSessions.id, targetId))
+          .limit(1)
+        if (!row) throw new Error(`Session not found`)
+        // Same grant predicate as kill (EXP-639): out-of-grant reads as
+        // not found, never as forbidden.
+        if (!access.full && !isRowGranted(access, row, user.id)) {
+          throw new Error(`Session not found`)
+        }
+        if (row.userId !== user.id && row.hostUserId !== user.id) {
+          throw new Error(`Only the session owner or host can message it`)
+        }
+        if (!(PARENT_LIVE_STATUSES as readonly string[]).includes(row.status)) {
+          throw new Error(`Session is not live`)
+        }
+        // A parent answering its own child gets the answer prefix the ask
+        // told the child to expect; every other caller is "your starter".
+        const text =
+          sessionId && row.parentSessionId === sessionId
+            ? formatParentAnswer(sessionId, message)
+            : formatStarterMessage(message)
+        const config = getSteerRelayConfig()
+        if (!config) throw new Error(`The steer relay is not configured`)
+        const { delivered } = await relayPostInput(config, targetId, text)
+        if (!delivered) {
+          throw new Error(
+            `Not delivered: the session's device is not connected to the relay. The run may still be starting or its device offline; retry, or fall back to exponential_sessions_get.`
+          )
+        }
+        return ok({ ok: true, sessionId: targetId, delivered: true })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   // EXP-552: remote start over the steer rails, the way the Start-coding
   // dialog and the mobile clients do it. steer.startSession validates the
   // one-of rule, the per-agent model/effort vocabulary, the device's caps and
@@ -2328,7 +2488,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_start`,
     {
-      description: `Start a coding session on a registered device (exponential_devices_list; online, agents includes the agent). Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs for its inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and opens its own PR; track it with exponential_sessions_get. sessionId null = the device has not reported the run yet. Started from inside a run, the child is unattended: it reports via exponential_sessions_end and ends; poll exponential_sessions_get for its summary. Wait for status=ended and read that report before merging the child's PR — merging first ends the run with nothing reported.`,
+      description: `Start a coding session on a registered device (exponential_devices_list; online, agents includes the agent). Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs for its inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and opens its own PR; track it with exponential_sessions_get. sessionId null = the device has not reported the run yet. Started from inside a run, the child is unattended: when it finishes or asks a question, a bracketed '[Exponential child run ...]' message lands in THIS session as user input — answer with exponential_sessions_message. Read its report before merging its PR (merging first ends the run unreported); polling exponential_sessions_get is only a fallback.`,
       inputSchema: {
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
@@ -2475,7 +2635,12 @@ export function registerExponentialTools(
             ? {
                 note: `The device did not brand this child as agent-started (old relay or device); it stays open and will not report via exponential_sessions_end.`,
               }
-            : {}),
+            : sessionId && session
+              ? {
+                  // EXP-700: the branded child reports back event-based.
+                  note: `The child reports into this session as a bracketed [Exponential child run ...] user message when it finishes or asks a question; answer questions with exponential_sessions_message. Poll exponential_sessions_get only as a fallback.`,
+                }
+              : {}),
         })
       } catch (e) {
         return err(e)

@@ -29,7 +29,11 @@ export const ALWAYS_LOAD_TOOLS = [
 // registers for an unattended run (gates.sessionsEnd) — and that run needs it
 // on turn one, so it keeps the flag. It stays out of ALWAYS_LOAD_TOOLS
 // because most sessions never see the tool at all.
-export const GATED_ALWAYS_LOAD_TOOLS = [`exponential_sessions_end`] as const
+export const GATED_ALWAYS_LOAD_TOOLS = [
+  `exponential_sessions_end`,
+  // EXP-700: a child run must know it CAN ask before it ever searches.
+  `exponential_sessions_ask_parent`,
+] as const
 
 /** Spread into a `registerTool` config to mark it always-loaded. */
 export const ALWAYS_LOAD_META = { "anthropic/alwaysLoad": true } as const
