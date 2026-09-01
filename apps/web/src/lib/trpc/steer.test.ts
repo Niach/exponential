@@ -1363,9 +1363,9 @@ describe(`steer.startSession — agent-started runs (EXP-679)`, () => {
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
-  // A host that doesn't know the brand drops `startedReason` off the frame
-  // and writes an ATTENDED run: it would never report and never end while
-  // the parent polls it forever. Refuse instead of starting it.
+  // Every supported desktop/CLI declares `agent-start` unconditionally, so
+  // this is an invariant check: a host that did not write the brand onto the
+  // row would leave an ATTENDED run the parent polls forever.
   it(`refuses a device without the agent-start cap`, async () => {
     queueParent()
     queueOwnDevice({ caps: [`resume-run`] })
@@ -1380,7 +1380,7 @@ describe(`steer.startSession — agent-started runs (EXP-679)`, () => {
 
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
     expect((error as TRPCError).message).toBe(
-      `That machine's app is too old to run an agent-started session. Update it and try again.`
+      `That device does not declare the agent-start capability`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })

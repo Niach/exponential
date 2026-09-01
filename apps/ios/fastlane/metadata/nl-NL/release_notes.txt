@@ -1,5 +1,10 @@
 - Todo en Backlog zijn nu één lijst: alles wat in Todo stond, staat nu in Backlog
 - Sheets en menu's delen één uniforme stijl in de hele app
 - De editor behoudt je bewuste lege regels, identiek op elk platform
-- Gebruik toont de limieten van de agent die je sessie uitvoert
 - Agents draaien altijd zonder toestemmingsvragen; de schakelaar is weg
+- Eén agentkiezer: agent, model, inspanning, planmodus, account en gebruik in één kaart
+- Acties: maak en bewerk acties met hun invoer rechtstreeks op je telefoon
+- Reviews: nieuwe lijst en PR-diff met kaarten per bestand; "Mergeconflicten oplossen" vervangt "Merge" wanneer een merge op een conflict stuit
+- Navigatiebadges zijn stippen: Inbox en Support bij ongelezen, Apparaten zolang een run actief is, Reviews zolang een PR open is
+- Sturen: plannen worden niet meer afgekapt of dubbel getoond, en een afgeronde sessie sluit zijn weergave
+- Een run starten op een offline machine wordt direct geweigerd in plaats van stil in de wachtrij gezet

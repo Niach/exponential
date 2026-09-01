@@ -25,6 +25,24 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-steer-from-anywhere`,
+    date: `2026-09-02`,
+    title: `Steer from anywhere`,
+    summary: `The desktop app steers sessions on any of your devices, every steering chat takes images, agents can ask their parent run, and Reviews and nav badges got one design.`,
+    body: `- **Steering on the desktop**: the IDE gains a steering viewer, your live sessions on other devices (the CLI daemon included) show as chips next to the terminal tabs, and Start coding picks a device the way web and mobile do.
+- **Images in every steering chat**: attach, paste or drop images into chat, action and batch runs; steered images stay out of the issue's Files.
+- **Agents that start agents**: a run started by another run can ask its parent a question and reports its close-out into the parent's chat; a new session message tool steers any live run.
+- **Offline devices refuse starts**: a remote start to a sleeping machine is refused right away instead of silently queued, and a run whose device never checked in is flagged.
+- **Reviews redesigned**: one row design on every client, a full-page Reviews screen on the desktop, per-file diff cards, and Fix merge conflicts in place of Merge when a merge hits a conflict.
+- **Dots, not counts**: nav badges are dots everywhere with one order: Inbox, Support, Devices, Actions, Automations, Reviews.
+- **One agent picker**: agent, model, effort, plan mode, account and usage in one card, device edits autosave, and the mobile apps get the full action editor.
+- **Plans shown whole**: steering plans are no longer cut off at 16KB or shown twice, and a truncated plan says so.
+- **Sharper agent tools**: strict inputs, attachments of every type via signed download links, issue identifiers accepted everywhere, paginated lists. Hard renames: \`descriptionText\` is now \`description\` and \`bodyText\` is \`body\`.
+- **Terminal + starts a steerable session**: the desktop dock's agent items now run as real sessions with their own worktree and steering.
+- **Remote agent sign-in**: works with current Claude Code again and never opens a browser on the remote machine.
+- **Older clients must update**: the server now requires iOS 0.14.20, Android 0.14.23 and desktop or CLI 0.14.28.`,
+  },
+  {
     id: `2026-08-one-backlog`,
     date: `2026-08-30`,
     title: `One Backlog and a cleaner look`,

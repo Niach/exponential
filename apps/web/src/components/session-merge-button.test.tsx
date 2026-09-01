@@ -136,6 +136,86 @@ describe(`SessionMergeButton`, () => {
     expect(screen.queryByRole(`button`, { name: `Merge pull request` })).toBeNull()
   })
 
+  // The swap must never be a dead end: a conflict resolved OUTSIDE the
+  // recovery run (a teammate rebases and pushes) has to be mergeable again.
+  it(`keeps a Retry merge affordance beside the swapped-in Fix conflicts`, async () => {
+    mockState.mergeMutate.mockRejectedValue(conflictError())
+    render(
+      <SessionMergeButton
+        prState="open"
+        prNumber={7}
+        issueId="i1"
+        label="Merge"
+        branch="exp/MET-12"
+        teamId="t1"
+        currentUserId="u1"
+        steerEnabled
+      />
+    )
+
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
+    await screen.findByRole(`button`, { name: `Fix merge conflicts` })
+
+    mockState.mergeMutate.mockReset()
+    mockState.mergeMutate.mockResolvedValue({ merged: true })
+    fireEvent.click(screen.getByRole(`button`, { name: `Retry merge` }))
+    expect(screen.getByText(/Merge PR #7 into the default branch/)).toBeTruthy()
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
+    await waitFor(() =>
+      expect(mockState.mergeMutate).toHaveBeenCalledWith(
+        { issueId: `i1` },
+        { context: { skipErrorToast: true } }
+      )
+    )
+  })
+
+  // A refusal describes ONE snapshot of the PR — a re-synced issue row drops
+  // it, so the plain Merge button comes back on its own.
+  it(`drops a stale refusal when the issue row re-syncs`, async () => {
+    mockState.mergeMutate.mockRejectedValue(conflictError())
+    const { rerender } = render(
+      <SessionMergeButton
+        prState="open"
+        prNumber={7}
+        issueId="i1"
+        issueUpdatedAt="2026-09-01T10:00:00.000Z"
+        label="Merge"
+        branch="exp/MET-12"
+        teamId="t1"
+        currentUserId="u1"
+        steerEnabled
+      />
+    )
+
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
+    await screen.findByRole(`button`, { name: `Fix merge conflicts` })
+
+    rerender(
+      <SessionMergeButton
+        prState="open"
+        prNumber={7}
+        issueId="i1"
+        issueUpdatedAt="2026-09-01T10:05:00.000Z"
+        label="Merge"
+        branch="exp/MET-12"
+        teamId="t1"
+        currentUserId="u1"
+        steerEnabled
+      />
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole(`button`, { name: `Fix merge conflicts` })
+      ).toBeNull()
+    )
+    expect(
+      screen.getByRole(`button`, { name: `Merge pull request` })
+    ).toBeTruthy()
+  })
+
   it(`keeps the plain Merge button when the caller wired no recovery run`, async () => {
     mockState.mergeMutate.mockRejectedValue(conflictError())
     render(

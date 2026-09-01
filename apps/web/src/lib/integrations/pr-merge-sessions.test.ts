@@ -15,6 +15,9 @@ const h = vi.hoisted(() => ({
   selectWheres: [] as unknown[],
   getSteerRelayConfig: vi.fn(),
   relayPostKill: vi.fn(async () => ({ delivered: true })),
+  // EXP-700: the merge paths must also tell a live parent that its
+  // agent-started child ended without a report.
+  notifyParentOfChildEnd: vi.fn(async () => ({ delivered: false })),
 }))
 
 function fakeTx() {
@@ -49,6 +52,9 @@ vi.mock(`@/lib/trpc`, () => ({ generateTxId: async () => `1` }))
 vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
   relayPostKill: h.relayPostKill,
+}))
+vi.mock(`@/lib/steer-child-messages`, () => ({
+  notifyParentOfChildEnd: h.notifyParentOfChildEnd,
 }))
 
 import {
@@ -89,6 +95,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   h.getSteerRelayConfig.mockReturnValue({ url: `ws://relay`, secret: `s` })
   h.relayPostKill.mockResolvedValue({ delivered: true })
+  h.notifyParentOfChildEnd.mockResolvedValue({ delivered: false })
 })
 
 describe(`endLiveIssueSessionsInTx`, () => {
@@ -147,6 +154,19 @@ describe(`endMergedPrSessions`, () => {
     expect(h.relayPostKill).toHaveBeenCalledTimes(2)
     expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), `sess-1`)
     expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), `sess-2`)
+    // EXP-700: each ended run is reported to its parent (the helper no-ops
+    // for the ones that have none).
+    expect(h.notifyParentOfChildEnd).toHaveBeenCalledTimes(2)
+    expect(h.notifyParentOfChildEnd).toHaveBeenCalledWith(
+      expect.anything(),
+      `sess-1`,
+      { summary: null, endedBy: `merge` }
+    )
+    expect(h.notifyParentOfChildEnd).toHaveBeenCalledWith(
+      expect.anything(),
+      `sess-2`,
+      { summary: null, endedBy: `merge` }
+    )
   })
 
   it(`relays nothing when no row matched (idempotent re-run)`, async () => {
@@ -154,6 +174,7 @@ describe(`endMergedPrSessions`, () => {
 
     expect(h.updates).toHaveLength(1)
     expect(h.relayPostKill).not.toHaveBeenCalled()
+    expect(h.notifyParentOfChildEnd).not.toHaveBeenCalled()
   })
 
   it(`is a no-op for an empty issue list`, async () => {
@@ -201,6 +222,12 @@ describe(`endSessionsOnMergedBranch`, () => {
     ])
     expect(h.relayPostKill).toHaveBeenCalledTimes(1)
     expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), `sess-1`)
+    // EXP-700: a chore-PR run can be an agent-started child too.
+    expect(h.notifyParentOfChildEnd).toHaveBeenCalledWith(
+      expect.anything(),
+      `sess-1`,
+      { summary: null, endedBy: `merge` }
+    )
   })
 
   it(`is a no-op when nothing registered the repo, or the inputs are blank`, async () => {

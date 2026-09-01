@@ -845,8 +845,11 @@ export const attachments = pgTable(
 // They are served by the SAME `/api/attachments/{id}` read route, keeping the
 // load-bearing steer embed `![image](/api/attachments/{id})` (EXP-511) intact
 // for every host and viewer. `session_id` is SET NULL (the staleness sweep
-// deletes coding_sessions rows); blob reclamation keys on `team_id` at
-// team/account deletion, exactly like issue attachments.
+// deletes coding_sessions rows), and the orphan reclaim sweep
+// (apps/web/src/lib/session-attachment-sweep.ts) deletes such rows plus their
+// blobs after a 7-day grace window — otherwise unreachable bytes would count
+// against the team's storage budget forever. Blob reclamation also keys on
+// `team_id` at team/account deletion, exactly like issue attachments.
 export const sessionAttachments = pgTable(
   `session_attachments`,
   {
@@ -1011,7 +1014,7 @@ export const deviceAgentUsageSchema = z.record(
 )
 
 // EXP-403 registered devices — since EXP-481 an Electric shape (own rows plus
-// team-shared server rows; devices router `list` retained for old clients).
+// team-shared server rows; EXP-639 retired the devices router `list`).
 // One row per (user, deviceId): desktops and headless `exponential` daemon
 // servers register on control-channel/daemon start and heartbeat
 // `last_seen_at` (~30s; online = freshness within the contract window).

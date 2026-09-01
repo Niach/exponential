@@ -96,6 +96,10 @@ impl ReviewsView {
     /// half of the list gets (the synced half is always live).
     pub fn mark_pulls_stale(&mut self, cx: &mut gpui::Context<Self>) {
         self.open_pulls_key = None;
+        // Re-entering the screen is a refetch: a refusal from the previous
+        // visit describes a snapshot that is no longer the one on screen, and
+        // keeping it would keep "Fix conflicts" parked in the Merge slot.
+        MergeState::clear_error(cx);
         cx.notify();
     }
 
@@ -282,18 +286,28 @@ impl ReviewsView {
         // EXP-706: PR numbers are leaving the row — the branch IS the sub-line.
         let sub = issue.branch.clone().filter(|branch| !branch.is_empty());
 
+        // While the recovery run holds the trailing slot, Merge stays reachable
+        // beside it as a quiet secondary ("Retry merge"): the conflict may have
+        // been resolved outside that run, and the swap must never be a dead end.
+        let swapped = fix_button.is_some();
         let merge_button = {
             let mut button = Button::new(SharedString::from(format!("review-merge-{}", issue.id)))
                 .web_sm()
-                .outline()
                 .cursor_pointer();
+            button = if swapped {
+                button.ghost()
+            } else {
+                button.outline()
+            };
             if merging {
                 button = button.label("Merging…").loading(true).disabled(true);
             } else if armed {
                 button = button.label("Confirm merge").danger().cursor_pointer();
             } else {
                 // EXP-642 (web parity): the merge glyph rides the label.
-                button = button.icon(Icon::new(registry::PR_MERGED)).label("Merge");
+                button = button
+                    .icon(Icon::new(registry::PR_MERGED))
+                    .label(if swapped { "Retry merge" } else { "Merge" });
             }
             let click_id = issue.id.clone();
             button
@@ -310,8 +324,19 @@ impl ReviewsView {
                 }))
                 .into_any_element()
         };
-        // The swap: a conflict-classified merge failure REPLACES Merge.
-        let trailing = fix_button.unwrap_or(merge_button);
+        // The swap: a conflict-classified merge failure takes the PRIMARY
+        // trailing slot; Merge steps down to the ghost "Retry merge" beside it
+        // rather than disappearing until the PR closes.
+        let trailing = match fix_button {
+            Some(fix) => h_flex()
+                .flex_shrink_0()
+                .items_center()
+                .gap_1()
+                .child(merge_button)
+                .child(fix)
+                .into_any_element(),
+            None => merge_button,
+        };
 
         let nav_id = issue.id.clone();
         // EXP-642: one glass row CARD per PR (web parity) — selected wears the

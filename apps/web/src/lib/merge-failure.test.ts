@@ -25,13 +25,10 @@ describe(`mergeFailure`, () => {
     ).toEqual({ message, conflict: false })
   })
 
-  it(`still recognises a pre-EXP-533 server's 412 conflict message`, () => {
-    // TRANSITIONAL: a self-host pinned to an older tag answers the same
-    // diagnosis with PRECONDITION_FAILED. Auto-updating clients must keep the
-    // recovery button until that server updates.
+  it(`does not flag a 412 that merely quotes the conflict wording`, () => {
     expect(
       mergeFailure(serverError(`PRECONDITION_FAILED`, CONFLICT_MESSAGE), `fallback`)
-    ).toEqual({ message: CONFLICT_MESSAGE, conflict: true })
+    ).toEqual({ message: CONFLICT_MESSAGE, conflict: false })
   })
 
   it(`never offers the recovery run for a policy refusal`, () => {

@@ -240,19 +240,26 @@ export const boardsRouter = router({
     }),
 
   // EXP-707: the subject param is `boardId` like every sibling (was `id`).
-  // Hard rename — only web + desktop call this, and old desktop builds are
-  // retired via CLIENT_MIN_VERSION_DESKTOP.
+  // `id` is a TRANSITIONAL alias (exactly one of the two, normalized here) —
+  // remove once desktop min >= 0.14.29 (EXP-707 rename; desktop 0.14.28 sends
+  // the old key).
   update: authedProcedure
     .input(
-      z.object({
-        boardId: z.string().uuid(),
-        name: z.string().min(1).max(255).optional(),
-        color: hexColorSchema.optional(),
-        icon: boardIconSchema.nullable().optional(),
-      })
+      z
+        .object({
+          boardId: z.string().uuid().optional(),
+          id: z.string().uuid().optional(),
+          name: z.string().min(1).max(255).optional(),
+          color: hexColorSchema.optional(),
+          icon: boardIconSchema.nullable().optional(),
+        })
+        .refine((i) => (i.boardId === undefined) !== (i.id === undefined), {
+          message: `Pass boardId (or the deprecated id), not both`,
+        })
     )
     .mutation(async ({ ctx, input }) => {
-      const { boardId, ...updates } = input
+      const { boardId: boardIdInput, id: legacyBoardId, ...updates } = input
+      const boardId = (boardIdInput ?? legacyBoardId)!
 
       await assertBoardMember(ctx.session.user.id, boardId)
 

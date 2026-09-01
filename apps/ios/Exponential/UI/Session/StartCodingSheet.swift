@@ -20,14 +20,16 @@ import SwiftUI
 // flag; "Create action" is not offered — EXP-615 moved creation into its own
 // `CreateActionSheet`) over the selected action's typed input fields (text /
 // repo / board / pr / icon) — the SAME agent/model/effort/toggle options
-// apply, action runs are no longer Claude-only. Device candidates in Actions
-// mode need the `actions` capability, plus `action-inputs` when the selected
-// action is builtin or declares inputs.
+// apply, action runs are no longer Claude-only.
 //
 // EXP-615: Chat is the third subject — a free prompt on one repository,
 // riding the HIDDEN `builtin:chat` action (constructed locally, listed
-// nowhere) through the very same `onRunAction` rails. Its machines need the
-// `chat` capability.
+// nowhere) through the very same `onRunAction` rails.
+//
+// EXP-672: every subject shares ONE device pool — online with a runnable
+// agent. The per-subject capability filters (`actions`, `action-inputs`,
+// `fix-conflicts`, `chat`) are gone: every build above the version floor
+// advertises them all, and the server refuses only on the agent.
 //
 // EXP-201: the desktop runs three coding agents (claude / codex / pi). The
 // agent switcher — the shared `LaunchOptionsSection`'s brand-icon segmented
@@ -39,9 +41,9 @@ import SwiftUI
 // the device pool exactly like an offline one.
 //
 // EXP-481: single-issue starts offer "Resume previous session" when the
-// selected machine advertises the `resume` cap AND its synced worktree
-// inventory (shape 18) carries a row for the checked issue whose .exp-agents
-// marker allows the chosen agent. Default ON; while active the plan-mode
+// selected machine's synced worktree inventory (shape 18) carries a row for
+// the checked issue whose .exp-agents marker allows the chosen agent — the
+// row IS the evidence. Default ON; while active the plan-mode
 // toggle hides (a resume never re-enters plan mode — the machine clamps it
 // too) and `resume: true` rides the single-issue start only. The machine's
 // launcher degrades a stale offer to a fresh session seeded with a resume
@@ -257,23 +259,17 @@ struct StartCodingSheet: View {
         teamId != nil && onRunAction != nil
     }
 
-    /// The machines a run can actually be sent to: EXP-403 lists offline rows
-    /// too, and EXP-409 makes a machine whose every installed agent is signed
-    /// out just as unstartable — the My machines list carries the reason.
-    /// EXP-432: teammates' shared servers arrive in `devices` already (the
-    /// hosts list them team-scoped) and are startable exactly like own ones.
-    private var startableDevices: [SteerDevice] {
-        devices.filter { $0.isOnline && $0.hasRunnableAgent }
-    }
-
-    /// Mode-aware device pool: Actions mode only offers capable desktops, and
-    /// Chat additionally needs the `chat` cap (EXP-615).
+    /// The machines a run can actually be sent to — the SAME pool on every
+    /// tab (EXP-672: the per-subject capability filters are gone, every build
+    /// above the version floor runs actions, action inputs, fix-conflicts and
+    /// chat, and `steer.startSession` enforces only the agent check). EXP-403
+    /// lists offline rows too, and EXP-409 makes a machine whose every
+    /// installed agent is signed out just as unstartable — the My machines
+    /// list carries the reason. EXP-432: teammates' shared servers arrive in
+    /// `devices` already (the hosts list them team-scoped) and are startable
+    /// exactly like own ones.
     private var candidateDevices: [SteerDevice] {
-        switch subjectTab {
-        case .issues: startableDevices
-        case .actions: actionDeviceCandidates
-        case .chat: chatDeviceCandidates
-        }
+        devices.filter { $0.isOnline && $0.hasRunnableAgent }
     }
 
     private var device: SteerDevice? {
@@ -841,61 +837,21 @@ struct StartCodingSheet: View {
         selectedAction?.inputs ?? []
     }
 
-    /// Builtin or inputs-carrying runs additionally need the `action-inputs`
-    /// capability (EXP-257) — older desktops can't render/inject them.
-    private var selectedActionNeedsInputsCap: Bool {
-        guard let action = selectedAction else { return false }
-        return action.isBuiltin || !(action.inputs ?? []).isEmpty
-    }
-
-    /// The "Fix merge conflicts" builtin needs its own capability on top
-    /// (EXP-259) — the server rejects it otherwise, so filter here (EXP-323).
-    private var selectedActionNeedsFixConflictsCap: Bool {
-        selectedAction?.id == DomainContract.builtinFixConflictsId
-    }
-
-    private var actionDeviceCandidates: [SteerDevice] {
-        startableDevices.filter { device in
-            guard device.canRunActions else { return false }
-            if selectedActionNeedsInputsCap, !device.canRunActionInputs { return false }
-            if selectedActionNeedsFixConflictsCap, !device.canFixConflicts { return false }
-            return true
-        }
-    }
-
-    /// EXP-615: chat runs need the `chat` cap on top of a startable machine —
-    /// the server refuses the hidden builtin without it, so filter here rather
-    /// than fail after submit (the fix-conflicts posture).
-    private var chatDeviceCandidates: [SteerDevice] {
-        startableDevices.filter { device in
-            // A chat start IS an action start server-side, so it takes the
-            // action caps too (every build that advertises `chat` advertises
-            // them — this only keeps the pool in step with the gate).
-            device.canRunActions && device.canRunActionInputs && device.canChat
-        }
-    }
-
-    /// The "nothing to start on" hint — one wording per subject, byte-matching
-    /// the web launch dialog (EXP-615), with the signed-out-agents case
-    /// (EXP-409) taking precedence because it names an actionable fix.
+    /// The "nothing to start on" hint — byte-matching the web launch dialog,
+    /// with the signed-out-agents case (EXP-409) taking precedence because it
+    /// names an actionable fix. EXP-672: the capability wordings are gone —
+    /// with the cap filters removed an empty pool only ever means "no machine
+    /// online", so "update the desktop app" was naming the wrong problem.
     private var noDeviceNote: String {
         let signedOut = signedOutAgentNames.joined(separator: ", ")
-        if startableDevices.isEmpty, !signedOut.isEmpty {
+        if candidateDevices.isEmpty, !signedOut.isEmpty {
             return "\(signedOut) not signed in on your machines. Sign in on the machine first."
         }
         switch subjectTab {
         case .issues:
             return "No desktop online. Open the Exponential desktop app to start coding."
-        case .chat:
-            return "No chat-capable device online. Update the Exponential desktop app."
-        case .actions:
-            if selectedActionNeedsFixConflictsCap {
-                return "No desktop can fix merge conflicts yet. Update the Exponential desktop app."
-            }
-            if selectedActionNeedsInputsCap {
-                return "No capable desktop online. This action needs a desktop app new enough to run action inputs."
-            }
-            return "No actions-capable desktop online. Open (or update) the Exponential desktop app."
+        case .actions, .chat:
+            return "No desktop online. Open the Exponential desktop app to start a run."
         }
     }
 
@@ -1038,7 +994,7 @@ struct StartCodingSheet: View {
         .listRowBackground(glassFormRowFill)
     }
 
-    /// Chat's run gate: a chat-capable machine, a non-blank prompt within the
+    /// Chat's run gate: a startable machine, a non-blank prompt within the
     /// contract's text cap, and the required repository.
     private var canStartChat: Bool {
         device != nil
@@ -1168,14 +1124,16 @@ struct StartCodingSheet: View {
     }
 
     /// The synced worktree that makes "Resume previous session" offerable:
-    /// Issues tab, exactly ONE checked issue, a resume-capable machine picked
-    /// off the devices SHAPE (rowId — tRPC/relay rows never resume), and a
-    /// row whose identifier + .exp-agents marker match. Recomputed live;
-    /// nil hides the toggle.
+    /// Issues tab, exactly ONE checked issue, a machine picked off the devices
+    /// SHAPE (rowId — tRPC/relay rows never resume), and a row whose
+    /// identifier + .exp-agents marker match. Recomputed live; nil hides the
+    /// toggle. EXP-672: no `resume` cap check — the server dropped its own,
+    /// and a machine that reports a worktree for the issue honors `resume` by
+    /// construction (the inventory and the launcher ship together).
     private var resumeCandidate: DeviceWorktreeEntity? {
         guard subjectTab == .issues,
               effectiveChecked.count == 1,
-              let device, device.canResume,
+              let device,
               let issueId = effectiveChecked.first,
               let identifier = issues.first(where: { $0.id == issueId })?.identifier
         else { return nil }

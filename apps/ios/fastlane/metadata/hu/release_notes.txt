@@ -1,5 +1,10 @@
 - A Todo és a Backlog mostantól egy lista: minden, ami a Todóban volt, a Backlogban él
 - A lapok és menük egységes megjelenést kaptak az egész alkalmazásban
 - A szerkesztő megőrzi a szándékos üres sorokat, minden platformon azonosan
-- A Használat a munkamenetedet futtató agent limitjeit mutatja
 - Az agentek mindig engedélykérdések nélkül futnak; a kapcsoló megszűnt
+- Egyetlen ügynökválasztó: ügynök, modell, erőfeszítés, tervmód, fiók és használat egy kártyán
+- Műveletek: hozz létre és szerkessz műveleteket a bemeneteikkel együtt közvetlenül a telefonodon
+- Reviews: új lista és PR-diff fájlonkénti kártyákkal; a „Merge-konfliktusok javítása” váltja a „Merge”-et, ha egy merge konfliktusba ütközik
+- A navigációs jelvények pontok: Beérkezett és Támogatás olvasatlannál, Eszközök amíg fut egy futtatás, Reviews amíg nyitva van egy PR
+- Irányítás: a tervek már nem vágódnak le és nem jelennek meg kétszer, a befejezett munkamenet pedig bezárja a nézetét
+- Egy offline gépen indított futtatást azonnal elutasítunk ahelyett, hogy csendben sorba állna

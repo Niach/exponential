@@ -80,6 +80,27 @@ function collector(ws: WebSocket) {
   }
 }
 
+/** EXP-672: with the outbound presence listing gone, "has the control socket
+ *  registered yet?" is observable only through routing — `/start` answers 404
+ *  and sends NOTHING until the `online` frame lands, so retrying the real
+ *  call is both the wait and the assertion. */
+async function startWhenOnline(body: unknown): Promise<Response> {
+  for (let i = 0; i < 40; i++) {
+    const res = await fetch(`${base}/start`, {
+      method: `POST`,
+      headers: {
+        "x-relay-secret": `integration-secret`,
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify(body),
+    })
+    if (res.ok) return res
+    await res.text()
+    await new Promise((r) => setTimeout(r, 25))
+  }
+  throw new Error(`control socket never registered`)
+}
+
 describe(`steer relay end-to-end`, () => {
   test(`rejects bad tickets at upgrade`, async () => {
     const res = await fetch(`${base.replace(`http`, `http`)}/ws?ticket=garbage`, {
@@ -106,14 +127,14 @@ describe(`steer relay end-to-end`, () => {
     const health = await fetch(`${base}/healthz`)
     expect(health.ok).toBe(true)
 
-    const noAuth = await fetch(`${base}/devices/u1`)
+    const noAuth = await fetch(`${base}/sessions/no-such`)
     expect(noAuth.status).toBe(401)
 
-    const authed = await fetch(`${base}/devices/u1`, {
+    const authed = await fetch(`${base}/sessions/no-such`, {
       headers: { "x-relay-secret": `integration-secret` },
     })
     expect(authed.ok).toBe(true)
-    expect(await authed.json()).toEqual({ devices: [] })
+    expect(await authed.json()).toEqual({ live: false })
   })
 
   test(`activity channel: reset + replay, live fan-out, input, answer, kill, bye`, async () => {
@@ -373,26 +394,10 @@ describe(`steer relay end-to-end`, () => {
       })
     )
 
-    // Presence shows up on the admin endpoint (poll until registered).
-    let devices: { deviceId: string }[] = []
-    for (let i = 0; i < 20 && devices.length === 0; i++) {
-      const res = await fetch(`${base}/devices/owner-1`, {
-        headers: { "x-relay-secret": `integration-secret` },
-      })
-      devices = ((await res.json()) as { devices: { deviceId: string }[] }).devices
-      if (devices.length === 0) await new Promise((r) => setTimeout(r, 25))
-    }
-    expect(devices).toMatchObject([
-      { deviceId: `dev-9`, deviceLabel: `Test Box` },
-    ])
-
-    const start = await fetch(`${base}/start`, {
-      method: `POST`,
-      headers: {
-        "x-relay-secret": `integration-secret`,
-        "content-type": `application/json`,
-      },
-      body: JSON.stringify({ userId: `owner-1`, deviceId: `dev-9`, issueId: `issue-42` }),
+    const start = await startWhenOnline({
+      userId: `owner-1`,
+      deviceId: `dev-9`,
+      issueId: `issue-42`,
     })
     expect(start.ok).toBe(true)
     expect(await desktopIn.nextJson()).toEqual({ t: `start_session`, issueId: `issue-42` })
@@ -615,16 +620,6 @@ describe(`steer relay end-to-end`, () => {
     const desktopIn = collector(desktop)
     desktop.send(JSON.stringify({ t: `online`, deviceId: `dev-batch` }))
 
-    let devices: { deviceId: string }[] = []
-    for (let i = 0; i < 20 && devices.length === 0; i++) {
-      const res = await fetch(`${base}/devices/owner-2`, {
-        headers: { "x-relay-secret": `integration-secret` },
-      })
-      devices = ((await res.json()) as { devices: { deviceId: string }[] }).devices
-      if (devices.length === 0) await new Promise((r) => setTimeout(r, 25))
-    }
-    expect(devices).toMatchObject([{ deviceId: `dev-batch` }])
-
     const repo = {
       repositoryId: `repo-1`,
       fullName: `acme/api`,
@@ -640,7 +635,7 @@ describe(`steer relay end-to-end`, () => {
         body: JSON.stringify(body),
       })
 
-    const batch = await postStart({
+    const batch = await startWhenOnline({
       userId: `owner-2`,
       deviceId: `dev-batch`,
       issueIds: [`issue-1`, `issue-2`],
@@ -714,7 +709,7 @@ describe(`steer relay end-to-end`, () => {
     desktop.close()
   })
 
-  test(`action remote start routes a fat frame; caps surface; bad shapes are 400 (EXP-253)`, async () => {
+  test(`action remote start routes a fat frame; bad shapes are 400 (EXP-253)`, async () => {
     const desktop = await connect(
       ticket({ role: `control`, sub: `owner-3`, deviceLabel: `Action Box` })
     )
@@ -726,23 +721,6 @@ describe(`steer relay end-to-end`, () => {
         caps: [`actions`],
       })
     )
-
-    let devices: { deviceId: string; caps?: string[] }[] = []
-    for (let i = 0; i < 20 && devices.length === 0; i++) {
-      const res = await fetch(`${base}/devices/owner-3`, {
-        headers: { "x-relay-secret": `integration-secret` },
-      })
-      devices = (
-        (await res.json()) as {
-          devices: { deviceId: string; caps?: string[] }[]
-        }
-      ).devices
-      if (devices.length === 0) await new Promise((r) => setTimeout(r, 25))
-    }
-    // The capability advertisement surfaces through /devices.
-    expect(devices).toMatchObject([
-      { deviceId: `dev-action`, caps: [`actions`] },
-    ])
 
     const repo = {
       repositoryId: `repo-1`,
@@ -759,8 +737,10 @@ describe(`steer relay end-to-end`, () => {
         body: JSON.stringify(body),
       })
 
-    // Repo-backed action with options.
-    const repoBacked = await postStart({
+    // Repo-backed action with options. The `online` frame above carried the
+    // legacy `caps` array (EXP-672 ignores it) — routing still finds the
+    // device.
+    const repoBacked = await startWhenOnline({
       userId: `owner-3`,
       deviceId: `dev-action`,
       actionId: `action-1`,
@@ -913,7 +893,7 @@ describe(`steer relay end-to-end`, () => {
   test(`admin endpoints throttle wrong-secret attempts`, async () => {
     let saw429 = false
     for (let i = 0; i < 150 && !saw429; i++) {
-      const res = await fetch(`${base}/devices/u1`, {
+      const res = await fetch(`${base}/sessions/u1`, {
         headers: { "x-relay-secret": `wrong-${i}` },
       })
       expect([401, 429]).toContain(res.status)
@@ -923,7 +903,7 @@ describe(`steer relay end-to-end`, () => {
 
     // The secret-bearing web server keeps working through the flood — only
     // failed auth is throttled.
-    const authed = await fetch(`${base}/devices/u1`, {
+    const authed = await fetch(`${base}/sessions/u1`, {
       headers: { "x-relay-secret": `integration-secret` },
     })
     expect(authed.status).toBe(200)

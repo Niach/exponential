@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { GitBranch, GitMerge, GitPullRequest, LoaderCircle } from "lucide-react"
 import type { OpenPull } from "@/lib/integrations/github-pr"
@@ -79,6 +79,43 @@ function ReviewsPage() {
   const [mergeErrors, setMergeErrors] = useState<
     Record<string, MergeFailure>
   >({})
+
+  // A refusal describes ONE snapshot of the PR. Every entry stamps the issue
+  // row its caption was taken from; when Electric echoes a newer `updatedAt`
+  // for that row the caption — and with it the "Fix conflicts" swap — is
+  // stale, so it clears itself and the plain Merge button comes back. Without
+  // this a conflict resolved OUTSIDE the recovery run (a teammate rebases and
+  // pushes) would hide Merge for the life of the open PR.
+  const stamps = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const group of groups) {
+      for (const entry of group.entries) {
+        map[entry.key] = String(entry.issue.updatedAt ?? ``)
+      }
+    }
+    return map
+  }, [groups])
+  const stampSignature = Object.entries(stamps)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(`|`)
+  const seenStamps = useRef<Record<string, string>>({})
+  useEffect(() => {
+    const seen = seenStamps.current
+    const refreshed = Object.keys(stamps).filter(
+      (key) => key in seen && seen[key] !== stamps[key]
+    )
+    seenStamps.current = stamps
+    if (refreshed.length === 0) return
+    setMergeErrors((prev) => {
+      if (!refreshed.some((key) => key in prev)) return prev
+      const next = { ...prev }
+      for (const key of refreshed) delete next[key]
+      return next
+    })
+    // `stamps` is derived from the signature; depending on it directly would
+    // re-run on every render of a freshly-built object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stampSignature])
 
   // "Fix conflicts" (EXP-323, desktop parity): the launch dialog opened on the
   // builtin action with THIS pull request already picked. Presence is fetched
@@ -301,12 +338,31 @@ function ReviewsPage() {
                         )}
                         {/* The refusal captions its own row (EXP-323) —
                             spanning the grid so the full GitHub message stays
-                            readable. Message only since EXP-706. */}
+                            readable. Message only since EXP-706, except while
+                            the recovery run holds the trailing slot: Merge
+                            then rides the caption as a quiet secondary so the
+                            swap is never a dead end (the conflict may have
+                            been resolved outside the recovery run). */}
                         {mergeError && (
                           <div className="col-span-4 flex flex-wrap items-center gap-2 pt-2">
                             <span className="text-destructive text-xs">
                               {mergeError.message}
                             </span>
+                            {canFixConflicts && (
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                className="text-muted-foreground"
+                                disabled={merging}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setMergeTarget(entry)
+                                }}
+                              >
+                                <GitMerge className="h-3.5 w-3.5" />
+                                Retry merge
+                              </Button>
+                            )}
                           </div>
                         )}
                       </div>

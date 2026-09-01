@@ -33,8 +33,15 @@
 //! | `bye` (any other outcome) | the room is finished | [`ViewerPhase::Ended`], stop |
 //! | close 4008 (slow consumer) | the relay evicted a saturated socket | SILENT immediate redial — no phase flap |
 //! | close 4003 (unauthorized) | a "no" a retry re-mints forever | [`ViewerPhase::Unauthorized`], stop |
+//! | 15s with the join unanswered | the socket opened but is dead (half-open TCP after a sleep, a stalled proxy) | [`ViewerPhase::Reconnecting`] + backoff (web `JOIN_ACK_TIMEOUT_MS`) |
 //! | 45s of total silence while live | the socket is dead, not the agent quiet | silent redial (EXP-648: the relay's 15s `keepalive` is what makes "quiet" distinguishable from "gone") |
 //! | anything else | a transport drop | [`ViewerPhase::Reconnecting`] + backoff |
+//!
+//! The relay forwards `input` ONLY from a joined connection, so "connected"
+//! here means JOINED, not merely opened: everything the handle sends is gated
+//! on the join answer (web gates the composer on the `live` phase for the same
+//! reason). A socket that opened but was never answered silently discards
+//! whatever it is handed.
 //!
 //! Steering is owner-only and enforced at MINT time (EXP-312) — there is no
 //! client-side gate here, and there must not be one.
@@ -77,6 +84,15 @@ pub struct ViewerTimings {
     /// Three missed beats. Mirrors web `LIVE_STALE_MS`, iOS
     /// `liveStaleSeconds`, Android `liveStaleMs`.
     pub live_stale: Duration,
+    /// EXP-696: the relay ALWAYS answers a join (`activity_reset` + replay, or
+    /// `error no_such_session` then a close), so silence this long after the
+    /// join frame means the socket is dead rather than the room quiet — a
+    /// half-open TCP the machine woke up with, a proxy that stalled. Only
+    /// applies BEFORE the connection goes live; a redial under a held `Live`
+    /// phase is governed by [`Self::live_stale`] instead, exactly as the web
+    /// store leaves a young in-flight redial alone. Mirrors web
+    /// `JOIN_ACK_TIMEOUT_MS`.
+    pub join_ack: Duration,
     /// First redial bound while the desktop's publisher is still starting.
     pub retry_base: Duration,
     /// Cap the redial bound doubles toward.
@@ -90,6 +106,7 @@ impl Default for ViewerTimings {
     fn default() -> Self {
         Self {
             live_stale: Duration::from_secs(45),
+            join_ack: Duration::from_secs(15),
             retry_base: Duration::from_secs(3),
             retry_cap: Duration::from_secs(30),
             liveness_tick: Duration::from_secs(5),
@@ -174,9 +191,12 @@ pub enum ViewerEvent {
     /// per-frame re-emission would re-render the world on every replayed
     /// message).
     Phase(ViewerPhase),
-    /// The socket itself opened / went away. Distinct from the phase: a
-    /// silent redial keeps the phase steady while the socket is briefly down,
-    /// and send affordances should dim honestly for that gap.
+    /// The socket is JOINED (open AND the relay answered the join) / went
+    /// away. Distinct from the phase: a silent redial keeps the phase steady
+    /// while the socket is briefly down, and send affordances should dim
+    /// honestly for that gap. Deliberately not "opened": the relay forwards
+    /// `input` only from a joined connection, so a socket that is open but
+    /// unanswered can send nothing and must not look otherwise.
     Connected(bool),
     /// One activity event → `SteerFeed::apply`.
     Activity(ActivityEvent),
@@ -228,7 +248,9 @@ impl ViewerHandle {
     /// feed renders it immediately and dedupes its transcript-derived
     /// `user_message` twin when the publisher echoes it back.
     ///
-    /// `false` when the socket is down — the caller keeps its draft.
+    /// `false` when the socket is down OR not joined yet — the caller keeps
+    /// its draft, and NOTHING is echoed: a local message for input the relay
+    /// silently dropped is the one lie the feed must never tell.
     pub fn send_message(&self, text: &str) -> bool {
         if text.is_empty() || !self.send_frames(message_frames(text)) {
             return false;
@@ -266,8 +288,14 @@ impl ViewerHandle {
     }
 
     /// A wakeup nudge (the machine woke, the network came back, the host
-    /// device came online): abandon whatever socket is there and redial now,
-    /// cutting short a pending backoff. Cheap — callers may fire it freely.
+    /// device came online): cut short a pending backoff and redial now.
+    ///
+    /// Acts only on a connection that is provably stuck — a live socket that
+    /// spoke inside the staleness window, and a dial younger than its join
+    /// deadline, are left alone (redialing a healthy socket costs a full
+    /// replay for nothing). Cheap and idempotent: callers may fire it freely,
+    /// which is what makes it safe to hang off every window activation.
+    /// Mirrors the web store's `kick`.
     pub fn kick(&self) {
         let _ = self.cmd_tx.send(ViewerCmd::Kick);
     }
@@ -287,7 +315,9 @@ impl ViewerHandle {
         let _ = self.cmd_tx.send(ViewerCmd::Shutdown);
     }
 
-    /// Whether the socket is open right now (dim the composer honestly).
+    /// Whether the socket is open AND joined right now — i.e. whether input
+    /// sent this instant would actually reach the agent (dim the composer
+    /// honestly).
     pub fn is_connected(&self) -> bool {
         self.connected.load(Ordering::SeqCst)
     }
@@ -601,10 +631,12 @@ async fn run_viewer_loop(
             }
             continue;
         }
-        connected.store(true, Ordering::SeqCst);
-        let _ = events_tx.send(ViewerEvent::Connected(true));
-        log::info!("steer viewer: joined room {session_id}");
+        log::debug!("steer viewer: join sent for room {session_id}");
 
+        // NOT connected yet: the relay forwards `input` only from a JOINED
+        // connection, so the flag flips in `pump_connection` on the frame
+        // that answers the join. Sending before that would be swallowed —
+        // and locally echoed as if it had landed.
         let end = pump_connection(
             &mut ws,
             &events_tx,
@@ -612,11 +644,13 @@ async fn run_viewer_loop(
             &cmd_rx,
             &timings,
             &mut backoff,
+            &connected,
         )
         .await;
 
-        connected.store(false, Ordering::SeqCst);
-        let _ = events_tx.send(ViewerEvent::Connected(false));
+        if connected.swap(false, Ordering::SeqCst) {
+            let _ = events_tx.send(ViewerEvent::Connected(false));
+        }
 
         // The delay this end earns before the next dial, and whether there IS
         // a next dial.
@@ -709,12 +743,21 @@ async fn pump_connection(
     cmd_rx: &flume::Receiver<ViewerCmd>,
     timings: &ViewerTimings,
     backoff: &mut Backoff,
+    connected: &Arc<AtomicBool>,
 ) -> ConnEnd {
     let mut liveness = tokio::time::interval(timings.liveness_tick);
     liveness.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // Any inbound frame proves the socket — including the relay's `keepalive`
     // beat, which exists for exactly this (EXP-648).
     let mut last_rx = Instant::now();
+    // The join was ANSWERED ⇒ this connection is a member of the room and
+    // what the handle sends will actually be forwarded. Frames the relay
+    // sends to joined viewers only (everything but `bye`/`error`) prove it.
+    let mark_joined = || {
+        if !connected.swap(true, Ordering::SeqCst) {
+            let _ = events_tx.send(ViewerEvent::Connected(true));
+        }
+    };
     // Set by the frame handler; the socket close that follows is expected.
     let mut pending_end: Option<ConnEnd> = None;
     loop {
@@ -728,6 +771,21 @@ async fn pump_connection(
                     }
                 }
                 Ok(ViewerCmd::Kick) => {
+                    // A wakeup nudge, not a Reconnect button: it acts only on
+                    // a connection that is provably stuck. A live socket that
+                    // spoke inside the staleness window is healthy, and a dial
+                    // still inside its join deadline is merely young — tearing
+                    // either down would buy a full replay and nothing else.
+                    // (Web `kick` makes the same two exemptions; the third
+                    // case it handles, a backoff to cut short, is `wait`'s.)
+                    let healthy = if phases.is(&ViewerPhase::Live) {
+                        last_rx.elapsed() <= timings.live_stale
+                    } else {
+                        last_rx.elapsed() <= timings.join_ack
+                    };
+                    if healthy {
+                        continue;
+                    }
                     let _ = ws.close(None).await;
                     return ConnEnd::Kicked;
                 }
@@ -746,6 +804,7 @@ async fn pump_connection(
                             // The join was answered ⇒ the room is live. A
                             // long-lived connection also earns a fresh
                             // backoff for whatever comes next.
+                            mark_joined();
                             if !phases.is(&ViewerPhase::Live) {
                                 phases.set(ViewerPhase::Live);
                                 backoff.reset();
@@ -753,6 +812,7 @@ async fn pump_connection(
                             let _ = events_tx.send(ViewerEvent::Activity(event));
                         }
                         Some(ViewerFrame::ActivityReset) => {
+                            mark_joined();
                             if !phases.is(&ViewerPhase::Live) {
                                 phases.set(ViewerPhase::Live);
                                 backoff.reset();
@@ -760,9 +820,11 @@ async fn pump_connection(
                             let _ = events_tx.send(ViewerEvent::Reset);
                         }
                         Some(ViewerFrame::ActivitySynced) => {
+                            mark_joined();
                             let _ = events_tx.send(ViewerEvent::Synced);
                         }
                         Some(ViewerFrame::Keepalive) => {
+                            mark_joined();
                             // Counted by the `last_rx` stamp above; never a
                             // phase change. Forwarded because EXP-656 uses it
                             // as an end-of-replay signal.
@@ -824,9 +886,20 @@ async fn pump_connection(
             _ = liveness.tick() => {
                 // EXP-648: silence past three relay keepalives means the
                 // socket is dead, not that the agent is parked on a question.
-                if phases.is(&ViewerPhase::Live) && last_rx.elapsed() > timings.live_stale {
+                if phases.is(&ViewerPhase::Live) {
+                    if last_rx.elapsed() > timings.live_stale {
+                        let _ = ws.close(None).await;
+                        return ConnEnd::Stale;
+                    }
+                // …and BEFORE the room is live the same reasoning runs on a
+                // tighter clock: the relay answers every join, so a socket
+                // that opened and then said nothing at all (a half-open TCP
+                // the machine woke up with, a proxy that stalled) is dead.
+                // Without this the loop waits on `ws.next()` forever, since
+                // no close frame is ever coming. Web `JOIN_ACK_TIMEOUT_MS`.
+                } else if last_rx.elapsed() > timings.join_ack {
                     let _ = ws.close(None).await;
-                    return ConnEnd::Stale;
+                    return ConnEnd::Dropped(Some("join went unanswered".into()));
                 }
             }
         }
@@ -1057,6 +1130,9 @@ mod tests {
         fn fast() -> Self {
             Self::start(ViewerTimings {
                 live_stale: Duration::from_millis(250),
+                // Generous on purpose: every test here answers its join in
+                // milliseconds, and the deadline has its own test below.
+                join_ack: Duration::from_secs(2),
                 retry_base: Duration::from_millis(10),
                 retry_cap: Duration::from_millis(40),
                 liveness_tick: Duration::from_millis(25),
@@ -1123,9 +1199,12 @@ mod tests {
         let conn = harness.next_conn();
         // The relay's zod REQUIRES the channel literal.
         assert_eq!(conn.next_frame(), r#"{"t":"join","channel":"activity"}"#);
-        assert_eq!(harness.next_event(), ViewerEvent::Connected(true));
+        // Not connected until the join is ANSWERED — the relay forwards
+        // nothing from an unjoined socket.
+        assert!(!harness.handle.is_connected());
 
         conn.send(r#"{"t":"activity_reset"}"#);
+        assert_eq!(harness.next_event(), ViewerEvent::Connected(true));
         assert_eq!(harness.next_event(), ViewerEvent::Phase(ViewerPhase::Live));
         assert_eq!(harness.next_event(), ViewerEvent::Reset);
 
@@ -1319,6 +1398,61 @@ mod tests {
     }
 
     #[test]
+    fn a_join_the_relay_never_answers_is_dropped_and_redialed() {
+        // The socket OPENS and then nothing comes back — no reset, no error,
+        // no close: a half-open TCP the machine woke up with, or a stalled
+        // proxy. Nothing in the select loop would ever fire without the join
+        // deadline, so the viewer would wait forever.
+        let harness = Harness::start(ViewerTimings {
+            live_stale: Duration::from_secs(45), // never reached: not live
+            join_ack: Duration::from_millis(150),
+            retry_base: Duration::from_millis(10),
+            retry_cap: Duration::from_millis(40),
+            liveness_tick: Duration::from_millis(25),
+        });
+        let mute = harness.next_conn();
+        assert_eq!(mute.next_frame(), r#"{"t":"join","channel":"activity"}"#);
+
+        harness.wait_for_phase(&ViewerPhase::Reconnecting);
+        let next = harness.next_conn();
+        assert_eq!(next.next_frame(), r#"{"t":"join","channel":"activity"}"#);
+
+        // And throughout, the handle refused to pretend it could steer: an
+        // unjoined socket's `input` is silently discarded by the relay, so a
+        // `true` here would put a message in the feed that never happened.
+        assert!(!harness.handle.is_connected());
+        assert!(!harness.handle.send_message("into the void"));
+        drop(mute);
+        harness.handle.shutdown();
+    }
+
+    #[test]
+    fn a_kick_leaves_a_healthy_live_socket_alone() {
+        // The wakeups fire on every window activation; redialing a socket
+        // that is talking would cost a full replay for nothing (web `kick`
+        // makes the same exemption on a fresh `live` store).
+        // Production-length silence windows: the point is that the KICK did
+        // nothing, so no other rule may redial during the test either.
+        let harness = Harness::start(ViewerTimings {
+            live_stale: Duration::from_secs(45),
+            join_ack: Duration::from_secs(15),
+            retry_base: Duration::from_millis(10),
+            retry_cap: Duration::from_millis(40),
+            liveness_tick: Duration::from_millis(25),
+        });
+        let conn = harness.go_live();
+        harness.handle.kick();
+        assert!(
+            harness.conns.recv_timeout(Duration::from_millis(300)).is_err(),
+            "no redial: the socket spoke well inside the staleness window"
+        );
+        // Still the same connection, still steerable.
+        assert!(harness.handle.send_message("still here"));
+        assert_eq!(conn.next_frame(), r#"{"t":"input","data":"still here"}"#);
+        harness.handle.shutdown();
+    }
+
+    #[test]
     fn an_unauthorized_close_is_terminal() {
         let harness = Harness::fast();
         let conn = harness.go_live();
@@ -1361,6 +1495,7 @@ mod tests {
     fn a_kick_cuts_short_the_backoff_and_redials_now() {
         let harness = Harness::start(ViewerTimings {
             live_stale: Duration::from_secs(45),
+            join_ack: Duration::from_secs(15),
             // A backoff long enough that only the kick can explain a prompt
             // redial.
             retry_base: Duration::from_secs(20),

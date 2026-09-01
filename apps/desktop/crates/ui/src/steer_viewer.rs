@@ -23,6 +23,10 @@
 //!   `needs_input`, `status`). The view observes the collection and feeds
 //!   `ended` back to the socket with
 //!   [`ViewerHandle::note_session_ended`] so its redial loops stop.
+//! * **Wakeups** — the three edges the web store's `kickAll` listens on
+//!   (foreground, network, host device online) are wired here to
+//!   [`ViewerHandle::kick`]; see the "Wakeups" section below. Without them a
+//!   woken laptop waits out the transport's staleness window and backoff.
 //!
 //! ## Deliberate parity gaps vs the web view (EXP-696)
 //!
@@ -96,6 +100,11 @@ pub(crate) struct SteerSessionView {
     handle: Option<ViewerHandle>,
     phase: ViewerPhase,
     connected: bool,
+    /// EXP-696 wakeups: the last seen edge states, so only a TRANSITION back
+    /// to reachable nudges the socket (an observer fires on plenty of
+    /// non-edges).
+    device_offline: bool,
+    sync_offline: bool,
     /// Bumped on every reset/activity while staging; a fallback timer that
     /// finds its generation superseded exits without swapping.
     staging_generation: u64,
@@ -163,12 +172,35 @@ impl SteerSessionView {
         ));
         if let Some(store) = sync::Store::try_global(cx) {
             let collections = store.collections().clone();
+            let shared_state = store.state();
             subscriptions.push(cx.observe(&collections.coding_sessions, |this, _, cx| {
                 this.refresh_row(cx);
             }));
             subscriptions.push(cx.observe(&collections.issues, |_, _, cx| cx.notify()));
-            subscriptions.push(cx.observe(&collections.devices, |_, _, cx| cx.notify()));
+            // EXP-696 wakeup #1: the host machine came back (the devices
+            // shape's `last_seen_at` moved back inside the online window).
+            subscriptions.push(cx.observe(&collections.devices, |this, _, cx| {
+                this.note_device_edge(cx);
+                cx.notify();
+            }));
+            // …#2: our own connectivity came back. `SharedState` notifies on
+            // the Ok ⇄ Offline transition, which is this app's `online`
+            // event — the control channel keeps no connect callback of its
+            // own, and the same outage that killed its socket killed the
+            // viewer's.
+            subscriptions.push(cx.observe(&shared_state, |this, _, cx| {
+                this.note_network_edge(cx);
+            }));
         }
+        // …#3: the window came forward — the desktop's `visibilitychange`.
+        // A lid closed for hours leaves a half-open socket behind that no
+        // close frame is ever coming for; this is the same edge
+        // `Store::kick_if_stale` hangs off in the shell.
+        subscriptions.push(cx.observe_window_activation(window, |this, window, _cx| {
+            if window.is_window_active() {
+                this.wake("window activated");
+            }
+        }));
 
         // The socket task publishes into this channel; the drain applies each
         // event on the gpui foreground (the `steer_wiring` recipe).
@@ -191,6 +223,8 @@ impl SteerSessionView {
             handle: None,
             phase: ViewerPhase::Connecting,
             connected: false,
+            device_offline: false,
+            sync_offline: false,
             staging_generation: 0,
             staging_started: None,
             input,
@@ -209,6 +243,10 @@ impl SteerSessionView {
             _subscriptions: subscriptions,
         };
         this.refresh_row(cx);
+        // Seed the wakeup edges from the world as it is right now, so the
+        // first observer call is a comparison rather than a false edge.
+        this.device_offline = this.device(cx).offline;
+        this.sync_offline = sync_offline(cx);
         this.handle = spawn_viewer(&session_id, events_tx, cx);
         if this.handle.is_none() {
             this.phase = ViewerPhase::Unauthorized {
@@ -297,6 +335,46 @@ impl SteerSessionView {
     /// and no affordance may claim otherwise.
     fn paused(&self, cx: &App) -> bool {
         !self.row_ended() && self.device(cx).offline
+    }
+
+    // ── Wakeups (the web store's `kickAll`, EXP-696) ───────────────────────
+    //
+    // Without these the viewer's only way back from a dead socket is the 45s
+    // staleness window plus a 3→30s redial backoff, so a chip could sit in
+    // Starting/Reconnecting for half a minute after the laptop woke or the
+    // host machine came back. The transport's own `kick` is deliberately
+    // conservative (a healthy socket is left alone), so firing these freely
+    // costs nothing.
+
+    /// Nudge the socket to redial NOW if it is stuck. A no-op once the loop
+    /// has stopped for good (ended, unauthorized, shut down).
+    fn wake(&self, reason: &str) {
+        let Some(handle) = self.handle.as_ref() else {
+            return;
+        };
+        if !handle.is_active() {
+            return;
+        }
+        log::debug!("[ui] steer viewer {}: kick ({reason})", self.session_id);
+        handle.kick();
+    }
+
+    /// The host machine flipped back online: its publisher is reachable
+    /// again, so stop waiting out the backoff that was drawn while it slept.
+    fn note_device_edge(&mut self, cx: &App) {
+        let offline = self.device(cx).offline;
+        if std::mem::replace(&mut self.device_offline, offline) && !offline {
+            self.wake("device online");
+        }
+    }
+
+    /// OUR connectivity came back (the sync pipeline's Ok ⇄ Offline edge —
+    /// this app's `online` event).
+    fn note_network_edge(&mut self, cx: &App) {
+        let offline = sync_offline(cx);
+        if std::mem::replace(&mut self.sync_offline, offline) && !offline {
+            self.wake("network back");
+        }
     }
 
     /// EXP-312 mirrors the web `ownsLiveRow` + `live` gate.
@@ -751,6 +829,15 @@ pub(crate) fn kill_session(session_id: &str, cx: &mut App) {
             }
         })
         .detach();
+}
+
+/// Whether the active account's sync pipeline is currently calling itself
+/// offline — the signal behind the shell's offline strip, reused here as the
+/// "the network is back" edge.
+fn sync_offline(cx: &App) -> bool {
+    sync::Store::try_global(cx)
+        .map(|store| store.sync_status(cx).health == sync::SyncHealth::Offline)
+        .unwrap_or(false)
 }
 
 /// Dial the relay for `session_id`. `None` when the steer runtime never came

@@ -442,16 +442,18 @@ export const steerRouter = router({
       // No row at all refuses (EXP-542): every supported desktop/CLI
       // registers at startup, so an unregistered target is a build too old
       // to serve the start.
-      // EXP-679: an agent-started child may only land on a host that knows
-      // the brand. An older desktop/CLI drops `startedReason` off the frame
-      // and writes an ATTENDED run — one that never reports and never ends
-      // itself while the parent polls it for an outcome forever.
+      // EXP-679: an agent-started child may only land on a host that writes
+      // the brand onto the row — a host that drops `startedReason` would
+      // write an ATTENDED run, one that never reports and never ends itself
+      // while the parent polls it for an outcome forever. Every supported
+      // desktop/CLI declares `agent-start`, so this is an invariant check on
+      // the registered capability list, not a version gate.
       const requireAgentStart = (caps: string[]) => {
         if (!agentStarted.startedReason) return
         if (caps.includes(`agent-start`)) return
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `That machine's app is too old to run an agent-started session. Update it and try again.`,
+          message: `That device does not declare the agent-start capability`,
         })
       }
 

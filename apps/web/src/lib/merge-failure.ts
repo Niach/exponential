@@ -17,11 +17,7 @@ export function mergeFailure(error: unknown, fallback: string): MergeFailure {
 }
 
 function isConflict(error: unknown): boolean {
-  const code = trpcErrorCode(error)
-  if (code === `CONFLICT`) return true
-  // TRANSITIONAL (EXP-533): remove once every server answers a real conflict with 409
-  return (
-    code === `PRECONDITION_FAILED` &&
-    trpcErrorMessage(error, ``).includes(`has merge conflicts with`)
-  )
+  // A REAL content conflict is the server's CONFLICT (409); every other
+  // refusal (stale base, branch protection, policy) is PRECONDITION_FAILED.
+  return trpcErrorCode(error) === `CONFLICT`
 }

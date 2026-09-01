@@ -12,12 +12,17 @@
 // call actually ends. A person-started run keeps going and the human is right
 // there, so the tool is noise plus an invitation to sign off mid-conversation.
 // Registration stays context hygiene here too: `endSessionByAgent` remains
-// the authority, so a stale client that still calls the tool gets the same
-// kept-open behaviour it always did.
+// the authority — it ends the run for whoever reaches it, so a stale client
+// that still calls the tool on an attended run ends it rather than getting
+// some softer legacy behaviour.
 //
-// EXP-700: the third gate is askParent — only a run another run started (and
-// whose parent linkage is stamped) can ask its starter a question, so the
-// tool registers for nobody else. Same hygiene rule: the handler re-checks.
+// EXP-700: the third gate is askParent — only a run another run started
+// (`started_reason` = 'agent') can ask its starter a question, so the tool
+// registers for nobody else. It deliberately does NOT require the parent
+// linkage: the parent stamps `parent_session_id` only after its
+// sessions_start poll returns, and a child whose initialize/tools-list beats
+// that stamp would otherwise lose the tool for its whole run. Same hygiene
+// rule as the others: the handler re-checks linkage and parent liveness.
 import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { codingSessions, teams } from "@/db/schema"
@@ -28,8 +33,9 @@ export interface McpToolGates {
   helpdesk: boolean
   sessionsEnd: boolean
   /** EXP-700: the caller's run was started BY another run (`started_reason`
-   * = 'agent' with a linked parent) — it may ask its starter a question via
-   * `exponential_sessions_ask_parent`. */
+   * = 'agent') — it may ask its starter a question via
+   * `exponential_sessions_ask_parent`. The parent linkage is NOT part of the
+   * gate (it is stamped after the row exists); the handler checks it. */
   askParent: boolean
 }
 
@@ -71,8 +77,7 @@ export async function resolveMcpToolGates(
 /** One indexed lookup for both session-header gates: the header's run must
  * exist and belong to the caller (owner or host — the same pair
  * `endSessionByAgent` accepts). `sessionsEnd` needs it started unattended;
- * `askParent` (EXP-700) needs it started by another run with the parent
- * linkage stamped. */
+ * `askParent` (EXP-700) needs it started by another run. */
 async function resolveSessionGates(
   userId: string,
   sessionId: string | null
@@ -84,7 +89,6 @@ async function resolveSessionGates(
       userId: codingSessions.userId,
       hostUserId: codingSessions.hostUserId,
       startedReason: codingSessions.startedReason,
-      parentSessionId: codingSessions.parentSessionId,
     })
     .from(codingSessions)
     .where(eq(codingSessions.id, sessionId))
@@ -93,6 +97,6 @@ async function resolveSessionGates(
   if (row.userId !== userId && row.hostUserId !== userId) return closed
   return {
     sessionsEnd: row.startedReason !== null,
-    askParent: row.startedReason === `agent` && row.parentSessionId !== null,
+    askParent: row.startedReason === `agent`,
   }
 }

@@ -143,11 +143,10 @@ class TrpcErrorMessageTest {
         assertFalse(isConflictError(null))
     }
 
-    // TRANSITIONAL (EXP-533): a self-host pinned to a pre-EXP-533 tag still
-    // answers a real conflict with 412 + this sentence. Drop with the sniff.
+    // Not even a 412 that quotes the conflict wording counts.
     @Test
-    fun legacyPreconditionFailedConflictSentenceStillCounts() {
-        assertTrue(
+    fun preconditionFailedQuotingTheConflictSentenceIsNotAConflict() {
+        assertFalse(
             isConflictError(
                 TrpcException(
                     "This branch has merge conflicts with main that must be resolved",

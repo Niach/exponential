@@ -39,7 +39,6 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertTrue(device.updateRequested == true)
         XCTAssertTrue(device.updateBlocked == true)
         XCTAssertEqual(device.lastSeenAt, "2026-08-03T10:00:00.000Z")
-        XCTAssertTrue(device.canRunActions)
     }
 
     /// EXP-420: `devices.latestVersions` is its own two-field result now — the
@@ -177,7 +176,6 @@ final class SteerDeviceDecodingTests: XCTestCase {
         // A teammate's shared server is a start target like any other.
         XCTAssertTrue(shared.isOnline)
         XCTAssertTrue(shared.hasRunnableAgent)
-        XCTAssertTrue(shared.canRunActions)
     }
 
     /// EXP-437: a machine advertises its own per-agent coding defaults so a

@@ -150,11 +150,6 @@ app.get(`/stats`, (c) =>
   })
 )
 
-// Online desktops for a user — powers the phone's "Start on my desktop" picker.
-app.get(`/devices/:userId`, (c) =>
-  c.json({ devices: hub.devicesFor(c.req.param(`userId`)) })
-)
-
 // Liveness for a session room (the "is the desktop still publishing?" check).
 app.get(`/sessions/:id`, (c) => c.json(hub.sessionInfo(c.req.param(`id`))))
 

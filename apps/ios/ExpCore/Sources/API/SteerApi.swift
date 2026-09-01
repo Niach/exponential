@@ -400,30 +400,13 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// Whether a registry row backs it (the rename/remove targets).
     public var isRegistered: Bool { registered == true }
 
-    /// Whether this desktop can run team actions (EXP-253).
-    public var canRunActions: Bool { caps?.contains("actions") == true }
-
-    /// Whether this desktop understands typed action inputs + the builtin
-    /// "Create action" run (EXP-257). Builtin or inputs-carrying starts are
-    /// additionally gated on this (the server enforces it too); a plain
-    /// `actions`-capable desktop still runs input-less actions.
-    public var canRunActionInputs: Bool { caps?.contains("action-inputs") == true }
-
-    /// EXP-481: whether this machine honors `resume` on a remote start —
-    /// strictly cap-gated like actions (the server refuses without it; an old
-    /// build would silently start fresh, which reads as losing the session).
-    public var canResume: Bool { caps?.contains("resume") == true }
-
-    /// Whether this desktop can run the builtin "Fix merge conflicts" action
-    /// (EXP-259). The server rejects that builtin without the cap, so pickers
-    /// filter such desktops out instead of failing after submit (EXP-323).
-    public var canFixConflicts: Bool { caps?.contains("fix-conflicts") == true }
-
-    /// EXP-615: whether this machine can run the hidden "Chat" builtin — a
-    /// free-prompt agent session on a repository's trunk clone. Cap-gated
-    /// exactly like fix-conflicts: the server refuses the id without it, so
-    /// the Chat tab filters such machines out instead of failing after submit.
-    public var canChat: Bool { caps?.contains("chat") == true }
+    // EXP-672: the `actions` / `action-inputs` / `fix-conflicts` / `chat` /
+    // `resume` mirrors are GONE. Every desktop and CLI above the version floor
+    // advertises all five whenever it advertises a runnable agent, and the
+    // server stopped refusing on them (EXP-624/EXP-639) — the mirrors gated on
+    // nothing and only made the pickers lie ("update the desktop app") when the
+    // real reason was that no machine was online. What remains here mirrors a
+    // gate the server still applies.
 
     /// EXP-637: whether this machine can RESUME an ended run (relaunch the
     /// agent in the run's own worktree, continuing its transcript). Strictly
@@ -670,10 +653,10 @@ public final class SteerApi: Sendable {
     }
 
     /// Action remote-start (EXP-253/EXP-257): route a `start_session` carrying
-    /// an actionId to the chosen desktop — the device must advertise the
-    /// `actions` capability (`SteerDevice.canRunActions`; builtin or
-    /// inputs-carrying runs additionally need `canRunActionInputs`; the server
-    /// enforces both). `teamId` rides ONLY with the builtin
+    /// an actionId to the chosen desktop — an online machine with a runnable
+    /// agent is the whole requirement (EXP-672: the action capability refusals
+    /// are gone server-side, the agent check is the one that remains).
+    /// `teamId` rides ONLY with the builtin
     /// `DomainContract.builtinCreateActionId` (real actions resolve their team
     /// server-side); `inputs` maps input keys to text values or picked
     /// repo/board uuids. Same endpoint and PRECONDITION_FAILED →

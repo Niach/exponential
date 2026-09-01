@@ -529,4 +529,31 @@ describe(`issues.bulkDelete`, () => {
       `key-b2`,
     ])
   })
+
+  // EXP-707 transitional alias: desktop 0.14.28 in the wild still posts
+  // `ids`, so the rename cannot be hard until the desktop floor reaches
+  // 0.14.29. Same XOR contract as bulkUpdate's alias.
+  it(`accepts the deprecated ids alias`, async () => {
+    selectQueue.push([{ id: ID_A, teamId: WS }])
+
+    const result = await caller.bulkDelete({ ids: [ID_A] })
+
+    expect(result).toEqual({ txId: 77, deleted: 1 })
+    expect(collectParams(deletes[0]!.where)).toEqual([ID_A])
+  })
+
+  it(`rejects passing both issueIds and ids, and passing neither`, async () => {
+    const both = await rejectionOf(
+      caller.bulkDelete({ issueIds: [ID_A], ids: [ID_A] })
+    )
+    expect(both).toBeInstanceOf(TRPCError)
+    expect((both as TRPCError).code).toBe(`BAD_REQUEST`)
+
+    const neither = await rejectionOf(caller.bulkDelete({}))
+    expect(neither).toBeInstanceOf(TRPCError)
+    expect((neither as TRPCError).code).toBe(`BAD_REQUEST`)
+
+    // Neither shape ever reached the eligibility select.
+    expect(select).not.toHaveBeenCalled()
+  })
 })

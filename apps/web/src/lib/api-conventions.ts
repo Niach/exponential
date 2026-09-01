@@ -47,7 +47,19 @@
 //    that would leak the REV2-5/EXP-500 scoping mirrors or a future
 //    server-only column.
 //
-// Transitional aliases (drop after the next iOS release):
-// issues.bulkUpdate `ids` and steer.mintTicket/killSession `codingSessionId`
-// are deprecated aliases of `issueIds` / `sessionId`.
+// TRANSITIONAL ALIASES. A rename is only "hard" once every shipped client
+// that sends the old key is retired by a version floor; until then the
+// procedure accepts the legacy key OR the new one (exactly one required,
+// normalized in the handler) and carries a comment naming its removal
+// trigger.
+//
+// Drop after the next iOS AND Android releases:
+//   issues.bulkUpdate `ids`                             -> `issueIds`
+//   steer.mintTicket/killSession `codingSessionId`      -> `sessionId`
+//
+// Drop once desktop min >= 0.14.29 (EXP-707 rename; desktop 0.14.28 sends
+// the old key):
+//   boards.update `id`                                  -> `boardId`
+//   teams.update `id`                                   -> `teamId`
+//   issues.bulkDelete `ids`                             -> `issueIds`
 export {}

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { PgDialect } from "drizzle-orm/pg-core"
@@ -964,6 +964,17 @@ describe(`exponential_attachments_get`, () => {
     Body: { transformToByteArray: async () => new TextEncoder().encode(s) },
   })
 
+  // The URL origin prefers BETTER_AUTH_URL; these cases exercise the
+  // request-origin fallback, so keep the var unset for them.
+  const envBase = process.env.BETTER_AUTH_URL
+  beforeEach(() => {
+    delete process.env.BETTER_AUTH_URL
+  })
+  afterEach(() => {
+    if (envBase === undefined) delete process.env.BETTER_AUTH_URL
+    else process.env.BETTER_AUTH_URL = envBase
+  })
+
   it(`returns metadata + a signed downloadUrl for a non-image (xlsx)`, async () => {
     membership.getAttachmentTeamContext.mockResolvedValue({
       teamId: WS,
@@ -1029,6 +1040,31 @@ describe(`exponential_attachments_get`, () => {
     const payload = parseOk(result) as Record<string, unknown>
     expect(payload.text).toBe(`a,b\n1,2\n`)
     expect(payload.downloadUrl).toContain(`?token=`)
+  })
+
+  it(`builds the downloadUrl from BETTER_AUTH_URL, not the request origin`, async () => {
+    // Behind a TLS-terminating proxy the request Bun sees is plain HTTP, so
+    // the request origin would hand agents an http:// URL that redirects.
+    const previous = process.env.BETTER_AUTH_URL
+    process.env.BETTER_AUTH_URL = `https://app.example.com/`
+    try {
+      membership.getAttachmentTeamContext.mockResolvedValue({
+        teamId: WS,
+        boardId: PROJ,
+        contentType: `application/pdf`,
+        filename: `spec.pdf`,
+        sizeBytes: 999,
+        storageKey: `k`,
+      })
+      const result = await tool(`exponential_attachments_get`)({ id: UUID })
+      const payload = parseOk(result) as Record<string, unknown>
+      expect(payload.downloadUrl).toMatch(
+        new RegExp(`^https://app\\.example\\.com/api/attachments/${UUID}\\?token=.+`)
+      )
+    } finally {
+      if (previous === undefined) delete process.env.BETTER_AUTH_URL
+      else process.env.BETTER_AUTH_URL = previous
+    }
   })
 
   it(`skips inline text above the size cap`, async () => {
@@ -1476,7 +1512,6 @@ describe(`exponential_sessions_end`, () => {
       sessionId: SESSION,
       status: `ended`,
       alreadyEnded: false,
-      keptOpen: false,
     })
 
     const result = await collectTools(USER, SESSION, UNATTENDED).get(
@@ -1487,7 +1522,6 @@ describe(`exponential_sessions_end`, () => {
       sessionId: SESSION,
       status: `ended`,
       alreadyEnded: false,
-      keptOpen: false,
       reportedToParent: false,
     })
     expect(endSessionByAgent).toHaveBeenCalledWith(db, SESSION, `user-1`, {
@@ -1502,13 +1536,12 @@ describe(`exponential_sessions_end`, () => {
   })
 
   // EXP-700: only the FIRST real end notifies the parent — a retried
-  // close-out (alreadyEnded) or a kept-open person-started run never does.
+  // close-out (alreadyEnded) never does.
   it(`does not notify the parent again on a retried close-out`, async () => {
     vi.mocked(endSessionByAgent).mockResolvedValue({
       sessionId: SESSION,
       status: `ended`,
       alreadyEnded: true,
-      keptOpen: false,
     })
 
     const result = await collectTools(USER, SESSION, UNATTENDED).get(
@@ -1519,22 +1552,6 @@ describe(`exponential_sessions_end`, () => {
       alreadyEnded: true,
       reportedToParent: false,
     })
-    expect(notifyParentOfChildEnd).not.toHaveBeenCalled()
-  })
-
-  it(`does not notify the parent for a kept-open run`, async () => {
-    vi.mocked(endSessionByAgent).mockResolvedValue({
-      sessionId: SESSION,
-      status: `running`,
-      alreadyEnded: false,
-      keptOpen: true,
-    })
-
-    const result = await collectTools(USER, SESSION, UNATTENDED).get(
-      `exponential_sessions_end`
-    )!({ summary: `s` })
-
-    expect(parseOk(result)).toMatchObject({ keptOpen: true })
     expect(notifyParentOfChildEnd).not.toHaveBeenCalled()
   })
 
@@ -1550,8 +1567,8 @@ describe(`exponential_sessions_end`, () => {
     expect(schema.safeParse({ summary: `Shipped it.` }).success).toBe(true)
   })
 
-  // EXP-679: a person-started run never gets the tool — the close-out is
-  // meaningless there (it would not end the run) and the human is present.
+  // EXP-679: a person-started run never gets the tool — the human is right
+  // there, and a close-out would end a conversation they are still having.
   it(`is not registered for a person-started session`, async () => {
     const tools = collectTools(USER, SESSION, {
       helpdesk: true,
@@ -2615,6 +2632,34 @@ describe(`exponential_sessions_kill`, () => {
     })
     expect(parseOk(result)).toEqual({ ok: true, id: UUID, status: `ended`, endedAt: null })
     expect(caller.steer.killSession).toHaveBeenCalledWith({ sessionId: UUID })
+  })
+
+  // EXP-700: a killed child never sends its own close-out, so the kill is
+  // what has to tell the parent — otherwise it waits forever.
+  it(`tells a live parent that the killed child ended without a report`, async () => {
+    caller.steer.killSession.mockResolvedValue({
+      session: { id: UUID, status: `ended`, endedAt: null },
+      txId: 42,
+    })
+    await collectTools(USER, RUN).get(`exponential_sessions_kill`)!({
+      id: UUID,
+    })
+    expect(notifyParentOfChildEnd).toHaveBeenCalledWith(db, UUID, {
+      summary: null,
+      endedBy: `user`,
+    })
+  })
+
+  // Idempotent kill: the row was already ended (no txId), so the parent was
+  // told by whichever path ended it — never twice.
+  it(`does not notify again when the run was already ended`, async () => {
+    caller.steer.killSession.mockResolvedValue({
+      session: { id: UUID, status: `ended`, endedAt: null },
+    })
+    await collectTools(USER, RUN).get(`exponential_sessions_kill`)!({
+      id: UUID,
+    })
+    expect(notifyParentOfChildEnd).not.toHaveBeenCalled()
   })
 
   it(`checks the run's team against a scoped grant before delegating`, async () => {

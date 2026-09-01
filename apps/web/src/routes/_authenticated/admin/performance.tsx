@@ -226,6 +226,7 @@ const SCHEDULER_LABELS: Record<string, string> = {
   "email-digest": `Email digest`,
   "board-trash": `Board trash purge`,
   "coding-session-sweep": `Coding session sweep`,
+  "session-attachment-sweep": `Steer image reclaim`,
   "fcm-token-sweep": `FCM token sweep`,
   "device-code-sweep": `Device code sweep`,
 }

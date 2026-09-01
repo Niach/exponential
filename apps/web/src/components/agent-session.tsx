@@ -466,6 +466,7 @@ export function AgentSessionView({
                 prState={prIssue.prState}
                 prNumber={prIssue.prNumber}
                 issueId={prIssue.id}
+                issueUpdatedAt={prIssue.updatedAt}
                 branch={prIssue.branch}
                 teamId={prIssue.teamId}
                 currentUserId={currentUserId}

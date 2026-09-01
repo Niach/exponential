@@ -19,6 +19,13 @@
 //! (the issue id / pull key), so a failed close renders under the same row
 //! as a failed merge — the caption carries a [`FailedOp`] so the surfaces can
 //! still tell the two apart (only a failed merge offers "Fix conflicts").
+//!
+//! A failure describes ONE snapshot of the pull request, so it retires itself
+//! three ways: the `pr_state` echo (the PR closed), a re-synced issue row
+//! ([`MergeFailure::row_stamp`]), and an explicit [`MergeState::clear_error`]
+//! from a surface that refetched. Surfaces that let the recovery run TAKE the
+//! Merge slot must also keep a "Retry merge" secondary — otherwise a conflict
+//! resolved outside that run leaves the PR unmergeable from the app.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -189,6 +196,27 @@ pub struct MergeFailure {
     /// or an unconfigured GitHub App is NOT one, and "Fix merge conflicts"
     /// would send an agent to rebase a branch over a problem it cannot fix.
     pub conflict: bool,
+    /// The issue row's `updated_at` when the refusal was recorded (`None` for
+    /// pull keys and for rows that were not synced at the time). A refusal
+    /// describes ONE snapshot of the pull request: when the row re-syncs with
+    /// a newer stamp the caption — and with it the "Fix conflicts" swap that
+    /// took the Merge button's slot — is stale and clears itself. Without
+    /// that, a conflict resolved OUTSIDE the recovery run would hide Merge
+    /// for the life of the open PR.
+    pub row_stamp: Option<String>,
+}
+
+/// Whether a stored failure describes a SUPERSEDED snapshot of its row —
+/// `current` is that row's `updated_at` as it stands now. An unstamped
+/// failure (a pull key, or a row that was not synced when it failed) and a
+/// row that has since vanished are both left alone: there is nothing to
+/// compare against, and dropping the caption on a guess would take the
+/// "Fix conflicts" offer with it.
+fn superseded_by(failure: &MergeFailure, current: Option<&str>) -> bool {
+    match (failure.row_stamp.as_deref(), current) {
+        (Some(stamp), Some(now)) => stamp != now,
+        _ => false,
+    }
 }
 
 struct MergeStateGlobal(Entity<MergeState>);
@@ -286,6 +314,19 @@ impl MergeState {
         });
     }
 
+    /// Drop the standing failure caption. A surface calls this when it
+    /// REFETCHES the pull request's data (entering the Reviews screen,
+    /// re-pointing the PR diff): the refusal was about the previous snapshot,
+    /// and keeping it would keep "Fix conflicts" parked in the Merge slot.
+    pub fn clear_error(cx: &mut App) {
+        let state = MergeState::global(cx);
+        state.update(cx, |this, cx| {
+            if this.error.take().is_some() {
+                cx.notify();
+            }
+        });
+    }
+
     /// Drop transient state for PULL keys (`repo#n`) no longer in `live` —
     /// the Reviews render calls this over the fetched pull list (a pull
     /// merged elsewhere has no Electric echo to settle it). Issue keys are
@@ -339,7 +380,23 @@ impl MergeState {
                 self.arm_seq += 1;
                 changed = true;
             }
-            if self.error.as_ref().is_some_and(|f| settled(&f.row_key)) {
+            // A re-synced issue row supersedes the refusal captioned on the
+            // old one — the branch may have been rebased and pushed since,
+            // and the PR is mergeable again. (A refused merge writes nothing
+            // server-side, so this can never race the failure just stored.)
+            let superseded = |failure: &MergeFailure| -> bool {
+                superseded_by(
+                    failure,
+                    issues
+                        .get(&failure.row_key)
+                        .and_then(|issue| issue.updated_at.as_deref()),
+                )
+            };
+            if self
+                .error
+                .as_ref()
+                .is_some_and(|f| settled(&f.row_key) || superseded(f))
+            {
                 self.error = None;
                 changed = true;
             }
@@ -430,11 +487,24 @@ pub fn two_click(
                         // EXP-533: classify BEFORE the message is consumed —
                         // only a real 409 conflict may offer the recovery run.
                         let conflict = err.is_conflict();
+                        let row_key = call_op.row_key();
+                        // Stamp the row this refusal describes, so a later
+                        // re-sync of it retires the caption (and the swap).
+                        let row_stamp = match Store::try_global(cx) {
+                            Some(store) => store
+                                .collections()
+                                .issues
+                                .read(cx)
+                                .get(&row_key)
+                                .and_then(|issue| issue.updated_at.clone()),
+                            None => None,
+                        };
                         this.error = Some(MergeFailure {
-                            row_key: call_op.row_key(),
+                            row_key,
                             message: SharedString::from(user_message(err)),
                             op: call_op.failed_op(),
                             conflict,
+                            row_stamp,
                         });
                         cx.notify();
                         if let Some(on_failure) = on_failure {
@@ -514,6 +584,7 @@ mod tests {
             message: SharedString::from("nope"),
             op,
             conflict,
+            row_stamp: None,
         };
         let state = |error| MergeState {
             arm: None,
@@ -532,5 +603,34 @@ mod tests {
         // A failed CLOSE never offers a run that merges, conflict or not.
         let closed = state(failure(true, FailedOp::Close));
         assert_eq!(closed.failed_op("i1"), Some(FailedOp::Close));
+    }
+
+    /// A refusal is about ONE snapshot of the pull request: once the issue row
+    /// re-syncs with a newer `updated_at`, the caption (and the "Fix
+    /// conflicts" swap that took the Merge slot) must retire itself — the
+    /// conflict may well have been resolved outside the recovery run.
+    #[test]
+    fn a_resynced_row_supersedes_its_failure() {
+        let stamped = |row_stamp: Option<&str>| MergeFailure {
+            row_key: "i1".to_string(),
+            message: SharedString::from("Pull Request is not mergeable"),
+            op: FailedOp::Merge,
+            conflict: true,
+            row_stamp: row_stamp.map(str::to_string),
+        };
+        // Same snapshot: the refusal still stands.
+        assert!(!superseded_by(
+            &stamped(Some("2026-09-01T10:00:00Z")),
+            Some("2026-09-01T10:00:00Z")
+        ));
+        // The row moved on — drop it.
+        assert!(superseded_by(
+            &stamped(Some("2026-09-01T10:00:00Z")),
+            Some("2026-09-01T10:05:00Z")
+        ));
+        // Nothing to compare against never drops a caption: an unstamped
+        // failure (pull keys, unsynced rows) or a row that has vanished.
+        assert!(!superseded_by(&stamped(None), Some("2026-09-01T10:05:00Z")));
+        assert!(!superseded_by(&stamped(Some("2026-09-01T10:00:00Z")), None));
     }
 }

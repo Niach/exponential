@@ -116,10 +116,9 @@ fun isOfflineError(error: Throwable?): Boolean {
  */
 fun isConflictError(error: Throwable?): Boolean {
     val trpc = error as? TrpcException ?: return false
-    if (trpc.status == HttpStatusCode.Conflict) return true
-    // TRANSITIONAL (EXP-533): remove once every server answers a real conflict with 409
-    return trpc.status == HttpStatusCode.PreconditionFailed &&
-        trpc.message?.contains("has merge conflicts with") == true
+    // A REAL content conflict is the server's CONFLICT (409); every other
+    // refusal (stale base, branch protection, policy) is PRECONDITION_FAILED.
+    return trpc.status == HttpStatusCode.Conflict
 }
 
 /**

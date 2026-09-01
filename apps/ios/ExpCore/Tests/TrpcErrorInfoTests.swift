@@ -231,13 +231,12 @@ final class TrpcErrorInfoTests: XCTestCase {
         XCTAssertFalse(NSError(domain: "test", code: 1).isMergeConflict)
     }
 
-    // TRANSITIONAL (EXP-533): remove once every server answers a real conflict with 409
-    func testLegacy412ConflictMessageStillCountsAsAConflict() {
+    func test412QuotingTheConflictWordingIsNotAConflict() {
         let error = TrpcError.httpError(
             412,
             envelope(message: "This pull request has merge conflicts with the base branch.", code: "PRECONDITION_FAILED")
         )
-        XCTAssertTrue(error.isMergeConflict)
+        XCTAssertFalse(error.isMergeConflict)
     }
 
     func testMergeFailureCarriesMessageAndConflictFlag() {

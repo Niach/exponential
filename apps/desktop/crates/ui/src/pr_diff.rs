@@ -12,8 +12,12 @@
 //! Merge/close drive the SAME [`crate::pr_merge`] two-click machinery the
 //! Reviews list does, so an arm/spinner/failure started on either surface
 //! renders identically on both. "Fix conflicts replaces Merge": a
-//! conflict-classified merge failure swaps the Merge pill for the recovery
-//! run's button — merging is exactly what is blocked.
+//! conflict-classified merge failure hands the PRIMARY pill to the recovery
+//! run — merging is exactly what is blocked. Merge itself steps down to a
+//! ghost "Retry merge" beside it rather than disappearing: the conflict may
+//! be resolved outside that run (a teammate rebases and pushes), and
+//! [`crate::pr_merge::MergeState`] retires the failure on a re-synced row or
+//! a re-point of this screen.
 //!
 //! One instance per window, re-pointed by the screens panel on tab switches
 //! (the issue-detail / file-viewer model). Same-id re-points are no-ops —
@@ -104,6 +108,10 @@ impl PrDiffView {
             return;
         };
         self.issue_id = Some(issue_id.clone());
+        // Re-pointing is a refetch: a refusal captioned on the PREVIOUS review
+        // describes a snapshot that is no longer on screen, and leaving it
+        // standing would keep "Fix conflicts" parked in the Merge slot.
+        MergeState::clear_error(cx);
         self.diff
             .update(cx, |diff, cx| diff.fetch(Arc::new(client), issue_id, cx));
     }
@@ -250,8 +258,18 @@ impl Render for PrDiffView {
                     .into_any_element()
             });
 
+            // While the recovery run holds the primary slot, Merge stays
+            // reachable beside it as a ghost "Retry merge": the conflict may
+            // have been resolved outside that run (a teammate rebased and
+            // pushed), and the swap must never be a dead end.
+            let swapped = fix_button.is_some();
             let merge_button = is_open.then(|| {
-                let mut button = Button::new("pr-diff-merge").primary().web_sm();
+                let mut button = Button::new("pr-diff-merge").web_sm();
+                button = if swapped {
+                    button.ghost()
+                } else {
+                    button.primary()
+                };
                 if merging {
                     button = button.label("Merging…").loading(true).disabled(true);
                 } else if armed {
@@ -259,7 +277,7 @@ impl Render for PrDiffView {
                 } else {
                     button = button
                         .icon(Icon::new(registry::PR_MERGED))
-                        .label("Merge")
+                        .label(if swapped { "Retry merge" } else { "Merge" })
                         .disabled(closing);
                 }
                 let click_id = issue.id.clone();
@@ -276,12 +294,12 @@ impl Render for PrDiffView {
                     }))
                     .into_any_element()
             });
-            // The swap: a conflict-classified merge failure replaces Merge in
-            // its own slot instead of trailing the error caption.
-            let primary = match (fix_button, merge_button) {
-                (Some(fix), _) => Some(fix),
-                (None, merge) => merge,
-            };
+            // The swap: a conflict-classified merge failure takes the PRIMARY
+            // slot instead of trailing the error caption — Merge steps down to
+            // the ghost secondary above rather than vanishing until the PR
+            // closes.
+            let actions: Vec<gpui::AnyElement> =
+                merge_button.into_iter().chain(fix_button).collect();
 
             let external = issue.pr_url.clone().map(|url| {
                 Button::new("pr-diff-open-github")
@@ -396,7 +414,7 @@ impl Render for PrDiffView {
                         .items_center()
                         .gap_1()
                         .children(close_button)
-                        .children(primary)
+                        .children(actions)
                         .children(external)
                         .when(self.show_undock, |row| {
                             let undock_id = issue.id.clone();

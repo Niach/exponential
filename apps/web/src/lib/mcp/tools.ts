@@ -85,6 +85,7 @@ import {
 } from "@/lib/storage/issue-attachments"
 import { getImageDimensions } from "@/lib/storage/image-dimensions"
 import { mintAttachmentToken } from "@/lib/storage/attachment-token"
+import { appBaseUrl } from "@/lib/notification-email-policy"
 import { assertWithinStorageLimit } from "@/lib/billing"
 import { appRouter } from "@/routes/api/trpc/$"
 import type { Context } from "@/lib/trpc"
@@ -1223,11 +1224,17 @@ export function registerExponentialTools(
         // checks above, bound to this one attachment — the URL is a complete
         // credential the route accepts without a session, so any agent
         // (launcher or external MCP client) can download any content type
-        // with no size cap and no base64 in context. Request-origin, not
-        // BETTER_AUTH_URL: the caller reached us on this host, so the URL it
-        // gets back is reachable too (self-host proxies included).
+        // with no size cap and no base64 in context. The origin is
+        // `appBaseUrl()` like every other outbound link: behind a TLS-
+        // terminating proxy Bun sees plain HTTP, so the request origin mints
+        // an `http://` URL that a plain `curl -o` (no `-L`) saves the
+        // redirect body of. Falls back to the request origin only when
+        // BETTER_AUTH_URL is unset (the caller reached us on this host, so
+        // that URL is reachable too).
         const { token, expiresAt } = mintAttachmentToken(id, user.id)
-        const origin = new URL(request.url).origin
+        const origin = process.env.BETTER_AUTH_URL
+          ? appBaseUrl()
+          : new URL(request.url).origin
         const payload: Record<string, unknown> = {
           id,
           filename: attachment.filename,
@@ -2322,7 +2329,7 @@ export function registerExponentialTools(
           })
           // EXP-700: a just-ended agent-started child reports into its live
           // parent's channel. Only a FIRST real end notifies — alreadyEnded
-          // (retries, lost races) and keptOpen never do.
+          // (retries, lost races) never does.
           let reportedToParent = false
           if (result.status === `ended` && !result.alreadyEnded) {
             const { delivered } = await notifyParentOfChildEnd(db, sessionId, {
@@ -2339,8 +2346,10 @@ export function registerExponentialTools(
     )
   }
 
-  // EXP-700: only an agent-started run (started_reason='agent' with a linked
-  // parent) can ask its starter a question. NON-blocking on purpose — agent
+  // EXP-700: only an agent-started run (started_reason='agent') can ask its
+  // starter a question — the gate does NOT wait for `parent_session_id`,
+  // which the parent stamps only after its sessions_start poll returns; the
+  // handler below re-checks the linkage. NON-blocking on purpose — agent
   // CLIs time out long-held tool calls — so the answer arrives later as an
   // injected user message, the same rail a human steers with.
   if (gates.askParent) {
@@ -2485,7 +2494,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_get`,
     {
-      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open) → ended, then summary is the run's own close-out. ackedAt is the device's liveness ack, stamped seconds after the agent spawns — a running row whose ackedAt stays null for minutes means the launch died on the device.`,
+      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open) → ended, then summary is the run's own close-out. ackedAt is the device's liveness ack; a null ackedAt does NOT mean dead — devices older than 0.14.29 leave it null for up to 30 minutes. Read ackedAt null with a recent updatedAt as unknown, not failed.`,
       inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
@@ -2568,6 +2577,17 @@ export function registerExponentialTools(
         const result = await caller(user, request).steer.killSession({
           sessionId: id,
         })
+        // EXP-700: a killed run is an agent-started child that will never
+        // send its close-out — tell a live parent instead of leaving it
+        // waiting forever. `txId` is set only by the call that actually
+        // flipped the row, so a repeated (idempotent) kill notifies once.
+        // Best-effort: internally caught and relay-timeout bounded.
+        if (result.txId != null) {
+          await notifyParentOfChildEnd(db, id, {
+            summary: null,
+            endedBy: `user`,
+          })
+        }
         return ok({
           ok: true,
           id,
@@ -2654,7 +2674,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_start`,
     {
-      description: `Start a coding session on a registered ONLINE device (exponential_devices_list; agents includes the agent). An offline device is refused — starts are delivered live, never queued. Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs for its inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and opens its own PR; track it with exponential_sessions_get. The device creates the session row itself and acks liveness seconds after the agent spawns (ackedAt); sessionId null = it never reported the run, treat the start as lost. Started from inside a run, the child is unattended: when it finishes or asks a question, a bracketed '[Exponential child run ...]' message lands in THIS session as user input — answer with exponential_sessions_message. Read its report before merging its PR (merging first ends the run unreported); polling exponential_sessions_get is only a fallback.`,
+      description: `Start a coding session on a registered ONLINE device (exponential_devices_list; agents includes the agent). Offline devices are refused: starts are live, never queued. Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and PR; track it with exponential_sessions_get. The device creates the session row itself; sessionId null = it never reported the run, treat the start as lost. ackedAt null is NOT dead: devices older than 0.14.29 leave it null up to 30 min — with a recent updatedAt read it as unknown. Started from inside a run, the child is unattended: its question or its finish lands in THIS session as '[Exponential child run ...]' user input — answer with exponential_sessions_message. Read its report before merging its PR (merging first ends the run unreported); polling sessions_get is only a fallback.`,
       inputSchema: strictInput({
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
@@ -2792,27 +2812,19 @@ export function registerExponentialTools(
           if (Date.now() >= deadline) break
           await sleep(SESSION_START_POLL_STEP_MS)
         }
-        // EXP-679: only a branded child is unattended. An old relay or device
-        // drops `startedReason` off the frame and writes an ATTENDED run —
-        // say so, or the parent polls forever for a report nobody will
-        // ever write.
-        const unbranded =
-          Boolean(sessionId) && session !== null && session.startedReason !== `agent`
         return ok({
           ok: true,
           deviceId: input.deviceId,
           sessionId: (session?.id as string | undefined) ?? null,
           session,
-          ...(unbranded
+          // EXP-700: a child started from inside a run reports back
+          // event-based (every supported device brands it agent-started —
+          // steer.startSession refuses a host that does not).
+          ...(sessionId && session
             ? {
-                note: `The device did not brand this child as agent-started (old relay or device); it stays open and will not report via exponential_sessions_end.`,
+                note: `The child reports into this session as a bracketed [Exponential child run ...] user message when it finishes or asks a question; answer questions with exponential_sessions_message. Poll exponential_sessions_get only as a fallback.`,
               }
-            : sessionId && session
-              ? {
-                  // EXP-700: the branded child reports back event-based.
-                  note: `The child reports into this session as a bracketed [Exponential child run ...] user message when it finishes or asks a question; answer questions with exponential_sessions_message. Poll exponential_sessions_get only as a fallback.`,
-                }
-              : {}),
+            : {}),
         })
       } catch (e) {
         return err(e)

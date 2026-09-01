@@ -124,9 +124,7 @@ describe(`device presence + remote start`, () => {
       JSON.stringify({ t: `online`, deviceId: `dev-1`, deviceLabel: `MacBook` })
     )
 
-    expect(hub.devicesFor(`owner`)).toMatchObject([
-      { deviceId: `dev-1`, deviceLabel: `MacBook` },
-    ])
+    expect(hub.stats().devices).toBe(1)
 
     const routed = hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` })
     expect(routed).toEqual({ ok: true })
@@ -144,7 +142,10 @@ describe(`device presence + remote start`, () => {
     })
 
     hub.onClose(desktop)
-    expect(hub.devicesFor(`owner`)).toEqual([])
+    expect(hub.stats().devices).toBe(0)
+    expect(
+      hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` })
+    ).toEqual({ ok: false, reason: `device_offline` })
   })
 
   test(`startSession passes resume through to the frame (EXP-481)`, () => {
@@ -416,28 +417,34 @@ describe(`device presence + remote start`, () => {
     ).toEqual({ ok: false, reason: `device_offline` })
   })
 
-  test(`online advertises capabilities; absent caps default to [] (EXP-253)`, () => {
+  // EXP-672 removed the outbound presence listing, but desktops and daemons
+  // in the wild (0.14.28 and older) still put `deviceLabel` and the EXP-253
+  // `caps` array in their `online` frame. The schema must keep TOLERATING
+  // them: a `.strict()` object would fail the parse, the frame would be
+  // dropped, and the device would be unreachable for `/start` and `/nudge`.
+  test(`an old-style online frame (deviceLabel + caps) still registers`, () => {
     const hub = new Hub()
-    const modern = new FakeSocket()
-    hub.onOpen(modern, claims({ role: `control`, sub: `owner` }))
+    const legacy = new FakeSocket()
+    hub.onOpen(legacy, claims({ role: `control`, sub: `owner` }))
     hub.onMessage(
-      modern,
+      legacy,
       JSON.stringify({
         t: `online`,
         deviceId: `dev-1`,
+        deviceLabel: `MacBook`,
         caps: [`actions`],
       })
     )
-    const legacy = new FakeSocket()
-    hub.onOpen(legacy, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(legacy, JSON.stringify({ t: `online`, deviceId: `dev-2` }))
 
-    expect(hub.devicesFor(`owner`)).toMatchObject([
-      { deviceId: `dev-1`, caps: [`actions`] },
-      // No advertisement ⇒ [] — the web server strictly gates action starts
-      // on the capability, so such a device is never targeted.
-      { deviceId: `dev-2`, caps: [] },
-    ])
+    expect(hub.stats().devices).toBe(1)
+    expect(hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` })).toEqual({
+      ok: true,
+    })
+    expect(legacy.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueId: `issue-9`,
+    })
+    expect(hub.nudge(`owner`, `dev-1`)).toBe(true)
   })
 
   test(`startSession routes an action subject as a fat start_session frame (EXP-253)`, () => {
@@ -512,7 +519,9 @@ describe(`device presence + remote start`, () => {
         JSON.stringify({ t: `online`, deviceId: `dev-${i}` })
       )
     }
-    expect(hub.devicesFor(`owner`)).toMatchObject([{ deviceId: `dev-999` }])
+    expect(
+      hub.startSession(`owner`, `dev-999`, { issueId: `issue-9` })
+    ).toEqual({ ok: true })
     // The abandoned ids are gone, not ghosts routing into this socket.
     expect(hub.startSession(`owner`, `dev-0`, { issueId: `issue-9` })).toEqual({
       ok: false,
@@ -521,7 +530,6 @@ describe(`device presence + remote start`, () => {
     expect(hub.stats().devices).toBe(1)
 
     hub.onClose(desktop)
-    expect(hub.devicesFor(`owner`)).toEqual([])
     expect(hub.stats().devices).toBe(0)
   })
 
@@ -547,7 +555,7 @@ describe(`device presence + remote start`, () => {
     })
     hub.onClose(first)
     hub.onClose(second)
-    expect(hub.devicesFor(`owner`)).toEqual([])
+    expect(hub.stats().devices).toBe(0)
   })
 
   test(`same-device reconnect replaces the old socket`, () => {
@@ -560,7 +568,7 @@ describe(`device presence + remote start`, () => {
     hub.onMessage(second, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
 
     expect(first.closed?.code).toBe(4002)
-    expect(hub.devicesFor(`owner`).length).toBe(1)
+    expect(hub.stats().devices).toBe(1)
   })
 })
 

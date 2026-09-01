@@ -166,7 +166,10 @@ describe(`resolveMcpToolGates — sessionsEnd (EXP-679)`, () => {
 })
 
 // EXP-700: askParent opens only for a run another run started — same single
-// lookup, stricter predicate (started_reason='agent' AND a stamped parent).
+// lookup, keyed on started_reason='agent' alone. The parent linkage is
+// deliberately NOT part of the gate: the parent stamps parent_session_id only
+// after its sessions_start poll returns, so a child whose tools/list wins that
+// race would otherwise never see the tool.
 describe(`resolveMcpToolGates — askParent (EXP-700)`, () => {
   const RUN = `44444444-4444-4444-4444-444444444444`
   const PARENT = `55555555-5555-4555-8555-555555555555`
@@ -203,7 +206,9 @@ describe(`resolveMcpToolGates — askParent (EXP-700)`, () => {
     expect(gates).toMatchObject({ sessionsEnd: true, askParent: false })
   })
 
-  it(`is off for an agent-started run whose parent was never stamped`, async () => {
+  it(`is on for an agent-started run whose parent is not stamped YET`, async () => {
+    // The race the gate must not lose: the row exists (the device created it)
+    // before the parent's sessions_start poll stamps parent_session_id.
     h.dbRows.current = [
       {
         userId: `u`,
@@ -213,7 +218,7 @@ describe(`resolveMcpToolGates — askParent (EXP-700)`, () => {
       },
     ]
     const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    expect(gates).toMatchObject({ sessionsEnd: true, askParent: false })
+    expect(gates).toMatchObject({ sessionsEnd: true, askParent: true })
   })
 
   it(`is off when the run is someone else's`, async () => {

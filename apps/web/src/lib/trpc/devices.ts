@@ -283,8 +283,10 @@ export const devicesRouter = router({
         // authoritative and the setLaunchDefaults CAS decides.
         launchDefaults: deviceLaunchDefaultsSchema.optional(),
         // EXP-484: the machine's per-agent sign-in status from its doctor
-        // probe. ABSENT (an older build) leaves the column untouched on
-        // conflict — never zeroed to "signed out".
+        // probe. ABSENT means the probe resolved no agent CLI at all (no
+        // install, or a probe that failed open), never "signed out" — so it
+        // leaves the column untouched on conflict rather than blanking a
+        // good answer on one flaky pass.
         agentAccounts: deviceAgentAccountsSchema.optional(),
         version: z.string().min(1).max(32).optional(),
       })
@@ -328,8 +330,8 @@ export const devicesRouter = router({
                   launchDefaultsUpdatedAt: sql`COALESCE(${devices.launchDefaultsUpdatedAt}, ${now.toISOString()}::timestamptz)`,
                 }
               : {}),
-            // Absent = an older build with no collector: keep whatever the
-            // last reporting register wrote.
+            // Absent = the probe had nothing to say (see the input doc):
+            // keep whatever the last reporting register wrote.
             ...(input.agentAccounts
               ? { agentAccounts: clampAgentAccounts(input.agentAccounts) }
               : {}),
@@ -379,9 +381,10 @@ export const devicesRouter = router({
         // never).
         defaultsSyncedAt: z.string().datetime().nullable(),
         // EXP-484: the collector's latest read, sent only when it CHANGED
-        // (the device compares against what it last shipped) — absent leaves
-        // the columns alone. `agent_usage_at` moves with `agent_usage` only,
-        // and is deliberately not a convergence trigger for anything.
+        // (the device compares against what it last shipped) — so absent
+        // means UNCHANGED and leaves the columns alone; it can never mean
+        // "cleared". `agent_usage_at` moves with `agent_usage` only, and is
+        // deliberately not a convergence trigger for anything.
         agentAccounts: deviceAgentAccountsSchema.optional(),
         agentUsage: deviceAgentUsageSchema.optional(),
       })
@@ -728,12 +731,14 @@ export const devicesRouter = router({
             message: `pi has no remote sign-in`,
           })
         }
-        // The executor lives in the desktop app and the daemon; an older
-        // build would leave the row pending forever.
+        // The executor lives in the desktop app and the daemon, both of
+        // which declare `agent-login` unconditionally (EXP-672 keeps the cap
+        // as the contract): a row without it would leave the command pending
+        // forever, so refuse instead of queueing one.
         if (!(row.caps ?? []).includes(`agent-login`)) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
-            message: `That machine's app is too old to sign an agent in remotely`,
+            message: `That device does not declare the agent-login capability`,
           })
         }
         payload = {

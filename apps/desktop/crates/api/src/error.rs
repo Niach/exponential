@@ -88,15 +88,7 @@ impl ApiError {
     /// genuine unmergeable PR with tRPC `CONFLICT` (HTTP 409); everything
     /// else (stale base, branch protection, no GitHub App) is 412.
     pub fn is_conflict(&self) -> bool {
-        match self {
-            ApiError::Http { status: 409, .. } => true,
-            // TRANSITIONAL (EXP-533): remove once every server answers a real conflict with 409
-            ApiError::Http {
-                status: 412,
-                message,
-            } => message.contains("has merge conflicts with"),
-            _ => false,
-        }
+        matches!(self, ApiError::Http { status: 409, .. })
     }
 
     /// What a USER should read. Server messages are already user-facing and
@@ -367,8 +359,8 @@ mod tests {
             message: "Head branch changed on GitHub. Refresh and try again.".to_string(),
         }
         .is_conflict());
-        // …except the transitional sniff for a pre-EXP-533 server.
-        assert!(ApiError::Http {
+        // Not even when a 412 quotes the conflict wording.
+        assert!(!ApiError::Http {
             status: 412,
             message: "This branch has merge conflicts with main that must be resolved".to_string(),
         }
