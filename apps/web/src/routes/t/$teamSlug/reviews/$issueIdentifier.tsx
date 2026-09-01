@@ -188,6 +188,22 @@ function ReviewDetailPage() {
     ({ action: `merge` | `close` } & MergeFailure) | null
   >(null)
 
+  // A refusal describes ONE snapshot of the pull request, so it must not
+  // outlive that snapshot: a re-synced issue row (Electric echo) or a fresh
+  // file fetch drops it, and with it the "Fix conflicts" swap below. Without
+  // this a conflict resolved OUTSIDE the recovery run (a teammate rebases and
+  // pushes, GitHub recomputes mergeability) would hide Merge for the life of
+  // the open PR. A refused merge writes nothing server-side, so the echo can
+  // never race the failure that was just stored.
+  const issueUpdatedAt = issue?.updatedAt
+  useEffect(() => {
+    setActionError(null)
+  }, [issueUpdatedAt])
+  const reloadReview = useCallback(() => {
+    setActionError(null)
+    reloadFiles()
+  }, [reloadFiles])
+
   // "Fix conflicts" (EXP-323, desktop parity). Presence is fetched only once
   // an action has actually failed — opening a review must not poll for
   // desktops, but waiting for the click would open the dialog on a momentary
@@ -419,10 +435,24 @@ function ReviewDetailPage() {
 
       {/* Desktop refusal caption (EXP-333) — right under the header actions
           that produced it. EXP-706: message only; the recovery run has taken
-          the Merge button's slot above. */}
+          the Merge button's slot above — except that the swap must never be a
+          dead end, so Merge rides the caption as a quiet secondary while it
+          holds that slot. */}
       {actionError && (
         <div className="hidden flex-wrap items-center gap-2 border-b border-border px-4 py-2 md:flex">
           <span className="text-destructive text-xs">{actionError.message}</span>
+          {canFixConflicts && (
+            <Button
+              variant="ghost"
+              size="xs"
+              className="text-muted-foreground"
+              disabled={merging || closing}
+              onClick={() => setConfirmMergeOpen(true)}
+            >
+              <GitMerge className="size-3.5" />
+              Retry merge
+            </Button>
+          )}
         </div>
       )}
 
@@ -459,7 +489,7 @@ function ReviewDetailPage() {
               variant="ghost"
               size="xs"
               className="text-muted-foreground"
-              onClick={() => reloadFiles()}
+              onClick={() => reloadReview()}
             >
               <RotateCw className="size-3.5" />
               Retry
@@ -488,10 +518,24 @@ function ReviewDetailPage() {
             <div className="pointer-events-auto flex max-w-lg flex-wrap items-center justify-center gap-2 rounded-lg border border-glass-stroke-card bg-popover/85 px-3 py-2 shadow-lg shadow-black/40 backdrop-blur-xl">
               {/* EXP-706: message only — the recovery run (merge failures
                   only, and only REAL conflicts: EXP-533) has replaced the
-                  Merge pill below instead of doubling up here. */}
+                  Merge pill below instead of doubling up here. Merge is still
+                  reachable from the caption while that swap stands: the
+                  conflict may have been resolved outside the recovery run. */}
               <span className="text-destructive text-xs">
                 {actionError.message}
               </span>
+              {canFixConflicts && (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="text-muted-foreground"
+                  disabled={merging || closing}
+                  onClick={() => setConfirmMergeOpen(true)}
+                >
+                  <GitMerge className="size-3.5" />
+                  Retry merge
+                </Button>
+              )}
             </div>
           )}
           <div className="flex items-center justify-center gap-3">

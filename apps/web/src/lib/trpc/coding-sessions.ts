@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, gte, inArray, or, sql } from "drizzle-orm"
+import { and, desc, eq, gte, inArray, ne, or, sql } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import {
   CODING_SESSION_STALE_MS,
@@ -833,6 +833,13 @@ export const codingSessionsRouter = router({
       // carries no agent-written summary (only
       // `exponential_sessions_end` writes that). needsInput is cleared so a
       // row parked on a picker can't end amber.
+      //
+      // The `status <> 'ended'` predicate is the race guard: the agent's own
+      // `exponential_sessions_end` fires moments before the process exits, so
+      // the read above can see `running` while the close-out lands mid-flight.
+      // Without it this update would overwrite a real summary's `endedBy` with
+      // `client` and the parent would get BOTH a "finished" and an "ended
+      // without a report" message.
       const [session] = await ctx.db
         .update(codingSessions)
         .set({
@@ -841,8 +848,21 @@ export const codingSessionsRouter = router({
           endedBy: `client`,
           needsInput: false,
         })
-        .where(eq(codingSessions.id, input.id))
+        .where(
+          and(eq(codingSessions.id, input.id), ne(codingSessions.status, `ended`))
+        )
         .returning()
+
+      // Lost that race: the agent's close-out already ended (and reported)
+      // the run. Return its row, like the idempotent branch above.
+      if (!session) {
+        const [row] = await ctx.db
+          .select()
+          .from(codingSessions)
+          .where(eq(codingSessions.id, input.id))
+          .limit(1)
+        return { session: row }
+      }
 
       // EXP-700: a client end is an agent-started child that vanished
       // WITHOUT its close-out — tell a live parent so it is not left waiting

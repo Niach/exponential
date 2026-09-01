@@ -52,22 +52,26 @@ final class BuiltinActionsTests: XCTestCase {
         XCTAssertEqual(name.placeholder, "Name (optional)")
     }
 
-    func testChatCapabilityIsCapGated() {
-        let capable = SteerDevice(
+    /// EXP-672: a chat run needs an online machine with a runnable agent and
+    /// nothing else — the `chat` cap mirror is gone, and so is the pool it
+    /// used to shrink (the server stopped refusing on it in EXP-624).
+    func testChatNeedsOnlyAStartableMachine() {
+        let startable = SteerDevice(
             deviceId: "d-1",
             deviceLabel: "Mac",
             agents: ["claude"],
+            caps: [],
+            online: true
+        )
+        let signedOut = SteerDevice(
+            deviceId: "d-2",
+            deviceLabel: "Other Mac",
+            agents: [],
+            unauthedAgents: ["claude"],
             caps: ["actions", "action-inputs", "chat"],
             online: true
         )
-        let old = SteerDevice(
-            deviceId: "d-2",
-            deviceLabel: "Old Mac",
-            agents: ["claude"],
-            caps: ["actions", "action-inputs"],
-            online: true
-        )
-        XCTAssertTrue(capable.canChat)
-        XCTAssertFalse(old.canChat)
+        XCTAssertTrue(startable.isOnline && startable.hasRunnableAgent)
+        XCTAssertFalse(signedOut.hasRunnableAgent)
     }
 }

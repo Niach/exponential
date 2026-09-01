@@ -35,10 +35,18 @@ const UiBranchIcon = conceptIcon(`ui-branch`)
 // button REPLACES itself with "Fix conflicts" in the very same slot — the
 // same swap the Reviews list and the review detail make. Every other refusal
 // still reaches the user as a toast; nothing is swallowed.
+//
+// A refusal describes ONE snapshot of the pull request, so the swap is
+// deliberately short-lived: a newer `issueUpdatedAt` (the Electric echo of a
+// re-synced row) drops it, and while it stands a secondary "Retry merge"
+// button keeps the plain merge one click away. Without both, a conflict
+// resolved OUTSIDE the recovery run (a teammate rebases and pushes, GitHub
+// recomputes mergeability) would hide Merge for the life of the open PR.
 export function SessionMergeButton({
   prState,
   prNumber,
   issueId,
+  issueUpdatedAt,
   variant = `outline`,
   size = `icon`,
   className,
@@ -51,6 +59,11 @@ export function SessionMergeButton({
   prState: string | null
   prNumber: number | null
   issueId: string
+  /**
+   * The issue row's `updated_at`. A new value means the row was re-synced, so
+   * any stored refusal is about a stale snapshot and is dropped.
+   */
+  issueUpdatedAt?: string | Date | null
   variant?: VariantProps<typeof buttonVariants>[`variant`]
   size?: VariantProps<typeof buttonVariants>[`size`]
   className?: string
@@ -68,6 +81,10 @@ export function SessionMergeButton({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [merging, setMerging] = useState(false)
   const [failure, setFailure] = useState<MergeFailure | null>(null)
+  const stamp =
+    issueUpdatedAt instanceof Date
+      ? issueUpdatedAt.toISOString()
+      : (issueUpdatedAt ?? null)
 
   useEffect(() => {
     if (prState !== `open`) {
@@ -76,6 +93,13 @@ export function SessionMergeButton({
       setFailure(null)
     }
   }, [prState])
+
+  // A re-synced issue row supersedes the refusal captioned on the old one.
+  // (A refused merge writes nothing server-side, so this never races its own
+  // failure.)
+  useEffect(() => {
+    setFailure(null)
+  }, [stamp])
 
   if (prState !== `open`) return null
 
@@ -113,42 +137,64 @@ export function SessionMergeButton({
     }
   }
 
-  if (canFixConflicts && teamId) {
-    return (
-      <FixConflictsButton
-        issueId={issueId}
-        teamId={teamId}
-        currentUserId={currentUserId}
-        variant={variant}
-        size={size}
-        className={className}
-        label={label}
-        message={failure?.message}
-      />
-    )
-  }
+  const showFix = canFixConflicts && teamId
 
   return (
     <>
-      <Button
-        variant={variant}
-        size={size}
-        className={className}
-        disabled={merging}
-        aria-label={merging ? `Merging…` : `Merge pull request`}
-        title={merging ? `Merging…` : `Merge`}
-        onClick={(e) => {
-          e.stopPropagation()
-          setConfirmOpen(true)
-        }}
-      >
-        {merging ? (
-          <UiLoadingIcon className="animate-spin" />
-        ) : (
-          <PrMergedIcon />
-        )}
-        {label}
-      </Button>
+      {showFix ? (
+        <>
+          <FixConflictsButton
+            issueId={issueId}
+            teamId={teamId}
+            currentUserId={currentUserId}
+            variant={variant}
+            size={size}
+            className={className}
+            label={label}
+            message={failure?.message}
+          />
+          {/* The swap must never be a dead end: the conflict may have been
+              resolved outside the recovery run, so Merge stays one click
+              away as a quiet secondary. */}
+          <Button
+            variant="ghost"
+            size="icon"
+            disabled={merging}
+            aria-label={merging ? `Merging…` : `Retry merge`}
+            title={merging ? `Merging…` : `Retry merge`}
+            onClick={(e) => {
+              e.stopPropagation()
+              setConfirmOpen(true)
+            }}
+          >
+            {merging ? (
+              <UiLoadingIcon className="animate-spin" />
+            ) : (
+              <PrMergedIcon />
+            )}
+          </Button>
+        </>
+      ) : (
+        <Button
+          variant={variant}
+          size={size}
+          className={className}
+          disabled={merging}
+          aria-label={merging ? `Merging…` : `Merge pull request`}
+          title={merging ? `Merging…` : `Merge`}
+          onClick={(e) => {
+            e.stopPropagation()
+            setConfirmOpen(true)
+          }}
+        >
+          {merging ? (
+            <UiLoadingIcon className="animate-spin" />
+          ) : (
+            <PrMergedIcon />
+          )}
+          {label}
+        </Button>
+      )}
       <Dialog
         open={confirmOpen}
         onOpenChange={(next) => {

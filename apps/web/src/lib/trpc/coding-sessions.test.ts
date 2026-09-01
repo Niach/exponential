@@ -53,6 +53,10 @@ const updates: { table: unknown; values: Record<string, unknown> }[] = []
 // status fence, so tests assert its SHAPE instead (EXP-531: a needs_input
 // `true` write is fenced to `running` rows only).
 const updateWheres: unknown[] = []
+// Queued rows for successive update(...).returning() calls; empty = the
+// default single row. Lets a test model a conditional update that matched
+// NOTHING (EXP-700: `end` racing the agent's own close-out).
+const updateResults: unknown[][] = []
 // Queued results for successive db.select(...).limit(1) calls (heartbeat
 // reads the session row, then — on the issue-scoped re-create — the issue).
 const selectResults: unknown[][] = []
@@ -108,7 +112,7 @@ const fakeDb = {
         returning: async () => {
           updates.push({ table, values })
           updateWheres.push(cond)
-          return [{ id: SESSION_ID }]
+          return updateResults.shift() ?? [{ id: SESSION_ID }]
         },
       }),
     }),
@@ -132,6 +136,7 @@ beforeEach(() => {
   inserts.length = 0
   updates.length = 0
   updateWheres.length = 0
+  updateResults.length = 0
   selectResults.length = 0
   selectWheres.length = 0
   h.assertTeamMember.mockClear()
@@ -1441,6 +1446,13 @@ describe(`codingSessions.end — endedBy stamp (EXP-637)`, () => {
       needsInput: false,
     })
     expect(`summary` in updates[0]!.values).toBe(false)
+    // The write is fenced to a still-live row (see the race case below).
+    expect(whereShape(updateWheres[0])).toEqual([
+      `col:id`,
+      SESSION_ID,
+      `col:status`,
+      `ended`,
+    ])
     // EXP-700: a vanished agent-started child must not leave its parent
     // waiting — the (internally best-effort) notify runs on every real end.
     expect(notifyParentOfChildEnd).toHaveBeenCalledWith(
@@ -1448,6 +1460,26 @@ describe(`codingSessions.end — endedBy stamp (EXP-637)`, () => {
       SESSION_ID,
       { summary: null, endedBy: `client` }
     )
+  })
+
+  // EXP-700: the agent's own `exponential_sessions_end` fires moments before
+  // the process exits, so the read above can still see `running` while the
+  // close-out commits. The fenced update then matches nothing: the row keeps
+  // its summary and `endedBy: agent`, and the parent is told once (by the
+  // close-out), never a second "ended without a report (client)".
+  it(`leaves a close-out that won the race alone and does not re-notify`, async () => {
+    selectResults.push([
+      { id: SESSION_ID, userId: `actor`, hostUserId: null, status: `running` },
+    ])
+    updateResults.push([])
+    selectResults.push([
+      { id: SESSION_ID, status: `ended`, endedBy: `agent`, summary: `Done.` },
+    ])
+
+    const result = await caller.end({ id: SESSION_ID })
+
+    expect(result.session).toMatchObject({ endedBy: `agent`, summary: `Done.` })
+    expect(notifyParentOfChildEnd).not.toHaveBeenCalled()
   })
 
   it(`leaves an already-ended row alone`, async () => {

@@ -20,8 +20,8 @@ import SwiftUI
 // `exponential_automations_create`.
 struct CreateActionSheet: View {
     let teamId: String
-    /// Machines a builtin action run can be sent to (online, runnable,
-    /// `actions` + `action-inputs`).
+    /// Machines a builtin action run can be sent to (online with a runnable
+    /// agent — EXP-672 dropped the action capability filters).
     let devices: [SteerDevice]
     /// Automation-capable machines (cap `automations`), OFFLINE INCLUDED —
     /// the automation binds independently of whatever machine runs the
@@ -262,7 +262,7 @@ struct CreateActionSheet: View {
     // MARK: - Devices
 
     private var noDeviceNote: String {
-        "No actions-capable desktop online. Open (or update) the Exponential desktop app."
+        "No desktop online. Open the Exponential desktop app to start a run."
     }
 
     private var deviceBinding: Binding<String> {

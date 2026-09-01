@@ -1,5 +1,10 @@
 - Todo y Backlog ahora son una sola lista: todo lo que estaba en Todo vive en Backlog
 - Las hojas y los menús comparten un estilo uniforme en toda la app
 - El editor conserva tus líneas en blanco intencionales, idénticas en todas las plataformas
-- Uso muestra los límites del agente que ejecuta tu sesión
 - Los agentes siempre se ejecutan sin solicitudes de permisos; el ajuste ha desaparecido
+- Un solo selector de agente: agente, modelo, esfuerzo, modo plan, cuenta y uso en una única tarjeta
+- Acciones: crea y edita acciones con sus entradas directamente en tu teléfono
+- Reviews: nueva lista y diff de PR con tarjetas por archivo; «Resolver conflictos de merge» sustituye a «Merge» cuando un merge encuentra un conflicto
+- Las insignias de navegación son puntos: Inbox y Soporte con no leídos, Dispositivos mientras hay una ejecución activa, Reviews mientras una PR está abierta
+- Dirección: los planes ya no se cortan ni se muestran dos veces, y una sesión terminada cierra su vista
+- Iniciar una ejecución en una máquina sin conexión se rechaza de inmediato en lugar de ponerse en cola en silencio

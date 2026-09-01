@@ -1,5 +1,10 @@
 - Todo and Backlog are now one list: everything that sat in Todo lives in Backlog
 - Sheets and menus share one uniform look across the app
 - The editor keeps your intentional blank lines, identically on every platform
-- Usage shows the limits of the agent that runs your session
 - Agents always run without permission prompts; the toggle is gone
+- One agent picker: agent, model, effort, plan mode, account and usage in a single card
+- Actions: create and edit actions with their inputs right on your phone
+- Reviews: a new list and PR diff with per-file cards; Fix merge conflicts replaces Merge when a merge hits a conflict
+- Navigation badges are dots: Inbox and Support on unread, Devices while a run is live, Reviews while a PR is open
+- Steering: plans are no longer cut off or shown twice, and a finished session closes its view
+- Starting a run on an offline machine is refused right away instead of being silently queued

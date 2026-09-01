@@ -44,6 +44,7 @@ import { startDeviceCodeSweepScheduler } from "@/lib/device-code-sweep"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startBoardTrashScheduler } from "@/lib/board-trash"
 import { startCodingSessionSweepScheduler } from "@/lib/coding-session-sweep"
+import { startSessionAttachmentSweepScheduler } from "@/lib/session-attachment-sweep"
 import {
   captureLanding,
   captureReturnVisit,
@@ -81,6 +82,12 @@ startBoardTrashScheduler()
 // the staleness window — a crashed desktop never fires its exit hook, and the
 // orphaned row would otherwise pin a phantom "coding now" badge forever.
 startCodingSessionSweepScheduler()
+
+// Steer images (EXP-702): periodic reclaim of session_attachments rows whose
+// session row is gone (session_id SET NULL) and that have aged past the
+// grace window — unreachable bytes that would otherwise count against the
+// team's storage budget forever, with no delete UI.
+startSessionAttachmentSweepScheduler()
 
 // FCM tokens: periodic sweep deleting token rows not re-registered within the
 // staleness window — the server-side backstop for sign-outs whose best-effort

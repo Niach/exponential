@@ -1,5 +1,10 @@
 - Todo i Backlog to teraz jedna lista: wszystko z Todo znajduje się w Backlogu
 - Arkusze i menu mają jednolity wygląd w całej aplikacji
 - Edytor zachowuje celowe puste wiersze, identycznie na każdej platformie
-- Użycie pokazuje limity agenta, który wykonuje Twoją sesję
 - Agenci zawsze działają bez próśb o uprawnienia; przełącznik zniknął
+- Jeden wybór agenta: agent, model, wysiłek, tryb planu, konto i użycie na jednej karcie
+- Akcje: twórz i edytuj akcje wraz z ich wejściami bezpośrednio na telefonie
+- Reviews: nowa lista i diff PR z kartami per plik; „Rozwiąż konflikty merge” zastępuje „Merge”, gdy merge napotka konflikt
+- Plakietki nawigacji to kropki: Skrzynka i Wsparcie przy nieprzeczytanych, Urządzenia gdy trwa uruchomienie, Reviews gdy PR jest otwarty
+- Sterowanie: plany nie są już ucinane ani pokazywane dwukrotnie, a zakończona sesja zamyka swój widok
+- Uruchomienie na maszynie offline jest odrzucane od razu zamiast cicho trafiać do kolejki

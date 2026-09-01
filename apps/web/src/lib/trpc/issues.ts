@@ -1136,15 +1136,28 @@ export const issuesRouter = router({
   // Bulk delete for the multi-select action bar. Same gates as bulkUpdate
   // (write == delete == membership); attachment blobs are reclaimed from S3
   // after commit like the single delete.
-  // EXP-707: `issueIds` (was `ids`) — hard rename, desktop + web only.
+  // EXP-707: `issueIds` (was `ids`) — `ids` stays a TRANSITIONAL alias
+  // (exactly one of the two, normalized here) like bulkUpdate's; remove once
+  // desktop min >= 0.14.29 (EXP-707 rename; desktop 0.14.28 sends the old
+  // key).
   bulkDelete: authedProcedure
-    .input(z.object({ issueIds: z.array(z.string().uuid()).min(1).max(200) }))
+    .input(
+      z
+        .object({
+          issueIds: z.array(z.string().uuid()).min(1).max(200).optional(),
+          ids: z.array(z.string().uuid()).min(1).max(200).optional(),
+        })
+        .refine((i) => (i.issueIds === undefined) !== (i.ids === undefined), {
+          message: `Pass issueIds (or the deprecated ids), not both`,
+        })
+    )
     .mutation(async ({ ctx, input }) => {
+      const issueIds = (input.issueIds ?? input.ids)!
       const eligible = await ctx.db
         .select({ id: issues.id, teamId: boards.teamId })
         .from(issues)
         .innerJoin(boards, eq(issues.boardId, boards.id))
-        .where(and(inArray(issues.id, input.issueIds), boardVisible()))
+        .where(and(inArray(issues.id, issueIds), boardVisible()))
 
       if (eligible.length === 0) {
         throw new TRPCError({

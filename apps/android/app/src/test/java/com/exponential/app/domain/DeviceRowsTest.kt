@@ -23,7 +23,7 @@ class DeviceRowsTest {
             label = "buildbox",
             kind = "server",
             agents = """["claude","codex"]""",
-            caps = """["actions","resume","worktrees","launch-defaults"]""",
+            caps = """["resume-run","automations","worktrees","launch-defaults"]""",
             unauthedAgents = """["pi"]""",
             launchDefaults = """{"defaultAgent":"codex","agents":{"codex":{"model":""}}}""",
             activeSessions = 1,
@@ -81,7 +81,7 @@ class DeviceRowsTest {
         assertTrue(device.registered)
         assertEquals(listOf("claude", "codex"), device.agents)
         assertEquals(listOf("pi"), device.unauthedAgents)
-        assertTrue(device.canResume)
+        assertTrue(device.canResumeRun)
         assertEquals("codex", device.launchDefaults?.defaultAgent)
         // updateRequested + activeSessions > 0 = blocked ("Update queued").
         assertTrue(device.updateRequested)

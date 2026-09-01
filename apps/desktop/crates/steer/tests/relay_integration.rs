@@ -8,8 +8,8 @@
 //! contract), then drives the production publisher/control-channel machinery
 //! plus a fake phone-viewer socket through the frozen protocol:
 //!
-//! * control `online` → device shows in the admin `GET /devices/:userId` →
-//!   `POST /start` routes `start_session` down our socket (§8.3);
+//! * control `online` → `POST /devices/:userId/:deviceId/nudge` reaches our
+//!   socket → `POST /start` routes `start_session` down it (§8.3);
 //! * publisher `hello` → the EXP-249 history re-publish (`activity_reset` +
 //!   the journal) → a viewer joining `channel:'activity'` gets its own reset +
 //!   the relay-side replay, then the live tail;
@@ -446,22 +446,20 @@ fn full_protocol_flow_against_the_real_relay() {
         Arc::new(move || checked_in_clone.store(true, Ordering::SeqCst)),
     );
 
-    // The device appears in the phone picker's backing endpoint.
-    wait_for("device presence", || {
-        http_request(relay.port, "GET", "/devices/user-int", &[("x-relay-secret", SECRET)], None)
-            .is_some_and(|body| body.contains("device-int-1") && body.contains("IntTestBox"))
+    // EXP-481: the check-in nudge rides the same control socket. EXP-672
+    // removed the outbound presence listing, so `delivered:true` here IS the
+    // presence assertion: the relay only reports a delivery once the `online`
+    // frame registered the device in its deviceId → socket map.
+    wait_for("device presence (nudge delivered)", || {
+        http_request(
+            relay.port,
+            "POST",
+            "/devices/user-int/device-int-1/nudge",
+            &[("x-relay-secret", SECRET)],
+            None,
+        )
+        .is_some_and(|body| body.contains("\"delivered\":true"))
     });
-
-    // EXP-481: the check-in nudge rides the same control socket.
-    let response = http_request(
-        relay.port,
-        "POST",
-        "/devices/user-int/device-int-1/nudge",
-        &[("x-relay-secret", SECRET)],
-        None,
-    )
-    .expect("POST nudge");
-    assert!(response.contains("\"delivered\":true"), "nudge delivered: {response}");
     wait_for("check_in delivery", || checked_in.load(Ordering::SeqCst));
 
     // Remote "Start on my desktop" → start_session lands on our socket.

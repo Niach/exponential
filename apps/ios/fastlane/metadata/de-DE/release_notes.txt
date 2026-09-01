@@ -1,5 +1,10 @@
 - Todo und Backlog sind jetzt eine Liste: alles aus Todo liegt nun im Backlog
 - Sheets und Menüs haben ein einheitliches Erscheinungsbild in der ganzen App
 - Der Editor erhält deine bewussten Leerzeilen, identisch auf jeder Plattform
-- „Nutzung“ zeigt die Limits des Agents, der deine Session ausführt
 - Agents laufen immer ohne Berechtigungsabfragen; der Schalter ist weg
+- Ein Agent-Picker: Agent, Modell, Aufwand, Planmodus, Konto und Nutzung in einer einzigen Karte
+- Actions: Actions samt Eingaben direkt am Handy erstellen und bearbeiten
+- Reviews: neue Liste und PR-Diff mit Karten pro Datei; „Merge-Konflikte beheben“ ersetzt „Merge“, wenn ein Merge auf einen Konflikt trifft
+- Navigations-Badges sind Punkte: Inbox und Support bei Ungelesenem, Geräte während ein Lauf aktiv ist, Reviews solange ein PR offen ist
+- Steuerung: Pläne werden nicht mehr abgeschnitten oder doppelt angezeigt, und eine beendete Session schließt ihre Ansicht
+- Ein Lauf auf einem Offline-Gerät wird sofort abgelehnt statt still in die Warteschlange gestellt

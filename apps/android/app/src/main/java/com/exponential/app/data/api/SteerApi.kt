@@ -228,37 +228,13 @@ data class SteerDevice(
      */
     val hasRunnableAgent: Boolean get() = runnableAgents.isNotEmpty()
 
-    /** Whether this desktop can run team actions (EXP-253). */
-    val canRunActions: Boolean get() = caps?.contains("actions") == true
-
-    /**
-     * Whether this desktop understands typed action inputs + the builtin
-     * "Create action" run (EXP-257) — required IN ADDITION to [canRunActions]
-     * for builtin or inputs-carrying runs.
-     */
-    val canRunActionInputs: Boolean get() = caps?.contains("action-inputs") == true
-
-    /**
-     * Whether this desktop can run the builtin "Fix merge conflicts" action
-     * (EXP-259). The server rejects that builtin without the cap, so pickers
-     * filter such desktops out instead of failing after submit (EXP-323).
-     */
-    val canFixConflicts: Boolean get() = caps?.contains("fix-conflicts") == true
-
-    /**
-     * Whether this desktop can run the hidden "Chat" builtin (EXP-615) — a
-     * free-prompt session on a repository's trunk clone. Cap-gated like
-     * fix-conflicts: an older build would treat the id as a real action and
-     * fail its fetch, so the Chat tab filters such desktops out.
-     */
-    val canChat: Boolean get() = caps?.contains("chat") == true
-
-    /**
-     * Whether this machine honors `resume` on a remote start (EXP-481).
-     * Strictly cap-gated like actions — an old build would silently drop the
-     * flag and start fresh, which reads as losing the session.
-     */
-    val canResume: Boolean get() = caps?.contains("resume") == true
+    // EXP-672: the `actions` / `action-inputs` / `fix-conflicts` / `chat` /
+    // `resume` mirrors are GONE. Every desktop and CLI above the version floor
+    // advertises all five whenever it advertises a runnable agent, and the
+    // server stopped refusing on them (EXP-624/EXP-639) — the mirrors gated on
+    // nothing and only made the pickers lie ("update the desktop app") when the
+    // real reason was that no machine was online. What remains here mirrors a
+    // gate the server still applies.
 
     /**
      * EXP-637: whether this machine can RESUME an ended action/chat run — it
@@ -335,8 +311,7 @@ data class SteerStartOptions(
     /**
      * EXP-481: resume the issue's existing worktree/agent session instead of
      * starting fresh. Single-issue starts only (the server rejects it on
-     * batch/action forms), gated on [SteerDevice.canResume]; the batch and
-     * action inputs simply never carry it.
+     * batch/action forms); the batch and action inputs simply never carry it.
      */
     val resume: Boolean? = null,
 )
@@ -511,10 +486,10 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
 
     /**
      * `steer.startSession` action form (EXP-253/EXP-257) — remote-run the
-     * team action [actionId] on the picked online machine, which must
-     * advertise the `actions` capability ([SteerDevice.canRunActions]; plus
-     * `action-inputs` for builtin/inputs-carrying runs — the server enforces
-     * both). [options] rides with the same per-agent vocabulary as the issue
+     * team action [actionId] on the picked machine: an online machine with a
+     * runnable agent is the whole requirement (EXP-672: the action capability
+     * refusals are gone server-side, the agent check is the one that
+     * remains). [options] rides with the same per-agent vocabulary as the issue
      * forms; [teamId] must be passed ONLY for the builtin "Create action" id;
      * [inputs] are the filled input values keyed by def key. Same endpoint +
      * error mapping as the issue forms.

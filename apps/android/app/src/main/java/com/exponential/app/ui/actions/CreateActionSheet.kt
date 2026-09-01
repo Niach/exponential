@@ -113,12 +113,10 @@ fun CreateActionSheet(
     }
 
     // ── The creator run's machine + options (EXP-437 seeding) ────────────────
-    // The create builtin carries inputs, so its machine needs `action-inputs`
-    // on top of `actions`.
+    // EXP-672: online with a runnable agent is the whole rule — every build
+    // above the version floor runs the builtin.
     val candidates = remember(devices) {
-        devices.filter {
-            it.online && it.hasRunnableAgent && it.canRunActions && it.canRunActionInputs
-        }
+        devices.filter { it.online && it.hasRunnableAgent }
     }
     val initialDevice = remember {
         // EXP-622: the caller's default machine, else the first candidate.
@@ -311,8 +309,8 @@ fun CreateActionSheet(
                 onModelChange = { model = it },
                 effort = effort,
                 onEffortChange = { effort = it },
-                noDeviceNote = "No capable desktop online. This action needs a desktop " +
-                    "app new enough to run action inputs.",
+                noDeviceNote = "No desktop online. Open the Exponential desktop app " +
+                    "to start a run.",
                 ultracode = ultracode,
                 onUltracodeChange = { ultracode = it },
                 planMode = planMode,

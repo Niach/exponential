@@ -1,5 +1,10 @@
 - Todo i Backlog sada su jedna lista: sve iz Todo sada je u Backlogu
 - Listovi i izbornici dijele jedinstven izgled u cijeloj aplikaciji
 - Uređivač čuva vaše namjerne prazne retke, identično na svakoj platformi
-- Korištenje prikazuje limite agenta koji izvodi vašu sesiju
 - Agenti se uvijek izvode bez upita za dozvole; prekidač je uklonjen
+- Jedan odabir agenta: agent, model, trud, način plana, račun i potrošnja na jednoj kartici
+- Akcije: stvarajte i uređujte akcije s njihovim ulazima izravno na telefonu
+- Reviews: novi popis i diff PR-a s karticama po datoteci; „Riješi merge konflikte“ zamjenjuje „Merge“ kad merge naiđe na konflikt
+- Navigacijske oznake su točke: Inbox i Podrška kod nepročitanog, Uređaji dok traje izvođenje, Reviews dok je PR otvoren
+- Upravljanje: planovi se više ne režu niti prikazuju dvaput, a završena sesija zatvara svoj prikaz
+- Pokretanje na stroju koji je offline odbija se odmah umjesto da se tiho stavi u red

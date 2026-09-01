@@ -92,9 +92,9 @@ import com.exponential.app.ui.theme.TextEmphasis
 // for the selected action (text / repo / board / pr / icon), and the Chat tab
 // (EXP-615) is a free prompt on a repository, riding the hidden
 // [builtinChatAction] over the same action rails. All three share the SAME
-// device / agent / model / effort / toggle block (LaunchOptionsSection);
-// devices are filtered per tab (`actions` + `action-inputs` for action runs,
-// plus `chat` for the Chat tab).
+// device / agent / model / effort / toggle block (LaunchOptionsSection), and
+// since EXP-672 the SAME device pool: online with a runnable agent, no
+// per-subject capability filters.
 // EXP-437: the sheet keeps NO last-used state of its own — the picked machine
 // is the single seed source. Every option is pre-filled from the launch
 // defaults that machine advertises for the chosen agent (validated against the
@@ -253,15 +253,10 @@ fun StartCodingSheet(
     }
     val selectedAction = orderedActions?.firstOrNull { it.id == selectedActionId }
     val selectedActionInputs = selectedAction?.inputs.orEmpty()
-    // Builtin or inputs-carrying runs additionally need the `action-inputs`
-    // device cap; an input type this build doesn't know blocks the run (the
-    // desktop would render the prompt without it otherwise).
-    val needsInputCap = selectedAction != null &&
-        (selectedAction.isBuiltin || selectedActionInputs.isNotEmpty())
+    // An input type this build doesn't know blocks the run (the desktop would
+    // render the prompt without it otherwise).
     val hasUnknownInputType =
         selectedActionInputs.any { it.type !in DomainContract.actionInputTypeValues }
-    // The "Fix merge conflicts" builtin needs its own cap on top (EXP-259).
-    val needsFixConflictsCap = selectedAction?.id == DomainContract.builtinFixConflictsId
 
     // Pre-pick the target PR (EXP-323). The seed is normalised through
     // `optionForIssue` because the caller's issue is rarely the option's
@@ -303,34 +298,22 @@ fun StartCodingSheet(
                 ?: startable.firstOrNull()?.deviceId,
         )
     }
-    // Per-tab device candidates: issues take any desktop; actions need the
-    // `actions` cap (+ `action-inputs` when the selection demands it, +
-    // `fix-conflicts` for that builtin); chat rides the action rails with its
-    // own `chat` cap on top (EXP-615). A deviceId outside the current
-    // candidates re-settles on the first one without clobbering the stored
-    // choice for the other tabs.
-    val deviceCandidates = when (subjectTab) {
-        SubjectTab.Actions -> startable.filter {
-            it.canRunActions &&
-                (!needsInputCap || it.canRunActionInputs) &&
-                (!needsFixConflictsCap || it.canFixConflicts)
-        }
-        SubjectTab.Chat -> startable.filter {
-            it.canRunActions && it.canRunActionInputs && it.canChat
-        }
-        SubjectTab.Issues -> startable
-    }
-    val device = deviceCandidates.firstOrNull { it.deviceId == deviceId }
-        ?: deviceCandidates.firstOrNull { it.isDefault }
-        ?: deviceCandidates.firstOrNull()
+    // EXP-672: every subject shares ONE device pool — online with a runnable
+    // agent. The per-subject capability filters (`actions`, `action-inputs`,
+    // `fix-conflicts`, `chat`) are gone: every build above the version floor
+    // advertises them all, and the server refuses only on the agent.
+    val device = startable.firstOrNull { it.deviceId == deviceId }
+        ?: startable.firstOrNull { it.isDefault }
+        ?: startable.firstOrNull()
     val availableAgents = availableAgentsFor(device)
 
     // ── Remote resume (EXP-481) ─────────────────────────────────────────────
-    // Offerable iff exactly ONE issue is checked, the machine honors the flag
-    // (cap-gated — an old build would silently start fresh), and a synced
-    // worktree row matches this issue + agent. The state starts ON and a
-    // manual flip persists for the sheet's lifetime; a stale row degrades
-    // device-side (fresh session seeded with a resume prompt).
+    // Offerable iff exactly ONE issue is checked and a synced worktree row
+    // matches this issue + agent — EXP-672 dropped the `resume` cap check: a
+    // machine that reports a worktree for the issue honors the flag by
+    // construction (the inventory and the launcher ship together). The state
+    // starts ON and a manual flip persists for the sheet's lifetime; a stale
+    // row degrades device-side (fresh session seeded with a resume prompt).
     var resume by remember { mutableStateOf(true) }
 
     // Every option follows the agent: the per-agent model/effort vocabularies
@@ -414,7 +397,7 @@ fun StartCodingSheet(
     val deviceRowId = device?.rowId
         ?: syncedDeviceRows.firstOrNull { it.deviceId == device?.deviceId }?.id
     val resumeCandidate = if (
-        subjectTab == SubjectTab.Issues && checkedCount == 1 && device?.canResume == true
+        subjectTab == SubjectTab.Issues && checkedCount == 1 && device != null
     ) {
         resumeWorktreeFor(
             deviceWorktrees,
@@ -429,8 +412,8 @@ fun StartCodingSheet(
     val multiRepo = checkedCount >= 1 && repoIds.size > 1
     val tooMany = checkedCount > MAX_BATCH_ISSUES
     val canStart = device != null && checkedCount in 1..MAX_BATCH_ISSUES && !multiRepo
-    // Actions-tab launch gate: a settled capable desktop, a selection, no
-    // unknown input types, and every required input filled.
+    // Actions-tab launch gate: a settled desktop, a selection, no unknown
+    // input types, and every required input filled.
     val requiredInputsFilled = selectedActionInputs
         .filter { it.required }
         .all { !inputValues[it.key].isNullOrBlank() }
@@ -845,13 +828,13 @@ fun StartCodingSheet(
             // when none does (web launch-dialog wording).
             LaunchOptionsSection(
                 variant = LaunchOptionsVariant.Launch,
-                devices = deviceCandidates,
+                devices = startable,
                 device = device,
                 onDeviceChange = { id ->
                     deviceId = id
                     // The new desktop may not run the current agent —
                     // fall back to its first available one.
-                    val candidate = deviceCandidates.firstOrNull { it.deviceId == id }
+                    val candidate = startable.firstOrNull { it.deviceId == id }
                     val available = availableAgentsFor(candidate)
                     if (agent !in available) {
                         selectAgent(available.firstOrNull() ?: DEFAULT_AGENT)
@@ -864,22 +847,14 @@ fun StartCodingSheet(
                 onModelChange = { model = it },
                 effort = effort,
                 onEffortChange = { effort = it },
+                // EXP-672: the capability wordings are gone — with the cap
+                // filters removed an empty pool only ever means "no machine
+                // online", so "update the desktop app" named the wrong problem.
                 noDeviceNote = when (subjectTab) {
-                    SubjectTab.Actions -> when {
-                        needsFixConflictsCap ->
-                            "No desktop can fix merge conflicts yet. " +
-                                "Update the Exponential desktop app."
-                        needsInputCap ->
-                            "No capable desktop online. This action needs a desktop " +
-                                "app new enough to run action inputs."
-                        else ->
-                            "No actions-capable desktop online. Open (or update) the " +
-                                "Exponential desktop app."
-                    }
-                    SubjectTab.Chat ->
-                        "No chat-capable device online. Update the Exponential desktop app."
                     SubjectTab.Issues ->
                         "No desktop online. Open the Exponential desktop app to start coding."
+                    SubjectTab.Actions, SubjectTab.Chat ->
+                        "No desktop online. Open the Exponential desktop app to start a run."
                 },
                 ultracode = ultracode,
                 onUltracodeChange = { ultracode = it },
@@ -888,8 +863,8 @@ fun StartCodingSheet(
                 planModeHidden = resumeOn,
                 // ── Resume (EXP-481) ─────────────────────────────────────
                 // Offered only when a synced worktree row matches the
-                // single checked issue + agent on a resume-capable
-                // machine; the caption names the worktree so "why is this
+                // single checked issue + agent on the settled machine; the
+                // caption names the worktree so "why is this
                 // offered" is answerable at a glance (desktop copy).
                 // EXP-694: bare rows — the section renders them inside the
                 // agent card, so this must not open a group of its own.

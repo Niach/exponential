@@ -1,5 +1,10 @@
 - Todo și Backlog sunt acum o singură listă: tot ce era în Todo se află acum în Backlog
 - Foile și meniurile au un aspect uniform în toată aplicația
 - Editorul păstrează liniile goale intenționate, identic pe fiecare platformă
-- Utilizarea arată limitele agentului care rulează sesiunea ta
 - Agenții rulează întotdeauna fără întrebări de permisiuni; comutatorul a dispărut
+- Un singur selector de agent: agent, model, efort, mod plan, cont și utilizare într-un singur card
+- Acțiuni: creează și editează acțiuni cu intrările lor direct pe telefon
+- Reviews: listă nouă și diff de PR cu carduri per fișier; „Rezolvă conflictele de merge” înlocuiește „Merge” când un merge întâlnește un conflict
+- Insignele de navigare sunt puncte: Inbox și Suport la necitite, Dispozitive cât timp rulează o execuție, Reviews cât timp un PR este deschis
+- Ghidare: planurile nu mai sunt tăiate sau afișate de două ori, iar o sesiune încheiată își închide vizualizarea
+- Pornirea unei execuții pe o mașină offline este refuzată imediat în loc să fie pusă tăcut în coadă

@@ -17,11 +17,12 @@ import { z } from "zod"
 export const onlineFrame = z.object({
   t: z.literal(`online`),
   deviceId: z.string().min(1).max(128),
-  deviceLabel: z.string().max(255).optional(),
-  // EXP-253: feature capabilities (`actions`). The relay is a dumb pipe, and
-  // these ride along for presence listings only — the web server gates starts
-  // on the persisted `devices` row.
-  caps: z.array(z.string().min(1).max(32)).max(16).optional(),
+  // EXP-672: presence is the deviceId → socket map and nothing more. Shipped
+  // desktops and daemons (0.14.28 and older) still put `deviceLabel` and the
+  // EXP-253 `caps` array in this frame; non-strict parsing drops them, and it
+  // MUST stay that way — a `.strict()` schema here would fail the parse and
+  // the device would silently go dark. Starts were always gated on the
+  // persisted `devices` row, never on what rode the online frame.
 })
 
 export const helloFrame = z.object({

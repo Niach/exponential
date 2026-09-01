@@ -4,16 +4,11 @@
 // the row carries it to every runs list on every client. (EXP-686 dropped the
 // self-reported outcome: the summary is the report.)
 //
-// EXP-673: the close-out ENDS the row only for a run an automation started
-// (`started_reason` set — nobody is watching that tab). A run a person
-// started (issue, batch, action or chat) records the summary and STAYS live,
-// so the person can keep talking to the agent; it ends when they close the
-// tab, kill it, or its PR merges — and the summary rides along.
-//
-// EXP-679: the tool is now REGISTERED only for an unattended run (see
-// lib/mcp/gates.ts), so a person-started run should never reach this path at
-// all. The kept-open branch stays as defence in depth — a stale client, a
-// resumed transcript or a hand-rolled caller still gets the safe behaviour.
+// EXP-673/EXP-679: the close-out ENDS the row, and only an UNATTENDED run
+// (`started_reason` set — nobody is watching that tab) ever gets here: the
+// tool is REGISTERED per request off exactly that row (lib/mcp/gates.ts), so
+// a person-started run — which keeps talking until the human closes the tab,
+// kills it, or its PR merges — is never offered it.
 //
 // It lives outside `lib/trpc/coding-sessions.ts` on purpose: the MCP tool
 // tests mock this one module instead of the whole session router.
@@ -30,14 +25,11 @@ export interface AgentEndResult {
   status: string
   /** The row was already `ended` — the earlier close-out is preserved. */
   alreadyEnded: boolean
-  /** EXP-673: a person started this run, so the close-out was recorded but
-   * the session stays live for their follow-ups. */
-  keptOpen: boolean
 }
 
 /**
- * Record `sessionId`'s close-out as the agent's own report, and END the run
- * only when an automation started it (EXP-673). Owner-OR-HOST like the rest
+ * Record `sessionId`'s close-out as the agent's own report and END the run.
+ * Owner-OR-HOST like the rest
  * of the session procedures (EXP-432: a shared-device run is requester-owned
  * while the hosting daemon operates it), and idempotent — an already-ended
  * row keeps whatever summary it has, so a retried tool call never blanks a
@@ -55,7 +47,6 @@ export async function endSessionByAgent(
       userId: codingSessions.userId,
       hostUserId: codingSessions.hostUserId,
       status: codingSessions.status,
-      startedReason: codingSessions.startedReason,
     })
     .from(codingSessions)
     .where(eq(codingSessions.id, sessionId))
@@ -79,41 +70,23 @@ export async function endSessionByAgent(
       sessionId,
       status: `ended`,
       alreadyEnded: true,
-      keptOpen: false,
     }
   }
 
-  // EXP-673: only an unattended run is really over once the agent says so.
-  // A person-started run keeps its status — they may answer. EXP-679 widens
-  // "unattended" beyond schedule/event: `agent` (started by another coding
-  // session through `exponential_sessions_start`) has no human at the tab
-  // either, so the same non-null test covers it.
-  const automated = existing.startedReason !== null
-
   // Status-conditioned so a close-out racing a kill can never resurrect the
   // row (nor stamp a summary onto one that was just killed). needsInput is
-  // cleared on the ending path: a run that just declared itself finished is
-  // not waiting on a human. The kept-open path leaves it alone — the idle
-  // nudge that follows the agent's last turn is exactly "your turn now", and
-  // since EXP-679 the server takes that flag in `in_review` too, so the nudge
-  // actually lands on a run parked behind its own PR.
+  // cleared: a run that just declared itself finished is not waiting on a
+  // human.
   const [session] = await db
     .update(codingSessions)
-    .set(
-      automated
-        ? {
-            status: `ended`,
-            endedAt: new Date(),
-            endedBy: `agent`,
-            summary: close.summary,
-            needsInput: false,
-            updatedAt: new Date(),
-          }
-        : {
-            summary: close.summary,
-            updatedAt: new Date(),
-          }
-    )
+    .set({
+      status: `ended`,
+      endedAt: new Date(),
+      endedBy: `agent`,
+      summary: close.summary,
+      needsInput: false,
+      updatedAt: new Date(),
+    })
     .where(
       and(
         eq(codingSessions.id, sessionId),
@@ -132,7 +105,6 @@ export async function endSessionByAgent(
       sessionId,
       status: `ended`,
       alreadyEnded: true,
-      keptOpen: false,
     }
   }
 
@@ -140,6 +112,5 @@ export async function endSessionByAgent(
     sessionId: session.id,
     status: session.status,
     alreadyEnded: false,
-    keptOpen: !automated,
   }
 }

@@ -1,5 +1,10 @@
 - Todo e Backlog são agora uma única lista: tudo o que estava em Todo vive no Backlog
 - As folhas e os menus partilham um estilo uniforme em toda a app
 - O editor mantém as suas linhas em branco intencionais, de forma idêntica em todas as plataformas
-- A utilização mostra os limites do agente que executa a sua sessão
 - Os agentes correm sempre sem pedidos de permissão; o interruptor desapareceu
+- Um único seletor de agente: agente, modelo, esforço, modo de plano, conta e utilização num só cartão
+- Ações: crie e edite ações com as suas entradas diretamente no telemóvel
+- Reviews: nova lista e diff de PR com cartões por ficheiro; «Resolver conflitos de merge» substitui «Merge» quando um merge encontra um conflito
+- Os emblemas de navegação são pontos: Inbox e Suporte com não lidos, Dispositivos enquanto uma execução está ativa, Reviews enquanto uma PR está aberta
+- Orientação: os planos já não são cortados nem mostrados duas vezes, e uma sessão terminada fecha a sua vista
+- Iniciar uma execução numa máquina offline é recusado de imediato em vez de ficar silenciosamente em fila

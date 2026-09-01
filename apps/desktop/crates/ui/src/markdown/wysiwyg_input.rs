@@ -543,17 +543,21 @@ fn normalize_hard_breaks(markdown: &str) -> Cow<'_, str> {
             fresh = false;
             continue;
         }
+        let next = lines.get(index + 1).copied();
         if fresh {
-            breakable = !opens_unbreakable_block(line);
+            breakable = !opens_unbreakable_block(line, next);
             fresh = false;
         }
 
         // A hard break needs a line to break INTO: a trailing `\` that ends
         // the block is literal text on every other client, and blanking it to
-        // two spaces would silently delete the character.
-        let continues = lines
-            .get(index + 1)
-            .is_some_and(|next| !next.trim().is_empty());
+        // two spaces would silently delete the character. A next line that
+        // OPENS a block (list item, heading, quote, fence) or underlines a
+        // setext heading ends the paragraph just as a blank line does.
+        let continues = next.is_some_and(|next| {
+            let next = strip_matching_quote_markers(line, next);
+            !next.trim().is_empty() && !interrupts_paragraph(next)
+        });
         match (breakable && continues)
             .then(|| hard_break_backslash(line))
             .flatten()
@@ -603,20 +607,218 @@ fn hard_break_backslash(line: &str) -> Option<usize> {
 /// single-line construct (heading, thematic break, table row) or raw HTML. A
 /// trailing `\` there is literal text, never a break — unlike in a paragraph,
 /// blockquote or list item, which all continue onto the next line.
-fn opens_unbreakable_block(line: &str) -> bool {
+///
+/// `next` decides the ambiguous openers, and deciding them WRONG corrupts a
+/// round trip both ways: a paragraph misread as a table or an HTML block
+/// keeps its `\`, which the serializer then writes back escaped as `\\`
+/// (EXP-697). A pipe is prose until a delimiter row follows it, and a `<` is
+/// inline HTML (`<kbd>Ctrl</kbd>+C`) until the line meets a CommonMark HTML
+/// block start condition.
+fn opens_unbreakable_block(line: &str, next: Option<&str>) -> bool {
     let Some(body) = strip_block_indent(line) else {
         // Four or more leading spaces: indented code block.
         return true;
     };
-    if is_thematic_break(body) {
+    if is_thematic_break(body) || is_atx_heading(body) {
         return true;
     }
-    // Heading, HTML block, table row.
-    if matches!(body.as_bytes()[0], b'#' | b'<' | b'|') {
+    if opens_html_block(body, HtmlBlockStart::Any) {
         return true;
     }
-    // A table row need not start with `|` (`a | b\n--- | ---`).
-    line.contains('|')
+    // A GFM table: the header row need not start with `|` (`a | b\n--- | ---`),
+    // but it is only a header row when a matching delimiter row follows.
+    body.contains('|')
+        && next.is_some_and(|next| {
+            is_table_delimiter_row(next)
+                && table_row_cells(next).len() == table_row_cells(body).len()
+        })
+}
+
+/// Whether `line` ends the paragraph above it instead of continuing it: any
+/// block start that can interrupt a paragraph, plus a setext underline, which
+/// turns the lines above into a heading. Either way the previous line's
+/// trailing `\` has nothing to break into and stays literal text.
+fn interrupts_paragraph(line: &str) -> bool {
+    if fence_opener(line).is_some() {
+        return true;
+    }
+    let Some(body) = strip_block_indent(line) else {
+        // Indented code cannot interrupt a paragraph — it is lazy
+        // continuation text.
+        return false;
+    };
+    if is_setext_underline(body) || is_thematic_break(body) || is_atx_heading(body) {
+        return true;
+    }
+    // HTML block start condition 7 (a bare tag line) is the one that cannot
+    // interrupt a paragraph.
+    if opens_html_block(body, HtmlBlockStart::Interrupting) {
+        return true;
+    }
+    match body.as_bytes()[0] {
+        b'>' => true,
+        b'-' | b'+' | b'*' => is_list_item_start(&body[1..]),
+        // Only a list numbered `1` may interrupt a paragraph.
+        b'1' => body[1..]
+            .strip_prefix(['.', ')'])
+            .is_some_and(is_list_item_start),
+        _ => false,
+    }
+}
+
+/// The content of a list item after its marker: a space or tab plus
+/// something. An EMPTY item cannot interrupt a paragraph.
+fn is_list_item_start(after_marker: &str) -> bool {
+    after_marker.starts_with([' ', '\t']) && !after_marker.trim().is_empty()
+}
+
+/// `#` × 1-6 followed by whitespace or nothing.
+fn is_atx_heading(body: &str) -> bool {
+    let level = body.bytes().take_while(|byte| *byte == b'#').count();
+    (1..=6).contains(&level)
+        && body[level..]
+            .chars()
+            .next()
+            .is_none_or(char::is_whitespace)
+}
+
+/// `===` or `---` under a paragraph: a setext heading underline (one marker
+/// character, any run length).
+fn is_setext_underline(body: &str) -> bool {
+    let marker = match body.as_bytes()[0] {
+        marker @ (b'=' | b'-') => marker,
+        _ => return false,
+    };
+    body.trim_end().bytes().all(|byte| byte == marker)
+}
+
+/// Whether an HTML block start condition applies, per CommonMark. Condition 7
+/// — a lone complete tag on its own line — is the only one that cannot
+/// interrupt a paragraph.
+#[derive(PartialEq)]
+enum HtmlBlockStart {
+    Any,
+    Interrupting,
+}
+
+/// The tag names of CommonMark HTML block start conditions 1 and 6.
+const HTML_BLOCK_TAGS: &[&str] = &[
+    "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption", "center",
+    "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt", "fieldset",
+    "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2", "h3", "h4", "h5",
+    "h6", "head", "header", "hr", "html", "iframe", "legend", "li", "link", "main", "menu",
+    "menuitem", "nav", "noframes", "ol", "optgroup", "option", "p", "param", "pre", "script",
+    "search", "section", "style", "summary", "table", "tbody", "td", "textarea", "tfoot", "th",
+    "thead", "title", "tr", "track", "ul",
+];
+
+fn opens_html_block(body: &str, start: HtmlBlockStart) -> bool {
+    let Some(rest) = body.strip_prefix('<') else {
+        return false;
+    };
+    // Conditions 2-5: comment, processing instruction, declaration, CDATA.
+    if rest.starts_with(['!', '?']) {
+        return true;
+    }
+    // Conditions 1 and 6: a known block-level tag name, open or closing,
+    // ANYWHERE on the line — `<div>x` opens a block, inline or not.
+    let name_rest = rest.strip_prefix('/').unwrap_or(rest);
+    let name_len = name_rest
+        .bytes()
+        .take_while(u8::is_ascii_alphanumeric)
+        .count();
+    let (name, after) = name_rest.split_at(name_len);
+    if !name.is_empty()
+        && HTML_BLOCK_TAGS
+            .iter()
+            .any(|tag| tag.eq_ignore_ascii_case(name))
+        && (after.is_empty()
+            || after.starts_with('>')
+            || after.starts_with("/>")
+            || after.starts_with(char::is_whitespace))
+    {
+        return true;
+    }
+    // Condition 7: ONE complete tag filling the whole line — as opposed to
+    // inline HTML inside prose (`<kbd>Ctrl</kbd>+C`), which is a paragraph.
+    start == HtmlBlockStart::Any && is_bare_tag_line(body)
+}
+
+/// A single complete open or closing tag alone on the line.
+fn is_bare_tag_line(body: &str) -> bool {
+    let Some(inner) = body
+        .trim_end()
+        .strip_prefix('<')
+        .and_then(|rest| rest.strip_suffix('>'))
+    else {
+        return false;
+    };
+    let inner = inner.strip_prefix('/').unwrap_or(inner);
+    !inner.contains(['<', '>']) && inner.starts_with(|ch: char| ch.is_ascii_alphabetic())
+}
+
+/// Whether `line` is a GFM table delimiter row (`| --- | :-: |`): every cell
+/// a run of `-` with optional alignment colons.
+fn is_table_delimiter_row(line: &str) -> bool {
+    let Some(body) = strip_block_indent(line) else {
+        return false;
+    };
+    let cells = table_row_cells(body);
+    !cells.is_empty()
+        && cells.iter().all(|cell| {
+            let cell = cell.trim();
+            let cell = cell.strip_prefix(':').unwrap_or(cell);
+            let cell = cell.strip_suffix(':').unwrap_or(cell);
+            !cell.is_empty() && cell.bytes().all(|byte| byte == b'-')
+        })
+}
+
+/// The cells of a table row, split on UNESCAPED pipes; one leading and one
+/// trailing pipe delimit the row rather than opening an empty cell.
+fn table_row_cells(body: &str) -> Vec<&str> {
+    let body = body.trim();
+    let mut cells = Vec::new();
+    let mut start = 0;
+    let mut escaped = false;
+    for (index, ch) in body.char_indices() {
+        match ch {
+            _ if escaped => escaped = false,
+            '\\' => escaped = true,
+            '|' => {
+                cells.push(&body[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    cells.push(&body[start..]);
+    if cells.len() > 1 && cells[0].is_empty() {
+        cells.remove(0);
+    }
+    if cells.len() > 1 && cells[cells.len() - 1].is_empty() {
+        cells.pop();
+    }
+    cells
+}
+
+/// Strip `line`'s blockquote markers off the line BELOW it, so a quoted
+/// paragraph is measured by its own content: `> b` continues `> a\`, it does
+/// not interrupt it.
+fn strip_matching_quote_markers<'a>(line: &str, next: &'a str) -> &'a str {
+    let mut rest = line;
+    let mut depth = 0;
+    while let Some(after) = rest.trim_start_matches(' ').strip_prefix('>') {
+        depth += 1;
+        rest = after;
+    }
+    let mut next = next;
+    for _ in 0..depth {
+        match next.trim_start_matches(' ').strip_prefix('>') {
+            Some(after) => next = after,
+            None => break,
+        }
+    }
+    next
 }
 
 #[cfg(test)]
@@ -883,6 +1085,61 @@ mod tests {
         assert_unchanged("| a | b\\ |\n| --- | --- |");
         assert_unchanged("a | b\\\n--- | ---");
         assert_unchanged("<div>x\\\n</div>");
+        assert_unchanged("<!-- note x\\\n-->");
+    }
+
+    #[test]
+    fn a_pipe_is_a_table_only_when_a_delimiter_row_follows() {
+        // Prose that happens to hold a pipe is a PARAGRAPH: keeping the `\`
+        // literal there would round-trip back out as `\\` — a visible
+        // backslash where every other client wrote a hard break.
+        assert_eq!(normalize("foo | bar\\\nbaz"), "foo | bar  \nbaz");
+        assert_eq!(normalize("a | b\\\nc | d"), "a | b  \nc | d");
+        // A real table still holds no break, alignment colons and all.
+        assert_unchanged("a | b\\\n:-- | --:");
+        assert_unchanged("| a | b\\ |\n|:---|---:|\n| c | d |");
+        // …and a row inside the table, not just its header.
+        assert_unchanged("| a | b |\n| --- | --- |\n| c | d\\\n| e | f |");
+        // A delimiter row with the wrong cell count is not one: `---` under
+        // a two-cell line underlines a setext heading instead.
+        assert_unchanged("a | b\\\n---");
+    }
+
+    #[test]
+    fn a_lone_tag_line_is_html_but_inline_html_is_a_paragraph() {
+        // `<kbd>…</kbd>` in prose meets no HTML block start condition — the
+        // paragraph continues, so its trailing `\` is a hard break.
+        assert_eq!(
+            normalize("<kbd>Ctrl</kbd>+C\\\nthen paste"),
+            "<kbd>Ctrl</kbd>+C  \nthen paste"
+        );
+        assert_eq!(normalize("<span>x</span>\\\ny"), "<span>x</span>  \ny");
+        // A bare tag line, a known block tag and a comment all open blocks —
+        // and an HTML block runs to the next blank line.
+        assert_unchanged("<kbd>\nCtrl\\\nC");
+        assert_unchanged("<section class=\"x\">y\\\nz");
+    }
+
+    #[test]
+    fn a_next_line_that_opens_a_block_ends_the_paragraph() {
+        // The `\` has nothing to break into: the block below it starts a new
+        // one, exactly as a blank line would.
+        assert_unchanged("text\\\n- item");
+        assert_unchanged("text\\\n1. item");
+        assert_unchanged("text\\\n# heading");
+        assert_unchanged("text\\\n> quoted");
+        assert_unchanged("text\\\n```\ncode\n```");
+        assert_unchanged("text\\\n***");
+        // A setext underline turns the lines above into a heading.
+        assert_unchanged("text\\\n===");
+        assert_unchanged("text\\\n---");
+        // Lazy continuation text, on the other hand, still continues it.
+        assert_eq!(normalize("text\\\n    indented"), "text  \n    indented");
+        assert_eq!(normalize("text\\\n-not a list"), "text  \n-not a list");
+        assert_eq!(normalize("text\\\n2. not first"), "text  \n2. not first");
+        // A quoted paragraph is measured inside its own quote.
+        assert_eq!(normalize("> a\\\n> b"), "> a  \n> b");
+        assert_unchanged("> a\\\n> - item");
     }
 
     #[test]

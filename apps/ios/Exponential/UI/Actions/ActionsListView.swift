@@ -4,7 +4,7 @@ import SwiftUI
 
 /// The Actions surface (EXP-253): the active team's action prompts, each with
 /// a Run affordance that remote-starts the action on one of the caller's
-/// actions-capable desktops.
+/// online desktops.
 /// The "New action" button (EXP-431, in the web-parity "Actions" section
 /// header since EXP-574) opens the dedicated `CreateActionSheet` (EXP-615) —
 /// the "Create action" builtin left the list. EXP-694 added the row menu's
@@ -209,10 +209,9 @@ struct ActionsListView: View {
             if let teamId = teamState.activeTeam?.id {
                 CreateActionSheet(
                     teamId: teamId,
-                    devices: (devices ?? []).filter { device in
-                        device.isOnline && device.hasRunnableAgent
-                            && device.canRunActions && device.canRunActionInputs
-                    },
+                    // EXP-672: online with a runnable agent is the whole rule —
+                    // every build above the version floor runs the builtin.
+                    devices: (devices ?? []).filter { $0.isOnline && $0.hasRunnableAgent },
                     automationDevices: viewModel?.allDevices.filter(\.canRunAutomations) ?? [],
                     prefillDescription: seed.description,
                     prefillIcon: seed.icon,

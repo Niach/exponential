@@ -1,5 +1,10 @@
 - Todo og Backlog er nå én liste: alt som lå i Todo ligger nå i Backlog
 - Ark og menyer deler ett enhetlig utseende i hele appen
 - Editoren bevarer dine bevisste tomme linjer, identisk på alle plattformer
-- Bruk viser grensene til agenten som kjører økten din
 - Agenter kjører alltid uten tillatelsesspørsmål; bryteren er borte
+- Én agentvelger: agent, modell, innsats, planmodus, konto og bruk i ett enkelt kort
+- Handlinger: opprett og rediger handlinger med inndataene deres rett på telefonen
+- Reviews: ny liste og PR-diff med kort per fil; «Løs merge-konflikter» erstatter «Merge» når en merge treffer en konflikt
+- Navigasjonsmerker er prikker: Innboks og Support ved ulest, Enheter mens en kjøring pågår, Reviews mens en PR er åpen
+- Styring: planer blir ikke lenger kuttet eller vist to ganger, og en fullført økt lukker visningen sin
+- Å starte en kjøring på en frakoblet maskin avvises med en gang i stedet for å bli stille lagt i kø

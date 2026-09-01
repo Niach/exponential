@@ -1,5 +1,10 @@
 - Todo och Backlog är nu en enda lista: allt som låg i Todo finns nu i Backlog
 - Blad och menyer delar ett enhetligt utseende i hela appen
 - Redigeraren behåller dina avsiktliga tomma rader, identiskt på varje plattform
-- Användning visar gränserna för agenten som kör din session
 - Agenter körs alltid utan behörighetsfrågor; reglaget är borta
+- En agentväljare: agent, modell, ansträngning, planläge, konto och användning i ett enda kort
+- Åtgärder: skapa och redigera åtgärder med deras indata direkt på din telefon
+- Reviews: ny lista och PR-diff med kort per fil; "Lös merge-konflikter" ersätter "Merge" när en merge stöter på en konflikt
+- Navigeringsmärken är prickar: Inkorg och Support vid oläst, Enheter medan en körning pågår, Reviews medan en PR är öppen
+- Styrning: planer klipps inte längre av eller visas två gånger, och en avslutad session stänger sin vy
+- Att starta en körning på en offline-maskin avvisas direkt i stället för att tyst läggas i kö

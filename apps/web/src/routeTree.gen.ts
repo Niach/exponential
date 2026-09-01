@@ -96,7 +96,6 @@ import { Route as TTeamSlugSettingsApiKeysRouteImport } from './routes/t/$teamSl
 import { Route as TTeamSlugSettingsAccountRouteImport } from './routes/t/$teamSlug/settings/account'
 import { Route as TTeamSlugReviewsIssueIdentifierRouteImport } from './routes/t/$teamSlug/reviews/$issueIdentifier'
 import { Route as ApiSessionsSessionIdFilesRouteImport } from './routes/api/sessions/$sessionId/files'
-import { Route as ApiIssuesIssueIdImagesRouteImport } from './routes/api/issues/$issueId/images'
 import { Route as ApiIssuesIssueIdFilesRouteImport } from './routes/api/issues/$issueId/files'
 import { Route as ApiIntegrationsGithubSetupRouteImport } from './routes/api/integrations/github/setup'
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
@@ -562,11 +561,6 @@ const ApiSessionsSessionIdFilesRoute =
     path: '/api/sessions/$sessionId/files',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiIssuesIssueIdImagesRoute = ApiIssuesIssueIdImagesRouteImport.update({
-  id: '/api/issues/$issueId/images',
-  path: '/api/issues/$issueId/images',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiIssuesIssueIdFilesRoute = ApiIssuesIssueIdFilesRouteImport.update({
   id: '/api/issues/$issueId/files',
   path: '/api/issues/$issueId/files',
@@ -697,7 +691,6 @@ export interface FileRoutesByFullPath {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
-  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
   '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -792,7 +785,6 @@ export interface FileRoutesByTo {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
-  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
   '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -892,7 +884,6 @@ export interface FileRoutesById {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
-  '/api/issues/$issueId/images': typeof ApiIssuesIssueIdImagesRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
   '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -992,7 +983,6 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/files'
-    | '/api/issues/$issueId/images'
     | '/api/sessions/$sessionId/files'
     | '/t/$teamSlug/reviews/$issueIdentifier'
     | '/t/$teamSlug/settings/account'
@@ -1087,7 +1077,6 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/files'
-    | '/api/issues/$issueId/images'
     | '/api/sessions/$sessionId/files'
     | '/t/$teamSlug/reviews/$issueIdentifier'
     | '/t/$teamSlug/settings/account'
@@ -1186,7 +1175,6 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/setup'
     | '/api/issues/$issueId/files'
-    | '/api/issues/$issueId/images'
     | '/api/sessions/$sessionId/files'
     | '/t/$teamSlug/reviews/$issueIdentifier'
     | '/t/$teamSlug/settings/account'
@@ -1268,7 +1256,6 @@ export interface RootRouteChildren {
   ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
   ApiIntegrationsGithubSetupRoute: typeof ApiIntegrationsGithubSetupRoute
   ApiIssuesIssueIdFilesRoute: typeof ApiIssuesIssueIdFilesRoute
-  ApiIssuesIssueIdImagesRoute: typeof ApiIssuesIssueIdImagesRoute
   ApiSessionsSessionIdFilesRoute: typeof ApiSessionsSessionIdFilesRoute
 }
 
@@ -1883,13 +1870,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSessionsSessionIdFilesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/issues/$issueId/images': {
-      id: '/api/issues/$issueId/images'
-      path: '/api/issues/$issueId/images'
-      fullPath: '/api/issues/$issueId/images'
-      preLoaderRoute: typeof ApiIssuesIssueIdImagesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/issues/$issueId/files': {
       id: '/api/issues/$issueId/files'
       path: '/api/issues/$issueId/files'
@@ -2141,7 +2121,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiIntegrationsGithubCallbackRoute: ApiIntegrationsGithubCallbackRoute,
   ApiIntegrationsGithubSetupRoute: ApiIntegrationsGithubSetupRoute,
   ApiIssuesIssueIdFilesRoute: ApiIssuesIssueIdFilesRoute,
-  ApiIssuesIssueIdImagesRoute: ApiIssuesIssueIdImagesRoute,
   ApiSessionsSessionIdFilesRoute: ApiSessionsSessionIdFilesRoute,
 }
 export const routeTree = rootRouteImport

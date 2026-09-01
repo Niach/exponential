@@ -69,6 +69,11 @@ struct AgentsView: View {
     /// EXP-694 (S6): the action/automation editor a session row's trailing
     /// button opened.
     @State private var sessionEditTarget: SessionEditTarget?
+    /// Owner-only writes (the actions/automations routers are owner-gated) —
+    /// the same mirror every other surface reads. Resolved ONCE per active
+    /// team (it opens the GRDB pool and reads memberships), never per row on
+    /// every body pass.
+    @State private var canEditActions = false
 
     /// The row a merge confirm is pending for. Only the ids are captured —
     /// the alert copy is fixed, and the row itself may re-sync underneath
@@ -155,7 +160,13 @@ struct AgentsView: View {
                     case let .automation(automation):
                         AutomationFormSheet(
                             teamId: automation.teamId,
-                            actions: viewModel?.actions ?? [],
+                            // The VM observes actions ACCOUNT-wide (a session
+                            // names its own team), so the picker has to scope
+                            // itself — an automation only ever targets an
+                            // action of its own team.
+                            actions: (viewModel?.actions ?? []).filter {
+                                $0.teamId == automation.teamId
+                            },
                             devices: (viewModel?.devices ?? []).filter(\.canRunAutomations),
                             editing: automation,
                             onSubmit: { actionId, deviceId, trigger, launch in
@@ -199,6 +210,7 @@ struct AgentsView: View {
             // The list is scoped to the active team like web's Agents page —
             // the VM observes the account's sessions, the view owns the team.
             viewModel?.activeTeamId = teamState.activeTeam?.id
+            refreshCanEditActions()
             // Re-arm on every appear: pushing an issue detail stops the
             // observation (onDisappear), popping back must resume it.
             viewModel?.startObserving()
@@ -207,6 +219,7 @@ struct AgentsView: View {
             // EXP-432/EXP-481: the shared rows belong to the ACTIVE team —
             // the VM recomposes on the team switch.
             viewModel?.activeTeamId = teamId
+            refreshCanEditActions()
         }
         .onChange(of: chatRequest) { _, _ in
             chatSheetPresented = true
@@ -233,7 +246,7 @@ struct AgentsView: View {
             // same unified dialog.
             StartCodingSheet(
                 // Offline machines are listed but can't be started on — the
-                // picker's pool (and its caps gating) stays online-only.
+                // picker's pool stays online-only.
                 devices: onlineDevices,
                 issues: viewModel?.startCandidates(teamId: teamState.activeTeam?.id) ?? [],
                 preselectedIds: [],
@@ -819,11 +832,15 @@ struct AgentsView: View {
         return .action(action)
     }
 
-    /// Owner-only writes (the actions/automations routers are owner-gated) —
-    /// the same mirror every other surface reads.
-    private var canEditActions: Bool {
-        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return false }
-        return TeamPermissions.resolve(
+    /// Re-resolves the owner mirror for the team on screen. Called on appear
+    /// and on every team switch — nothing else can change the answer while
+    /// the tab is up.
+    private func refreshCanEditActions() {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else {
+            canEditActions = false
+            return
+        }
+        canEditActions = TeamPermissions.resolve(
             team: teamState.activeTeam,
             currentUserId: deps.auth.userId,
             isAdmin: deps.auth.isAdmin,

@@ -39,11 +39,6 @@ public let teamDeleteSubscriptionMessage =
 /// found."), Chrome's "Failed to fetch" or reqwest's URL dump.
 public let offlineErrorMessage = "You're offline. Check your connection and try again."
 
-/// Clause of the server's pre-EXP-533 merge-conflict refusal, which shipped as
-/// `PRECONDITION_FAILED` (HTTP 412) instead of a real `CONFLICT`. Only used by
-/// the transitional sniff in `isMergeConflict`.
-private let legacyMergeConflictClause = "has merge conflicts with"
-
 struct TrpcErrorBody {
     let message: String
     let code: String?
@@ -148,11 +143,8 @@ public extension Error {
     /// "Fix conflicts" recovery run there would only waste an agent run.
     var isMergeConflict: Bool {
         guard let trpcError = self as? TrpcError,
-              case let .httpError(status, body) = trpcError else { return false }
-        if status == 409 { return true }
-        // TRANSITIONAL (EXP-533): remove once every server answers a real conflict with 409
-        guard status == 412, let parsed = TrpcErrorBody.parse(body) else { return false }
-        return parsed.message.contains(legacyMergeConflictClause)
+              case let .httpError(status, _) = trpcError else { return false }
+        return status == 409
     }
 
     /// The tRPC error `code` (`NOT_FOUND`, `FORBIDDEN`, `PRECONDITION_FAILED`,

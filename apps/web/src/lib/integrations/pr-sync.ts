@@ -19,6 +19,7 @@ import { generateTxId } from "@/lib/trpc"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
 import { getSteerRelayConfig, relayPostKill } from "@/lib/steer"
+import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 import {
   listOpenPullsByBase,
   retargetPullRequest,
@@ -614,7 +615,7 @@ export async function applyPrMergeState(opts: {
     // above; the relay kill only makes the live terminal/mirror teardown
     // immediate (a pre-commit kill would race the desktop re-reading a
     // still-running row).
-    await relayKillSessions(result.endedSessionIds ?? [])
+    await tearDownEndedSessions(result.endedSessionIds ?? [])
     fireAndForgetPrNotify({
       issueId: opts.issueId,
       type: `pr_merged`,
@@ -673,13 +674,26 @@ export async function endLiveIssueSessionsInTx(
   return ended.map((s) => s.id)
 }
 
-// Best-effort relay kills for just-ended sessions — the durable signal is
-// the synced →ended row flip; this only makes the live terminal/mirror
-// teardown immediate (relayPostKill never throws). Post-commit only.
-async function relayKillSessions(sessionIds: string[]): Promise<void> {
+// Best-effort teardown for just-ended sessions — the durable signal is the
+// synced →ended row flip; this only makes the live terminal/mirror teardown
+// immediate (relayPostKill never throws). Post-commit only.
+//
+// EXP-700: a merge-ended run may be an agent-started CHILD, and its parent is
+// blocked waiting for a report it will now never send (`sessions_end` never
+// ran). Tell the parent the child ended without one — `notifyParentOfChildEnd`
+// no-ops for every row that is not agent-started with a live linked parent,
+// and is internally caught + relay-timeout bounded, so this stays best-effort.
+async function tearDownEndedSessions(sessionIds: string[]): Promise<void> {
   if (sessionIds.length === 0) return
+  // Both halves ride the relay, so an instance without one skips the lookups
+  // entirely rather than reading a parent it could never reach.
   const config = getSteerRelayConfig()
   if (!config) return
+  await Promise.all(
+    sessionIds.map((id) =>
+      notifyParentOfChildEnd(db, id, { summary: null, endedBy: `merge` })
+    )
+  )
   await Promise.all(sessionIds.map((id) => relayPostKill(config, id)))
 }
 
@@ -712,7 +726,7 @@ export async function endMergedPrSessions(issueIds: string[]): Promise<void> {
     return ended.map((s) => s.id)
   })
 
-  await relayKillSessions(endedSessionIds)
+  await tearDownEndedSessions(endedSessionIds)
 }
 
 // EXP-637/EXP-626: the issue-LESS counterpart. A chore PR opened with
@@ -758,7 +772,7 @@ export async function endSessionsOnMergedBranch(
     return ended.map((s) => s.id)
   })
 
-  await relayKillSessions(endedSessionIds)
+  await tearDownEndedSessions(endedSessionIds)
 }
 
 // Retarget every open PR based on a just-merged PR's head branch onto the

@@ -107,6 +107,8 @@ docker compose pull && docker compose up -d
 
 The image self-migrates on boot. No other steps. `latest` tracks upstream `master`; to move deliberately instead, pin `IMAGE_TAG` in `.env` to a [release tag](https://github.com/Niach/exponential/tags) (e.g. `IMAGE_TAG=0.18`, which tracks the latest patch of that minor) and bump it when you choose.
 
+**At every upgrade, also raise `CLIENT_MIN_VERSION_*` in `.env` to the versions the release notes name** (and `CLIENT_LATEST_VERSION_*` alongside), then `docker compose up -d`. Those floors are what stops an out-of-date Android, iOS, desktop or CLI client from talking to a server that no longer speaks its dialect — a below-floor client gets HTTP 426 and a blocking update screen instead of mystery failures. Leaving them unset turns the gate off entirely.
+
 ## Backup and restore
 
 Three named volumes (`postgres_data`, `caddy_data`, `caddy_config`) plus your

@@ -56,6 +56,11 @@ const SELECTION_MARKER: char = '❯';
 /// the trusted activity feed is a phishing primitive, not a login.
 const TRUSTED_LOGIN_DOMAINS: &[&str] = &["claude.ai", "claude.com", "anthropic.com"];
 
+/// What every captured sign-in URL has in its path (`/oauth/authorize`,
+/// `/cai/oauth/authorize`) and an ordinary link on a trusted host does not.
+/// A preference, never a requirement — see [`detect_trusted_url`].
+const SIGN_IN_PATH_MARKER: &str = "/oauth";
+
 /// Whether a detected sign-in URL points at an Anthropic-owned host
 /// (exactly a [`TRUSTED_LOGIN_DOMAINS`] entry, or a subdomain of one).
 pub fn is_trusted_login_url(url: &str) -> bool {
@@ -231,9 +236,9 @@ pub(crate) fn join_wrapped_url(lines: &[String], start: usize) -> String {
     url
 }
 
-/// The anchor-less variant used by the EXP-484 login DRIVER: the first
-/// `https://` on the grid, wrap-joined, kept only when it points at a
-/// trusted host. `claude auth login --claudeai` prints its sign-in URL with
+/// The anchor-less variant used by the EXP-484 login DRIVER: a TRUSTED
+/// `https://` on the grid, wrap-joined. `claude auth login --claudeai`
+/// prints its sign-in URL with
 /// none of [`detect`]'s TUI anchors around it — that flow is a plain
 /// non-interactive command, not the mid-session `/login` screen — so the
 /// driver falls back to this after [`detect`] finds nothing. The session
@@ -246,23 +251,39 @@ pub(crate) fn join_wrapped_url(lines: &[String], start: usize) -> String {
 /// over the following rows — so the scan finds `https://` anywhere on a row,
 /// slices from there, and reconstructs across the wrap. A link followed by
 /// prose on its own row ends at the whitespace instead.
+///
+/// EVERY `https://` on the grid is tried, not just the first: a login screen
+/// is a whole terminal, so an untrusted link ABOVE the sign-in URL (an
+/// agent's earlier output, a pasted link) must not dead-end the flow, and a
+/// trusted-host hint line (`https://docs.claude.com/…`) must not be
+/// published in the real link's place. Candidates are trust-filtered in
+/// reading order, then the first one carrying [`SIGN_IN_PATH_MARKER`] wins,
+/// falling back to the first trusted link when none does.
 pub fn detect_trusted_url(lines: &[String]) -> Option<String> {
-    let (start, at) = lines
+    let trusted: Vec<String> = lines
         .iter()
         .enumerate()
-        .find_map(|(idx, line)| line.find("https://").map(|at| (idx, at)))?;
-    let first = lines[start][at..].trim_end();
-    let url = match first.find(char::is_whitespace) {
-        // Prose follows on the same row — the link ended before it.
-        Some(end) => first[..end].to_string(),
-        // The link runs to the row's edge: append the wrapped rows below.
-        None => {
-            let mut url = first.to_string();
-            url.push_str(&join_wrapped_url(lines, start + 1));
-            url
-        }
-    };
-    is_trusted_login_url(&url).then_some(url)
+        .flat_map(|(idx, line)| line.match_indices("https://").map(move |(at, _)| (idx, at)))
+        .filter_map(|(start, at)| {
+            let first = lines[start][at..].trim_end();
+            let url = match first.find(char::is_whitespace) {
+                // Prose follows on the same row — the link ended before it.
+                Some(end) => first[..end].to_string(),
+                // The link runs to the row's edge: append the wrapped rows below.
+                None => {
+                    let mut url = first.to_string();
+                    url.push_str(&join_wrapped_url(lines, start + 1));
+                    url
+                }
+            };
+            is_trusted_login_url(&url).then_some(url)
+        })
+        .collect();
+    trusted
+        .iter()
+        .find(|url| url.contains(SIGN_IN_PATH_MARKER))
+        .or_else(|| trusted.first())
+        .cloned()
 }
 
 fn detect_error(lines: &[String]) -> Option<String> {
@@ -706,6 +727,57 @@ mod tests {
         // Off-domain links stay refused mid-line too.
         let spoof = screen(&["visit: https://evil.test/oauth/authorize?code=true"]);
         assert_eq!(detect_trusted_url(&spoof), None);
+    }
+
+    /// A login screen is a whole terminal: the sign-in URL is rarely the
+    /// FIRST link on it. Scanning only the topmost `https://` either
+    /// dead-ended the flow (untrusted link above) or published the wrong
+    /// link (trusted-host hint above).
+    #[test]
+    fn detect_trusted_url_looks_past_earlier_links() {
+        // An untrusted link above the real one: the flow must still resolve.
+        let after_untrusted = screen(&[
+            "  ⎿  fetched https://example.test/readme (2.1kB)",
+            "",
+            "Opening browser to sign in…",
+            &format!("If the browser didn't open, visit: {FULL_URL}"),
+            "Paste code here if prompted >",
+        ]);
+        assert_eq!(
+            detect_trusted_url(&after_untrusted).as_deref(),
+            Some(FULL_URL)
+        );
+
+        // A hint line on a TRUSTED subdomain above the real one: the
+        // sign-in URL wins, not the docs link.
+        let after_docs = screen(&[
+            "Trouble signing in? See https://docs.claude.com/en/docs/claude-code",
+            "",
+            FULL_URL,
+            "",
+            "Waiting for the browser…",
+        ]);
+        assert_eq!(detect_trusted_url(&after_docs).as_deref(), Some(FULL_URL));
+
+        // …and with no sign-in URL on the grid at all, the trusted link that
+        // IS there is still what comes back.
+        let docs_only = screen(&["See https://docs.claude.com/en/docs/claude-code"]);
+        assert_eq!(
+            detect_trusted_url(&docs_only).as_deref(),
+            Some("https://docs.claude.com/en/docs/claude-code")
+        );
+
+        // Both at once, with the real link wrapped mid-line across rows.
+        let mixed = screen(&[
+            "  ⎿  fetched https://example.test/readme (2.1kB)",
+            "Trouble signing in? See https://docs.claude.com/en/docs/claude-code",
+            "If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redir",
+            "ect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainf",
+            "erence+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload&code_challenge=j7BY1qKMJ1Y2LC5xNqD5VUJayK_UZb",
+            "Pl_FCJLsmPZzk&code_challenge_method=S256&state=joiGbKCc8WwbICmveDWnCjihN6dnqxVjkxcYKIMI6SE",
+            "Paste code here if prompted >",
+        ]);
+        assert_eq!(detect_trusted_url(&mixed).as_deref(), Some(FULL_URL));
     }
 
     /// EXP-444: only Anthropic-owned hosts may travel verbatim through the

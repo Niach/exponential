@@ -1,5 +1,10 @@
 - Todo ja Backlog ovat nyt yksi lista: kaikki Todossa ollut on nyt Backlogissa
 - Paneelit ja valikot jakavat yhtenäisen ulkoasun koko sovelluksessa
 - Editori säilyttää tarkoitukselliset tyhjät rivit samalla tavalla joka alustalla
-- Käyttö näyttää istuntoasi ajavan agentin rajat
 - Agentit ajetaan aina ilman lupakyselyitä; kytkin on poistettu
+- Yksi agenttivalitsin: agentti, malli, panostus, suunnitelmatila, tili ja käyttö yhdessä kortissa
+- Toiminnot: luo ja muokkaa toimintoja syötteineen suoraan puhelimella
+- Reviews: uusi lista ja PR-diff tiedostokohtaisilla korteilla; "Korjaa merge-konfliktit" korvaa "Merge"-painikkeen, kun merge osuu konfliktiin
+- Navigointimerkit ovat pisteitä: Saapuneet ja Tuki lukemattomista, Laitteet kun ajo on käynnissä, Reviews kun PR on auki
+- Ohjaus: suunnitelmia ei enää katkaista tai näytetä kahdesti, ja päättynyt istunto sulkee näkymänsä
+- Ajon käynnistys offline-koneella hylätään heti sen sijaan, että se jäisi hiljaa jonoon

@@ -1,5 +1,10 @@
 - Todo a Backlog sú teraz jeden zoznam: všetko z Todo je teraz v Backlogu
 - Panely a menu majú jednotný vzhľad v celej aplikácii
 - Editor zachováva vaše zámerné prázdne riadky, rovnako na každej platforme
-- Využitie ukazuje limity agenta, ktorý vykonáva vašu reláciu
 - Agenti vždy bežia bez otázok na povolenia; prepínač zmizol
+- Jeden výber agenta: agent, model, úsilie, režim plánu, účet a využitie na jednej karte
+- Akcie: vytvárajte a upravujte akcie vrátane ich vstupov priamo v telefóne
+- Reviews: nový zoznam a diff PR s kartami pre každý súbor; „Vyriešiť konflikty merge“ nahradí „Merge“, keď merge narazí na konflikt
+- Odznaky navigácie sú bodky: Inbox a Podpora pri neprečítanom, Zariadenia kým beží spustenie, Reviews kým je PR otvorený
+- Riadenie: plány sa už neorezávajú ani nezobrazujú dvakrát a ukončená relácia zavrie svoje zobrazenie
+- Spustenie na offline stroji je odmietnuté okamžite, namiesto toho, aby sa ticho zaradilo do fronty

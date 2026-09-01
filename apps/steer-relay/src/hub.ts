@@ -59,16 +59,6 @@ interface Conn {
   sessionId?: string
 }
 
-interface DeviceEntry {
-  conn: Conn
-  deviceLabel: string
-  connectedAt: number
-  /** EXP-253: feature capabilities (`actions`) the device advertised.
-   * Absent ⇒ []. Presence listings only: the web server gates starts on the
-   * persisted `devices` row, never on what rode the online frame. */
-  caps: string[]
-}
-
 /** One replayable activity event, pre-serialized once: the same string feeds
  *  the live fan-out and every later join replay. */
 interface ActivityEntry {
@@ -134,15 +124,20 @@ function frame(msg: ServerFrame): string {
 const KEEPALIVE_FRAME = frame({ t: `keepalive` })
 
 /** EXP-700: server-injected input chunk size — mirrors the browser viewer's
- * INPUT_CHUNK_CHARS (steer-session-store.ts); input frames cap at 8 KiB. */
+ * INPUT_CHUNK_CHARS (steer-session-store.ts). Well under the socket's
+ * `maxPayloadLength` (1 MiB, index.ts): the chunking keeps injected text in
+ * paste-sized pieces the publisher forwards smoothly, not at a frame cap. */
 const INPUT_CHUNK_CHARS = 4096
 /** EXP-656: end-of-join-replay marker (see `ServerFrame`). */
 const ACTIVITY_SYNCED_FRAME = frame({ t: `activity_synced` })
 
 export class Hub {
   private conns = new Map<RelaySocket, Conn>()
-  /** userId → deviceId → control connection (drives the phone's device picker). */
-  private devices = new Map<string, Map<string, DeviceEntry>>()
+  /** userId → deviceId → control connection: the routing table `/start` and
+   *  `/nudge` send down, and nothing else. EXP-672 dropped the outbound
+   *  presence listing (label/connectedAt/caps) — the web server reads the
+   *  persisted `devices` row for everything it shows or gates on. */
+  private devices = new Map<string, Map<string, Conn>>()
   /** sessionId (== coding_sessions.id) → room. */
   private rooms = new Map<string, Room>()
   /** REV2-X: Periodic check for idle publishers. */
@@ -239,8 +234,7 @@ export class Hub {
     // Device presence eviction.
     if (conn.deviceId) {
       const byDevice = this.devices.get(conn.claims.sub)
-      const entry = byDevice?.get(conn.deviceId)
-      if (entry?.conn === conn) {
+      if (byDevice?.get(conn.deviceId) === conn) {
         byDevice!.delete(conn.deviceId)
         if (byDevice!.size === 0) this.devices.delete(conn.claims.sub)
       }
@@ -276,8 +270,9 @@ export class Hub {
         // and ghost devices whose startSession sends into a dead socket).
         // One control socket owns at most one presence entry.
         if (conn.deviceId && conn.deviceId !== msg.deviceId) {
-          const prev = byDevice?.get(conn.deviceId)
-          if (prev?.conn === conn) byDevice!.delete(conn.deviceId)
+          if (byDevice?.get(conn.deviceId) === conn) {
+            byDevice!.delete(conn.deviceId)
+          }
         }
         conn.deviceId = msg.deviceId
         if (!byDevice) {
@@ -286,17 +281,10 @@ export class Hub {
         }
         // A reconnect for the same device replaces the old socket.
         const prior = byDevice.get(msg.deviceId)
-        if (prior && prior.conn !== conn) {
-          prior.conn.sock.close(CLOSE_REPLACED, `replaced`)
+        if (prior && prior !== conn) {
+          prior.sock.close(CLOSE_REPLACED, `replaced`)
         }
-        byDevice.set(msg.deviceId, {
-          conn,
-          deviceLabel:
-            msg.deviceLabel ?? conn.claims.deviceLabel ?? `Desktop`,
-          connectedAt: Date.now(),
-          // Absent = a sender with no action launch path (EXP-253).
-          caps: msg.caps ?? [],
-        })
+        byDevice.set(msg.deviceId, conn)
         return
       }
 
@@ -435,17 +423,6 @@ export class Hub {
 
   // ── Admin (server-to-server HTTP, secret-authed) ──────────────────────────
 
-  devicesFor(userId: string) {
-    const byDevice = this.devices.get(userId)
-    if (!byDevice) return []
-    return [...byDevice.entries()].map(([deviceId, entry]) => ({
-      deviceId,
-      deviceLabel: entry.deviceLabel,
-      connectedAt: entry.connectedAt,
-      caps: entry.caps,
-    }))
-  }
-
   sessionInfo(sessionId: string) {
     const room = this.rooms.get(sessionId)
     if (!room) return { live: false as const }
@@ -468,8 +445,8 @@ export class Hub {
     subject: StartSubject,
     options: StartSessionOptions = {}
   ): { ok: true } | { ok: false; reason: `device_offline` } {
-    const entry = this.devices.get(userId)?.get(deviceId)
-    if (!entry) return { ok: false, reason: `device_offline` }
+    const control = this.devices.get(userId)?.get(deviceId)
+    if (!control) return { ok: false, reason: `device_offline` }
     // Build each variant explicitly — a raw union spread won't narrow for the
     // ServerFrame `frame()` call. Single-issue key order (t, issueId, options)
     // stays byte-for-byte with the pre-batch frame.
@@ -509,7 +486,7 @@ export class Hub {
                 repo: subject.repo,
                 ...options,
               }
-    entry.conn.sock.send(frame(payload))
+    control.sock.send(frame(payload))
     this.startsRouted += 1
     return { ok: true }
   }
@@ -519,9 +496,9 @@ export class Hub {
    * live socket received it; the heartbeat pickup is the durable path either
    * way. */
   nudge(userId: string, deviceId: string): boolean {
-    const entry = this.devices.get(userId)?.get(deviceId)
-    if (!entry) return false
-    entry.conn.sock.send(frame({ t: `check_in` }))
+    const control = this.devices.get(userId)?.get(deviceId)
+    if (!control) return false
+    control.sock.send(frame({ t: `check_in` }))
     return true
   }
 
