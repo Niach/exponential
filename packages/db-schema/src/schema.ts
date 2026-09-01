@@ -836,6 +836,45 @@ export const attachments = pgTable(
   ]
 )
 
+// EXP-702: steer images for coding sessions WITHOUT an issue (chat, action
+// and batch runs — the composer's image upload has nowhere issue-shaped to
+// land there). SERVER-ONLY, never synced: the natives pin `issue_id` NOT NULL
+// on the synced attachments table, so these rows must never ride that shape.
+// They are served by the SAME `/api/attachments/{id}` read route, keeping the
+// load-bearing steer embed `![image](/api/attachments/{id})` (EXP-511) intact
+// for every host and viewer. `session_id` is SET NULL (the staleness sweep
+// deletes coding_sessions rows); blob reclamation keys on `team_id` at
+// team/account deletion, exactly like issue attachments.
+export const sessionAttachments = pgTable(
+  `session_attachments`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    sessionId: uuid(`session_id`).references(() => codingSessions.id, {
+      onDelete: `set null`,
+    }),
+    uploaderId: text(`uploader_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    filename: varchar({ length: 500 }).notNull(),
+    contentType: varchar(`content_type`, { length: 255 }).notNull(),
+    sizeBytes: bigint(`size_bytes`, { mode: `number` }).notNull(),
+    storageKey: text(`storage_key`).notNull(),
+    url: text().notNull(),
+    // Intrinsic pixel dimensions, probed at upload time (nullable — probing
+    // is best-effort, matching attachments).
+    width: integer(),
+    height: integer(),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_session_attachments_team`).on(table.teamId),
+    index(`idx_session_attachments_session`).on(table.sessionId),
+  ]
+)
+
 // One row per (token, user): several accounts signed in on one device each
 // keep their own registration of the shared FCM device token, so pushes reach
 // every account instead of only the most recently registered one. Dead-token
@@ -2129,6 +2168,7 @@ export type IssueStatusRow = InferSelectModel<typeof issueStatuses>
 export type IssueLabel = InferSelectModel<typeof issueLabels>
 export type Comment = InferSelectModel<typeof comments>
 export type Attachment = InferSelectModel<typeof attachments>
+export type SessionAttachment = InferSelectModel<typeof sessionAttachments>
 
 export type User = InferSelectModel<typeof users>
 export type Notification = InferSelectModel<typeof notifications>

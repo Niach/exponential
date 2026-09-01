@@ -9,6 +9,7 @@ import { TRPCError } from "@trpc/server"
 const h = vi.hoisted(() => ({
   resolveSession: vi.fn(),
   getAttachmentTeamContext: vi.fn(),
+  getSessionAttachmentTeamContext: vi.fn(),
   assertTeamMember: vi.fn(),
   getObject: vi.fn(),
   toResponseBody: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock(`@/lib/auth/resolve-bearer`, () => ({
 
 vi.mock(`@/lib/team-membership`, () => ({
   getAttachmentTeamContext: h.getAttachmentTeamContext,
+  getSessionAttachmentTeamContext: h.getSessionAttachmentTeamContext,
   assertTeamMember: h.assertTeamMember,
 }))
 
@@ -47,6 +49,7 @@ const ATTACHMENT_ID = `00000000-0000-4000-8000-000000000001`
 beforeEach(() => {
   h.resolveSession.mockReset()
   h.getAttachmentTeamContext.mockReset()
+  h.getSessionAttachmentTeamContext.mockReset()
   h.assertTeamMember.mockReset()
   h.getObject.mockReset()
   h.toResponseBody.mockReset()
@@ -101,6 +104,54 @@ describe(`GET /api/attachments/$attachmentId`, () => {
     expect(response.status).toBe(200)
     expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, `w-1`)
     expect(response.headers.get(`content-type`)).toBe(`image/png`)
+  })
+
+  it(`falls back to session attachments when no issue attachment matches (EXP-702)`, async () => {
+    h.resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    h.getAttachmentTeamContext.mockRejectedValue(
+      new TRPCError({ code: `NOT_FOUND`, message: `Attachment not found` })
+    )
+    h.getSessionAttachmentTeamContext.mockResolvedValue({
+      teamId: `w-1`,
+      contentType: `image/png`,
+      filename: `shot.png`,
+      sizeBytes: 4,
+      storageKey: `session-attachments/x`,
+    })
+    h.getObject.mockResolvedValue({ Body: `body` })
+    h.toResponseBody.mockResolvedValue(`ok!!`)
+
+    const response = await handler({
+      params: { attachmentId: ATTACHMENT_ID },
+      request: new Request(
+        `https://example.com/api/attachments/${ATTACHMENT_ID}`
+      ),
+    })
+
+    expect(response.status).toBe(200)
+    expect(h.getSessionAttachmentTeamContext).toHaveBeenCalledWith(
+      ATTACHMENT_ID
+    )
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, `w-1`)
+  })
+
+  it(`404s when neither table knows the id`, async () => {
+    h.resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    h.getAttachmentTeamContext.mockRejectedValue(
+      new TRPCError({ code: `NOT_FOUND`, message: `Attachment not found` })
+    )
+    h.getSessionAttachmentTeamContext.mockRejectedValue(
+      new TRPCError({ code: `NOT_FOUND`, message: `Attachment not found` })
+    )
+
+    const response = await handler({
+      params: { attachmentId: ATTACHMENT_ID },
+      request: new Request(
+        `https://example.com/api/attachments/${ATTACHMENT_ID}`
+      ),
+    })
+
+    expect(response.status).toBe(404)
   })
 
   it(`403s a cross-team member via the membership assert`, async () => {

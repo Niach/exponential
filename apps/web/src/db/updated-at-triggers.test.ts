@@ -44,6 +44,9 @@ const APP_STAMPED: Record<string, string> = {
   // register/heartbeat/rename explicitly (last_seen_at is the liveness
   // column; updated_at just mirrors the same writes).
   devices: `devices router stamps it on every write`,
+  // EXP-702: write-once steer images for issue-less sessions — nothing ever
+  // updates a row after insert (only the session FK's SET NULL touches it).
+  session_attachments: `write-once — no app writer updates rows`,
 }
 
 function tablesWithUpdatedAt(): string[] {

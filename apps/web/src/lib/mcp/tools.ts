@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { TRPCError } from "@trpc/server"
 import { contract } from "@exp/domain-contract"
 import {
   actionInputsSchema,
@@ -57,6 +58,7 @@ import {
 import {
   assertTeamMember,
   getAttachmentTeamContext,
+  getSessionAttachmentTeamContext,
   getIssueTeamContext,
   getBoardTeamId,
   getUserTeamIds,
@@ -1098,8 +1100,29 @@ export function registerExponentialTools(
     },
     async ({ id }) => {
       try {
-        const attachment = await getAttachmentTeamContext(id)
-        assertBoardGranted(access, attachment.boardId, attachment.teamId)
+        // Issue attachments first; steer images for issue-less sessions
+        // (EXP-702) live in the server-only session_attachments table but
+        // share the /api/attachments/{id} url shape, so an agent's fallback
+        // fetch of a steered embed must resolve here too.
+        const attachment = await getAttachmentTeamContext(id).then(
+          (issueAttachment) => {
+            assertBoardGranted(
+              access,
+              issueAttachment.boardId,
+              issueAttachment.teamId
+            )
+            return issueAttachment
+          },
+          async (error: unknown) => {
+            if (error instanceof TRPCError && error.code === `NOT_FOUND`) {
+              const sessionAttachment =
+                await getSessionAttachmentTeamContext(id)
+              assertTeamFullyGranted(access, sessionAttachment.teamId)
+              return sessionAttachment
+            }
+            throw error
+          }
+        )
         await resolveTeamAccess(user.id, attachment.teamId)
 
         if (!attachment.contentType.startsWith(`image/`)) {

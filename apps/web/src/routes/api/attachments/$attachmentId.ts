@@ -10,6 +10,7 @@ import {
 import {
   assertTeamMember,
   getAttachmentTeamContext,
+  getSessionAttachmentTeamContext,
 } from "@/lib/team-membership"
 
 const singleRangePattern = /^bytes=(\d*)-(\d*)$/
@@ -101,7 +102,19 @@ async function getAttachment({
     })
   }
 
-  const attachment = await getAttachmentTeamContext(params.attachmentId)
+  // Issue attachments first; steer images for issue-less sessions (EXP-702)
+  // live in the server-only session_attachments table but are served from the
+  // SAME url shape — the EXP-511 embed `![image](/api/attachments/{id})` is
+  // load-bearing across every host and viewer, so the fallback happens here
+  // rather than in a second route.
+  const attachment = await getAttachmentTeamContext(params.attachmentId).catch(
+    (error: unknown) => {
+      if (error instanceof TRPCError && error.code === `NOT_FOUND`) {
+        return getSessionAttachmentTeamContext(params.attachmentId)
+      }
+      throw error
+    }
+  )
   await assertTeamMember(session.user.id, attachment.teamId)
 
   // An empty stored type must never be sniffed by the browser.

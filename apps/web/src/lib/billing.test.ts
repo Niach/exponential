@@ -338,9 +338,11 @@ describe(`getUserPlan — best purchased tier for the abuse guard`, () => {
 
 describe(`getTeamUsage`, () => {
   it(`counts members, storage MB, and widget configs`, async () => {
-    // Order matches getTeamUsage's Promise.all: members, storage, widgets.
+    // Order matches getTeamUsage's Promise.all: members, issue-attachment
+    // storage, session-attachment storage (EXP-702), widgets.
     selectResults.push([{ count: 1 }]) // members
-    selectResults.push([{ totalBytes: `${5 * 1024 * 1024}` }]) // 5 MB
+    selectResults.push([{ totalBytes: `${3 * 1024 * 1024}` }]) // 3 MB issues
+    selectResults.push([{ totalBytes: `${2 * 1024 * 1024}` }]) // 2 MB sessions
     selectResults.push([{ count: 2 }]) // widget configs
     const usage = await getTeamUsage(WS)
     expect(usage).toEqual({ members: 1, storageMb: 5, widgetConfigs: 2 })
@@ -366,12 +368,13 @@ describe(`assertCanInviteMember — seat gate wired to team usage`, () => {
     compTier: string | null = null
   ) {
     // Promise.all([getTeamPlan, getTeamUsage]) → sub select first,
-    // then the comp-tier select, then usage's three selects (members,
-    // storage, widgets).
+    // then the comp-tier select, then usage's four selects (members,
+    // issue-attachment storage, session-attachment storage, widgets).
     selectResults.push(sub) // getTeamPlan sub lookup
     selectResults.push([{ compTier }]) // getTeamPlan comp-tier lookup
     selectResults.push([{ count: members }]) // usage members
-    selectResults.push([{ totalBytes: `0` }]) // usage storage
+    selectResults.push([{ totalBytes: `0` }]) // usage storage (issues)
+    selectResults.push([{ totalBytes: `0` }]) // usage storage (sessions)
     selectResults.push([{ count: 0 }]) // usage widgets
   }
 
@@ -415,7 +418,8 @@ describe(`assertCanCreateWidget — server-side widget-count gate`, () => {
     selectResults.push(sub) // getTeamPlan sub lookup
     selectResults.push([{ compTier }]) // getTeamPlan comp-tier lookup
     selectResults.push([{ count: 1 }]) // usage members
-    selectResults.push([{ totalBytes: `0` }]) // usage storage
+    selectResults.push([{ totalBytes: `0` }]) // usage storage (issues)
+    selectResults.push([{ totalBytes: `0` }]) // usage storage (sessions)
     selectResults.push([{ count: widgets }]) // usage widgets
   }
 
@@ -485,7 +489,8 @@ describe(`assertWithinStorageLimit — per-team storage budget`, () => {
     selectResults.push(sub) // getTeamPlan sub lookup
     selectResults.push([{ compTier }]) // getTeamPlan comp-tier lookup
     selectResults.push([{ count: 1 }]) // usage members
-    selectResults.push([{ totalBytes: `${usedMb * 1024 * 1024}` }]) // storage
+    selectResults.push([{ totalBytes: `${usedMb * 1024 * 1024}` }]) // issues
+    selectResults.push([{ totalBytes: `0` }]) // sessions
     selectResults.push([{ count: 0 }]) // widgets
   }
 

@@ -111,6 +111,16 @@ export function buildAttachmentStorageKey(
   return `issues/${issueId}/${attachmentId}-${sanitizeAttachmentFilename(filename)}`
 }
 
+// EXP-702: steer images for issue-less coding sessions live under their own
+// prefix — the reclaim paths key on the DB rows' storage_key either way.
+export function buildSessionAttachmentStorageKey(
+  sessionId: string,
+  attachmentId: string,
+  filename: string
+) {
+  return `session-attachments/${sessionId}/${attachmentId}-${sanitizeAttachmentFilename(filename)}`
+}
+
 /**
  * Write-path sanitizer for the stored `attachments.filename` display value.
  * Preserves Unicode (display names stay human-readable — header safety is the

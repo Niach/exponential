@@ -5,6 +5,7 @@ import {
   teamMembers,
   teams,
   attachments,
+  sessionAttachments,
   creem_subscriptions,
   widgetConfigs,
   widgetSubmissions,
@@ -271,24 +272,34 @@ export type TeamUsage = {
 export async function getTeamUsage(
   teamId: string
 ): Promise<TeamUsage> {
-  const [[memberCount], [storageSum], [widgetCount]] = await Promise.all([
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(teamMembers)
-      .where(eq(teamMembers.teamId, teamId)),
-    db
-      .select({
-        totalBytes: sql<string>`coalesce(sum(${attachments.sizeBytes}), 0)::bigint`,
-      })
-      .from(attachments)
-      .where(eq(attachments.teamId, teamId)),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(widgetConfigs)
-      .where(eq(widgetConfigs.teamId, teamId)),
-  ])
+  const [[memberCount], [storageSum], [sessionStorageSum], [widgetCount]] =
+    await Promise.all([
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(teamMembers)
+        .where(eq(teamMembers.teamId, teamId)),
+      db
+        .select({
+          totalBytes: sql<string>`coalesce(sum(${attachments.sizeBytes}), 0)::bigint`,
+        })
+        .from(attachments)
+        .where(eq(attachments.teamId, teamId)),
+      // Steer images for issue-less sessions (EXP-702) — server-only rows,
+      // but their blobs occupy the same per-team storage budget.
+      db
+        .select({
+          totalBytes: sql<string>`coalesce(sum(${sessionAttachments.sizeBytes}), 0)::bigint`,
+        })
+        .from(sessionAttachments)
+        .where(eq(sessionAttachments.teamId, teamId)),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(widgetConfigs)
+        .where(eq(widgetConfigs.teamId, teamId)),
+    ])
 
-  const totalBytes = Number(storageSum.totalBytes)
+  const totalBytes =
+    Number(storageSum.totalBytes) + Number(sessionStorageSum.totalBytes)
 
   return {
     members: memberCount.count,

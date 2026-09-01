@@ -1,7 +1,6 @@
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm"
 import {
-  attachments,
   codingSessions,
   comments,
   emailBounces,
@@ -14,6 +13,7 @@ import {
   verifications,
 } from "@/db/schema"
 import type { db as Database } from "@/db/connection"
+import { collectTeamStorageKeys } from "@/lib/storage/team-storage-keys"
 import {
   findActiveSubscriptionsForTeams,
   type CancellableSubscription,
@@ -243,19 +243,7 @@ export async function guardAndCleanupTeamsForUserDeletion(
   // into a teammate's issue, and issues.creator_id is `set null` too, so
   // reclaiming an uploader's blobs would leave broken `![](/api/attachments/…)`
   // embeds scattered through content the deletion must not touch.
-  const storageKeys =
-    soloToDelete.length === 0
-      ? []
-      : [
-          ...new Set(
-            (
-              await tx
-                .select({ storageKey: attachments.storageKey })
-                .from(attachments)
-                .where(inArray(attachments.teamId, soloToDelete))
-            ).map((row) => row.storageKey)
-          ),
-        ]
+  const storageKeys = await collectTeamStorageKeys(tx, soloToDelete)
 
   let deletedTeamIds: string[] = []
   let doomedTeamSubscriptions: CancellableSubscription[] = []

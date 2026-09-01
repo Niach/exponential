@@ -53,6 +53,20 @@ export async function uploadIssueImageFile(issueId: string, file: File) {
 }
 
 /**
+ * Steer-image upload for coding sessions WITHOUT an issue (EXP-702: chat,
+ * action and batch runs). Same request/response contract as the issue route;
+ * the server only accepts the inline image types (10 MB) and only from the
+ * session's owner.
+ */
+export async function uploadSessionImageFile(sessionId: string, file: File) {
+  return postIssueUpload(
+    `/api/sessions/${sessionId}/files`,
+    file,
+    `Failed to upload image`
+  )
+}
+
+/**
  * Arbitrary-file upload (EXP-297): 50 MB for non-images, 10 MB for the inline
  * image types. Non-image rows never enter markdown — they render from the
  * synced attachments collection in the issue's Files section.
