@@ -18,6 +18,10 @@
 //!   and an `answer` frame reaches the emitter seam instead (never the PTY);
 //! * viewer `kill` → publisher kill hook + clean `bye` → the relay closes the
 //!   room (`CLOSE_SESSION_ENDED` at the viewer);
+//! * EXP-696: the PRODUCTION viewer client (`steer::spawn_viewer`) against
+//!   that same room — join, replay, live tail, steering back — with its
+//!   events driving a real [`steer::SteerFeed`], so transport and feed model
+//!   are checked against the relay rather than against a fake;
 //! * a severed publisher socket (TCP proxy dropped) → re-mint → re-`hello`
 //!   resumes the SAME room and REBUILDS the joined viewer's feed (§8.6).
 //!
@@ -39,7 +43,8 @@ use api::error::ApiError;
 use api::steer::MintedTicket;
 use steer::control_channel::{spawn_control_channel, ControlApi, DeviceIdentity};
 use steer::publisher::{publish, KillSignal, PublishSpec, PublisherHooks, PublisherTickets};
-use steer::{ActivityEvent, AnswerLink, RemoteAnswer, SteerRuntime};
+use steer::viewer::{spawn_viewer_with, ViewerEvent, ViewerPhase, ViewerTickets, ViewerTimings};
+use steer::{ActivityEvent, AnswerLink, RemoteAnswer, SteerFeed, SteerRuntime};
 
 const SECRET: &str = "test-secret";
 const SESSION_ID: &str = "11111111-2222-3333-4444-555555555555";
@@ -204,6 +209,22 @@ impl PublisherTickets for BunTickets {
             .unwrap_or(self.relay_port);
         Ok(Some(MintedTicket {
             url: ws_url(port, &ticket),
+            ticket,
+        }))
+    }
+}
+
+/// The viewer half of [`BunTickets`] — real `role:"viewer"` tickets for the
+/// same room (EXP-696).
+struct BunViewerTickets {
+    relay_port: u16,
+}
+
+impl ViewerTickets for BunViewerTickets {
+    fn mint(&self) -> Result<Option<MintedTicket>, ApiError> {
+        let ticket = mint_ticket(&viewer_claims());
+        Ok(Some(MintedTicket {
+            url: ws_url(self.relay_port, &ticket),
             ticket,
         }))
     }
@@ -710,4 +731,174 @@ fn publisher_reconnects_and_resumes_the_room_after_a_socket_drop() {
 
     handle.shutdown(Some("exit:0".to_string()));
     wait_for("clean end", || !handle.is_active());
+}
+
+/// EXP-696: the desktop's own VIEWER client against a real relay room fed by
+/// the real publisher — the seam the IDE's watch/steer UI sits on. The fake
+/// phone above proves the relay's contract; this proves OURS: the join frame
+/// the relay's zod accepts, the phases, the events, and the feed they build.
+#[test]
+fn the_production_viewer_watches_and_steers_a_real_room() {
+    if !bun_available() {
+        eprintln!("skipping relay integration test: bun not on PATH");
+        return;
+    }
+    let relay = start_relay();
+    let runtime = SteerRuntime::new().unwrap();
+
+    // The room, published by the production publisher.
+    let recorded = Arc::new(Recorded::default());
+    let (answer_link, answers_rx) = AnswerLink::new();
+    let publisher = publish(
+        &runtime,
+        PublishSpec {
+            session_id: SESSION_ID.to_string(),
+            issue_id: None,
+        },
+        Arc::new(BunTickets {
+            relay_port: relay.port,
+            proxy_port_once: Mutex::new(None),
+        }),
+        recording_hooks_with(recorded.clone(), Some(answer_link)),
+    );
+    wait_for("room live", || {
+        http_request(
+            relay.port,
+            "GET",
+            &format!("/sessions/{SESSION_ID}"),
+            &[("x-relay-secret", SECRET)],
+            None,
+        )
+        .is_some_and(|body| body.contains("\"live\":true"))
+    });
+    let activity = publisher.activity_sender();
+    // Published BEFORE the viewer exists → it must arrive via the replay.
+    activity.send(ActivityEvent::narration("early-scrollback"));
+
+    // The viewer, with a short starting-retry so a race with the room's
+    // creation costs milliseconds rather than seconds.
+    let (events_tx, events) = flume::unbounded();
+    let viewer = spawn_viewer_with(
+        &runtime,
+        Arc::new(BunViewerTickets {
+            relay_port: relay.port,
+        }),
+        SESSION_ID.to_string(),
+        events_tx,
+        ViewerTimings {
+            retry_base: Duration::from_millis(100),
+            retry_cap: Duration::from_millis(400),
+            ..ViewerTimings::default()
+        },
+    );
+
+    // Everything the viewer reports goes straight into the feed model — no
+    // interpretation in between, which is the whole point of the split.
+    let feed = Arc::new(Mutex::new(SteerFeed::new()));
+    let phase = Arc::new(Mutex::new(ViewerPhase::Connecting));
+    let feed_task = feed.clone();
+    let phase_task = phase.clone();
+    std::thread::spawn(move || {
+        while let Ok(event) = events.recv() {
+            let mut feed = feed_task.lock().unwrap();
+            match event {
+                ViewerEvent::Phase(next) => *phase_task.lock().unwrap() = next,
+                ViewerEvent::Activity(activity) => feed.apply(activity),
+                ViewerEvent::Reset => feed.apply_reset(),
+                ViewerEvent::Synced => feed.apply_synced(),
+                ViewerEvent::LocalMessage(text) => {
+                    feed.push_local_message(&text);
+                }
+                ViewerEvent::Keepalive | ViewerEvent::Connected(_) => {}
+            }
+        }
+    });
+
+    // ── Join → live, and the relay's replay lands in the feed ─────────────
+    wait_for("viewer live", || {
+        *phase.lock().unwrap() == ViewerPhase::Live
+    });
+    wait_for("replayed scrollback in the feed", || {
+        let feed = feed.lock().unwrap();
+        // The relay answers a join with reset + replay + `activity_synced`
+        // (EXP-656), so the staged swap commits on its own.
+        !feed.is_staging() && feed_carries(&feed, "early-scrollback")
+    });
+
+    // ── The live tail ─────────────────────────────────────────────────────
+    activity.send(ActivityEvent::tool("Edit", Some("src/main.rs".to_string())));
+    wait_for("live tail in the feed", || {
+        feed_carries(&feed.lock().unwrap(), "Edit")
+    });
+
+    // ── Steering back: a message reaches the publisher's PTY writer as the
+    // text, then a SEPARATE `\r` (EXP-72) ─────────────────────────────────
+    wait_for("message sent", || viewer.send_message("do the thing"));
+    wait_for("message injected", || {
+        let inputs = recorded.inputs.lock().unwrap();
+        inputs.iter().any(|bytes| bytes == b"do the thing")
+            && inputs.iter().any(|bytes| bytes == b"\r")
+    });
+    // It shows locally at once, and the publisher's transcript echo of the
+    // same text is deduped away rather than rendering twice.
+    assert!(feed_carries(&feed.lock().unwrap(), "do the thing"));
+    activity.send(ActivityEvent::user_message("do the thing"));
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        feed_occurrences(&feed.lock().unwrap(), "do the thing"),
+        1,
+        "the local echo swallowed its transcript twin"
+    );
+
+    // ── A semantic answer reaches the emitter seam, never the PTY ─────────
+    let before = recorded.inputs.lock().unwrap().len();
+    assert!(viewer.send_answer(
+        "toolu_1#0",
+        Some("toolu_1"),
+        &["2".to_string()],
+        Some("purple"),
+    ));
+    let answer = answers_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("answer forwarded to the emitter");
+    assert_eq!(
+        answer,
+        RemoteAnswer {
+            question_id: "toolu_1#0".to_string(),
+            ask_id: Some("toolu_1".to_string()),
+            keys: vec!["2".to_string()],
+            text: Some("purple".to_string()),
+        }
+    );
+    assert_eq!(
+        recorded.inputs.lock().unwrap().len(),
+        before,
+        "an answer is never replayed as keystrokes"
+    );
+
+    // ── The publisher's clean end closes the room; the viewer reports it ──
+    publisher.shutdown(Some("exit:0".to_string()));
+    wait_for("viewer sees the end", || {
+        matches!(*phase.lock().unwrap(), ViewerPhase::Ended { .. })
+    });
+    assert!(!viewer.is_active(), "an ended room is never redialed");
+    assert!(recorded.errors.lock().unwrap().is_empty());
+}
+
+/// Whether any feed item's text/name carries `needle`.
+fn feed_carries(feed: &SteerFeed, needle: &str) -> bool {
+    feed_occurrences(feed, needle) > 0
+}
+
+fn feed_occurrences(feed: &SteerFeed, needle: &str) -> usize {
+    feed.items()
+        .iter()
+        .filter(|item| match &item.kind {
+            steer::FeedKind::Narration { text } | steer::FeedKind::UserMessage { text } => {
+                text.contains(needle)
+            }
+            steer::FeedKind::Tool { name, .. } => name.contains(needle),
+            _ => false,
+        })
+        .count()
 }

@@ -97,6 +97,7 @@ mod sidebar;
 mod surface;
 mod source_control;
 mod start_coding_dialog;
+mod steer_viewer;
 pub mod steer_wiring;
 mod support_thread;
 mod terminal_dock;

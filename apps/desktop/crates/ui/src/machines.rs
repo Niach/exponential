@@ -277,6 +277,7 @@ impl MachinesSection {
         &self,
         index: usize,
         device: &api::devices::DeviceEntry,
+        own_device_id: &str,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let theme = cx.theme();
@@ -392,11 +393,19 @@ impl MachinesSection {
                 })
         });
 
-        // EXP-615: the web row's ▶ Start-coding button, icon-only. The
-        // dialog it opens launches on THIS machine (the desktop has no
-        // remote-start picker), so the gate is the local agent check — the
-        // same one every other Start-coding affordance uses.
-        let no_agent = crate::coding_flow::no_agent_reason(cx);
+        // EXP-615: the web row's ▶ Start-coding button, icon-only. EXP-696:
+        // the dialog opens with THIS row's machine preselected in its Device
+        // picker, so the local doctor gates the row only for this install —
+        // another machine is gated on its OWN advertisement (the dialog's
+        // blocker re-reads it), which is what keeps the button honest: a
+        // preselect for a machine that cannot take the run must not look
+        // startable.
+        let own = device.device_id == own_device_id;
+        let no_agent = match own {
+            true => crate::coding_flow::no_agent_reason(cx),
+            false => remote_start_reason(device).map(SharedString::from),
+        };
+        let start_device_id = device.device_id.clone();
         // EXP-686: the shared round glass affordance (web/mobile parity) —
         // the same shape the action rows' ▶ Run carries.
         let start_coding = crate::controls::glass_icon_button(
@@ -417,6 +426,7 @@ impl MachinesSection {
                     team_id,
                     Vec::new(),
                     None,
+                    Some(start_device_id.clone()),
                 );
             });
 
@@ -471,6 +481,22 @@ impl MachinesSection {
                                 })
                                 .child(label.clone()),
                         )
+                        // EXP-696: the machine this app IS — the same muted
+                        // caption the "Shared" chip uses, so the row line
+                        // keeps one rhythm.
+                        .when(own, |this| {
+                            this.child(
+                                div()
+                                    .flex_shrink_0()
+                                    .px_1()
+                                    .rounded(px(theme::tokens::radius::SM))
+                                    .border_1()
+                                    .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .child("This device"),
+                            )
+                        })
                         // EXP-622: the machine every device picker prefills.
                         .when(device.is_default, |this| {
                             this.child(
@@ -657,6 +683,24 @@ fn sign_in_needed(device: &api::devices::DeviceEntry) -> bool {
     device.online && device.agents.is_empty() && !device.unauthed_agents.is_empty()
 }
 
+/// EXP-696: why ANOTHER machine's ▶ is dead. A start is a `steer.startSession`
+/// the machine has to pick up off its heartbeat and run with a CLI it
+/// advertises — offline or agentless, it can do neither, and the preselect
+/// would be dropped by the dialog. Pure (unit-tested); this machine's own row
+/// gates on the local doctor (`no_agent_reason`) instead.
+fn remote_start_reason(device: &api::devices::DeviceEntry) -> Option<String> {
+    if !device.online {
+        return Some("Offline — this machine can't take a run".to_string());
+    }
+    if sign_in_needed(device) {
+        return Some(format!("{} not signed in", device.unauthed_agents.join(", ")));
+    }
+    if device.agents.is_empty() {
+        return Some("No agent CLI available on this machine".to_string());
+    }
+    None
+}
+
 /// `Online` / `Last seen 5m` / `Offline` — the web row's caption, in the
 /// desktop's relative-time wording. Signed-out agents (EXP-409) annotate the
 /// online state ("claude not signed in" replaces it when nothing is
@@ -732,6 +776,34 @@ mod tests {
         assert_eq!(status_line(&offline), "Offline");
     }
 
+    /// EXP-696: a FOREIGN row's ▶ is only live when that machine could
+    /// actually take the run — offline or with nothing runnable it is
+    /// disabled with the reason, instead of dropping the preselect and
+    /// starting here.
+    #[test]
+    fn remote_start_needs_an_online_machine_with_an_agent() {
+        let mut ready = device(true, None);
+        ready.agents = vec!["claude".to_string()];
+        assert_eq!(remote_start_reason(&ready), None);
+
+        let mut offline = ready.clone();
+        offline.online = false;
+        assert!(remote_start_reason(&offline).is_some_and(|reason| reason.starts_with("Offline")));
+
+        let mut signed_out = device(true, None);
+        signed_out.unauthed_agents = vec!["claude".to_string()];
+        assert_eq!(
+            remote_start_reason(&signed_out).as_deref(),
+            Some("claude not signed in")
+        );
+
+        // Online, nothing installed at all.
+        assert_eq!(
+            remote_start_reason(&device(true, None)).as_deref(),
+            Some("No agent CLI available on this machine")
+        );
+    }
+
     #[test]
     fn update_nudge_needs_both_versions() {
         assert!(update_available(Some("0.4.1"), Some("0.5.0")));
@@ -754,16 +826,22 @@ impl Render for MachinesSection {
             Some((mine, team)) => (mine.as_slice(), team.as_slice()),
             None => (&[][..], &[][..]),
         };
+        // EXP-696: the machine this IDE runs on wears the "This device"
+        // marker (and its ▶ is the only one the LOCAL doctor gates). Cached
+        // per process — resolving it reads settings.json.
+        let own_device_id = queries::own_device_id(cx);
         let mine_rows: Vec<gpui::AnyElement> = mine
             .iter()
             .enumerate()
-            .map(|(index, device)| self.render_row(index, device, cx))
+            .map(|(index, device)| self.render_row(index, device, &own_device_id, cx))
             .collect();
         let team_rows: Vec<gpui::AnyElement> = team
             .iter()
             .enumerate()
             // Offset the element ids so the two groups can never collide.
-            .map(|(index, device)| self.render_row(index + mine.len(), device, cx))
+            .map(|(index, device)| {
+                self.render_row(index + mine.len(), device, &own_device_id, cx)
+            })
             .collect();
 
         // EXP-642: the web `GlassSectionHeader` — a plain-text heading with

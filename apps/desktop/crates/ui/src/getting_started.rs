@@ -846,6 +846,7 @@ impl GettingStartedView {
                         team.clone(),
                         Vec::new(),
                         None,
+                        None,
                     );
                 })
                 .into_any_element(),

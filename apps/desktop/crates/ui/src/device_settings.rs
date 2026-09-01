@@ -13,8 +13,9 @@
 //! | Name           | `devices.rename` (registry row — works offline)       |
 //! | Default        | `devices.setDefault` (EXP-622, own devices only)     |
 //! | Sharing        | `devices.setShared` (server-kind own devices only)    |
-//! | Agent defaults | OWN device → [`CodingHub::save_settings`] (which      |
-//! |                | pushes the server copy); REMOTE → `setLaunchDefaults` |
+//! | Agent defaults | `setLaunchDefaults` (UNCONDITIONAL — a UI edit is     |
+//! |                | last-write-wins on both); the OWN device ALSO saves   |
+//! |                | settings.json first through [`CodingHub::save_settings`] |
 //! | Worktrees      | `devices.createCommand` (worktree_remove / _prune) —  |
 //! |                | a DURABLE queue: an offline machine runs it on return |
 //!
@@ -22,11 +23,10 @@
 //! (never relay presence): defaults stay editable while the machine is
 //! offline ("Applies when the device comes online."), and the worktree rows
 //! reflect the machine's last report. EXP-490: the dialog mirrors the LIVE
-//! baseline while open — the defaults controls follow remote edits the way
-//! the AgentsPane follows the hub (server wins on screen; a local unsaved
-//! draft is rewritten too), while the name input and the share select
-//! re-seed only when the user hasn't diverged from the previous baseline, so
-//! typing is never stomped. Queued commands
+//! baseline while open — every section (name, sharing and, since EXP-696,
+//! the defaults controls) re-seeds only while the user has NOT diverged from
+//! the previous baseline, so a background delta never stomps a draft.
+//! Queued commands
 //! are polled (`devices.getCommand`) until terminal — a failure renders its
 //! device-reported message inline; success shows up as the row vanishing
 //! when the machine re-reports.
@@ -413,6 +413,12 @@ pub struct DeviceSettingsView {
     /// flight ([`Self::run_section`] runs one at a time) — replayed when it
     /// lands, so no change is ever silently dropped.
     queued: Vec<&'static str>,
+    /// EXP-696 (OWN device only): the `defaults_wire` value the row write
+    /// still owes the server after the local save. Held here rather than
+    /// re-derived on replay because the own-device baseline is adopted
+    /// immediately — a replay reading the controls would short-circuit as
+    /// "nothing drafted" and drop the write.
+    pending_push: Option<serde_json::Value>,
     section_errors: HashMap<String, SharedString>,
     tracked: Vec<TrackedCommand>,
     polling: bool,
@@ -625,6 +631,7 @@ impl DeviceSettingsView {
             busy_section: None,
             rollback: None,
             queued: Vec::new(),
+            pending_push: None,
             section_errors: HashMap::new(),
             tracked: Vec::new(),
             polling: false,
@@ -708,11 +715,18 @@ impl DeviceSettingsView {
         (seeded, editor_agents)
     }
 
-    /// EXP-490: mirror the live baseline into the open dialog. Defaults
-    /// controls are rewritten whenever the baseline moved (the AgentsPane
-    /// rule — the server-authoritative copy wins on screen, even over an
-    /// unsaved draft); the name input and the share select re-seed only
-    /// while the user hasn't diverged from the previous baseline.
+    /// EXP-490: mirror the live baseline into the open dialog — the name
+    /// input, the share select and (EXP-696) the defaults controls all
+    /// re-seed only while the user has NOT diverged from the previous
+    /// baseline, so a background delta can never stomp a draft.
+    ///
+    /// EXP-696: the defaults half used to rewrite UNCONDITIONALLY. On the
+    /// OWN device that fires on every `CodingHub` notify — a doctor re-run,
+    /// an agent-usage probe, a settings save from another pane — and each
+    /// one replayed the old baseline over the user's in-flight pick, so an
+    /// edit to the machine you are sitting at appeared not to stick. The
+    /// divergence guard here is the same one the two sections above have
+    /// always had.
     fn resync(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(row) = self.row(cx) else {
             return; // row deleted — nothing to mirror
@@ -746,6 +760,25 @@ impl DeviceSettingsView {
         if baseline == self.seeded && editor_agents == self.editor_agents {
             return;
         }
+        // The tab strip follows the machine's advertisement either way — it
+        // is presentation, not a draft.
+        self.editor_agents = editor_agents;
+        // EXP-696: the user has an unsaved (or failed-and-retryable) pick on
+        // screen that the incoming baseline does not already match — leave
+        // it, exactly as the name input and the share select do.
+        // `self.seeded` is deliberately NOT advanced: the standing draft
+        // stays different from the baseline, so its next commit still goes
+        // out. (A draft that HAPPENS to equal the new baseline falls through
+        // and simply adopts it.)
+        let drafted = self.drafted(cx);
+        if drafted != self.seeded && drafted != baseline {
+            let status = self.agent_status(cx);
+            if !self.tab_agents(&status).contains(&self.agent_tab) {
+                self.agent_tab = drafted.default_agent;
+            }
+            cx.notify();
+            return;
+        }
         self.agent_select.update(cx, |select, cx| {
             select.set_selected_value(
                 &SharedString::from(baseline.default_agent.id()),
@@ -768,7 +801,6 @@ impl DeviceSettingsView {
         self.claude_ultracode = baseline.claude_ultracode;
         self.claude_plan_mode = baseline.claude_plan_mode;
         self.pi_plan_mode = baseline.pi_plan_mode;
-        self.editor_agents = editor_agents;
         let status = self.agent_status(cx);
         if !self.tab_agents(&status).contains(&self.agent_tab) {
             self.agent_tab = baseline.default_agent;
@@ -992,6 +1024,9 @@ impl DeviceSettingsView {
         // holds the value in memory (so the baseline reads clean), which
         // makes the standing error the thing that re-arms the next commit.
         if drafted == self.seeded && !self.section_errors.contains_key("defaults") {
+            // EXP-696: nothing new drafted, but the own-device row write may
+            // still be parked behind another section — pay it out.
+            self.flush_defaults_push(cx);
             return;
         }
         if self.own {
@@ -1019,6 +1054,22 @@ impl DeviceSettingsView {
                     .err()
                     .map(SharedString::from),
             );
+            // EXP-696: the devices ROW is authoritative (settings.json is the
+            // copy that converges to it), and the local save alone only
+            // queues a CAS push through the heartbeat — one whose
+            // `expectedUpdatedAt` a concurrent web/mobile edit turns into a
+            // conflict the device resolves by ADOPTING the server copy, i.e.
+            // by silently reverting what was just typed here. This is a UI
+            // edit like the remote branch below, so it takes the same
+            // unconditional last-write-wins path. It cannot fight
+            // `device_sync::apply_server_defaults`: it writes exactly what
+            // settings.json now holds, so a later apply is a value-identical
+            // no-op that only restamps the marker.
+            self.pending_push = Some(
+                serde_json::to_value(coding::defaults_wire(&drafted))
+                    .expect("defaults serialize cannot fail"),
+            );
+            self.flush_defaults_push(cx);
             cx.notify();
             return;
         }
@@ -1034,6 +1085,37 @@ impl DeviceSettingsView {
         // machine converges on its next heartbeat/nudge.
         let wire = serde_json::to_value(coding::defaults_wire(&drafted))
             .expect("defaults serialize cannot fail");
+        let device_id = self.device_id.clone();
+        self.run_section(
+            "defaults",
+            move |trpc| {
+                api::devices::set_launch_defaults(
+                    trpc,
+                    &device_id,
+                    &wire,
+                    api::devices::ExpectedStamp::Unconditional,
+                )
+                .map(|_| ())
+            },
+            cx,
+        );
+    }
+
+    /// EXP-696: send the OWN device's launch defaults up to its (authoritative)
+    /// row. Serialized through [`Self::run_section`] like every other write —
+    /// a value drafted mid-flight parks in `pending_push` and replays when the
+    /// executor frees up, so two quick picks can never land out of order.
+    fn flush_defaults_push(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.pending_push.is_none() {
+            return;
+        }
+        if self.busy_section.is_some() {
+            self.queue_section("defaults");
+            return;
+        }
+        let Some(wire) = self.pending_push.take() else {
+            return;
+        };
         let device_id = self.device_id.clone();
         self.run_section(
             "defaults",

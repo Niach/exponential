@@ -19,6 +19,30 @@
 //! `question_resolved` / `answer_ack` / `subagent` / `permission` kinds, the
 //! publisher-only [`ClientFrame::ActivityReset`], and the semantic
 //! [`ServerFrame::Answer`] that replaces blind keystroke replay.
+//!
+//! ## Roles and directions (EXP-696)
+//!
+//! The file used to be strictly "[`ClientFrame`] serializes, [`ServerFrame`]
+//! deserializes" because the desktop only ever spoke as a PUBLISHER or a
+//! CONTROL socket. The VIEWER role reverses several frames:
+//!
+//! * a viewer SENDS `join` / `input` / `answer` / `kill` — hence
+//!   [`ClientFrame::Answer`], the send-side twin of [`ServerFrame::Answer`];
+//! * a viewer RECEIVES `activity` / `activity_reset` / `activity_synced` /
+//!   `keepalive` / `bye` / `error` — hence [`ViewerFrame`], which is the
+//!   viewer's COMPLETE inbound vocabulary and is deserialize-only.
+//!
+//! [`ViewerFrame`] is a separate enum rather than four more [`ServerFrame`]
+//! variants on purpose: the two roles have disjoint inbound vocabularies, and
+//! a shared enum would force the publisher/control pumps to carry
+//! "impossible here" arms (and to grow one every time the viewer protocol
+//! does). Both parse functions drop unknown `t` tags to `None` — the relay's
+//! own silent-drop posture, so a future frame never kills a socket.
+//!
+//! [`ActivityEvent`] and [`QuestionOption`] are therefore BOTH `Serialize`
+//! (publisher) and `Deserialize` (viewer). Every optional field carries
+//! `#[serde(default)]` beside its `skip_serializing_if` — without it a frame
+//! that legitimately omits the field fails to parse and the event is dropped.
 
 use serde::{Deserialize, Serialize};
 
@@ -73,12 +97,37 @@ pub enum ClientFrame<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         activity_public: Option<bool>,
     },
-    Join,
+    /// Join the ONE audience the relay has (EXP-696, the viewer role).
+    ///
+    /// `channel` is REQUIRED by the relay's zod (`z.literal('activity')`,
+    /// deliberately not optional) and a join without it is dropped in
+    /// silence — the bare `{"t":"join"}` this variant serialized before
+    /// EXP-696 would never have joined anything. Build it with
+    /// [`ClientFrame::join`] so the literal cannot drift.
+    Join {
+        channel: &'a str,
+    },
     /// NOTE: the field is `data` — a UTF-8 `String`, relay-enforced ≤ 8 KiB —
     /// NOT `bytes`. (A native client shipped `bytes` and steer input silently
     /// no-op'd.)
     Input {
         data: String,
+    },
+    /// EXP-696 (viewer role): the semantic answer to an
+    /// [`ActivityEvent::Question`] — the send-side twin of
+    /// [`ServerFrame::Answer`], which is what the publisher reads out of the
+    /// relay. `keys` are the option keys of THAT question (relay-capped at 10
+    /// of ≤8 chars); `text` is the EXP-513 typed reply for a `freeText` row
+    /// (≤4000 chars). Owned fields — an answer is built once, from a card the
+    /// viewer already holds, and handed to the socket task.
+    #[serde(rename_all = "camelCase")]
+    Answer {
+        question_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ask_id: Option<String>,
+        keys: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
     },
     Kill,
     Bye {
@@ -106,7 +155,14 @@ pub enum ClientFrame<'a> {
 /// `at` is optional epoch-millis on EVERY kind: live events may omit it, a
 /// full-history re-publish after a reconnect carries the ORIGINAL stamps so
 /// the replayed feed keeps its timeline.
-#[derive(Clone, Debug, Serialize, PartialEq)]
+///
+/// EXP-696: also `Deserialize` — the viewer role reads these events back off
+/// the wire. Every optional field carries `#[serde(default)]`, so an event
+/// that omits it parses instead of failing (an internally-tagged enum has no
+/// per-field fallback). An event whose `kind` this build does not know fails
+/// the parse and is dropped by the caller, matching every other client's
+/// "ignore future kinds, never kill the socket" rule.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ActivityEvent {
     /// Assistant prose (a `text` content block).
@@ -121,10 +177,11 @@ pub enum ActivityEvent {
         /// `askId` or `id` equals it (no match → append as ever).
         #[serde(
             rename = "beforeQuestionId",
+            default,
             skip_serializing_if = "Option::is_none"
         )]
         before_question_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
     /// A tool-call headline: the tool name + a single primary argument
@@ -134,17 +191,17 @@ pub enum ActivityEvent {
     #[serde(rename_all = "camelCase")]
     Tool {
         name: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         detail: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         subagent_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
     /// A worktree unified diff snapshot (latest replaces prior, viewer-side).
     Diff {
         diff: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
     /// A human turn from the transcript: the initial prompt or a (locally- or
@@ -152,7 +209,7 @@ pub enum ActivityEvent {
     /// fanned to anonymous public viewers ("never steering input").
     UserMessage {
         text: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
     /// An interactive question the session is blocked on (`AskUserQuestion`
@@ -170,29 +227,29 @@ pub enum ActivityEvent {
     Question {
         text: String,
         options: Vec<QuestionOption>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         multi_select: Option<bool>,
         /// `Some(true)` when this question is an `ExitPlanMode` plan-approval
         /// picker (EXP-97) — clients render a dedicated "Plan ready" card.
         /// Presentation-only: the options remain the source of the keystrokes.
         /// `text` is then the full plan markdown, and `askId`/`index`/`total`
         /// are absent.
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         plan_mode: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         /// Groups the steps of ONE multi-question `AskUserQuestion`. A step
         /// carries `index`/`total`; the FINAL review/submit step carries
         /// `askId` with neither.
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         ask_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         index: Option<u32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         total: Option<u32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         header: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
     /// A question stopped being answerable: answered here or elsewhere,
@@ -200,15 +257,15 @@ pub enum ActivityEvent {
     /// when present, otherwise EVERY card of `askId`.
     #[serde(rename_all = "camelCase")]
     QuestionResolved {
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         ask_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         answers: Option<Vec<String>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         dismissed: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
     /// The desktop injected a steerer's answer into the TUI — clients keep
@@ -217,9 +274,9 @@ pub enum ActivityEvent {
     #[serde(rename_all = "camelCase")]
     AnswerAck {
         id: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         ask_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
     /// A `Task` subagent's lifecycle edge — `id` keys the
@@ -229,9 +286,9 @@ pub enum ActivityEvent {
         id: String,
         agent_type: String,
         status: SubagentStatus,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         detail: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
     /// The session is sitting on a permission prompt. INFORMATIONAL — it
@@ -239,15 +296,15 @@ pub enum ActivityEvent {
     /// owns permission decisions).
     Permission {
         tool: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         detail: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
 }
 
 /// `started` | `completed` — the two [`ActivityEvent::Subagent`] edges.
-#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum SubagentStatus {
     Started,
@@ -349,21 +406,25 @@ impl ActivityEvent {
 }
 
 /// One answer choice of an [`ActivityEvent::Question`].
-#[derive(Clone, Debug, Default, Serialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct QuestionOption {
     pub label: String,
     /// Raw keystroke(s) that select this option in the `claude` TUI picker.
     pub key: String,
     /// The option's secondary line (claude's `AskUserQuestion` options carry
     /// one); omitted when the picker offers none.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// EXP-513: the option is claude's synthetic free-text row ("Type
     /// something."). A client renders it as an inline text input and sends
     /// the typed text on the answer frame; the desktop types it into the
     /// TUI's inline editor. Omitted when false so pre-EXP-513 consumers see
     /// byte-identical frames.
-    #[serde(rename = "freeText", skip_serializing_if = "std::ops::Not::not")]
+    #[serde(
+        rename = "freeText",
+        default,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub free_text: bool,
 }
 
@@ -378,7 +439,18 @@ impl QuestionOption {
     }
 }
 
+/// The relay's only audience (`joinFrame.channel`).
+pub const ACTIVITY_CHANNEL: &str = "activity";
+
 impl ClientFrame<'_> {
+    /// The scrubbed member activity stream — the ONE channel a viewer may
+    /// join.
+    pub fn join() -> Self {
+        ClientFrame::Join {
+            channel: ACTIVITY_CHANNEL,
+        }
+    }
+
     /// The JSON text-frame body. Serialization of this enum cannot fail
     /// (no non-string map keys, no non-finite floats).
     pub fn to_json(&self) -> String {
@@ -538,6 +610,64 @@ impl ServerFrame {
     }
 }
 
+// ── Relay → VIEWER (EXP-696) ────────────────────────────────────────────────
+
+/// Every frame the relay sends to a socket that joined `channel:'activity'`.
+/// Deserialize-only, and deliberately separate from [`ServerFrame`]: the
+/// publisher/control inbound vocabulary and the viewer's are disjoint, and
+/// the two pumps stay free of each other's "impossible here" arms.
+///
+/// A viewer connection's whole life is readable off this enum:
+/// `activity_reset` (+ the replay, + [`ViewerFrame::ActivitySynced`]) answers
+/// the join; [`ViewerFrame::Activity`] carries the live tail;
+/// [`ViewerFrame::Keepalive`] is the 15s liveness beat (EXP-648) that lets a
+/// quiet socket be told from a dead one; `bye`/`error` end it.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(tag = "t", rename_all = "snake_case")]
+pub enum ViewerFrame {
+    /// One already-scrubbed activity event, fanned out from the publisher.
+    Activity { event: ActivityEvent },
+    /// "Drop everything rendered so far" — sent immediately BEFORE the join
+    /// replay and before any publisher-driven full re-publish. EXP-656: a
+    /// client stages what follows rather than blanking the feed on the spot.
+    ActivityReset,
+    /// EXP-656: end-of-replay marker, sent to the JOINING viewer right after
+    /// the replay — "the picture is complete, commit it". Absent on a
+    /// publisher-driven republish (old desktops give the relay no
+    /// end-of-republish signal), which is why clients also keep a quiet-timer
+    /// fallback.
+    ActivitySynced,
+    /// EXP-648: the relay's 15s beat to joined viewers. Carries nothing and
+    /// never changes a phase — its only job is to prove the socket is alive,
+    /// because an agent parked on a question sends nothing for minutes.
+    Keepalive,
+    /// The room is finished. `outcome: "publisher_lost"` is the one RETRYABLE
+    /// value: the desktop's socket dropped but the session may still be
+    /// running.
+    Bye {
+        #[serde(default)]
+        outcome: Option<String>,
+    },
+    /// A relay-side refusal. `code: "no_such_session"` means the room is not
+    /// up (yet) — the desktop may still be dialing its publisher socket.
+    Error {
+        code: String,
+        #[serde(default)]
+        message: Option<String>,
+    },
+}
+
+impl ViewerFrame {
+    /// Parse a relay text frame; `None` for anything non-conforming —
+    /// unknown `t` tags, malformed JSON, and (deliberately) an `activity`
+    /// frame whose `kind` this build does not know. Every one of those is an
+    /// IGNORE, never a socket teardown: the relay adds frames and event kinds
+    /// independently of desktop releases.
+    pub fn parse(raw: &str) -> Option<ViewerFrame> {
+        serde_json::from_str(raw).ok()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -641,7 +771,12 @@ mod tests {
 
     #[test]
     fn bare_frames_serialize_tag_only() {
-        assert_eq!(ClientFrame::Join.to_json(), r#"{"t":"join"}"#);
+        // EXP-696: the relay's joinFrame REQUIRES the channel literal — a
+        // bare `{"t":"join"}` fails its zod parse and is dropped in silence.
+        assert_eq!(
+            ClientFrame::join().to_json(),
+            r#"{"t":"join","channel":"activity"}"#
+        );
         assert_eq!(ClientFrame::Kill.to_json(), r#"{"t":"kill"}"#);
         assert_eq!(ClientFrame::Bye { outcome: None }.to_json(), r#"{"t":"bye"}"#);
         assert_eq!(
@@ -1056,7 +1191,7 @@ mod tests {
                 },
                 "hello",
             ),
-            (ClientFrame::Join, "join"),
+            (ClientFrame::join(), "join"),
             (ClientFrame::Input { data: String::new() }, "input"),
             (ClientFrame::Kill, "kill"),
             (ClientFrame::Bye { outcome: None }, "bye"),
@@ -1448,5 +1583,231 @@ mod tests {
         // frame — an old relay's `resize`/`resync` must not kill the socket.
         assert_eq!(ServerFrame::parse(r#"{"t":"resize","cols":120,"rows":40}"#), None);
         assert_eq!(ServerFrame::parse(r#"{"t":"resync"}"#), None);
+    }
+
+    // ── EXP-696 viewer role: the send-side answer + the inbound vocabulary ──
+
+    #[test]
+    fn client_answer_serializes_camel_case_and_omits_none() {
+        // Byte-for-byte the shape `answerFrame` validates and the shape the
+        // web viewer sends (`JSON.stringify({t:"answer",questionId,askId,
+        // keys,text})`, minus the keys it leaves undefined).
+        assert_eq!(
+            ClientFrame::Answer {
+                question_id: "toolu_01#0".into(),
+                ask_id: Some("toolu_01".into()),
+                keys: vec!["1".into(), "3".into()],
+                text: None,
+            }
+            .to_json(),
+            r#"{"t":"answer","questionId":"toolu_01#0","askId":"toolu_01","keys":["1","3"]}"#
+        );
+        // A plan-approval answer has no ask to belong to.
+        assert_eq!(
+            ClientFrame::Answer {
+                question_id: "plan-1".into(),
+                ask_id: None,
+                keys: vec!["1".into()],
+                text: None,
+            }
+            .to_json(),
+            r#"{"t":"answer","questionId":"plan-1","keys":["1"]}"#
+        );
+        // EXP-513: the typed reply for a freeText row rides `text`.
+        assert_eq!(
+            ClientFrame::Answer {
+                question_id: "toolu_01#0".into(),
+                ask_id: Some("toolu_01".into()),
+                keys: vec!["4".into()],
+                text: Some("purple".into()),
+            }
+            .to_json(),
+            r#"{"t":"answer","questionId":"toolu_01#0","askId":"toolu_01","keys":["4"],"text":"purple"}"#
+        );
+    }
+
+    #[test]
+    fn client_answer_round_trips_through_the_publisher_side_frame() {
+        // The two halves of the same wire frame: what a viewer sends must be
+        // exactly what a publisher parses (they are separate enums because
+        // the DIRECTIONS differ, not the bytes).
+        let sent = ClientFrame::Answer {
+            question_id: "toolu_01#1".into(),
+            ask_id: Some("toolu_01".into()),
+            keys: vec!["2".into()],
+            text: Some("purple".into()),
+        }
+        .to_json();
+        assert_eq!(
+            ServerFrame::parse(&sent).unwrap(),
+            ServerFrame::Answer {
+                question_id: "toolu_01#1".into(),
+                ask_id: Some("toolu_01".into()),
+                keys: vec!["2".into()],
+                text: Some("purple".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn viewer_frames_deserialize_the_relay_vocabulary() {
+        // Captured relay strings (hub.ts fans `frame(...)` = JSON.stringify of
+        // exactly these objects to the activity audience).
+        assert_eq!(
+            ViewerFrame::parse(
+                r#"{"t":"activity","event":{"kind":"narration","text":"Reading the file"}}"#
+            )
+            .unwrap(),
+            ViewerFrame::Activity {
+                event: ActivityEvent::narration("Reading the file"),
+            }
+        );
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"activity_reset"}"#).unwrap(),
+            ViewerFrame::ActivityReset
+        );
+        // EXP-656 / EXP-648: the two bare markers.
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"activity_synced"}"#).unwrap(),
+            ViewerFrame::ActivitySynced
+        );
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"keepalive"}"#).unwrap(),
+            ViewerFrame::Keepalive
+        );
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"bye","outcome":"publisher_lost"}"#).unwrap(),
+            ViewerFrame::Bye {
+                outcome: Some("publisher_lost".into()),
+            }
+        );
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"bye"}"#).unwrap(),
+            ViewerFrame::Bye { outcome: None }
+        );
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"error","code":"no_such_session"}"#).unwrap(),
+            ViewerFrame::Error {
+                code: "no_such_session".into(),
+                message: None,
+            }
+        );
+    }
+
+    #[test]
+    fn viewer_ignores_publisher_bound_and_unknown_frames() {
+        // The control/publisher inbound frames are not this role's business —
+        // and, like any future frame, they must parse to None rather than
+        // erroring the pump.
+        assert_eq!(ViewerFrame::parse(r#"{"t":"start_session","issueId":"i"}"#), None);
+        assert_eq!(ViewerFrame::parse(r#"{"t":"input","data":"x"}"#), None);
+        assert_eq!(ViewerFrame::parse(r#"{"t":"kill"}"#), None);
+        assert_eq!(ViewerFrame::parse(r#"{"t":"telepathy"}"#), None);
+        assert_eq!(ViewerFrame::parse("not json"), None);
+        // An event kind from a newer desktop: dropped, socket untouched.
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"activity","event":{"kind":"hologram"}}"#),
+            None
+        );
+    }
+
+    #[test]
+    fn activity_events_round_trip_through_the_wire() {
+        // The publisher serializes, the viewer deserializes: every kind must
+        // survive the round trip with every optional field intact.
+        let events = vec![
+            ActivityEvent::Narration {
+                text: "summary".into(),
+                before_question_id: Some("toolu_01".into()),
+                at: Some(1_751_500_000_000),
+            },
+            ActivityEvent::narration("plain prose"),
+            ActivityEvent::Tool {
+                name: "Grep".into(),
+                detail: Some("fn main".into()),
+                subagent_id: Some("agent_01".into()),
+                at: None,
+            },
+            ActivityEvent::tool("TodoWrite", None),
+            ActivityEvent::diff("--- a\n+++ b\n"),
+            ActivityEvent::user_message("fix the login bug"),
+            ActivityEvent::Question {
+                text: "Which color?".into(),
+                options: vec![
+                    QuestionOption {
+                        label: "Red".into(),
+                        key: "1".into(),
+                        description: Some("warm".into()),
+                        free_text: false,
+                    },
+                    QuestionOption {
+                        free_text: true,
+                        ..QuestionOption::new("Type something.", "4")
+                    },
+                ],
+                multi_select: Some(true),
+                plan_mode: Some(true),
+                id: Some("toolu_01#1".into()),
+                ask_id: Some("toolu_01".into()),
+                index: Some(2),
+                total: Some(3),
+                header: Some("Color".into()),
+                at: Some(7),
+            },
+            ActivityEvent::QuestionResolved {
+                id: Some("toolu_01#0".into()),
+                ask_id: Some("toolu_01".into()),
+                answers: Some(vec!["Red".into()]),
+                dismissed: Some(true),
+                at: None,
+            },
+            ActivityEvent::AnswerAck {
+                id: "toolu_01#0".into(),
+                ask_id: None,
+                at: None,
+            },
+            ActivityEvent::Subagent {
+                id: "agent_01".into(),
+                agent_type: "explore".into(),
+                status: SubagentStatus::Completed,
+                detail: Some("Map the steer crate".into()),
+                at: None,
+            },
+            ActivityEvent::Permission {
+                tool: "Bash".into(),
+                detail: None,
+                at: None,
+            },
+        ];
+        for event in events {
+            let frame = ClientFrame::Activity {
+                event: event.clone(),
+            }
+            .to_json();
+            assert_eq!(
+                ViewerFrame::parse(&frame).unwrap(),
+                ViewerFrame::Activity { event: event.clone() },
+                "round trip {event:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn question_option_defaults_fill_in_for_absent_fields() {
+        // Pre-EXP-513 publishers omit `freeText` and options often carry no
+        // description — both must parse, not fail (an internally-tagged enum
+        // has no per-field fallback without `#[serde(default)]`).
+        let parsed: QuestionOption =
+            serde_json::from_str(r#"{"label":"Red","key":"1"}"#).unwrap();
+        assert_eq!(parsed, QuestionOption::new("Red", "1"));
+        assert!(!parsed.free_text);
+        let free: QuestionOption =
+            serde_json::from_str(r#"{"label":"Type something.","key":"4","freeText":true}"#)
+                .unwrap();
+        assert!(free.free_text);
+        // Unknown future fields are ignored, never a parse failure.
+        let forward: QuestionOption =
+            serde_json::from_str(r#"{"label":"Red","key":"1","hologram":true}"#).unwrap();
+        assert_eq!(forward.label, "Red");
     }
 }

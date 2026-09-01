@@ -10,15 +10,7 @@ import {
 } from "react"
 import { toast } from "sonner"
 import { linkSegments } from "@/lib/linkify"
-import {
-  ArrowDown,
-  ArrowUp,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Plus,
-  X,
-} from "lucide-react"
+import { ArrowDown, Check, ChevronDown, ChevronRight, X } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
 import type { CodingSession, Issue } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
@@ -91,6 +83,7 @@ const CodingPlanIcon = conceptIcon(`coding-plan`)
 const CodingStopIcon = conceptIcon(`coding-stop`)
 const CodingSubagentIcon = conceptIcon(`coding-subagent`)
 const CodingToolIcon = conceptIcon(`coding-tool`)
+const UiAddIcon = conceptIcon(`ui-add`)
 const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 const UiFullscreenIcon = conceptIcon(`ui-fullscreen`)
 const UiFullscreenExitIcon = conceptIcon(`ui-fullscreen-exit`)
@@ -99,6 +92,7 @@ const UiLoadingIcon = conceptIcon(`ui-loading`)
 const UiMoreIcon = conceptIcon(`ui-more`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
+const UiSendIcon = conceptIcon(`ui-send`)
 const UiUsageIcon = conceptIcon(`ui-usage`)
 // EXP-529: multi-select options carry an explicit checkbox state (Android
 // parity) — the amber tint alone read as "nothing selected".
@@ -1031,9 +1025,11 @@ const NarrationBubble = memo(function NarrationBubble({
   text: string
 }) {
   return (
+    // EXP-696: no bubble, matching the natives (EXP-274) — a small assistant
+    // glyph and the agent's prose running the full width of the feed.
     <div className="flex items-start gap-2 py-1">
-      <CodingAssistantIcon className="mt-2 size-3 shrink-0 text-muted-foreground/60" />
-      <div className="min-w-0 flex-1 rounded-md border border-border/60 bg-muted/30 px-3 py-1.5 text-sm text-foreground/90">
+      <CodingAssistantIcon className="mt-1.5 size-3 shrink-0 text-muted-foreground/60" />
+      <div className="min-w-0 flex-1 text-sm text-foreground/90">
         <FeedText text={text} ariaLabel="Agent message" hardBreaks />
       </div>
     </div>
@@ -1081,7 +1077,10 @@ const UserMessageBubble = memo(function UserMessageBubble({
   const { expanded, setExpanded, clampable } = useClampToggle(text)
   return (
     <div className="flex justify-end py-1 pl-8">
-      <div className="min-w-0 rounded-md border border-primary/25 bg-primary/10 px-3 py-1.5 text-sm text-foreground/90">
+      {/* EXP-696: the natives' neutral glass bubble, not a primary tint —
+          slightly brighter than the assistant's glass sections so the
+          sender's own turn reads apart from the feed. */}
+      <div className="min-w-0 rounded-xl border border-glass-stroke-strong bg-glass-active px-3 py-2 text-sm text-foreground/90">
         {/* A height clamp, not `line-clamp`: line clamping needs a plain text
             flow, and a markdown body is a stack of blocks. */}
         <div
@@ -1872,11 +1871,12 @@ function MessageComposer({
     }
   }
 
-  // One rounded card with the send button inside the box — the comment
-  // composer's chrome (EXP-554); behavior and wire format are unchanged.
+  // EXP-696: ONE rounded card laid out as a COLUMN — the pending strip, a
+  // borderless full-width field, then the `[+]`·spacer·send row (the natives'
+  // composerCard). Behavior and wire format are unchanged.
   return (
     <div
-      className="rounded-lg border border-border bg-muted/40"
+      className="rounded-2xl border border-border bg-muted/40"
       onDrop={(event) => {
         if (issueId === null || event.dataTransfer.files.length === 0) return
         event.preventDefault()
@@ -1887,7 +1887,7 @@ function MessageComposer({
       }}
     >
       {pending.length > 0 && (
-        <div className="flex flex-wrap gap-2 px-2 pt-2">
+        <div className="flex flex-wrap gap-2 px-3 pt-3">
           {pending.map((image) => (
             <div key={image.url} className="relative">
               <img
@@ -1908,7 +1908,30 @@ function MessageComposer({
           ))}
         </div>
       )}
-      <div className="flex items-end gap-1.5 p-1.5">
+      <Textarea
+        value={text}
+        onChange={(e) => store.setDraftText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === `Enter` && !e.shiftKey) {
+            e.preventDefault()
+            void send()
+          }
+        }}
+        onPaste={(e) => {
+          if (!issueId || e.clipboardData.files.length === 0) return
+          e.preventDefault()
+          addFiles(Array.from(e.clipboardData.files))
+        }}
+        placeholder={placeholder ?? `Message the agent…`}
+        rows={1}
+        className={cn(
+          `max-h-32 min-h-9 w-full resize-none border-none px-3 pb-1 pt-3 shadow-none focus-visible:ring-0`,
+          // The composer sits on the session's own surface, so it drops the
+          // stock Textarea's glass fill (EXP-616).
+          `bg-transparent`
+        )}
+      />
+      <div className="flex items-center gap-1 px-2 pb-2">
         {issueId !== null && (
           <>
             <input
@@ -1935,43 +1958,21 @@ function MessageComposer({
                 fileInputRef.current?.click()
               }}
             >
-              <Plus />
+              <UiAddIcon />
             </Button>
           </>
         )}
-        <Textarea
-          value={text}
-          onChange={(e) => store.setDraftText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === `Enter` && !e.shiftKey) {
-              e.preventDefault()
-              void send()
-            }
-          }}
-          onPaste={(e) => {
-            if (!issueId || e.clipboardData.files.length === 0) return
-            e.preventDefault()
-            addFiles(Array.from(e.clipboardData.files))
-          }}
-          placeholder={placeholder ?? `Message the agent…`}
-          rows={1}
-          className={cn(
-            `max-h-32 min-h-9 flex-1 resize-none border-none shadow-none focus-visible:ring-0`,
-            // The composer sits on the session's own surface, so it drops the
-            // stock Textarea's glass fill (EXP-616).
-            `bg-transparent`
-          )}
-        />
+        <div className="flex-1" />
         <Button
+          variant="ghost"
           size="icon"
-          className="shrink-0"
+          className="shrink-0 text-foreground"
           aria-label="Send"
-          disabled={
-            sending || !live || (!text.trim() && pending.length === 0)
-          }
+          title="Send"
+          disabled={sending || !live || (!text.trim() && pending.length === 0)}
           onClick={() => void send()}
         >
-          <ArrowUp />
+          <UiSendIcon />
         </Button>
       </div>
     </div>

@@ -90,7 +90,10 @@ impl Global for KillWatchGlobal {}
 struct RemoteStartGlobal(flume::Sender<steer::RemoteStart>);
 impl Global for RemoteStartGlobal {}
 
-fn runtime(cx: &App) -> Option<Arc<SteerRuntime>> {
+/// The ONE steer tokio runtime, once [`install`] has stood it up. `None` on a
+/// build where it failed to start — every steer role (publisher, control
+/// channel, and the EXP-696 viewer) is then simply off.
+pub(crate) fn runtime(cx: &App) -> Option<Arc<SteerRuntime>> {
     cx.try_global::<SteerRuntimeGlobal>().map(|g| g.0.clone())
 }
 

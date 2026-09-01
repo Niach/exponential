@@ -1032,6 +1032,7 @@ impl IssueListView {
                         Some(Rc::new(move |cx: &mut App| {
                             let _ = list.update(cx, |this, cx| this.clear_selection(cx));
                         })),
+                        None,
                     );
                 })
         };

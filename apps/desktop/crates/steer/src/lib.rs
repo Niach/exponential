@@ -1,6 +1,7 @@
-//! `steer` — the relay publisher (masterplan-v3 §3.1 / §08).
+//! `steer` — the desktop's relay client, in all THREE roles (masterplan-v3
+//! §3.1 / §08).
 //!
-//! Two modules over one WebSocket client stack, on the team's ONLY tokio
+//! Three modules over one WebSocket client stack, on the team's ONLY tokio
 //! runtime (isolated from gpui's executors and the blocking reqwest sync stack):
 //!
 //! - [`control_channel`] — the per-account device-presence socket: `online`
@@ -12,6 +13,14 @@
 //!   inject remote `input`/`answer` into the shared PTY writer, claim/
 //!   take-over, kill, and auto-reconnect resuming the room. EXP-249 removed
 //!   the binary PTY mirror it used to carry.
+//! - [`viewer`] (EXP-696) — the other end of that wire: watch and steer a
+//!   session running on ANOTHER of the user's devices, the role web/iOS/
+//!   Android have had since EXP-249. It joins `channel:'activity'`, turns the
+//!   inbound stream into [`viewer::ViewerEvent`]s and sends messages/answers/
+//!   keystrokes back. The pure feed model it drives is [`feed`] (a port of
+//!   the web store's reducer + `agent-feed.ts`), and the composer's image
+//!   template is [`image_message`]. Transport and model are deliberately
+//!   split: the feed is testable with no socket, the socket with no UI.
 //!
 //! Wire protocol and ticket format are FROZEN (`apps/steer-relay/src/protocol.ts`,
 //! `packages/steer-ticket`) — [`frames`] mirrors them byte-for-byte and the
@@ -41,6 +50,15 @@
 //!    callback kills the child (`Terminal::kill`) and calls
 //!    `handle.session_ended()` so the publisher stops reconnecting and says
 //!    a clean `bye`.
+//! 4. **Viewer attach** (EXP-696) — for a session hosted ELSEWHERE, call
+//!    [`viewer::spawn_viewer`] with a [`viewer::TrpcViewerTickets`] and a
+//!    `flume` sender; drain the receiver on the UI side into a
+//!    [`feed::SteerFeed`] and render it. The UI owns exactly two timers —
+//!    the [`feed::ANSWER_ACK_TIMEOUT`] card lock and the EXP-656
+//!    [`feed::REPLAY_QUIET`]/[`feed::REPLAY_MAX`] staged-replay fallback —
+//!    and feeds the session's synced status back with
+//!    [`viewer::ViewerHandle::note_session_ended`] so the redial loops stop
+//!    chasing a publisher that is gone.
 
 pub mod activity;
 pub mod agent_login_driver;
@@ -48,8 +66,10 @@ pub mod codex_activity;
 pub mod codex_approval_picker;
 pub mod codex_login_picker;
 pub mod control_channel;
+pub mod feed;
 pub mod frames;
 pub mod hooks;
+pub mod image_message;
 pub mod journal;
 pub mod login_picker;
 pub mod permission_picker;
@@ -58,6 +78,7 @@ pub mod pi_observer;
 pub mod plan_picker;
 pub mod publisher;
 pub mod question_picker;
+pub mod viewer;
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -73,11 +94,17 @@ pub use activity::{
     spawn_emitter as spawn_activity_emitter, AnswerLink, EmitterConfig, Redactor, RemoteAnswer,
     Steering, TurnSignal,
 };
+pub use feed::{
+    active_question_ids, answer_key, collect_subagents, group_feed_rows, summarize_subagent_row,
+    AnswerState, AnswerStatus, FeedItem, FeedItemId, FeedKind, FeedRow, QuestionCard, SteerFeed,
+    SubagentSummary, ANSWER_ACK_TIMEOUT, ECHO_CAP, FEED_CAP, REPLAY_MAX, REPLAY_QUIET,
+};
 pub use frames::{
     ActivityEvent, ClientFrame, QuestionOption, ServerFrame, StartInput, StartRepoGroup,
-    SteerRole, SubagentStatus, CLOSE_REPLACED, CLOSE_SESSION_ENDED, CLOSE_SLOW_CONSUMER,
-    CLOSE_UNAUTHORIZED,
+    SteerRole, SubagentStatus, ViewerFrame, ACTIVITY_CHANNEL, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
+    CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED,
 };
+pub use image_message::{build_steer_image_message, MAX_STEER_IMAGES};
 pub use hooks::{
     hook_settings_json, write_hook_curl_config, HookContext, HookEvent, HookEventKind,
     HookQuestion, HookQuestionOption, HookServer, HOOK_CONFIG_ENV, HOOK_PORT_ENV,
@@ -86,6 +113,10 @@ pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};
 pub use publisher::{
     image_localizer, publish, ActivitySender, AttachmentHook, KillSignal, PublishSpec,
     PublisherHandle, PublisherHooks, PublisherTickets, TrpcPublisherTickets,
+};
+pub use viewer::{
+    chunk_input, spawn_viewer, spawn_viewer_with, TrpcViewerTickets, ViewerEvent, ViewerHandle,
+    ViewerPhase, ViewerTickets, ViewerTimings, INPUT_CHUNK_UTF16,
 };
 
 // ---------------------------------------------------------------------------
@@ -228,9 +259,33 @@ impl Backoff {
         Self::new(Duration::from_millis(250), Duration::from_secs(15))
     }
 
+    /// The EXP-696 viewer policy: 3s base, 30s cap — the web store's
+    /// `startingRetryDelay` and the natives' reconnect backoff, to the
+    /// millisecond. Pair it with [`Backoff::next_delay_equal_jitter`].
+    pub fn viewer() -> Self {
+        Self::new(Duration::from_secs(3), Duration::from_secs(30))
+    }
+
     /// Current un-jittered bound (test/observability surface).
     pub fn bound(&self) -> Duration {
         self.current
+    }
+
+    /// Equal jitter: half the bound fixed, half random (`bound/2 + rand *
+    /// bound/2`). Desynchronizes clients that started waiting together while
+    /// keeping a FLOOR on the delay — full jitter can sample ~0 and redial
+    /// instantly, which is right for a publisher racing to resume its room
+    /// and wrong for a herd of viewers waiting on a desktop that is still
+    /// starting. Mirrors the web/iOS/Android viewer backoff.
+    pub fn next_delay_equal_jitter(&mut self) -> Duration {
+        let bound = self.current;
+        self.current = (self.current * 2).min(self.cap);
+        let nanos = bound.as_nanos() as u64;
+        if nanos == 0 {
+            return Duration::ZERO;
+        }
+        let half = nanos / 2;
+        Duration::from_nanos(half + self.rng.next() % (half + 1))
     }
 
     /// Sample the next delay (full jitter over the current bound), then

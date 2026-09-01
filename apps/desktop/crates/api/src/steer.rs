@@ -131,6 +131,72 @@ pub fn mint_viewer_ticket(
     mint(trpc, &MintInput::Viewer { coding_session_id })
 }
 
+/// `steer.startSession` input (EXP-696) — the same remote-start payload web
+/// and mobile send. Exactly one of `issue_id` / `issue_ids` / `action_id` /
+/// `resume_session_id` must be set; `team_id` rides built-in action starts
+/// only; `inputs` rides action starts only (BTreeMap for a deterministic
+/// wire order). Absent options mean "target device's defaults".
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartSessionInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issue_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issue_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inputs: Option<std::collections::BTreeMap<String, String>>,
+    pub device_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ultracode: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan_mode: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resume: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resume_session_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct OkWire {
+    /// Read only by serde (the mutation returns `{"ok": true}`).
+    #[allow(dead_code)]
+    ok: bool,
+}
+
+/// `steer.startSession` — remote-start a run on another of the caller's
+/// devices (or a shared server device). The server validates the subject,
+/// the target's registered agents and the option vocabulary, then posts the
+/// `start_session` frame to the device's control socket. `PRECONDITION_FAILED`
+/// when the relay is off or the device is offline/unregistered.
+pub fn start_session(trpc: &TrpcClient, input: &StartSessionInput) -> Result<(), ApiError> {
+    let _: OkWire = trpc.mutation("steer.startSession", input)?;
+    Ok(())
+}
+
+/// `steer.killSession` — end a live session (owner or hosting-device owner):
+/// flips the row to `ended`/`ended_by: user` and best-effort kills the relay
+/// room. Idempotent on already-ended rows. The synced row edge is the
+/// authoritative confirmation; the returned row is ignored here.
+pub fn kill_session(trpc: &TrpcClient, coding_session_id: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        coding_session_id: &'a str,
+    }
+    let _: serde_json::Value = trpc.mutation("steer.killSession", &Input { coding_session_id })?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,6 +275,60 @@ mod tests {
         assert!(request.ends_with(
             r#"{"kind":"publisher","codingSessionId":"3f0f5a2e-1d4b-4c1e-9f6a-000000000001"}"#
         ));
+    }
+
+    #[test]
+    fn start_session_posts_action_subject_with_device() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        let mut inputs = std::collections::BTreeMap::new();
+        inputs.insert("prompt".to_string(), "do the thing".to_string());
+        start_session(
+            &client(&base),
+            &StartSessionInput {
+                action_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+                inputs: Some(inputs),
+                device_id: "dev-1".to_string(),
+                agent: Some("claude".to_string()),
+                plan_mode: Some(true),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/steer.startSession HTTP/1.1"));
+        assert!(request.ends_with(
+            r#"{"actionId":"11111111-1111-4111-8111-111111111111","inputs":{"prompt":"do the thing"},"deviceId":"dev-1","agent":"claude","planMode":true}"#
+        ));
+    }
+
+    #[test]
+    fn start_session_issue_subject_omits_absent_options() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        start_session(
+            &client(&base),
+            &StartSessionInput {
+                issue_id: Some("22222222-2222-4222-8222-222222222222".to_string()),
+                device_id: "dev-2".to_string(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"issueId":"22222222-2222-4222-8222-222222222222","deviceId":"dev-2"}"#
+        ));
+    }
+
+    #[test]
+    fn kill_session_posts_session_id() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{"id":"s-1","status":"ended"},"txid":7}}}"#,
+        );
+        kill_session(&client(&base), "s-1").unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/steer.killSession HTTP/1.1"));
+        assert!(request.ends_with(r#"{"codingSessionId":"s-1"}"#));
     }
 
     #[test]
