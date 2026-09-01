@@ -112,15 +112,20 @@ const h = vi.hoisted(() => {
     getBoardTeamId: vi.fn(async () => ({ teamId: `ws-1` })),
     getAttachmentTeamContext: vi.fn(async () => ({
       teamId: `ws-1`,
+      boardId: `proj-1`,
       contentType: `image/png`,
+      filename: `shot.png`,
+      sizeBytes: 4,
       storageKey: `k`,
     })),
+    getSessionAttachmentTeamContext: vi.fn(),
     getUserTeamIds: vi.fn(async () => [`ws-1`]),
     getPublicTeamIds: vi.fn(async () => []),
   }
 
   const uploadObject = vi.fn(async () => undefined)
   const deleteObject = vi.fn(async () => undefined)
+  const getObject = vi.fn()
   const assertWithinStorageLimit = vi.fn(async () => undefined)
   const createAgentBugReport = vi.fn(async () => ({
     issueId: `bug-issue-1`,
@@ -136,6 +141,7 @@ const h = vi.hoisted(() => {
     membership,
     uploadObject,
     deleteObject,
+    getObject,
     assertWithinStorageLimit,
     createAgentBugReport,
   }
@@ -163,8 +169,11 @@ vi.mock(`@/lib/team-membership`, () => h.membership)
 vi.mock(`@/lib/storage`, () => ({
   uploadObject: h.uploadObject,
   deleteObject: h.deleteObject,
-  getObject: vi.fn(),
+  getObject: h.getObject,
 }))
+
+// EXP-704: attachments_get mints real signed download tokens.
+vi.stubEnv(`BETTER_AUTH_SECRET`, `mcp-tools-test-secret`)
 
 vi.mock(`@/lib/storage/image-dimensions`, () => ({
   getImageDimensions: vi.fn(() => ({ width: 12, height: 8 })),
@@ -943,6 +952,97 @@ describe(`exponential_attachments_delete`, () => {
     const result = await tool(`exponential_attachments_delete`)({ id: UUID })
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`not allowed here`)
+  })
+})
+
+// ── attachments_get (EXP-704: every content type via signed download URL) ────
+
+describe(`exponential_attachments_get`, () => {
+  const bytes = (s: string) => ({
+    Body: { transformToByteArray: async () => new TextEncoder().encode(s) },
+  })
+
+  it(`returns metadata + a signed downloadUrl for a non-image (xlsx)`, async () => {
+    membership.getAttachmentTeamContext.mockResolvedValue({
+      teamId: WS,
+      boardId: PROJ,
+      contentType: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`,
+      filename: `report.xlsx`,
+      sizeBytes: 123_456,
+      storageKey: `k`,
+    })
+    const result = await tool(`exponential_attachments_get`)({ id: UUID })
+    const payload = parseOk(result) as Record<string, unknown>
+    expect(payload).toMatchObject({
+      id: UUID,
+      filename: `report.xlsx`,
+      contentType: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`,
+      sizeBytes: 123_456,
+    })
+    expect(payload.downloadUrl).toMatch(
+      new RegExp(`^https://x\\.test/api/attachments/${UUID}\\?token=.+`)
+    )
+    expect(Date.parse(payload.expiresAt as string)).toBeGreaterThan(Date.now())
+    // No base64-blob-in-context: the bytes ride the URL, not the payload.
+    expect(h.getObject).not.toHaveBeenCalled()
+    expect(payload.text).toBeUndefined()
+    expect(membership.resolveTeamAccess).toHaveBeenCalledWith(USER.id, WS)
+  })
+
+  it(`keeps the inline image block AND adds the metadata payload`, async () => {
+    membership.getAttachmentTeamContext.mockResolvedValue({
+      teamId: WS,
+      boardId: PROJ,
+      contentType: `image/png`,
+      filename: `shot.png`,
+      sizeBytes: 4,
+      storageKey: `k`,
+    })
+    h.getObject.mockResolvedValue(bytes(`png!`))
+    const result = await tool(`exponential_attachments_get`)({ id: UUID })
+    expect(result.isError).toBeFalsy()
+    expect(result.content[0]).toMatchObject({
+      type: `image`,
+      mimeType: `image/png`,
+      data: Buffer.from(`png!`).toString(`base64`),
+    })
+    const payload = JSON.parse(result.content[1].text!) as Record<
+      string,
+      unknown
+    >
+    expect(payload.downloadUrl).toContain(`?token=`)
+  })
+
+  it(`inlines small text files next to the URL`, async () => {
+    membership.getAttachmentTeamContext.mockResolvedValue({
+      teamId: WS,
+      boardId: PROJ,
+      contentType: `text/csv`,
+      filename: `data.csv`,
+      sizeBytes: 10,
+      storageKey: `k`,
+    })
+    h.getObject.mockResolvedValue(bytes(`a,b\n1,2\n`))
+    const result = await tool(`exponential_attachments_get`)({ id: UUID })
+    const payload = parseOk(result) as Record<string, unknown>
+    expect(payload.text).toBe(`a,b\n1,2\n`)
+    expect(payload.downloadUrl).toContain(`?token=`)
+  })
+
+  it(`skips inline text above the size cap`, async () => {
+    membership.getAttachmentTeamContext.mockResolvedValue({
+      teamId: WS,
+      boardId: PROJ,
+      contentType: `text/plain`,
+      filename: `big.txt`,
+      sizeBytes: 40 * 1024,
+      storageKey: `k`,
+    })
+    const result = await tool(`exponential_attachments_get`)({ id: UUID })
+    const payload = parseOk(result) as Record<string, unknown>
+    expect(payload.text).toBeUndefined()
+    expect(h.getObject).not.toHaveBeenCalled()
+    expect(payload.downloadUrl).toContain(`?token=`)
   })
 })
 

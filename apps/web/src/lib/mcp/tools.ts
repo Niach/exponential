@@ -77,6 +77,7 @@ import {
   sanitizeUploadFilename,
 } from "@/lib/storage/issue-attachments"
 import { getImageDimensions } from "@/lib/storage/image-dimensions"
+import { mintAttachmentToken } from "@/lib/storage/attachment-token"
 import { assertWithinStorageLimit } from "@/lib/billing"
 import { appRouter } from "@/routes/api/trpc/$"
 import type { Context } from "@/lib/trpc"
@@ -310,6 +311,11 @@ function sleep(ms: number) {
 }
 
 const codingAgentValues = contract.codingAgent.values as [string, ...string[]]
+
+// EXP-704: a text-ish attachment at or under this size ALSO comes back inline
+// in attachments_get's JSON payload (anything bigger — or any other type —
+// rides only the signed downloadUrl, which has no size cap).
+const MAX_INLINE_TEXT_BYTES = 32 * 1024
 
 // EXP-705: every tool takes a STRICT object — an unknown key is an immediate
 // "unrecognized key" error the agent can self-correct on, never a silent drop.
@@ -1099,7 +1105,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_attachments_get`,
     {
-      description: `Fetch an issue attachment by id and return it as inline image content. Markdown embeds look like ![alt](/api/attachments/{id}). Pass that {id}. Non-image content types are rejected.`,
+      description: `Fetch an attachment by id — every content type. Markdown embeds look like ![alt](/api/attachments/{id}); pass that {id}. Always returns metadata plus a short-lived signed downloadUrl: fetch it (curl/wget) into your working directory to read non-image files (xlsx, PDF, CSV, ...) with real tooling. Images additionally come back as inline image content; small text files include their text inline.`,
       inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
@@ -1129,25 +1135,59 @@ export function registerExponentialTools(
         )
         await resolveTeamAccess(user.id, attachment.teamId)
 
-        if (!attachment.contentType.startsWith(`image/`)) {
-          throw new Error(
-            `Attachment ${id} is ${attachment.contentType}. Only images can be returned inline.`
-          )
+        // EXP-704: the token is minted only after the grant + membership
+        // checks above, bound to this one attachment — the URL is a complete
+        // credential the route accepts without a session, so any agent
+        // (launcher or external MCP client) can download any content type
+        // with no size cap and no base64 in context. Request-origin, not
+        // BETTER_AUTH_URL: the caller reached us on this host, so the URL it
+        // gets back is reachable too (self-host proxies included).
+        const { token, expiresAt } = mintAttachmentToken(id, user.id)
+        const origin = new URL(request.url).origin
+        const payload: Record<string, unknown> = {
+          id,
+          filename: attachment.filename,
+          contentType: attachment.contentType,
+          sizeBytes: attachment.sizeBytes,
+          downloadUrl: `${origin}/api/attachments/${id}?token=${token}`,
+          expiresAt: expiresAt.toISOString(),
         }
 
-        const object = await getObject(attachment.storageKey)
-        if (!object?.Body) throw new Error(`Attachment object not found`)
-        const bytes = await object.Body.transformToByteArray()
+        const contentType = attachment.contentType
+        const isImage = contentType.startsWith(`image/`)
+        const isTextLike =
+          contentType.startsWith(`text/`) ||
+          contentType === `application/json` ||
+          contentType.endsWith(`+json`) ||
+          contentType === `application/csv`
 
-        return {
-          content: [
-            {
-              type: `image` as const,
-              data: Buffer.from(bytes).toString(`base64`),
-              mimeType: attachment.contentType,
-            },
-          ],
+        if (isTextLike && attachment.sizeBytes <= MAX_INLINE_TEXT_BYTES) {
+          const object = await getObject(attachment.storageKey)
+          if (!object?.Body) throw new Error(`Attachment object not found`)
+          const bytes = await object.Body.transformToByteArray()
+          payload.text = Buffer.from(bytes).toString(`utf8`)
         }
+
+        if (isImage) {
+          const object = await getObject(attachment.storageKey)
+          if (!object?.Body) throw new Error(`Attachment object not found`)
+          const bytes = await object.Body.transformToByteArray()
+          return {
+            content: [
+              {
+                type: `image` as const,
+                data: Buffer.from(bytes).toString(`base64`),
+                mimeType: contentType,
+              },
+              {
+                type: `text` as const,
+                text: JSON.stringify(payload, null, 2),
+              },
+            ],
+          }
+        }
+
+        return ok(payload)
       } catch (e) {
         return err(e)
       }

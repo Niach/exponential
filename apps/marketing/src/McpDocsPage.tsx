@@ -115,7 +115,7 @@ const TOOL_GROUPS: {
   {
     heading: `Attachments`,
     tools: [
-      { name: `exponential_attachments_get`, desc: `Fetch an image attachment so the client can view it.` },
+      { name: `exponential_attachments_get`, desc: `Fetch any attachment: metadata plus a short-lived signed download URL (images also come back inline).` },
       { name: `exponential_attachments_upload`, desc: `Upload an image and get its embeddable markdown form back.` },
       { name: `exponential_attachments_delete`, desc: `Delete an attachment; embeds in descriptions and comments are rewritten in the same transaction.` },
     ],
