@@ -63,6 +63,11 @@ use gpui_component::highlighter::HighlightTheme;
 const CODE_TEXT_SIZE: f32 = 11.0;
 const LINE_ROW_H: f32 = 18.0;
 const FILE_HEADER_H: f32 = 26.0;
+/// EXP-706: the COLLAPSIBLE mode's per-file header — a glass row CARD (a
+/// clickable disclosure, not a tinted bar), so it needs a control's height.
+/// Only the PR review screen turns that mode on; Source Control keeps the
+/// 26px bar above, unchanged.
+const COLLAPSED_FILE_HEADER_H: f32 = 36.0;
 const NOTE_ROW_H: f32 = 24.0;
 const FILE_GAP_H: f32 = 8.0;
 /// Line-number gutter width — 4 digits + padding at 11px mono.
@@ -116,6 +121,65 @@ impl RenderRow {
     }
 }
 
+/// EXP-706: the flat row list projected onto the rows the virtual list
+/// actually renders — `result[i]` is the row index of the i-th rendered row.
+///
+/// `collapsible == false` is the IDENTITY projection, so Source Control's diff
+/// (and every other embedder) behaves bit-for-bit as before. Collapsed files
+/// contribute their header row plus the trailing [`RenderRow::FileGap`] only —
+/// that gap IS the 8px between cards, so a stack of collapsed files reads as
+/// separated rows without a second spacing mechanism.
+///
+/// Pure (no gpui App/Window) so the projection is unit-testable.
+fn project_rows(
+    rows: &[RenderRow],
+    files: &[FileSummary],
+    expanded: &std::collections::HashSet<usize>,
+    collapsible: bool,
+) -> Vec<usize> {
+    if !collapsible {
+        return (0..rows.len()).collect();
+    }
+    let mut visible = Vec::with_capacity(files.len() * 2);
+    for (file_ix, summary) in files.iter().enumerate() {
+        if expanded.contains(&file_ix) {
+            visible.extend(summary.row_range.clone());
+            continue;
+        }
+        visible.push(summary.row_range.start);
+        let last = summary.row_range.end.saturating_sub(1);
+        if last > summary.row_range.start && matches!(rows.get(last), Some(RenderRow::FileGap)) {
+            visible.push(last);
+        }
+    }
+    visible
+}
+
+/// The rendered height of row `ix` — the collapsible mode's file headers are
+/// taller CARDS; every other row keeps [`RenderRow::height`].
+fn projected_row_height(rows: &[RenderRow], ix: usize, collapsible: bool) -> Pixels {
+    match rows.get(ix) {
+        Some(RenderRow::FileHeader { .. }) if collapsible => px(COLLAPSED_FILE_HEADER_H),
+        Some(row) => row.height(),
+        None => px(0.),
+    }
+}
+
+/// EXP-706: the collapsible file card's one-letter status badge + its color —
+/// GitHub's A/M/D/R vocabulary over the token palette. `danger` rides in
+/// because it is the only one that comes from the theme rather than the token
+/// module. Unknown statuses read as a plain modification (the `PullFile.status`
+/// vocabulary is GitHub's, so it can grow without a client release).
+fn status_letter(status: &str, danger: gpui::Hsla) -> (&'static str, gpui::Hsla) {
+    match status {
+        "added" => ("A", theme::tokens::GREEN.to_hsla()),
+        "removed" => ("D", danger),
+        "renamed" => ("R", theme::tokens::BLUE.to_hsla()),
+        "copied" => ("C", theme::tokens::BLUE.to_hsla()),
+        _ => ("M", theme::tokens::YELLOW.to_hsla()),
+    }
+}
+
 /// Public per-file summary — feeds the §7.8 side file list (owned by the
 /// screen embedding this component) and `scroll_to_file`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,6 +191,13 @@ pub struct FileSummary {
     pub deletions: u32,
     /// Index of the file's header row in the rendered list (scroll target).
     pub row_index: usize,
+    /// EXP-706: the file's FULL span in the flat row list — its header row,
+    /// every body row, and the trailing [`RenderRow::FileGap`] that separates
+    /// it from the next file (gaps are emitted BEFORE each subsequent header,
+    /// so the gap at `row_range.end - 1` belongs to THIS file). Equals
+    /// `row_index..next_file.row_index`, and `row_index..rows.len()` for the
+    /// last file. Drives the collapsible projection.
+    pub row_range: Range<usize>,
 }
 
 /// Prebuilt render rows + per-file summaries, produced off the foreground by
@@ -163,8 +234,27 @@ pub struct DiffView {
     focus_handle: FocusHandle,
     phase: Phase,
     rows: Vec<RenderRow>,
+    /// Sizes of the VISIBLE rows, in `visible` order (identical to `rows` in
+    /// the non-collapsible mode).
     sizes: Rc<Vec<Size<Pixels>>>,
     files: Vec<FileSummary>,
+    /// EXP-706: per-file collapse. OFF by default — Source Control's diff (and
+    /// every other embedder) keeps the flat always-expanded list it always
+    /// had; only [`crate::pr_diff::PrDiffView`] turns it on.
+    collapsible: bool,
+    /// File indices currently expanded. Empty = all collapsed (the review
+    /// screen's opening state: a stack of file cards).
+    expanded: std::collections::HashSet<usize>,
+    /// The projection `rows` is rendered through: `visible[i]` is the row
+    /// index of the i-th rendered row. Identity while `!collapsible`.
+    visible: Vec<usize>,
+    /// The last toggled file + a replay counter (EXP-706): only the file the
+    /// user just clicked animates its chevron — keying the animation on the
+    /// counter replays it per toggle, and every OTHER header paints its
+    /// settled angle statically (an id-per-state scheme would spin every
+    /// chevron on the first frame the diff lands).
+    chevron_anim: Option<(usize, u64)>,
+    chevron_seq: u64,
     /// Widest cell text (px) — sizes each side's inner (scrolled) content.
     cell_text_w: f32,
     /// The SHARED horizontal offset both columns scroll by (JetBrains-style
@@ -257,28 +347,51 @@ impl DiffView {
             rows: Vec::new(),
             sizes: Rc::new(Vec::new()),
             files: Vec::new(),
+            collapsible: false,
+            expanded: std::collections::HashSet::new(),
+            visible: Vec::new(),
+            chevron_anim: None,
+            chevron_seq: 0,
             cell_text_w: 0.,
             h_scroll: SharedHScroll::default(),
             scroll: VirtualListScrollHandle::new(),
         }
     }
 
+    /// EXP-706: render each file as a COLLAPSED card the header row toggles
+    /// open (the review screen's shape). Off by default — Source Control and
+    /// every other embedder keep the flat, always-expanded list. Set it before
+    /// the first `set_prepared`/`fetch`; toggling it later re-projects the
+    /// rows in place.
+    pub fn set_collapsible(&mut self, collapsible: bool) {
+        if self.collapsible == collapsible {
+            return;
+        }
+        self.collapsible = collapsible;
+        self.rebuild_projection();
+    }
+
     /// Back to the loading state (e.g. before a re-fetch).
     pub fn set_loading(&mut self, cx: &mut gpui::Context<Self>) {
         self.phase = Phase::Loading;
-        self.rows.clear();
-        self.sizes = Rc::new(Vec::new());
-        self.files.clear();
+        self.clear_rows();
         cx.notify();
     }
 
     /// Show a load failure (web parity: "Couldn’t load changes: …").
     pub fn set_error(&mut self, message: impl Into<SharedString>, cx: &mut gpui::Context<Self>) {
         self.phase = Phase::Error(message.into());
+        self.clear_rows();
+        cx.notify();
+    }
+
+    fn clear_rows(&mut self) {
         self.rows.clear();
         self.sizes = Rc::new(Vec::new());
         self.files.clear();
-        cx.notify();
+        self.visible.clear();
+        self.expanded.clear();
+        self.chevron_anim = None;
     }
 
     /// Install a [`PreparedDiff`] built off the foreground (via
@@ -300,13 +413,43 @@ impl DiffView {
         summaries: Vec<FileSummary>,
         cx: &mut gpui::Context<Self>,
     ) {
-        self.sizes = Rc::new(rows.iter().map(|r| size(px(100.), r.height())).collect());
         self.cell_text_w = required_cell_text_width(&rows);
         self.h_scroll
             .set_content_width(px(2. * (GUTTER_W + self.cell_text_w) + 1.));
         self.rows = rows;
         self.files = summaries;
+        // A new diff opens fully collapsed in collapsible mode (EXP-706).
+        self.expanded.clear();
+        self.chevron_anim = None;
+        self.rebuild_projection();
         self.phase = Phase::Ready;
+        cx.notify();
+    }
+
+    /// Recompute [`Self::visible`] (and the parallel `sizes`) from the current
+    /// mode + expansion set — see [`project_rows`].
+    fn rebuild_projection(&mut self) {
+        self.visible = project_rows(&self.rows, &self.files, &self.expanded, self.collapsible);
+        self.sizes = Rc::new(
+            self.visible
+                .iter()
+                .map(|&ix| size(px(100.), projected_row_height(&self.rows, ix, self.collapsible)))
+                .collect(),
+        );
+    }
+
+    /// Expand/collapse one file (EXP-706 — the collapsible mode's header card
+    /// click). No-op outside that mode.
+    fn toggle_file(&mut self, file_ix: usize, cx: &mut gpui::Context<Self>) {
+        if !self.collapsible || file_ix >= self.files.len() {
+            return;
+        }
+        if !self.expanded.remove(&file_ix) {
+            self.expanded.insert(file_ix);
+        }
+        self.chevron_seq += 1;
+        self.chevron_anim = Some((file_ix, self.chevron_seq));
+        self.rebuild_projection();
         cx.notify();
     }
 
@@ -346,19 +489,43 @@ impl DiffView {
     /// Scroll the diff so `file_ix`'s header row is at the top (§7.8 bullet
     /// 4: "selecting a file scrolls the diff").
     pub fn scroll_to_file(&mut self, file_ix: usize, cx: &mut gpui::Context<Self>) {
+        // The virtual list indexes the PROJECTION, not the flat row list —
+        // map through it (identity while `!collapsible`).
         if let Some(summary) = self.files.get(file_ix) {
-            self.scroll
-                .scroll_to_item(summary.row_index, ScrollStrategy::Top);
-            cx.notify();
+            let row_index = summary.row_index;
+            if let Some(item) = self.visible.iter().position(|&ix| ix == row_index) {
+                self.scroll.scroll_to_item(item, ScrollStrategy::Top);
+                cx.notify();
+            }
         }
     }
 
     // -- rendering ----------------------------------------------------------
 
-    fn render_row(&self, ix: usize, cx: &App) -> AnyElement {
+    fn render_row(&self, ix: usize, cx: &mut gpui::Context<Self>) -> AnyElement {
         let Some(row) = self.rows.get(ix) else {
             return div().into_any_element();
         };
+        if self.collapsible {
+            if let RenderRow::FileHeader {
+                path,
+                previous_path,
+                status,
+                additions,
+                deletions,
+            } = row
+            {
+                return self.render_file_card(
+                    ix,
+                    path,
+                    previous_path.as_ref(),
+                    status,
+                    *additions,
+                    *deletions,
+                    cx,
+                );
+            }
+        }
         let theme = cx.theme();
         let mono = theme.mono_font_family.clone();
         // The 50/50 split stays pinned to the pane width; each column's INNER
@@ -488,6 +655,125 @@ impl DiffView {
                 .child(self.render_cell(right.as_ref(), shift, cx))
                 .into_any_element(),
         }
+    }
+
+    /// EXP-706: the COLLAPSIBLE mode's per-file header — a clickable glass row
+    /// card (status letter · path · `+a −d` · chevron) that expands the file's
+    /// body rows. The chevron rotates 180° when open; the file the user just
+    /// toggled animates there over the shared motion tokens, every other
+    /// header paints its settled angle (see [`Self::chevron_anim`]).
+    fn render_file_card(
+        &self,
+        ix: usize,
+        path: &SharedString,
+        previous_path: Option<&SharedString>,
+        status: &SharedString,
+        additions: u32,
+        deletions: u32,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        use gpui::{percentage, Animation, AnimationExt as _, Transformation};
+        use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
+        use gpui_component::{ActiveTheme as _, Icon, Sizable as _};
+
+        let theme = cx.theme();
+        let mono = theme.mono_font_family.clone();
+        let muted = theme.muted_foreground;
+        let danger = theme.danger;
+        let green = theme.green.lighten(0.2);
+        let row_hover = theme.list_active.opacity(0.5);
+        let (letter, letter_color) = status_letter(status.as_ref(), danger);
+
+        // The header row is the file's anchor — its index IS `row_index`.
+        let file_ix = self
+            .files
+            .iter()
+            .position(|summary| summary.row_index == ix)
+            .unwrap_or(0);
+        let expanded = self.expanded.contains(&file_ix);
+
+        let chevron = Icon::new(crate::icons::registry::UI_CHEVRON_DOWN)
+            .xsmall()
+            .text_color(muted);
+        let chevron: AnyElement = match self.chevron_anim {
+            Some((animating, seq)) if animating == file_ix => {
+                // A one-shot (never `.repeat()`) tween that SETTLES at the new
+                // angle; the seq keys a fresh element so it replays per toggle.
+                let (from, to) = if expanded { (0.0, 0.5) } else { (0.5, 0.0) };
+                chevron
+                    .with_animation(
+                        SharedString::from(format!("diff-chevron-{file_ix}-{seq}")),
+                        Animation::new(theme::motion::STANDARD)
+                            .with_easing(theme::motion::standard()),
+                        move |this, delta| {
+                            this.transform(Transformation::rotate(percentage(
+                                from + (to - from) * delta,
+                            )))
+                        },
+                    )
+                    .into_any_element()
+            }
+            _ if expanded => chevron
+                .transform(Transformation::rotate(percentage(0.5)))
+                .into_any_element(),
+            _ => chevron.into_any_element(),
+        };
+
+        let title: SharedString = match previous_path {
+            Some(previous) => SharedString::from(format!("{previous} → {path}")),
+            None => path.clone(),
+        };
+
+        crate::surface::glass_row_card()
+            .id(SharedString::from(format!("diff-file-{file_ix}")))
+            .flex()
+            .items_center()
+            .w_full()
+            .min_w_0()
+            .h(px(COLLAPSED_FILE_HEADER_H))
+            .px_2()
+            .gap_2()
+            .cursor_pointer()
+            .hover(move |this| this.bg(row_hover))
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_file(file_ix, cx)))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .w(px(14.))
+                    .text_center()
+                    .text_size(px(CODE_TEXT_SIZE))
+                    .font_family(mono.clone())
+                    .text_color(letter_color)
+                    .child(letter),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(px(CODE_TEXT_SIZE + 1.))
+                    .font_family(mono)
+                    .text_color(theme.foreground)
+                    .child(title),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(px(CODE_TEXT_SIZE + 1.))
+                    .text_color(green)
+                    .child(SharedString::from(format!("+{additions}"))),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(px(CODE_TEXT_SIZE + 1.))
+                    .text_color(danger)
+                    .child(SharedString::from(format!("\u{2212}{deletions}"))),
+            )
+            .child(div().flex_shrink_0().child(chevron))
+            .into_any_element()
     }
 
     /// One side of a line row: pinned gutter (the anchor's line number) + a
@@ -624,8 +910,14 @@ impl Render for DiffView {
                             "diff-rows",
                             self.sizes.clone(),
                             |this, visible_range, _window, cx| {
+                                // The list indexes the PROJECTION (EXP-706);
+                                // identity while `!collapsible`.
                                 visible_range
-                                    .map(|ix| this.render_row(ix, cx))
+                                    .map(|item| {
+                                        let ix =
+                                            this.visible.get(item).copied().unwrap_or(usize::MAX);
+                                        this.render_row(ix, cx)
+                                    })
                                     .collect::<Vec<_>>()
                             },
                         )
@@ -811,6 +1103,8 @@ fn build_rows_from_models(
             additions: file.additions,
             deletions: file.deletions,
             row_index: rows.len(),
+            // Patched to the real span once the next file's header lands.
+            row_range: rows.len()..rows.len(),
         });
         rows.push(RenderRow::FileHeader {
             path: file.filename.clone().into(),
@@ -877,6 +1171,18 @@ fn build_rows_from_models(
                 }
             }
         }
+    }
+
+    // EXP-706: each file spans from its own header up to the NEXT file's
+    // header, so the FileGap emitted before that header (the separator between
+    // the two) counts as this file's trailing row. The last file runs to the
+    // end of the list.
+    for ix in 0..summaries.len() {
+        let end = summaries
+            .get(ix + 1)
+            .map(|next| next.row_index)
+            .unwrap_or(rows.len());
+        summaries[ix].row_range = summaries[ix].row_index..end;
     }
 
     (rows, summaries)
@@ -1253,6 +1559,143 @@ mod tests {
         assert_eq!(scm_status_str(FileStatus::Untracked), "added");
         assert_eq!(scm_status_str(FileStatus::Deleted), "removed");
         assert_eq!(scm_status_str(FileStatus::Renamed), "renamed");
+    }
+
+    // -- EXP-706: per-file collapse projection ------------------------------
+
+    /// Every file's `row_range` starts at its header and runs up to the NEXT
+    /// file's header — so the separating [`RenderRow::FileGap`] is the LAST
+    /// row of the file above it, and the ranges tile the whole list with no
+    /// gaps and no overlap.
+    #[test]
+    fn file_row_ranges_tile_the_flat_row_list() {
+        let theme = HighlightTheme::default_dark();
+        let files = [ts_file(), binary_file(), rs_file()];
+        let (rows, summaries) = build_rows(&files, &theme);
+        assert_eq!(summaries.len(), 3);
+        for summary in &summaries {
+            assert_eq!(summary.row_range.start, summary.row_index);
+            assert!(matches!(&rows[summary.row_range.start], RenderRow::FileHeader { path, .. }
+                if path == &summary.filename));
+        }
+        for pair in summaries.windows(2) {
+            assert_eq!(pair[0].row_range.end, pair[1].row_range.start);
+            // The row just before the next header IS this file's trailing gap.
+            assert!(matches!(
+                &rows[pair[0].row_range.end - 1],
+                RenderRow::FileGap
+            ));
+        }
+        assert_eq!(summaries[2].row_range.end, rows.len());
+    }
+
+    /// Non-collapsible mode (Source Control and every other embedder) is the
+    /// IDENTITY projection at the original row heights — the collapse work
+    /// must be invisible there.
+    #[test]
+    fn non_collapsible_projection_is_the_identity() {
+        let theme = HighlightTheme::default_dark();
+        let (rows, summaries) = build_rows(&[ts_file(), rs_file()], &theme);
+        let expanded = std::collections::HashSet::new();
+        let visible = project_rows(&rows, &summaries, &expanded, false);
+        assert_eq!(visible, (0..rows.len()).collect::<Vec<_>>());
+        assert_eq!(
+            projected_row_height(&rows, summaries[0].row_index, false),
+            px(FILE_HEADER_H)
+        );
+    }
+
+    /// All collapsed (the review screen's opening state): headers plus the
+    /// gaps that separate them, nothing else — and the header rows wear the
+    /// taller card height.
+    #[test]
+    fn collapsed_projection_is_headers_and_gaps_only() {
+        let theme = HighlightTheme::default_dark();
+        let files = [ts_file(), binary_file(), rs_file()];
+        let (rows, summaries) = build_rows(&files, &theme);
+        let expanded = std::collections::HashSet::new();
+        let visible = project_rows(&rows, &summaries, &expanded, true);
+        // 3 headers + 2 separating gaps.
+        assert_eq!(visible.len(), 5);
+        for &ix in &visible {
+            assert!(matches!(
+                &rows[ix],
+                RenderRow::FileHeader { .. } | RenderRow::FileGap
+            ));
+        }
+        for summary in &summaries {
+            assert!(visible.contains(&summary.row_index));
+            assert_eq!(
+                projected_row_height(&rows, summary.row_index, true),
+                px(COLLAPSED_FILE_HEADER_H)
+            );
+        }
+        // Sizes stay parallel to the projection, not to the flat list.
+        let sizes: Vec<Pixels> = visible
+            .iter()
+            .map(|&ix| projected_row_height(&rows, ix, true))
+            .collect();
+        assert_eq!(sizes.len(), visible.len());
+        assert!(sizes.len() < rows.len());
+    }
+
+    /// Toggling one file open exposes EXACTLY its `row_range` — its body rows
+    /// and no other file's — while the rest stay collapsed.
+    #[test]
+    fn expanding_a_file_exposes_exactly_its_row_range() {
+        let theme = HighlightTheme::default_dark();
+        let files = [ts_file(), binary_file(), rs_file()];
+        let (rows, summaries) = build_rows(&files, &theme);
+        let mut expanded = std::collections::HashSet::new();
+        expanded.insert(1usize);
+        let visible = project_rows(&rows, &summaries, &expanded, true);
+
+        // File 1's whole span is visible, in order.
+        for ix in summaries[1].row_range.clone() {
+            assert!(visible.contains(&ix), "row {ix} of the open file is hidden");
+        }
+        // The neighbours' bodies are still hidden: only their header + gap.
+        for other in [0usize, 2] {
+            let body: Vec<usize> = summaries[other]
+                .row_range
+                .clone()
+                .filter(|&ix| {
+                    !matches!(
+                        &rows[ix],
+                        RenderRow::FileHeader { .. } | RenderRow::FileGap
+                    )
+                })
+                .collect();
+            assert!(!body.is_empty(), "fixture {other} has body rows to hide");
+            for ix in body {
+                assert!(!visible.contains(&ix), "row {ix} leaked while collapsed");
+            }
+        }
+        // Still ascending — the virtual list depends on it.
+        assert!(visible.windows(2).all(|pair| pair[0] < pair[1]));
+        // Collapsing again returns to the headers-and-gaps projection.
+        expanded.clear();
+        assert_eq!(
+            project_rows(&rows, &summaries, &expanded, true).len(),
+            5,
+            "3 headers + 2 gaps"
+        );
+    }
+
+    /// The card's status badge speaks GitHub's vocabulary; anything unknown
+    /// reads as a plain modification rather than vanishing.
+    #[test]
+    fn status_letters_cover_the_github_vocabulary() {
+        let danger = gpui::hsla(0., 1., 0.5, 1.);
+        assert_eq!(status_letter("added", danger).0, "A");
+        assert_eq!(status_letter("removed", danger).0, "D");
+        assert_eq!(status_letter("modified", danger).0, "M");
+        assert_eq!(status_letter("renamed", danger).0, "R");
+        assert_eq!(status_letter("copied", danger).0, "C");
+        assert_eq!(status_letter("changed", danger).0, "M");
+        // Only `removed` borrows the theme's danger colour.
+        assert_eq!(status_letter("removed", danger).1, danger);
+        assert_ne!(status_letter("added", danger).1, danger);
     }
 
     #[test]

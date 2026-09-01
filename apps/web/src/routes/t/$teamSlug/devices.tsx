@@ -130,6 +130,8 @@ function DevicesPage() {
                     row={row}
                     teamSlug={teamSlug}
                     isOwner={isOwner}
+                    currentUserId={currentUserId}
+                    steerEnabled={steerEnabled}
                     onOpen={() => dock?.openDock(row.session.id)}
                   />
                 ))}

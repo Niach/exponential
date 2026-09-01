@@ -310,6 +310,11 @@ export function AgentSessionView({
   // server ends the session on merge (EXP-498) and the prState echo hides
   // the pill again — no local state to unwind.
   const canMerge = composerVisible && prIssue?.prState === `open`
+  // EXP-706: a conflicted merge swaps the pill for the "Fix conflicts" run,
+  // which needs the relay. The dock only mounts this view for a member with
+  // steering on, but the config is the honest gate.
+  const steerConfig = useSteerConfig()
+  const steerEnabled = Boolean(steerConfig?.enabled)
 
   /** Identity-scoped questions stay answerable until they resolve; legacy
    *  cards fall back to the trailing-run heuristic, with a plan-approval card
@@ -461,6 +466,10 @@ export function AgentSessionView({
                 prState={prIssue.prState}
                 prNumber={prIssue.prNumber}
                 issueId={prIssue.id}
+                branch={prIssue.branch}
+                teamId={prIssue.teamId}
+                currentUserId={currentUserId}
+                steerEnabled={steerEnabled}
               />
             </div>
           )}

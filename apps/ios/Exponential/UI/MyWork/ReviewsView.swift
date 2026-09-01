@@ -260,20 +260,38 @@ struct ReviewsListContent: View {
                 // its tap and only pushes the detail, so this uses the same
                 // contentShape + onTapGesture pattern as IssueListView's
                 // inline status/priority glyphs.
-                GlassPillLabel("Merge") {
-                    if merging.contains(entry.id) {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        AppIcon(AppIcons.prMerged, size: 14)
+                //
+                // EXP-706: once the merge failed on a REAL conflict, merging
+                // again is the one thing that cannot work — so the recovery
+                // run REPLACES Merge in this slot instead of crowding a
+                // second button into the caption below. One trailing action,
+                // always the one worth tapping.
+                if canFixConflicts(entry) {
+                    GlassPillLabel("Fix conflicts") {
+                        AppIcon(AppIcons.uiBranch, size: 14)
                     }
+                    .contentShape(Capsule())
+                    .onTapGesture {
+                        fixTarget = entry
+                    }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel("Fix merge conflicts")
+                } else {
+                    GlassPillLabel("Merge") {
+                        if merging.contains(entry.id) {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            AppIcon(AppIcons.prMerged, size: 14)
+                        }
+                    }
+                    .contentShape(Capsule())
+                    .onTapGesture {
+                        guard !merging.contains(entry.id) else { return }
+                        mergeTarget = entry
+                    }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel("Merge pull request")
                 }
-                .contentShape(Capsule())
-                .onTapGesture {
-                    guard !merging.contains(entry.id) else { return }
-                    mergeTarget = entry
-                }
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel("Merge pull request")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -316,8 +334,9 @@ struct ReviewsListContent: View {
 
     /// A refused merge (conflicts, branch protection, GitHub App errors)
     /// captions THIS row (EXP-323) — never a modal alert, and never anything
-    /// the tab bar can cover. A conflict is the common case, so the builtin
-    /// recovery run sits right next to the reason.
+    /// the tab bar can cover. EXP-706: the caption is the REASON only; the
+    /// recovery run took the row's Merge slot, so repeating it here would be
+    /// two buttons for one action.
     @ViewBuilder
     private func mergeErrorCaption(_ entry: ReviewEntry, failure: MergeFailure) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -325,12 +344,6 @@ struct ReviewsListContent: View {
                 .font(.caption)
                 .foregroundStyle(DesignTokens.Semantic.red)
                 .fixedSize(horizontal: false, vertical: true)
-
-            if canFixConflicts(entry) {
-                GlassPillButton("Fix conflicts", icon: AppIcons.uiBranch) {
-                    fixTarget = entry
-                }
-            }
 
             if let runCaption = startWatcher.sentCaption {
                 Text(runCaption)

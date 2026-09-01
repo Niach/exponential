@@ -97,6 +97,18 @@ pub(crate) fn page_scaffold(
     scroll: &ScrollHandle,
     column: gpui::Div,
 ) -> impl IntoElement {
+    page_scaffold_with(id, scroll, column, PAGE_COLUMN_W)
+}
+
+/// [`page_scaffold`] with an explicit column cap — the Reviews page (EXP-706)
+/// reads as a narrower list than the settings-shaped pages, matching the web
+/// route's `max-w-3xl`. Same flex rules apply verbatim; only the cap moves.
+pub(crate) fn page_scaffold_with(
+    id: &'static str,
+    scroll: &ScrollHandle,
+    column: gpui::Div,
+    width: f32,
+) -> impl IntoElement {
     gpui_component::v_flex()
         .size_full()
         .min_h_0()
@@ -110,7 +122,7 @@ pub(crate) fn page_scaffold(
                     .min_w_0()
                     .px_4()
                     .py_4()
-                    .max_w(px(PAGE_COLUMN_W))
+                    .max_w(px(width))
                     .mx_auto(),
             ),
         ))

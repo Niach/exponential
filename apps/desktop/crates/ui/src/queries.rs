@@ -686,7 +686,7 @@ fn build_inbox_entries(
 
 /// Open pull requests: synced issues in this team with an open PR — a
 /// query over `issues`, independent of notifications. Feeds the Reviews rail
-/// badge and, grouped, the Reviews tool window.
+/// badge and, grouped, the Reviews page.
 pub fn review_issues(cx: &App, team_id: &str) -> Vec<domain::rows::Issue> {
     let collections = Store::global(cx).collections();
     let boards = collections.boards.read(cx);
@@ -732,14 +732,14 @@ impl ReviewEntry {
     }
 }
 
-/// One Reviews tool-window section: a board and its open-PR entries (the
+/// One Reviews page section: a board and its open-PR entries (the
 /// desktop mirror of the web `use-reviews-data.ts` `ReviewGroup`).
 pub struct ReviewGroup {
     pub board: domain::rows::Board,
     pub entries: Vec<ReviewEntry>,
 }
 
-/// The Reviews tool window read: [`review_issues`] collapsed to ONE entry per
+/// The Reviews page read: [`review_issues`] collapsed to ONE entry per
 /// PR (issues sharing a `pr_url` — a batch run — group together; issues with
 /// no `pr_url` key on their own id), then grouped by board. Groups follow
 /// board `sort_order` (name tiebreak, like the sidebars); entries are newest
@@ -812,7 +812,7 @@ pub fn review_groups(cx: &App, team_id: &str) -> Vec<ReviewGroup> {
     groups
 }
 
-/// The Reviews tool window's unlinked-PR sections: keep only repos that have
+/// The Reviews page's unlinked-PR sections: keep only repos that have
 /// open pulls (the server returns every team repo, unreachable ones with
 /// an empty list — an empty section is noise, web parity).
 pub fn visible_pull_repos(

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { TRPCClientError } from "@trpc/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { SessionMergeButton } from "@/components/session-merge-button"
 
@@ -15,6 +16,35 @@ vi.mock(`@/lib/trpc-client`, () => ({
     },
   },
 }))
+
+// The conflict swap's launcher: stubbed so the test never drags the synced
+// device collections (and the whole launch dialog) into jsdom.
+vi.mock(`@/hooks/use-remote-start`, () => ({
+  useRemoteStart: () => ({
+    devices: [],
+    starting: false,
+    sentTo: null,
+    startIssues: vi.fn(),
+    runAction: vi.fn(),
+    refresh: vi.fn(),
+    latestVersions: null,
+  }),
+}))
+
+vi.mock(`@/components/launch-dialog/launch-dialog`, () => ({
+  LaunchDialog: () => null,
+}))
+
+vi.mock(`sonner`, () => ({
+  toast: { error: vi.fn() },
+}))
+
+// A server refusal that codes as a real merge conflict (EXP-533).
+function conflictError() {
+  const error = new TRPCClientError(`Pull Request is not mergeable`)
+  Object.assign(error, { data: { code: `CONFLICT` } })
+  return error
+}
 
 // EXP-678: the one Merge control the Agents row and the steering strip share.
 describe(`SessionMergeButton`, () => {
@@ -59,7 +89,10 @@ describe(`SessionMergeButton`, () => {
 
     fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
     await waitFor(() =>
-      expect(mockState.mergeMutate).toHaveBeenCalledWith({ issueId: `i1` })
+      expect(mockState.mergeMutate).toHaveBeenCalledWith(
+        { issueId: `i1` },
+        { context: { skipErrorToast: true } }
+      )
     )
     // Resolved, but the row has not echoed yet — still "Merging…".
     await waitFor(() =>
@@ -73,5 +106,55 @@ describe(`SessionMergeButton`, () => {
       <SessionMergeButton prState="merged" prNumber={7} issueId="i1" label="Merge" />
     )
     expect(screen.queryByRole(`button`)).toBeNull()
+  })
+
+  // EXP-706: "Fix conflicts" REPLACES Merge in its own slot, never sits
+  // beside it — and only where the caller wired the recovery run.
+  it(`swaps to Fix conflicts when the merge is refused by a conflict`, async () => {
+    mockState.mergeMutate.mockRejectedValue(conflictError())
+    render(
+      <SessionMergeButton
+        prState="open"
+        prNumber={7}
+        issueId="i1"
+        label="Merge"
+        branch="exp/MET-12"
+        teamId="t1"
+        currentUserId="u1"
+        steerEnabled
+      />
+    )
+
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
+
+    const fix = await screen.findByRole(`button`, {
+      name: `Fix merge conflicts`,
+    })
+    expect(fix.textContent).toContain(`Fix conflicts`)
+    // One trailing action, not two.
+    expect(screen.queryByRole(`button`, { name: `Merge pull request` })).toBeNull()
+  })
+
+  it(`keeps the plain Merge button when the caller wired no recovery run`, async () => {
+    mockState.mergeMutate.mockRejectedValue(conflictError())
+    render(
+      <SessionMergeButton prState="open" prNumber={7} issueId="i1" label="Merge" />
+    )
+
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
+
+    await waitFor(() => expect(mockState.mergeMutate).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>(`button`, {
+          name: `Merge pull request`,
+        }).disabled
+      ).toBe(false)
+    )
+    expect(
+      screen.queryByRole(`button`, { name: `Fix merge conflicts` })
+    ).toBeNull()
   })
 })

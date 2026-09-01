@@ -117,6 +117,8 @@ export function SessionRow({
   row,
   teamSlug,
   isOwner,
+  currentUserId,
+  steerEnabled = false,
   onOpen,
 }: {
   row: AgentSessionRow
@@ -125,6 +127,10 @@ export function SessionRow({
    * WHICH editor the trailing button opens (a row must not resolve it itself:
    * the hook fetches the team's billing plan, once per row). */
   isOwner: boolean
+  /** EXP-706: resolved ONCE by the caller (same reason as `isOwner`) — they
+   * let a conflicted Merge swap itself for the "Fix conflicts" run. */
+  currentUserId?: string
+  steerEnabled?: boolean
   onOpen: () => void
 }) {
   const { session, issue, board } = row
@@ -214,6 +220,10 @@ export function SessionRow({
             prState={prIssue.prState}
             prNumber={prIssue.prNumber}
             issueId={prIssue.id}
+            branch={prIssue.branch}
+            teamId={prIssue.teamId}
+            currentUserId={currentUserId}
+            steerEnabled={steerEnabled}
           />
         )}
         {issue && board ? (

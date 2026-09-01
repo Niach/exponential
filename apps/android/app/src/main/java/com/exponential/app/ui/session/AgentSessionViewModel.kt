@@ -5,10 +5,13 @@ import android.os.SystemClock
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SteerApi
+import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.BoardEntity
@@ -26,10 +29,14 @@ import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.resolveSessionDevice
+import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.markdown.AttachmentDims
+import com.exponential.app.ui.steer.ActionRunState
+import com.exponential.app.ui.steer.SteerLaunchDelegate
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -65,6 +72,7 @@ class AgentSessionViewModel @Inject constructor(
     private val steerApi: SteerApi,
     private val issuesApi: IssuesApi,
     private val store: SteerConnectionStore,
+    private val steerLaunch: SteerLaunchDelegate,
     stats: SyncStats,
 ) : ViewModel() {
 
@@ -270,10 +278,14 @@ class AgentSessionViewModel @Inject constructor(
     private val _merging = MutableStateFlow(false)
     val merging: StateFlow<Boolean> = _merging
 
-    /** A failed merge's message (EXP-678) — the same banner shape as
-     *  [killError]; cleared by the next attempt. */
-    private val _mergeError = MutableStateFlow<String?>(null)
-    val mergeError: StateFlow<String?> = _mergeError
+    /**
+     * A failed merge (EXP-678) — the same banner shape as [killError], cleared
+     * by the next attempt. EXP-706: typed, not a bare string, because the bar
+     * swaps its Merge pill for the "Fix conflicts" run on a REAL conflict
+     * (EXP-533's rule, already modelled for Agents and Reviews).
+     */
+    private val _mergeError = MutableStateFlow<MergeFailure?>(null)
+    val mergeError: StateFlow<MergeFailure?> = _mergeError
 
     /**
      * Squash-merge [mergeIssue]'s PR. The server merges AND ends this session
@@ -292,7 +304,7 @@ class AgentSessionViewModel @Inject constructor(
                     // Conflicts, branch protection and GitHub App errors are the
                     // common, persistent failures — same copy as Agents/Reviews.
                     _mergeError.value =
-                        trpcErrorMessage(t, "The pull request could not be merged")
+                        MergeFailure.from(t, "The pull request could not be merged")
                 }
             _merging.value = false
         }
@@ -353,6 +365,32 @@ class AgentSessionViewModel @Inject constructor(
                 _killError.value = trpcErrorMessage(t, "Couldn't kill the session")
             }
         }
+    }
+
+    // ── Remote start (EXP-706) ───────────────────────────────────────────────
+    // A conflict-refused merge swaps the bar's Merge pill for the builtin
+    // "Fix merge conflicts" run — the same rails Reviews and the Changes tab
+    // already ride, so the plumbing is the shared delegate, not a copy.
+    val steerLaunchEnabled: StateFlow<Boolean?> get() = steerLaunch.enabled
+    val steerDevices: StateFlow<List<SteerDevice>?> get() = steerLaunch.devices
+    val startCandidates: StateFlow<List<StartIssueOption>> get() = steerLaunch.startCandidates
+    val runState: StateFlow<ActionRunState> get() = steerLaunch.runState
+    val startedSessionId: StateFlow<String?> get() = steerLaunch.startedSessionId
+
+    fun consumeStartedSession() = steerLaunch.consumeStartedSession()
+
+    fun runAction(
+        device: SteerDevice,
+        action: ActionDto,
+        options: SteerStartOptions,
+        inputs: Map<String, String>,
+    ) = steerLaunch.runAction(device, action, options, inputs)
+
+    fun startCoding(device: SteerDevice, issueIds: List<String>, options: SteerStartOptions) =
+        steerLaunch.startCoding(device, issueIds, options)
+
+    init {
+        steerLaunch.attach(viewModelScope)
     }
 
     /** Detach from the connection — it keeps streaming for the next visit,

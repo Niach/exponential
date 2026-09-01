@@ -261,48 +261,52 @@ function ReviewsPage() {
                             </div>
                           )}
                         </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={merging}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setMergeTarget(entry)
-                          }}
-                        >
-                          {merging ? (
-                            <>
-                              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                              Merging…
-                            </>
-                          ) : (
-                            <>
-                              <GitMerge className="h-3.5 w-3.5" />
-                              Merge
-                            </>
-                          )}
-                        </Button>
+                        {/* EXP-706: the recovery run takes the Merge button's
+                            OWN slot on a real conflict — one trailing action
+                            per row, never two. */}
+                        {canFixConflicts ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setFixTarget(entry)
+                            }}
+                          >
+                            <GitBranch className="h-3.5 w-3.5" />
+                            Fix conflicts
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={merging}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setMergeTarget(entry)
+                            }}
+                          >
+                            {merging ? (
+                              <>
+                                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                                Merging…
+                              </>
+                            ) : (
+                              <>
+                                <GitMerge className="h-3.5 w-3.5" />
+                                Merge
+                              </>
+                            )}
+                          </Button>
+                        )}
                         {/* The refusal captions its own row (EXP-323) —
                             spanning the grid so the full GitHub message stays
-                            readable — with the recovery run right beside it. */}
+                            readable. Message only since EXP-706. */}
                         {mergeError && (
                           <div className="col-span-4 flex flex-wrap items-center gap-2 pt-2">
                             <span className="text-destructive text-xs">
                               {mergeError.message}
                             </span>
-                            {canFixConflicts && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setFixTarget(entry)
-                                }}
-                              >
-                                <GitBranch className="h-3.5 w-3.5" />
-                                Fix conflicts
-                              </Button>
-                            )}
                           </div>
                         )}
                       </div>

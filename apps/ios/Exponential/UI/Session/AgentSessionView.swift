@@ -71,7 +71,18 @@ struct AgentSessionView: View {
     /// when that echo syncs back.
     @State private var showMergeConfirm = false
     @State private var merging = false
-    @State private var mergeError: String?
+    /// EXP-706: the refusal AND whether the server diagnosed a REAL content
+    /// conflict — the only case a retry can never fix, and the only one the
+    /// recovery run can. A conflict swaps the Merge pill for "Fix conflicts".
+    @State private var mergeFailure: MergeFailure?
+    // "Fix conflicts" (EXP-323 rails, EXP-706 on this screen): the builtin
+    // recovery run, launched on any machine the caller can reach.
+    @State private var fixSheetOpen = false
+    @State private var steerEnabled = false
+    @State private var fixDevices: [SteerDevice]?
+    @State private var startCandidates: [StartCodingSheet.IssueOption] = []
+    @State private var startWatcher = StartedRunWatcher()
+    @State private var fixSessionTarget: StartedRunWatcher.StartedSession?
     /// Whether the feed is scrolled to (within slack of) its bottom —
     /// auto-scroll only while pinned; scrolling up pauses follow and surfaces
     /// the "Jump to bottom" pill.
@@ -209,10 +220,13 @@ struct AgentSessionView: View {
         // fire when opening an ALREADY-ended run's feed, which must stay put.
         // Row status, not `isOver`: a relay `bye` alone shouldn't yank a
         // screen the row still calls live.
+        // EXP-706: NOT while a recovery run is pushed on top of this screen —
+        // that run's merge is what ends this one, and popping the parent would
+        // yank the viewer out of the session they just started.
         .onChange(of: model?.sessionEnded) { _, ended in
             if ended == false {
                 sawLiveSession = true
-            } else if ended == true && sawLiveSession {
+            } else if ended == true && sawLiveSession && fixSessionTarget == nil {
                 dismiss()
             }
         }
@@ -239,6 +253,43 @@ struct AgentSessionView: View {
             // NOT a teardown: the store keeps the socket up while the session
             // runs and retires it once it is over (or falls off the cap).
             deps.steerSessions.detach(accountId: accountId, sessionId: session.id)
+            startWatcher.stop()
+        }
+        // EXP-706: the "Fix conflicts" launcher — the machines it can run on
+        // resolve off the synced devices shape, once steering is known on.
+        .task(id: accountId) {
+            let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
+            steerEnabled = config.enabled
+            await refreshFixTargets()
+        }
+        .sheet(isPresented: $fixSheetOpen) {
+            StartCodingSheet(
+                devices: fixDevices ?? [],
+                issues: startCandidates,
+                preselectedIds: [],
+                teamId: session.teamId,
+                initialTab: .actions,
+                preselectedActionId: DomainContract.builtinFixConflictsId,
+                preselectedPrIssueId: model?.mergeIssue?.id,
+                onStart: { device, issueIds, options in
+                    startFixIssues(on: device, issueIds: issueIds, options: options)
+                },
+                onRunAction: { device, action, options, inputs in
+                    runFixAction(on: device, action: action, options: options, inputs: inputs)
+                }
+            )
+        }
+        // The desktop picked the start up — push the recovery run's own steer
+        // screen ONCE, exactly like Reviews does (EXP-536).
+        .onChange(of: startWatcher.startedSession) { _, started in
+            if let started {
+                startWatcher.startedSession = nil
+                fixSessionTarget = started
+            }
+        }
+        .navigationDestination(item: $fixSessionTarget) { target in
+            AgentSessionRouteView(sessionId: target.sessionId)
+                .environment(\.accountId, accountId)
         }
         .sheet(isPresented: $showDiffSheet) {
             if let diff = model?.latestDiff {
@@ -732,10 +783,27 @@ struct AgentSessionView: View {
             }
         }
         // A refused merge (conflicts, branch protection) — same shape
-        // (EXP-678); cleared on the next attempt.
-        if let mergeError {
+        // (EXP-678); cleared on the next attempt. EXP-706: the reason only —
+        // a conflict's recovery run took the Merge pill's slot in the bar.
+        if let mergeFailure {
             bannerRow {
-                Text(mergeError)
+                Text(mergeFailure.message)
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Semantic.red)
+            }
+        }
+        // The recovery run's own progress (EXP-536): "sent to <machine>",
+        // then the live session pushes itself once the desktop picks it up.
+        if let runCaption = startWatcher.sentCaption {
+            bannerRow {
+                Text(runCaption)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
+        }
+        if let runError = startWatcher.failure {
+            bannerRow {
+                Text(runError)
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Semantic.red)
             }
@@ -850,9 +918,15 @@ struct AgentSessionView: View {
                     Spacer()
                 }
                 // EXP-678: merge this run's PR without leaving the steering
-                // screen — same height as the chip it sits beside.
+                // screen — same height as the chip it sits beside. EXP-706: a
+                // merge refused on a REAL conflict swaps the pill for the
+                // recovery run, which is the only thing that can unblock it.
                 if model.canMerge {
-                    mergePill(model)
+                    if canFixConflicts {
+                        fixConflictsPill()
+                    } else {
+                        mergePill(model)
+                    }
                 }
             }
             .padding(.horizontal, 14)
@@ -915,19 +989,131 @@ struct AgentSessionView: View {
         .accessibilityLabel("Merge pull request")
     }
 
+    /// EXP-706: the recovery run in the Merge pill's slot — same glass pill,
+    /// same height, opening the shared "Fix merge conflicts" launcher seeded
+    /// with THIS run's pull request.
+    private func fixConflictsPill() -> some View {
+        Button {
+            fixSheetOpen = true
+        } label: {
+            GlassPillLabel("Fix conflicts", verticalPadding: 10) {
+                AppIcon(AppIcons.uiBranch, size: 14)
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Fix merge conflicts")
+    }
+
+    /// Only a REAL content conflict (EXP-533) gets the run — every other
+    /// refusal (stale head, branch protection, a misconfigured GitHub App) is
+    /// something no rebase can fix. The run rebases the PR's branch, so one
+    /// must be recorded on the issue behind the merge.
+    private var canFixConflicts: Bool {
+        steerEnabled
+            && mergeFailure?.isConflict == true
+            && !(model?.mergeIssue?.branch ?? "").isEmpty
+    }
+
     /// Merge the session's PR. No local surgery on success: the server ends
     /// the session and flips `pr_state`, and both land here through sync.
     private func merge(_ model: AgentSessionModel) {
         guard let issueId = model.mergeIssue?.id else { return }
-        mergeError = nil
+        mergeFailure = nil
         merging = true
         Task {
             do {
                 try await deps.issuesApi.mergePr(accountId: accountId, issueId: issueId)
             } catch {
-                mergeError = error.localizedDescription
+                mergeFailure = MergeFailure(error: error)
             }
             merging = false
+        }
+    }
+
+    // MARK: - Fix conflicts (EXP-706)
+
+    private func refreshFixTargets() async {
+        guard steerEnabled else {
+            fixDevices = nil
+            return
+        }
+        // EXP-432: team-scoped, so a teammate's shared machine can host the
+        // run. EXP-481: read off the synced devices shape, not the network.
+        fixDevices = await DeviceQueries.onlineStartTargets(
+            db: deps.db, accountId: accountId,
+            teamId: session.teamId, userId: deps.auth.userId
+        )
+        startCandidates = await StartCodingSheet.IssueOption.loadCandidates(
+            db: deps.db,
+            accountId: accountId,
+            teamId: session.teamId
+        )
+    }
+
+    /// Actions-mode launch from the unified sheet — the "Fix merge conflicts"
+    /// builtin, which always rides its teamId.
+    private func runFixAction(
+        on device: SteerDevice,
+        action: ActionDto,
+        options: SteerStartOptions,
+        inputs: [String: String]
+    ) {
+        startWatcher.sending()
+        Task {
+            do {
+                try await deps.steerApi.startSession(
+                    accountId: accountId,
+                    actionId: action.id,
+                    deviceId: device.deviceId,
+                    teamId: action.isBuiltin ? action.teamId : nil,
+                    options: options,
+                    inputs: inputs.isEmpty ? nil : inputs
+                )
+                startWatcher.begin(
+                    key: .action(name: action.name),
+                    userId: deps.auth.userId,
+                    device: device,
+                    db: deps.db,
+                    accountId: accountId
+                )
+            } catch {
+                startWatcher.failed(error.userFacingMessage)
+            }
+        }
+    }
+
+    /// Issues-tab launch from the same sheet (flipping tabs must not dead-end).
+    private func startFixIssues(on device: SteerDevice, issueIds: [String], options: SteerStartOptions) {
+        guard let key = StartedRunKey.forIssues(issueIds) else { return }
+        startWatcher.sending()
+        Task {
+            do {
+                if issueIds.count > 1 {
+                    try await deps.steerApi.startSession(
+                        accountId: accountId,
+                        issueIds: issueIds,
+                        deviceId: device.deviceId,
+                        options: options
+                    )
+                } else {
+                    try await deps.steerApi.startSession(
+                        accountId: accountId,
+                        issueId: issueIds[0],
+                        deviceId: device.deviceId,
+                        options: options
+                    )
+                }
+                startWatcher.begin(
+                    key: key,
+                    userId: deps.auth.userId,
+                    device: device,
+                    db: deps.db,
+                    accountId: accountId
+                )
+            } catch {
+                startWatcher.failed(error.userFacingMessage)
+            }
         }
     }
 

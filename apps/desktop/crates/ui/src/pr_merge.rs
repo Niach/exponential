@@ -1,7 +1,8 @@
 //! Shared two-click PR merge/close machinery (EXP-325).
 //!
-//! Three surfaces offer the same "Merge PR" affordance — the Reviews rail
-//! rows, the issue-detail properties sidebar, and the terminal dock's
+//! Four surfaces offer the same "Merge PR" affordance — the Reviews page's
+//! rows, the PR diff header, the issue-detail properties sidebar, and the
+//! terminal dock's
 //! session tabs — and they must behave identically: first click arms
 //! ("Confirm merge", ~5s auto-disarm), second click fires the server-side
 //! GitHub-App squash merge, failures caption the row, success holds the

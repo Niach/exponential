@@ -7,10 +7,10 @@ import {
 } from "@tanstack/react-router"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import {
+  ArrowLeft,
   ExternalLink,
   GitBranch,
   GitMerge,
-  GitPullRequest,
   LoaderCircle,
   RotateCw,
   X,
@@ -38,11 +38,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  DiffView,
+  AddDelCounts,
   FileDiffList,
   type PullFile,
 } from "@/components/diff-view"
-import { PrStateBadge } from "@/components/issue-coding-rows"
 import { useSteerConfig } from "@/components/agent-session"
 import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
 
@@ -64,89 +63,51 @@ export const Route = createFileRoute(
   component: ReviewDetailPage,
 })
 
-type BranchState =
+type FilesState =
   | { kind: `loading` }
   | { kind: `files`; files: PullFile[] }
-  | { kind: `none` } // branch was never pushed (GitHub 404)
+  | { kind: `none` } // no PR and the branch was never pushed (GitHub 404)
   | { kind: `error`; message: string }
 
-// Tier-3 diff: a pushed branch with no PR yet (ported from the retired
-// issue-changes-tab). branchDiff returns null when the branch was never pushed.
-function BranchDiffSection({
-  issueId,
-  identifier,
-}: {
-  issueId: string
-  identifier: string
-}) {
-  const [branch, setBranch] = useState<BranchState>({ kind: `loading` })
+// EXP-706: the file list is fetched by the ROUTE, not by the diff component —
+// the header prints the file count and the +/- totals, so it needs the files
+// before they are rendered. Two tiers behind one state machine: the PR diff
+// (`issues.prFiles`) and, for a pushed branch with no PR yet,
+// `repositories.branchDiff` (which answers null when nothing was ever pushed).
+function useReviewFiles(issue: Issue | null) {
+  const issueId = issue?.id ?? null
+  const hasPr = issue?.prNumber != null
+  const [state, setState] = useState<FilesState>({ kind: `loading` })
 
   const load = useCallback(() => {
+    if (!issueId) return
     let cancelled = false
-    setBranch({ kind: `loading` })
-    trpc.repositories.branchDiff
-      .query({ issueId })
-      .then((res) => {
+    setState({ kind: `loading` })
+    const request: Promise<PullFile[] | null> = hasPr
+      ? trpc.issues.prFiles.query({ issueId }).then((res) => res.files)
+      : trpc.repositories.branchDiff
+          .query({ issueId })
+          .then((res) => res?.files ?? null)
+    request
+      .then((files) => {
         if (cancelled) return
-        if (!res) {
-          setBranch({ kind: `none` })
-          return
-        }
-        setBranch({ kind: `files`, files: res.files })
+        setState(files ? { kind: `files`, files } : { kind: `none` })
       })
       .catch((err: unknown) => {
         if (cancelled) return
-        setBranch({
+        setState({
           kind: `error`,
-          message: err instanceof Error ? err.message : `Failed to load branch`,
+          message: err instanceof Error ? err.message : `Failed to load changes`,
         })
       })
     return () => {
       cancelled = true
     }
-  }, [issueId])
+  }, [issueId, hasPr])
 
   useEffect(() => load(), [load])
 
-  if (branch.kind === `loading`) {
-    return (
-      <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
-        <LoaderCircle className="size-3.5 animate-spin" /> Loading changes…
-      </div>
-    )
-  }
-
-  if (branch.kind === `files` && branch.files.length > 0) {
-    return (
-      <div>
-        <div className="flex min-w-0 items-center gap-2 border-b border-border px-4 py-2 text-sm">
-          <GitBranch className="size-4 shrink-0 text-muted-foreground" />
-          <span className="truncate">
-            Branch <span className="font-mono">exp/{identifier}</span>
-            {` · no PR yet`}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="ml-auto shrink-0 text-muted-foreground"
-            aria-label="Refresh changes"
-            onClick={() => load()}
-          >
-            <RotateCw className="size-3.5" />
-          </Button>
-        </div>
-        <FileDiffList files={branch.files} showFileNav={false} defaultCollapsed />
-      </div>
-    )
-  }
-
-  return (
-    <div className="px-4 py-6 text-xs text-muted-foreground">
-      {branch.kind === `error`
-        ? `Couldn’t load branch changes: ${branch.message}`
-        : `No changes yet. A pushed branch or pull request will appear here.`}
-    </div>
-  )
+  return { state, reload: load }
 }
 
 function ReviewDetailPage() {
@@ -199,6 +160,17 @@ function ReviewDetailPage() {
       ),
     [linkedRows]
   )
+
+  // The diff itself, hoisted so the header can caption it (EXP-706).
+  const { state: filesState, reload: reloadFiles } = useReviewFiles(issue)
+  const loadedFiles = filesState.kind === `files` ? filesState.files : null
+  const totals = useMemo(() => {
+    const list = loadedFiles ?? []
+    return {
+      additions: list.reduce((n, f) => n + f.additions, 0),
+      deletions: list.reduce((n, f) => n + f.deletions, 0),
+    }
+  }, [loadedFiles])
 
   // Merge / close hold their spinner until the Electric echo flips prState away
   // from `open` (which hides the actions), matching the Reviews list.
@@ -303,11 +275,71 @@ function ReviewDetailPage() {
 
   const isOpen = issue.prState === `open`
   const isBatch = linked.length > 1
+  // EXP-706: a real merge conflict REPLACES the Merge control in its own slot
+  // (desktop header and mobile bar alike) instead of adding a second button
+  // next to the refusal caption — one action per slot, on every client.
+  const canFixConflicts = Boolean(
+    actionError?.action === `merge` &&
+      actionError.conflict &&
+      isOpen &&
+      issue.branch &&
+      steerEnabled
+  )
+  const prStateLabel =
+    issue.prNumber == null ? `No pull request` : (issue.prState ?? `open`)
+
+  const mergeControl = canFixConflicts ? (
+    <Button className="rounded-full" onClick={() => setFixOpen(true)}>
+      <GitBranch className="size-3.5" />
+      Fix conflicts
+    </Button>
+  ) : (
+    <Button
+      className="rounded-full"
+      disabled={merging || closing}
+      onClick={() => setConfirmMergeOpen(true)}
+    >
+      {merging ? (
+        <>
+          <LoaderCircle className="size-3.5 animate-spin" />
+          Merging…
+        </>
+      ) : (
+        <>
+          <GitMerge className="size-3.5" />
+          Merge
+        </>
+      )}
+    </Button>
+  )
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-1.5 border-b border-border px-4 py-2 text-xs text-muted-foreground">
+      {/* Mobile header (EXP-706) — a round back button and the section title,
+          no actions (those live in the floating bar). A plain flex sibling
+          ABOVE the scroller, not a sticky child of it: the route's own column
+          already pins it, and the scrollport stays free of overlay chrome. */}
+      <div className="flex items-center gap-2 border-b border-border bg-background/80 px-3 py-2 backdrop-blur-xl md:hidden">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-9 shrink-0 rounded-full border border-glass-stroke-card bg-popover/85 text-muted-foreground backdrop-blur-xl hover:bg-muted/85 hover:text-foreground"
+          aria-label="Back to reviews"
+          onClick={() =>
+            void navigate({ to: `/t/$teamSlug/reviews`, params: { teamSlug } })
+          }
+        >
+          <ArrowLeft className="size-4" />
+        </Button>
+        <span className="flex-1 truncate text-center text-sm font-semibold">
+          Review
+        </span>
+        {/* Balances the back button so the title stays optically centred. */}
+        <span className="size-9 shrink-0" />
+      </div>
+
+      {/* Breadcrumb (desktop only — mobile has the back button above) */}
+      <div className="hidden items-center gap-1.5 border-b border-border px-4 py-2 text-xs text-muted-foreground md:flex">
         <Link
           to="/t/$teamSlug/reviews"
           params={{ teamSlug }}
@@ -319,95 +351,78 @@ function ReviewDetailPage() {
         <span className="font-mono text-foreground">{issue.identifier}</span>
       </div>
 
-      {/* Header: PR identity + actions */}
-      <div className="flex min-w-0 items-center gap-2 border-b border-border px-4 py-2 text-sm">
-        <GitPullRequest className="size-4 shrink-0 text-muted-foreground" />
-        {issue.prNumber != null ? (
-          issue.prUrl ? (
-            <a
-              href={issue.prUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex shrink-0 items-center gap-1 font-mono hover:underline"
-            >
-              PR #{issue.prNumber}
-              <ExternalLink className="size-3.5" />
-            </a>
-          ) : (
-            <span className="shrink-0 font-mono">PR #{issue.prNumber}</span>
-          )
-        ) : (
-          <span className="shrink-0 text-muted-foreground">No pull request</span>
-        )}
-        <PrStateBadge state={issue.prState} />
-        {issue.branch && (
-          <span className="hidden min-w-0 truncate font-mono text-xs text-muted-foreground md:inline">
-            {issue.branch}
-          </span>
-        )}
-        {/* Desktop actions (EXP-333) — inline in the header like the IDE's
-            Reviews rows (quiet ghost × left of a compact outline Merge); the
-            floating bar below stays mobile-only. The header's PR # link
-            already covers the GitHub hop. */}
-        {isOpen && (
-          <div className="ml-auto hidden shrink-0 items-center gap-1.5 md:flex">
+      {/* Desktop header (EXP-706) — deliberately NOT a card: the branch over a
+          quiet state · files · ±totals line, with the actions on the right.
+          The PR number is gone from this page entirely; GitHub is one round
+          glass button away. */}
+      <div className="hidden min-w-0 items-center gap-2 border-b border-border px-4 py-2 md:flex">
+        <div className="min-w-0">
+          {issue.branch && (
+            <div className="truncate font-mono text-xs text-muted-foreground">
+              {issue.branch}
+            </div>
+          )}
+          <div className="flex items-center gap-3 text-xs">
+            <span className="capitalize text-muted-foreground">
+              {prStateLabel}
+            </span>
+            {loadedFiles && (
+              <>
+                <span className="text-muted-foreground">
+                  {loadedFiles.length === 1
+                    ? `1 file`
+                    : `${loadedFiles.length} files`}
+                </span>
+                <AddDelCounts
+                  additions={totals.additions}
+                  deletions={totals.deletions}
+                />
+              </>
+            )}
+          </div>
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {isOpen && (
             <Button
               variant="ghost"
-              size="icon-xs"
-              className="text-muted-foreground"
+              size="icon"
+              className="size-9 rounded-full border border-glass-stroke-card bg-popover/85 text-muted-foreground backdrop-blur-xl hover:bg-muted/85 hover:text-foreground"
               aria-label="Close pull request without merging"
               title="Close PR without merging"
               disabled={merging || closing}
               onClick={() => setConfirmCloseOpen(true)}
             >
               {closing ? (
-                <LoaderCircle className="animate-spin" />
+                <LoaderCircle className="size-4 animate-spin" />
               ) : (
-                <X />
+                <X className="size-4" />
               )}
             </Button>
+          )}
+          {isOpen && mergeControl}
+          {issue.prUrl && (
             <Button
-              size="sm"
-              variant="outline"
-              disabled={merging || closing}
-              onClick={() => setConfirmMergeOpen(true)}
+              variant="ghost"
+              size="icon"
+              className="size-9 rounded-full border border-glass-stroke-card bg-popover/85 text-muted-foreground backdrop-blur-xl hover:bg-muted/85 hover:text-foreground"
+              aria-label="Open pull request on GitHub"
+              title="Open PR on GitHub"
+              onClick={() =>
+                window.open(issue.prUrl ?? ``, `_blank`, `noopener,noreferrer`)
+              }
             >
-              {merging ? (
-                <>
-                  <LoaderCircle className="size-3.5 animate-spin" />
-                  Merging…
-                </>
-              ) : (
-                <>
-                  <GitMerge className="size-3.5" />
-                  Merge
-                </>
-              )}
+              <ExternalLink className="size-4" />
             </Button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Desktop refusal caption (EXP-333) — right under the header actions
-          that produced it, with the conflict-recovery run beside it (same
-          guards as the floating bar's copy below). */}
+          that produced it. EXP-706: message only; the recovery run has taken
+          the Merge button's slot above. */}
       {actionError && (
         <div className="hidden flex-wrap items-center gap-2 border-b border-border px-4 py-2 md:flex">
           <span className="text-destructive text-xs">{actionError.message}</span>
-          {actionError.action === `merge` &&
-            actionError.conflict &&
-            isOpen &&
-            issue.branch &&
-            steerEnabled && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setFixOpen(true)}
-              >
-                <GitBranch className="size-3.5" />
-                Fix conflicts
-              </Button>
-            )}
         </div>
       )}
 
@@ -433,10 +448,33 @@ function ReviewDetailPage() {
 
       {/* Diff body — bottom padding clears the mobile floating action bar */}
       <div className="mx-auto w-full max-w-5xl flex-1 overflow-y-auto pb-24 md:pb-4">
-        {issue.prNumber != null ? (
-          <DiffView issueId={issue.id} showFileNav={false} defaultCollapsed />
+        {filesState.kind === `loading` ? (
+          <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
+            <LoaderCircle className="size-3.5 animate-spin" /> Loading changes…
+          </div>
+        ) : filesState.kind === `error` ? (
+          <div className="flex flex-wrap items-center gap-2 px-4 py-3 text-xs text-rose-300">
+            {`Couldn’t load changes: ${filesState.message}`}
+            <Button
+              variant="ghost"
+              size="xs"
+              className="text-muted-foreground"
+              onClick={() => reloadFiles()}
+            >
+              <RotateCw className="size-3.5" />
+              Retry
+            </Button>
+          </div>
+        ) : filesState.kind === `files` && filesState.files.length > 0 ? (
+          <FileDiffList
+            files={filesState.files}
+            showFileNav={false}
+            defaultCollapsed
+          />
         ) : (
-          <BranchDiffSection issueId={issue.id} identifier={issue.identifier} />
+          <div className="px-4 py-6 text-xs text-muted-foreground">
+            No changes yet. A pushed branch or pull request will appear here.
+          </div>
         )}
       </div>
 
@@ -448,29 +486,12 @@ function ReviewDetailPage() {
         <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex flex-col items-center gap-2 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:hidden">
           {actionError && (
             <div className="pointer-events-auto flex max-w-lg flex-wrap items-center justify-center gap-2 rounded-lg border border-glass-stroke-card bg-popover/85 px-3 py-2 shadow-lg shadow-black/40 backdrop-blur-xl">
+              {/* EXP-706: message only — the recovery run (merge failures
+                  only, and only REAL conflicts: EXP-533) has replaced the
+                  Merge pill below instead of doubling up here. */}
               <span className="text-destructive text-xs">
                 {actionError.message}
               </span>
-              {/* Merge failures only, and only REAL conflicts (EXP-533): the
-                  run ends in a MERGE, which is the opposite of what a failed
-                  close was asked to do, and rebase-and-resolve fixes nothing
-                  when the refusal was a stale base or an unreachable server.
-                  It rebases the PR's branch, so it needs one recorded — the
-                  same guards the desktop applies. */}
-              {actionError.action === `merge` &&
-                actionError.conflict &&
-                isOpen &&
-                issue.branch &&
-                steerEnabled && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setFixOpen(true)}
-                  >
-                    <GitBranch className="size-3.5" />
-                    Fix conflicts
-                  </Button>
-                )}
             </div>
           )}
           <div className="flex items-center justify-center gap-3">
@@ -491,25 +512,36 @@ function ReviewDetailPage() {
                 )}
               </Button>
             )}
-            {isOpen && (
-              <Button
-                className="pointer-events-auto h-12 rounded-full px-6 shadow-lg shadow-black/40"
-                disabled={merging || closing}
-                onClick={() => setConfirmMergeOpen(true)}
-              >
-                {merging ? (
-                  <>
-                    <LoaderCircle className="size-4 animate-spin" />
-                    Merging…
-                  </>
-                ) : (
-                  <>
-                    <GitMerge className="size-4" />
-                    Merge
-                  </>
-                )}
-              </Button>
-            )}
+            {/* EXP-706: same slot, same pill — a real conflict swaps Merge
+                for the recovery run rather than adding a button. */}
+            {isOpen &&
+              (canFixConflicts ? (
+                <Button
+                  className="pointer-events-auto h-12 rounded-full px-6 shadow-lg shadow-black/40"
+                  onClick={() => setFixOpen(true)}
+                >
+                  <GitBranch className="size-4" />
+                  Fix conflicts
+                </Button>
+              ) : (
+                <Button
+                  className="pointer-events-auto h-12 rounded-full px-6 shadow-lg shadow-black/40"
+                  disabled={merging || closing}
+                  onClick={() => setConfirmMergeOpen(true)}
+                >
+                  {merging ? (
+                    <>
+                      <LoaderCircle className="size-4 animate-spin" />
+                      Merging…
+                    </>
+                  ) : (
+                    <>
+                      <GitMerge className="size-4" />
+                      Merge
+                    </>
+                  )}
+                </Button>
+              ))}
             {issue.prUrl && (
               <Button
                 variant="ghost"

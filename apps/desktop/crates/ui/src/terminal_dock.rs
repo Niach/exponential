@@ -1741,14 +1741,14 @@ impl TerminalDockPanel {
     /// the chip got its close button back (merging still closes the
     /// session). Two-click confirm via the shared `pr_merge`
     /// state ("Merge" → "Confirm merge", ~5s auto-disarm). A failed merge
-    /// (typically conflicts) jumps to the Reviews tool window, where the
-    /// shared error caption + Fix-conflicts button render exactly as a
-    /// Reviews-originated failure.
+    /// (typically conflicts) jumps to the Reviews PAGE, where the shared error
+    /// caption + Fix-conflicts button render exactly as a Reviews-originated
+    /// failure.
     ///
     /// The tab closes LOCALLY the moment the merge call fires (the
     /// `TabClosed` watcher fires the idempotent `codingSessions.end`), so a
     /// merge that fails on conflicts never leaves a live session holding the
-    /// branch — the Reviews rail's "Fix conflicts" recovery starts
+    /// branch — the Reviews page's "Fix conflicts" recovery starts
     /// immediately instead of parking behind a busy worktree. The server
     /// ends the user's live sessions on OTHER devices after the merge.
     fn tab_merge_button(
@@ -1790,10 +1790,12 @@ impl TerminalDockPanel {
                 },
                 Some(Box::new(move |cx: &mut App| {
                     let _ = handle.update(cx, |_, window, cx| {
-                        crate::sidebar::activate_tool(
+                        // EXP-706: Reviews is a full-page screen now, not a
+                        // rail tool window.
+                        crate::navigation::navigate(
                             window,
                             cx,
-                            crate::sidebar::ToolWindow::Reviews,
+                            crate::navigation::Screen::Reviews,
                         );
                     });
                 })),

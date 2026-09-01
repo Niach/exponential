@@ -877,9 +877,14 @@ private fun AgentSessionRow(
                 )
             }
             // EXP-498: merging always closes the session too — confirm-gated,
-            // and only while the PR is actually open.
+            // and only while the PR is actually open. EXP-706: a
+            // conflict-refused merge REPLACES this control with the recovery
+            // run instead of stacking a second button under the message.
             if (canMerge) {
-                IconButton(onClick = onMerge, enabled = !merging) {
+                IconButton(
+                    onClick = if (canFixConflicts) onFixConflicts else onMerge,
+                    enabled = !merging,
+                ) {
                     if (merging) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
@@ -888,8 +893,8 @@ private fun AgentSessionRow(
                         )
                     } else {
                         Icon(
-                            ExpIcons.prMerged,
-                            contentDescription = "Merge",
+                            if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
+                            contentDescription = if (canFixConflicts) "Fix conflicts" else "Merge",
                             modifier = Modifier.size(18.dp),
                             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         )
@@ -919,9 +924,9 @@ private fun AgentSessionRow(
 
         // A refused merge (conflicts, branch protection, GitHub App errors)
         // captions THIS row (EXP-323 pattern) — inside the list, which already
-        // clears the floating nav pill, so the reason is always readable. A
-        // conflict is the common case, so the recovery run sits right next to
-        // it (EXP-486, same shape as the Reviews rows).
+        // clears the floating nav pill, so the reason is always readable.
+        // EXP-706: the message ONLY; the recovery run took the merge control's
+        // place in the row above.
         if (failure != null) {
             Column(
                 modifier = Modifier
@@ -935,30 +940,6 @@ private fun AgentSessionRow(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.error,
                 )
-                if (canFixConflicts) {
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier
-                            .glassButton()
-                            .clickable(onClick = onFixConflicts)
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            ExpIcons.uiBranch,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            "Fix conflicts",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                        )
-                    }
-                }
             }
         }
     }

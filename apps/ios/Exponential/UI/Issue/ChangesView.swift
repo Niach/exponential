@@ -197,6 +197,9 @@ struct ChangesView: View {
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    /// EXP-706: the file rows' chevron rotates instead of swapping glyph, so
+    /// the screen needs the shared motion tokens (nil under Reduce Motion).
+    @Environment(\.motion) private var motion
     @State private var viewModel: ChangesViewModel?
     @State private var mergeConfirm = false
     @State private var closeConfirm = false
@@ -426,33 +429,21 @@ struct ChangesView: View {
             && issue?.prState == DomainContract.prStateOpen
             && (issue?.prUrl?.isEmpty == false)
         let prURL = issue?.prUrl.flatMap { URL(string: $0) }
+        let fixConflicts = canFixConflicts(vm, canReview: canReview)
         if canReview || prURL != nil {
             VStack(spacing: 8) {
                 // A merge/close failure captions the bar that produced it —
                 // the summary header at the top of the scroll is off-screen
                 // once the actions moved down here (EXP-248 follow-up).
+                // EXP-706: the caption is the REASON only — the recovery run
+                // took the Merge slot below, so repeating it here would be two
+                // buttons for one action.
                 if let actionError = vm.actionError {
                     VStack(spacing: 8) {
                         Text(actionError)
                             .font(.caption)
                             .foregroundStyle(DesignTokens.Semantic.red)
                             .multilineTextAlignment(.center)
-
-                        // The recovery run sits where the failure was
-                        // reported (EXP-323), but only for a REAL conflict
-                        // (EXP-533) — nothing else it does would help.
-                        // MERGE failures only — the run ends in a merge, the
-                        // opposite of what a failed close asked for. It
-                        // rebases the PR's branch, so one must be recorded.
-                        if steerEnabled,
-                            vm.actionErrorFrom == .merge,
-                            vm.actionErrorIsConflict,
-                            canReview,
-                            !(vm.issue?.branch ?? "").isEmpty {
-                            GlassPillButton("Fix conflicts", icon: AppIcons.uiBranch) {
-                                fixSheetOpen = true
-                            }
-                        }
 
                         if let runCaption = startWatcher.sentCaption {
                             Text(runCaption)
@@ -491,31 +482,42 @@ struct ChangesView: View {
                         .disabled(vm.merging || vm.closing)
                         .accessibilityLabel("Close PR without merging")
 
-                        Button {
-                            mergeConfirm = true
-                        } label: {
-                            HStack(spacing: 8) {
-                                if vm.merging {
-                                    ProgressView().controlSize(.small).tint(.white)
-                                } else {
-                                    AppIcon(AppIcons.prMerged, size: AppIcon.Size.medium, weight: .medium)
+                        // EXP-706: the bar's ONE primary action. A merge the
+                        // server refused on a REAL conflict cannot succeed on
+                        // a retry, so the recovery run REPLACES Merge in this
+                        // slot — same white capsule, so the bar keeps exactly
+                        // one thing to press.
+                        if fixConflicts {
+                            Button {
+                                fixSheetOpen = true
+                            } label: {
+                                barPill {
+                                    AppIcon(AppIcons.uiBranch, size: AppIcon.Size.medium, weight: .medium)
+                                    Text("Fix conflicts")
+                                        .font(.subheadline.weight(.medium))
                                 }
-                                Text("Merge")
-                                    .font(.subheadline.weight(.medium))
                             }
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 28)
-                            .frame(height: 52)
-                            .background(.ultraThinMaterial, in: Capsule())
-                            .overlay(
-                                Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-                            )
-                            .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
-                            .contentShape(Capsule())
+                            .buttonStyle(.plain)
+                            .disabled(vm.merging || vm.closing)
+                            .accessibilityLabel("Fix merge conflicts")
+                        } else {
+                            Button {
+                                mergeConfirm = true
+                            } label: {
+                                barPill {
+                                    if vm.merging {
+                                        ProgressView().controlSize(.small).tint(.black.opacity(0.6))
+                                    } else {
+                                        AppIcon(AppIcons.prMerged, size: AppIcon.Size.medium, weight: .medium)
+                                    }
+                                    Text("Merge")
+                                        .font(.subheadline.weight(.medium))
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(vm.merging || vm.closing)
+                            .accessibilityLabel("Merge pull request")
                         }
-                        .buttonStyle(.plain)
-                        .disabled(vm.merging || vm.closing)
-                        .accessibilityLabel("Merge pull request")
                     }
 
                     if let prURL {
@@ -626,6 +628,36 @@ struct ChangesView: View {
         }
     }
 
+    /// Whether the bar offers the recovery run in place of Merge (EXP-323 /
+    /// EXP-533, promoted to the Merge slot by EXP-706): only after a MERGE
+    /// failure the server diagnosed as a REAL content conflict — the run ends
+    /// in a merge, the opposite of what a failed CLOSE asked for, and it
+    /// rebases the PR's branch, so one must be recorded.
+    private func canFixConflicts(_ vm: ChangesViewModel, canReview: Bool) -> Bool {
+        steerEnabled
+            && vm.actionErrorFrom == .merge
+            && vm.actionErrorIsConflict
+            && canReview
+            && !(vm.issue?.branch ?? "").isEmpty
+    }
+
+    /// The bar's labelled primary action (EXP-706): a SOLID white capsule with
+    /// dark content — the near-white primary the web review bar wears — at the
+    /// same 52pt height as the glass circles flanking it. No hairline: a
+    /// white-on-white stroke only muddies the edge; the shadow still lifts it
+    /// off the feed.
+    private func barPill<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 8) {
+            content()
+        }
+        .foregroundStyle(.black.opacity(0.9))
+        .padding(.horizontal, 28)
+        .frame(height: 52)
+        .background(Capsule().fill(.white))
+        .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+        .contentShape(Capsule())
+    }
+
     /// Icon-only circle — same chrome as MobileTabBar / IssueDetailBottomBar
     /// (ultraThinMaterial, white-12% hairline, soft shadow).
     private func barCircle<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -662,8 +694,14 @@ struct ChangesView: View {
                     Text("−\(file.deletions)")
                         .font(.caption2.monospaced())
                         .foregroundStyle(.red)
-                    AppIcon(expanded ? AppIcons.uiChevronUp : AppIcons.uiChevronDown, size: 11)
+                    // EXP-706: ONE chevron that turns over, not two glyphs
+                    // swapping — the rotation reads as the section opening.
+                    // Routed through the motion environment so Reduce Motion
+                    // flips it instantly.
+                    AppIcon(AppIcons.uiChevronDown, size: 11)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
+                        .animation(motion.standard, value: expanded)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -702,12 +740,15 @@ struct ChangesView: View {
         }
     }
 
+    /// EXP-706: all four letters come from the shared semantic palette — A
+    /// green, D red, R/C blue, M amber (the modified letter used to be plain
+    /// grey text, which read as disabled next to the coloured ones).
     private static func statusColor(_ status: String) -> Color {
         switch status {
-        case "added": .green
-        case "removed": .red
+        case "added": DesignTokens.Semantic.green
+        case "removed": DesignTokens.Semantic.red
         case "renamed", "copied": DesignTokens.Semantic.blue
-        default: .white.opacity(TextOpacity.secondary)
+        default: DesignTokens.Semantic.yellow
         }
     }
 }

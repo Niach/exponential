@@ -97,6 +97,7 @@ import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.activeQuestionIds
+import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.collectSubagents
 import com.exponential.app.domain.currentStepperStep
 import com.exponential.app.domain.groupFeedRows
@@ -120,6 +121,7 @@ import com.exponential.app.ui.issue.DiffDelColor
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.issue.PatchLines
 import com.exponential.app.ui.issue.PulsingDot
+import com.exponential.app.ui.issue.StartCodingSheet
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.issue.splitUnifiedDiff
 import com.exponential.app.ui.issue.unifiedDiffStats
@@ -128,6 +130,7 @@ import com.exponential.app.ui.markdown.LocalMarkdownAutolink
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.markdown.MdStyle
+import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -173,6 +176,9 @@ private val AgentPhase.isWaitingForStream: Boolean
 @Composable
 fun AgentSessionScreen(
     onBack: () -> Unit,
+    // EXP-706: the "Fix conflicts" run this screen can start lands in a NEW
+    // session, which the caller navigates to (Reviews / Changes pattern).
+    onOpenSteer: (String) -> Unit,
     viewModel: AgentSessionViewModel = hiltViewModel(),
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
@@ -197,6 +203,21 @@ fun AgentSessionScreen(
     val mergeIssue by viewModel.mergeIssue.collectAsStateWithLifecycle()
     val merging by viewModel.merging.collectAsStateWithLifecycle()
     val mergeError by viewModel.mergeError.collectAsStateWithLifecycle()
+    // EXP-706: a conflict-refused merge swaps the bar's pill for the builtin
+    // "Fix merge conflicts" run — the launcher, its start feedback, and the
+    // jump into the session the desktop reports back.
+    val steerLaunchEnabled by viewModel.steerLaunchEnabled.collectAsStateWithLifecycle()
+    val steerLaunchDevices by viewModel.steerDevices.collectAsStateWithLifecycle()
+    val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
+    val launchRunState by viewModel.runState.collectAsStateWithLifecycle()
+    val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
+    var fixSheetOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(startedSessionId) {
+        startedSessionId?.let {
+            viewModel.consumeStartedSession()
+            onOpenSteer(it)
+        }
+    }
     val attachmentDims by viewModel.attachmentDims.collectAsStateWithLifecycle()
     val answerStates = activity.answerLocks
     // EXP-588: per locked card, what this client picked — joined for display.
@@ -543,6 +564,14 @@ fun AgentSessionScreen(
                 val diff = latestDiff
                 val canMerge = mergeIssue?.prState == DomainContract.prStateOpen &&
                     !sessionEnded && phase !is AgentPhase.Ended
+                // EXP-706: a REAL conflict on a PR whose branch we recorded
+                // (EXP-533's rule) REPLACES the Merge pill with the recovery
+                // run — one slot, one thing that can move the PR forward.
+                val canFixConflicts = canMerge && canOfferFixConflicts(
+                    mergeError,
+                    mergeIssue?.branch,
+                    steerEnabled = steerLaunchEnabled == true,
+                )
                 val barVisible = diff != null || canMerge
                 // A retired bar owes the feed its height back.
                 LaunchedEffect(barVisible) { if (!barVisible) barHeightPx = 0 }
@@ -615,9 +644,15 @@ fun AgentSessionScreen(
                         }
                         if (canMerge) {
                             GlassPillButton(
-                                "Merge",
-                                onClick = { mergeConfirmOpen = true },
-                                icon = ExpIcons.prMerged,
+                                if (canFixConflicts) "Fix conflicts" else "Merge",
+                                onClick = {
+                                    if (canFixConflicts) {
+                                        fixSheetOpen = true
+                                    } else {
+                                        mergeConfirmOpen = true
+                                    }
+                                },
+                                icon = if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
                                 enabled = !merging,
                                 loading = merging,
                                 // Floats over the feed like the chip beside it.
@@ -721,16 +756,25 @@ fun AgentSessionScreen(
 
             // A failed merge (EXP-678) — like the kill banner, success needs
             // none: the server ends the session and the flip syncs back.
+            // EXP-706: the MESSAGE only; the conflict recovery run took the
+            // Merge pill's slot in the bar above.
             val mergeFailure = mergeError
             if (mergeFailure != null) {
                 BannerRow {
                     Text(
-                        mergeFailure,
+                        mergeFailure.message,
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
             }
+
+            // Start feedback for that recovery run (EXP-706) — the same
+            // caption Reviews and the Changes bar show.
+            SteerRunCaptionRow(
+                launchRunState,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            )
 
             // A rejected pick or a failed image upload (EXP-511) — the text and
             // the thumbnails survive, so the send is retryable.
@@ -782,6 +826,21 @@ fun AgentSessionScreen(
         UnifiedDiffPanel(
             diff = latestDiff!!,
             onDismiss = { diffSheetOpen = false },
+        )
+    }
+
+    // "Fix conflicts" (EXP-706, Reviews parity EXP-323): the unified sheet
+    // opened on the builtin action with THIS run's pull request already picked.
+    if (fixSheetOpen) {
+        StartCodingSheet(
+            devices = steerLaunchDevices ?: emptyList(),
+            issues = startCandidates,
+            preselectedIds = emptySet(),
+            preselectedActionId = DomainContract.builtinFixConflictsId,
+            preselectedPrIssueId = mergeIssue?.id,
+            onStart = viewModel::startCoding,
+            onRunAction = viewModel::runAction,
+            onDismiss = { fixSheetOpen = false },
         )
     }
 

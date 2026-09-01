@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react"
 import { common, createLowlight } from "lowlight"
-import { ChevronRight, LoaderCircle } from "lucide-react"
+import { ChevronDown, LoaderCircle } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -220,7 +220,10 @@ function FilePathLabel({ filename }: { filename: string }) {
   )
 }
 
-function AddDelCounts({
+// Exported since EXP-706: the review-detail header carries the diff totals now
+// (the file list itself no longer prints a summary row), and they have to read
+// byte-identically to the per-file counts below them.
+export function AddDelCounts({
   additions,
   deletions,
 }: {
@@ -344,12 +347,6 @@ function FilePatch({ file, open, onOpenChange }: FilePatchProps) {
             !open && `rounded-b-md border-b-transparent`
           )}
         >
-          <ChevronRight
-            className={cn(
-              `size-3.5 shrink-0 text-muted-foreground transition-transform`,
-              open && `rotate-90`
-            )}
-          />
           <span
             className={cn(
               `w-3 shrink-0 text-center font-mono font-semibold`,
@@ -359,13 +356,16 @@ function FilePatch({ file, open, onOpenChange }: FilePatchProps) {
             {meta.label}
           </span>
           <FilePathLabel filename={file.filename} />
-          {!open && lines.length > 0 ? (
-            <span className="shrink-0 text-muted-foreground">
-              {lines.length} lines
-            </span>
-          ) : null}
           <span className="ml-auto" />
           <AddDelCounts additions={file.additions} deletions={file.deletions} />
+          {/* EXP-706: the disclosure chevron trails the row (native parity) —
+              pointing down when collapsed, flipped when open. */}
+          <ChevronDown
+            className={cn(
+              `size-3.5 shrink-0 text-muted-foreground transition-transform duration-fast`,
+              open && `rotate-180`
+            )}
+          />
         </CollapsibleTrigger>
       </div>
       <CollapsibleContent>
@@ -450,11 +450,12 @@ function FileNav({
 }
 
 // Shared file-patch list — reused by the PR-diff tier (this file's DiffView)
-// and the pushed-branch-no-PR tier (the review-detail route's BranchDiffSection),
+// and the pushed-branch-no-PR tier (both fetched by the review-detail route),
 // both of which get their files in the same `PullFile[]` shape (github-pr.ts /
 // github-app.ts). The review-detail route passes `showFileNav={false}` +
-// `defaultCollapsed` to match the iOS/Android review layout (EXP-248): a slim
-// totals row instead of the jump-list card, every file starting closed.
+// `defaultCollapsed` to match the iOS/Android review layout (EXP-248): no
+// summary card at all — file count and totals live in that route's header
+// since EXP-706 — and every file starting closed.
 export function FileDiffList({
   files,
   showFileNav = true,
@@ -490,21 +491,10 @@ export function FileDiffList({
     })
   }
 
-  const totalAdditions = files.reduce((n, f) => n + f.additions, 0)
-  const totalDeletions = files.reduce((n, f) => n + f.deletions, 0)
-
   return (
     <div className="space-y-2 p-3">
-      {showFileNav ? (
-        files.length > 1 && <FileNav files={files} onJump={jumpTo} />
-      ) : (
-        <div className="flex items-center gap-2 px-1 text-xs">
-          <span className="font-medium">
-            {files.length === 1 ? `1 file changed` : `${files.length} files changed`}
-          </span>
-          <span className="ml-auto" />
-          <AddDelCounts additions={totalAdditions} deletions={totalDeletions} />
-        </div>
+      {showFileNav && files.length > 1 && (
+        <FileNav files={files} onJump={jumpTo} />
       )}
       {files.map((f) => (
         <div

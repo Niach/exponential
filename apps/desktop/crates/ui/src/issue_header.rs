@@ -597,7 +597,7 @@ impl IssueHeader {
                 // routed through the Start-coding dialog with this PR
                 // preselected. MERGE failures only: the run ends in a merge,
                 // so a failed CLOSE (captioned on this same row from the
-                // Reviews rail) must never offer it. Needs the PR's recorded
+                // Reviews page) must never offer it. Needs the PR's recorded
                 // branch (the run rebases it); parks only while a fix run
                 // already works it.
                 // EXP-533: and only a REAL content conflict (409) — an

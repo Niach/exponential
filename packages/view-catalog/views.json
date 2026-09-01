@@ -1024,7 +1024,7 @@
       },
       "desktop": {
         "drive": {
-          "kind": "tool",
+          "kind": "screen",
           "value": "reviews"
         }
       }
