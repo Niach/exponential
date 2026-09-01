@@ -22,8 +22,11 @@ pub const CODEX_MODELS: [&str; 3] = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-lu
 /// Codex `model_reasoning_effort` levels (no `max`); blank = omit.
 pub const CODEX_EFFORTS: [&str; 5] = ["minimal", "low", "medium", "high", "xhigh"];
 
-/// pi `--model` patterns (fuzzy-resolved by pi itself: `fable` →
-/// `claude-fable-5`); blank = omit (pi's own default model).
+/// pi `--model` patterns, fuzzy-resolved by pi itself: a substring match over
+/// its model registry, preferring the highest-sorting undated id — so `fable`
+/// resolves to `claude-fable-5` on pi 0.84.4 (2026-08-28, lists no 5.1 yet)
+/// and flips to `claude-fable-5-1` by itself once pi's registry adds it (a
+/// user's `models.json` can add it sooner). Blank = omit (pi's own default).
 pub const PI_MODELS: [&str; 7] = [
     "fable",
     "opus",

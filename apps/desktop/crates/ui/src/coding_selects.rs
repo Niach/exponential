@@ -36,7 +36,10 @@ impl SearchableListItem for ChoiceItem {
 pub type ChoiceSelect = Entity<SelectState<Vec<ChoiceItem>>>;
 
 /// Claude `--model` aliases — default Fable (rework decision 6; Claude is
-/// explicit-always, so no blank row here).
+/// explicit-always, so no blank row here). These are the CLI's family
+/// aliases, which it resolves to the newest model of that family (Claude
+/// Code ≥ 2.1.257: `fable` → `claude-fable-5-1`); the labels carry no
+/// version number on purpose — see `coding::settings::DEFAULT_CLAUDE_MODEL`.
 pub const MODEL_CHOICES: [(&str, &str); 3] =
     [("Fable", "fable"), ("Opus", "opus"), ("Sonnet", "sonnet")];
 
@@ -73,10 +76,12 @@ pub const CODEX_EFFORT_CHOICES: [(&str, &str); 6] = [
     ("XHigh", "xhigh"),
 ];
 
-/// pi `--model` patterns (fuzzy-resolved by pi); blank = pi's own default.
+/// pi `--model` patterns (fuzzy-resolved by pi, see `coding::agent::PI_MODELS`);
+/// blank = pi's own default. Family labels, no version numbers (web/iOS/Android
+/// derive the same "Fable" from the value).
 pub const PI_MODEL_CHOICES: [(&str, &str); 8] = [
     ("CLI default", ""),
-    ("Fable 5", "fable"),
+    ("Fable", "fable"),
     ("Opus", "opus"),
     ("Sonnet", "sonnet"),
     ("GPT-5.6 Sol", "gpt-5.6-sol"),

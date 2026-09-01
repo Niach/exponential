@@ -30,7 +30,12 @@ pub const DEFAULT_REPOS_ROOT: &str = "~/Exponential/repos";
 pub const DEFAULT_BRANCH_PREFIX: &str = "exp/";
 /// §7.7 default coding model — passed as `--model fable` on every spawn.
 /// Explicit-always so the user's `claude` CLI default is never silently
-/// consumed by coding sessions or E2E tests.
+/// consumed by coding sessions or E2E tests. `fable` is Claude Code's FAMILY
+/// alias, resolved by the CLI to the newest Fable (`latest_per_family`:
+/// `claude-fable-5-1` since 2.1.257; the previous one stays reachable as
+/// `fable-5` / `claude-fable-5`). Deliberately an alias, never a pinned
+/// `claude-fable-5-1`: pinning would go stale at the next release and churn
+/// the contract on four clients, while the alias tracks the CLI's own default.
 pub const DEFAULT_CLAUDE_MODEL: &str = "fable";
 /// The `--model` aliases the CLI accepts (and the ui selects offer) —
 /// [`Settings::load`] normalizes anything else back to the default.
