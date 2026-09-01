@@ -5,8 +5,8 @@
 //! 1. **Mutations** (masterplan-v3 §4.1/§4.2) — `issues.create` /
 //!    `issues.update` / `issues.delete` / `issues.move`, verified against
 //!    `apps/web/src/lib/trpc/issues.ts`: create returns `{issue, txId}`,
-//!    update returns `{issue}` (NO txId — inline edits are the §4.1 un-gated
-//!    form; the Electric echo re-renders), delete returns `{txId, id}`,
+//!    update returns `{issue, txId}` (EXP-707; the no-op path omits txId and
+//!    the Electric echo re-renders either way), delete returns `{txId, id}`,
 //!    move returns `{txId, issue, boardSlug}` (EXP-57).
 //!    Update inputs use [`Patch`] for the zod `.nullable().optional()` fields
 //!    (omit = unchanged, null = clear, value = set). Never pass
@@ -259,7 +259,8 @@ pub fn issues_move(
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IssuesBulkUpdateInput {
-    pub ids: Vec<String>,
+    /// EXP-707: the wire name is `issueIds` (renamed from `ids`).
+    pub issue_ids: Vec<String>,
     /// EXP-314: the enum ANCHOR (mutually exclusive with
     /// [`Self::status_id`]).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -278,7 +279,7 @@ impl IssuesBulkUpdateInput {
     /// All fields "leave unchanged"; set exactly the one you bulk-edit.
     pub fn new(ids: Vec<String>) -> Self {
         Self {
-            ids,
+            issue_ids: ids,
             status: None,
             status_id: None,
             priority: None,
@@ -323,10 +324,11 @@ pub fn issues_bulk_delete(
     ids: &[String],
 ) -> Result<IssuesBulkDeleteOutput, ApiError> {
     #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
     struct Input<'a> {
-        ids: &'a [String],
+        issue_ids: &'a [String],
     }
-    trpc.mutation("issues.bulkDelete", &Input { ids })
+    trpc.mutation("issues.bulkDelete", &Input { issue_ids: ids })
 }
 
 // ---------------------------------------------------------------------------
@@ -717,7 +719,7 @@ mod tests {
         input.status_id = Some("s-3".to_string());
         assert_eq!(
             serde_json::to_string(&input).unwrap(),
-            r#"{"ids":["i-1"],"statusId":"s-3"}"#
+            r#"{"issueIds":["i-1"],"statusId":"s-3"}"#
         );
     }
 
@@ -810,7 +812,7 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/issues.bulkUpdate HTTP/1.1"));
         // Status only — an accidental `"assigneeId":null` would bulk-unassign.
-        assert!(request.ends_with(r#"{"ids":["i-1","i-2"],"status":"done"}"#));
+        assert!(request.ends_with(r#"{"issueIds":["i-1","i-2"],"status":"done"}"#));
     }
 
     #[test]
@@ -820,7 +822,7 @@ mod tests {
         input.assignee_id = Patch::Null;
         let _ = issues_bulk_update(&client(&base), &input).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.ends_with(r#"{"ids":["i-1"],"assigneeId":null}"#));
+        assert!(request.ends_with(r#"{"issueIds":["i-1"],"assigneeId":null}"#));
 
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txId":23,"updated":1}}}"#);
         let mut input = IssuesBulkUpdateInput::new(vec!["i-1".to_string()]);
@@ -828,7 +830,7 @@ mod tests {
         input.assignee_id = Patch::Set("u-1".to_string());
         let _ = issues_bulk_update(&client(&base), &input).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.ends_with(r#"{"ids":["i-1"],"priority":"high","assigneeId":"u-1"}"#));
+        assert!(request.ends_with(r#"{"issueIds":["i-1"],"priority":"high","assigneeId":"u-1"}"#));
     }
 
     #[test]
@@ -844,7 +846,7 @@ mod tests {
         assert_eq!(out.tx_id, Some(24));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/issues.bulkDelete HTTP/1.1"));
-        assert!(request.ends_with(r#"{"ids":["i-1","i-2","i-3"]}"#));
+        assert!(request.ends_with(r#"{"issueIds":["i-1","i-2","i-3"]}"#));
     }
 
     #[test]

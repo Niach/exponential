@@ -31,7 +31,12 @@ vi.mock(`@/lib/storage`, () => ({
   toResponseBody: h.toResponseBody,
 }))
 
+// EXP-704: token minting/verification is exercised for real (no mock) — the
+// route accepting a signed URL as a full credential is the security boundary.
+vi.stubEnv(`BETTER_AUTH_SECRET`, `attachment-route-test-secret`)
+
 import { Route } from "@/routes/api/attachments/$attachmentId"
+import { mintAttachmentToken } from "@/lib/storage/attachment-token"
 
 type Handler = (args: {
   params: { attachmentId: string }
@@ -152,6 +157,94 @@ describe(`GET /api/attachments/$attachmentId`, () => {
     })
 
     expect(response.status).toBe(404)
+  })
+
+  // EXP-704: a signed token bound to the attachment id is a complete
+  // credential — no session, no membership re-check (the MCP layer ran
+  // grant + membership at mint time; the short TTL bounds the window).
+  it(`serves a valid signed token without a session or membership check`, async () => {
+    h.resolveSession.mockResolvedValue(null)
+    h.getAttachmentTeamContext.mockResolvedValue({
+      teamId: `w-1`,
+      contentType: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`,
+      filename: `report.xlsx`,
+      sizeBytes: 4,
+      storageKey: `attachments/x`,
+    })
+    h.getObject.mockResolvedValue({ Body: `body` })
+    h.toResponseBody.mockResolvedValue(`ok!!`)
+
+    const { token } = mintAttachmentToken(ATTACHMENT_ID, `user-1`)
+    const response = await handler({
+      params: { attachmentId: ATTACHMENT_ID },
+      request: new Request(
+        `https://example.com/api/attachments/${ATTACHMENT_ID}?token=${token}`
+      ),
+    })
+
+    expect(response.status).toBe(200)
+    expect(h.assertTeamMember).not.toHaveBeenCalled()
+  })
+
+  it(`401s a token minted for a DIFFERENT attachment`, async () => {
+    h.resolveSession.mockResolvedValue(null)
+    const { token } = mintAttachmentToken(
+      `00000000-0000-4000-8000-00000000beef`,
+      `user-1`
+    )
+
+    const response = await handler({
+      params: { attachmentId: ATTACHMENT_ID },
+      request: new Request(
+        `https://example.com/api/attachments/${ATTACHMENT_ID}?token=${token}`
+      ),
+    })
+
+    expect(response.status).toBe(401)
+    expect(h.getAttachmentTeamContext).not.toHaveBeenCalled()
+  })
+
+  it(`401s expired and garbage tokens like any anonymous request`, async () => {
+    h.resolveSession.mockResolvedValue(null)
+    const { token: expired } = mintAttachmentToken(
+      ATTACHMENT_ID,
+      `user-1`,
+      Date.now() - 60 * 60 * 1000
+    )
+
+    for (const token of [expired, `garbage`, `a.b`]) {
+      const response = await handler({
+        params: { attachmentId: ATTACHMENT_ID },
+        request: new Request(
+          `https://example.com/api/attachments/${ATTACHMENT_ID}?token=${token}`
+        ),
+      })
+      expect(response.status).toBe(401)
+    }
+    expect(h.getAttachmentTeamContext).not.toHaveBeenCalled()
+  })
+
+  it(`still runs the membership check for a session WITHOUT a token`, async () => {
+    h.resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    h.getAttachmentTeamContext.mockResolvedValue({
+      teamId: `w-1`,
+      contentType: `image/png`,
+      filename: `shot.png`,
+      sizeBytes: 4,
+      storageKey: `attachments/x`,
+    })
+    h.getObject.mockResolvedValue({ Body: `body` })
+    h.toResponseBody.mockResolvedValue(`ok!!`)
+
+    const response = await handler({
+      params: { attachmentId: ATTACHMENT_ID },
+      request: new Request(
+        `https://example.com/api/attachments/${ATTACHMENT_ID}?token=nonsense`
+      ),
+    })
+
+    expect(response.status).toBe(200)
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, `w-1`)
   })
 
   it(`403s a cross-team member via the membership assert`, async () => {

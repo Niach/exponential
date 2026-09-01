@@ -7,6 +7,7 @@ import {
   buildContentDispositionHeader,
   isInlineSafeContentType,
 } from "@/lib/storage/issue-attachments"
+import { verifyAttachmentToken } from "@/lib/storage/attachment-token"
 import {
   assertTeamMember,
   getAttachmentTeamContext,
@@ -81,11 +82,25 @@ async function getAttachment({
   // 500s.
   const session = await resolveSession(request)
 
+  // EXP-704: a signed download token is an alternative credential, scoped to
+  // exactly this attachment. MCP attachments_get mints it AFTER running its
+  // OAuth board-grant confinement plus the membership check, so a valid,
+  // unexpired token bound to this path id is a complete authorization
+  // decision — no session and no re-run of assertTeamMember (the ~10 min TTL
+  // bounds a member losing access mid-window). A token for a DIFFERENT id
+  // grants nothing here.
+  const tokenParam = new URL(request.url).searchParams.get(`token`)
+  const tokenAuthorized = Boolean(
+    tokenParam &&
+      verifyAttachmentToken(tokenParam)?.attachmentId === params.attachmentId
+  )
+
   // Member-only: attachment bytes are never anonymously readable. The 401
   // comes BEFORE any DB lookup (REV-49) so anonymous probes get a uniform
   // answer whether or not the id exists — no existence oracle, and matches
-  // the historic no-session behavior.
-  if (!session?.user) {
+  // the historic no-session behavior (an invalid/expired token is just
+  // anonymous).
+  if (!session?.user && !tokenAuthorized) {
     throw new TRPCError({
       code: `UNAUTHORIZED`,
       message: `Unauthorized`,
@@ -115,7 +130,9 @@ async function getAttachment({
       throw error
     }
   )
-  await assertTeamMember(session.user.id, attachment.teamId)
+  if (!tokenAuthorized) {
+    await assertTeamMember(session!.user.id, attachment.teamId)
+  }
 
   // An empty stored type must never be sniffed by the browser.
   const contentType = attachment.contentType || `application/octet-stream`

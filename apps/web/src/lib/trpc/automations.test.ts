@@ -109,7 +109,7 @@ describe(`automations.create`, () => {
     selectResults.push([action]) // target action
     selectResults.push([ownDevice]) // device rows
     selectResults.push([]) // sortOrder probe
-    const { automation, txid } = await caller.create({
+    const { automation, txId } = await caller.create({
       teamId: TEAM_ID,
       actionId: ACTION_ID,
       deviceId: `device-1`,
@@ -117,7 +117,7 @@ describe(`automations.create`, () => {
       agent: `claude`,
       model: `opus`,
     })
-    expect(txid).toBe(42)
+    expect(txId).toBe(42)
     expect(automation).toMatchObject({
       teamId: TEAM_ID,
       actionId: ACTION_ID,
@@ -304,7 +304,7 @@ describe(`automations.delete`, () => {
   it(`is owner-gated on the row's team`, async () => {
     selectResults.push([{ id: AUTOMATION_ID, teamId: TEAM_ID }])
     const result = await caller.delete({ id: AUTOMATION_ID })
-    expect(result).toEqual({ ok: true, txid: 42 })
+    expect(result).toEqual({ ok: true, txId: 42 })
     expect(h.assertTeamOwner).toHaveBeenCalledWith(`actor`, TEAM_ID)
   })
 })

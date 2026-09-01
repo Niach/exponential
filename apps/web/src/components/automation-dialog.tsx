@@ -156,7 +156,7 @@ export function AutomationDialog({
     setError(null)
     const trigger: AutomationTrigger = draftToTrigger(draft)
     try {
-      const { txid } = editing
+      const { txId } = editing
         ? await trpc.automations.update.mutate(
             {
               id: automation.id,
@@ -181,7 +181,7 @@ export function AutomationDialog({
             },
             { context: { skipErrorToast: true } }
           )
-      await automationCollection.utils.awaitTxId(txid)
+      await automationCollection.utils.awaitTxId(txId)
       onOpenChange(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

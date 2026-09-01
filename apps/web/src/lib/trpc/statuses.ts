@@ -13,30 +13,23 @@ import { issues, issueStatuses, teams } from "@/db/schema"
 import { resolveTeamAccess } from "@/lib/team-membership"
 import {
   CATEGORY_ANCHOR,
+  hexColorSchema,
   ISSUE_STATUS_STARTED_MAX,
   type IssueStatusCategory,
   issueStatusCategorySchema,
 } from "@/lib/domain"
 import { applyStatusDerivations } from "@/lib/status-derivations"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import { isUniqueViolation } from "@/lib/trpc/db-errors"
 
 const statusNameSchema = z.string().min(1).max(255)
-const statusColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/)
+const statusColorSchema = hexColorSchema
 
 function duplicateNameError(name: string): TRPCError {
   return new TRPCError({
     code: `CONFLICT`,
     message: `A status named "${name}" already exists in this team`,
   })
-}
-
-// Postgres unique_violation (23505), as surfaced by postgres-js directly or
-// wrapped in an error cause by drizzle (labels.ts convention).
-function isUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== `object`) return false
-  const candidate = err as { code?: unknown; cause?: unknown }
-  if (candidate.code === `23505`) return true
-  return isUniqueViolation(candidate.cause)
 }
 
 type Tx = Parameters<
@@ -264,14 +257,18 @@ export const statusesRouter = router({
             if (clash) throw duplicateNameError(updates.name)
           }
 
+          // EXP-707: echo the row (envelope rule: mutations return
+          // { row, txId }) so callers can read back what they wrote.
+          let status = row
           if (Object.keys(updates).length > 0) {
-            await tx
+            ;[status] = await tx
               .update(issueStatuses)
               .set(updates)
               .where(eq(issueStatuses.id, input.statusId))
+              .returning()
           }
 
-          return { txId }
+          return { txId, status }
         })
       } catch (err) {
         if (isUniqueViolation(err) && input.name !== undefined) {

@@ -141,17 +141,20 @@ export const teamsRouter = router({
   // `helpdeskEnabled` is the team-level helpdesk switch (owner-only like
   // every field on this procedure; ENABLING is plan-gated, disabling is
   // always allowed).
+  // EXP-707: the subject param is `teamId` like teams.delete (was `id`).
+  // Hard rename — only web + desktop call this, and old desktop builds are
+  // retired via CLIENT_MIN_VERSION_DESKTOP.
   update: authedProcedure
     .input(
       z.object({
-        id: z.string().uuid(),
+        teamId: z.string().uuid(),
         name: z.string().min(1).max(255).optional(),
         iconUrl: z.string().url().max(2048).nullable().optional(),
         helpdeskEnabled: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, ...updates } = input
+      const { teamId: id, ...updates } = input
       await assertTeamOwner(ctx.session.user.id, id)
 
       if (updates.helpdeskEnabled === true) {

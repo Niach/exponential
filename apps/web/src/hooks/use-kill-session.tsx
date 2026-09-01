@@ -47,7 +47,7 @@ export function useKillSession(
     setKilling(true)
     try {
       await trpc.steer.killSession.mutate(
-        { codingSessionId: session.id },
+        { sessionId: session.id },
         { context: { skipErrorToast: true } }
       )
       setConfirmOpen(false)

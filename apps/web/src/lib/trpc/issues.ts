@@ -14,7 +14,7 @@ import {
   notifications,
   boards,
 } from "@/db/schema"
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import {
   resolveTeamAccess,
   assertAssigneeInTeam,
@@ -23,9 +23,10 @@ import {
   getIssueTeamContext,
   getBoardTeamId,
   getSoleHumanMemberId,
-  getUserTeamIds,
 } from "@/lib/team-membership"
 import { boardVisible } from "@/lib/board-visibility"
+import { resolveIssueReference } from "@/lib/issue-resolver"
+import { issueWireColumns } from "@/lib/issue-columns"
 import {
   closePullRequest,
   diagnoseUnmergeablePr,
@@ -88,42 +89,6 @@ import { recordIssueEvent } from "@/lib/integrations/activity"
 function repoFromPrUrl(prUrl: string): string | null {
   const match = prUrl.match(/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)
   return match ? match[1] : null
-}
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-// Resolve a human identifier ("EXP-42") to its issue UUID, scoped to the
-// caller's teams and excluding trashed boards. Identifiers are stored
-// uppercase; the lookup is case-insensitive. Identifier collisions are
-// possible — across teams AND within one (nothing enforces per-team prefix
-// uniqueness; boards' only composite unique is (team_id, slug)) — so the
-// newest match wins, deterministically. Deliberately a duplicate of the MCP
-// layer's resolveIssueId (lib/mcp/tools.ts) rather than a shared helper: that
-// one additionally intersects the connection's OAuth grant.
-async function resolveIssueIdentifier(
-  db: Context[`db`],
-  userId: string,
-  identifier: string
-): Promise<string> {
-  const teamIds = await getUserTeamIds(userId)
-  if (teamIds.length > 0) {
-    const [row] = await db
-      .select({ id: issues.id })
-      .from(issues)
-      .where(
-        and(
-          inArray(issues.teamId, teamIds),
-          isNull(issues.boardDeletedAt),
-          isNull(issues.boardArchivedAt),
-          eq(issues.identifier, identifier.toUpperCase())
-        )
-      )
-      .orderBy(desc(issues.createdAt))
-      .limit(1)
-    if (row) return row.id
-  }
-  throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
 }
 
 type Tx = Parameters<
@@ -513,7 +478,8 @@ export const issuesRouter = router({
     .input(
       z
         .object({
-          id: z.string().uuid(),
+          // EXP-707: UUID or human identifier ("EXP-42"), like issues.get.
+          id: z.string().trim().min(1).max(64),
           title: z.string().min(1).max(500).optional(),
           status: issueStatusInputSchema.optional(),
           // EXP-314: a team status row id — the precise-status alternative to
@@ -541,7 +507,11 @@ export const issuesRouter = router({
         })
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, ...updates } = input
+      const { id: idOrIdentifier, ...updates } = input
+      const id = await resolveIssueReference(
+        ctx.session.user.id,
+        idOrIdentifier
+      )
 
       const issueContext = await assertIssueAccess(
         ctx.session.user.id,
@@ -558,7 +528,7 @@ export const issuesRouter = router({
 
       let previousAssigneeId: string | null = null
       let newlyMentionedUserIds: string[] = []
-      const { issue, statusChange } = await ctx.db.transaction(async (tx) => {
+      const { issue, statusChange, txId } = await ctx.db.transaction(async (tx) => {
         const [currentIssue] = await tx
           .select({
             description: issues.description,
@@ -739,9 +709,13 @@ export const issuesRouter = router({
           return {
             issue: existing!,
             statusChange: null as StatusChange | null,
+            // Nothing changed — no sync barrier to await (EXP-707 envelope
+            // rule: txId only when a write happened).
+            txId: undefined as number | undefined,
           }
         }
 
+        const txId: number | undefined = await generateTxId(tx)
         const result = await finalizeIssueUpdateInTx(tx, {
           issueId: id,
           teamId: issueContext.teamId,
@@ -753,7 +727,7 @@ export const issuesRouter = router({
           throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
         }
 
-        return { issue: result.issue, statusChange: result.statusChange }
+        return { issue: result.issue, statusChange: result.statusChange, txId }
       })
 
       fireAndForgetAssignmentNotify({
@@ -795,7 +769,7 @@ export const issuesRouter = router({
         })
       }
 
-      return { issue }
+      return { issue, txId }
     }),
 
   // Move an issue to another board in the SAME team (EXP-57, web-only
@@ -992,13 +966,20 @@ export const issuesRouter = router({
     .input(
       z
         .object({
-          ids: z.array(z.string().uuid()).min(1).max(200),
+          // EXP-707: `issueIds` is canonical (matching issueLabels.bulk*);
+          // `ids` is a transitional alias for the shipped iOS build — drop it
+          // once the next iOS release is out (tracked in the EXP-707 wave).
+          issueIds: z.array(z.string().uuid()).min(1).max(200).optional(),
+          ids: z.array(z.string().uuid()).min(1).max(200).optional(),
           status: issueStatusInputSchema.optional(),
           // EXP-314: a team status row id — the precise-status alternative to
           // the anchor enum (resolveStatusWrite derives the enum from it).
           statusId: z.string().uuid().optional(),
           priority: issuePrioritySchema.optional(),
           assigneeId: z.string().nullable().optional(),
+        })
+        .refine((i) => (i.issueIds === undefined) !== (i.ids === undefined), {
+          message: `Pass issueIds (or the deprecated ids), not both`,
         })
         .refine(
           (i) =>
@@ -1020,6 +1001,7 @@ export const issuesRouter = router({
         })
     )
     .mutation(async ({ ctx, input }) => {
+      const issueIds = (input.issueIds ?? input.ids)!
       // Eligibility + team resolution only — every value the per-row writes
       // derive from is re-read under FOR UPDATE inside the transaction below.
       const eligible = await ctx.db
@@ -1029,7 +1011,7 @@ export const issuesRouter = router({
         })
         .from(issues)
         .innerJoin(boards, eq(issues.boardId, boards.id))
-        .where(and(inArray(issues.id, input.ids), boardVisible()))
+        .where(and(inArray(issues.id, issueIds), boardVisible()))
 
       if (eligible.length === 0) {
         throw new TRPCError({
@@ -1154,14 +1136,15 @@ export const issuesRouter = router({
   // Bulk delete for the multi-select action bar. Same gates as bulkUpdate
   // (write == delete == membership); attachment blobs are reclaimed from S3
   // after commit like the single delete.
+  // EXP-707: `issueIds` (was `ids`) — hard rename, desktop + web only.
   bulkDelete: authedProcedure
-    .input(z.object({ ids: z.array(z.string().uuid()).min(1).max(200) }))
+    .input(z.object({ issueIds: z.array(z.string().uuid()).min(1).max(200) }))
     .mutation(async ({ ctx, input }) => {
       const eligible = await ctx.db
         .select({ id: issues.id, teamId: boards.teamId })
         .from(issues)
         .innerJoin(boards, eq(issues.boardId, boards.id))
-        .where(and(inArray(issues.id, input.ids), boardVisible()))
+        .where(and(inArray(issues.id, input.issueIds), boardVisible()))
 
       if (eligible.length === 0) {
         throw new TRPCError({
@@ -1828,9 +1811,10 @@ export const issuesRouter = router({
   get: authedProcedure
     .input(z.object({ id: z.string().trim().min(1).max(64) }))
     .query(async ({ ctx, input }) => {
-      const issueId = UUID_RE.test(input.id)
-        ? input.id
-        : await resolveIssueIdentifier(ctx.db, ctx.session.user.id, input.id)
+      const issueId = await resolveIssueReference(
+        ctx.session.user.id,
+        input.id
+      )
 
       // Membership is the gate (like every read since EXP-180): a foreign-team
       // UUID probe gets FORBIDDEN, a missing or trashed-board issue NOT_FOUND.
@@ -1840,37 +1824,13 @@ export const issuesRouter = router({
         `read`
       )
 
+      // EXACTLY the issues shape's server-pinned column allowlist, via the
+      // shared camelCase mirror (lib/issue-columns.ts, parity-gated) so a
+      // client can merge this row into its synced store verbatim. The REV2-5
+      // scoping columns (team_id, board_deleted_at) are excluded — teamId
+      // rides top-level below instead.
       const [issue] = await ctx.db
-        .select({
-          // EXACTLY the issues shape's server-pinned column allowlist
-          // (routes/api/shapes/issues.ts ISSUE_COLUMNS) so a client can merge
-          // this row into its synced store verbatim. Keep the two lists in
-          // step; the REV2-5 scoping columns (team_id, board_deleted_at) are
-          // excluded from both — teamId rides top-level below instead.
-          id: issues.id,
-          boardId: issues.boardId,
-          number: issues.number,
-          identifier: issues.identifier,
-          title: issues.title,
-          description: issues.description,
-          status: issues.status,
-          statusId: issues.statusId,
-          priority: issues.priority,
-          assigneeId: issues.assigneeId,
-          creatorId: issues.creatorId,
-          source: issues.source,
-          dueDate: issues.dueDate,
-          sortOrder: issues.sortOrder,
-          completedAt: issues.completedAt,
-          duplicateOfId: issues.duplicateOfId,
-          prUrl: issues.prUrl,
-          prNumber: issues.prNumber,
-          prState: issues.prState,
-          branch: issues.branch,
-          prMergedAt: issues.prMergedAt,
-          createdAt: issues.createdAt,
-          updatedAt: issues.updatedAt,
-        })
+        .select(issueWireColumns)
         .from(issues)
         .where(eq(issues.id, issueId))
         .limit(1)
@@ -1982,9 +1942,14 @@ export const issuesRouter = router({
     }),
 
   delete: authedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    // EXP-707: UUID or human identifier ("EXP-42"), like issues.get.
+    .input(z.object({ id: z.string().trim().min(1).max(64) }))
     .mutation(async ({ ctx, input }) => {
-      await assertIssueAccess(ctx.session.user.id, input.id, `delete`)
+      const issueId = await resolveIssueReference(
+        ctx.session.user.id,
+        input.id
+      )
+      await assertIssueAccess(ctx.session.user.id, issueId, `delete`)
 
       const storageKeys: Array<string> = []
 
@@ -1992,12 +1957,12 @@ export const issuesRouter = router({
         const txId = await generateTxId(tx)
 
         storageKeys.push(
-          ...(await collectIssueAttachmentStorageKeysInTx(tx, input.id))
+          ...(await collectIssueAttachmentStorageKeysInTx(tx, issueId))
         )
 
         const deleted = await tx
           .delete(issues)
-          .where(eq(issues.id, input.id))
+          .where(eq(issues.id, issueId))
           .returning({ id: issues.id })
 
         if (deleted.length === 0) {

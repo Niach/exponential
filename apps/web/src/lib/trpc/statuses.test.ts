@@ -113,7 +113,13 @@ const fakeDb = {
     set: (values: Record<string, unknown>) => ({
       where: (_where: unknown) => {
         updates.push({ set: values })
-        return Promise.resolve()
+        // EXP-707: statuses.update echoes the row via .returning(); the
+        // bare await (thenable) keeps the other writers working.
+        const result = Promise.resolve() as Promise<void> & {
+          returning: () => Promise<Record<string, unknown>[]>
+        }
+        result.returning = async () => [{ id: `updated-status`, ...values }]
+        return result
       },
     }),
   }),

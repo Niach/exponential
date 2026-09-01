@@ -25,7 +25,11 @@ export function mcpServerInstructions(gates: {
   reportBug: boolean
 }): string {
   const paragraphs = [
-    `Exponential is this team's issue tracker: issues on boards with comments, labels and the PRs that close them. In a coding session the flow is exponential_issues_get, exponential_comments_list, implement, commit and push, then exponential_pr_open. Never set an issue to 'in_review' yourself; PR tools move issues. Search for exponential_* tools for boards, labels, statuses, members, attachments, notifications, actions, automations, sessions, devices, helpdesk, repos and teams.`,
+    // EXP-707 (theme D): status changes are AUTOMATIC — PR open/merge apply
+    // the team's configured status automation, and a team configured to "do
+    // nothing" means exactly that (the agent never compensates). Direct
+    // status writes remain for one case only: the user explicitly asks.
+    `Exponential is this team's issue tracker: issues on boards with comments, labels and the PRs that close them. In a coding session the flow is exponential_issues_get, exponential_comments_list, implement, commit and push, then exponential_pr_open. Status changes are automatic (PR tools apply the team's automation); set one only if asked. Search for exponential_* tools for boards, labels, statuses, members, attachments, notifications, actions, automations, sessions, devices, helpdesk, repos and teams.`,
     `exponential_pr_open takes 'issueId' for one issue, 'issueIds' plus 'head' for one combined PR over several, or 'repositoryId' plus 'head' for a chore PR with no issue at all. exponential_pr_merge mirrors that: 'issueId'/'issueIds', or 'repositoryId' plus 'prNumber'. Merging your own pull request never ends your session. If a merge is refused because the base is stale, call exponential_pr_retarget, rebase onto the new base, force-push with --force-with-lease, then merge again.`,
   ]
   if (gates.reportBug) {

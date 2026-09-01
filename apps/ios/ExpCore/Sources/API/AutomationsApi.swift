@@ -111,7 +111,7 @@ public struct AutomationsListResult: Decodable, Sendable {
     }
 }
 
-/// `automations.create/update` return `{ automation, txid }`.
+/// `automations.create/update` return `{ automation, txId }`.
 public struct AutomationResult: Decodable, Sendable {
     public let automation: AutomationDto
 }

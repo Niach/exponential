@@ -253,7 +253,7 @@ describe(`teams.update helpdesk transport gate (REV2-10)`, () => {
   it(`refuses to enable the helpdesk with no mail transport`, async () => {
     transport.enabled = false
     await expect(
-      caller().update({ id: WS, helpdeskEnabled: true })
+      caller().update({ teamId: WS, helpdeskEnabled: true })
     ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
     expect(updates).toHaveLength(0)
     // The plan gate never even runs — the setup problem comes first.
@@ -262,7 +262,7 @@ describe(`teams.update helpdesk transport gate (REV2-10)`, () => {
 
   it(`enables it when a transport is configured (plan gate still applies)`, async () => {
     updateReturningQueue.push([{ id: WS, helpdeskEnabled: true }])
-    const result = await caller().update({ id: WS, helpdeskEnabled: true })
+    const result = await caller().update({ teamId: WS, helpdeskEnabled: true })
     expect(assertCanUseHelpdesk).toHaveBeenCalledWith(WS)
     expect(result.team).toMatchObject({ helpdeskEnabled: true })
   })
@@ -270,7 +270,7 @@ describe(`teams.update helpdesk transport gate (REV2-10)`, () => {
   it(`always allows DISABLING it, transport or not`, async () => {
     transport.enabled = false
     updateReturningQueue.push([{ id: WS, helpdeskEnabled: false }])
-    await caller().update({ id: WS, helpdeskEnabled: false })
+    await caller().update({ teamId: WS, helpdeskEnabled: false })
     expect(updates).toHaveLength(1)
     expect(updates[0]!.table).toBe(teams)
   })
@@ -279,7 +279,7 @@ describe(`teams.update helpdesk transport gate (REV2-10)`, () => {
   // all — the column the teams shape deliberately keeps off the wire.
   it(`returns only the synced contract columns`, async () => {
     updateReturningQueue.push([{ id: WS, name: `Ship It` }])
-    await caller().update({ id: WS, name: `Ship It` })
+    await caller().update({ teamId: WS, name: `Ship It` })
     expect(updates).toHaveLength(1)
     const projection = updates[0]!.returning as Record<string, unknown>
     expect(Object.keys(projection).sort()).toEqual([

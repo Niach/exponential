@@ -2,9 +2,10 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, ne } from "drizzle-orm"
 import { actionIconSchema, actionInputsSchema } from "@exp/db-schema/domain"
-import { router, authedProcedure } from "@/lib/trpc"
+import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { actions, automations, repositories } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
+import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import {
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_CHAT_ID,
@@ -186,15 +187,6 @@ function assertNotReservedName(name: string): void {
   }
 }
 
-// Postgres unique_violation (23505), as surfaced by postgres-js directly or
-// wrapped in an error cause by drizzle.
-function isUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== `object`) return false
-  const candidate = err as { code?: unknown; cause?: unknown }
-  if (candidate.code === `23505`) return true
-  return isUniqueViolation(candidate.cause)
-}
-
 export const actionsRouter = router({
   // Any team member — clients list these to build the Actions surface.
   list: authedProcedure
@@ -248,34 +240,40 @@ export const actionsRouter = router({
         await assertRepoInTeam(input.repositoryId, input.teamId)
       }
 
-      // Append to the end of the list by default.
-      const [last] = await ctx.db
-        .select({ sortOrder: actions.sortOrder })
-        .from(actions)
-        .where(eq(actions.teamId, input.teamId))
-        .orderBy(desc(actions.sortOrder))
-        .limit(1)
-      const nextSortOrder = (last?.sortOrder ?? 0) + 1
+      // EXP-707: actions are Electric-synced, so every write returns a txId
+      // sync barrier like the other synced-table routers.
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
 
-      const [action] = await ctx.db
-        .insert(actions)
-        .values({
-          teamId: input.teamId,
-          repositoryId: input.repositoryId ?? null,
-          name: input.name,
-          description: input.description ?? null,
-          icon: input.icon ?? null,
-          body: input.body,
-          inputs: input.inputs ?? [],
-          sortOrder: nextSortOrder,
-        })
-        .onConflictDoNothing({
-          target: [actions.teamId, actions.name],
-        })
-        .returning(wireColumns)
+        // Append to the end of the list by default.
+        const [last] = await tx
+          .select({ sortOrder: actions.sortOrder })
+          .from(actions)
+          .where(eq(actions.teamId, input.teamId))
+          .orderBy(desc(actions.sortOrder))
+          .limit(1)
+        const nextSortOrder = (last?.sortOrder ?? 0) + 1
 
-      if (!action) throw duplicateNameError(input.name)
-      return { action }
+        const [action] = await tx
+          .insert(actions)
+          .values({
+            teamId: input.teamId,
+            repositoryId: input.repositoryId ?? null,
+            name: input.name,
+            description: input.description ?? null,
+            icon: input.icon ?? null,
+            body: input.body,
+            inputs: input.inputs ?? [],
+            sortOrder: nextSortOrder,
+          })
+          .onConflictDoNothing({
+            target: [actions.teamId, actions.name],
+          })
+          .returning(wireColumns)
+
+        if (!action) throw duplicateNameError(input.name)
+        return { action, txId }
+      })
     }),
 
   update: authedProcedure
@@ -353,13 +351,22 @@ export const actionsRouter = router({
         return { action }
       }
 
-      let action
       try {
-        ;[action] = await ctx.db
-          .update(actions)
-          .set(updates)
-          .where(eq(actions.id, input.id))
-          .returning(wireColumns)
+        return await ctx.db.transaction(async (tx) => {
+          const txId = await generateTxId(tx)
+          const [action] = await tx
+            .update(actions)
+            .set(updates)
+            .where(eq(actions.id, input.id))
+            .returning(wireColumns)
+          if (!action) {
+            throw new TRPCError({
+              code: `NOT_FOUND`,
+              message: `Action not found`,
+            })
+          }
+          return { action, txId }
+        })
       } catch (err) {
         // The rename pre-check above races concurrent writers — translate a
         // late (teamId, name) unique violation into the same CONFLICT.
@@ -368,13 +375,6 @@ export const actionsRouter = router({
         }
         throw err
       }
-      if (!action) {
-        throw new TRPCError({
-          code: `NOT_FOUND`,
-          message: `Action not found`,
-        })
-      }
-      return { action }
     }),
 
   // Live coding_sessions rows survive a delete batch-shaped: action_id nulls
@@ -386,7 +386,10 @@ export const actionsRouter = router({
       rejectBuiltin(input.id, `deleted`)
       const existing = await loadAction(input.id)
       await assertTeamOwner(ctx.session.user.id, existing.teamId)
-      await ctx.db.delete(actions).where(eq(actions.id, input.id))
-      return { ok: true as const }
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        await tx.delete(actions).where(eq(actions.id, input.id))
+        return { ok: true as const, id: input.id, txId }
+      })
     }),
 })

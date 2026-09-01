@@ -11,7 +11,9 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // bookkeeping the where clause filters on (Electric evaluates `where`
 // server-side, so a shape may filter on a column its allowlist excludes);
 // native schemas don't carry them.
-const ISSUE_COLUMNS = [
+// Exported for the EXP-707 parity gate (lib/mcp/api-conventions.test.ts):
+// lib/issue-columns.ts must stay the camelCase mirror of this list.
+export const ISSUE_COLUMNS = [
   `id`,
   `board_id`,
   `number`,

@@ -216,7 +216,7 @@ mod tests {
             200,
             r#"{"result":{"data":{"automation":{"id":"auto-1","teamId":"team-1",
                 "actionId":"act-1","deviceId":"dev-1","enabled":true,
-                "trigger":{"kind":"event","event":"created"},"sortOrder":1},"txid":"1"}}}"#,
+                "trigger":{"kind":"event","event":"created"},"sortOrder":1},"txId":"1"}}}"#,
         );
         let automation = create(
             &client(&base),

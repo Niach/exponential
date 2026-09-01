@@ -289,7 +289,7 @@ interface SteerStoreDeps {
 const defaultDeps: SteerStoreDeps = {
   mintTicket: (codingSessionId) =>
     trpc.steer.mintTicket.mutate(
-      { kind: `viewer`, codingSessionId },
+      { kind: `viewer`, sessionId: codingSessionId },
       { context: { skipErrorToast: true } }
     ) as Promise<{ disabled: true } | { ticket: string; url: string }>,
   createSocket: (url) => new WebSocket(url),
