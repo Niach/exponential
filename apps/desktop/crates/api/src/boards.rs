@@ -7,7 +7,7 @@
 //!   `{repositoryId}` OR `{fullName, …}` union
 //!   ([`BoardRepositoryInput`]). (slug is server-derived — there is no slug
 //!   field, §4.2; prefix is uppercased server-side.)
-//! - `boards.update({id, name?, color?, icon?})` → `{board}` (no txId).
+//! - `boards.update({boardId, name?, color?, icon?})` → `{board, txId}` (EXP-707).
 //! - `boards.delete({boardId})` → `{ok, txId}` (owner-only).
 //! - `boards.archive({boardId})` / `boards.unarchive({boardId})` → `{ok, txId}`
 //!   and `boards.listArchived({teamId})` → `[{id, name, …, archivedAt}]`
@@ -101,7 +101,8 @@ pub struct BoardsCreateOutput {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BoardsUpdateInput {
-    pub id: String,
+    /// EXP-707: the wire name is `boardId` (renamed from `id`).
+    pub board_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -115,7 +116,7 @@ pub struct BoardsUpdateInput {
 impl BoardsUpdateInput {
     pub fn new(id: impl Into<String>) -> Self {
         Self {
-            id: id.into(),
+            board_id: id.into(),
             name: None,
             color: None,
             icon: None,
@@ -321,13 +322,13 @@ mod tests {
         let mut input = BoardsUpdateInput::new("p-1");
         input.name = Some("Renamed".to_string());
         let json = serde_json::to_string(&input).unwrap();
-        assert_eq!(json, r#"{"id":"p-1","name":"Renamed"}"#);
+        assert_eq!(json, r#"{"boardId":"p-1","name":"Renamed"}"#);
 
         // EXP-288: the per-board settings page's icon update.
         let mut input = BoardsUpdateInput::new("p-1");
         input.icon = Some("rocket".to_string());
         let json = serde_json::to_string(&input).unwrap();
-        assert_eq!(json, r#"{"id":"p-1","icon":"rocket"}"#);
+        assert_eq!(json, r#"{"boardId":"p-1","icon":"rocket"}"#);
     }
 
     #[test]

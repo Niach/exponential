@@ -5,7 +5,7 @@
 //! `team-invites.ts`:
 //!
 //! - `teams.create({name, iconUrl?})` → `{team, txId}`
-//! - `teams.update({id, name?, iconUrl?})` → `{team, txId}`
+//! - `teams.update({teamId, name?, iconUrl?})` → `{team, txId}` (EXP-707)
 //! - `teams.delete({teamId})` → `{ok, txId}`
 //! - `teamMembers.updateRole({memberId, role})` → `{member}`
 //! - `teamMembers.remove({memberId})` → `{ok}` (also "Leave team")
@@ -71,7 +71,8 @@ pub fn teams_create(
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamsUpdateInput {
-    pub id: String,
+    /// EXP-707: the wire name is `teamId` (renamed from `id`).
+    pub team_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
@@ -81,7 +82,7 @@ pub struct TeamsUpdateInput {
 impl TeamsUpdateInput {
     pub fn new(id: impl Into<String>) -> Self {
         Self {
-            id: id.into(),
+            team_id: id.into(),
             name: None,
             icon_url: Patch::Omit,
         }

@@ -478,7 +478,8 @@ public struct LatestVersions: Decodable, Sendable {
 
 private struct ViewerTicketInput: Encodable {
     let kind = "viewer"
-    let codingSessionId: String
+    // EXP-707: the wire name is `sessionId` (renamed from `codingSessionId`).
+    let sessionId: String
 }
 
 /// Launch options a remote start may carry (EXP-149) — the Start-coding
@@ -576,7 +577,8 @@ private struct StartSessionResult: Decodable {
 }
 
 private struct KillSessionInput: Encodable {
-    let codingSessionId: String
+    // EXP-707: the wire name is `sessionId` (renamed from `codingSessionId`).
+    let sessionId: String
 }
 
 public final class SteerApi: Sendable {
@@ -597,7 +599,7 @@ public final class SteerApi: Sendable {
         try await trpc.mutation(
             accountId: accountId,
             path: "steer.mintTicket",
-            input: ViewerTicketInput(codingSessionId: codingSessionId)
+            input: ViewerTicketInput(sessionId: codingSessionId)
         )
     }
 
@@ -749,7 +751,7 @@ public final class SteerApi: Sendable {
         try await trpc.mutationVoid(
             accountId: accountId,
             path: "steer.killSession",
-            input: KillSessionInput(codingSessionId: codingSessionId)
+            input: KillSessionInput(sessionId: codingSessionId)
         )
     }
 

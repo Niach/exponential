@@ -311,12 +311,12 @@ data class SteerTicketResult(
 @Serializable
 private data class ViewerTicketInput(
     val kind: String = "viewer",
-    @SerialName("codingSessionId") val codingSessionId: String,
+    @SerialName("sessionId") val codingSessionId: String,
 )
 
 @Serializable
 private data class KillSessionInput(
-    @SerialName("codingSessionId") val codingSessionId: String,
+    @SerialName("sessionId") val codingSessionId: String,
 )
 
 /**

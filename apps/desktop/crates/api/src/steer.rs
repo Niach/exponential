@@ -84,12 +84,13 @@ enum MintInput<'a> {
         #[serde(rename = "deviceLabel", skip_serializing_if = "Option::is_none")]
         device_label: Option<&'a str>,
     },
+    // EXP-707: the wire name is `sessionId` (renamed from `codingSessionId`).
     Publisher {
-        #[serde(rename = "codingSessionId")]
+        #[serde(rename = "sessionId")]
         coding_session_id: &'a str,
     },
     Viewer {
-        #[serde(rename = "codingSessionId")]
+        #[serde(rename = "sessionId")]
         coding_session_id: &'a str,
     },
 }
@@ -112,7 +113,7 @@ pub fn mint_control_ticket(
     mint(trpc, &MintInput::Control { device_label })
 }
 
-/// `steer.mintTicket({kind: "publisher", codingSessionId})` — the per-session
+/// `steer.mintTicket({kind: "publisher", sessionId})` — the per-session
 /// PTY publisher ticket (§8.4). The server checks `session.userId === caller`
 /// (only the owner's desktop may publish).
 pub fn mint_publisher_ticket(
@@ -122,7 +123,7 @@ pub fn mint_publisher_ticket(
     mint(trpc, &MintInput::Publisher { coding_session_id })
 }
 
-/// `steer.mintTicket({kind: "viewer", codingSessionId})` — watch/steer a
+/// `steer.mintTicket({kind: "viewer", sessionId})` — watch/steer a
 /// session from this client (team members; owners get perm `steer`).
 pub fn mint_viewer_ticket(
     trpc: &TrpcClient,
@@ -191,9 +192,14 @@ pub fn kill_session(trpc: &TrpcClient, coding_session_id: &str) -> Result<(), Ap
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
-        coding_session_id: &'a str,
+        /// EXP-707: the wire name is `sessionId` (renamed from
+        /// `codingSessionId`).
+        session_id: &'a str,
     }
-    let _: serde_json::Value = trpc.mutation("steer.killSession", &Input { coding_session_id })?;
+    let _: serde_json::Value = trpc.mutation(
+        "steer.killSession",
+        &Input { session_id: coding_session_id },
+    )?;
     Ok(())
 }
 
@@ -273,7 +279,7 @@ mod tests {
         assert_eq!(result.clone().into_ticket(), None);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
-            r#"{"kind":"publisher","codingSessionId":"3f0f5a2e-1d4b-4c1e-9f6a-000000000001"}"#
+            r#"{"kind":"publisher","sessionId":"3f0f5a2e-1d4b-4c1e-9f6a-000000000001"}"#
         ));
     }
 
@@ -323,12 +329,12 @@ mod tests {
     fn kill_session_posts_session_id() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"session":{"id":"s-1","status":"ended"},"txid":7}}}"#,
+            r#"{"result":{"data":{"session":{"id":"s-1","status":"ended"},"txId":7}}}"#,
         );
         kill_session(&client(&base), "s-1").unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/steer.killSession HTTP/1.1"));
-        assert!(request.ends_with(r#"{"codingSessionId":"s-1"}"#));
+        assert!(request.ends_with(r#"{"sessionId":"s-1"}"#));
     }
 
     #[test]
@@ -340,6 +346,6 @@ mod tests {
         let result = mint_viewer_ticket(&client(&base), "sess-1").unwrap();
         assert!(matches!(result, MintTicketResult::Ticket(_)));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.ends_with(r#"{"kind":"viewer","codingSessionId":"sess-1"}"#));
+        assert!(request.ends_with(r#"{"kind":"viewer","sessionId":"sess-1"}"#));
     }
 }

@@ -113,7 +113,8 @@ public struct UpdateIssueInput: Encodable, Sendable {
 }
 
 /// Input for `issues.bulkUpdate` — one transactional property write across a
-/// whole selection (`ids` is capped at 200 server-side). Hand-encoded for the
+/// whole selection (`issueIds` is capped at 200 server-side; EXP-707 renamed
+/// the wire key from `ids`). Hand-encoded for the
 /// same reason `UpdateIssueInput` is: `assigneeId` must be OMITTED to leave
 /// the assignee alone but sent as JSON null to unassign, and the two cases are
 /// indistinguishable to the synthesized encoder.
@@ -146,7 +147,9 @@ public struct BulkUpdateIssuesInput: Encodable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case ids, status, statusId, priority, assigneeId
+        // EXP-707: the wire name is `issueIds` (renamed from `ids`).
+        case ids = "issueIds"
+        case status, statusId, priority, assigneeId
     }
 
     public func encode(to encoder: Encoder) throws {

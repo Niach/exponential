@@ -38,7 +38,7 @@ data class AutomationDto(
         get() = AutomationTrigger.parse(trigger?.toString())
 }
 
-/** `automations.create`'s / `.update`'s answer (the txid is unused here). */
+/** `automations.create`'s / `.update`'s answer (the txId is unused here). */
 @Serializable
 data class AutomationMutationResult(
     @SerialName("automation") val automation: AutomationDto,

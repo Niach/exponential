@@ -274,7 +274,8 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
             accountId,
             path = "issues.bulkUpdate",
             input = buildJsonObject {
-                put("ids", JsonArray(ids.map { JsonPrimitive(it) }))
+                // EXP-707: the wire name is `issueIds` (renamed from `ids`).
+                put("issueIds", JsonArray(ids.map { JsonPrimitive(it) }))
                 if (status != null) put("status", status)
                 if (statusId != null) put("statusId", statusId)
                 if (priority != null) put("priority", priority)
