@@ -589,7 +589,10 @@ private fun AuthenticatedNav(
         composable("steer/{codingSessionId}") {
             // The chat-style agent session viewer (EXP-32) — replaced the old
             // live-terminal mirror; the route string is unchanged.
-            AgentSessionScreen(onBack = { navController.popBackStack() })
+            AgentSessionScreen(
+                onBack = { navController.popBackStack() },
+                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
+            )
         }
         composable("invite/{token}") { entry ->
             val token = entry.arguments?.getString("token").orEmpty()

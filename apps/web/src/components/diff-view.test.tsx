@@ -74,8 +74,8 @@ describe(`FileDiffList`, () => {
   it(`collapses large patches by default and caps the reveal with Show more`, () => {
     render(<FileDiffList files={[makeLargeFile(600)]} />)
 
-    // Collapsed: line count hint visible, no diff rows yet.
-    expect(screen.getByText(`601 lines`)).toBeTruthy()
+    // Collapsed: no diff rows yet (EXP-706 dropped the "N lines" hint).
+    expect(screen.queryByText(`601 lines`)).toBeNull()
     expect(screen.queryByText(`line 42`)).toBeNull()
 
     fireEvent.click(screen.getByRole(`button`, { name: /generated\.txt/ }))
@@ -89,7 +89,7 @@ describe(`FileDiffList`, () => {
     expect(screen.getByText(`line 550`)).toBeTruthy()
   })
 
-  it(`review mode: slim totals row + all files collapsed (EXP-248)`, () => {
+  it(`review mode: no summary row + all files collapsed (EXP-248/EXP-706)`, () => {
     render(
       <FileDiffList
         files={[smallFile, binaryFile]}
@@ -98,8 +98,9 @@ describe(`FileDiffList`, () => {
       />
     )
 
-    // Totals row replaces the jump-list card — no per-file nav buttons.
-    expect(screen.getByText(`2 files changed`)).toBeTruthy()
+    // Nothing above the files: the jump-list card is gone, and so is the
+    // totals row — the review-detail header carries both since EXP-706.
+    expect(screen.queryByText(`2 files changed`)).toBeNull()
     expect(screen.getAllByText(`example.ts`).length).toBe(1)
 
     // Even the small file starts collapsed…

@@ -130,6 +130,9 @@ pub(crate) fn build_screen_content(
         Screen::Automations => cx
             .new(|cx| crate::automations_view::AutomationsView::new(window, cx))
             .into(),
+        Screen::Reviews => cx
+            .new(|cx| crate::reviews_view::ReviewsView::new(window, cx))
+            .into(),
         Screen::GettingStarted { .. } => cx
             .new(|cx| crate::getting_started::GettingStartedView::new(window, cx))
             .into(),
@@ -329,6 +332,9 @@ pub struct ScreensPanel {
     /// The Automations page (EXP-686 — the automation rows plus the
     /// "Recent automated runs" log).
     automations: Entity<crate::automations_view::AutomationsView>,
+    /// The Reviews page (EXP-706 — the team's open PRs; the same tab-less
+    /// full-page mode. It was a sidebar tool window until EXP-706).
+    reviews: Entity<crate::reviews_view::ReviewsView>,
     /// The Getting-started checklist page (EXP-470 — the same tab-less
     /// full-page mode, behind a conditional rail entry).
     getting_started: Entity<crate::getting_started::GettingStartedView>,
@@ -375,6 +381,7 @@ impl ScreensPanel {
         let actions = cx.new(|cx| crate::actions_view::ActionsView::new(window, cx));
         let automations =
             cx.new(|cx| crate::automations_view::AutomationsView::new(window, cx));
+        let reviews = cx.new(|cx| crate::reviews_view::ReviewsView::new(window, cx));
         let getting_started =
             cx.new(|cx| crate::getting_started::GettingStartedView::new(window, cx));
         let nav = nav_for_window(window, cx);
@@ -452,6 +459,7 @@ impl ScreensPanel {
             devices,
             actions,
             automations,
+            reviews,
             getting_started,
             rail,
             tabs: Vec::new(),
@@ -494,10 +502,18 @@ impl ScreensPanel {
         }
         if changed {
             let entered_settings = matches!(screen, Some(Screen::Settings));
+            // EXP-706: the Reviews page's unlinked-PR half is a tRPC fetch, not
+            // a synced shape — entering the screen is its only refresh signal
+            // (the same reason Settings marks its personal panes stale).
+            let entered_reviews = matches!(screen, Some(Screen::Reviews));
             self.active_screen = screen;
             if entered_settings {
                 self.settings
                     .update(cx, |settings, cx| settings.mark_personal_stale(cx));
+            }
+            if entered_reviews {
+                self.reviews
+                    .update(cx, |reviews, cx| reviews.mark_pulls_stale(cx));
             }
         }
         // EXP-525: PrDiff is a transient (tab-less) center view — re-point
@@ -623,6 +639,7 @@ impl ScreensPanel {
             | Screen::Devices
             | Screen::Actions
             | Screen::Automations
+            | Screen::Reviews
             | Screen::GettingStarted { .. }
             | Screen::Settings => {
                 unreachable!("filtered by is_detail")
@@ -674,8 +691,10 @@ impl ScreensPanel {
     /// the Electric echo flipping `pr_state` on every linked issue (batch
     /// PRs included), or the issue disappearing outright — the diff view
     /// retires itself: matching back-stack entries are purged so go-back
-    /// can't resurrect it, then the center falls back (go-back if possible,
-    /// else the Reviews tool's default content).
+    /// can't resurrect it, then the center falls back — go-back if possible,
+    /// else the Reviews PAGE the diff was opened from (EXP-706; it used to be
+    /// "clear the center", which under a tool-window Reviews left the list
+    /// showing and now would leave a blank page).
     fn dismiss_stale_pr_diff(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(Screen::PrDiff { issue_id }) = resolved_screen(&self.nav, cx) else {
             return;
@@ -699,7 +718,7 @@ impl ScreensPanel {
         if self.nav.read(cx).can_go_back() {
             crate::navigation::go_back(window, cx);
         } else {
-            crate::navigation::set_screen(window, cx, None);
+            crate::navigation::set_screen(window, cx, Some(Screen::Reviews));
         }
     }
 
@@ -1631,6 +1650,7 @@ impl Render for ScreensPanel {
             Some(Screen::Devices) => self.devices.clone().into_any_element(),
             Some(Screen::Actions) => self.actions.clone().into_any_element(),
             Some(Screen::Automations) => self.automations.clone().into_any_element(),
+            Some(Screen::Reviews) => self.reviews.clone().into_any_element(),
             Some(Screen::GettingStarted { .. }) => {
                 self.getting_started.clone().into_any_element()
             }

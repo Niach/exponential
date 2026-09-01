@@ -300,11 +300,18 @@ private fun ReviewRow(
             }
             Spacer(Modifier.width(6.dp))
             // Inline merge — same confirm-gated flow as the long-press sheet
-            // (EXP-248: uniform with the web/iOS review rows).
+            // (EXP-248: uniform with the web/iOS review rows). EXP-706: a
+            // conflict-refused merge REPLACES the pill with the recovery run
+            // rather than stacking a second button under the message — the
+            // one thing that can move this PR forward sits where the user
+            // just tapped.
             Row(
                 modifier = Modifier
                     .glassButton()
-                    .clickable(enabled = !merging, onClick = onMerge)
+                    .clickable(
+                        enabled = !merging,
+                        onClick = if (canFixConflicts) onFixConflicts else onMerge,
+                    )
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -316,7 +323,7 @@ private fun ReviewRow(
                     )
                 } else {
                     Icon(
-                        ExpIcons.prMerged,
+                        if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
                         tint = MaterialTheme.colorScheme.onSurface,
@@ -324,25 +331,19 @@ private fun ReviewRow(
                 }
                 Spacer(Modifier.width(4.dp))
                 Text(
-                    "Merge",
+                    if (canFixConflicts) "Fix conflicts" else "Merge",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                 )
             }
-            Spacer(Modifier.width(6.dp))
-            Icon(
-                ExpIcons.uiChevronRight,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
         }
 
         // A refused merge (conflicts, branch protection, GitHub App errors, an
         // unreachable server) captions THIS row (EXP-323) — inside the list,
         // which already clears the floating nav pill, so the reason is always
-        // readable. The recovery run sits next to it for a conflict only.
+        // readable. EXP-706: the message ONLY; the recovery run took the merge
+        // pill's place in the row above.
         if (failure != null) {
             Column(
                 modifier = Modifier
@@ -356,30 +357,6 @@ private fun ReviewRow(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.error,
                 )
-                if (canFixConflicts) {
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier
-                            .glassButton()
-                            .clickable(onClick = onFixConflicts)
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            ExpIcons.uiBranch,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            "Fix conflicts",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                        )
-                    }
-                }
             }
         }
     }

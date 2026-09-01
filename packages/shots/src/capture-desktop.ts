@@ -293,8 +293,8 @@ export function driveEnv(
     case `screen`: {
       const env: Record<string, string> = { EXP_DEV_SCREEN: value }
       // Pair the rail with the centre view, the way the app opens them itself:
-      // a PR diff with the Reviews list beside it, a thread with Support.
-      if (value.startsWith(`pr:`)) env.EXP_DEV_TOOL = `reviews`
+      // a thread with Support. (Reviews stopped being a rail tool in EXP-706 —
+      // the PR diff needs no pairing anymore.)
       if (value.startsWith(`support:`)) env.EXP_DEV_TOOL = `support`
       return { env }
     }

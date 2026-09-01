@@ -29,7 +29,7 @@
 //! Every affordance dispatches a typed action (§3.6) or navigates directly;
 //! menus render in the Root overlay, outside this element tree.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity,
@@ -44,8 +44,7 @@ use gpui_component::{
     scroll::ScrollableElement as _,
     skeleton::Skeleton,
     spinner::Spinner,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, InteractiveElementExt as _,
-    Selectable as _, Sizable as _,
+    v_flex, ActiveTheme as _, Icon, InteractiveElementExt as _, Selectable as _, Sizable as _,
 };
 use sync::Store;
 
@@ -55,7 +54,6 @@ use sync::Store;
 use crate::actions::{CreateTeam, JoinTeam, SignOut, SwitchTeam};
 use crate::board::BoardView;
 use crate::coding_flow;
-use crate::controls::WebControl as _;
 use crate::trunk_sync::TrunkSync;
 use crate::icons::{self, registry, ExpIcon};
 use crate::issue_list::IssueQuery;
@@ -97,11 +95,6 @@ pub(crate) enum ToolWindow {
     /// The active board's issue list (mini list) — the default tool.
     /// Selected via the rail's Projects board icons (no icon of its own).
     BoardIssues,
-    /// Open pull requests across the team: issue-linked ones grouped by
-    /// board, plus GitHub-listed PRs not linked to any issue grouped by
-    /// repo — both with an inline squash-merge action (server-side via the
-    /// GitHub App).
-    Reviews,
     /// Support tickets of the active team (EXP-180 — server-only tRPC data,
     /// polled). The rail icon renders only while the active team's synced
     /// `helpdesk_enabled` flag is on.
@@ -378,14 +371,15 @@ pub(crate) fn window_file_tree(
 }
 
 /// DEV-ONLY `EXP_DEV_TOOL` values: `inbox` | `my-issues` | `board` |
-/// `reviews` | `support` | `files` | `source-control` (anything else = the
-/// ordinary default). See [`rail_shared_for_window`].
+/// `support` | `files` | `source-control` (anything else = the ordinary
+/// default). See [`rail_shared_for_window`]. EXP-706 retired `reviews`: it is
+/// a full-page SCREEN now (`EXP_DEV_SCREEN=reviews`), and the legacy spelling
+/// is honoured by `navigation::legacy_reviews_tool_screen`.
 fn parse_dev_tool(spec: &str) -> Option<ToolWindow> {
     match spec {
         // Both tabs live in the one Inbox tool window (EXP-186).
         "inbox" | "my-issues" => Some(ToolWindow::Inbox),
         "board" | "board-issues" | "issues" => Some(ToolWindow::BoardIssues),
-        "reviews" => Some(ToolWindow::Reviews),
         "support" => Some(ToolWindow::Support),
         "files" => Some(ToolWindow::Files),
         "source-control" => Some(ToolWindow::SourceControl),
@@ -907,8 +901,8 @@ impl RailView {
     }
 
     /// EXP-480: whether a tab-less FULL-PAGE screen (Devices / Actions /
-    /// Automations / Getting started) owns the center. While one is up the
-    /// tool column is unmounted, so no tool or board entry may read as
+    /// Automations / Reviews / Getting started) owns the center. While one is
+    /// up the tool column is unmounted, so no tool or board entry may read as
     /// selected — exactly one rail entry highlights, like a tool switch.
     fn full_page_screen_up(&self, cx: &mut gpui::Context<Self>) -> bool {
         resolved_screen(&self.nav, cx).is_some_and(|screen| screen.is_rail_full_page())
@@ -916,9 +910,10 @@ impl RailView {
 
     /// A rail entry that navigates STRAIGHT to a tab-less full-page screen
     /// instead of activating a tool window (EXP-467's Actions entry,
-    /// generalized by EXP-686 for Devices / Actions / Automations): the
-    /// settings gear's direct-navigation shape in the tool-icon slot. While
-    /// its screen is up this entry is the ONE highlighted row.
+    /// generalized by EXP-686 for Devices / Actions / Automations, and by
+    /// EXP-706 for Reviews): the settings gear's direct-navigation shape in
+    /// the tool-icon slot. While its screen is up this entry is the ONE
+    /// highlighted row.
     fn rail_screen_entry(
         &self,
         id: &'static str,
@@ -1695,12 +1690,13 @@ impl Render for RailView {
                         expanded,
                         cx,
                     ))
-                    .child(self.rail_tool_icon(
+                    // EXP-706: Reviews is a full-page screen like the three
+                    // above it, not a tool window with a docked list.
+                    .child(self.rail_screen_entry(
                         "rail-reviews",
                         Icon::from(ExpIcon::GitPullRequest),
-                        ToolWindow::Reviews,
                         "Reviews",
-                        "Reviews",
+                        Screen::Reviews,
                         // Review green (EXP-214): open PRs are "stuff to do",
                         // colored like the in_review issue status.
                         has_reviews.then(|| RailBadge::Dot(theme::tokens::GREEN.to_hsla())),
@@ -1788,17 +1784,6 @@ pub struct SidebarPanel {
     /// The Source Control tool window's commit history (EXP-253 — it
     /// replaced the branch flow graph; master-only IDE).
     history: Entity<crate::source_control::HistoryList>,
-    /// Fetched `repositories.openPulls` result: `(team_id, repos)` —
-    /// open PRs with NO issue link (release PRs, manual branches, external
-    /// contributors), listed straight from GitHub. Rendered below the board
-    /// groups; a merged pull is removed locally (no Electric echo).
-    open_pulls: Option<(String, Vec<api::repositories::OpenPullsRepo>)>,
-    /// The team the current openPulls fetch belongs to. Cleared whenever
-    /// the Reviews tool window is inactive, so re-opening refetches (the
-    /// server caches ~60s; there is deliberately no polling).
-    open_pulls_key: Option<String>,
-    /// Bumped per fetch — a stale response checks it before landing.
-    open_pulls_seq: u64,
     /// The Support tool window's open/resolved filter (EXP-180).
     support_filter: SupportFilter,
     /// Fetched `helpdesk.listThreads` result, tagged with its
@@ -1815,7 +1800,6 @@ pub struct SidebarPanel {
     _subscriptions: Vec<Subscription>,
 }
 
-use crate::pr_merge::{close_pr_key, pull_merge_key, MergeOp, MergeState};
 
 /// Fire-and-forget `notifications.markRead` over a group's unread rows (the
 /// web `markGroupRead`) — the Electric echo clears the dots.
@@ -1870,7 +1854,6 @@ impl SidebarPanel {
         let history = cx.new(|cx| crate::source_control::HistoryList::new(window, cx));
         let collections = Store::global(cx).collections().clone();
         let local_sessions = coding_flow::LocalSessions::global(cx);
-        let merge_state = MergeState::global(cx);
         let subscriptions = vec![
             // Rail toggles swap the tool window.
             cx.observe(&shared, |_, _, cx| cx.notify()),
@@ -1885,9 +1868,6 @@ impl SidebarPanel {
             // Start↔Stop flip rides the process-global LocalSessions registry.
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
             cx.observe(&local_sessions, |_, _, cx| cx.notify()),
-            // EXP-325: the Reviews rows' merge arm/spinner/error live in the
-            // shared app-global merge state (any surface can drive them).
-            cx.observe(&merge_state, |_, _, cx| cx.notify()),
             // Sync state rides the shared trunk-sync engine.
             cx.observe(&git_bar, |_, _, cx| cx.notify()),
             // Active-row highlight follows navigation.
@@ -1899,9 +1879,6 @@ impl SidebarPanel {
             shared,
             board_active,
             board_my,
-            open_pulls: None,
-            open_pulls_key: None,
-            open_pulls_seq: 0,
             support_filter: SupportFilter::Open,
             support_threads: None,
             support_key: None,
@@ -2099,7 +2076,7 @@ impl SidebarPanel {
 
         // Single Linear-style activity stream: one row per issue group, the
         // LATEST notification's type icon + sentence. (The old trailing
-        // "Needs your review" section moved to the Reviews tool window.)
+        // "Needs your review" section moved to the Reviews page.)
         let body: gpui::AnyElement = if !data.is_ready {
             self.list_skeleton(cx)
         } else if data.groups.is_empty() {
@@ -2461,670 +2438,13 @@ impl SidebarPanel {
             .into_any_element()
     }
 
-    // -- Reviews tool window ----------------------------------------------------
-
-    /// *Reviews* tool window: open pull requests across the team, each
-    /// mergeable row with a two-click inline merge confirm. Issue-linked PRs
-    /// come from the synced issues shape, grouped by board; below them, PRs
-    /// NOT linked to anything (manual branches, external contributors) come
-    /// from a background `repositories.openPulls` fetch, grouped by repo —
-    /// the synced lists never wait on GitHub. Merging goes through the server
-    /// (`issues.mergePr` / `repositories.mergePull`, GitHub App squash) —
-    /// never local git; synced rows leave the list via the Electric echo,
-    /// unlinked pulls are removed locally.
-    fn render_reviews_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let collections = Store::global(cx).collections().clone();
-        let is_ready = collections.issues.read(cx).is_ready()
-            && collections.boards.read(cx).is_ready();
-        let team_id = active_team_id(&self.nav, cx);
-        if let Some(id) = team_id.as_deref() {
-            self.ensure_open_pulls(id, cx);
-        }
-        let groups = team_id
-            .as_deref()
-            .map(|id| queries::review_groups(cx, id))
-            .unwrap_or_default();
-        let pull_repos: Vec<api::repositories::OpenPullsRepo> = self
-            .open_pulls
-            .as_ref()
-            .filter(|(ws, _)| Some(ws.as_str()) == team_id.as_deref())
-            .map(|(_, repos)| queries::visible_pull_repos(repos))
-            .unwrap_or_default();
-
-        // Unlinked pulls have no Electric echo — a pull merged elsewhere
-        // drops its transient merge state here against the fetched list.
-        // (Issue rows are echo-settled by the shared state's own issues
-        // observer, EXP-325.)
-        {
-            let live_keys: HashSet<String> = pull_repos
-                .iter()
-                .flat_map(|repo| {
-                    repo.pulls
-                        .iter()
-                        .map(|pull| pull_merge_key(&repo.repository_id, pull.number))
-                })
-                .collect();
-            MergeState::global(cx)
-                .update(cx, |state, cx| state.retain_pull_keys(&live_keys, cx));
-        }
-
-        let header = self.tool_header(Icon::from(ExpIcon::GitPullRequest), "Reviews", cx);
-
-        let body: gpui::AnyElement = if !is_ready {
-            self.list_skeleton(cx)
-        } else if groups.is_empty() && pull_repos.is_empty() {
-            // EXP-525: the web `EmptyState` (icon disc + title + description).
-            crate::controls::empty_state(
-                Icon::from(ExpIcon::GitPullRequest),
-                "No open pull requests",
-                "Open pull requests in this team's repositories land here for review.",
-                cx,
-            )
-            .into_any_element()
-        } else {
-            let muted = cx.theme().muted_foreground;
-            // EXP-642: the web `GlassSectionHeader` over a GAPPED list of
-            // glass row CARDS — one card per PR, one headed group per board
-            // (and one for each repo's unlinked pulls).
-            let heading_fg = cx.theme().foreground;
-            let mut children: Vec<gpui::AnyElement> = Vec::new();
-            for group in &groups {
-                let dot = group
-                    .board
-                    .color
-                    .as_deref()
-                    .and_then(parse_hex_color)
-                    .unwrap_or(muted);
-                let mut block = v_flex().w_full().min_w_0().gap_2().pb_2().child(
-                    h_flex()
-                        .px_1()
-                        .pt_1()
-                        .gap_1p5()
-                        .items_center()
-                        .child(div().size_2().flex_shrink_0().rounded_full().bg(dot))
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(heading_fg.opacity(0.7))
-                                .child(SharedString::from(group.board.name.clone())),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(heading_fg.opacity(0.5))
-                                .child(SharedString::from(format!("{}", group.entries.len()))),
-                        ),
-                );
-                for entry in &group.entries {
-                    block = block.child(self.review_row(entry, cx));
-                }
-                children.push(block.into_any_element());
-            }
-            for repo in &pull_repos {
-                let mut block = v_flex().w_full().min_w_0().gap_2().pb_2().child(
-                    h_flex()
-                        .px_1()
-                        .pt_1()
-                        .gap_1p5()
-                        .items_center()
-                        .child(
-                            Icon::from(ExpIcon::GitPullRequest)
-                                .xsmall()
-                                .flex_shrink_0()
-                                .text_color(heading_fg.opacity(0.7)),
-                        )
-                        .child(
-                            div()
-                                .min_w_0()
-                                .text_sm()
-                                .truncate()
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(heading_fg.opacity(0.7))
-                                .child(SharedString::from(repo.full_name.clone())),
-                        )
-                        .child(
-                            div()
-                                .flex_shrink_0()
-                                .text_xs()
-                                .text_color(heading_fg.opacity(0.5))
-                                .child(SharedString::from(format!("{}", repo.pulls.len()))),
-                        )
-                        .child(
-                            div()
-                                .flex_shrink_0()
-                                .text_xs()
-                                .text_color(muted.opacity(0.8))
-                                .child("not linked to an issue"),
-                        ),
-                );
-                for pull in &repo.pulls {
-                    block = block.child(self.pull_row(&repo.repository_id, pull, cx));
-                }
-                children.push(block.into_any_element());
-            }
-            div()
-                .id("reviews-scroll")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scrollbar()
-                .child(v_flex().p_2().gap_2().children(children))
-                .into_any_element()
-        };
-
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .child(header)
-            .child(body)
-            .into_any_element()
-    }
-
-    /// One Reviews row for a PR entry: PR icon + identifier + title with a
-    /// trailing Merge button, sub-line `#N · branch`, optional error caption.
-    /// A single-issue entry shows the issue identifier + title; a BATCH entry
-    /// (EXP-131: N issues on ONE PR) shows `#<pr_number>`, a "N issues" count,
-    /// and the linked identifiers in place of the title. Merge/× act on the
-    /// representative issue's id — the server merges the ONE PR and completes
-    /// every linked issue. Clicking the row opens the PR diff screen
-    /// (EXP-181; its header links to the issue detail). The subtle ghost `×` left of
-    /// Merge closes the PR WITHOUT merging (EXP-100: the reject path) — same
-    /// two-click confirm, `issues.closePr`.
-    fn review_row(
-        &self,
-        entry: &queries::ReviewEntry,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let issue = entry.representative();
-        let is_batch = entry.is_batch();
-        // Batch: `#<pr_number>` (all linked issues share one PR); single: the
-        // issue identifier. Batch title = the linked identifiers; single =
-        // the issue title. The "N issues" count renders only for batches.
-        let identifier_text = if is_batch {
-            match issue.pr_number {
-                Some(number) => format!("#{number}"),
-                None => issue.identifier.clone(),
-            }
-        } else {
-            issue.identifier.clone()
-        };
-        let title_text = if is_batch {
-            entry
-                .issues
-                .iter()
-                .map(|i| i.identifier.clone())
-                .collect::<Vec<_>>()
-                .join(", ")
-        } else {
-            issue.title.clone()
-        };
-        let batch_count = is_batch.then(|| format!("{} issues", entry.issues.len()));
-
-        let theme = cx.theme();
-        let fg = theme.foreground;
-        let muted = theme.muted_foreground;
-        let danger = theme.danger;
-        // EXP-277/642: rows use the glass list fills (EXP-269 list_* tokens);
-        // hover is the web `GlassRow`'s `hover:bg-glass-active/50`.
-        let row_active = theme.list_active;
-        let row_hover = row_active.opacity(0.5);
-        // Open-PR green (the token the status/priority accents use).
-        let pr_green = theme::tokens::GREEN.to_hsla();
-
-        let selected = matches!(
-            resolved_screen(&self.nav, cx),
-            Some(Screen::PrDiff { issue_id }) if issue_id == issue.id
-        );
-        // EXP-325: the two-click arm/spinner/error live in the shared
-        // app-global merge state — a merge driven from the issue-detail
-        // sidebar or a terminal tab renders here identically.
-        let close_key = close_pr_key(&issue.id);
-        let (merging, armed, closing, close_armed, error, failed_op, is_conflict) = {
-            let state = MergeState::global(cx);
-            let state = state.read(cx);
-            (
-                state.merging(&issue.id),
-                state.armed(&issue.id),
-                state.merging(&close_key),
-                state.armed(&close_key),
-                state.error(&issue.id),
-                state.failed_op(&issue.id),
-                state.is_conflict(&issue.id),
-            )
-        };
-        // EXP-259: a failed merge (typically "not mergeable" — conflicts)
-        // offers the builtin "Fix merge conflicts" action run right on the
-        // row. MERGE failures only — the run ends in a merge, the opposite of
-        // what a failed close was asked to do (merge and close share this
-        // row's caption). Needs the PR's recorded branch (the run rebases
-        // it); "Fixing…" parks the button only while an ACTUAL fix run works
-        // the branch — any other session still holding it is ended by the
-        // fix-run launch itself.
-        let fixing = issue.branch.as_deref().is_some_and(|branch| {
-            crate::coding_flow::LocalSessions::global_ref(cx)
-                .is_some_and(|sessions| sessions.read(cx).is_branch_fixing(branch))
-        });
-        let fix_button = error
-            .as_ref()
-            .filter(|_| failed_op == Some(crate::pr_merge::FailedOp::Merge))
-            // EXP-533: only a REAL content conflict (409). A merge that
-            // failed because the machine is offline, the base is stale or no
-            // GitHub App is installed offers nothing an agent could rebase.
-            .filter(|_| is_conflict)
-            .filter(|_| issue.branch.is_some())
-            .map(|_| {
-                let mut button =
-                    Button::new(SharedString::from(format!("review-fix-{}", issue.id)))
-                        .xsmall()
-                        .outline().cursor_pointer();
-                if fixing {
-                    button = button.label("Fixing…").disabled(true);
-                } else if let Some(reason) = crate::coding_flow::no_agent_reason(cx) {
-                    // EXP-367: no agent CLI → disabled with the reason.
-                    button = button.label("Fix conflicts").tooltip(reason).disabled(true);
-                } else {
-                    button = button.label("Fix conflicts");
-                }
-                let click_id = issue.id.clone();
-                button.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    cx.stop_propagation();
-                    this.on_fix_conflicts_click(click_id.clone(), window, cx);
-                }))
-            });
-
-        let sub: String = match (issue.pr_number, issue.branch.as_deref()) {
-            (Some(number), Some(branch)) => format!("#{number} \u{00B7} {branch}"),
-            (Some(number), None) => format!("#{number}"),
-            (None, Some(branch)) => branch.to_string(),
-            (None, None) => String::new(),
-        };
-
-        let merge_button = {
-            let mut button = Button::new(SharedString::from(format!("review-merge-{}", issue.id)))
-                .web_sm()
-                .outline().cursor_pointer();
-            if merging {
-                button = button.label("Merging…").loading(true).disabled(true);
-            } else if armed {
-                button = button.label("Confirm merge").danger().cursor_pointer();
-            } else {
-                // EXP-642 (web parity): the merge glyph rides the label.
-                button = button
-                    .icon(Icon::new(registry::PR_MERGED))
-                    .label("Merge")
-                    .disabled(closing);
-            }
-            let click_id = issue.id.clone();
-            button.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                cx.stop_propagation();
-                crate::pr_merge::two_click(
-                    MergeOp::MergeIssuePr {
-                        issue_id: click_id.clone(),
-                    },
-                    None,
-                    None,
-                    cx,
-                );
-            }))
-        };
-
-        // The reject path — intentionally quiet next to Merge: a muted ghost
-        // `×` that only grows into a labeled danger confirm once armed.
-        let close_button = {
-            let mut button = Button::new(SharedString::from(format!("review-close-{}", issue.id)))
-                .xsmall()
-                .ghost().cursor_pointer();
-            if closing {
-                button = button
-                    .icon(Icon::new(registry::UI_CLOSE))
-                    .loading(true)
-                    .disabled(true);
-            } else if close_armed {
-                button = button.label("Close PR").danger().cursor_pointer();
-            } else {
-                button = button
-                    .icon(Icon::new(registry::UI_CLOSE).text_color(muted))
-                    .tooltip("Close PR without merging")
-                    .disabled(merging);
-            }
-            let click_id = issue.id.clone();
-            button.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                cx.stop_propagation();
-                crate::pr_merge::two_click(
-                    MergeOp::CloseIssuePr {
-                        issue_id: click_id.clone(),
-                    },
-                    None,
-                    None,
-                    cx,
-                );
-            }))
-        };
-
-        let nav_id = issue.id.clone();
-        // EXP-642: one glass row CARD per PR (web parity) — selected wears the
-        // active fill, hover half of it.
-        crate::surface::glass_row_card()
-            .id(SharedString::from(format!("review-{}", issue.id)))
-            .flex()
-            .flex_col()
-            .w_full()
-            .px_3()
-            .py_2p5()
-            .gap_0p5()
-            .when(selected, |this| this.bg(row_active))
-            .hover(move |this| this.bg(row_hover))
-            .cursor_pointer()
-            .on_click(cx.listener(move |_, _, window, cx| {
-                // Any click outside the armed button disarms the confirm.
-                MergeState::disarm(cx);
-                // The PR diff (EXP-181): a review click is about the CODE —
-                // the diff screen renders it, and its header links back to
-                // the issue detail for the body.
-                crate::navigation::navigate(
-                    window,
-                    cx,
-                    crate::navigation::Screen::PrDiff {
-                        issue_id: nav_id.clone(),
-                    },
-                );
-            }))
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .gap_1p5()
-                    .child(
-                        Icon::from(ExpIcon::GitPullRequest)
-                            .xsmall()
-                            .flex_shrink_0()
-                            .text_color(pr_green),
-                    )
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .text_xs()
-                            .text_color(muted)
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .child(SharedString::from(identifier_text)),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_xs()
-                            .truncate()
-                            .text_color(fg)
-                            .child(SharedString::from(title_text)),
-                    )
-                    .when_some(batch_count, |this, count| {
-                        this.child(
-                            div()
-                                .flex_shrink_0()
-                                .text_xs()
-                                .text_color(muted)
-                                .child(SharedString::from(count)),
-                        )
-                    })
-                    .child(close_button)
-                    .child(merge_button),
-            )
-            .child(
-                // EXP-642: `#N · branch` reads as code, like the web row.
-                div()
-                    .pl_5()
-                    .text_xs()
-                    .truncate()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .text_color(muted)
-                    .child(SharedString::from(sub)),
-            )
-            .when_some(error, |this, message| {
-                this.child(
-                    h_flex()
-                        .pl_5()
-                        .gap_2()
-                        .items_center()
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .text_xs()
-                                .truncate()
-                                .text_color(danger)
-                                .child(SharedString::from(message)),
-                        )
-                        .children(fix_button),
-                )
-            })
-            .into_any_element()
-    }
-
-    /// The review row's "Fix conflicts" button (EXP-259): open the Start
-    /// coding dialog with the builtin "Fix merge conflicts" action and this
-    /// PR preselected (EXP-313 — agent/model/effort stay choosable; the run
-    /// only starts when the dialog confirms). The `review_error` caption
-    /// stays — the PR really does still have conflicts until a fix lands.
-    fn on_fix_conflicts_click(
-        &mut self,
-        issue_id: String,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let Some(team_id) = active_team_id(&self.nav, cx) else {
-            return;
-        };
-        crate::start_coding_dialog::open_for_fix_conflicts(window, cx, team_id, issue_id);
-    }
-
-    /// Kick the `repositories.openPulls` fetch when the Reviews tool window
-    /// is shown or the team changes — never on a timer (the server
-    /// caches ~60s). Data from another team is dropped immediately; a
-    /// reopen in the same team keeps rendering the previous result while
-    /// the refresh is in flight.
-    fn ensure_open_pulls(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
-        if self.open_pulls_key.as_deref() == Some(team_id) {
-            return;
-        }
-        self.open_pulls_key = Some(team_id.to_string());
-        if self
-            .open_pulls
-            .as_ref()
-            .is_some_and(|(ws, _)| ws != team_id)
-        {
-            self.open_pulls = None;
-        }
-        self.open_pulls_seq += 1;
-        let seq = self.open_pulls_seq;
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        let ws = team_id.to_string();
-        cx.spawn(async move |this, cx| {
-            let call_ws = ws.clone();
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::repositories::open_pulls(&trpc, &call_ws) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.open_pulls_seq != seq {
-                    return;
-                }
-                match result {
-                    Ok(repos) => {
-                        this.open_pulls = Some((ws, repos));
-                        cx.notify();
-                    }
-                    Err(err) => {
-                        // The synced rows still render; the unlinked section
-                        // just stays absent (same degradation as the web).
-                        log::warn!("[ui] repositories.openPulls failed: {err}");
-                    }
-                }
-            });
-        })
-        .detach();
-    }
-
-    /// One unlinked-PR row: `#N` + title with a trailing Merge button
-    /// (disabled for drafts — GitHub refuses those), sub-line
-    /// `branch → base`, optional Draft pill and error caption. Clicking the
-    /// row opens the PR on GitHub — no local detail exists behind these.
-    fn pull_row(
-        &self,
-        repository_id: &str,
-        pull: &api::repositories::OpenPull,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let theme = cx.theme();
-        let radius = theme.radius;
-        let fg = theme.foreground;
-        let muted = theme.muted_foreground;
-        let danger = theme.danger;
-        // EXP-277/642: rows use the glass list fills (EXP-269 list_* tokens);
-        // hover is the web `GlassRow`'s `hover:bg-glass-active/50`.
-        let row_hover = theme.list_active.opacity(0.5);
-        let pr_green = theme::tokens::GREEN.to_hsla();
-
-        let key = pull_merge_key(repository_id, pull.number);
-        let (merging, armed, error) = {
-            let state = MergeState::global(cx);
-            let state = state.read(cx);
-            (state.merging(&key), state.armed(&key), state.error(&key))
-        };
-
-        let sub = format!("{} \u{2192} {}", pull.branch, pull.base_branch);
-
-        let merge_button = {
-            let mut button = Button::new(SharedString::from(format!("pull-merge-{key}")))
-                .web_sm()
-                .outline().cursor_pointer();
-            if merging {
-                button = button.label("Merging…").loading(true).disabled(true);
-            } else if pull.draft {
-                button = button
-                    .icon(Icon::new(registry::PR_MERGED))
-                    .label("Merge")
-                    .disabled(true);
-            } else if armed {
-                button = button.label("Confirm merge").danger().cursor_pointer();
-            } else {
-                button = button.icon(Icon::new(registry::PR_MERGED)).label("Merge");
-            }
-            let click_repo = repository_id.to_string();
-            let number = pull.number;
-            button.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                cx.stop_propagation();
-                // There is no Electric echo for unlinked pulls — success
-                // drops the row from this panel's fetched state.
-                let panel = cx.entity().downgrade();
-                let success_repo = click_repo.clone();
-                crate::pr_merge::two_click(
-                    MergeOp::MergePull {
-                        repository_id: click_repo.clone(),
-                        number,
-                    },
-                    None,
-                    Some(Box::new(move |cx: &mut gpui::App| {
-                        let _ = panel.update(cx, |this: &mut Self, cx| {
-                            if let Some((_, repos)) = this.open_pulls.as_mut() {
-                                queries::remove_merged_pull(repos, &success_repo, number);
-                            }
-                            cx.notify();
-                        });
-                    })),
-                    cx,
-                );
-            }))
-        };
-
-        let url = pull.url.clone();
-        crate::surface::glass_row_card()
-            .id(SharedString::from(format!("pull-{key}")))
-            .flex()
-            .flex_col()
-            .w_full()
-            .px_3()
-            .py_2p5()
-            .gap_0p5()
-            .hover(move |this| this.bg(row_hover))
-            .cursor_pointer()
-            .on_click(cx.listener(move |_, _, _, cx| {
-                // Any click outside the armed button disarms the confirm.
-                MergeState::disarm(cx);
-                crate::settings::open_url(cx, url.clone());
-            }))
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .gap_1p5()
-                    .child(
-                        Icon::from(ExpIcon::GitPullRequest)
-                            .xsmall()
-                            .flex_shrink_0()
-                            .text_color(pr_green),
-                    )
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .text_xs()
-                            .text_color(muted)
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .child(SharedString::from(format!("#{}", pull.number))),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_xs()
-                            .truncate()
-                            .text_color(fg)
-                            .child(SharedString::from(pull.title.clone())),
-                    )
-                    .when(pull.draft, |this| {
-                        this.child(
-                            div()
-                                .flex_shrink_0()
-                                .px_1()
-                                .rounded(radius)
-                                .bg(muted.opacity(0.15))
-                                .text_xs()
-                                .text_color(muted)
-                                .child("Draft"),
-                        )
-                    })
-                    .child(merge_button),
-            )
-            .child(
-                div()
-                    .pl_5()
-                    .text_xs()
-                    .truncate()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .text_color(muted)
-                    .child(SharedString::from(sub)),
-            )
-            .when_some(error, |this, message| {
-                this.child(
-                    div()
-                        .pl_5()
-                        .text_xs()
-                        .truncate()
-                        .text_color(danger)
-                        .child(SharedString::from(message)),
-                )
-            })
-            .into_any_element()
-    }
-
     // -- Support tool window ----------------------------------------------------
 
     /// *Support* tool window (EXP-180): the active team's support tickets,
     /// filtered open/resolved. Threads are server-only tRPC data — a
     /// seq-guarded background fetch keyed on `(team_id, filter)` (the
-    /// `ensure_open_pulls` pattern) plus a 30s poll that lives only while
+    /// `reviews_view::ReviewsView::ensure_open_pulls` pattern) plus a 30s poll
+    /// that lives only while
     /// this tool window is active (`support_key` clears on tool switch, which
     /// ends the loop). Rows open the thread's center tab.
     fn render_support_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
@@ -3514,11 +2834,6 @@ impl SidebarPanel {
 impl Render for SidebarPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let tool = self.shared.read(cx).tool;
-        // Leaving the Reviews tool drops the openPulls fetch key so the next
-        // open refetches (the server cache keeps that cheap).
-        if tool != ToolWindow::Reviews {
-            self.open_pulls_key = None;
-        }
         // Leaving the Support tool drops its fetch key — the next open
         // refetches, and the 30s poll loop dies on its next tick.
         if tool != ToolWindow::Support {
@@ -3537,7 +2852,6 @@ impl Render for SidebarPanel {
             .child(match tool {
                 ToolWindow::Inbox => self.render_inbox_tool(cx),
                 ToolWindow::BoardIssues => self.render_board_issues_tool(cx),
-                ToolWindow::Reviews => self.render_reviews_tool(cx),
                 ToolWindow::Support => self.render_support_tool(cx),
                 ToolWindow::Files => self.render_files_tool(cx),
                 ToolWindow::SourceControl => self.render_source_control_tool(cx),

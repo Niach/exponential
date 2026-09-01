@@ -50,7 +50,7 @@ pub enum Screen {
     /// opened from the Support tool window's thread list).
     SupportThread { thread_id: String },
     /// Read-only PR diff for an issue's linked PR (EXP-181 — the Reviews
-    /// tool window rows open this instead of the issue detail; data via
+    /// page's rows open this instead of the issue detail; data via
     /// `issues.prFiles`, rendered by the shared side-by-side `DiffView`).
     PrDiff { issue_id: String },
     /// The Devices page (EXP-686 — the web `t/$teamSlug/devices` page: the
@@ -66,6 +66,12 @@ pub enum Screen {
     /// The Automations page (EXP-686 — the web `t/$teamSlug/automations`
     /// page: the automation rows plus "Recent automated runs").
     Automations,
+    /// The Reviews page (EXP-706 — the web `t/$teamSlug/reviews` page: every
+    /// open PR across the team, issue-linked ones grouped by board plus the
+    /// unlinked ones grouped by repo). It used to be a sidebar TOOL WINDOW
+    /// (a split beside the diff); it is now a tab-less full-page screen like
+    /// Devices / Actions, and the PR diff is the center view its rows open.
+    Reviews,
     /// The Getting-started checklist (EXP-470 — the desktop mirror of the
     /// web checklist). Tab-less full-page mode exactly like Actions, opened
     /// from a conditional rail entry. EXP-686: the page carries the
@@ -102,7 +108,7 @@ impl Screen {
     /// highlights like a tool window's) but the tool column unmounts, and
     /// any rail-tool click or tab click leaves it. EXP-525: PrDiff stopped
     /// being a tab — review diffs are transient center views driven by the
-    /// Reviews tool (a merged PR used to leave a stale diff tab behind);
+    /// Reviews page (a merged PR used to leave a stale diff tab behind);
     /// `ScreensPanel::dismiss_stale_pr_diff` retires them.
     pub(crate) fn is_detail(&self) -> bool {
         matches!(
@@ -111,8 +117,8 @@ impl Screen {
         )
     }
 
-    /// EXP-480/EXP-686: the tab-less FULL-PAGE screens the rail navigates to
-    /// directly. While one is up the tool column unmounts and exactly one
+    /// EXP-480/EXP-686/EXP-706: the tab-less FULL-PAGE screens the rail
+    /// navigates to directly. While one is up the tool column unmounts and exactly one
     /// rail entry may read as selected (Settings is full-page too, but it
     /// replaces the rail outright — the rail highlight rules don't apply).
     pub(crate) fn is_rail_full_page(&self) -> bool {
@@ -121,6 +127,7 @@ impl Screen {
             Screen::Devices
                 | Screen::Actions
                 | Screen::Automations
+                | Screen::Reviews
                 | Screen::GettingStarted { .. }
         )
     }
@@ -184,6 +191,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::Devices => "Devices".into(),
         Screen::Actions => "Actions".into(),
         Screen::Automations => "Automations".into(),
+        Screen::Reviews => "Reviews".into(),
         Screen::GettingStarted { .. } => "Getting started".into(),
     }
 }
@@ -235,7 +243,8 @@ impl Navigation {
             screen: std::env::var("EXP_DEV_SCREEN")
                 .ok()
                 .as_deref()
-                .and_then(parse_dev_screen),
+                .and_then(parse_dev_screen)
+                .or_else(legacy_reviews_tool_screen),
             back_stack: Vec::new(),
             // DEV-ONLY `EXP_DEV_BOARD_ID=<board uuid>` (EXP-642): pre-select
             // the board the first render opens — `EXP_DEV_BOARD=1` is the
@@ -264,7 +273,7 @@ impl Navigation {
 }
 
 /// DEV-ONLY `EXP_DEV_SCREEN` values: `settings` | `account` | `devices` |
-/// `actions` | `automations` | `getting-started` | `issue:<uuid>` |
+/// `actions` | `automations` | `reviews` | `getting-started` | `issue:<uuid>` |
 /// `pr:<issue-uuid>` (the PR-diff screen, keyed by the ISSUE whose linked PR
 /// it shows) | `support:<uuid>` (anything else = no pre-route).
 /// `getting-started` additionally reads `EXP_DEV_GETTING_STARTED_TAB`
@@ -278,6 +287,8 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "devices" => Some(Screen::Devices),
         "actions" => Some(Screen::Actions),
         "automations" => Some(Screen::Automations),
+        // EXP-706: Reviews left the rail's tool windows for its own page.
+        "reviews" => Some(Screen::Reviews),
         "getting-started" => Some(Screen::GettingStarted {
             tab: std::env::var("EXP_DEV_GETTING_STARTED_TAB")
                 .ok()
@@ -303,6 +314,14 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                 })
         }
     }
+}
+
+/// DEV-ONLY back-compat for capture runs (EXP-706): Reviews used to be a rail
+/// TOOL window, so the shots catalog drives it with `EXP_DEV_TOOL=reviews`.
+/// It is a full-page SCREEN now — keep the old spelling landing on it (only
+/// when `EXP_DEV_SCREEN` picked nothing, which stays authoritative).
+fn legacy_reviews_tool_screen() -> Option<Screen> {
+    (std::env::var("EXP_DEV_TOOL").ok().as_deref() == Some("reviews")).then_some(Screen::Reviews)
 }
 
 /// DEV-ONLY `EXP_DEV_GETTING_STARTED_TAB` values (EXP-686): `first-steps` |
@@ -925,6 +944,8 @@ mod tests {
         assert_eq!(parse_dev_screen("devices"), Some(Screen::Devices));
         assert_eq!(parse_dev_screen("actions"), Some(Screen::Actions));
         assert_eq!(parse_dev_screen("automations"), Some(Screen::Automations));
+        // EXP-706: Reviews joined them (it was a rail TOOL window before).
+        assert_eq!(parse_dev_screen("reviews"), Some(Screen::Reviews));
         assert_eq!(parse_dev_screen("settings"), Some(Screen::Settings));
         // EXP-238: the legacy Account value still lands on Settings.
         assert_eq!(parse_dev_screen("account"), Some(Screen::Settings));
@@ -954,6 +975,20 @@ mod tests {
         assert_eq!(GettingStartedTab::default(), GettingStartedTab::FirstSteps);
     }
 
+    /// EXP-706: the full-page screens the rail navigates to directly — the
+    /// tool column unmounts while one is up, and Reviews now belongs to them.
+    /// Neither a tab nor undockable (the DIFF its rows open is both).
+    #[test]
+    fn reviews_is_a_rail_full_page_screen() {
+        assert!(Screen::Reviews.is_rail_full_page());
+        assert!(!Screen::Reviews.is_detail());
+        assert!(!Screen::Reviews.undockable());
+        assert!(Screen::PrDiff {
+            issue_id: "i1".into()
+        }
+        .undockable());
+    }
+
     /// The rail entries and the tab-less page headers read these titles —
     /// EXP-686 split "Agents" into three, so each screen must name itself.
     #[gpui::test]
@@ -962,6 +997,7 @@ mod tests {
             assert_eq!(screen_title(&Screen::Devices, cx), "Devices");
             assert_eq!(screen_title(&Screen::Actions, cx), "Actions");
             assert_eq!(screen_title(&Screen::Automations, cx), "Automations");
+            assert_eq!(screen_title(&Screen::Reviews, cx), "Reviews");
             assert_eq!(
                 screen_title(
                     &Screen::GettingStarted {

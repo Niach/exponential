@@ -87,6 +87,7 @@ mod pr_diff;
 mod pr_merge;
 mod queries;
 mod repo_resolver;
+mod reviews_view;
 mod screens;
 mod scroll_pane;
 mod search_sheet;

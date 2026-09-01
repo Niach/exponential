@@ -1,5 +1,6 @@
 package com.exponential.app.ui.issue
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -40,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -80,6 +82,7 @@ import com.exponential.app.ui.steer.SteerLaunchDelegate
 import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassSection
@@ -525,7 +528,6 @@ private fun ChangesBottomBar(
         issue?.prState == DomainContract.prStateOpen
     if (!canReview && prUrl.isNullOrBlank()) return
     val busy = merging || closing
-    val barStroke = Color.White.copy(alpha = 0.12f)
     Column(
         // EXP-627: the store slide's pop-out rect is measured off the review
         // bar (`PopRects`), iOS parity.
@@ -533,11 +535,7 @@ private fun ChangesBottomBar(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (actionError != null) {
-            ChangesRefusalNotice(
-                message = actionError,
-                canFixConflicts = canFixConflicts,
-                onFixConflicts = onFixConflicts,
-            )
+            ChangesRefusalNotice(message = actionError)
         }
         // Floating: this caption sits on top of the scrolling diff too.
         SteerRunCaptionRow(runState, modifier = Modifier.padding(top = 6.dp), floating = true)
@@ -559,31 +557,43 @@ private fun ChangesBottomBar(
                         )
                     }
                 }
+                // EXP-706: the primary action is a WHITE pill — the one solid
+                // thing on the bar, so the review's outcome is unmistakable.
+                // No hairline: a white fill needs no edge against the dim
+                // circles beside it. A conflict-refused merge REPLACES it with
+                // the recovery run (the notice above keeps only the message).
                 Row(
                     modifier = Modifier
                         .height(52.dp)
                         .clip(RoundedCornerShape(percent = 50))
-                        .background(BottomBarPillFill)
-                        .border(GlassTokens.Hairline, barStroke, RoundedCornerShape(percent = 50))
-                        .clickable(enabled = !busy, onClick = onMerge)
+                        .background(Color.White)
+                        .clickable(
+                            enabled = !busy,
+                            onClick = if (canFixConflicts) onFixConflicts else onMerge,
+                        )
                         .padding(horizontal = 28.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (merging) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            // On white, the default primary tint disappears.
+                            color = Color.Black,
+                        )
                     } else {
                         Icon(
-                            ExpIcons.prMerged,
+                            if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
                             contentDescription = null,
                             modifier = Modifier.size(20.dp),
-                            tint = Color.White,
+                            tint = Color.Black,
                         )
                     }
                     Text(
-                        "Merge",
+                        if (canFixConflicts) "Fix conflicts" else "Merge",
                         style = MaterialTheme.typography.titleSmall,
-                        color = Color.White,
+                        color = Color.Black,
                     )
                 }
             }
@@ -611,8 +621,9 @@ private fun ChangesBottomBar(
 }
 
 // The bar's refusal notice (EXP-559): a failed merge/close captions the bar
-// that produced it, with the conflict-recovery run right under the message
-// (EXP-323, desktop parity). It floats over the diff list, so it wears the
+// that produced it. EXP-706: the MESSAGE only — the conflict-recovery run
+// took the Merge pill's slot below, so it is no longer offered twice. It
+// floats over the diff list, so it wears the
 // SAME near-opaque pill fill + hairline as the circles below it and reads as
 // the bar's own header — the lighter opaque card fill it used to have looked
 // like a stray file row dropped on the changed files. Semantics come from a
@@ -623,8 +634,6 @@ private fun ChangesBottomBar(
 @Composable
 private fun ChangesRefusalNotice(
     message: String,
-    canFixConflicts: Boolean,
-    onFixConflicts: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(GlassTokens.CardRadius)
@@ -644,42 +653,11 @@ private fun ChangesRefusalNotice(
             modifier = Modifier.padding(top = 1.dp).size(16.dp),
             tint = DesignTokens.Semantic.Red,
         )
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            // A conflict is the common refusal, so the recovery run sits
-            // right where the failure was reported — the iOS capsule's
-            // 0.08 fill / 0.12 stroke, which the bar's own hairline shares.
-            if (canFixConflicts) {
-                val pill = RoundedCornerShape(percent = 50)
-                Row(
-                    modifier = Modifier
-                        .clip(pill)
-                        .background(Color.White.copy(alpha = 0.08f), pill)
-                        .border(GlassTokens.Hairline, stroke, pill)
-                        .clickable(onClick = onFixConflicts)
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(
-                        ExpIcons.uiBranch,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        "Fix conflicts",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
+        Text(
+            message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 
@@ -798,10 +776,18 @@ private fun FileSection(file: PullFile, expanded: Boolean, onToggle: () -> Unit)
             Spacer(Modifier.width(4.dp))
             Text("−${file.deletions}", color = DiffDelColor, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
             Spacer(Modifier.width(6.dp))
+            // EXP-706: ONE glyph that turns, instead of two that swap — the
+            // rotation reads as the section opening. Motion.standard() snaps
+            // under the OS's reduce-motion setting (ui/theme/Motion.kt).
+            val rotation by animateFloatAsState(
+                targetValue = if (expanded) 180f else 0f,
+                animationSpec = Motion.standard(),
+                label = "file-chevron",
+            )
             Icon(
-                if (expanded) ExpIcons.uiChevronUp else ExpIcons.uiChevronDown,
+                ExpIcons.uiChevronDown,
                 contentDescription = if (expanded) "Collapse" else "Expand",
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(16.dp).rotate(rotation),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
         }
@@ -834,10 +820,11 @@ private fun statusLetter(status: String): String = when (status) {
     else -> "M"
 }
 
-@Composable
+// EXP-706: the status letter reads as a STATUS, not as diff-line chrome —
+// the shared semantic palette, web parity (M is amber, not muted grey).
 private fun statusColor(status: String): Color = when (status) {
-    "added" -> DiffAddColor
-    "removed" -> DiffDelColor
-    "renamed", "copied" -> DiffHunkColor
-    else -> MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    "added" -> DesignTokens.Semantic.Green
+    "removed" -> DesignTokens.Semantic.Red
+    "renamed", "copied" -> DesignTokens.Semantic.Blue
+    else -> DesignTokens.Semantic.Yellow
 }
