@@ -311,6 +311,13 @@ function sleep(ms: number) {
 
 const codingAgentValues = contract.codingAgent.values as [string, ...string[]]
 
+// EXP-705: every tool takes a STRICT object — an unknown key is an immediate
+// "unrecognized key" error the agent can self-correct on, never a silent drop.
+// Tool defs are deferred behind tool search, so agents guess param names from
+// adjacent evidence; the server is the only party that always knows the shape.
+// Serializes as additionalProperties:false (gated by api-conventions.test.ts).
+const strictInput = <S extends z.ZodRawShape>(shape: S) => z.strictObject(shape)
+
 const issueStatusEnumSchema = z.enum(issueStatusValues)
 const issuePriorityEnumSchema = z.enum(issuePriorityValues)
 // EXP-353: keep the serialized tool context small — every schema below is part
@@ -486,7 +493,7 @@ export function registerExponentialTools(
     `exponential_teams_list`,
     {
       description: `List teams the MCP user is a member of.`,
-      inputSchema: {},
+      inputSchema: strictInput({}),
     },
     async () => {
       try {
@@ -518,7 +525,7 @@ export function registerExponentialTools(
     `exponential_teams_get`,
     {
       description: `Get a single team by id.`,
-      inputSchema: { id: uuidString },
+      inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
       try {
@@ -546,9 +553,9 @@ export function registerExponentialTools(
     `exponential_boards_list`,
     {
       description: `List boards in a team, or across all teams the user belongs to.`,
-      inputSchema: {
+      inputSchema: strictInput({
         teamId: uuidString.optional(),
-      },
+      }),
     },
     async ({ teamId }) => {
       try {
@@ -585,7 +592,7 @@ export function registerExponentialTools(
     `exponential_boards_get`,
     {
       description: `Get a single board by id.`,
-      inputSchema: { id: uuidString },
+      inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
       try {
@@ -608,7 +615,7 @@ export function registerExponentialTools(
     `exponential_boards_create`,
     {
       description: `Create a board in a team (member; owner/admin to connect a new repo). The repository is optional. Coding features gate on repo presence. Pass repository.repositoryId (registry repo) or repository.fullName ("owner/name") to connect one inline. icon is a curated icon name.`,
-      inputSchema: {
+      inputSchema: strictInput({
         teamId: uuidString,
         name: z.string().min(1).max(255),
         // Mirrors boards.create's floor (EXP-46): letter-led alphanumeric,
@@ -641,7 +648,7 @@ export function registerExponentialTools(
             }),
           ])
           .optional(),
-      },
+      }),
     },
     async (input) => {
       try {
@@ -660,7 +667,7 @@ export function registerExponentialTools(
     `exponential_boards_update`,
     {
       description: `Update a board's name, color, or icon.`,
-      inputSchema: {
+      inputSchema: strictInput({
         id: uuidString,
         icon: boardIconEnumSchema.nullable().optional(),
         name: z.string().min(1).max(255).optional(),
@@ -668,7 +675,7 @@ export function registerExponentialTools(
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
-      },
+      }),
     },
     async (input) => {
       try {
@@ -695,7 +702,7 @@ export function registerExponentialTools(
       // is budget-trimmed (context-budget.test.ts): value lists appear once,
       // their exclude* twins and priority validate at runtime.
       description: `List issues the MCP user can access. Custom statuses filter by statusId/statusCategory (exponential_statuses_list); exclude* twins invert. created*/updated*: ISO date or datetime. sort: createdAt|updatedAt|priority, -prefix = descending.`,
-      inputSchema: {
+      inputSchema: strictInput({
         boardId: uuidString.optional(),
         boardIds: z.array(uuidString).optional(),
         teamId: uuidString.optional(),
@@ -728,7 +735,7 @@ export function registerExponentialTools(
         sort: issueListSort,
         limit: z.number().int().min(1).max(200).default(50),
         offset: z.number().int().min(0).default(0),
-      },
+      }),
     },
     async ({
       boardId,
@@ -945,10 +952,10 @@ export function registerExponentialTools(
     {
       description: `Get a single issue by UUID or identifier (e.g. "MET-12"), including its label ids and latest comments (newest first, capped at 50; commentsLimit overrides).`,
       _meta: ALWAYS_LOAD_META,
-      inputSchema: {
+      inputSchema: strictInput({
         id: z.string().min(1),
         commentsLimit: z.number().int().min(0).max(200).optional(),
-      },
+      }),
     },
     async ({ id: idInput, commentsLimit }) => {
       try {
@@ -992,19 +999,24 @@ export function registerExponentialTools(
     `exponential_issues_create`,
     {
       description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses_list.`,
-      inputSchema: {
+      inputSchema: strictInput({
         boardId: uuidString,
         title: z.string().min(1).max(500),
         status: issueStatusEnumSchema.optional(),
         statusId: uuidString.optional(),
         priority: issuePriorityEnumSchema.optional(),
         assigneeId: z.string().nullable().optional(),
-        descriptionText: z.string().max(MAX_ISSUE_DESCRIPTION).optional(),
+        description: z
+          .string()
+          .max(MAX_ISSUE_DESCRIPTION)
+          .nullable()
+          .optional()
+          .describe(`Plain GFM text; no embedded images on creation`),
         dueDate: dateOnly.nullable().optional(),
         labelIds: z.array(uuidString).optional(),
-      },
+      }),
     },
-    async ({ descriptionText, ...rest }) => {
+    async ({ description, ...rest }) => {
       try {
         if (!access.full) {
           const board = await getBoardTeamId(rest.boardId)
@@ -1012,7 +1024,7 @@ export function registerExponentialTools(
         }
         const result = await caller(user, request).issues.create({
           ...rest,
-          description: descriptionText ? descriptionText : undefined,
+          description: description ? description : undefined,
         })
         // EXP-617: an issue filed mid-session has no coding_sessions row of
         // its own, so nothing else ties its later PR back to the human whose
@@ -1029,38 +1041,30 @@ export function registerExponentialTools(
     `exponential_issues_update`,
     {
       description: `Update an issue's fields. Pass only the fields you want to change. For a custom status pass statusId (not status); see exponential_statuses_list.`,
-      inputSchema: {
+      inputSchema: strictInput({
         id: uuidString,
         title: z.string().min(1).max(500).optional(),
         status: issueStatusEnumSchema.optional(),
         statusId: uuidString.optional(),
         priority: issuePriorityEnumSchema.optional(),
         assigneeId: z.string().nullable().optional(),
-        descriptionText: z
+        description: z
           .string()
           .max(MAX_ISSUE_DESCRIPTION)
           .nullable()
-          .optional(),
+          .optional()
+          .describe(`Plain GFM text; null clears`),
         dueDate: dateOnly.nullable().optional(),
-      },
+      }),
     },
-    async ({ descriptionText, ...rest }) => {
+    async (input) => {
       try {
         if (!access.full) {
-          const ctxIssue = await getIssueTeamContext(rest.id)
+          const ctxIssue = await getIssueTeamContext(input.id)
           assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
         }
-        const description =
-          descriptionText === undefined
-            ? undefined
-            : descriptionText === null
-              ? null
-              : descriptionText
-        const result = await caller(user, request).issues.update({
-          ...rest,
-          description,
-        })
-        noteAgentIssueActivity(rest.id, user.id)
+        const result = await caller(user, request).issues.update(input)
+        noteAgentIssueActivity(input.id, user.id)
         return ok(result.issue)
       } catch (e) {
         return err(e)
@@ -1072,7 +1076,7 @@ export function registerExponentialTools(
     `exponential_issues_delete`,
     {
       description: `Permanently delete an issue. Cascades to its labels, attachments, comments, and relations. Attachment storage objects are also removed.`,
-      inputSchema: { id: uuidString },
+      inputSchema: strictInput({ id: uuidString }),
     },
     async (input) => {
       try {
@@ -1096,7 +1100,7 @@ export function registerExponentialTools(
     `exponential_attachments_get`,
     {
       description: `Fetch an issue attachment by id and return it as inline image content. Markdown embeds look like ![alt](/api/attachments/{id}). Pass that {id}. Non-image content types are rejected.`,
-      inputSchema: { id: uuidString },
+      inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
       try {
@@ -1158,7 +1162,7 @@ export function registerExponentialTools(
     `exponential_labels_list`,
     {
       description: `List labels for a team.`,
-      inputSchema: { teamId: uuidString },
+      inputSchema: strictInput({ teamId: uuidString }),
     },
     async ({ teamId }) => {
       try {
@@ -1182,7 +1186,7 @@ export function registerExponentialTools(
     `exponential_labels_get`,
     {
       description: `Get a label by id (must be in a team the user belongs to).`,
-      inputSchema: { id: uuidString },
+      inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
       try {
@@ -1205,14 +1209,14 @@ export function registerExponentialTools(
     `exponential_labels_create`,
     {
       description: `Create a label in a team.`,
-      inputSchema: {
+      inputSchema: strictInput({
         teamId: uuidString,
         name: z.string().min(1).max(255),
         color: z
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .default(`#6366f1`),
-      },
+      }),
     },
     async (input) => {
       try {
@@ -1231,7 +1235,7 @@ export function registerExponentialTools(
     `exponential_labels_update`,
     {
       description: `Update a label's name or color.`,
-      inputSchema: {
+      inputSchema: strictInput({
         teamId: uuidString,
         labelId: uuidString,
         name: z.string().min(1).max(255).optional(),
@@ -1239,7 +1243,7 @@ export function registerExponentialTools(
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/)
           .optional(),
-      },
+      }),
     },
     async (input) => {
       try {
@@ -1256,10 +1260,10 @@ export function registerExponentialTools(
     `exponential_labels_delete`,
     {
       description: `Delete a label from a team.`,
-      inputSchema: {
+      inputSchema: strictInput({
         teamId: uuidString,
         labelId: uuidString,
-      },
+      }),
     },
     async (input) => {
       try {
@@ -1280,10 +1284,10 @@ export function registerExponentialTools(
     `exponential_issue_labels_add`,
     {
       description: `Attach a label to an issue (teams must match).`,
-      inputSchema: {
+      inputSchema: strictInput({
         issueId: uuidString,
         labelId: uuidString,
-      },
+      }),
     },
     async (input) => {
       try {
@@ -1303,10 +1307,10 @@ export function registerExponentialTools(
     `exponential_issue_labels_remove`,
     {
       description: `Detach a label from an issue.`,
-      inputSchema: {
+      inputSchema: strictInput({
         issueId: uuidString,
         labelId: uuidString,
-      },
+      }),
     },
     async (input) => {
       try {
@@ -1331,11 +1335,11 @@ export function registerExponentialTools(
     {
       description: `List comments on an issue (oldest first) by UUID or human identifier (e.g. "MET-12"). Rows include their linked attachments. The MCP user must have access to the issue's team.`,
       _meta: ALWAYS_LOAD_META,
-      inputSchema: {
+      inputSchema: strictInput({
         issueId: z.string().min(1),
         limit: z.number().int().min(1).max(200).default(100),
         offset: z.number().int().min(0).default(0),
-      },
+      }),
     },
     async ({ issueId: issueIdInput, limit, offset }) => {
       try {
@@ -1388,12 +1392,12 @@ export function registerExponentialTools(
     {
       description: `Post a regular comment on an issue (by UUID or human identifier, e.g. "MET-12") authored by the MCP user. Body is plain text.`,
       _meta: ALWAYS_LOAD_META,
-      inputSchema: {
+      inputSchema: strictInput({
         issueId: z.string().min(1),
-        bodyText: z.string().min(1).max(10_000),
-      },
+        body: z.string().min(1).max(10_000).describe(`Plain GFM text`),
+      }),
     },
-    async ({ issueId: issueIdInput, bodyText }) => {
+    async ({ issueId: issueIdInput, body }) => {
       try {
         const issueId = await resolveIssueId(issueIdInput, user.id, access)
         if (!access.full) {
@@ -1402,7 +1406,7 @@ export function registerExponentialTools(
         }
         const result = await caller(user, request).comments.create({
           issueId,
-          body: bodyText,
+          body,
         })
         noteAgentIssueActivity(issueId, user.id)
         return ok(result.comment)
@@ -1421,10 +1425,10 @@ export function registerExponentialTools(
     {
       description: `Set an issue's status during a coding session (UUID or identifier). Only 'in_progress' (started working) and 'done' (work merged) are allowed. Never set 'in_review' yourself. Both exponential_pr_open and PR merges move issues to the team's configured statuses automatically.`,
       _meta: ALWAYS_LOAD_META,
-      inputSchema: {
+      inputSchema: strictInput({
         issueId: z.string().min(1),
         status: z.enum([`in_progress`, `done`]),
-      },
+      }),
     },
     async ({ issueId, status }) => {
       try {
@@ -1449,7 +1453,7 @@ export function registerExponentialTools(
     `exponential_statuses_create`,
     {
       description: `Create a custom issue status in a category (never duplicate; started allows at most 4 rows per team). Names are unique per team, color is #rrggbb. Team members only; ids via exponential_statuses_list.`,
-      inputSchema: {
+      inputSchema: strictInput({
         teamId: uuidString,
         category: z.enum([
           `backlog`,
@@ -1460,7 +1464,7 @@ export function registerExponentialTools(
         ]),
         name: z.string().min(1).max(255),
         color: z.string().regex(/^#[0-9a-fA-F]{6}$/, `Expected #rrggbb`),
-      },
+      }),
     },
     async (input) => {
       try {
@@ -1477,7 +1481,7 @@ export function registerExponentialTools(
     `exponential_statuses_update`,
     {
       description: `Rename or recolor a custom issue status. Builtin statuses (builtinKey set) are locked and the category is immutable. Team members only.`,
-      inputSchema: {
+      inputSchema: strictInput({
         teamId: uuidString,
         statusId: uuidString,
         name: z.string().min(1).max(255).optional(),
@@ -1485,7 +1489,7 @@ export function registerExponentialTools(
           .string()
           .regex(/^#[0-9a-fA-F]{6}$/, `Expected #rrggbb`)
           .optional(),
-      },
+      }),
     },
     async (input) => {
       try {
@@ -1502,11 +1506,11 @@ export function registerExponentialTools(
     `exponential_statuses_delete`,
     {
       description: `Delete a custom issue status. Builtins refuse. When issues still use it the call fails with their count until reassignToId names a same-team replacement (not duplicate). Team members only.`,
-      inputSchema: {
+      inputSchema: strictInput({
         teamId: uuidString,
         statusId: uuidString,
         reassignToId: uuidString.optional(),
-      },
+      }),
     },
     async (input) => {
       try {
@@ -1528,7 +1532,7 @@ export function registerExponentialTools(
     `exponential_statuses_list`,
     {
       description: `List a team's issue statuses (id, name, category, color, position, builtinKey). Use id as statusId in exponential_issues_update.`,
-      inputSchema: { teamId: uuidString },
+      inputSchema: strictInput({ teamId: uuidString }),
     },
     async ({ teamId }) => {
       try {
@@ -1590,7 +1594,7 @@ export function registerExponentialTools(
     {
       description: `Open a GitHub PR on the linked repository via the GitHub App (no 'gh' or token) and link it to the issue(s). Pass EXACTLY ONE of 'issueId', 'issueIds' (batch: ONE combined PR for all listed issues, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'), or 'repositoryId' + 'head' for a PR with no issue (nothing is linked or moved). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'); merging later moves them to the PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
       _meta: ALWAYS_LOAD_META,
-      inputSchema: {
+      inputSchema: strictInput({
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
         repositoryId: uuidString.optional(),
@@ -1598,7 +1602,7 @@ export function registerExponentialTools(
         body: z.string().max(60_000).optional(),
         head: z.string().max(255).optional(),
         base: z.string().max(255).optional(),
-      },
+      }),
     },
     async ({ issueId, issueIds, repositoryId, title, body, head, base }) => {
       try {
@@ -1865,12 +1869,12 @@ export function registerExponentialTools(
     {
       description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end, except YOUR OWN session, which keeps running (it ends on its own exit or close-out). Merges run sequentially with per-PR results; one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
       _meta: ALWAYS_LOAD_META,
-      inputSchema: {
+      inputSchema: strictInput({
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
         repositoryId: uuidString.optional(),
         prNumber: z.number().int().positive().optional(),
-      },
+      }),
     },
     async ({ issueId, issueIds, repositoryId, prNumber }) => {
       try {
@@ -2120,10 +2124,10 @@ export function registerExponentialTools(
     {
       description: `Change the base branch of an issue's open PR via the GitHub App. Use it when a merge is rejected because the base is stale (e.g. stacked on an already-merged parent PR). Omit 'base' for the repo's default branch. Then rebase onto the new base, push with --force-with-lease, and call exponential_pr_merge.`,
       _meta: ALWAYS_LOAD_META,
-      inputSchema: {
+      inputSchema: strictInput({
         issueId: z.string().min(1),
         base: z.string().min(1).max(255).optional(),
-      },
+      }),
     },
     async ({ issueId, base }) => {
       try {
@@ -2160,9 +2164,9 @@ export function registerExponentialTools(
       {
         description: `Report this run's close-out, shown on the run to the team: a one-paragraph 'summary' of what you did, whether you finished, stopped for a human or changed nothing. Call it LAST, after exponential_pr_open, with the worktree clean: it ends this run. Merging your own PR never ends it; this call does.`,
         _meta: ALWAYS_LOAD_META,
-        inputSchema: {
+        inputSchema: strictInput({
           summary: z.string().min(1).max(4_000),
-        },
+        }),
       },
       async ({ summary }) => {
         try {
@@ -2208,9 +2212,9 @@ export function registerExponentialTools(
       {
         description: `Ask the run that started this one a question only it can answer; it lands in that run's channel. Non-blocking: on success STOP working and end your turn — the answer arrives later as a user message. Act on it, then still finish with exponential_sessions_end. If delivery fails, finish anyway and note the open question in your summary.`,
         _meta: ALWAYS_LOAD_META,
-        inputSchema: {
+        inputSchema: strictInput({
           question: z.string().min(1).max(4_000),
-        },
+        }),
       },
       async ({ question }) => {
         const fallback = `Do not wait for an answer: finish your work, then call exponential_sessions_end and include the open question in your summary.`
@@ -2280,13 +2284,13 @@ export function registerExponentialTools(
     `exponential_sessions_list`,
     {
       description: `List coding sessions (newest first) across your teams or one team: status, issue, action, branch, device, and once ended the run's own summary/endedBy. mine limits to runs you started or host.`,
-      inputSchema: {
+      inputSchema: strictInput({
         teamId: uuidString.optional(),
         status: z.enum([`running`, `in_review`, `ended`]).optional(),
         mine: z.boolean().default(false),
         limit: z.number().int().min(1).max(100).default(50),
         offset: z.number().int().min(0).default(0),
-      },
+      }),
     },
     async ({ teamId, status, mine, limit, offset }) => {
       try {
@@ -2345,7 +2349,7 @@ export function registerExponentialTools(
     `exponential_sessions_get`,
     {
       description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open) → ended, then summary is the run's own close-out. ackedAt is the device's liveness ack, stamped seconds after the agent spawns — a running row whose ackedAt stays null for minutes means the launch died on the device.`,
-      inputSchema: { id: uuidString },
+      inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
       try {
@@ -2391,7 +2395,7 @@ export function registerExponentialTools(
     `exponential_sessions_kill`,
     {
       description: `Abort a live coding session you own or host: the row flips to ended (endedBy user) and the device tears the agent down. Idempotent. Never your own run — it ends on its own exit or close-out.`,
-      inputSchema: { id: uuidString },
+      inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
       try {
@@ -2447,10 +2451,10 @@ export function registerExponentialTools(
     `exponential_sessions_message`,
     {
       description: `Send text into a live coding session you own or host; it arrives as user input to that agent, prefixed with its source. Use it to answer a child run's exponential_sessions_ask_parent question (sessionId = the child's session UUID from the bracketed message) or to steer a run you started. Never your own session.`,
-      inputSchema: {
+      inputSchema: strictInput({
         sessionId: uuidString,
         message: z.string().min(1).max(4_000),
-      },
+      }),
     },
     async ({ sessionId: targetId, message }) => {
       try {
@@ -2514,7 +2518,7 @@ export function registerExponentialTools(
     `exponential_sessions_start`,
     {
       description: `Start a coding session on a registered ONLINE device (exponential_devices_list; agents includes the agent). An offline device is refused — starts are delivered live, never queued. Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs for its inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and opens its own PR; track it with exponential_sessions_get. The device creates the session row itself and acks liveness seconds after the agent spawns (ackedAt); sessionId null = it never reported the run, treat the start as lost. Started from inside a run, the child is unattended: when it finishes or asks a question, a bracketed '[Exponential child run ...]' message lands in THIS session as user input — answer with exponential_sessions_message. Read its report before merging its PR (merging first ends the run unreported); polling exponential_sessions_get is only a fallback.`,
-      inputSchema: {
+      inputSchema: strictInput({
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
         issueIds: z.array(uuidString).min(2).max(30).optional(),
@@ -2527,7 +2531,7 @@ export function registerExponentialTools(
         effort: z.string().max(32).optional(),
         planMode: z.boolean().optional(),
         ultracode: z.boolean().optional(),
-      },
+      }),
     },
     async (input) => {
       try {
@@ -2681,7 +2685,7 @@ export function registerExponentialTools(
     `exponential_devices_list`,
     {
       description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended run.`,
-      inputSchema: { teamId: uuidString.optional() },
+      inputSchema: strictInput({ teamId: uuidString.optional() }),
     },
     async ({ teamId }) => {
       try {
@@ -2747,12 +2751,12 @@ export function registerExponentialTools(
     `exponential_comments_update`,
     {
       description: `Edit the body of an existing comment (by its UUID). Only the comment's author can edit it. Body is plain text; the edit stamps editedAt.`,
-      inputSchema: {
+      inputSchema: strictInput({
         id: uuidString,
-        bodyText: z.string().min(1).max(10_000),
-      },
+        body: z.string().min(1).max(10_000).describe(`Plain GFM text`),
+      }),
     },
-    async ({ id, bodyText }) => {
+    async ({ id, body }) => {
       try {
         if (!access.full) {
           const ctxIssue = await getCommentIssueContext(id)
@@ -2760,7 +2764,7 @@ export function registerExponentialTools(
         }
         const result = await caller(user, request).comments.update({
           id,
-          body: bodyText,
+          body,
         })
         return ok(result.comment)
       } catch (e) {
@@ -2773,7 +2777,7 @@ export function registerExponentialTools(
     `exponential_comments_delete`,
     {
       description: `Permanently delete a comment (by its UUID). Only the comment's author can delete it.`,
-      inputSchema: { id: uuidString },
+      inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
       try {
@@ -2797,7 +2801,7 @@ export function registerExponentialTools(
     `exponential_issues_subscribe`,
     {
       description: `Subscribe the MCP user to an issue (by UUID or human identifier, e.g. "MET-12") so they receive its notifications. Idempotent.`,
-      inputSchema: { issueId: z.string().min(1) },
+      inputSchema: strictInput({ issueId: z.string().min(1) }),
     },
     async ({ issueId: issueIdInput }) => {
       try {
@@ -2818,7 +2822,7 @@ export function registerExponentialTools(
     `exponential_issues_unsubscribe`,
     {
       description: `Unsubscribe the MCP user from an issue (UUID or identifier). Suppresses auto-resubscribe until they act on the issue again.`,
-      inputSchema: { issueId: z.string().min(1) },
+      inputSchema: strictInput({ issueId: z.string().min(1) }),
     },
     async ({ issueId: issueIdInput }) => {
       try {
@@ -2843,11 +2847,11 @@ export function registerExponentialTools(
     `exponential_notifications_list`,
     {
       description: `List the MCP user's own notifications, newest first. Set unreadOnly to show only those not yet read.`,
-      inputSchema: {
+      inputSchema: strictInput({
         unreadOnly: z.boolean().default(false),
         limit: z.number().int().min(1).max(200).default(50),
         offset: z.number().int().min(0).default(0),
-      },
+      }),
     },
     async ({ unreadOnly, limit, offset }) => {
       try {
@@ -2903,10 +2907,10 @@ export function registerExponentialTools(
     `exponential_notifications_mark_read`,
     {
       description: `Mark one notification read by id, or all unread ones with all=true. Only the MCP user's own notifications are affected.`,
-      inputSchema: {
+      inputSchema: strictInput({
         id: uuidString.optional(),
         all: z.boolean().default(false),
-      },
+      }),
     },
     async ({ id, all }) => {
       try {
@@ -2947,9 +2951,9 @@ export function registerExponentialTools(
     `exponential_members_list`,
     {
       description: `List the members of a team with their id, name, email, and role. Use this to resolve an assigneeId for issues.`,
-      inputSchema: {
+      inputSchema: strictInput({
         teamId: uuidString,
-      },
+      }),
     },
     async ({ teamId }) => {
       try {
@@ -2982,7 +2986,7 @@ export function registerExponentialTools(
     `exponential_repositories_list`,
     {
       description: `List the repositories registered in a team, each with the boards it backs. The MCP user must be a member of the team.`,
-      inputSchema: { teamId: uuidString },
+      inputSchema: strictInput({ teamId: uuidString }),
     },
     async ({ teamId }) => {
       try {
@@ -3011,7 +3015,7 @@ export function registerExponentialTools(
     `exponential_repositories_add`,
     {
       description: `Register a GitHub repository ("owner/name") in a team so boards can be backed by it. Any member; the repo must be one YOUR GitHub connection grants (team settings → Repositories) — connecting shares it with the team.`,
-      inputSchema: {
+      inputSchema: strictInput({
         teamId: uuidString,
         fullName: z
           .string()
@@ -3021,7 +3025,7 @@ export function registerExponentialTools(
         defaultBranch: z.string().min(1).max(255).optional(),
         private: z.boolean().optional(),
         installationId: z.number().int().optional(),
-      },
+      }),
     },
     async (input) => {
       try {
@@ -3038,7 +3042,7 @@ export function registerExponentialTools(
     `exponential_repositories_branch_diff`,
     {
       description: `Get the diff of an issue's exp/<IDENTIFIER> branch against the repo's default branch (UUID or identifier). Returns null when the branch was never pushed. Team members only.`,
-      inputSchema: { issueId: z.string().min(1) },
+      inputSchema: strictInput({ issueId: z.string().min(1) }),
     },
     async ({ issueId: issueIdInput }) => {
       try {
@@ -3065,7 +3069,7 @@ export function registerExponentialTools(
     `exponential_actions_list`,
     {
       description: `List a team's actions: reusable markdown prompts run as interactive agent sessions on a member's own desktop. Team members only.`,
-      inputSchema: { teamId: uuidString },
+      inputSchema: strictInput({ teamId: uuidString }),
     },
     async ({ teamId }) => {
       try {
@@ -3094,7 +3098,7 @@ export function registerExponentialTools(
     {
       description: `Create a team action (owner only). body = the markdown prompt an agent runs locally; repositoryId targets that repo's trunk clone; icon = a curated icon name; inputs = run-dialog fields injected into the prompt.`,
       _meta: ALWAYS_LOAD_META,
-      inputSchema: {
+      inputSchema: strictInput({
         teamId: uuidString,
         name: z.string().min(1).max(255),
         description: z.string().nullable().optional(),
@@ -3102,7 +3106,7 @@ export function registerExponentialTools(
         repositoryId: uuidString.nullable().optional(),
         body: z.string().min(1),
         inputs: actionInputsSchema.optional(),
-      },
+      }),
     },
     async (input) => {
       try {
@@ -3119,7 +3123,7 @@ export function registerExponentialTools(
     `exponential_actions_update`,
     {
       description: `Update an action by UUID (owner only); pass only fields to change. icon: null clears; inputs: whole-array replace.`,
-      inputSchema: {
+      inputSchema: strictInput({
         id: uuidString,
         name: z.string().min(1).max(255).optional(),
         description: z.string().nullable().optional(),
@@ -3128,7 +3132,7 @@ export function registerExponentialTools(
         body: z.string().min(1).optional(),
         inputs: actionInputsSchema.optional(),
         sortOrder: z.number().finite().optional(),
-      },
+      }),
     },
     async (input) => {
       try {
@@ -3148,7 +3152,7 @@ export function registerExponentialTools(
     `exponential_actions_delete`,
     {
       description: `Delete an action by its UUID. Live runs keep their action_name label and degrade to batch-shaped rows. Team owner only.`,
-      inputSchema: { id: uuidString },
+      inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
       try {
@@ -3172,7 +3176,7 @@ export function registerExponentialTools(
     `exponential_automations_create`,
     {
       description: `Create an automation (owner only) running actionId on deviceId; pass provided values verbatim. trigger = {kind:schedule,interval:daily|weekly|monthly,minuteOfDay,weekday?,dayOfMonth?} or {kind:event,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?}.`,
-      inputSchema: {
+      inputSchema: strictInput({
         teamId: uuidString,
         actionId: uuidString,
         deviceId: z.string().min(1).max(128),
@@ -3180,7 +3184,7 @@ export function registerExponentialTools(
         agent: z.string().max(16).optional(),
         model: z.string().max(64).optional(),
         effort: z.string().max(32).optional(),
-      },
+      }),
     },
     async (input) => {
       try {
@@ -3208,7 +3212,7 @@ export function registerExponentialTools(
     `exponential_automations_list`,
     {
       description: `List a team's automations: which action runs on which device, its trigger (schedule or issue event), launch agent/model/effort and whether it is enabled. Team members only.`,
-      inputSchema: { teamId: uuidString },
+      inputSchema: strictInput({ teamId: uuidString }),
     },
     async ({ teamId }) => {
       try {
@@ -3227,7 +3231,7 @@ export function registerExponentialTools(
     `exponential_automations_update`,
     {
       description: `Update an automation (owner only); pass only the fields to change. trigger takes the same shape as exponential_automations_create; null agent/model/effort clears the pin. An enabled automation needs every action input optional.`,
-      inputSchema: {
+      inputSchema: strictInput({
         id: uuidString,
         actionId: uuidString.optional(),
         deviceId: z.string().min(1).max(128).optional(),
@@ -3237,7 +3241,7 @@ export function registerExponentialTools(
         agent: z.string().max(16).nullable().optional(),
         model: z.string().max(64).nullable().optional(),
         effort: z.string().max(32).nullable().optional(),
-      },
+      }),
     },
     async (input) => {
       try {
@@ -3267,7 +3271,7 @@ export function registerExponentialTools(
     `exponential_automations_toggle`,
     {
       description: `Enable or disable an automation (owner only) without touching its trigger, device or action. Enabling needs every input of the action optional.`,
-      inputSchema: { id: uuidString, enabled: z.boolean() },
+      inputSchema: strictInput({ id: uuidString, enabled: z.boolean() }),
     },
     async ({ id, enabled }) => {
       try {
@@ -3290,7 +3294,7 @@ export function registerExponentialTools(
     `exponential_automations_delete`,
     {
       description: `Delete an automation (owner only). Past runs keep their history; nothing else is touched.`,
-      inputSchema: { id: uuidString },
+      inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
       try {
@@ -3314,7 +3318,7 @@ export function registerExponentialTools(
     `exponential_issues_pr_files`,
     {
       description: `List the changed files (with patches and add/delete counts) of the issue's linked pull request (UUID or identifier). Empty list when no PR is linked. Team members only.`,
-      inputSchema: { issueId: z.string().min(1) },
+      inputSchema: strictInput({ issueId: z.string().min(1) }),
     },
     async ({ issueId: issueIdInput }) => {
       try {
@@ -3339,7 +3343,7 @@ export function registerExponentialTools(
     `exponential_boards_delete`,
     {
       description: `Move a board to the trash (owner only; protected boards refuse). Purged with all issues after 48 hours; owners can restore from web settings before then.`,
-      inputSchema: { boardId: uuidString },
+      inputSchema: strictInput({ boardId: uuidString }),
     },
     async ({ boardId }) => {
       try {
@@ -3359,10 +3363,10 @@ export function registerExponentialTools(
     `exponential_boards_set_repository`,
     {
       description: `Point a board at a different registered repository (both must be in the same team). Owner/admin only. Existing worktrees keep working; new coding sessions use the new repo.`,
-      inputSchema: {
+      inputSchema: strictInput({
         boardId: uuidString,
         repositoryId: uuidString,
-      },
+      }),
     },
     async (input) => {
       try {
@@ -3391,10 +3395,10 @@ export function registerExponentialTools(
     `exponential_teams_create`,
     {
       description: `Create a new team owned by the MCP user (a unique slug is derived from the name).`,
-      inputSchema: {
+      inputSchema: strictInput({
         name: z.string().min(1).max(255),
         iconUrl: z.string().url().max(2048).optional(),
-      },
+      }),
     },
     async (input) => {
       try {
@@ -3412,11 +3416,11 @@ export function registerExponentialTools(
     `exponential_teams_update`,
     {
       description: `Update a team's name or icon (by its UUID). Team owner only. Teams are always private.`,
-      inputSchema: {
+      inputSchema: strictInput({
         id: uuidString,
         name: z.string().min(1).max(255).optional(),
         iconUrl: z.string().url().max(2048).nullable().optional(),
-      },
+      }),
     },
     async (input) => {
       try {
@@ -3437,10 +3441,10 @@ export function registerExponentialTools(
     `exponential_invites_create`,
     {
       description: `Create an invite link for a team, returning the token to share. Owner only.`,
-      inputSchema: {
+      inputSchema: strictInput({
         teamId: uuidString,
         role: z.enum([`owner`, `member`]).default(`member`),
-      },
+      }),
     },
     async (input) => {
       try {
@@ -3457,7 +3461,7 @@ export function registerExponentialTools(
     `exponential_invites_list`,
     {
       description: `List the pending (unaccepted) invites for a team. The MCP user must be a member of the team.`,
-      inputSchema: { teamId: uuidString },
+      inputSchema: strictInput({ teamId: uuidString }),
     },
     async ({ teamId }) => {
       try {
@@ -3476,7 +3480,7 @@ export function registerExponentialTools(
     `exponential_invites_revoke`,
     {
       description: `Revoke a pending invite by its UUID. Owner only.`,
-      inputSchema: { id: uuidString },
+      inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
       try {
@@ -3505,13 +3509,13 @@ export function registerExponentialTools(
     `exponential_attachments_upload`,
     {
       description: `Upload a base64-encoded file and attach it to an issue (UUID or identifier). Images (png/jpeg/webp/gif/avif, max 10 MB) also return a "markdown" field. Embed that string to show the image. Other types (max 50 MB) land in the issue's Files list, return no markdown, and must not be embedded. Storage limits apply; base64 inflates ~33%.`,
-      inputSchema: {
+      inputSchema: strictInput({
         issueId: z.string().min(1),
         filename: z.string().min(1).max(255),
         contentType: z.string().min(1).max(255),
         dataBase64: z.string().min(1),
         alt: z.string().max(500).optional(),
-      },
+      }),
     },
     async ({
       issueId: issueIdInput,
@@ -3616,7 +3620,7 @@ export function registerExponentialTools(
     `exponential_attachments_delete`,
     {
       description: `Permanently delete an issue attachment by id (the {id} in /api/attachments/{id}) and reclaim its bytes. Descriptions/comments embedding it are rewritten to *(deleted image: …)* in the same transaction.`,
-      inputSchema: { id: uuidString },
+      inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
       try {
@@ -3647,12 +3651,12 @@ export function registerExponentialTools(
       `exponential_helpdesk_threads_list`,
       {
         description: `List a team's support tickets (newest activity first) with their last message and an unread flag. Page with cursor = the oldest loaded row's updatedAt. Team members only; needs helpdesk enabled.`,
-        inputSchema: {
+        inputSchema: strictInput({
           teamId: uuidString,
           filter: z.enum([`open`, `resolved`]).default(`open`),
           limit: z.number().int().min(1).max(100).default(50),
           cursor: z.string().optional(),
-        },
+        }),
       },
       async (input) => {
         try {
@@ -3679,7 +3683,7 @@ export function registerExponentialTools(
       `exponential_helpdesk_threads_get`,
       {
         description: `Get a support ticket with its full conversation (public replies and internal notes, each with its email delivery status) and the escalated issue if any.`,
-        inputSchema: { threadId: uuidString },
+        inputSchema: strictInput({ threadId: uuidString }),
       },
       async ({ threadId }) => {
         try {
@@ -3700,10 +3704,10 @@ export function registerExponentialTools(
       `exponential_helpdesk_reply`,
       {
         description: `Post a public reply on a support ticket: the reporter sees it on their magic-link page and gets it emailed (once they have opened the link and are not viewing right now). Replying to a resolved ticket reopens it.`,
-        inputSchema: {
+        inputSchema: strictInput({
           threadId: uuidString,
           body: z.string().trim().min(1).max(10_000),
-        },
+        }),
       },
       async (input) => {
         try {
@@ -3722,10 +3726,10 @@ export function registerExponentialTools(
       `exponential_helpdesk_note`,
       {
         description: `Add an internal note to a support ticket: visible to team members only, never emailed, never shown to the reporter.`,
-        inputSchema: {
+        inputSchema: strictInput({
           threadId: uuidString,
           body: z.string().trim().min(1).max(10_000),
-        },
+        }),
       },
       async (input) => {
         try {
@@ -3744,7 +3748,7 @@ export function registerExponentialTools(
       `exponential_helpdesk_close`,
       {
         description: `Resolve a support ticket: the transcript stays readable but the reporter's magic link stops accepting replies. An escalated issue is untouched.`,
-        inputSchema: { threadId: uuidString },
+        inputSchema: strictInput({ threadId: uuidString }),
       },
       async ({ threadId }) => {
         try {
@@ -3763,7 +3767,7 @@ export function registerExponentialTools(
       `exponential_helpdesk_reopen`,
       {
         description: `Reopen a resolved support ticket; the reporter's existing magic link works again.`,
-        inputSchema: { threadId: uuidString },
+        inputSchema: strictInput({ threadId: uuidString }),
       },
       async ({ threadId }) => {
         try {
@@ -3782,11 +3786,11 @@ export function registerExponentialTools(
       `exponential_helpdesk_escalate`,
       {
         description: `File an issue from a support ticket on a board of the ticket's team and link them (one escalation per ticket). The issue opens with the reporter's message as its description; title defaults to the ticket's.`,
-        inputSchema: {
+        inputSchema: strictInput({
           threadId: uuidString,
           boardId: uuidString,
           title: z.string().trim().min(1).max(500).optional(),
-        },
+        }),
       },
       async (input) => {
         try {
@@ -3813,10 +3817,10 @@ export function registerExponentialTools(
       `exponential_report_bug`,
       {
         description: `File a bug report about Exponential itself (the issue tracker — any client, these MCP tools, sync, relays) to the Exponential team. Use it the moment Exponential misbehaves or a tool result misleads you mid-task. Not for issues in the user's own project.`,
-        inputSchema: {
+        inputSchema: strictInput({
           title: z.string().min(1).max(500),
           description: z.string().min(1).max(10_000),
-        },
+        }),
       },
       async ({ title, description }) => {
         try {

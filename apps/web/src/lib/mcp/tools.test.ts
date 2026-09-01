@@ -298,16 +298,14 @@ function collectTools(
 }
 
 /** The registration DEFS (not the handlers) — the input schemas, so a test
- * can assert what an argument list is allowed to carry. */
+ * can assert what an argument list is allowed to carry. Since EXP-705 every
+ * inputSchema is a strict z.object INSTANCE, not a raw shape. */
 function collectToolDefs(
   gates: McpToolGates = ALL_MCP_TOOL_GATES
-): Map<string, { inputSchema?: Record<string, z.ZodType> }> {
-  const defs = new Map<string, { inputSchema?: Record<string, z.ZodType> }>()
+): Map<string, { inputSchema?: z.ZodType }> {
+  const defs = new Map<string, { inputSchema?: z.ZodType }>()
   const fakeServer = {
-    registerTool: (
-      name: string,
-      def: { inputSchema?: Record<string, z.ZodType> }
-    ) => {
+    registerTool: (name: string, def: { inputSchema?: z.ZodType }) => {
       defs.set(name, def)
     },
   }
@@ -392,7 +390,7 @@ const descriptors: Array<Descriptor> = [
   {
     tool: `exponential_comments_update`,
     pick: () => caller.comments.update,
-    args: { id: UUID, bodyText: `edited` },
+    args: { id: UUID, body: `edited` },
     resolved: { comment: { id: UUID, body: `edited` } },
     expected: { id: UUID, body: `edited` },
     calledWith: { id: UUID, body: `edited` },
@@ -1182,7 +1180,9 @@ describe(`exponential_issues_list filters (EXP-684)`, () => {
 
   it(`validates the budget-trimmed (enum-free) inputs at runtime`, () => {
     const def = collectToolDefs().get(`exponential_issues_list`)!
-    const schema = z.object(def.inputSchema!)
+    const schema = def.inputSchema! as z.ZodType<
+      { sort?: string } & Record<string, unknown>
+    >
     const parsed = schema.parse({
       excludeStatus: [`done`],
       excludeStatusCategory: [`completed`],
@@ -1436,16 +1436,16 @@ describe(`exponential_sessions_end`, () => {
     expect(notifyParentOfChildEnd).not.toHaveBeenCalled()
   })
 
-  // EXP-686 dropped the self-reported outcome. A desktop/CLI build from
-  // before that still sends one — the schema must strip it, never 400 the
-  // close-out of a run nobody is watching.
-  it(`tolerates an old client's stray outcome argument`, () => {
+  // EXP-705: unknown keys are a hard error everywhere, including the stray
+  // `outcome` old pre-EXP-686 builds still send — a loud unrecognized-key
+  // rejection the agent can retry, never a silent strip (min-version gates
+  // retire those builds).
+  it(`rejects an old client's stray outcome argument`, () => {
     const schema = collectToolDefs(UNATTENDED).get(`exponential_sessions_end`)!
       .inputSchema!
-    const parsed = z
-      .object(schema)
-      .parse({ summary: `Shipped it.`, outcome: `done` })
-    expect(parsed).toEqual({ summary: `Shipped it.` })
+    const result = schema.safeParse({ summary: `Shipped it.`, outcome: `done` })
+    expect(result.success).toBe(false)
+    expect(schema.safeParse({ summary: `Shipped it.` }).success).toBe(true)
   })
 
   // EXP-679: a person-started run never gets the tool — the close-out is

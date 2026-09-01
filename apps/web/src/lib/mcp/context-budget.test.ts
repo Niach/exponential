@@ -81,7 +81,8 @@ import type { McpUser } from "@/lib/mcp/server"
 
 type ToolDef = {
   description?: string
-  inputSchema?: Record<string, z.ZodType>
+  // EXP-705: every tool passes a strict z.object INSTANCE, not a raw shape.
+  inputSchema?: z.ZodType
   _meta?: Record<string, unknown>
 }
 
@@ -94,7 +95,7 @@ function serializeToolDefs(gates = ALL_MCP_TOOL_GATES) {
       defs.push({
         name,
         description: def.description,
-        inputSchema: z.toJSONSchema(z.object(def.inputSchema ?? {}), {
+        inputSchema: z.toJSONSchema(def.inputSchema ?? z.strictObject({}), {
           io: `input`,
           target: `draft-7`,
         }),
