@@ -479,13 +479,19 @@ async function recipeOpenMachineSettings(page: Page): Promise<void> {
 }
 
 /**
- * Open the "Add a server" dialog — the CLI install one-liner. The section
- * header's trailing button is always mounted (no device or relay needed), so
- * the wait is on the snippet itself: the dialog's own heading appears a frame
- * before the `pre` is laid out, and the snippet IS the view.
+ * Open the "Add device" dialog — desktop download plus the CLI install
+ * one-liner. The section header's trailing button is always mounted (no device
+ * or relay needed), so the wait is on the snippet itself: the dialog's own
+ * heading appears a frame before the `pre` is laid out, and the snippet IS the
+ * view.
+ *
+ * The trigger's label is the dialog's title too (`my-machines.tsx`), so this
+ * matches the BUTTON role exactly rather than the text — and the second wait
+ * has to be dialog-only content for the same reason (EXP-697 renamed both from
+ * "Add server", which stranded this recipe until 2026-09-01).
  */
 async function recipeOpenAddServer(page: Page): Promise<void> {
-  const trigger = page.getByRole(`button`, { name: `Add server`, exact: true })
+  const trigger = page.getByRole(`button`, { name: `Add device`, exact: true })
   await trigger.first().waitFor({ timeout: 20_000 })
   await trigger.first().click()
   await page.getByText(/EXP_INSTANCE=/).first().waitFor({ timeout: 15_000 })

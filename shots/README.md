@@ -113,7 +113,12 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
   device's `autofill_service` for the duration and restores it afterwards
   (EXP-665): Android's "Save password to Google Password Manager?" dialog is a
   SYSTEM window that steals focus the moment the lane signs in, and Espresso's
-  next interaction then dies somewhere unrelated to the cause.
+  next interaction then dies somewhere unrelated to the cause. It puts SystemUI
+  into demo mode for the duration too, and leaves it afterwards: that pins the
+  status bar to 9:41 with a full battery and no notification icons, which is
+  what iOS has had from `override_status_bar` all along. Without it the device's
+  own clock is inside every android frame, and a lane run at a different hour
+  rewrites the whole platform for nothing.
 - Desktop: for the repo-backed views (`files`, `source-control`, `terminal`,
   `start-coding`, `settings-worktrees`) the machine needs the demo board's
   repository actually cloned, plus `git` and a signed-in agent CLI on PATH —

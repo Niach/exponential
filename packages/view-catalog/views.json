@@ -971,13 +971,13 @@
     {
       "id": "add-server",
       "group": "coding",
-      "title": "Add a server",
-      "blurb": "The headless route: the one-liner that installs the CLI daemon and registers a machine by device code.",
+      "title": "Add a device",
+      "blurb": "Both ways to put a machine on the account: download the desktop app, or run the one-liner that installs the CLI daemon on a server.",
       "order": 8,
       "web": {
         "route": "/t/$teamSlug/devices",
         "anchor": {
-          "text": "Add a server",
+          "text": "Download desktop app",
           "timeoutMs": 30000
         },
         "recipe": "openAddServer",
