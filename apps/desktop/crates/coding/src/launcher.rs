@@ -1548,6 +1548,9 @@ pub fn prepare_with_hooks(
 ///    body; the BUILTINS instead render [`create_action_prompt`] from the
 ///    `description`/`repo` input values (EXP-257) or
 ///    [`fix_pr_conflicts_prompt`] from the resolved PR target (EXP-259);
+///    EXP-703: an ATTENDED chat with no `prompt` input delivers nothing at
+///    all ([`SessionTail::None`] — the agent spawns interactive and waits,
+///    the terminal dock's "+" shape);
 /// 4. `codingSessions.start({actionId[, teamId]})` — BEFORE spawn; its id
 ///    keys the tab + steer room like any session (teamId rides only for the
 ///    builtin literals);
@@ -1576,10 +1579,20 @@ fn prepare_action(
             "the fix-conflicts run needs the pull request's repository".to_string(),
         ));
     }
+    // EXP-679: an automation's trigger or a relay `agent` reason makes this
+    // run unattended — the only shape whose prompt names
+    // `exponential_sessions_end` (the only shape the server registers it
+    // for). Computed up front because the chat validation below depends on it.
+    let run_reason = started_reason(&req.origin, req.trigger.as_ref());
+    let unattended = run_reason.is_some();
     // EXP-615: a chat run is repo-BOUND (its `repo` input is required — a
-    // scratch-dir chat would be a shell with no code in it) and prompt-BOUND
-    // (its `prompt` input IS the program). Both are validated here, before
-    // any doctor/git/network work, so a malformed start costs nothing.
+    // scratch-dir chat would be a shell with no code in it). EXP-703: the
+    // prompt is optional for an ATTENDED chat — the terminal dock's "+"
+    // launches exactly that shape (a steerable promptless session in its own
+    // worktree, the agent waiting at its prompt) — but stays required for an
+    // unattended one, where nobody is at the keyboard to type the first
+    // message and a promptless run would idle forever. Validated here,
+    // before any doctor/git/network work, so a malformed start costs nothing.
     let chat_user_prompt = match &req.kind {
         ActionRunKind::Chat => {
             if repo.is_none() {
@@ -1587,18 +1600,18 @@ fn prepare_action(
                     "the chat run needs a repository".to_string(),
                 ));
             }
-            let Some(prompt) = req
+            let prompt = req
                 .inputs
                 .iter()
                 .find(|input| input.key == "prompt")
                 .map(|input| input.value.trim())
-                .filter(|value| !value.is_empty())
-            else {
+                .filter(|value| !value.is_empty());
+            if prompt.is_none() && unattended {
                 return Err(CodingError::Io(
                     "the chat run is missing its prompt".to_string(),
                 ));
-            };
-            Some(prompt.to_string())
+            }
+            prompt.map(str::to_string)
         }
         _ => None,
     };
@@ -1817,11 +1830,8 @@ fn prepare_action(
         }),
         _ => None,
     };
-    // EXP-679: an automation's trigger or a relay `agent` reason makes this
-    // run unattended — the only shape whose prompt names
-    // `exponential_sessions_end` (the only shape the server registers it for).
-    let run_reason = started_reason(&req.origin, req.trigger.as_ref());
-    let unattended = run_reason.is_some();
+    // EXP-703: `None` = spawn with NO initial prompt at all — the attended
+    // promptless chat. Every other kind always renders.
     let rendered = match &req.kind {
         ActionRunKind::CreateAction => {
             let Some(description) = req
@@ -1859,52 +1869,54 @@ fn prepare_action(
                 .iter()
                 .find(|input| input.key == "name" && !input.value.trim().is_empty())
                 .map(|input| input.value.trim());
-            create_action_prompt(
+            Some(create_action_prompt(
                 &req.team_id,
                 description,
                 repo_input,
                 icon_input,
                 name_input,
                 unattended,
-            )
+            ))
         }
         // EXP-615: the user's own words, verbatim — no preamble, no inputs
-        // section (validated non-empty at the top of this function).
-        // Everything else (trunk clone cwd, MCP wiring, session row,
-        // steering) is the ordinary action-run path.
-        ActionRunKind::Chat => {
-            chat_prompt(
-                &chat_user_prompt.clone().unwrap_or_default(),
-                workspace.as_ref(),
-                unattended,
-            )
-        }
+        // section. Everything else (worktree cwd, MCP wiring, session row,
+        // steering) is the ordinary action-run path. EXP-703: no words at
+        // all (the attended promptless chat) renders nothing — the agent
+        // spawns interactive and waits.
+        ActionRunKind::Chat => chat_user_prompt
+            .as_deref()
+            .map(|prompt| chat_prompt(prompt, workspace.as_ref(), unattended)),
         ActionRunKind::FixConflicts {
             branch,
             default_branch,
             identifier,
             ..
-        } => fix_pr_conflicts_prompt(
+        } => Some(fix_pr_conflicts_prompt(
             identifier,
             branch,
             // The live base resolved above; the repo default only when the
             // server predates issues.prepareConflictFix (EXP-324).
             fix_rebase_onto.as_deref().unwrap_or(default_branch),
             unattended,
-        ),
-        ActionRunKind::Team => render_action_prompt_full(
+        )),
+        ActionRunKind::Team => Some(render_action_prompt_full(
             &req.action_name,
             &req.body,
             &req.inputs,
             req.trigger.as_ref(),
             workspace.as_ref(),
             unattended,
-        ),
+        )),
     };
     // EXP-637: the PROMPT.md exclude belongs in the CLONE's shared
     // `.git/info/exclude` — a run worktree has no `.git` dir of its own.
-    let delivery = deliver_prompt(&cwd, trunk_clone.as_deref().unwrap_or(&cwd), &rendered)
-        .map_err(|e| CodingError::Io(format!("deliver prompt: {e}")))?;
+    let delivery = match &rendered {
+        Some(rendered) => Some(
+            deliver_prompt(&cwd, trunk_clone.as_deref().unwrap_or(&cwd), rendered)
+                .map_err(|e| CodingError::Io(format!("deliver prompt: {e}")))?,
+        ),
+        None => None,
+    };
 
     // Step 4 — the session row, BEFORE spawn. Only the builtin literals
     // carry teamId (the server forbids it on real action ids).
@@ -1984,7 +1996,11 @@ fn prepare_action(
             claude_session_id: claude_session_id.as_deref(),
             pi_session_file: pi_session.as_deref(),
         },
-        SessionTail::Prompt(delivery.positional()),
+        match &delivery {
+            Some(delivery) => SessionTail::Prompt(delivery.positional()),
+            // EXP-703: the promptless chat — the agent waits for input.
+            None => SessionTail::None,
+        },
     );
     // EXP-615: a chat tab is named after the REPO it opened on — every chat
     // carries the same action name ("Chat"), so `action · Chat` would make a
@@ -4038,10 +4054,12 @@ mod tests {
         }
     }
 
-    /// EXP-615: the `prompt` input IS the chat's program — an empty one is a
-    /// hard error, never a session spawned with nothing to say.
+    /// EXP-703 flipped EXP-615's rule for ATTENDED chats only: an UNATTENDED
+    /// chat (here: an agent-started one) still requires its prompt — nobody
+    /// is at the keyboard to type the first message, so a promptless run
+    /// would idle forever.
     #[test]
-    fn prepare_action_chat_requires_the_prompt() {
+    fn prepare_action_chat_unattended_requires_the_prompt() {
         let dir = temp_dir("action-chat-promptless");
         let worktrees = Arc::new(FakeWorktrees {
             worktree: dir.0.join("unused"),
@@ -4050,6 +4068,12 @@ mod tests {
         let deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
         let mut req = chat_request("repo-chat-empty");
         req.inputs.retain(|input| input.key != "prompt");
+        req.origin = LaunchOrigin::Relay {
+            device_id: "dev-1".to_string(),
+            claimant: "claim-1".to_string(),
+            started_by: None,
+            started_reason: Some("agent".to_string()),
+        };
 
         match prepare(&PrepareRequest::Action(req), &deps) {
             Err(CodingError::Io(message)) => {
@@ -4153,6 +4177,70 @@ mod tests {
             Some("builtin:chat")
         );
         assert_eq!(prepared.heartbeat_scope.action_name.as_deref(), Some("Chat"));
+    }
+
+    /// EXP-703: the terminal dock's "+" shape — an ATTENDED chat with no
+    /// `prompt` input. Same rails as the prompted chat (own worktree on
+    /// `exp/chat-<id8>`, session row, cleanup), but NOTHING is delivered:
+    /// no positional prompt, no PROMPT.md — the agent spawns interactive and
+    /// waits for the person at the terminal.
+    #[test]
+    fn prepare_action_chat_attended_promptless_spawns_waiting() {
+        let dir = temp_dir("action-chat-no-prompt-ok");
+        let (base, _captured) = canned_server_recording(vec![
+            (200, TOKEN_OK.to_string()),
+            (
+                200,
+                r#"{"result":{"data":{"session":{"id":"sess-chat","issueId":null,"teamId":"ws-1","actionId":null,"actionName":"Chat","status":"running"}}}}"#
+                    .to_string(),
+            ),
+        ]);
+        let clone = dir.0.join("repos").join("acme").join("web");
+        fs::create_dir_all(&clone).unwrap();
+        for args in [
+            &["init", "--quiet"][..],
+            &["remote", "add", "origin", "https://github.com/acme/web.git"][..],
+        ] {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&clone)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        }
+        let run_worktree = dir.0.join("chat-worktree");
+        fs::create_dir_all(&run_worktree).unwrap();
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: run_worktree.clone(),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+
+        let mut req = chat_request("repo-chat-ok");
+        req.run_id = "1a2b3c4d".to_string();
+        req.inputs.retain(|input| input.key != "prompt");
+        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        // The chat rails are unchanged: own worktree, branch, cleanup.
+        assert_eq!(prepared.worktree, run_worktree);
+        assert_eq!(prepared.branch, "exp/chat-1a2b3c4d");
+        assert!(prepared.run_cleanup.is_some());
+        assert_eq!(prepared.session_id, "sess-chat");
+        // But NO prompt rides the argv (SessionTail::None) and none was
+        // written to disk — the agent waits at its own prompt.
+        assert!(
+            !prepared
+                .spawn
+                .args
+                .iter()
+                .any(|arg| arg.contains("You work on branch")
+                    || arg.contains("session stays open")),
+            "{:?}",
+            prepared.spawn.args
+        );
+        assert!(!run_worktree.join("PROMPT.md").exists());
     }
 
     /// EXP-637 (decision 1): a repo-backed TEAM action gets its own worktree
