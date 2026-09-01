@@ -252,8 +252,9 @@ pub(crate) struct StartActionArgs {
     /// starts (the server refuses one without the other).
     pub automation_id: Option<String>,
     /// EXP-530: the automation host's backoff hook (see [`ActionFailureHook`]).
-    /// `None` for user starts — a person watching a failed dialog run retries
-    /// themselves.
+    /// `None` for dialog starts — a person watching a failed dialog run
+    /// retries themselves. EXP-703: the terminal dock's promptless chat
+    /// launch passes one too, to end its EXP-372 progress line on failure.
     pub on_failed: Option<ActionFailureHook>,
 }
 
