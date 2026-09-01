@@ -190,12 +190,22 @@ pub fn launch(
     {
         let trpc = Arc::clone(&env.ctx.trpc);
         let session_id = session_id.clone();
-        std::thread::spawn(move || loop {
-            match heartbeat_stopped.recv_timeout(SESSION_HEARTBEAT_INTERVAL) {
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    let _ = api::coding_sessions::heartbeat(&trpc, &session_id, Some(&heartbeat_scope));
+        std::thread::spawn(move || {
+            // EXP-701: first beat immediately (launcher.rs parity) — it
+            // stamps the row's `acked_at` so a remote starter sees the agent
+            // spawned within seconds, not after the first 30-minute interval.
+            let _ = api::coding_sessions::heartbeat(&trpc, &session_id, Some(&heartbeat_scope));
+            loop {
+                match heartbeat_stopped.recv_timeout(SESSION_HEARTBEAT_INTERVAL) {
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        let _ = api::coding_sessions::heartbeat(
+                            &trpc,
+                            &session_id,
+                            Some(&heartbeat_scope),
+                        );
+                    }
+                    _ => return,
                 }
-                _ => return,
             }
         });
     }

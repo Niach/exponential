@@ -2895,12 +2895,21 @@ pub fn spawn_prepared_with(
     {
         let trpc = Arc::clone(&trpc);
         let session_id = session_id.clone();
-        std::thread::spawn(move || loop {
-            match heartbeat_stopped.recv_timeout(SESSION_HEARTBEAT_INTERVAL) {
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    let _ = coding_sessions::heartbeat(&trpc, &session_id, Some(&heartbeat_scope));
+        std::thread::spawn(move || {
+            // EXP-701: the FIRST beat fires immediately — it stamps the row's
+            // `acked_at` (the server coalesces it on every heartbeat), so a
+            // remote starter can tell "agent spawned" from "row created, then
+            // the machine died" within seconds instead of after the first
+            // 30-minute interval.
+            let _ = coding_sessions::heartbeat(&trpc, &session_id, Some(&heartbeat_scope));
+            loop {
+                match heartbeat_stopped.recv_timeout(SESSION_HEARTBEAT_INTERVAL) {
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        let _ =
+                            coding_sessions::heartbeat(&trpc, &session_id, Some(&heartbeat_scope));
+                    }
+                    _ => return,
                 }
-                _ => return,
             }
         });
     }

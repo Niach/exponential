@@ -266,7 +266,8 @@ function assertHelpdeskEnabled(enabled: boolean) {
 // Electric shape allowlist (routes/api/shapes/coding-sessions.ts), camelCased,
 // plus the linked issue's identifier/title. `host_user_id` and
 // `merged_own_pr` are server-only and stay out; the board mirrors are
-// WHERE-only.
+// WHERE-only. `acked_at` (EXP-701) is server-only too but IS returned here —
+// orchestrating agents are exactly who needs the device's pickup ack.
 const sessionColumns = {
   id: codingSessions.id,
   issueId: codingSessions.issueId,
@@ -289,6 +290,7 @@ const sessionColumns = {
   resumedFromId: codingSessions.resumedFromId,
   parentSessionId: codingSessions.parentSessionId,
   needsInput: codingSessions.needsInput,
+  ackedAt: codingSessions.ackedAt,
   startedAt: codingSessions.startedAt,
   endedAt: codingSessions.endedAt,
   createdAt: codingSessions.createdAt,
@@ -2319,7 +2321,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_get`,
     {
-      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open) → ended, then summary is the run's own close-out.`,
+      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open) → ended, then summary is the run's own close-out. ackedAt is the device's liveness ack, stamped seconds after the agent spawns — a running row whose ackedAt stays null for minutes means the launch died on the device.`,
       inputSchema: { id: uuidString },
     },
     async ({ id }) => {
@@ -2488,7 +2490,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_start`,
     {
-      description: `Start a coding session on a registered device (exponential_devices_list; online, agents includes the agent). Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs for its inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and opens its own PR; track it with exponential_sessions_get. sessionId null = the device has not reported the run yet. Started from inside a run, the child is unattended: when it finishes or asks a question, a bracketed '[Exponential child run ...]' message lands in THIS session as user input — answer with exponential_sessions_message. Read its report before merging its PR (merging first ends the run unreported); polling exponential_sessions_get is only a fallback.`,
+      description: `Start a coding session on a registered ONLINE device (exponential_devices_list; agents includes the agent). An offline device is refused — starts are delivered live, never queued. Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs for its inputs) or resumeSessionId (relaunch an ended run). The run gets its own worktree and opens its own PR; track it with exponential_sessions_get. The device creates the session row itself and acks liveness seconds after the agent spawns (ackedAt); sessionId null = it never reported the run, treat the start as lost. Started from inside a run, the child is unattended: when it finishes or asks a question, a bracketed '[Exponential child run ...]' message lands in THIS session as user input — answer with exponential_sessions_message. Read its report before merging its PR (merging first ends the run unreported); polling exponential_sessions_get is only a fallback.`,
       inputSchema: {
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),

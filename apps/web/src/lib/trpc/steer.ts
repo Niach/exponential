@@ -36,6 +36,7 @@ import {
   type SteerStartRepo,
 } from "@/lib/steer"
 import { resolveActionInputs } from "@/lib/action-inputs"
+import { deviceRowIsOnline } from "@/lib/steer-devices"
 import {
   BUILTIN_CHAT_ID,
   BUILTIN_CREATE_ACTION_ID,
@@ -407,8 +408,14 @@ export const steerRouter = router({
       // EXP-485: the persisted devices row (written by devices.register at
       // every daemon/control-channel start) is the ONLY source of a
       // machine's agents/unauthedAgents/caps — the relay online frame no
-      // longer carries the advertisement, and online-ness stays with
-      // relayPostStart (an offline device 404s device_offline).
+      // longer carries the advertisement. EXP-701: online-ness is checked
+      // HERE too, off the row's `last_seen_at` (the same freshness rule every
+      // device picker applies): a relay socket can sit half-open for minutes
+      // after a laptop sleeps, so the frame would be "accepted" into a dead
+      // connection — starts are delivered live, never queued, and refusing a
+      // stale-heartbeat target beats an undeliverable ok. relayPostStart's
+      // device_offline 404 stays the backstop for a fresh row whose socket is
+      // gone anyway.
       //
       // EXP-432 resolution order: the caller's own row wins (the start stays
       // wire-identical); otherwise a registered server device SHARED with
@@ -431,10 +438,30 @@ export const steerRouter = router({
         })
       }
 
+      // EXP-701: the offline refusal. Age is worded for a human retry ("wake
+      // the machine"), not machine parsing — orchestrators key on the 412.
+      const requireOnline = (lastSeenAt: Date) => {
+        if (deviceRowIsOnline(lastSeenAt, new Date())) return
+        const minutes = Math.round(
+          (Date.now() - lastSeenAt.getTime()) / 60_000
+        )
+        const age =
+          minutes < 60
+            ? `${Math.max(minutes, 1)}m`
+            : minutes < 60 * 48
+              ? `${Math.round(minutes / 60)}h`
+              : `${Math.round(minutes / (60 * 24))}d`
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `That machine is offline (last seen ${age} ago). Starts are delivered live, never queued — bring the device back online and try again.`,
+        })
+      }
+
       const targetDeviceColumns = {
         agents: devicesTable.agents,
         unauthedAgents: devicesTable.unauthedAgents,
         caps: devicesTable.caps,
+        lastSeenAt: devicesTable.lastSeenAt,
       }
       const resolveTargetDevice = async (
         teamId: string
@@ -455,6 +482,7 @@ export const steerRouter = router({
           )
           .limit(1)
         if (own) {
+          requireOnline(own.lastSeenAt)
           requireAgentStart(own.caps)
           return { ownerId: userId, device: own, shared: false }
         }
@@ -482,6 +510,7 @@ export const steerRouter = router({
             message: `That machine hasn't registered with this server yet. Open (or restart) the Exponential app on it.`,
           })
         }
+        requireOnline(row.lastSeenAt)
         requireAgentStart(row.caps)
         return {
           ownerId: row.userId,
