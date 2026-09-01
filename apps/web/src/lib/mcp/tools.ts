@@ -1100,8 +1100,8 @@ export function registerExponentialTools(
     },
     async ({ id }) => {
       try {
-        // Issue attachments first; steer images for issue-less sessions
-        // (EXP-702) live in the server-only session_attachments table but
+        // Issue attachments first; steer images (EXP-702) live in the
+        // server-only session_attachments table but
         // share the /api/attachments/{id} url shape, so an agent's fallback
         // fetch of a steered embed must resolve here too.
         const attachment = await getAttachmentTeamContext(id).then(

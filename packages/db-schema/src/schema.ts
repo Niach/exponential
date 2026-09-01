@@ -836,10 +836,12 @@ export const attachments = pgTable(
   ]
 )
 
-// EXP-702: steer images for coding sessions WITHOUT an issue (chat, action
-// and batch runs — the composer's image upload has nowhere issue-shaped to
-// land there). SERVER-ONLY, never synced: the natives pin `issue_id` NOT NULL
-// on the synced attachments table, so these rows must never ride that shape.
+// EXP-702: steer images. EVERY image attached to a steered message lands
+// here — issue runs included, so steering screenshots never clutter the
+// issue's Files section, and issue-less runs (chat/action/batch) get image
+// upload at all. SERVER-ONLY, never synced: the natives pin `issue_id` NOT
+// NULL on the synced attachments table, so these rows must never ride that
+// shape.
 // They are served by the SAME `/api/attachments/{id}` read route, keeping the
 // load-bearing steer embed `![image](/api/attachments/{id})` (EXP-511) intact
 // for every host and viewer. `session_id` is SET NULL (the staleness sweep

@@ -102,8 +102,8 @@ async function getAttachment({
     })
   }
 
-  // Issue attachments first; steer images for issue-less sessions (EXP-702)
-  // live in the server-only session_attachments table but are served from the
+  // Issue attachments first; steer images (EXP-702) live in the server-only
+  // session_attachments table but are served from the
   // SAME url shape — the EXP-511 embed `![image](/api/attachments/{id})` is
   // load-bearing across every host and viewer, so the fallback happens here
   // rather than in a second route.

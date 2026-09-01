@@ -25,12 +25,13 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
- * Steer-image upload for coding sessions WITHOUT an issue (EXP-702: chat,
- * action and batch runs). Same request/response contract as the issue
- * `/files` route so the composer can target either, but deliberately
- * narrower: images only (the steer composer sends nothing else), and only
- * the session's OWNER may upload — steering is owner-only (EXP-312), so
- * nobody else can put the resulting embed on the wire anyway.
+ * Steer-image upload (EXP-702). Every steered image — issue runs included —
+ * lands in the session's own server-only store, keeping steering screenshots
+ * out of the issue's Files section. Same request/response contract as the
+ * issue `/files` route, but deliberately narrower: images only (the steer
+ * composer sends nothing else), and only the session's OWNER may upload —
+ * steering is owner-only (EXP-312), so nobody else can put the resulting
+ * embed on the wire anyway.
  */
 export async function handleSessionAttachmentUpload({
   params,

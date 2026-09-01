@@ -284,8 +284,8 @@ export async function getTeamUsage(
         })
         .from(attachments)
         .where(eq(attachments.teamId, teamId)),
-      // Steer images for issue-less sessions (EXP-702) — server-only rows,
-      // but their blobs occupy the same per-team storage budget.
+      // Steer images (EXP-702) — server-only rows, but their blobs occupy
+      // the same per-team storage budget.
       db
         .select({
           totalBytes: sql<string>`coalesce(sum(${sessionAttachments.sizeBytes}), 0)::bigint`,

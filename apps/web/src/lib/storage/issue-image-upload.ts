@@ -53,10 +53,11 @@ export async function uploadIssueImageFile(issueId: string, file: File) {
 }
 
 /**
- * Steer-image upload for coding sessions WITHOUT an issue (EXP-702: chat,
- * action and batch runs). Same request/response contract as the issue route;
- * the server only accepts the inline image types (10 MB) and only from the
- * session's owner.
+ * Steer-image upload (EXP-702): EVERY steered image goes to the session's
+ * own server-only store — issue runs included, so steering screenshots never
+ * land in the issue's Files section. Same request/response contract as the
+ * issue route; the server only accepts the inline image types (10 MB) and
+ * only from the session's owner.
  */
 export async function uploadSessionImageFile(sessionId: string, file: File) {
   return postIssueUpload(

@@ -272,9 +272,9 @@ export async function getAttachmentTeamContext(attachmentId: string) {
   return attachmentContext
 }
 
-// EXP-702: server-only steer images for issue-less coding sessions. Served by
-// the same /api/attachments/{id} read route as issue attachments — this is
-// its fallback lookup when the id has no attachments row. No board, so no
+// EXP-702: server-only steer images (session_attachments). Served by the
+// same /api/attachments/{id} read route as issue attachments — this is its
+// fallback lookup when the id has no attachments row. No board, so no
 // trash/archive predicate; team membership is the whole gate.
 export async function getSessionAttachmentTeamContext(attachmentId: string) {
   const db = await getDb()

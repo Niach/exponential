@@ -8,8 +8,8 @@ type SelectCapable = Pick<typeof Database, `select`>
 
 /**
  * Every S3 object a team-cascade delete would strand: issue attachments plus
- * the server-only steer images for issue-less sessions (EXP-702). Collect
- * INSIDE the deleting transaction BEFORE the cascade drops the rows — the
+ * the server-only steer images (EXP-702). Collect INSIDE the deleting
+ * transaction BEFORE the cascade drops the rows — the
  * cascade never touches S3. Deduped (widget screenshots can't collide, but
  * cheap insurance against future sharing).
  */

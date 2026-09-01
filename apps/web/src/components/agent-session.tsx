@@ -47,10 +47,7 @@ import {
 } from "@/lib/steer-session-store"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
-import {
-  uploadIssueImageFile,
-  uploadSessionImageFile,
-} from "@/lib/storage/issue-image-upload"
+import { uploadSessionImageFile } from "@/lib/storage/issue-image-upload"
 import {
   buildSteerImageMessage,
   MAX_STEER_IMAGES,
@@ -831,7 +828,6 @@ export function AgentSessionView({
                 // the send button should dim honestly for that gap.
                 live={live && connected}
                 onSend={sendMessage}
-                issueId={session.issueId}
                 sessionId={session.id}
                 placeholder={
                   planPending ? `Tell Claude what to change…` : undefined
@@ -1794,7 +1790,6 @@ function MessageComposer({
   store,
   live,
   onSend,
-  issueId,
   sessionId,
   placeholder,
 }: {
@@ -1803,10 +1798,9 @@ function MessageComposer({
    *  (EXP-621), so a connection flap never eats the draft. */
   live: boolean
   onSend: (text: string) => boolean
-  /** Uploads target the issue when the run has one (the image also lands in
-   *  the issue's Files); an issue-less run (chat/action/batch) uploads to
-   *  the session's own server-only store instead (EXP-702). */
-  issueId: string | null
+  /** Every steer image uploads to the session's own server-only store
+   *  (EXP-702) — issue runs included, so steering screenshots never clutter
+   *  the issue's Files section. */
   sessionId: string
   /** Context-aware hint (e.g. the plan-approval "Tell Claude what to
    *  change…"); the default stays the generic prompt. */
@@ -1860,9 +1854,7 @@ function MessageComposer({
       for (const image of pending) {
         let uploadedId = image.uploadedId
         if (!uploadedId) {
-          const uploaded = issueId
-            ? await uploadIssueImageFile(issueId, image.file)
-            : await uploadSessionImageFile(sessionId, image.file)
+          const uploaded = await uploadSessionImageFile(sessionId, image.file)
           uploadedId = uploaded.id
           store.setDraftImageUploaded(image.url, uploadedId)
         }
