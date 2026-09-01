@@ -546,6 +546,86 @@ async function disableAndroidAutofill(): Promise<string | undefined> {
   return previous
 }
 
+/**
+ * The clock iOS pins with `override_status_bar` (Snapfile) — android gets the
+ * same one so the two mobile lanes read alike in the gallery.
+ */
+const ANDROID_STATUS_BAR_CLOCK = `0941`
+
+/**
+ * SystemUI demo mode: android's answer to iOS's `override_status_bar`.
+ *
+ * Android's status bar is the DEVICE's — real clock, real notification icons,
+ * real signal and battery. iOS has been pinned to 9:41 since the lane existed,
+ * android never was, so an emulator that happened to read 10:59 rewrote all
+ * sixteen android shots whose top strip was their only delta (2026-09-01, and
+ * every refresh before it). Nothing downstream can tell that apart from a real
+ * change: the strip is inside the frame and a diff is a diff.
+ *
+ * Demo mode freezes exactly that strip and nothing else — the app's own pixels
+ * are untouched — so the shot stops carrying a timestamp. Battery and signal
+ * are pinned for the same reason (a draining emulator moves the battery glyph),
+ * and notification icons are hidden because a VPN or update icon drifting in
+ * from the host is not part of the product.
+ *
+ * Returns whether it was entered, so the caller only undoes what it did: the
+ * setting is device-global and a run that never enabled it must not clear a
+ * value the owner set by hand.
+ */
+async function enableAndroidDemoMode(): Promise<boolean> {
+  const previous = await run({
+    cmd: [`adb`, `shell`, `settings`, `get`, `global`, `sysui_demo_allowed`],
+    timeoutMs: 30_000,
+  })
+  const allowed = await run({
+    cmd: [`adb`, `shell`, `settings`, `put`, `global`, `sysui_demo_allowed`, `1`],
+    timeoutMs: 30_000,
+  })
+  if (allowed.code !== 0) {
+    console.log(`[android] could not enable demo mode — status bar stays the device's`)
+    return false
+  }
+  // One broadcast per command, in this order: `enter` first, or the rest are
+  // dropped.
+  const commands = [
+    [`command`, `enter`],
+    [`command`, `clock`, `-e`, `hhmm`, ANDROID_STATUS_BAR_CLOCK],
+    [`command`, `notifications`, `-e`, `visible`, `false`],
+    [`command`, `network`, `-e`, `wifi`, `show`, `-e`, `level`, `4`],
+    [`command`, `network`, `-e`, `mobile`, `show`, `-e`, `datatype`, `none`, `-e`, `level`, `4`],
+    [`command`, `battery`, `-e`, `level`, `100`, `-e`, `plugged`, `false`],
+  ]
+  for (const args of commands) {
+    await run({
+      cmd: [`adb`, `shell`, `am`, `broadcast`, `-a`, `com.android.systemui.demo`, `-e`, ...args],
+      timeoutMs: 30_000,
+    })
+  }
+  console.log(
+    `[android] status bar pinned to ${ANDROID_STATUS_BAR_CLOCK.slice(0, 2)}:` +
+      `${ANDROID_STATUS_BAR_CLOCK.slice(2)} for the run` +
+      (previous.stdout.trim() === `1` ? `` : ` (demo mode was off)`)
+  )
+  return true
+}
+
+/** Leave demo mode and hand the status bar back — best effort, like autofill. */
+async function restoreAndroidStatusBar(entered: boolean): Promise<void> {
+  if (!entered) return
+  try {
+    await run({
+      cmd: [
+        `adb`, `shell`, `am`, `broadcast`, `-a`, `com.android.systemui.demo`,
+        `-e`, `command`, `exit`,
+      ],
+      timeoutMs: 30_000,
+    })
+    console.log(`[android] status bar restored`)
+  } catch {
+    console.log(`[android] could not leave demo mode — run \`adb shell am broadcast -a com.android.systemui.demo -e command exit\``)
+  }
+}
+
 /** Put `autofill_service` back — best effort; a failed restore must not fail the run. */
 async function restoreAndroidAutofill(previous: string | undefined): Promise<void> {
   if (previous === undefined) return
@@ -1057,8 +1137,12 @@ async function main(): Promise<number> {
       for (const platform of [`ios`, `android`] as const) {
         if (laneViews(scope, platform).length === 0) continue
         let autofill: string | undefined
+        let demoMode = false
         try {
-          if (platform === `android`) autofill = await disableAndroidAutofill()
+          if (platform === `android`) {
+            autofill = await disableAndroidAutofill()
+            demoMode = await enableAndroidDemoMode()
+          }
           await captureFastlane(platform, outcomes, scope, isScoped(options, scope))
         } catch (error) {
           outcomes.push({
@@ -1067,7 +1151,10 @@ async function main(): Promise<number> {
             detail: error instanceof Error ? error.message : String(error),
           })
         } finally {
-          if (platform === `android`) await restoreAndroidAutofill(autofill)
+          if (platform === `android`) {
+            await restoreAndroidStatusBar(demoMode)
+            await restoreAndroidAutofill(autofill)
+          }
         }
       }
     }

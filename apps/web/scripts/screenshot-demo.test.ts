@@ -1,8 +1,10 @@
 import { formatDistanceToNowStrict } from "date-fns"
 import { describe, expect, it } from "vitest"
 import {
+  DEMO_API_KEYS,
   DEMO_DUE_DATES,
   DEMO_PENDING_INVITE_EXPIRY,
+  DEMO_PINNED_PAST_DATES,
   DEMO_SHOWCASE_COMMENT_HOURS_AGO,
 } from "./screenshot-demo"
 
@@ -128,5 +130,32 @@ describe(`pinned demo due dates (EXP-669)`, () => {
     const values = dueDates.map(([, due]) => due)
     expect(values).toStrictEqual([...values].sort())
     expect(new Set(values).size).toBe(values.length)
+  })
+})
+
+describe(`pinned past dates the settings views print absolutely`, () => {
+  const pinned = [
+    ...Object.entries(DEMO_PINNED_PAST_DATES),
+    ...DEMO_API_KEYS.map((key) => [`apiKey:${key.name}`, key.createdAt] as const),
+  ]
+
+  it.each(pinned)(`%s is in the past`, (_name, date) => {
+    // A board archived in the future, or a key created in one, reads as a bug
+    // in the product rather than a fixture — and both surfaces print the date
+    // itself, so nothing hides it.
+    expect(date.getTime()).toBeLessThan(Date.now())
+  })
+
+  it(`keeps the two API keys on distinct instants, so the list order is fixed`, () => {
+    // `listPersonalApiKeys` orders by `desc(createdAt)`. Equal timestamps let
+    // the rows swap between runs and rewrite the shot for nothing.
+    const times = DEMO_API_KEYS.map((key) => key.createdAt.getTime())
+    expect(new Set(times).size).toBe(times.length)
+  })
+
+  it(`gives each API key a start the page can print`, () => {
+    // Rendered as `${start}…`, so an empty one silently falls back to the
+    // random `prefix` and the churn comes straight back.
+    for (const key of DEMO_API_KEYS) expect(key.start).toMatch(/^expu_\w+$/)
   })
 })

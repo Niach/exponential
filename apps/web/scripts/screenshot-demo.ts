@@ -134,6 +134,59 @@ export const DEMO_DUE_DATES = {
 } as const
 
 /**
+ * The two settings surfaces that print a PAST instant verbatim.
+ *
+ * Same failure as `DEMO_DUE_DATES`, mirrored: a relative offset (`daysAgo(9)`,
+ * or Better Auth stamping `now` at mint) renders as an absolute date, so the
+ * date moved every calendar day and rewrote `settings-boards` and
+ * `settings-api-keys` on the first refresh after midnight — twice on
+ * 2026-09-01, for no product change. These are the only two past dates any
+ * view prints; everything else past is a relative label.
+ *
+ * Fixed instants, and unlike the future-dated pins there is nothing to keep
+ * runway for: a board archived long ago and a key minted long ago read exactly
+ * right however old they get. They only have to stay in the PAST, which
+ * `screenshot-demo.test.ts` checks.
+ */
+export const DEMO_PINNED_PAST_DATES = {
+  /** `settings-boards` → "Archived Mar 2, 2026" on the Design System card. */
+  boardArchived: new Date(`2026-03-02T09:00:00Z`),
+} as const
+
+/**
+ * The demo user's two personal API keys, as the `settings-api-keys` view
+ * prints them: `${start}… · created ${date} · last used never`.
+ *
+ * BOTH printed fields are unstable at mint. Better Auth generates a random
+ * credential, so `start` (its visible first chars) differs every seed, and it
+ * stamps `created_at` with the seed's own clock, so the date moves with the
+ * calendar. The row ORDER was a third: the list is `desc(createdAt)` and two
+ * keys minted in the same loop landed on timestamps a few milliseconds apart,
+ * close enough to flip. All three rewrote the view for nothing.
+ *
+ * So the seed mints through Better Auth exactly as `users.mintPersonalApiKey`
+ * does — the row stays a genuine hashed credential — and then overwrites these
+ * two DISPLAY columns. `start` no longer matches the raw key, which costs
+ * nothing: the key was already discarded unread at mint, and auth resolves a
+ * presented key by hashing it against `key`, never by `start`.
+ *
+ * Listed newest LAST, and seeded in this order, so the rendered list reads
+ * top-down as the reverse of this array.
+ */
+export const DEMO_API_KEYS = [
+  {
+    name: DEMO_DEVICE_LABEL,
+    start: `expu_a`,
+    createdAt: new Date(`2026-03-02T09:12:00Z`),
+  },
+  {
+    name: `Claude Code (MCP)`,
+    start: `expu_k`,
+    createdAt: new Date(`2026-03-04T16:40:00Z`),
+  },
+] as const
+
+/**
  * How long ago each comment on the showcase issue (APP-5) was posted, in hours
  * (EXP-669).
  *

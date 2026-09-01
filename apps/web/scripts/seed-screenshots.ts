@@ -31,6 +31,7 @@ import { eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   actions,
+  apikeys,
   attachments,
   automations,
   codingSessions,
@@ -61,12 +62,14 @@ import {
 import { generateWidgetKey } from "@/lib/widget/key"
 import { parseFreezeNow } from "./lib/freeze-now"
 import {
+  DEMO_API_KEYS,
   DEMO_DEVICE_ID,
   DEMO_SERVER_DEVICE_ID,
   DEMO_DEVICE_LABEL,
   DEMO_EMAIL,
   DEMO_INVITE_TOKEN,
   DEMO_PENDING_INVITE_EXPIRY,
+  DEMO_PINNED_PAST_DATES,
   DEMO_NAME,
   DEMO_PASSWORD,
   DEMO_DUE_DATES,
@@ -378,7 +381,8 @@ async function main() {
       color: `#a855f7`,
       icon: `palette`,
       sortOrder: 30,
-      archivedAt: daysAgo(9),
+      // Pinned, not `daysAgo(9)`: the card prints this date absolutely.
+      archivedAt: DEMO_PINNED_PAST_DATES.boardArchived,
     },
     {
       teamId: ws.id,
@@ -1302,16 +1306,24 @@ async function main() {
   // `users.mintPersonalApiKey` does, so the rows are genuine `expu_`
   // credentials (only their hash is stored) rather than hand-written rows —
   // the page lists name, prefix and last use.
-  for (const name of [DEMO_DEVICE_LABEL, `Claude Code (MCP)`]) {
-    await auth.api.createApiKey({
+  //
+  // Then the two columns the page PRINTS are overwritten with their pinned
+  // values: a fresh mint randomises `start` and stamps `created_at` now, which
+  // rewrote this view on every refresh (see DEMO_API_KEYS).
+  for (const key of DEMO_API_KEYS) {
+    const created = await auth.api.createApiKey({
       body: {
-        name,
+        name: key.name,
         userId: demoId,
         expiresIn: null,
         rateLimitEnabled: false,
         metadata: { kind: `personal` },
       },
     })
+    await db
+      .update(apikeys)
+      .set({ start: key.start, createdAt: key.createdAt })
+      .where(eq(apikeys.id, created.id))
   }
 
   console.log(`
