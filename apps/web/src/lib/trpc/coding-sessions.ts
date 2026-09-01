@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, gte, inArray, or } from "drizzle-orm"
+import { and, desc, eq, gte, inArray, or, sql } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import {
   CODING_SESSION_STALE_MS,
@@ -594,6 +594,9 @@ export const codingSessionsRouter = router({
               hostUserId: attribution.hostUserId,
               ...device,
               agent: input.agent ?? null,
+              // EXP-701: a resurrecting beat IS the liveness proof — the
+              // re-created row is acked from the start.
+              ackedAt: new Date(),
               status: merged
                 ? `ended`
                 : issue?.status === `in_review`
@@ -670,6 +673,8 @@ export const codingSessionsRouter = router({
               ...device,
               agent: input.agent ?? null,
               branch: input.branch ?? null,
+              // EXP-701: acked from the start, like the issue branch above.
+              ackedAt: new Date(),
               // Batch/action rows have no issue to re-derive review state
               // from — a resurrected session degrades to `running` (badge
               // label only; rare suspend edge, never kills anything).
@@ -700,13 +705,20 @@ export const codingSessionsRouter = router({
       // `in_review` row back to `running`. EXP-549: a ping carrying
       // the deviceId also refreshes the device stamp (id + the registry
       // label), so a rename converges within one beat even for clients that
-      // only render the snapshot.
+      // only render the snapshot. EXP-701: any beat proves the run's host is
+      // alive past the spawn, so the FIRST one stamps `acked_at` (coalesce —
+      // the ack records first confirmation and never advances after that);
+      // the device fires that first beat immediately after the agent spawns.
       const device = input.deviceId
         ? await resolveSessionDevice(ctx.db, ctx.session.user.id, input)
         : null
       const updated = await ctx.db
         .update(codingSessions)
-        .set({ updatedAt: new Date(), ...(device ?? {}) })
+        .set({
+          updatedAt: new Date(),
+          ackedAt: sql`coalesce(${codingSessions.ackedAt}, now())`,
+          ...(device ?? {}),
+        })
         .where(
           and(
             eq(codingSessions.id, input.id),

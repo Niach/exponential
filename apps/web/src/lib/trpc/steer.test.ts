@@ -139,7 +139,8 @@ function lastStartBody(): Record<string, unknown> {
 // resolveTargetDevice runs the caller's OWN (user_id, device_id) select
 // first and only falls through to the shared-server select when it misses,
 // so a scenario queues its rows in that order. A row is the whole
-// advertisement now: agents, unauthedAgents and caps are notNull columns.
+// advertisement now: agents, unauthedAgents and caps are notNull columns,
+// and `lastSeenAt` gates the EXP-701 offline refusal (fixtures beat "now").
 // Queue NOTHING to model a machine that never registered (EXP-542).
 function ownDeviceRow(over: Record<string, unknown> = {}) {
   return {
@@ -148,6 +149,7 @@ function ownDeviceRow(over: Record<string, unknown> = {}) {
     agents: [`claude`, `codex`, `pi`],
     unauthedAgents: [],
     caps: [],
+    lastSeenAt: new Date(),
     ...over,
   }
 }
@@ -265,8 +267,8 @@ describe(`steer.startSession — server-side validation`, () => {
   })
 
   it(`maps a relay 404 to PRECONDITION_FAILED carrying the relay reason`, async () => {
-    // The registered row says nothing about online-ness — an offline machine
-    // is exactly this: a resolvable row whose relay bucket 404s.
+    // A fresh-heartbeat row whose relay socket is gone anyway — the relay's
+    // device_offline 404 stays the backstop behind the EXP-701 pre-check.
     queueOwnDevice()
     h.relayPostStart.mockResolvedValue({
       ok: false,
@@ -278,6 +280,50 @@ describe(`steer.startSession — server-side validation`, () => {
     )
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
     expect((error as TRPCError).message).toBe(`device_offline`)
+  })
+})
+
+// EXP-701: a start targeting a device whose `last_seen_at` is outside the
+// contract online window refuses BEFORE the relay round-trip. A laptop's
+// relay socket can sit half-open for minutes after it sleeps, so the relay
+// would "accept" the frame into a dead connection — and starts are delivered
+// live, never queued, so the accepted start would just be lost.
+describe(`steer.startSession — offline devices (EXP-701)`, () => {
+  it(`refuses an issue start to an offline own device, naming the age`, async () => {
+    queueOwnDevice({ lastSeenAt: new Date(Date.now() - 10 * 60_000) })
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(
+      `offline (last seen 10m ago)`
+    )
+    expect((error as TRPCError).message).toContain(`never queued`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`refuses an offline shared server the same way`, async () => {
+    queueSharedDevice({
+      lastSeenAt: new Date(Date.now() - 3 * 60 * 60_000),
+    })
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: SHARED_DEVICE })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`last seen 3h ago`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`still starts on a device inside the online window`, async () => {
+    // One second short of the 90s contract window — a late-but-beating
+    // machine must not refuse.
+    queueOwnDevice({ lastSeenAt: new Date(Date.now() - 89_000) })
+    const result = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+    })
+    expect(result).toEqual({ ok: true })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -879,6 +925,7 @@ function sharedDeviceRow(overrides: Record<string, unknown> = {}) {
     agents: [`claude`, `codex`, `pi`],
     unauthedAgents: [],
     caps: [],
+    lastSeenAt: new Date(),
     ...overrides,
   }
 }

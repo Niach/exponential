@@ -23,7 +23,9 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // windows) — each a ONE-TIME shape-identity rotation (benign: small table,
 // full resync; land in one deploy).
 // `merged_own_pr` stays OUT: server-only like `host_user_id` (nothing on a
-// client acts on it; only the merge-driven end paths read it).
+// client acts on it; only the merge-driven end paths read it), and so does
+// `acked_at` (EXP-701: the device's pickup ack — read by orchestrating
+// agents via the MCP session tools, not by synced clients).
 // Old native builds drop unknown columns safely (verified: iOS filters to
 // its SQLite schema, Android ignoreUnknownKeys + partial-plan filter,
 // desktop serde non-strict).

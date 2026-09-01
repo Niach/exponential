@@ -467,8 +467,9 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
 })
 
 // EXP-194: `in_review` (PR open, terminal still alive) heartbeats like
-// `running`, but the ping only ever advances updated_at — it can never
-// downgrade the status — and an `ended` row stays final.
+// `running`, but the ping only ever advances updated_at (and coalesces the
+// EXP-701 acked_at pickup stamp) — it can never downgrade the status — and
+// an `ended` row stays final.
 describe(`codingSessions.heartbeat — in_review liveness`, () => {
   it(`advances updated_at for an in_review row without touching status`, async () => {
     selectResults.push([{ userId: `actor`, status: `in_review` }])
@@ -477,7 +478,7 @@ describe(`codingSessions.heartbeat — in_review liveness`, () => {
 
     expect(result).toEqual({ alive: true })
     expect(updates).toHaveLength(1)
-    expect(Object.keys(updates[0]!.values)).toEqual([`updatedAt`])
+    expect(Object.keys(updates[0]!.values)).toEqual([`updatedAt`, `ackedAt`])
   })
 
   it(`advances updated_at for an in_review row without touching status`, async () => {
@@ -487,7 +488,7 @@ describe(`codingSessions.heartbeat — in_review liveness`, () => {
 
     expect(result).toEqual({ alive: true })
     expect(updates).toHaveLength(1)
-    expect(Object.keys(updates[0]!.values)).toEqual([`updatedAt`])
+    expect(Object.keys(updates[0]!.values)).toEqual([`updatedAt`, `ackedAt`])
   })
 
   it(`reports an ended row as dead without any write`, async () => {
@@ -1146,12 +1147,12 @@ describe(`codingSessions — device stamp (EXP-549)`, () => {
     })
   })
 
-  it(`heartbeat without a deviceId only advances updated_at`, async () => {
+  it(`heartbeat without a deviceId only advances updated_at + the ack`, async () => {
     selectResults.push([{ userId: `actor`, hostUserId: null, status: `running` }])
 
     await caller.heartbeat({ id: SESSION_ID })
 
-    expect(Object.keys(updates[0]!.values)).toEqual([`updatedAt`])
+    expect(Object.keys(updates[0]!.values)).toEqual([`updatedAt`, `ackedAt`])
   })
 })
 

@@ -751,6 +751,16 @@ export const codingSessions = pgTable(
     // with running/in_review (which stay server-owned) instead of being a
     // status of its own; cleared by the desktop when the picker resolves.
     needsInput: boolean(`needs_input`).notNull().default(false),
+    // EXP-701: the device's pickup ack. The launching device creates this row
+    // right before it spawns the agent, then its FIRST liveness heartbeat —
+    // fired immediately after the spawn — stamps this (the server coalesces it
+    // on every `codingSessions.heartbeat`, since any beat proves the run's
+    // host is alive). A `running` row whose acked_at stays NULL for minutes
+    // means the device died between creating the row and spawning the agent —
+    // the signal orchestrators use to tell a dead start from a quiet run.
+    // SERVER-ONLY (never in the shape allowlist, like merged_own_pr): exposed
+    // through tRPC `codingSessions.get` and the MCP session tools.
+    ackedAt: timestamp(`acked_at`, { withTimezone: true }),
     startedAt: timestamp(`started_at`, { withTimezone: true })
       .notNull()
       .defaultNow(),

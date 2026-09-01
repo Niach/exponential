@@ -1,0 +1,1 @@
+ALTER TABLE "coding_sessions" ADD COLUMN "acked_at" timestamp with time zone;
