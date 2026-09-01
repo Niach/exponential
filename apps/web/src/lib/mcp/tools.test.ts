@@ -513,21 +513,21 @@ const descriptors: Array<Descriptor> = [
     pick: () => caller.issues.retargetPr,
     args: { issueId: UUID, base: `master` },
     resolved: { retargeted: true, base: `master` },
-    expected: { retargeted: true, base: `master` },
+    expected: { ok: true, base: `master` },
     calledWith: { issueId: UUID, base: `master` },
   },
   {
     tool: `exponential_boards_delete`,
     pick: () => caller.boards.delete,
-    args: { boardId: PROJ },
+    args: { id: PROJ },
     resolved: { ok: true, txId: 1 },
-    expected: { ok: true, boardId: PROJ },
+    expected: { ok: true, id: PROJ },
     calledWith: { boardId: PROJ },
   },
   {
     tool: `exponential_boards_set_repository`,
     pick: () => caller.boards.setRepository,
-    args: { boardId: PROJ, repositoryId: REPO },
+    args: { id: PROJ, repositoryId: REPO },
     resolved: { board: { id: PROJ, repositoryId: REPO } },
     expected: { id: PROJ, repositoryId: REPO },
     calledWith: { boardId: PROJ, repositoryId: REPO },
@@ -546,14 +546,14 @@ const descriptors: Array<Descriptor> = [
     args: { id: WS, name: `Renamed` },
     resolved: { team: { id: WS, name: `Renamed` } },
     expected: { id: WS, name: `Renamed` },
-    calledWith: { id: WS, name: `Renamed` },
+    calledWith: { teamId: WS, name: `Renamed` },
   },
   {
     tool: `exponential_invites_create`,
     pick: () => caller.teamInvites.create,
     args: { teamId: WS, role: `member` },
-    resolved: { invite: { id: INV }, token: `tok-abc` },
-    expected: { invite: { id: INV }, token: `tok-abc` },
+    resolved: { invite: { id: INV }, token: `tok-abc`, emailDelivered: null },
+    expected: { invite: { id: INV }, token: `tok-abc`, emailDelivered: null },
     calledWith: { teamId: WS, role: `member` },
   },
   {
@@ -584,17 +584,19 @@ const descriptors: Array<Descriptor> = [
   {
     tool: `exponential_statuses_update`,
     pick: () => caller.statuses.update,
-    args: { teamId: WS, statusId: STATUS, name: `QA 2` },
-    resolved: { txId: 1 },
-    expected: { ok: true, statusId: STATUS },
+    rows: [{ teamId: WS }],
+    args: { id: STATUS, name: `QA 2` },
+    resolved: { txId: 1, status: { id: STATUS, name: `QA 2` } },
+    expected: { id: STATUS, name: `QA 2` },
     calledWith: { teamId: WS, statusId: STATUS, name: `QA 2` },
   },
   {
     tool: `exponential_statuses_delete`,
     pick: () => caller.statuses.delete,
-    args: { teamId: WS, statusId: STATUS, reassignToId: UUID },
+    rows: [{ teamId: WS }],
+    args: { id: STATUS, reassignToId: UUID },
     resolved: { txId: 1, reassigned: 3, reassignedToId: UUID },
-    expected: { ok: true, statusId: STATUS, reassigned: 3, reassignedToId: UUID },
+    expected: { ok: true, id: STATUS, reassigned: 3, reassignedToId: UUID },
     calledWith: { teamId: WS, statusId: STATUS, reassignToId: UUID },
   },
   // ── EXP-660: automations ──
@@ -610,7 +612,7 @@ const descriptors: Array<Descriptor> = [
     tool: `exponential_automations_update`,
     pick: () => caller.automations.update,
     args: { id: AUTO, enabled: false },
-    resolved: { automation: { id: AUTO, enabled: false }, txid: 1 },
+    resolved: { automation: { id: AUTO, enabled: false }, txId: 1 },
     expected: { id: AUTO, enabled: false },
     calledWith: { id: AUTO, enabled: false },
   },
@@ -618,7 +620,7 @@ const descriptors: Array<Descriptor> = [
     tool: `exponential_automations_toggle`,
     pick: () => caller.automations.update,
     args: { id: AUTO, enabled: true },
-    resolved: { automation: { id: AUTO, enabled: true }, txid: 1 },
+    resolved: { automation: { id: AUTO, enabled: true }, txId: 1 },
     expected: { id: AUTO, enabled: true },
     calledWith: { id: AUTO, enabled: true },
   },
@@ -626,7 +628,7 @@ const descriptors: Array<Descriptor> = [
     tool: `exponential_automations_delete`,
     pick: () => caller.automations.delete,
     args: { id: AUTO },
-    resolved: { ok: true, txid: 1 },
+    resolved: { ok: true, txId: 1 },
     expected: { ok: true, id: AUTO },
     calledWith: { id: AUTO },
   },
@@ -645,10 +647,10 @@ const descriptors: Array<Descriptor> = [
         hostUserId: `host-1`,
         mergedOwnPr: true,
       },
-      txid: 1,
+      txId: 1,
     },
     expected: { ok: true, id: RUN, status: `ended`, endedAt: null },
-    calledWith: { codingSessionId: RUN },
+    calledWith: { sessionId: RUN },
   },
   // ── EXP-660: helpdesk (registered under the default gates) ──
   {
@@ -664,7 +666,7 @@ const descriptors: Array<Descriptor> = [
     tool: `exponential_helpdesk_threads_get`,
     pick: () => caller.helpdesk.getThread,
     rows: HELPDESK_ROWS,
-    args: { threadId: THREAD },
+    args: { id: THREAD },
     resolved: { thread: { id: THREAD }, messages: [], linkedIssue: null },
     expected: { thread: { id: THREAD }, messages: [], linkedIssue: null },
     calledWith: { threadId: THREAD },
@@ -673,7 +675,7 @@ const descriptors: Array<Descriptor> = [
     tool: `exponential_helpdesk_reply`,
     pick: () => caller.helpdesk.reply,
     rows: HELPDESK_ROWS,
-    args: { threadId: THREAD, body: `On it.` },
+    args: { id: THREAD, body: `On it.` },
     resolved: {
       message: { id: UUID },
       reporterEmailed: true,
@@ -692,7 +694,7 @@ const descriptors: Array<Descriptor> = [
     tool: `exponential_helpdesk_note`,
     pick: () => caller.helpdesk.note,
     rows: HELPDESK_ROWS,
-    args: { threadId: THREAD, body: `internal` },
+    args: { id: THREAD, body: `internal` },
     resolved: { message: { id: UUID, visibility: `internal` } },
     expected: { id: UUID, visibility: `internal` },
     calledWith: { threadId: THREAD, body: `internal` },
@@ -701,25 +703,25 @@ const descriptors: Array<Descriptor> = [
     tool: `exponential_helpdesk_close`,
     pick: () => caller.helpdesk.close,
     rows: HELPDESK_ROWS,
-    args: { threadId: THREAD },
+    args: { id: THREAD },
     resolved: { ok: true },
-    expected: { ok: true, threadId: THREAD },
+    expected: { ok: true, id: THREAD },
     calledWith: { threadId: THREAD },
   },
   {
     tool: `exponential_helpdesk_reopen`,
     pick: () => caller.helpdesk.reopen,
     rows: HELPDESK_ROWS,
-    args: { threadId: THREAD },
+    args: { id: THREAD },
     resolved: { ok: true },
-    expected: { ok: true, threadId: THREAD },
+    expected: { ok: true, id: THREAD },
     calledWith: { threadId: THREAD },
   },
   {
     tool: `exponential_helpdesk_escalate`,
     pick: () => caller.helpdesk.escalate,
     rows: HELPDESK_ROWS,
-    args: { threadId: THREAD, boardId: PROJ, title: `Login broken` },
+    args: { id: THREAD, boardId: PROJ, title: `Login broken` },
     resolved: { issue: { id: UUID, identifier: `EXP-9` }, txId: 1 },
     expected: { id: UUID, identifier: `EXP-9` },
     calledWith: { threadId: THREAD, boardId: PROJ, title: `Login broken` },
@@ -1698,7 +1700,7 @@ describe(`exponential_sessions_message`, () => {
   it(`refuses messaging your own session`, async () => {
     const result = await collectTools(USER, SESSION).get(
       `exponential_sessions_message`
-    )!({ sessionId: SESSION, message: `hi` })
+    )!({ id: SESSION, message: `hi` })
 
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`your own session`)
@@ -1711,7 +1713,7 @@ describe(`exponential_sessions_message`, () => {
 
     const result = await collectTools(USER, null).get(
       `exponential_sessions_message`
-    )!({ sessionId: TARGET, message: `Use staging.` })
+    )!({ id: TARGET, message: `Use staging.` })
 
     expect(relayPostInput).toHaveBeenCalledWith(
       RELAY,
@@ -1720,7 +1722,7 @@ describe(`exponential_sessions_message`, () => {
     )
     expect(parseOk(result)).toEqual({
       ok: true,
-      sessionId: TARGET,
+      id: TARGET,
       delivered: true,
     })
   })
@@ -1731,7 +1733,7 @@ describe(`exponential_sessions_message`, () => {
     vi.mocked(relayPostInput).mockResolvedValue({ delivered: true })
 
     await collectTools(USER, SESSION).get(`exponential_sessions_message`)!({
-      sessionId: TARGET,
+      id: TARGET,
       message: `Use staging.`,
     })
 
@@ -1747,7 +1749,7 @@ describe(`exponential_sessions_message`, () => {
 
     const result = await collectTools(USER, null).get(
       `exponential_sessions_message`
-    )!({ sessionId: TARGET, message: `hi` })
+    )!({ id: TARGET, message: `hi` })
 
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`owner or host`)
@@ -1759,7 +1761,7 @@ describe(`exponential_sessions_message`, () => {
 
     const result = await collectTools(USER, null).get(
       `exponential_sessions_message`
-    )!({ sessionId: TARGET, message: `hi` })
+    )!({ id: TARGET, message: `hi` })
 
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`not live`)
@@ -1776,7 +1778,7 @@ describe(`exponential_sessions_message`, () => {
 
     const result = await collectTools(USER, null, ALL_MCP_TOOL_GATES, confined).get(
       `exponential_sessions_message`
-    )!({ sessionId: TARGET, message: `hi` })
+    )!({ id: TARGET, message: `hi` })
 
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`Session not found`)
@@ -1789,7 +1791,7 @@ describe(`exponential_sessions_message`, () => {
 
     const result = await collectTools(USER, null).get(
       `exponential_sessions_message`
-    )!({ sessionId: TARGET, message: `hi` })
+    )!({ id: TARGET, message: `hi` })
 
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`Not delivered`)
@@ -2612,7 +2614,7 @@ describe(`exponential_sessions_kill`, () => {
       id: UUID,
     })
     expect(parseOk(result)).toEqual({ ok: true, id: UUID, status: `ended`, endedAt: null })
-    expect(caller.steer.killSession).toHaveBeenCalledWith({ codingSessionId: UUID })
+    expect(caller.steer.killSession).toHaveBeenCalledWith({ sessionId: UUID })
   })
 
   it(`checks the run's team against a scoped grant before delegating`, async () => {
@@ -2766,19 +2768,15 @@ describe(`exponential_sessions_start`, () => {
   it(`resolves an identifier, starts over the steer rails and returns the run`, async () => {
     caller.steer.startSession.mockResolvedValue({ ok: true })
     // Every select resolves to dbRows.current at await time, so stage the
-    // rows per call: 1 = boards (resolveIssueId), 2 = the issue by
-    // identifier, 3+ = the poll for the device-created row.
+    // rows per call: 1 = the issue by identifier (the shared resolver's one
+    // select; a FULL-access caller skips the boards lookup), 2+ = the poll
+    // for the device-created row.
     const builder = db.select()
     db.select.mockClear()
     let call = 0
     db.select.mockImplementation(() => {
       call += 1
-      dbRows.current =
-        call === 1
-          ? [{ id: PROJ, teamId: `ws-1` }]
-          : call === 2
-            ? [{ id: UUID }]
-            : [startedRow]
+      dbRows.current = call === 1 ? [{ id: UUID }] : [startedRow]
       return builder
     })
 
@@ -3017,7 +3015,7 @@ describe(`exponential_helpdesk_* gating`, () => {
 
   it(`refuses a thread of a team with helpdesk switched off`, async () => {
     dbRows.current = [{ teamId: WS, helpdeskEnabled: false }]
-    const result = await tool(`exponential_helpdesk_reply`)({ threadId: THREAD, body: `hi` })
+    const result = await tool(`exponential_helpdesk_reply`)({ id: THREAD, body: `hi` })
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`not enabled`)
     expect(caller.helpdesk.reply).not.toHaveBeenCalled()
@@ -3037,7 +3035,7 @@ describe(`exponential_helpdesk_* gating`, () => {
 
   it(`reports an unknown thread as not found`, async () => {
     dbRows.current = []
-    const result = await tool(`exponential_helpdesk_close`)({ threadId: THREAD })
+    const result = await tool(`exponential_helpdesk_close`)({ id: THREAD })
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`Thread not found`)
   })

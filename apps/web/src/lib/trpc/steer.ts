@@ -89,23 +89,39 @@ const agentEffortValues: Record<string, readonly string[]> = {
   pi: [``, ...contract.piThinking.values],
 }
 
-const mintTicketInput = z.discriminatedUnion(`kind`, [
-  // Desktop device-presence socket (no sessionId yet).
-  z.object({
-    kind: z.literal(`control`),
-    deviceLabel: z.string().max(255).optional(),
-  }),
-  // Desktop PTY publisher for a session it started.
-  z.object({
-    kind: z.literal(`publisher`),
-    codingSessionId: z.string().uuid(),
-  }),
-  // Web/mobile live view of a session — owner-only (EXP-312).
-  z.object({
-    kind: z.literal(`viewer`),
-    codingSessionId: z.string().uuid(),
-  }),
-])
+// EXP-707: `sessionId` is canonical; `codingSessionId` is a transitional
+// alias for the shipped iOS build — drop it once the next iOS release is out.
+const sessionIdOrAlias = {
+  sessionId: z.string().uuid().optional(),
+  codingSessionId: z.string().uuid().optional(),
+}
+
+const requireSessionId = (i: {
+  sessionId?: string
+  codingSessionId?: string
+}) => (i.sessionId === undefined) !== (i.codingSessionId === undefined)
+
+const mintTicketInput = z
+  .discriminatedUnion(`kind`, [
+    // Desktop device-presence socket (no sessionId yet).
+    z.object({
+      kind: z.literal(`control`),
+      deviceLabel: z.string().max(255).optional(),
+    }),
+    // Desktop PTY publisher for a session it started.
+    z.object({
+      kind: z.literal(`publisher`),
+      ...sessionIdOrAlias,
+    }),
+    // Web/mobile live view of a session — owner-only (EXP-312).
+    z.object({
+      kind: z.literal(`viewer`),
+      ...sessionIdOrAlias,
+    }),
+  ])
+  .refine((i) => i.kind === `control` || requireSessionId(i), {
+    message: `Pass sessionId (or the deprecated codingSessionId), not both`,
+  })
 
 export const steerRouter = router({
   // Whether remote start + live steering is available on this instance —
@@ -135,7 +151,8 @@ export const steerRouter = router({
         })
       }
 
-      const session = await loadCodingSession(input.codingSessionId)
+      const sessionId = (input.sessionId ?? input.codingSessionId)!
+      const session = await loadCodingSession(sessionId)
 
       // Only the session owner's own desktop may publish its PTY — or, for a
       // shared-device run (EXP-432), the hosting daemon's account: the row is
@@ -990,9 +1007,16 @@ export const steerRouter = router({
   // relay is unreachable) AND best-effort fan a kill through the relay so the
   // live terminal tears down immediately.
   killSession: authedProcedure
-    .input(z.object({ codingSessionId: z.string().uuid() }))
+    .input(
+      z
+        .object(sessionIdOrAlias)
+        .refine(requireSessionId, {
+          message: `Pass sessionId (or the deprecated codingSessionId), not both`,
+        })
+    )
     .mutation(async ({ ctx, input }) => {
-      const session = await loadCodingSession(input.codingSessionId)
+      const sessionId = (input.sessionId ?? input.codingSessionId)!
+      const session = await loadCodingSession(sessionId)
       const userId = ctx.session.user.id
 
       // EXP-312: owner-only, like every other live-session control — plus the
@@ -1006,12 +1030,12 @@ export const steerRouter = router({
       }
 
       // Idempotent: killing an already-ended session leaves the row alone.
-      let result: { session: typeof session; txid?: number }
+      let result: { session: typeof session; txId?: number }
       if (session.status === `ended`) {
         result = { session }
       } else {
         result = await ctx.db.transaction(async (tx) => {
-          const txid = await generateTxId(tx)
+          const txId = await generateTxId(tx)
           const [updated] = await tx
             .update(codingSessions)
             .set({
@@ -1019,15 +1043,15 @@ export const steerRouter = router({
               endedAt: new Date(),
               endedBy: `user`,
             })
-            .where(eq(codingSessions.id, input.codingSessionId))
+            .where(eq(codingSessions.id, sessionId))
             .returning()
-          return { session: updated, txid }
+          return { session: updated, txId }
         })
       }
 
       // Best-effort relay kill; swallow failure (relayPostKill never throws).
       const config = getSteerRelayConfig()
-      if (config) await relayPostKill(config, input.codingSessionId)
+      if (config) await relayPostKill(config, sessionId)
 
       return result
     }),

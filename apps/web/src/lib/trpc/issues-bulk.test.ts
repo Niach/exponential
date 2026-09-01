@@ -250,7 +250,7 @@ describe(`issues.bulkUpdate`, () => {
     ])
 
     const error = await rejectionOf(
-      caller.bulkUpdate({ ids: [ID_A, ID_B], status: `done` })
+      caller.bulkUpdate({ issueIds: [ID_A, ID_B], status: `done` })
     )
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
@@ -266,7 +266,7 @@ describe(`issues.bulkUpdate`, () => {
     selectQueue.push([]) // all ids stale or in trashed boards
 
     const error = await rejectionOf(
-      caller.bulkUpdate({ ids: [ID_A], status: `done` })
+      caller.bulkUpdate({ issueIds: [ID_A], status: `done` })
     )
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
@@ -275,7 +275,7 @@ describe(`issues.bulkUpdate`, () => {
   })
 
   it(`rejects an empty patch via the input refine`, async () => {
-    const error = await rejectionOf(caller.bulkUpdate({ ids: [ID_A] }))
+    const error = await rejectionOf(caller.bulkUpdate({ issueIds: [ID_A] }))
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect(select).not.toHaveBeenCalled()
@@ -284,7 +284,7 @@ describe(`issues.bulkUpdate`, () => {
   it(`bulk done stamps completedAt, records per-issue events, and returns ONE txId`, async () => {
     seedEligible([issueRow(ID_A), issueRow(ID_B)])
 
-    const result = await caller.bulkUpdate({ ids: [ID_A, ID_B], status: `done` })
+    const result = await caller.bulkUpdate({ issueIds: [ID_A, ID_B], status: `done` })
 
     expect(h.assertTeamMember).toHaveBeenCalledTimes(1)
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, WS)
@@ -325,7 +325,7 @@ describe(`issues.bulkUpdate`, () => {
       issueRow(ID_A, { status: `duplicate`, duplicateOfId: uuid(9) }),
     ])
 
-    await caller.bulkUpdate({ ids: [ID_A], status: `backlog` })
+    await caller.bulkUpdate({ issueIds: [ID_A], status: `backlog` })
 
     expect(updates).toHaveLength(1)
     expect(updates[0]!.set.duplicateOfId).toBeNull()
@@ -338,7 +338,7 @@ describe(`issues.bulkUpdate`, () => {
   it(`normalizes the retired 'todo' status token to backlog`, async () => {
     seedEligible([issueRow(ID_A, { status: `in_progress` })])
 
-    await caller.bulkUpdate({ ids: [ID_A], status: `todo` as never })
+    await caller.bulkUpdate({ issueIds: [ID_A], status: `todo` as never })
 
     expect(updates).toHaveLength(1)
     expect(updates[0]!.set.status).toBe(`backlog`)
@@ -353,7 +353,7 @@ describe(`issues.bulkUpdate`, () => {
     ])
 
     await caller.bulkUpdate({
-      ids: [ID_A, ID_B, ID_C],
+      issueIds: [ID_A, ID_B, ID_C],
       assigneeId: `victim`,
     })
 
@@ -380,7 +380,7 @@ describe(`issues.bulkUpdate`, () => {
   it(`assigneeId null (bulk unassign) skips the assignee guard`, async () => {
     seedEligible([issueRow(ID_A, { assigneeId: `other` })])
 
-    await caller.bulkUpdate({ ids: [ID_A], assigneeId: null })
+    await caller.bulkUpdate({ issueIds: [ID_A], assigneeId: null })
 
     expect(h.assertAssigneeInTeam).not.toHaveBeenCalled()
     expect(updates[0]!.set.assigneeId).toBeNull()
@@ -422,7 +422,7 @@ describe(`issues.bulkUpdate`, () => {
     seedEligible([issueRow(ID_A)]) // ID_B fell out of the join
 
     const result = await caller.bulkUpdate({
-      ids: [ID_A, ID_B],
+      issueIds: [ID_A, ID_B],
       priority: `high`,
     })
 
@@ -434,7 +434,7 @@ describe(`issues.bulkUpdate`, () => {
 
   it(`rejects status 'duplicate' — bulk marking has no canonical-issue picker`, async () => {
     const error = await rejectionOf(
-      caller.bulkUpdate({ ids: [ID_A], status: `duplicate` })
+      caller.bulkUpdate({ issueIds: [ID_A], status: `duplicate` })
     )
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
@@ -445,7 +445,7 @@ describe(`issues.bulkUpdate`, () => {
     // ID_B vanished in the window — it never comes back from FOR UPDATE.
     seedEligible([issueRow(ID_A), issueRow(ID_B)], [issueRow(ID_A)])
 
-    const result = await caller.bulkUpdate({ ids: [ID_A, ID_B], status: `done` })
+    const result = await caller.bulkUpdate({ issueIds: [ID_A, ID_B], status: `done` })
 
     // The survivor commits, the vanished row is silently skipped — the batch
     // must not roll back with a 500.
@@ -465,7 +465,7 @@ describe(`issues.bulkUpdate`, () => {
       [issueRow(ID_A, { status: `done`, assigneeId: `other`, completedAt })]
     )
 
-    const result = await caller.bulkUpdate({ ids: [ID_A], status: `done` })
+    const result = await caller.bulkUpdate({ issueIds: [ID_A], status: `done` })
 
     expect(result.updated).toBe(1)
     // Redundant terminal write: completedAt must not be re-stamped over the
@@ -485,7 +485,7 @@ describe(`issues.bulkDelete`, () => {
       { id: ID_B, teamId: WS_OTHER },
     ])
 
-    const error = await rejectionOf(caller.bulkDelete({ ids: [ID_A, ID_B] }))
+    const error = await rejectionOf(caller.bulkDelete({ issueIds: [ID_A, ID_B] }))
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toBe(
@@ -498,7 +498,7 @@ describe(`issues.bulkDelete`, () => {
   it(`rejects when nothing is eligible`, async () => {
     selectQueue.push([])
 
-    const error = await rejectionOf(caller.bulkDelete({ ids: [ID_A] }))
+    const error = await rejectionOf(caller.bulkDelete({ issueIds: [ID_A] }))
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toBe(`No deletable issues`)
@@ -513,7 +513,7 @@ describe(`issues.bulkDelete`, () => {
       .mockResolvedValueOnce([`key-a`])
       .mockResolvedValueOnce([`key-b1`, `key-b2`])
 
-    const result = await caller.bulkDelete({ ids: [ID_A, ID_B] })
+    const result = await caller.bulkDelete({ issueIds: [ID_A, ID_B] })
 
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, WS)
     expect(result).toEqual({ txId: 77, deleted: 2 })

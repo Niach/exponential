@@ -156,11 +156,11 @@ function AutomationRow({
   const flipEnabled = async (enabled: boolean) => {
     setFlipping(true)
     try {
-      const { txid } = await trpc.automations.update.mutate({
+      const { txId } = await trpc.automations.update.mutate({
         id: automation.id,
         enabled,
       })
-      await automationCollection.utils.awaitTxId(txid)
+      await automationCollection.utils.awaitTxId(txId)
     } catch {
       // Global mutation-error toast already shown; the synced row keeps the
       // old state, so the switch snaps back on its own.
@@ -348,10 +348,10 @@ export function AutomationsTab({
     if (!deleteTarget) return
     setDeleting(true)
     try {
-      const { txid } = await trpc.automations.delete.mutate({
+      const { txId } = await trpc.automations.delete.mutate({
         id: deleteTarget.id,
       })
-      await automationCollection.utils.awaitTxId(txid)
+      await automationCollection.utils.awaitTxId(txId)
       setDeleteTarget(null)
     } catch {
       // Toast already shown; keep the confirm open for a retry.

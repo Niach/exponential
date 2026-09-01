@@ -31,6 +31,17 @@ export const issueStatusCategoryValues = [
 
 export type IssueStatusCategory = (typeof issueStatusCategoryValues)[number]
 
+// The categories a CUSTOM status may be created in — everything but
+// `duplicate`, which is a fixed single-status category (no + button
+// anywhere). Derived, never hand-copied (EXP-707): both the statuses router
+// and MCP statuses_create validate against this list.
+export const customizableStatusCategoryValues = issueStatusCategoryValues.filter(
+  (v): v is Exclude<IssueStatusCategory, `duplicate`> => v !== `duplicate`
+) as [
+  Exclude<IssueStatusCategory, `duplicate`>,
+  ...Exclude<IssueStatusCategory, `duplicate`>[],
+]
+
 // The ONE category order every surface speaks (EXP-448): the settings page
 // sections, the set-status pickers and the issue-list groups. Lifecycle order
 // — it matches the legacy issueStatusOrder for a default team.
@@ -622,6 +633,21 @@ export const automationTriggerSchema = z.discriminatedUnion(`kind`, [
 export const automationDeviceIdSchema = z.string().min(1).max(128)
 
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+
+// EXP-707: the ONE #rrggbb write schema (labels, statuses, boards, widget
+// theme) and the accent every color column defaults to (schema.ts varchar
+// defaults hand-mirror it — migrations, not imports).
+export const hexColorSchema = z
+  .string()
+  .regex(/^#[0-9a-fA-F]{6}$/, `Expected #rrggbb`)
+
+export const DEFAULT_ACCENT_COLOR = `#6366f1`
+
+// EXP-707: the ONE uuid shape test (7 copies unified). Zod schemas stay
+// per-surface (z.string().uuid() vs the MCP budget refine) but the regex is
+// shared.
+export const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // Issue descriptions and comment bodies are plain GFM markdown strings (stored
 // in `text` columns). The legacy jsonb `{ text }` envelope was unwrapped; the

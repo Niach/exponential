@@ -13,7 +13,7 @@ const h = vi.hoisted(() => ({
   // Each ctx.db.select() call consumes the next result set, in call order.
   selectQueue: [] as unknown[][],
   // Projections passed to select(), and the clause each where() received.
-  selectProjections: [] as Array<Record<string, unknown>>,
+  selectProjections: [] as Array<Record<string, unknown> | undefined>,
   whereArgs: [] as unknown[],
   getUserTeamIds: vi.fn(async () => [`ws-1`]),
   assertIssueAccess: vi.fn(async () => ({
@@ -25,11 +25,11 @@ const h = vi.hoisted(() => ({
 
 // membership.ts's getDb() dynamically imports @/db/connection; this mock also
 // satisfies lib/trpc.ts's module-scope `db` import without a live Postgres.
+// EXP-707: the shared issue resolver (lib/issue-resolver.ts) queries through
+// this module too, so delegate lazily into the same select-queue fake below.
 vi.mock(`@/db/connection`, () => ({
   db: {
-    select: () => ({
-      from: () => ({ where: () => ({ limit: async () => [] }) }),
-    }),
+    select: (projection?: Record<string, unknown>) => db.select(projection),
   },
 }))
 
@@ -123,7 +123,7 @@ const issueRow = {
 }
 
 const db = {
-  select: vi.fn((projection: Record<string, unknown>) => {
+  select: vi.fn((projection?: Record<string, unknown>) => {
     h.selectProjections.push(projection)
     const rows = h.selectQueue.shift() ?? []
     const builder = {
@@ -191,7 +191,7 @@ describe(`issues.get (EXP-264)`, () => {
     await caller.get({ id: ISSUE_ID })
 
     const projection = h.selectProjections[0]
-    expect(Object.keys(projection)).toEqual(SHAPE_COLUMNS)
+    expect(Object.keys(projection ?? {})).toEqual(SHAPE_COLUMNS)
     // The REV2-5 scoping columns are server-only — native issue schemas do not
     // carry them and they must never ride inside the row.
     expect(projection).not.toHaveProperty(`teamId`)
@@ -226,7 +226,7 @@ describe(`issues.get (EXP-264)`, () => {
 
     expect(error).toBeInstanceOf(TRPCError)
     expect((error as TRPCError).code).toBe(`NOT_FOUND`)
-    expect((error as TRPCError).message).toBe(`Issue not found`)
+    expect((error as TRPCError).message).toBe(`Issue not found: EXP-999`)
     expect(h.assertIssueAccess).not.toHaveBeenCalled()
   })
 

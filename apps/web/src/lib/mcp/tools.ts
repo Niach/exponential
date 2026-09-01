@@ -4,7 +4,12 @@ import { contract } from "@exp/domain-contract"
 import {
   actionInputsSchema,
   automationTriggerSchema,
+  customizableStatusCategoryValues,
+  dateOnlySchema,
+  DEFAULT_ACCENT_COLOR,
+  hexColorSchema,
   MAX_ISSUE_DESCRIPTION,
+  UUID_RE,
 } from "@exp/db-schema/domain"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
@@ -65,6 +70,8 @@ import {
   resolveTeamAccess,
 } from "@/lib/team-membership"
 import { boardVisible } from "@/lib/board-visibility"
+import { resolveIssueReference } from "@/lib/issue-resolver"
+import { issueWireColumns } from "@/lib/issue-columns"
 import { deleteObject, getObject, uploadObject } from "@/lib/storage"
 import {
   buildAttachmentStorageKey,
@@ -168,44 +175,32 @@ function caller(user: McpUser, request: Request) {
   return appRouter.createCaller(buildCtx(user, request))
 }
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-// Resolve a UUID or human identifier ("MET-12") to an issue UUID, scoped to
-// the user's accessible teams intersected with the connection's grant.
-// The team-level access check still runs in the caller — this only maps
-// the friendly identifier the coding agent knows to the row id. Identifiers
-// are stored uppercase; the lookup is case-insensitive.
+// Resolve a UUID or human identifier ("MET-12") to an issue UUID via the
+// shared resolver (lib/issue-resolver.ts — EXP-707: one resolver, both
+// layers, deterministic newest-wins), intersected with the connection's
+// OAuth grant. The team-level access check still runs in the caller — this
+// only maps the friendly identifier the coding agent knows to the row id.
 async function resolveIssueId(
   idOrIdentifier: string,
   userId: string,
   access: McpAccess
 ): Promise<string> {
   if (UUID_RE.test(idOrIdentifier)) return idOrIdentifier
-  const teamIds = await getUserTeamIds(userId)
-  if (teamIds.length > 0) {
-    const boardRows = await db
-      .select({ id: boards.id, teamId: boards.teamId })
-      .from(boards)
-      .where(and(inArray(boards.teamId, teamIds), boardVisible()))
-    const boardIds = boardRows
+  let grantedBoardIds: string[] | undefined
+  if (!access.full) {
+    const teamIds = await getUserTeamIds(userId)
+    const boardRows =
+      teamIds.length > 0
+        ? await db
+            .select({ id: boards.id, teamId: boards.teamId })
+            .from(boards)
+            .where(and(inArray(boards.teamId, teamIds), boardVisible()))
+        : []
+    grantedBoardIds = boardRows
       .filter((r) => isBoardGranted(access, r.id, r.teamId))
       .map((r) => r.id)
-    if (boardIds.length > 0) {
-      const [row] = await db
-        .select({ id: issues.id })
-        .from(issues)
-        .where(
-          and(
-            inArray(issues.boardId, boardIds),
-            eq(issues.identifier, idOrIdentifier.toUpperCase())
-          )
-        )
-        .limit(1)
-      if (row) return row.id
-    }
   }
-  throw new Error(`Issue not found: ${idOrIdentifier}`)
+  return resolveIssueReference(userId, idOrIdentifier, { grantedBoardIds })
 }
 
 // Comment id → its issue's team/board context, for grant checks on
@@ -218,6 +213,29 @@ async function getCommentIssueContext(commentId: string) {
     .limit(1)
   if (!row) throw new Error(`Comment not found`)
   return getIssueTeamContext(row.issueId)
+}
+
+// Label id → its team (EXP-707: row mutations never require a derivable
+// teamId — the MCP layer derives it for the router).
+async function getLabelContext(id: string) {
+  const [row] = await db
+    .select({ teamId: labels.teamId })
+    .from(labels)
+    .where(eq(labels.id, id))
+    .limit(1)
+  if (!row) throw new Error(`Label not found`)
+  return row
+}
+
+// Status id → its team (same derivation rule as labels).
+async function getStatusContext(id: string) {
+  const [row] = await db
+    .select({ teamId: issueStatuses.teamId })
+    .from(issueStatuses)
+    .where(eq(issueStatuses.id, id))
+    .limit(1)
+  if (!row) throw new Error(`Status not found`)
+  return row
 }
 
 // Action id → its team, for grant checks on update/delete.
@@ -324,6 +342,61 @@ const MAX_INLINE_TEXT_BYTES = 32 * 1024
 // Serializes as additionalProperties:false (gated by api-conventions.test.ts).
 const strictInput = <S extends z.ZodRawShape>(shape: S) => z.strictObject(shape)
 
+// EXP-707: the ONE pagination model — every *_list tool declares limit/offset
+// (default 50, cap 200; gated by api-conventions.test.ts). Small-table tools
+// slice after their existing filters rather than in SQL.
+const pageInput = {
+  limit: z.number().int().min(1).max(200).default(50),
+  offset: z.number().int().min(0).default(0),
+}
+// Defaults repeated here because the zod defaults live in the schema layer —
+// a caller invoking a handler directly (the test harness) bypasses them.
+const page = <T>(rows: T[], limit?: number, offset?: number) =>
+  rows.slice(offset ?? 0, (offset ?? 0) + (limit ?? 50))
+
+// EXP-707: MCP reads ship the same pinned columns as the Electric shapes —
+// never a bare select() that would leak the REV2-5/EXP-500 scoping mirrors
+// (or any future server-only column) to agents unreviewed. Issues use the
+// shared lib/issue-columns.ts mirror; these are the camelCase mirrors of the
+// other shapes' allowlists (routes/api/shapes/*).
+const boardWireColumns = {
+  id: boards.id,
+  teamId: boards.teamId,
+  name: boards.name,
+  slug: boards.slug,
+  prefix: boards.prefix,
+  color: boards.color,
+  icon: boards.icon,
+  repositoryId: boards.repositoryId,
+  sortOrder: boards.sortOrder,
+  createdAt: boards.createdAt,
+  updatedAt: boards.updatedAt,
+}
+const commentWireColumns = {
+  id: comments.id,
+  issueId: comments.issueId,
+  teamId: comments.teamId,
+  boardId: comments.boardId,
+  authorId: comments.authorId,
+  body: comments.body,
+  editedAt: comments.editedAt,
+  createdAt: comments.createdAt,
+  updatedAt: comments.updatedAt,
+}
+const notificationWireColumns = {
+  id: notifications.id,
+  userId: notifications.userId,
+  issueId: notifications.issueId,
+  teamId: notifications.teamId,
+  type: notifications.type,
+  title: notifications.title,
+  body: notifications.body,
+  readAt: notifications.readAt,
+  pushedAt: notifications.pushedAt,
+  createdAt: notifications.createdAt,
+  updatedAt: notifications.updatedAt,
+}
+
 const issueStatusEnumSchema = z.enum(issueStatusValues)
 const issuePriorityEnumSchema = z.enum(issuePriorityValues)
 // EXP-353: keep the serialized tool context small — every schema below is part
@@ -339,7 +412,7 @@ const boardIconEnumSchema = z
   )
   .transform((v) => v as (typeof boardIconValues)[number])
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
-const dateOnly = z.string().regex(DATE_ONLY_RE, `Expected YYYY-MM-DD`)
+const dateOnly = dateOnlySchema
 // Same contract, no inline pattern (budget, see looseEnum below).
 const dateOnlyLoose = z
   .string()
@@ -499,9 +572,9 @@ export function registerExponentialTools(
     `exponential_teams_list`,
     {
       description: `List teams the MCP user is a member of.`,
-      inputSchema: strictInput({}),
+      inputSchema: strictInput({ ...pageInput }),
     },
-    async () => {
+    async ({ limit, offset }) => {
       try {
         const memberRows = await db
           .select({
@@ -520,7 +593,13 @@ export function registerExponentialTools(
 
         // Membership-only, matching the sync semantics: a team appears
         // only once the user is a member.
-        return ok(memberRows.filter((row) => isTeamVisible(access, row.id)))
+        return ok(
+          page(
+            memberRows.filter((row) => isTeamVisible(access, row.id)),
+            limit,
+            offset
+          )
+        )
       } catch (e) {
         return err(e)
       }
@@ -561,9 +640,10 @@ export function registerExponentialTools(
       description: `List boards in a team, or across all teams the user belongs to.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
+        ...pageInput,
       }),
     },
-    async ({ teamId }) => {
+    async ({ teamId, limit, offset }) => {
       try {
         let allowedTeamIds: Array<string>
         if (teamId) {
@@ -579,7 +659,7 @@ export function registerExponentialTools(
         }
 
         const rows = await db
-          .select()
+          .select(boardWireColumns)
           .from(boards)
           .where(and(inArray(boards.teamId, allowedTeamIds), boardVisible()))
           .orderBy(asc(boards.sortOrder), asc(boards.name))
@@ -587,7 +667,7 @@ export function registerExponentialTools(
         const filtered = rows.filter((row) =>
           isBoardGranted(access, row.id, row.teamId)
         )
-        return ok(filtered)
+        return ok(page(filtered, limit, offset))
       } catch (e) {
         return err(e)
       }
@@ -606,7 +686,7 @@ export function registerExponentialTools(
         assertBoardGranted(access, board.id, board.teamId)
         await resolveTeamAccess(user.id, board.teamId)
         const [row] = await db
-          .select()
+          .select(boardWireColumns)
           .from(boards)
           .where(eq(boards.id, id))
           .limit(1)
@@ -634,10 +714,7 @@ export function registerExponentialTools(
             /^[A-Za-z][A-Za-z0-9]{0,3}$/,
             `Prefix must be 1-4 letters or digits, starting with a letter`
           ),
-        color: z
-          .string()
-          .regex(/^#[0-9a-fA-F]{6}$/)
-          .optional(),
+        color: hexColorSchema.optional(),
         icon: boardIconEnumSchema.optional(),
         repository: z
           .union([
@@ -677,19 +754,19 @@ export function registerExponentialTools(
         id: uuidString,
         icon: boardIconEnumSchema.nullable().optional(),
         name: z.string().min(1).max(255).optional(),
-        color: z
-          .string()
-          .regex(/^#[0-9a-fA-F]{6}$/)
-          .optional(),
+        color: hexColorSchema.optional(),
       }),
     },
-    async (input) => {
+    async ({ id, ...rest }) => {
       try {
         if (!access.full) {
-          const board = await getBoardTeamId(input.id)
+          const board = await getBoardTeamId(id)
           assertBoardGranted(access, board.id, board.teamId)
         }
-        const result = await caller(user, request).boards.update(input)
+        const result = await caller(user, request).boards.update({
+          boardId: id,
+          ...rest,
+        })
         return ok(result.board)
       } catch (e) {
         return err(e)
@@ -707,7 +784,7 @@ export function registerExponentialTools(
       // EXP-684: every filter a scheduled sweep needs server-side. The schema
       // is budget-trimmed (context-budget.test.ts): value lists appear once,
       // their exclude* twins and priority validate at runtime.
-      description: `List issues the MCP user can access. Custom statuses filter by statusId/statusCategory (exponential_statuses_list); exclude* twins invert. created*/updated*: ISO date or datetime. sort: createdAt|updatedAt|priority, -prefix = descending.`,
+      description: `List issues. Custom statuses filter by statusId/statusCategory (exponential_statuses_list); exclude* invert. created*/updated*: ISO datetime. sort: [-]createdAt|updatedAt|priority. search: title substring; assigneeId null = unassigned.`,
       inputSchema: strictInput({
         boardId: uuidString.optional(),
         boardIds: z.array(uuidString).optional(),
@@ -938,7 +1015,7 @@ export function registerExponentialTools(
               : issues.createdAt
 
         const rows = await db
-          .select()
+          .select(issueWireColumns)
           .from(issues)
           .where(and(...conditions))
           // createdAt then id break ties so pages never overlap.
@@ -970,7 +1047,7 @@ export function registerExponentialTools(
         assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
         await resolveTeamAccess(user.id, ctxIssue.teamId)
         const [issue] = await db
-          .select()
+          .select(issueWireColumns)
           .from(issues)
           .where(eq(issues.id, id))
           .limit(1)
@@ -1046,9 +1123,9 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_update`,
     {
-      description: `Update an issue's fields. Pass only the fields you want to change. For a custom status pass statusId (not status); see exponential_statuses_list.`,
+      description: `Update an issue's fields (by UUID or identifier, e.g. "MET-12"). Pass only the fields you want to change. For a custom status pass statusId (not status); see exponential_statuses_list.`,
       inputSchema: strictInput({
-        id: uuidString,
+        id: z.string().min(1),
         title: z.string().min(1).max(500).optional(),
         status: issueStatusEnumSchema.optional(),
         statusId: uuidString.optional(),
@@ -1063,14 +1140,18 @@ export function registerExponentialTools(
         dueDate: dateOnly.nullable().optional(),
       }),
     },
-    async (input) => {
+    async ({ id: idOrIdentifier, ...rest }) => {
       try {
+        const id = await resolveIssueId(idOrIdentifier, user.id, access)
         if (!access.full) {
-          const ctxIssue = await getIssueTeamContext(input.id)
+          const ctxIssue = await getIssueTeamContext(id)
           assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
         }
-        const result = await caller(user, request).issues.update(input)
-        noteAgentIssueActivity(input.id, user.id)
+        const result = await caller(user, request).issues.update({
+          id,
+          ...rest,
+        })
+        noteAgentIssueActivity(id, user.id)
         return ok(result.issue)
       } catch (e) {
         return err(e)
@@ -1081,11 +1162,14 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_delete`,
     {
-      description: `Permanently delete an issue. Cascades to its labels, attachments, comments, and relations. Attachment storage objects are also removed.`,
-      inputSchema: strictInput({ id: uuidString }),
+      description: `Permanently delete an issue (by UUID or identifier). Cascades to its labels, attachments, comments, and relations. Attachment storage objects are also removed.`,
+      inputSchema: strictInput({ id: z.string().min(1) }),
     },
-    async (input) => {
+    async (rawInput) => {
       try {
+        const input = {
+          id: await resolveIssueId(rawInput.id, user.id, access),
+        }
         if (!access.full) {
           const ctxIssue = await getIssueTeamContext(input.id)
           assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
@@ -1202,9 +1286,9 @@ export function registerExponentialTools(
     `exponential_labels_list`,
     {
       description: `List labels for a team.`,
-      inputSchema: strictInput({ teamId: uuidString }),
+      inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
-    async ({ teamId }) => {
+    async ({ teamId, limit, offset }) => {
       try {
         // Labels are team-level but issue workflows in a granted board
         // need them, so a visible (board-granted) team suffices to read.
@@ -1215,6 +1299,8 @@ export function registerExponentialTools(
           .from(labels)
           .where(eq(labels.teamId, teamId))
           .orderBy(asc(labels.sortOrder), asc(labels.name))
+          .limit(limit)
+          .offset(offset)
         return ok(rows)
       } catch (e) {
         return err(e)
@@ -1252,10 +1338,7 @@ export function registerExponentialTools(
       inputSchema: strictInput({
         teamId: uuidString,
         name: z.string().min(1).max(255),
-        color: z
-          .string()
-          .regex(/^#[0-9a-fA-F]{6}$/)
-          .default(`#6366f1`),
+        color: hexColorSchema.default(DEFAULT_ACCENT_COLOR),
       }),
     },
     async (input) => {
@@ -1274,22 +1357,23 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_labels_update`,
     {
-      description: `Update a label's name or color.`,
+      description: `Update a label's name or color (by its UUID). Returns the updated label.`,
       inputSchema: strictInput({
-        teamId: uuidString,
-        labelId: uuidString,
+        id: uuidString,
         name: z.string().min(1).max(255).optional(),
-        color: z
-          .string()
-          .regex(/^#[0-9a-fA-F]{6}$/)
-          .optional(),
+        color: hexColorSchema.optional(),
       }),
     },
-    async (input) => {
+    async ({ id, ...rest }) => {
       try {
-        assertTeamFullyGranted(access, input.teamId)
-        await caller(user, request).labels.update(input)
-        return ok({ ok: true })
+        const { teamId } = await getLabelContext(id)
+        assertTeamFullyGranted(access, teamId)
+        const result = await caller(user, request).labels.update({
+          teamId,
+          labelId: id,
+          ...rest,
+        })
+        return ok(result.label)
       } catch (e) {
         return err(e)
       }
@@ -1299,17 +1383,15 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_labels_delete`,
     {
-      description: `Delete a label from a team.`,
-      inputSchema: strictInput({
-        teamId: uuidString,
-        labelId: uuidString,
-      }),
+      description: `Delete a label (by its UUID).`,
+      inputSchema: strictInput({ id: uuidString }),
     },
-    async (input) => {
+    async ({ id }) => {
       try {
-        assertTeamFullyGranted(access, input.teamId)
-        await caller(user, request).labels.delete(input)
-        return ok({ ok: true })
+        const { teamId } = await getLabelContext(id)
+        assertTeamFullyGranted(access, teamId)
+        await caller(user, request).labels.delete({ teamId, labelId: id })
+        return ok({ ok: true, id })
       } catch (e) {
         return err(e)
       }
@@ -1323,19 +1405,20 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issue_labels_add`,
     {
-      description: `Attach a label to an issue (teams must match).`,
+      description: `Attach a label to an issue (UUID or identifier; teams must match).`,
       inputSchema: strictInput({
-        issueId: uuidString,
+        issueId: z.string().min(1),
         labelId: uuidString,
       }),
     },
-    async (input) => {
+    async ({ issueId: issueIdInput, labelId }) => {
       try {
+        const issueId = await resolveIssueId(issueIdInput, user.id, access)
         if (!access.full) {
-          const ctxIssue = await getIssueTeamContext(input.issueId)
+          const ctxIssue = await getIssueTeamContext(issueId)
           assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
         }
-        await caller(user, request).issueLabels.add(input)
+        await caller(user, request).issueLabels.add({ issueId, labelId })
         return ok({ ok: true })
       } catch (e) {
         return err(e)
@@ -1346,19 +1429,20 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issue_labels_remove`,
     {
-      description: `Detach a label from an issue.`,
+      description: `Detach a label from an issue (UUID or identifier).`,
       inputSchema: strictInput({
-        issueId: uuidString,
+        issueId: z.string().min(1),
         labelId: uuidString,
       }),
     },
-    async (input) => {
+    async ({ issueId: issueIdInput, labelId }) => {
       try {
+        const issueId = await resolveIssueId(issueIdInput, user.id, access)
         if (!access.full) {
-          const ctxIssue = await getIssueTeamContext(input.issueId)
+          const ctxIssue = await getIssueTeamContext(issueId)
           assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
         }
-        await caller(user, request).issueLabels.remove(input)
+        await caller(user, request).issueLabels.remove({ issueId, labelId })
         return ok({ ok: true })
       } catch (e) {
         return err(e)
@@ -1388,7 +1472,7 @@ export function registerExponentialTools(
         assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
         await resolveTeamAccess(user.id, ctxIssue.teamId)
         const rows = await db
-          .select()
+          .select(commentWireColumns)
           .from(comments)
           .where(eq(comments.issueId, issueId))
           .orderBy(asc(comments.createdAt))
@@ -1434,10 +1518,11 @@ export function registerExponentialTools(
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         issueId: z.string().min(1),
-        body: z.string().min(1).max(10_000).describe(`Plain GFM text`),
+        body: z.string().trim().min(1).max(10_000).describe(`Plain GFM text`),
+        attachmentIds: z.array(uuidString).max(10).optional(),
       }),
     },
-    async ({ issueId: issueIdInput, body }) => {
+    async ({ issueId: issueIdInput, body, attachmentIds }) => {
       try {
         const issueId = await resolveIssueId(issueIdInput, user.id, access)
         if (!access.full) {
@@ -1447,6 +1532,7 @@ export function registerExponentialTools(
         const result = await caller(user, request).comments.create({
           issueId,
           body,
+          ...(attachmentIds ? { attachmentIds } : {}),
         })
         noteAgentIssueActivity(issueId, user.id)
         return ok(result.comment)
@@ -1463,21 +1549,29 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_update_status`,
     {
-      description: `Set an issue's status during a coding session (UUID or identifier). Only 'in_progress' (started working) and 'done' (work merged) are allowed. Never set 'in_review' yourself. Both exponential_pr_open and PR merges move issues to the team's configured statuses automatically.`,
+      description: `Set an issue's status (UUID or identifier). Pass status (builtin enum) or statusId (a team status row from exponential_statuses_list). Status changes are normally AUTOMATIC — PR open/merge apply the team's configured status automation — so set one directly only when the user explicitly asks.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
-        issueId: z.string().min(1),
-        status: z.enum([`in_progress`, `done`]),
+        id: z.string().min(1),
+        status: issueStatusEnumSchema.optional(),
+        statusId: uuidString.optional(),
       }),
     },
-    async ({ issueId, status }) => {
+    async ({ id: idOrIdentifier, status, statusId }) => {
       try {
-        const id = await resolveIssueId(issueId, user.id, access)
+        if ((status === undefined) === (statusId === undefined)) {
+          throw new Error(`Pass exactly one of status or statusId`)
+        }
+        const id = await resolveIssueId(idOrIdentifier, user.id, access)
         if (!access.full) {
           const ctxIssue = await getIssueTeamContext(id)
           assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
         }
-        const result = await caller(user, request).issues.update({ id, status })
+        const result = await caller(user, request).issues.update({
+          id,
+          status,
+          statusId,
+        })
         noteAgentIssueActivity(id, user.id)
         return ok(result.issue)
       } catch (e) {
@@ -1495,15 +1589,9 @@ export function registerExponentialTools(
       description: `Create a custom issue status in a category (never duplicate; started allows at most 4 rows per team). Names are unique per team, color is #rrggbb. Team members only; ids via exponential_statuses_list.`,
       inputSchema: strictInput({
         teamId: uuidString,
-        category: z.enum([
-          `backlog`,
-          `unstarted`,
-          `started`,
-          `completed`,
-          `cancelled`,
-        ]),
+        category: z.enum(customizableStatusCategoryValues),
         name: z.string().min(1).max(255),
-        color: z.string().regex(/^#[0-9a-fA-F]{6}$/, `Expected #rrggbb`),
+        color: hexColorSchema,
       }),
     },
     async (input) => {
@@ -1520,22 +1608,23 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_statuses_update`,
     {
-      description: `Rename or recolor a custom issue status. Builtin statuses (builtinKey set) are locked and the category is immutable. Team members only.`,
+      description: `Rename or recolor a custom issue status (by its UUID). Builtin statuses (builtinKey set) are locked and the category is immutable. Team members only. Returns the updated status.`,
       inputSchema: strictInput({
-        teamId: uuidString,
-        statusId: uuidString,
+        id: uuidString,
         name: z.string().min(1).max(255).optional(),
-        color: z
-          .string()
-          .regex(/^#[0-9a-fA-F]{6}$/, `Expected #rrggbb`)
-          .optional(),
+        color: hexColorSchema.optional(),
       }),
     },
-    async (input) => {
+    async ({ id, ...rest }) => {
       try {
-        assertTeamFullyGranted(access, input.teamId)
-        await caller(user, request).statuses.update(input)
-        return ok({ ok: true, statusId: input.statusId })
+        const { teamId } = await getStatusContext(id)
+        assertTeamFullyGranted(access, teamId)
+        const result = await caller(user, request).statuses.update({
+          teamId,
+          statusId: id,
+          ...rest,
+        })
+        return ok(result.status)
       } catch (e) {
         return err(e)
       }
@@ -1545,20 +1634,24 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_statuses_delete`,
     {
-      description: `Delete a custom issue status. Builtins refuse. When issues still use it the call fails with their count until reassignToId names a same-team replacement (not duplicate). Team members only.`,
+      description: `Delete a custom issue status (by its UUID). Builtins refuse. When issues still use it the call fails with their count until reassignToId names a same-team replacement (not duplicate). Team members only.`,
       inputSchema: strictInput({
-        teamId: uuidString,
-        statusId: uuidString,
+        id: uuidString,
         reassignToId: uuidString.optional(),
       }),
     },
-    async (input) => {
+    async ({ id, reassignToId }) => {
       try {
-        assertTeamFullyGranted(access, input.teamId)
-        const result = await caller(user, request).statuses.delete(input)
+        const { teamId } = await getStatusContext(id)
+        assertTeamFullyGranted(access, teamId)
+        const result = await caller(user, request).statuses.delete({
+          teamId,
+          statusId: id,
+          reassignToId,
+        })
         return ok({
           ok: true,
-          statusId: input.statusId,
+          id,
           reassigned: result.reassigned,
           reassignedToId: result.reassignedToId,
         })
@@ -1572,9 +1665,9 @@ export function registerExponentialTools(
     `exponential_statuses_list`,
     {
       description: `List a team's issue statuses (id, name, category, color, position, builtinKey). Use id as statusId in exponential_issues_update.`,
-      inputSchema: strictInput({ teamId: uuidString }),
+      inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
-    async ({ teamId }) => {
+    async ({ teamId, limit, offset }) => {
       try {
         // Team-level read like labels: a visible (board-granted) team
         // suffices, membership is still checked.
@@ -1610,18 +1703,22 @@ export function registerExponentialTools(
         )
         const positions = new Map<string, number>()
         return ok(
-          rows.map((row) => {
-            const position = (positions.get(row.category) ?? 0) + 1
-            positions.set(row.category, position)
-            return {
-              id: row.id,
-              name: row.name,
-              category: row.category,
-              color: row.color,
-              position,
-              builtinKey: row.builtinKey,
-            }
-          })
+          page(
+            rows.map((row) => {
+              const position = (positions.get(row.category) ?? 0) + 1
+              positions.set(row.category, position)
+              return {
+                id: row.id,
+                name: row.name,
+                category: row.category,
+                color: row.color,
+                position,
+                builtinKey: row.builtinKey,
+              }
+            }),
+            limit,
+            offset
+          )
         )
       } catch (e) {
         return err(e)
@@ -1907,7 +2004,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end, except YOUR OWN session, which keeps running (it ends on its own exit or close-out). Merges run sequentially with per-PR results; one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
+      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end, except YOUR OWN session, which keeps running (it ends on its own exit or close-out). Merges run sequentially; each results[] element carries 'merged' + optional 'error', plus issueId/identifier (issue path) or repositoryId/prNumber (chore path) — one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         issueId: z.string().min(1).optional(),
@@ -2183,7 +2280,7 @@ export function registerExponentialTools(
           base,
         })
         noteAgentIssueActivity(id, user.id)
-        return ok({ retargeted: true, base: result.base })
+        return ok({ ok: true, base: result.base })
       } catch (e) {
         return err(e)
       }
@@ -2328,7 +2425,7 @@ export function registerExponentialTools(
         teamId: uuidString.optional(),
         status: z.enum([`running`, `in_review`, `ended`]).optional(),
         mine: z.boolean().default(false),
-        limit: z.number().int().min(1).max(100).default(50),
+        limit: z.number().int().min(1).max(200).default(50),
         offset: z.number().int().min(0).default(0),
       }),
     },
@@ -2469,7 +2566,7 @@ export function registerExponentialTools(
         // Owner-or-host, idempotency and the best-effort relay kill all live
         // in steer.killSession; its row is projected — never returned raw.
         const result = await caller(user, request).steer.killSession({
-          codingSessionId: id,
+          sessionId: id,
         })
         return ok({
           ok: true,
@@ -2490,13 +2587,13 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_message`,
     {
-      description: `Send text into a live coding session you own or host; it arrives as user input to that agent, prefixed with its source. Use it to answer a child run's exponential_sessions_ask_parent question (sessionId = the child's session UUID from the bracketed message) or to steer a run you started. Never your own session.`,
+      description: `Send text into a live coding session you own or host; it arrives as user input to that agent, prefixed with its source. Use it to answer a child run's exponential_sessions_ask_parent question (id = the child's session UUID from the bracketed message) or to steer a run you started. Never your own session.`,
       inputSchema: strictInput({
-        sessionId: uuidString,
+        id: uuidString,
         message: z.string().min(1).max(4_000),
       }),
     },
-    async ({ sessionId: targetId, message }) => {
+    async ({ id: targetId, message }) => {
       try {
         if (sessionId && targetId === sessionId) {
           throw new Error(
@@ -2541,7 +2638,7 @@ export function registerExponentialTools(
             `Not delivered: the session's device is not connected to the relay. The run may still be starting or its device offline; retry, or fall back to exponential_sessions_get.`
           )
         }
-        return ok({ ok: true, sessionId: targetId, delivered: true })
+        return ok({ ok: true, id: targetId, delivered: true })
       } catch (e) {
         return err(e)
       }
@@ -2561,7 +2658,7 @@ export function registerExponentialTools(
       inputSchema: strictInput({
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
-        issueIds: z.array(uuidString).min(2).max(30).optional(),
+        issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
         actionId: z.string().min(1).optional(),
         teamId: uuidString.optional(),
         inputs: z.record(z.string(), z.string()).optional(),
@@ -2577,6 +2674,7 @@ export function registerExponentialTools(
       try {
         const startedAfter = new Date()
         let issueId: string | undefined
+        let issueIds: string[] | undefined
         // The row the device will create, by subject — what the poll below
         // keys on besides user, device and freshness.
         let match: SQL | undefined
@@ -2586,8 +2684,12 @@ export function registerExponentialTools(
           assertBoardGranted(access, ctx.boardId, ctx.teamId)
           match = eq(codingSessions.issueId, issueId)
         } else if (input.issueIds) {
+          // EXP-707: identifiers accepted here like pr_open/pr_merge.
+          issueIds = await Promise.all(
+            input.issueIds.map((id) => resolveIssueId(id, user.id, access))
+          )
           const contexts = await Promise.all(
-            input.issueIds.map((id) => getIssueTeamContext(id))
+            issueIds.map((id) => getIssueTeamContext(id))
           )
           for (const ctx of contexts) {
             assertBoardGranted(access, ctx.boardId, ctx.teamId)
@@ -2644,6 +2746,7 @@ export function registerExponentialTools(
         await caller(user, request).steer.startSession({
           ...input,
           issueId,
+          issueIds,
           // EXP-679: a run started from inside a run is that run's child.
           ...(sessionId ? { parentSessionId: sessionId } : {}),
         })
@@ -2725,9 +2828,12 @@ export function registerExponentialTools(
     `exponential_devices_list`,
     {
       description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended run.`,
-      inputSchema: strictInput({ teamId: uuidString.optional() }),
+      inputSchema: strictInput({
+        teamId: uuidString.optional(),
+        ...pageInput,
+      }),
     },
-    async ({ teamId }) => {
+    async ({ teamId, limit, offset }) => {
       try {
         // Shared rows name teammates' machines and agents — team-level
         // operational data, gated like actions_list, and readable only by a
@@ -2755,7 +2861,7 @@ export function registerExponentialTools(
         )
 
         return ok(
-          list.map((device) => ({
+          page(list, limit, offset).map((device) => ({
             deviceId: device.deviceId,
             label: device.deviceLabel,
             kind: device.kind,
@@ -2793,10 +2899,11 @@ export function registerExponentialTools(
       description: `Edit the body of an existing comment (by its UUID). Only the comment's author can edit it. Body is plain text; the edit stamps editedAt.`,
       inputSchema: strictInput({
         id: uuidString,
-        body: z.string().min(1).max(10_000).describe(`Plain GFM text`),
+        body: z.string().trim().min(1).max(10_000).describe(`Plain GFM text`),
+        attachmentIds: z.array(uuidString).max(10).optional(),
       }),
     },
-    async ({ id, body }) => {
+    async ({ id, body, attachmentIds }) => {
       try {
         if (!access.full) {
           const ctxIssue = await getCommentIssueContext(id)
@@ -2805,6 +2912,7 @@ export function registerExponentialTools(
         const result = await caller(user, request).comments.update({
           id,
           body,
+          ...(attachmentIds ? { attachmentIds } : {}),
         })
         return ok(result.comment)
       } catch (e) {
@@ -2906,7 +3014,7 @@ export function registerExponentialTools(
         if (unreadOnly) conditions.push(isNull(notifications.readAt))
         if (access.full) {
           const rows = await db
-            .select()
+            .select(notificationWireColumns)
             .from(notifications)
             .where(and(...conditions))
             .orderBy(desc(notifications.createdAt))
@@ -2928,7 +3036,7 @@ export function registerExponentialTools(
         if (grantFilter === GRANT_MATCHES_NOTHING) return ok([])
         if (grantFilter) conditions.push(grantFilter)
         const rows = await db
-          .select({ notification: notifications })
+          .select({ notification: notificationWireColumns })
           .from(notifications)
           .innerJoin(issues, eq(notifications.issueId, issues.id))
           .innerJoin(boards, eq(issues.boardId, boards.id))
@@ -2990,18 +3098,21 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_members_list`,
     {
-      description: `List the members of a team with their id, name, email, and role. Use this to resolve an assigneeId for issues.`,
+      description: `List the members of a team. id is the USER id (use it for assigneeId); memberId is the team_members row id (what teamMembers.updateRole/remove take).`,
       inputSchema: strictInput({
         teamId: uuidString,
+        limit: z.number().int().min(1).max(200).default(50),
+        offset: z.number().int().min(0).default(0),
       }),
     },
-    async ({ teamId }) => {
+    async ({ teamId, limit, offset }) => {
       try {
         assertTeamVisible(access, teamId)
         await resolveTeamAccess(user.id, teamId)
         const rows = await db
           .select({
             id: users.id,
+            memberId: teamMembers.id,
             name: users.name,
             email: users.email,
             image: users.image,
@@ -3011,6 +3122,8 @@ export function registerExponentialTools(
           .innerJoin(users, eq(users.id, teamMembers.userId))
           .where(eq(teamMembers.teamId, teamId))
           .orderBy(asc(users.name))
+          .limit(limit)
+          .offset(offset)
         return ok(rows)
       } catch (e) {
         return err(e)
@@ -3026,24 +3139,28 @@ export function registerExponentialTools(
     `exponential_repositories_list`,
     {
       description: `List the repositories registered in a team, each with the boards it backs. The MCP user must be a member of the team.`,
-      inputSchema: strictInput({ teamId: uuidString }),
+      inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
-    async ({ teamId }) => {
+    async ({ teamId, limit, offset }) => {
       try {
         assertTeamVisible(access, teamId)
         const result = await caller(user, request).repositories.list({
           teamId,
         })
-        if (access.full) return ok(result)
+        if (access.full) return ok(page(result, limit, offset))
         // Each repo rides with the boards it backs — a board-scoped
         // grant must not enumerate ungranted sibling boards through them.
         return ok(
-          result.map((repo) => ({
-            ...repo,
-            boards: repo.boards.filter((p) =>
-              isBoardGranted(access, p.id, teamId)
-            ),
-          }))
+          page(
+            result.map((repo) => ({
+              ...repo,
+              boards: repo.boards.filter((p) =>
+                isBoardGranted(access, p.id, teamId)
+              ),
+            })),
+            limit,
+            offset
+          )
         )
       } catch (e) {
         return err(e)
@@ -3109,9 +3226,9 @@ export function registerExponentialTools(
     `exponential_actions_list`,
     {
       description: `List a team's actions: reusable markdown prompts run as interactive agent sessions on a member's own desktop. Team members only.`,
-      inputSchema: strictInput({ teamId: uuidString }),
+      inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
-    async ({ teamId }) => {
+    async ({ teamId, limit, offset }) => {
       try {
         // FULL team grant even for the read: action bodies are locally
         // executed operational prompts, not board-workflow aux data — a
@@ -3122,11 +3239,17 @@ export function registerExponentialTools(
         // EXP-539: actions.list stopped appending the virtual builtins
         // (native clients construct them locally); agents still need them
         // listed, so this tool appends both.
-        return ok([
-          ...result.actions,
-          builtinCreateAction(teamId),
-          builtinFixConflictsAction(teamId),
-        ])
+        return ok(
+          page(
+            [
+              ...result.actions,
+              builtinCreateAction(teamId),
+              builtinFixConflictsAction(teamId),
+            ],
+            limit,
+            offset
+          )
+        )
       } catch (e) {
         return err(e)
       }
@@ -3221,9 +3344,11 @@ export function registerExponentialTools(
         actionId: uuidString,
         deviceId: z.string().min(1).max(128),
         trigger: z.record(z.string(), z.unknown()),
-        agent: z.string().max(16).optional(),
-        model: z.string().max(64).optional(),
-        effort: z.string().max(32).optional(),
+        // Null and absent both mean the device's launch defaults — the same
+        // nullability contract as automations_update (EXP-707 theme F).
+        agent: z.enum(codingAgentValues).nullable().optional(),
+        model: z.string().max(64).nullable().optional(),
+        effort: z.string().max(32).nullable().optional(),
       }),
     },
     async (input) => {
@@ -3234,8 +3359,6 @@ export function registerExponentialTools(
         const trigger = automationTriggerSchema.parse(input.trigger)
         const result = await caller(user, request).automations.create({
           ...input,
-          // The router's enum rejects unknown agents with a readable error.
-          agent: input.agent as `claude` | `codex` | `pi` | undefined,
           trigger,
         })
         return ok(result.automation)
@@ -3252,15 +3375,15 @@ export function registerExponentialTools(
     `exponential_automations_list`,
     {
       description: `List a team's automations: which action runs on which device, its trigger (schedule or issue event), launch agent/model/effort and whether it is enabled. Team members only.`,
-      inputSchema: strictInput({ teamId: uuidString }),
+      inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
-    async ({ teamId }) => {
+    async ({ teamId, limit, offset }) => {
       try {
         // Rows name devices and locally executed actions — team-level
         // operational data, gated like actions_list.
         if (!access.full) assertTeamFullyGranted(access, teamId)
         const result = await caller(user, request).automations.list({ teamId })
-        return ok(result.automations)
+        return ok(page(result.automations, limit, offset))
       } catch (e) {
         return err(e)
       }
@@ -3278,7 +3401,7 @@ export function registerExponentialTools(
         trigger: z.record(z.string(), z.unknown()).optional(),
         enabled: z.boolean().optional(),
         sortOrder: z.number().finite().optional(),
-        agent: z.string().max(16).nullable().optional(),
+        agent: z.enum(codingAgentValues).nullable().optional(),
         model: z.string().max(64).nullable().optional(),
         effort: z.string().max(32).nullable().optional(),
       }),
@@ -3297,7 +3420,6 @@ export function registerExponentialTools(
             : automationTriggerSchema.parse(input.trigger)
         const result = await caller(user, request).automations.update({
           ...input,
-          agent: input.agent as `claude` | `codex` | `pi` | null | undefined,
           trigger,
         })
         return ok(result.automation)
@@ -3382,17 +3504,17 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_delete`,
     {
-      description: `Move a board to the trash (owner only; protected boards refuse). Purged with all issues after 48 hours; owners can restore from web settings before then.`,
-      inputSchema: strictInput({ boardId: uuidString }),
+      description: `Move a board to the trash (owner only; by its UUID). Purged with all issues after 48 hours; owners can restore from web settings before then.`,
+      inputSchema: strictInput({ id: uuidString }),
     },
-    async ({ boardId }) => {
+    async ({ id }) => {
       try {
         if (!access.full) {
-          const board = await getBoardTeamId(boardId)
+          const board = await getBoardTeamId(id)
           assertBoardGranted(access, board.id, board.teamId)
         }
-        await caller(user, request).boards.delete({ boardId })
-        return ok({ ok: true, boardId })
+        await caller(user, request).boards.delete({ boardId: id })
+        return ok({ ok: true, id })
       } catch (e) {
         return err(e)
       }
@@ -3402,16 +3524,16 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_set_repository`,
     {
-      description: `Point a board at a different registered repository (both must be in the same team). Owner/admin only. Existing worktrees keep working; new coding sessions use the new repo.`,
+      description: `Point a board (by its UUID) at a different registered repository (both must be in the same team), or pass repositoryId: null to detach it. Owner/admin only. Existing worktrees keep working; new coding sessions use the new repo.`,
       inputSchema: strictInput({
-        boardId: uuidString,
-        repositoryId: uuidString,
+        id: uuidString,
+        repositoryId: uuidString.nullable(),
       }),
     },
-    async (input) => {
+    async ({ id, repositoryId }) => {
       try {
         if (!access.full) {
-          const board = await getBoardTeamId(input.boardId)
+          const board = await getBoardTeamId(id)
           // Retargeting widens the token's GitHub reach to ANY repo in the
           // team registry (pr_open / pr_files / branch_diff then reach
           // the new repo through the granted board's issues) — so this is
@@ -3419,7 +3541,10 @@ export function registerExponentialTools(
           // a board-scoped one.
           assertTeamFullyGranted(access, board.teamId)
         }
-        const result = await caller(user, request).boards.setRepository(input)
+        const result = await caller(user, request).boards.setRepository({
+          boardId: id,
+          repositoryId,
+        })
         return ok(result.board)
       } catch (e) {
         return err(e)
@@ -3462,10 +3587,13 @@ export function registerExponentialTools(
         iconUrl: z.string().url().max(2048).nullable().optional(),
       }),
     },
-    async (input) => {
+    async ({ id, ...rest }) => {
       try {
-        assertTeamFullyGranted(access, input.id)
-        const result = await caller(user, request).teams.update(input)
+        assertTeamFullyGranted(access, id)
+        const result = await caller(user, request).teams.update({
+          teamId: id,
+          ...rest,
+        })
         return ok(result.team)
       } catch (e) {
         return err(e)
@@ -3480,17 +3608,22 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_invites_create`,
     {
-      description: `Create an invite link for a team, returning the token to share. Owner only.`,
+      description: `Create an invite link for a team, returning the token to share. Owner only. Pass email to have the server mail the link (emailDelivered reports the attempt).`,
       inputSchema: strictInput({
         teamId: uuidString,
         role: z.enum([`owner`, `member`]).default(`member`),
+        email: z.string().email().max(255).optional(),
       }),
     },
     async (input) => {
       try {
         assertTeamFullyGranted(access, input.teamId)
         const result = await caller(user, request).teamInvites.create(input)
-        return ok({ invite: result.invite, token: result.token })
+        return ok({
+          invite: result.invite,
+          token: result.token,
+          emailDelivered: result.emailDelivered,
+        })
       } catch (e) {
         return err(e)
       }
@@ -3501,15 +3634,15 @@ export function registerExponentialTools(
     `exponential_invites_list`,
     {
       description: `List the pending (unaccepted) invites for a team. The MCP user must be a member of the team.`,
-      inputSchema: strictInput({ teamId: uuidString }),
+      inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
-    async ({ teamId }) => {
+    async ({ teamId, limit, offset }) => {
       try {
         assertTeamFullyGranted(access, teamId)
         const result = await caller(user, request).teamInvites.list({
           teamId,
         })
-        return ok(result.invites)
+        return ok(page(result.invites, limit, offset))
       } catch (e) {
         return err(e)
       }
@@ -3694,8 +3827,8 @@ export function registerExponentialTools(
         inputSchema: strictInput({
           teamId: uuidString,
           filter: z.enum([`open`, `resolved`]).default(`open`),
-          limit: z.number().int().min(1).max(100).default(50),
-          cursor: z.string().optional(),
+          limit: z.number().int().min(1).max(200).default(50),
+          cursor: isoDateTime.optional(),
         }),
       },
       async (input) => {
@@ -3723,15 +3856,15 @@ export function registerExponentialTools(
       `exponential_helpdesk_threads_get`,
       {
         description: `Get a support ticket with its full conversation (public replies and internal notes, each with its email delivery status) and the escalated issue if any.`,
-        inputSchema: strictInput({ threadId: uuidString }),
+        inputSchema: strictInput({ id: uuidString }),
       },
-      async ({ threadId }) => {
+      async ({ id }) => {
         try {
-          const thread = await getSupportThreadContext(threadId)
+          const thread = await getSupportThreadContext(id)
           assertTeamFullyGranted(access, thread.teamId)
           assertHelpdeskEnabled(thread.helpdeskEnabled)
           const result = await caller(user, request).helpdesk.getThread({
-            threadId,
+            threadId: id,
           })
           return ok(result)
         } catch (e) {
@@ -3745,16 +3878,19 @@ export function registerExponentialTools(
       {
         description: `Post a public reply on a support ticket: the reporter sees it on their magic-link page and gets it emailed (once they have opened the link and are not viewing right now). Replying to a resolved ticket reopens it.`,
         inputSchema: strictInput({
-          threadId: uuidString,
+          id: uuidString,
           body: z.string().trim().min(1).max(10_000),
         }),
       },
-      async (input) => {
+      async ({ id, body }) => {
         try {
-          const thread = await getSupportThreadContext(input.threadId)
+          const thread = await getSupportThreadContext(id)
           assertTeamFullyGranted(access, thread.teamId)
           assertHelpdeskEnabled(thread.helpdeskEnabled)
-          const result = await caller(user, request).helpdesk.reply(input)
+          const result = await caller(user, request).helpdesk.reply({
+            threadId: id,
+            body,
+          })
           return ok(result)
         } catch (e) {
           return err(e)
@@ -3767,16 +3903,19 @@ export function registerExponentialTools(
       {
         description: `Add an internal note to a support ticket: visible to team members only, never emailed, never shown to the reporter.`,
         inputSchema: strictInput({
-          threadId: uuidString,
+          id: uuidString,
           body: z.string().trim().min(1).max(10_000),
         }),
       },
-      async (input) => {
+      async ({ id, body }) => {
         try {
-          const thread = await getSupportThreadContext(input.threadId)
+          const thread = await getSupportThreadContext(id)
           assertTeamFullyGranted(access, thread.teamId)
           assertHelpdeskEnabled(thread.helpdeskEnabled)
-          const result = await caller(user, request).helpdesk.note(input)
+          const result = await caller(user, request).helpdesk.note({
+            threadId: id,
+            body,
+          })
           return ok(result.message)
         } catch (e) {
           return err(e)
@@ -3788,15 +3927,15 @@ export function registerExponentialTools(
       `exponential_helpdesk_close`,
       {
         description: `Resolve a support ticket: the transcript stays readable but the reporter's magic link stops accepting replies. An escalated issue is untouched.`,
-        inputSchema: strictInput({ threadId: uuidString }),
+        inputSchema: strictInput({ id: uuidString }),
       },
-      async ({ threadId }) => {
+      async ({ id }) => {
         try {
-          const thread = await getSupportThreadContext(threadId)
+          const thread = await getSupportThreadContext(id)
           assertTeamFullyGranted(access, thread.teamId)
           assertHelpdeskEnabled(thread.helpdeskEnabled)
-          await caller(user, request).helpdesk.close({ threadId })
-          return ok({ ok: true, threadId })
+          await caller(user, request).helpdesk.close({ threadId: id })
+          return ok({ ok: true, id })
         } catch (e) {
           return err(e)
         }
@@ -3807,15 +3946,15 @@ export function registerExponentialTools(
       `exponential_helpdesk_reopen`,
       {
         description: `Reopen a resolved support ticket; the reporter's existing magic link works again.`,
-        inputSchema: strictInput({ threadId: uuidString }),
+        inputSchema: strictInput({ id: uuidString }),
       },
-      async ({ threadId }) => {
+      async ({ id }) => {
         try {
-          const thread = await getSupportThreadContext(threadId)
+          const thread = await getSupportThreadContext(id)
           assertTeamFullyGranted(access, thread.teamId)
           assertHelpdeskEnabled(thread.helpdeskEnabled)
-          await caller(user, request).helpdesk.reopen({ threadId })
-          return ok({ ok: true, threadId })
+          await caller(user, request).helpdesk.reopen({ threadId: id })
+          return ok({ ok: true, id })
         } catch (e) {
           return err(e)
         }
@@ -3827,17 +3966,20 @@ export function registerExponentialTools(
       {
         description: `File an issue from a support ticket on a board of the ticket's team and link them (one escalation per ticket). The issue opens with the reporter's message as its description; title defaults to the ticket's.`,
         inputSchema: strictInput({
-          threadId: uuidString,
+          id: uuidString,
           boardId: uuidString,
           title: z.string().trim().min(1).max(500).optional(),
         }),
       },
-      async (input) => {
+      async ({ id, ...rest }) => {
         try {
-          const thread = await getSupportThreadContext(input.threadId)
+          const thread = await getSupportThreadContext(id)
           assertTeamFullyGranted(access, thread.teamId)
           assertHelpdeskEnabled(thread.helpdeskEnabled)
-          const result = await caller(user, request).helpdesk.escalate(input)
+          const result = await caller(user, request).helpdesk.escalate({
+            threadId: id,
+            ...rest,
+          })
           return ok(result.issue)
         } catch (e) {
           return err(e)

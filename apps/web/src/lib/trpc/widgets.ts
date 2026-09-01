@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { hexColorSchema } from "@exp/db-schema/domain"
 import { TRPCError } from "@trpc/server"
 import { and, count, eq, inArray } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
@@ -54,10 +55,7 @@ const launcherPlacementSchema = z.object({
 const formConfigSchema = z
   .object({
     buttonLabel: z.string().trim().max(40).optional(),
-    accentColor: z
-      .string()
-      .regex(/^#[0-9a-fA-F]{6}$/)
-      .optional(),
+    accentColor: hexColorSchema.optional(),
     // Legacy two-value launcher position, still written by the dialog
     // (derived from the desktop launcher setting) for cached pre-EXP-569
     // widget bundles; `launcher` is the current field.

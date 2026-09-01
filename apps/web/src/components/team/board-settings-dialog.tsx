@@ -53,7 +53,7 @@ export function BoardSettingsDialog({
   const saveName = (target: Board) => {
     const trimmed = name.trim()
     if (!trimmed || trimmed === target.name) return
-    void trpc.boards.update.mutate({ id: target.id, name: trimmed })
+    void trpc.boards.update.mutate({ boardId: target.id, name: trimmed })
   }
 
   const applyRepo = async (repositoryId: string) => {
@@ -129,7 +129,7 @@ export function BoardSettingsDialog({
               onBlur={() => saveName(board)}
               icon={getBoardIconName(board)}
               onIconChange={(icon) =>
-                void trpc.boards.update.mutate({ id: board.id, icon })
+                void trpc.boards.update.mutate({ boardId: board.id, icon })
               }
               color={board.color}
             />
@@ -149,7 +149,7 @@ export function BoardSettingsDialog({
             <BoardColorField
               color={board.color}
               onColorChange={(color) =>
-                void trpc.boards.update.mutate({ id: board.id, color })
+                void trpc.boards.update.mutate({ boardId: board.id, color })
               }
             />
 

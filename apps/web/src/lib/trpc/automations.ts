@@ -248,7 +248,7 @@ export const automationsRouter = router({
       await assertFiltersInTeam(input.trigger, input.teamId)
 
       return await ctx.db.transaction(async (tx) => {
-        const txid = await generateTxId(tx)
+        const txId = await generateTxId(tx)
         const [last] = await tx
           .select({ sortOrder: automations.sortOrder })
           .from(automations)
@@ -269,7 +269,7 @@ export const automationsRouter = router({
             sortOrder: (last?.sortOrder ?? 0) + 1,
           })
           .returning(wireColumns)
-        return { automation: automation!, txid }
+        return { automation: automation!, txId }
       })
     }),
 
@@ -321,7 +321,7 @@ export const automationsRouter = router({
       if (input.trigger) await assertFiltersInTeam(input.trigger, existing.teamId)
 
       return await ctx.db.transaction(async (tx) => {
-        const txid = await generateTxId(tx)
+        const txId = await generateTxId(tx)
         const [automation] = await tx
           .update(automations)
           .set({
@@ -337,7 +337,7 @@ export const automationsRouter = router({
             message: `Automation not found`,
           })
         }
-        return { automation, txid }
+        return { automation, txId }
       })
     }),
 
@@ -347,9 +347,9 @@ export const automationsRouter = router({
       const existing = await loadAutomation(input.id)
       await assertTeamOwner(ctx.session.user.id, existing.teamId)
       return await ctx.db.transaction(async (tx) => {
-        const txid = await generateTxId(tx)
+        const txId = await generateTxId(tx)
         await tx.delete(automations).where(eq(automations.id, input.id))
-        return { ok: true as const, txid }
+        return { ok: true as const, txId }
       })
     }),
 })

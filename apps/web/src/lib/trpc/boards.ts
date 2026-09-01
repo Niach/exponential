@@ -6,6 +6,8 @@ import { and, eq, isNotNull, isNull, or } from "drizzle-orm"
 import {
   boardIconSchema,
   BOARD_TRASH_RETENTION_MS,
+  DEFAULT_ACCENT_COLOR,
+  hexColorSchema,
 } from "@exp/db-schema/domain"
 import {
   assertBoardMember,
@@ -14,6 +16,7 @@ import {
 } from "@/lib/team-membership"
 import type { db } from "@/db/connection"
 import { connectRepositoryInTx } from "@/lib/trpc/repositories"
+import { uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 
 type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
 
@@ -62,23 +65,6 @@ async function assertRepositoryInTeam(
   return repo.id
 }
 
-// Postgres unique_violation (23505), as surfaced by pg's DatabaseError
-// directly or wrapped in an error cause by drizzle. Returns the violated
-// constraint's name (boards has two: team_id+slug and team_id+prefix; ``
-// when pg omitted it) or null when the error is no unique violation.
-function uniqueViolationConstraint(err: unknown): string | null {
-  if (!err || typeof err !== `object`) return null
-  const candidate = err as {
-    code?: unknown
-    constraint?: unknown
-    cause?: unknown
-  }
-  if (candidate.code === `23505`) {
-    return typeof candidate.constraint === `string` ? candidate.constraint : ``
-  }
-  return uniqueViolationConstraint(candidate.cause)
-}
-
 function slugify(name: string): string {
   return name
     .toLowerCase()
@@ -108,10 +94,7 @@ export const boardsRouter = router({
             /^[A-Za-z][A-Za-z0-9]{0,3}$/,
             `Prefix must be 1-4 letters or digits, starting with a letter`
           ),
-        color: z
-          .string()
-          .regex(/^#[0-9a-fA-F]{6}$/)
-          .optional(),
+        color: hexColorSchema.optional(),
         icon: boardIconSchema.nullish(),
         // Always optional (coding features gate on repo presence). Either
         // target an existing registry repo or connect one inline in the same
@@ -163,7 +146,7 @@ export const boardsRouter = router({
               name: input.name,
               slug,
               prefix: input.prefix.toUpperCase(),
-              color: input.color ?? `#6366f1`,
+              color: input.color ?? DEFAULT_ACCENT_COLOR,
               icon: input.icon ?? null,
               repositoryId,
             })
@@ -256,43 +239,47 @@ export const boardsRouter = router({
       })
     }),
 
+  // EXP-707: the subject param is `boardId` like every sibling (was `id`).
+  // Hard rename — only web + desktop call this, and old desktop builds are
+  // retired via CLIENT_MIN_VERSION_DESKTOP.
   update: authedProcedure
     .input(
       z.object({
-        id: z.string().uuid(),
+        boardId: z.string().uuid(),
         name: z.string().min(1).max(255).optional(),
-        color: z
-          .string()
-          .regex(/^#[0-9a-fA-F]{6}$/)
-          .optional(),
+        color: hexColorSchema.optional(),
         icon: boardIconSchema.nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, ...updates } = input
+      const { boardId, ...updates } = input
 
-      await assertBoardMember(ctx.session.user.id, id)
+      await assertBoardMember(ctx.session.user.id, boardId)
 
       // Every field is optional, so a patch can be effectively empty (a client
       // re-saving an untouched form). Drizzle throws "No values to set" on an
       // empty `.set()`, so read the row back instead — same no-op shape as
-      // issues.update.
+      // issues.update (no txId: nothing changed, nothing to await).
       if (Object.keys(updates).length === 0) {
         const [existing] = await ctx.db
           .select()
           .from(boards)
-          .where(eq(boards.id, id))
+          .where(eq(boards.id, boardId))
           .limit(1)
         return { board: existing! }
       }
 
-      const [board] = await ctx.db
-        .update(boards)
-        .set(updates)
-        .where(eq(boards.id, id))
-        .returning()
+      // EXP-707: txId sync barrier like every other synced-table mutation.
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        const [board] = await tx
+          .update(boards)
+          .set(updates)
+          .where(eq(boards.id, boardId))
+          .returning()
 
-      return { board }
+        return { board, txId }
+      })
     }),
 
   // Soft delete: move the board to the trash. The purge sweep hard-deletes it

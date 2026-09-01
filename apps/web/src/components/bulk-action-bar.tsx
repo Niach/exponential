@@ -119,7 +119,7 @@ export function BulkActionBar({
     runBulk(
       (ids) =>
         trpc.issues.bulkUpdate.mutate({
-          ids,
+          issueIds: ids,
           ...statusUpdatePayload(option),
         }),
       (txId) => issueCollection.utils.awaitTxId(txId)
@@ -127,13 +127,13 @@ export function BulkActionBar({
 
   const applyPriority = (priority: IssuePriority) =>
     runBulk(
-      (ids) => trpc.issues.bulkUpdate.mutate({ ids, priority }),
+      (ids) => trpc.issues.bulkUpdate.mutate({ issueIds: ids, priority }),
       (txId) => issueCollection.utils.awaitTxId(txId)
     )
 
   const applyAssignee = (assigneeId: string | null) =>
     runBulk(
-      (ids) => trpc.issues.bulkUpdate.mutate({ ids, assigneeId }),
+      (ids) => trpc.issues.bulkUpdate.mutate({ issueIds: ids, assigneeId }),
       (txId) => issueCollection.utils.awaitTxId(txId)
     )
 
@@ -169,7 +169,7 @@ export function BulkActionBar({
 
   const deleteSelected = async () => {
     const ran = await runBulk(
-      (ids) => trpc.issues.bulkDelete.mutate({ ids }),
+      (ids) => trpc.issues.bulkDelete.mutate({ issueIds: ids }),
       (txId) => issueCollection.utils.awaitTxId(txId)
     )
     if (ran) onClear()

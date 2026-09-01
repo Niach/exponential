@@ -139,7 +139,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
     setHelpdeskError(null)
     try {
       await trpc.teams.update.mutate({
-        id: teamId,
+        teamId,
         helpdeskEnabled: enabled,
       })
     } catch (err) {

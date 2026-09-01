@@ -31,7 +31,7 @@ export function TeamGeneralSection({ team }: { team: Team }) {
     setError(null)
     try {
       await trpc.teams.update.mutate({
-        id: team.id,
+        teamId: team.id,
         name: name.trim() || team.name,
       })
     } catch (e) {

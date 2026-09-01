@@ -1,12 +1,14 @@
 import { z } from "zod"
 import { and, eq, ne, sql } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
+import { DEFAULT_ACCENT_COLOR, hexColorSchema } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { labels } from "@/db/schema"
 import { resolveTeamAccess } from "@/lib/team-membership"
+import { isUniqueViolation } from "@/lib/trpc/db-errors"
 
 const labelNameSchema = z.string().min(1).max(255)
-const labelColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/)
+const labelColorSchema = hexColorSchema
 
 function duplicateNameError(name: string): TRPCError {
   return new TRPCError({
@@ -15,22 +17,13 @@ function duplicateNameError(name: string): TRPCError {
   })
 }
 
-// Postgres unique_violation (23505), as surfaced by postgres-js directly or
-// wrapped in an error cause by drizzle.
-function isUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== `object`) return false
-  const candidate = err as { code?: unknown; cause?: unknown }
-  if (candidate.code === `23505`) return true
-  return isUniqueViolation(candidate.cause)
-}
-
 export const labelsRouter = router({
   create: authedProcedure
     .input(
       z.object({
         teamId: z.string().uuid(),
         name: labelNameSchema,
-        color: labelColorSchema.default(`#6366f1`),
+        color: labelColorSchema.default(DEFAULT_ACCENT_COLOR),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -112,8 +105,11 @@ export const labelsRouter = router({
             if (clash) throw duplicateNameError(updates.name)
           }
 
+          // EXP-707: echo the row (envelope rule: mutations return
+          // { row, txId }) so callers can read back what they wrote.
+          let label: typeof labels.$inferSelect | undefined
           if (Object.keys(updates).length > 0) {
-            await tx
+            ;[label] = await tx
               .update(labels)
               .set(updates)
               .where(
@@ -122,9 +118,27 @@ export const labelsRouter = router({
                   eq(labels.teamId, input.teamId)
                 )
               )
+              .returning()
+          } else {
+            ;[label] = await tx
+              .select()
+              .from(labels)
+              .where(
+                and(
+                  eq(labels.id, input.labelId),
+                  eq(labels.teamId, input.teamId)
+                )
+              )
+              .limit(1)
+          }
+          if (!label) {
+            throw new TRPCError({
+              code: `NOT_FOUND`,
+              message: `Label not found`,
+            })
           }
 
-          return { txId }
+          return { txId, label }
         })
       } catch (err) {
         if (isUniqueViolation(err) && input.name !== undefined) {

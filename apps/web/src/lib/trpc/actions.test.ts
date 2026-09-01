@@ -29,29 +29,36 @@ const h = vi.hoisted(() => {
     selectResults,
     inserts,
     updates,
-    fakeDb: {
-      select: () => makeChain(),
-      insert: () => ({
-        values: (values: Record<string, unknown>) => {
-          inserts.push(values)
-          return {
-            onConflictDoNothing: () => ({
-              returning: async () => [{ id: `new-action`, ...values }],
-            }),
-          }
-        },
-      }),
-      update: () => ({
-        set: (values: Record<string, unknown>) => {
-          updates.push(values)
-          return {
-            where: () => ({
-              returning: async () => [{ id: `updated-action`, ...values }],
-            }),
-          }
-        },
-      }),
-    },
+    fakeDb: (() => {
+      const fakeDb: Record<string, unknown> = {
+        select: () => makeChain(),
+        insert: () => ({
+          values: (values: Record<string, unknown>) => {
+            inserts.push(values)
+            return {
+              onConflictDoNothing: () => ({
+                returning: async () => [{ id: `new-action`, ...values }],
+              }),
+            }
+          },
+        }),
+        update: () => ({
+          set: (values: Record<string, unknown>) => {
+            updates.push(values)
+            return {
+              where: () => ({
+                returning: async () => [{ id: `updated-action`, ...values }],
+              }),
+            }
+          },
+        }),
+        delete: () => ({ where: async () => undefined }),
+      }
+      // EXP-707: writes run in a txId-minting transaction now.
+      fakeDb.transaction = async (fn: (tx: unknown) => Promise<unknown>) =>
+        fn(fakeDb)
+      return fakeDb
+    })(),
   }
 })
 
@@ -62,6 +69,11 @@ vi.mock(`@/lib/team-membership`, () => ({
 }))
 // loadAction / assertRepoInTeam import the db lazily — same fake.
 vi.mock(`@/db/connection`, () => ({ db: h.fakeDb }))
+// EXP-707: writes mint a txId sync barrier (automations.test.ts precedent).
+vi.mock(`@/lib/trpc`, async (importOriginal) => {
+  const mod = await importOriginal<Record<string, unknown>>()
+  return { ...mod, generateTxId: async () => 42 }
+})
 
 import { actionsRouter } from "@/lib/trpc/actions"
 
