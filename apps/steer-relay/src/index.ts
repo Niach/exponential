@@ -429,6 +429,25 @@ app.post(`/sessions/:id/kill`, (c) => {
   return c.json({ ok: true, delivered })
 })
 
+// EXP-700: inject text as the session owner's input (parent↔child messages —
+// a child's question/report into its parent, a parent's answer into its
+// child). Mirrors the kill contract: 200 with delivered=false when no live
+// publisher holds the room.
+const INPUT_TEXT_MAX_CHARS = 16 * 1024
+
+app.post(`/sessions/:id/input`, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null
+  const text = typeof body?.text === `string` ? body.text : ``
+  if (text.length === 0 || text.length > INPUT_TEXT_MAX_CHARS) {
+    return c.json({ error: `Bad request` }, 400)
+  }
+  const delivered = hub.injectInput(c.req.param(`id`), text)
+  return c.json({ ok: true, delivered })
+})
+
 // ── WebSocket upgrade + handlers ──────────────────────────────────────────────
 
 interface WsData {

@@ -132,6 +132,10 @@ function frame(msg: ServerFrame): string {
 
 /** Serialized once: every tick fans the same bytes to every joined viewer. */
 const KEEPALIVE_FRAME = frame({ t: `keepalive` })
+
+/** EXP-700: server-injected input chunk size — mirrors the browser viewer's
+ * INPUT_CHUNK_CHARS (steer-session-store.ts); input frames cap at 8 KiB. */
+const INPUT_CHUNK_CHARS = 4096
 /** EXP-656: end-of-join-replay marker (see `ServerFrame`). */
 const ACTIVITY_SYNCED_FRAME = frame({ t: `activity_synced` })
 
@@ -526,6 +530,25 @@ export class Hub {
     const room = this.rooms.get(sessionId)
     if (!room?.publisher) return false
     room.publisher.sock.send(frame({ t: `kill` }))
+    return true
+  }
+
+  /** EXP-700: server-side text injection — the web app relays a parent/child
+   * message into the session's agent as if the owner typed it. Same
+   * convention as the browser viewer: text chunked at ≤4096 chars (never
+   * splitting a surrogate pair, frames cap at 8 KiB), then a SEPARATE `\r`
+   * submit frame — bundled, TUI apps treat the trailing return as a paste. */
+  injectInput(sessionId: string, text: string): boolean {
+    const room = this.rooms.get(sessionId)
+    if (!room?.publisher) return false
+    for (let i = 0; i < text.length; ) {
+      let end = Math.min(i + INPUT_CHUNK_CHARS, text.length)
+      const last = end < text.length ? text.charCodeAt(end - 1) : 0
+      if (last >= 0xd800 && last <= 0xdbff) end += 1
+      room.publisher.sock.send(frame({ t: `input`, data: text.slice(i, end) }))
+      i = end
+    }
+    room.publisher.sock.send(frame({ t: `input`, data: `\r` }))
     return true
   }
 

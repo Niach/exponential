@@ -296,6 +296,70 @@ describe(`steer relay end-to-end`, () => {
     member.close()
   })
 
+  // EXP-700: server-side input injection — POST /sessions/:id/input relays
+  // text into the publisher as owner input, then a separate `\r` submit frame.
+  test(`server input injection reaches the publisher`, async () => {
+    const sessionId = `sess-inject`
+    const pub = await connect(
+      ticket({ role: `publisher`, sub: `desktop-user`, sessionId })
+    )
+    const pubIn = collector(pub)
+    pub.send(JSON.stringify({ t: `hello`, sessionId }))
+
+    // The hello rides the socket — wait for the room before POSTing.
+    for (let i = 0; i < 20; i++) {
+      const res = await fetch(`${base}/sessions/${sessionId}`, {
+        headers: { "x-relay-secret": `integration-secret` },
+      })
+      if (((await res.json()) as { live?: boolean }).live) break
+      await new Promise((r) => setTimeout(r, 25))
+    }
+
+    const post = (body: unknown, headers: Record<string, string> = {}) =>
+      fetch(`${base}/sessions/${sessionId}/input`, {
+        method: `POST`,
+        headers: {
+          "content-type": `application/json`,
+          "x-relay-secret": `integration-secret`,
+          ...headers,
+        },
+        body: JSON.stringify(body),
+      })
+
+    const ok = await post({ text: `hello there` })
+    expect(await ok.json()).toEqual({ ok: true, delivered: true })
+    expect(await pubIn.nextJson()).toEqual({ t: `input`, data: `hello there` })
+    expect(await pubIn.nextJson()).toEqual({ t: `input`, data: `\r` })
+
+    // Same secret gate as every admin endpoint.
+    const noAuth = await fetch(`${base}/sessions/${sessionId}/input`, {
+      method: `POST`,
+      headers: { "content-type": `application/json` },
+      body: JSON.stringify({ text: `x` }),
+    })
+    expect(noAuth.status).toBe(401)
+
+    // Malformed bodies are refused, not silently dropped.
+    expect((await post({})).status).toBe(400)
+    expect((await post({ text: 42 })).status).toBe(400)
+    expect((await post({ text: `` })).status).toBe(400)
+    expect((await post({ text: `a`.repeat(16 * 1024 + 1) })).status).toBe(400)
+
+    // No live publisher reads as not-delivered — the kill contract.
+    const gone = await fetch(`${base}/sessions/no-such-session/input`, {
+      method: `POST`,
+      headers: {
+        "content-type": `application/json`,
+        "x-relay-secret": `integration-secret`,
+      },
+      body: JSON.stringify({ text: `x` }),
+    })
+    expect(await gone.json()).toEqual({ ok: true, delivered: false })
+
+    pub.send(JSON.stringify({ t: `bye`, outcome: `done` }))
+    pub.close()
+  })
+
   test(`remote start routes through the control socket`, async () => {
     const desktop = await connect(
       ticket({ role: `control`, sub: `owner-1`, deviceLabel: `Test Box` })

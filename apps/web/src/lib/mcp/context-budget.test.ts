@@ -149,10 +149,37 @@ it(`registers exponential_sessions_end only behind its gate`, () => {
   expect(
     serializeToolDefs().some((def) => def.name === `exponential_sessions_end`)
   ).toBe(true)
-  const person = serializeToolDefs({ helpdesk: true, sessionsEnd: false })
+  const person = serializeToolDefs({
+    helpdesk: true,
+    sessionsEnd: false,
+    askParent: false,
+  })
   expect(person.some((def) => def.name === `exponential_sessions_end`)).toBe(
     false
   )
+})
+
+// EXP-700: the ask tool is registered only for an AGENT-started run with a
+// linked parent; every other unattended run (schedule/event) stays without it.
+it(`registers exponential_sessions_ask_parent only behind its gate`, () => {
+  expect(
+    serializeToolDefs().some(
+      (def) => def.name === `exponential_sessions_ask_parent`
+    )
+  ).toBe(true)
+  const automation = serializeToolDefs({
+    helpdesk: true,
+    sessionsEnd: true,
+    askParent: false,
+  })
+  expect(
+    automation.some((def) => def.name === `exponential_sessions_ask_parent`)
+  ).toBe(false)
+  // The generic message tool is NOT gated — a header-less orchestrator
+  // answers its children with it.
+  expect(
+    automation.some((def) => def.name === `exponential_sessions_message`)
+  ).toBe(true)
 })
 
 it(`keeps the serialized MCP tool context within budget`, () => {
@@ -197,15 +224,29 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
   )
   // EXP-679: the person-started variant must not mention a tool it does not
   // get, and must stay inside the same two budgets.
-  const person = mcpServerInstructions({ sessionsEnd: false, reportBug: true })
+  const person = mcpServerInstructions({
+    sessionsEnd: false,
+    askParent: false,
+    reportBug: true,
+  })
   expect(person).not.toContain(`exponential_sessions_end`)
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_end`)
   expect(person.length).toBeLessThan(2_000)
   expect(person.split(`\n\n`)[0].length).toBeLessThanOrEqual(512)
+  // EXP-700: same rule for the ask tool — an automation-started run (no
+  // parent) must not be told to ask a starter it does not have.
+  const automation = mcpServerInstructions({
+    sessionsEnd: true,
+    askParent: false,
+    reportBug: true,
+  })
+  expect(automation).not.toContain(`exponential_sessions_ask_parent`)
+  expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_ask_parent`)
   // FEED-21: the report-bug trigger follows the tool's EXP-496 cloud gate — a
   // self-hosted instance never registers the tool, so it must not name it.
   const selfHosted = mcpServerInstructions({
     sessionsEnd: true,
+    askParent: true,
     reportBug: false,
   })
   expect(selfHosted).not.toContain(`exponential_report_bug`)

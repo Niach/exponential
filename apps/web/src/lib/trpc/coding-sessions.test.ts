@@ -32,8 +32,15 @@ vi.mock(`@/lib/team-membership`, () => ({
   getIssueTeamContext: h.getIssueTeamContext,
 }))
 
+// EXP-700: `end` tells a live parent about a vanished agent-started child;
+// the helper is internally best-effort, so the router just calls it.
+vi.mock(`@/lib/steer-child-messages`, () => ({
+  notifyParentOfChildEnd: vi.fn(async () => ({ delivered: false })),
+}))
+
 import { codingSessionsRouter } from "@/lib/trpc/coding-sessions"
 import { codingSessions } from "@/db/schema"
+import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 
 const ISSUE_ID = `11111111-1111-4111-8111-111111111111`
 const TEAM_ID = `22222222-2222-4222-8222-222222222222`
@@ -135,6 +142,7 @@ beforeEach(() => {
     boardId: `proj-1`,
     teamId: `ws-issue`,
   })
+  vi.mocked(notifyParentOfChildEnd).mockClear()
 })
 
 describe(`codingSessions.start — exactly-one-subject refine`, () => {
@@ -1432,6 +1440,13 @@ describe(`codingSessions.end — endedBy stamp (EXP-637)`, () => {
       needsInput: false,
     })
     expect(`summary` in updates[0]!.values).toBe(false)
+    // EXP-700: a vanished agent-started child must not leave its parent
+    // waiting — the (internally best-effort) notify runs on every real end.
+    expect(notifyParentOfChildEnd).toHaveBeenCalledWith(
+      expect.anything(),
+      SESSION_ID,
+      { summary: null, endedBy: `client` }
+    )
   })
 
   it(`leaves an already-ended row alone`, async () => {
@@ -1443,5 +1458,7 @@ describe(`codingSessions.end — endedBy stamp (EXP-637)`, () => {
     await caller.end({ id: SESSION_ID })
 
     expect(updates).toHaveLength(0)
+    // EXP-700: the idempotent no-op end never re-notifies.
+    expect(notifyParentOfChildEnd).not.toHaveBeenCalled()
   })
 })

@@ -21,6 +21,7 @@
 
 export function mcpServerInstructions(gates: {
   sessionsEnd: boolean
+  askParent: boolean
   reportBug: boolean
 }): string {
   const paragraphs = [
@@ -33,8 +34,13 @@ export function mcpServerInstructions(gates: {
     )
   }
   if (gates.sessionsEnd) {
+    // EXP-700: only a run another run started can ask its starter — the
+    // exception rides the same paragraph, and askParent implies sessionsEnd.
     paragraphs.push(
-      `This run is unattended (an automation or another agent started it). When you are done, call exponential_sessions_end LAST with a one-paragraph summary of what you did — whether you finished, stopped for a human or changed nothing; leave the worktree clean first. That call ends the run; nobody is watching, so do not wait for replies.`
+      `This run is unattended (an automation or another agent started it). When you are done, call exponential_sessions_end LAST with a one-paragraph summary of what you did — whether you finished, stopped for a human or changed nothing; leave the worktree clean first. That call ends the run; nobody is watching, so do not wait for replies.` +
+        (gates.askParent
+          ? ` One exception: blocked on something only your starter knows, call exponential_sessions_ask_parent, then stop and wait — the answer arrives as a user message. Never wait silently without asking.`
+          : ``)
     )
   }
   return paragraphs.join(`\n\n`)
@@ -43,5 +49,6 @@ export function mcpServerInstructions(gates: {
 /** The full variant — what the context budget measures. */
 export const MCP_SERVER_INSTRUCTIONS = mcpServerInstructions({
   sessionsEnd: true,
+  askParent: true,
   reportBug: true,
 })
