@@ -44,6 +44,9 @@ object DesignTokens {
         val Red: Color = Color(0xFFEF4444)
         val Orange: Color = Color(0xFFF97316)
         val Blue: Color = Color(0xFF3B82F6)
+        val CodeText: Color = Color(0xFF8AB4F8)
+        val CodeFill: Color = Color(0x1F8AB4F8)
+        val CodeStroke: Color = Color(0x338AB4F8)
     }
 
     // Glass surfaces (EXP-269) — read through the ui/theme/Glass.kt GlassTokens

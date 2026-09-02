@@ -69,6 +69,9 @@ html {
      three clients paints this exact value (iOS DesignTokens.Glass
      .backgroundBottom / Android GlassTokens.BackgroundBottom). */
   --color-glass-bottom: var(--glass-background-bottom);
+  --color-code-text: var(--code-text);
+  --color-code-fill: var(--code-fill);
+  --color-code-stroke: var(--code-stroke);
   /* EXP-523 — Tailwind v4's `--ease-*` theme namespace, so `ease-standard`,
      `ease-decelerate` and `ease-accelerate` exist as utilities. Same
      var-indirection shape as --color-glass-* above; the raw vars carry the
@@ -141,6 +144,10 @@ html {
   --glass-stroke-card: oklch(1 0 0 / 10%);
   --glass-stroke-strong: oklch(1 0 0 / 12%);
   --glass-stroke-active: oklch(1 0 0 / 20%);
+  /* EXP-698 r3: inline-code tint of the agent chat feeds — tokens.json `semantic.code*`. */
+  --code-text: #8AB4F8;
+  --code-fill: #8AB4F81F;
+  --code-stroke: #8AB4F833;
   /* EXP-523 motion tokens. THEME-INVARIANT, so unlike --glass-* these
      live in :root ONLY and are never duplicated into .dark. Values mirror
      packages/design-tokens/tokens.json `motion` (the source the three native
@@ -211,6 +218,10 @@ html {
   --glass-stroke-card: oklch(1 0 0 / 10%);
   --glass-stroke-strong: oklch(1 0 0 / 12%);
   --glass-stroke-active: oklch(1 0 0 / 20%);
+  /* EXP-698 r3: inline-code tint of the agent chat feeds — tokens.json `semantic.code*`. */
+  --code-text: #8AB4F8;
+  --code-fill: #8AB4F81F;
+  --code-stroke: #8AB4F833;
 }
 
 @layer base {

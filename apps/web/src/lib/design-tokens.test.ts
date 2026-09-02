@@ -104,6 +104,17 @@ describe(`design-tokens parity with web styles.css`, () => {
     }
   })
 
+  // EXP-698 r3: the chat inline-code trio is the only semantic colour the web
+  // carries as a CSS var (status colours ride Tailwind classes).
+  it(`every semantic code* token matches the corresponding --code-* CSS variable`, () => {
+    for (const [key, value] of Object.entries(tokens.semantic)) {
+      if (!key.startsWith(`code`)) continue
+      const cssVar = kebab(key)
+      expect(darkVars[cssVar]?.toLowerCase(), `tokens.semantic.${key} should equal --${cssVar} in styles.css`).toBe(value.toLowerCase())
+      expect(rootVars[cssVar]?.toLowerCase(), `tokens.semantic.${key} should equal --${cssVar} in :root`).toBe(value.toLowerCase())
+    }
+  })
+
   // EXP-594 retired the indigo --brand accent — the main scheme is white/glass.
   // Nothing may reintroduce a brand color var or token.
   it(`no brand accent exists in tokens.json or styles.css`, () => {

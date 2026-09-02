@@ -38,6 +38,9 @@ public enum DesignTokens {
         public static let red: Color = Color(red: 0.9373, green: 0.2667, blue: 0.2667, opacity: 1.0000)
         public static let orange: Color = Color(red: 0.9765, green: 0.4510, blue: 0.0863, opacity: 1.0000)
         public static let blue: Color = Color(red: 0.2314, green: 0.5098, blue: 0.9647, opacity: 1.0000)
+        public static let codeText: Color = Color(red: 0.5412, green: 0.7059, blue: 0.9725, opacity: 1.0000)
+        public static let codeFill: Color = Color(red: 0.5412, green: 0.7059, blue: 0.9725, opacity: 0.1216)
+        public static let codeStroke: Color = Color(red: 0.5412, green: 0.7059, blue: 0.9725, opacity: 0.2000)
     }
 
     // Glass surfaces (EXP-269) — read through ExpUI GlassTokens.swift; the
