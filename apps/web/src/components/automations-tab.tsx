@@ -30,6 +30,7 @@ import {
 } from "@/components/automation-dialog"
 import { AGENT_LABELS } from "@/components/launch-dialog/launch-options-pane"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import {
   Dialog,
   DialogCancel,
@@ -364,17 +365,16 @@ export function AutomationsTab({
     <>
       {showSuggestions && <SuggestionsButton />}
       {canCreate && (
-        <Button
-          variant="glass"
-          size="xs"
+        <Pill
+          mode="action"
           onClick={() => {
             setEditing(null)
             setDialogOpen(true)
           }}
         >
-          <AutomationCreateIcon className="size-3.5" />
+          <AutomationCreateIcon className="size-3" />
           New automation
-        </Button>
+        </Pill>
       )}
     </>
   )

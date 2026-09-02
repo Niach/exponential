@@ -13,7 +13,7 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { User as UserIcon, X } from "lucide-react"
 import type { User } from "@/db/schema"
 import { cn, getInitials } from "@/lib/utils"
@@ -59,12 +59,11 @@ export function AssigneePicker({
     >
       <MobilePopoverTrigger asChild>
         {trigger ?? (
-          <Button
-            variant="ghost"
-            size="xs"
+          <Pill
+            mode="action"
             // max-w-full instead of a fixed name cap (EXP-427): the name
             // truncates at the container edge, not at an arbitrary width.
-            className={cn(`max-w-full text-muted-foreground`, triggerClassName)}
+            className={cn(`max-w-full`, triggerClassName)}
             disabled={disabled}
           >
             {selectedUser ? (
@@ -92,7 +91,7 @@ export function AssigneePicker({
                 Assignee
               </>
             )}
-          </Button>
+          </Pill>
         )}
       </MobilePopoverTrigger>
       <MobilePopoverContent

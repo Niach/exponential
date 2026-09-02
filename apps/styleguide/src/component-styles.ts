@@ -122,6 +122,57 @@ export const componentStyles = `
   color: var(--fg);
 }
 
+/* ------------------------------------------------------------- rich tab */
+/* The STRIP tab — desktop's top tab strip and terminal dock, web's agent dock.
+   Not a pill: it carries a status, an identifier and a close, and a dozen of
+   them sit side by side, so it draws no chrome until it is hovered or active. */
+.cmp-rich-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  color: var(--muted-fg);
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.cmp-rich-tab:hover { background: var(--row); }
+.cmp-rich-tab.active { background: var(--active); color: var(--fg); }
+.cmp-rich-tab .glyph { flex: none; width: 16px; height: 16px; }
+.cmp-rich-tab .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; color: var(--ok); background: currentColor; }
+.cmp-rich-tab .title { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.cmp-rich-tab .id {
+  color: var(--fg-50);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+.cmp-rich-tab .badge {
+  padding: 0 4px;
+  border-radius: var(--r-sm);
+  background: var(--card);
+  color: var(--fg-70);
+  font-size: 12px;
+}
+/* The close is a ghost: no chrome of its own, or the strip turns into buttons. */
+.cmp-rich-tab .close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-right: -4px;
+  border-radius: var(--r-sm);
+  color: var(--fg-50);
+  transition: color var(--dur) var(--ease);
+}
+.cmp-rich-tab .close:hover { color: var(--fg); }
+.cmp-rich-tab .close .glyph { width: 12px; height: 12px; }
+
 /* ---------------------------------------------------------------- buttons */
 .cmp-icon-button {
   display: inline-flex;
@@ -139,27 +190,6 @@ export const componentStyles = `
 }
 .cmp-icon-button:hover { background: var(--active); color: var(--fg); }
 .cmp-icon-button .glyph { width: 16px; height: 16px; }
-
-.cmp-button-xs {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: var(--ctl-sm);
-  padding: 0 8px;
-  border-radius: 9999px;
-  border: 1px solid var(--stroke);
-  background: var(--card);
-  color: var(--fg-70);
-  font: inherit;
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background var(--dur) var(--ease);
-}
-.cmp-button-xs:hover { background: var(--active); color: var(--fg); }
-.cmp-button-xs .glyph { width: 12px; height: 12px; }
 
 /* The MOBILE sheet submit: full width, radius 10, solid. Web and desktop
    primaries stay capsules — see the status table. */
@@ -179,37 +209,38 @@ export const componentStyles = `
 }
 .cmp-button-primary.disabled { background: var(--card); border-color: var(--stroke); color: var(--fg-50); }
 
-/* ------------------------------------------------------------ pill / chip */
+/* ------------------------------------------------------------------ pill */
+/* ONE capsule for every label-sized thing (EXP-698). What used to be a chip is
+   readonly, what used to be a "header button" is sm + action: the same
+   chrome, so the only decisions left are a SIZE and whether it is a target. */
 .cmp-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
   border-radius: 9999px;
   background: var(--card);
   border: 1px solid var(--stroke);
-  color: var(--fg);
+  color: var(--fg-70);
   font: inherit;
-  font-size: 12px;
   font-weight: 500;
-  cursor: pointer;
-  transition: background var(--dur) var(--ease);
+  white-space: nowrap;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.cmp-pill:hover { background: var(--active); }
-.cmp-pill.active { background: var(--active); border-color: var(--stroke-active); }
-.cmp-pill .glyph { width: 12px; height: 12px; }
-
-/* Static metadata, never a target — so no stroke and a softer radius. */
-.cmp-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 8px;
-  border-radius: var(--r-sm);
-  background: var(--card);
+.cmp-pill[data-size="md"] { height: var(--ctl-md); gap: 6px; padding: 0 12px; font-size: 14px; }
+.cmp-pill[data-size="sm"] { height: var(--ctl-sm); gap: 4px; padding: 0 8px; font-size: 12px; }
+.cmp-pill .glyph { flex: none; }
+.cmp-pill[data-size="md"] .glyph { width: 16px; height: 16px; }
+.cmp-pill[data-size="sm"] .glyph { width: 12px; height: 12px; }
+/* The optional status dot keeps its own colour through hover and selection. */
+.cmp-pill .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; color: var(--fg-50); background: currentColor; }
+.cmp-pill[data-mode="action"], .cmp-pill[data-mode="select"] { cursor: pointer; }
+.cmp-pill[data-mode="action"]:hover, .cmp-pill[data-mode="select"]:hover { background: var(--active); color: var(--fg); }
+.cmp-pill[data-mode="select"].selected {
+  background: var(--active);
+  border-color: var(--stroke-active);
   color: var(--fg);
-  font-size: 12px;
-  font-weight: 500;
 }
+/* readonly is metadata: it keeps the rest chrome and is never a target. */
+.cmp-pill[data-mode="readonly"] { cursor: default; }
 
 /* ----------------------------------------------------------- text field */
 .cmp-text-field {
@@ -229,6 +260,32 @@ export const componentStyles = `
 .cmp-text-field:focus { border-color: var(--stroke-active); }
 .cmp-text-field::placeholder { color: var(--fg-50); }
 
+/* ------------------------------------------------------------ text area */
+/* The field's recipe, grown: same fill, stroke and focus swap, three rows tall,
+   and it GROWS with content — the drag handle is off everywhere, because a
+   hand-resized box does not survive a re-render on any of the four clients. */
+.cmp-textarea {
+  display: block;
+  width: 100%;
+  min-height: 64px;
+  padding: 8px 12px;
+  border-radius: var(--r-lg);
+  background: var(--card);
+  border: 1px solid var(--stroke);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  resize: none;
+  outline: none;
+  transition: border-color var(--dur) var(--ease);
+}
+.cmp-textarea:focus { border-color: var(--stroke-active); }
+.cmp-textarea::placeholder { color: var(--fg-50); }
+/* Inside a group the ROW is the chrome, exactly as for the input row. */
+.cmp-textarea.borderless { padding: 0; border-color: transparent; background: none; min-height: 60px; }
+.cmp-row-shell .cmp-textarea { flex: 1; min-width: 0; }
+
 /* ---------------------------------------------------------------- sheet */
 .cmp-sheet {
   border-radius: var(--r-xl3) var(--r-xl3) 0 0;
@@ -243,6 +300,119 @@ export const componentStyles = `
 .cmp-sheet .header .title { font-size: 18px; font-weight: 600; }
 .cmp-sheet .header .trailing { margin-left: auto; }
 .cmp-sheet .content { display: grid; gap: 12px; padding: 0 16px 16px; }
+
+/* ------------------------------------------------------------- composer */
+/* ONE composer for comments, steering and support replies. The card is the
+   chrome, so the field inside it is borderless; the tools are ghosts, because
+   four boxed buttons under a box is three boxes too many. */
+.cmp-composer {
+  border-radius: var(--r-xl);
+  background: var(--card);
+  border: 1px solid var(--stroke);
+}
+/* Floating over a feed — the mobile bottom bar — it must be OPAQUE or the
+   conversation reads straight through it. */
+.cmp-composer.opaque { background: var(--opaque-card); border-color: var(--stroke-strong); }
+.cmp-composer .strip { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 6px 0; }
+.cmp-composer .strip .item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--ctl-sm);
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  background: var(--row);
+  color: var(--fg-70);
+  font-size: 12px;
+}
+.cmp-composer .strip .glyph { width: 12px; height: 12px; }
+.cmp-composer .field {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  resize: none;
+  outline: none;
+}
+.cmp-composer .field::placeholder { color: var(--fg-50); }
+.cmp-composer .tools { display: flex; align-items: center; gap: 2px; padding: 0 6px 6px; }
+.cmp-composer .tool, .cmp-composer .submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--ctl-sm);
+  height: var(--ctl-sm);
+  border-radius: 50%;
+  border: none;
+  background: none;
+  color: var(--fg-50);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.cmp-composer .tool:hover { background: var(--active); color: var(--fg); }
+/* Submit is the only tinted glyph in the row — still a ghost circle. */
+.cmp-composer .submit { margin-left: auto; color: var(--primary); }
+.cmp-composer .submit:hover { background: var(--active); }
+.cmp-composer .glyph { width: 16px; height: 16px; }
+
+/* ------------------------------------------------- markdown / steer feed */
+/* The chat-sized block set. Only the person's turn gets a bubble; the agent's
+   narration is bare text, because a wall of bubbles is unreadable at length. */
+.cmp-markdown { display: grid; gap: 10px; }
+.cmp-markdown .narration { display: flex; gap: 8px; font-size: 14px; line-height: 20px; color: var(--fg-90); }
+.cmp-markdown .narration .glyph { flex: none; width: 12px; height: 12px; margin-top: 4px; color: var(--fg-50); }
+.cmp-markdown .bubble {
+  justify-self: end;
+  max-width: 80%;
+  padding: 8px 12px;
+  border-radius: var(--r-lg);
+  background: var(--active);
+  border: 1px solid var(--stroke-strong);
+  font-size: 14px;
+  line-height: 20px;
+}
+/* Plan and question are the SAME neutral card: only the header line is tinted,
+   so a question never reads as an error and a plan never as a success. */
+.cmp-markdown .card {
+  padding: 12px;
+  border-radius: var(--r-xl);
+  background: var(--card);
+  border: 1px solid var(--stroke);
+  font-size: 14px;
+  line-height: 20px;
+}
+.cmp-markdown .card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--primary);
+}
+.cmp-markdown .card.warn .card-head { color: var(--warn); }
+.cmp-markdown .card-head .glyph { flex: none; width: 12px; height: 12px; }
+.cmp-markdown .tool-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.cmp-markdown .tool-row .label { flex: none; font-weight: 500; }
+.cmp-markdown .tool-row .value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-50);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+/* A long block clamps instead of pushing the next turn off the screen. */
+.cmp-markdown .fold { max-height: 160px; overflow: hidden; }
+.cmp-markdown .show-more { display: inline-block; margin-top: 6px; font-size: 12px; color: var(--fg-70); cursor: pointer; }
+.cmp-markdown .show-more:hover { color: var(--fg); }
 
 /* ----------------------------------------------------------------- menu */
 /* Opaque by construction: the alpha fill is composited over the popover solid

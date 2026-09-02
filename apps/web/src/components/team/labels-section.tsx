@@ -5,6 +5,7 @@ import { labelCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import type { Label as LabelType } from "@/db/schema"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import { Input } from "@/components/ui/input"
 import {
@@ -228,14 +229,10 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
         label="Labels"
         trailing={
           !creating && (
-            <Button
-              variant="glass"
-              size="xs"
-              onClick={() => setCreating(true)}
-            >
+            <Pill mode="action" onClick={() => setCreating(true)}>
               <Plus />
               New label
-            </Button>
+            </Pill>
           )
         }
       />
@@ -300,9 +297,8 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
             >
               {submitting ? `Creating...` : `Create label`}
             </Button>
-            <Button
-              size="xs"
-              variant="ghost"
+            <Pill
+              mode="action"
               disabled={submitting}
               onClick={() => {
                 setCreating(false)
@@ -310,7 +306,7 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
               }}
             >
               Cancel
-            </Button>
+            </Pill>
           </div>
         </GlassRow>
       )}

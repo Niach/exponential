@@ -7,8 +7,12 @@ function Textarea({ className, ...props }: React.ComponentProps<`textarea`>) {
     <textarea
       data-slot="textarea"
       className={cn(
-        // EXP-616: glass by default, matching Input.
-        `flex field-sizing-content min-h-16 w-full rounded-md border border-glass-stroke bg-glass-row px-3 py-2 text-base shadow-none transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 md:text-sm dark:aria-invalid:ring-destructive/40`,
+        // EXP-616: glass by default, matching Input. EXP-698: the same 12
+        // radius / card fill / card hairline recipe, focus on the stroke and
+        // no ring. `resize-none` is part of it — every field here auto-grows
+        // through `field-sizing-content`, so the native grip only ever landed
+        // mid-card over a tool row.
+        `flex field-sizing-content min-h-16 w-full resize-none rounded-lg border border-glass-stroke-card bg-glass-card px-3 py-2 text-base shadow-none transition-[color,border-color] duration-fast outline-none placeholder:text-foreground/50 focus-visible:border-glass-stroke-active focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 md:text-sm dark:aria-invalid:ring-destructive/40`,
         className
       )}
       {...props}

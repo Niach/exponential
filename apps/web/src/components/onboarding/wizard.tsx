@@ -15,6 +15,7 @@ import { trpc } from "@/lib/trpc-client"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { useCreateBoard } from "@/hooks/use-create-board"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { GlassGroup } from "@/components/ui/glass-rows"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -424,16 +425,10 @@ function BoardStep({
               <span className="min-w-0 flex-1 truncate">
                 {repo.fullName}
               </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                className="text-muted-foreground"
-                onClick={() => setRepo(null)}
-              >
+              <Pill type="button" mode="action" onClick={() => setRepo(null)}>
                 <X />
                 Change
-              </Button>
+              </Pill>
             </div>
           ) : showRepo ? (
             <GithubRepoPicker teamId={teamId} onSelect={setRepo} />

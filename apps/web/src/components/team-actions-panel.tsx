@@ -27,6 +27,7 @@ import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import {
   Dialog,
   DialogCancel,
@@ -376,15 +377,14 @@ export function TeamActionsPanel({
             <>
               {showSuggestions && <SuggestionsButton />}
               {canCreateAction && (
-                <Button
-                  variant="glass"
-                  size="xs"
+                <Pill
+                  mode="action"
                   disabled={runBusy}
                   onClick={() => setCreateActionOpen(true)}
                 >
-                  <ActionCreateIcon className="size-3.5" />
+                  <ActionCreateIcon className="size-3" />
                   New action
-                </Button>
+                </Pill>
               )}
             </>
           )

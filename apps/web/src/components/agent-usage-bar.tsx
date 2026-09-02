@@ -16,7 +16,7 @@ import { AGENT_LABELS } from "@/components/launch-dialog/launch-options-pane"
 import { cn } from "@/lib/utils"
 
 const TONE: Record<UsageSeverity, string> = {
-  normal: `bg-muted-foreground/60`,
+  normal: `bg-foreground/30`,
   warning: `bg-amber-500`,
   danger: `bg-destructive`,
 }
@@ -73,7 +73,7 @@ export function AgentUsageCards({
                   {`${card.percent}% used`}
                 </span>
               </div>
-              <span className="block h-1.5 w-full rounded-full bg-border/60">
+              <span className="block h-1.5 w-full rounded-full bg-glass-stroke-strong">
                 <span
                   className={`block h-full rounded-full ${TONE[card.severity]}`}
                   style={{ width: `${card.percent}%` }}

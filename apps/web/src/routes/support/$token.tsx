@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { createFileRoute } from "@tanstack/react-router"
-import { LifeBuoy, LoaderCircle, Send } from "lucide-react"
+import { LifeBuoy, LoaderCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { Composer, ComposerSubmit } from "@/components/composer"
+import { conceptIcon } from "@/lib/icons.generated"
 import { PoweredByFooter } from "@/components/team/powered-by-footer"
 import { relativeTime } from "@/components/comment-rows/format"
 
@@ -20,6 +22,9 @@ import { relativeTime } from "@/components/comment-rows/format"
 // last_reporter_seen_at, which is what lets the server skip the "new reply"
 // email while the reporter is watching. Hiding the tab pauses the poll, the
 // heartbeat lapses, and emails resume.
+// EXP-317: the send glyph resolves through the shared registry.
+const SendIcon = conceptIcon(`ui-send`)
+
 export const Route = createFileRoute(`/support/$token`)({
   ssr: false,
   head: () => ({
@@ -374,7 +379,25 @@ export function SupportConversationView({ token }: { token: string }) {
               request from where you first reached out.
             </p>
           ) : (
-            <div className="flex items-end gap-2">
+            // EXP-698: the ONE composer card, shared with comments, steering
+            // and the member-side support reply box. `opaque` because it
+            // floats on the page's own bottom-endpoint bar.
+            <Composer
+              opaque
+              submit={
+                <ComposerSubmit
+                  disabled={sending || draft.trim().length === 0}
+                  onClick={() => void send()}
+                  aria-label="Send reply"
+                >
+                  {sending ? (
+                    <LoaderCircle className="size-5 animate-spin" />
+                  ) : (
+                    <SendIcon className="!size-6" />
+                  )}
+                </ComposerSubmit>
+              }
+            >
               <Textarea
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
@@ -396,22 +419,9 @@ export function SupportConversationView({ token }: { token: string }) {
                 }}
                 placeholder="Write a reply…"
                 rows={2}
-                className="min-h-9 flex-1 resize-none"
+                className="min-h-16 border-none bg-transparent text-sm shadow-none focus-visible:border-transparent dark:bg-transparent"
               />
-              <Button
-                size="icon"
-                className="h-9 w-9 shrink-0"
-                disabled={sending || draft.trim().length === 0}
-                onClick={() => void send()}
-                aria-label="Send reply"
-              >
-                {sending ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
+            </Composer>
           )}
           {sendError && (
             <p className="mt-2 text-xs text-destructive">{sendError}</p>

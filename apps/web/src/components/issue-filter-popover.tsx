@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/command"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { ListFilter, ChevronRight, ArrowLeft } from "lucide-react"
 import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdown"
 import { priorities } from "@/components/issue-properties/priority-dropdown"
@@ -31,6 +32,22 @@ interface IssueFilterPopoverProps {
   filters: IssueFilters
   onFiltersChange: (filters: IssueFilters) => void
   labels: Label[]
+}
+
+// EXP-698: ONE capsule — the active-filter count reads the same on the popover
+// trigger and on every category row.
+function FilterCountPill({ count }: { count: number }) {
+  return <Pill className="text-foreground">{count}</Pill>
+}
+
+// Inside the 24px trigger pill a second capsule cannot fit — the count rides
+// as a compact active-fill disc instead.
+function FilterCountInline({ count }: { count: number }) {
+  return (
+    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-glass-active px-1 text-[0.625rem] font-medium text-foreground">
+      {count}
+    </span>
+  )
 }
 
 export function IssueFilterPopover({
@@ -93,15 +110,10 @@ export function IssueFilterPopover({
       }}
     >
       <MobilePopoverTrigger asChild>
-        <Button variant="ghost" size="xs" className="text-muted-foreground">
-          <ListFilter className="size-3" />
+        <Pill mode="action" leading={<ListFilter className="size-3" />}>
           Filter
-          {count > 0 && (
-            <span className="ml-1 rounded-full bg-glass-active text-foreground px-1.5 text-[0.625rem] font-medium">
-              {count}
-            </span>
-          )}
-        </Button>
+          {count > 0 && <FilterCountInline count={count} />}
+        </Pill>
       </MobilePopoverTrigger>
       <MobilePopoverContent
         className="w-[14rem] p-0"
@@ -175,11 +187,7 @@ function CategoriesView({
             >
               <span>{cat.label}</span>
               <span className="flex items-center gap-1">
-                {cat.count > 0 && (
-                  <span className="rounded-full bg-glass-active text-foreground px-1.5 text-[0.625rem] font-medium">
-                    {cat.count}
-                  </span>
-                )}
+                {cat.count > 0 && <FilterCountPill count={cat.count} />}
                 <ChevronRight className="size-3.5 text-muted-foreground" />
               </span>
             </CommandItem>

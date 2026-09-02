@@ -6,7 +6,7 @@ import {
 } from "@tanstack/react-router"
 import { ShieldBan, ShieldCheck } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -245,9 +245,7 @@ function AdminEmail() {
           <TabsTrigger value="bounces">
             Bounces &amp; complaints
             {bounces.length > 0 && (
-              <Badge variant="secondary" className="text-xs">
-                {bounces.length}
-              </Badge>
+              <Pill>{bounces.length}</Pill>
             )}
           </TabsTrigger>
         </TabsList>
@@ -387,9 +385,7 @@ function AdminEmail() {
                     )}
                   </div>
                   <div>
-                    <Badge variant="destructive" className="text-xs">
-                      {row.kind}
-                    </Badge>
+                    <Pill className="text-destructive">{row.kind}</Pill>
                   </div>
                   <div className="text-xs text-muted-foreground truncate">
                     {[row.bounceType, row.bounceSubType]
@@ -405,16 +401,16 @@ function AdminEmail() {
                   </div>
                   <div className="flex flex-col items-start gap-1 md:items-end md:justify-self-end">
                     {isAutoBlocked(row) && (
-                      <Badge variant="secondary" className="text-xs">
+                      <Pill>
                         <ShieldCheck className="h-3 w-3" />
                         Auto-blocked
-                      </Badge>
+                      </Pill>
                     )}
                     {row.suppressedAt ? (
-                      <Badge variant="secondary" className="text-xs">
+                      <Pill>
                         <ShieldCheck className="h-3 w-3" />
                         Suppressed in SES
-                      </Badge>
+                      </Pill>
                     ) : (
                       // Auto-blocked rows need no operator action (send-time
                       // check + webhook auto-suppression); the button covers

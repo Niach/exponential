@@ -22,7 +22,7 @@ import {
   WidgetConfigDialog,
   type WidgetListItem,
 } from "@/components/team/widget-config-dialog"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import {
   GlassGroup,
@@ -171,9 +171,9 @@ export function TeamWidgetSection({ team }: { team: Team }) {
           }
           label="Exponential widget"
           trailing={
-            <Button variant="glass" size="xs" onClick={openCreate}>
+            <Pill mode="action" onClick={openCreate}>
               New widget
-            </Button>
+            </Pill>
           }
         />
         <p className="px-1 pb-2 text-xs text-foreground/50">
@@ -208,11 +208,9 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                         {widget.name}
                       </span>
                       {widget.boardName && (
-                        <Badge variant="secondary">{widget.boardName}</Badge>
+                        <Pill>{widget.boardName}</Pill>
                       )}
-                      {!widget.enabled && (
-                        <Badge variant="outline">disabled</Badge>
-                      )}
+                      {!widget.enabled && <Pill>disabled</Pill>}
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
                       <span>
@@ -232,13 +230,9 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                         </span>
                       ) : (
                         widget.allowedDomains.map((domain) => (
-                          <Badge
-                            key={domain}
-                            variant="outline"
-                            className="px-1.5 py-0 text-[11px] font-normal"
-                          >
+                          <Pill key={domain} className="font-normal">
                             {domain}
-                          </Badge>
+                          </Pill>
                         ))
                       )}
                     </div>
@@ -383,14 +377,14 @@ export function TeamWidgetSection({ team }: { team: Team }) {
               <p className="text-xs text-destructive">{helpdeskError}</p>
             )}
             {team.helpdeskEnabled && (
-              <Button variant="glass" size="xs" asChild className="w-fit">
+              <Pill mode="action" asChild className="w-fit">
                 <Link
                   to="/t/$teamSlug/support"
                   params={{ teamSlug: team.slug }}
                 >
                   Open Support inbox
                 </Link>
-              </Button>
+              </Pill>
             )}
           </div>
         )}

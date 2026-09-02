@@ -23,7 +23,7 @@ import {
 import { trpc } from "@/lib/trpc-client"
 import { displayUserName } from "@/lib/user-display"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -71,31 +71,18 @@ function CodingRowStack({ children }: { children: ReactNode }) {
 // detail hangs off its properties card, which the 'row' variant therefore no
 // longer draws.
 
-/** PR-state pill — open emerald / merged purple / closed rose / draft secondary. */
+/** PR-state pill — open emerald / merged purple / closed rose / draft plain. */
 export function PrStateBadge({ state }: { state: string | null | undefined }) {
   if (!state) return null
-  if (state === `draft`) {
-    return (
-      <Badge variant="secondary" className="h-5 px-1.5 text-[0.625rem]">
-        Draft
-      </Badge>
-    )
-  }
+  if (state === `draft`) return <Pill>Draft</Pill>
   const styles: Record<string, string> = {
-    open: `border-emerald-500/40 text-emerald-400`,
-    merged: `border-purple-500/40 text-purple-400`,
-    closed: `border-rose-500/40 text-rose-400`,
+    open: `text-emerald-400`,
+    merged: `text-purple-400`,
+    closed: `text-rose-400`,
   }
   const cls = styles[state]
   if (!cls) return null
-  return (
-    <Badge
-      variant="outline"
-      className={cn(`h-5 px-1.5 text-[0.625rem] capitalize`, cls)}
-    >
-      {state}
-    </Badge>
-  )
+  return <Pill className={cn(`capitalize`, cls)}>{state}</Pill>
 }
 
 function RunningPing() {
@@ -130,17 +117,17 @@ const SESSION_STATE_BADGE: Record<
 > = {
   needs_input: {
     label: `Needs input`,
-    badge: `border-amber-500/40 text-amber-400`,
+    badge: `text-amber-400`,
     dot: `bg-amber-500`,
   },
   review: {
     label: `Ready for review`,
-    badge: `border-emerald-500/40 text-emerald-400`,
+    badge: `text-emerald-400`,
     dot: `bg-emerald-500`,
   },
   done: {
     label: `Done`,
-    badge: `border-sky-500/40 text-sky-400`,
+    badge: `text-sky-400`,
     dot: `bg-sky-500`,
   },
 }
@@ -163,35 +150,32 @@ export function SessionStatusBadge({
   const state = sessionDisplayState(session, prState)
   if (paused) {
     return (
-      <Badge
-        variant="outline"
-        className="gap-1.5 border-border text-muted-foreground"
+      <Pill
+        className="gap-1.5 text-muted-foreground"
+        leading={<StateDot className="bg-muted-foreground/40" />}
       >
-        <StateDot className="bg-muted-foreground/40" />
         Paused
         {count > 1 ? ` (·${count})` : ``}
-      </Badge>
+      </Pill>
     )
   }
   if (state === `running`) {
     return (
-      <Badge
-        variant="outline"
-        className="gap-1.5 border-emerald-500/40 text-emerald-400"
-      >
-        <RunningPing />
+      <Pill className="gap-1.5 text-emerald-400" leading={<RunningPing />}>
         Coding now
         {count > 1 ? ` (·${count})` : ``}
-      </Badge>
+      </Pill>
     )
   }
   const style = SESSION_STATE_BADGE[state]
   return (
-    <Badge variant="outline" className={cn(`gap-1.5`, style.badge)}>
-      <StateDot className={style.dot} />
+    <Pill
+      className={cn(`gap-1.5`, style.badge)}
+      leading={<StateDot className={style.dot} />}
+    >
       {style.label}
       {count > 1 ? ` (·${count})` : ``}
-    </Badge>
+    </Pill>
   )
 }
 
@@ -623,15 +607,10 @@ function RemoteStartRow({
             Start sent to {remote.sentTo}. Waiting for the desktop…
           </span>
         )}
-        <Button
-          variant="glass"
-          size="xs"
-          onClick={() => setDialogOpen(true)}
-          disabled={busy}
-        >
+        <Pill mode="action" onClick={() => setDialogOpen(true)} disabled={busy}>
           {busy ? <LoaderCircle className="animate-spin" /> : <MonitorUp />}
           Start coding
-        </Button>
+        </Pill>
         {dialog}
       </div>
     )

@@ -14,7 +14,7 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import { BoardGlyph } from "@/components/board-glyph"
 import {
@@ -348,19 +348,17 @@ function ReviewsPage() {
                               {mergeError.message}
                             </span>
                             {canFixConflicts && (
-                              <Button
-                                size="xs"
-                                variant="ghost"
-                                className="text-muted-foreground"
+                              <Pill
+                                mode="action"
                                 disabled={merging}
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   setMergeTarget(entry)
                                 }}
                               >
-                                <GitMerge className="h-3.5 w-3.5" />
+                                <GitMerge className="size-3" />
                                 Retry merge
-                              </Button>
+                              </Pill>
                             )}
                           </div>
                         )}
@@ -406,9 +404,7 @@ function ReviewsPage() {
                             <span className="min-w-0 truncate text-sm">
                               {pull.title}
                             </span>
-                            {pull.draft && (
-                              <Badge variant="secondary">Draft</Badge>
-                            )}
+                            {pull.draft && <Pill>Draft</Pill>}
                           </div>
                           {pull.branch && (
                             <div className="truncate font-mono text-xs text-muted-foreground">

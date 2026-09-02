@@ -44,3 +44,24 @@ export const svgBell = glyph(
 export const svgTrash = glyph(
   `<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>`
 )
+export const svgTerminal = glyph(`<polyline points="4 17 10 11 4 5"/><path d="M12 19h8"/>`)
+export const svgImage = glyph(
+  `<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>`
+)
+export const svgPaperclip = glyph(
+  `<path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>`
+)
+export const svgHash = glyph(
+  `<path d="M4 9h16"/><path d="M4 15h16"/><path d="M10 3 8 21"/><path d="M16 3l-2 18"/>`
+)
+export const svgSmile = glyph(
+  `<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01"/><path d="M15 9h.01"/>`
+)
+export const svgSend = glyph(
+  `<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>`
+)
+export const svgX = glyph(`<path d="M18 6 6 18"/><path d="m6 6 12 12"/>`)
+export const svgCheck = glyph(`<path d="M20 6 9 17l-5-5"/>`)
+export const svgCircleHelp = glyph(
+  `<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>`
+)

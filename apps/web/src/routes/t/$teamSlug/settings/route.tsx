@@ -1,7 +1,9 @@
 import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router"
 import { Fragment } from "react"
 import { Separator } from "@/components/ui/separator"
+import { SEGMENTED_ITEM, SEGMENTED_LIST } from "@/components/ui/tabs"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { cn } from "@/lib/utils"
 import {
   SETTINGS_NAV,
   useSettingsPage,
@@ -42,13 +44,18 @@ function SettingsLayout() {
             main nav slides out, the settings nav slides in — see
             TeamSidebar/SettingsSidebar), so this in-page nav is the mobile
             horizontally-scrollable row only (group labels hidden there). */}
-        {/* EXP-616: iOS capsule segmented control look (TabsList/TabsTrigger
-            parity) — these are route links, not stateful tabs, so the styling
-            is mirrored by hand rather than forcing Radix Tabs semantics onto
+        {/* EXP-616: iOS capsule segmented control look — these are route
+            links, not stateful tabs, so they borrow the segmented-control
+            classes (EXP-698) rather than forcing Radix Tabs semantics onto
             them. Groups flatten into one strip (their labels were already
             hidden here); the strip still scrolls horizontally, with the
             scrollbar itself hidden so the capsule edge stays clean. */}
-        <nav className="inline-flex max-w-full items-center gap-1 self-start overflow-x-auto rounded-full border border-glass-stroke-section bg-glass-section p-[3px] [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden">
+        <nav
+          className={cn(
+            SEGMENTED_LIST,
+            `max-w-full gap-1 self-start overflow-x-auto [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden`
+          )}
+        >
           {SETTINGS_NAV.map((group) => {
             const items = group.items.filter((item) =>
               item.visible(permissions, navContext)
@@ -61,7 +68,7 @@ function SettingsLayout() {
                     key={item.label}
                     to={item.to}
                     params={{ teamSlug }}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium whitespace-nowrap transition-colors"
+                    className={SEGMENTED_ITEM}
                     activeProps={{
                       className: `border-glass-stroke-active bg-glass-active text-foreground`,
                     }}

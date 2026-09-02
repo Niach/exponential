@@ -9,7 +9,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { GlassSectionHeader } from "@/components/ui/glass-rows"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Progress } from "@/components/ui/progress"
 import { useBillingPlan, invalidateBillingCache } from "@/hooks/use-billing"
 import type { PlanTier } from "@/lib/billing"
@@ -24,13 +24,10 @@ const PLAN_LABELS: Record<PlanTier, string> = {
   unlimited: `Unlimited`,
 }
 
-const PLAN_BADGE_VARIANT: Record<
-  PlanTier,
-  `default` | `secondary` | `outline`
-> = {
-  free: `secondary`,
-  team: `default`,
-  unlimited: `outline`,
+const PLAN_PILL_CLASS: Record<PlanTier, string | undefined> = {
+  free: undefined,
+  team: `text-foreground`,
+  unlimited: undefined,
 }
 
 // Exported for the Storage settings section (EXP-297) — one storage-usage
@@ -160,42 +157,32 @@ export function TeamBillingSection({
           label="Plan & Billing"
           trailing={
             <>
-              <Badge variant={PLAN_BADGE_VARIANT[plan]}>
+              <Pill className={PLAN_PILL_CLASS[plan]}>
                 {PLAN_LABELS[plan]}
-              </Badge>
+              </Pill>
               {canAdjustSeats && (
-                <Button
-                  variant="glass"
-                  size="xs"
-                  onClick={() => setShowSeatDialog(true)}
-                >
+                <Pill mode="action" onClick={() => setShowSeatDialog(true)}>
                   <Users />
                   Adjust seats
-                </Button>
+                </Pill>
               )}
               {/* Gate on the subscription, not the plan tier: a comped team
                   is `team` with nothing to manage, while a pending-cancel
                   team still needs its invoices until the period ends. */}
               {subscription && (
-                <Button
-                  variant="glass"
-                  size="xs"
+                <Pill
+                  mode="action"
                   onClick={handlePortal}
                   disabled={portalLoading}
                 >
                   <ExternalLink />
                   {portalLoading ? `Loading...` : `Invoices & billing`}
-                </Button>
+                </Pill>
               )}
               {subscription && !pendingCancel && (
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  className="text-muted-foreground"
-                  onClick={() => setShowCancelDialog(true)}
-                >
+                <Pill mode="action" onClick={() => setShowCancelDialog(true)}>
                   Cancel plan
-                </Button>
+                </Pill>
               )}
             </>
           }

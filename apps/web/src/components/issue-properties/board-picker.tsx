@@ -15,7 +15,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { MoveBoardConfirmDialog } from "@/components/issue-properties/move-board-confirm"
 import { BoardGlyph } from "@/components/board-glyph"
 import type { Board } from "@/db/schema"
@@ -94,12 +94,7 @@ export function BoardPicker({
       >
         {!hideTrigger && (
           <MobilePopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="xs"
-              className="text-muted-foreground"
-              disabled={disabled}
-            >
+            <Pill mode="action" disabled={disabled}>
               <BoardGlyph
                 board={selectedBoard ?? { color: `#71717a` }}
                 className="size-3.5"
@@ -111,7 +106,7 @@ export function BoardPicker({
               ) : (
                 `Board`
               )}
-            </Button>
+            </Pill>
           </MobilePopoverTrigger>
         )}
         <MobilePopoverContent

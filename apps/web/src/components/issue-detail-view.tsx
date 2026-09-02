@@ -27,6 +27,7 @@ import { useSession } from "@/hooks/use-session"
 import { parseLocalDate } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { IconTooltip } from "@/components/icon-tooltip"
 import {
   DropdownMenu,
@@ -109,25 +110,19 @@ function DuplicateOfBanner({
     <div className="flex items-center gap-2 border-b border-border bg-accent/30 px-4 py-2 text-sm min-w-0">
       <Files className="size-4 shrink-0 text-muted-foreground" />
       <span className="shrink-0 text-muted-foreground">Duplicate of</span>
-      <Button
-        variant="outline"
-        size="xs"
-        className="h-5 shrink-0 rounded-full px-2 font-mono text-xs"
+      <Pill
+        mode="action"
+        className="font-mono"
         onClick={() => issueRefs?.open(canonical.identifier)}
       >
         #{canonical.identifier}
-      </Button>
+      </Pill>
       <span className="truncate text-muted-foreground">{canonical.title}</span>
       {!readOnly && (
-        <Button
-          variant="ghost"
-          size="xs"
-          className="ml-auto shrink-0 text-muted-foreground"
-          onClick={onUnmark}
-        >
-          <UiUndoIcon className="size-3.5" />
+        <Pill mode="action" className="ml-auto" onClick={onUnmark}>
+          <UiUndoIcon className="size-3" />
           Unmark
-        </Button>
+        </Pill>
       )}
     </div>
   )

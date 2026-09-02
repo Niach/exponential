@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Check, Copy } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import {
   Dialog,
@@ -129,13 +130,9 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
         <GlassSectionHeader
           label="API keys"
           trailing={
-            <Button
-              variant="glass"
-              size="xs"
-              onClick={() => setCreateOpen(true)}
-            >
+            <Pill mode="action" onClick={() => setCreateOpen(true)}>
               Create key
-            </Button>
+            </Pill>
           }
         />
         <p className="px-1 pb-2 text-xs text-foreground/50">

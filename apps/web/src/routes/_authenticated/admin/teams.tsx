@@ -2,7 +2,7 @@ import { useState } from "react"
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { Ellipsis, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { PlanBadge, formatStorageMb } from "./-shared"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -165,14 +165,13 @@ function AdminTeams() {
                   <span>No owners</span>
                 ) : (
                   ws.owners.map((o: { id: string; name: string | null; email: string }) => (
-                    <Badge
+                    <Pill
                       key={o.id}
-                      variant="secondary"
-                      className="text-xs max-w-[180px] truncate"
+                      className="max-w-[180px] truncate"
                       title={o.email}
                     >
                       {o.name || o.email}
-                    </Badge>
+                    </Pill>
                   ))
                 )}
               </div>
@@ -188,14 +187,13 @@ function AdminTeams() {
                 </span>
               ) : (
                 ws.owners.map((o: { id: string; name: string | null; email: string }) => (
-                  <Badge
+                  <Pill
                     key={o.id}
-                    variant="secondary"
-                    className="text-xs max-w-[180px] truncate"
+                    className="max-w-[180px] truncate"
                     title={o.email}
                   >
                     {o.name || o.email}
-                  </Badge>
+                  </Pill>
                 ))
               )}
             </div>

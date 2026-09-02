@@ -3,7 +3,7 @@ import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-r
 import { ArrowLeft, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -151,14 +151,13 @@ function AdminTeamDetail() {
               <span className="text-xs text-muted-foreground">No owners</span>
             ) : (
               owners.map((o) => (
-                <Badge
+                <Pill
                   key={o.userId}
-                  variant="secondary"
-                  className="text-xs max-w-[180px] truncate"
+                  className="max-w-[180px] truncate"
                   title={o.email}
                 >
                   {o.name || o.email}
-                </Badge>
+                </Pill>
               ))
             )}
           </div>
@@ -322,9 +321,7 @@ function AdminTeamDetail() {
                   </span>
                 </Link>
                 <div>
-                  <Badge variant="secondary" className="text-xs capitalize">
-                    {m.role}
-                  </Badge>
+                  <Pill className="capitalize">{m.role}</Pill>
                 </div>
                 <div
                   className="text-xs text-muted-foreground"
@@ -373,9 +370,9 @@ function AdminTeamDetail() {
                       /{p.slug}
                     </span>
                     {p.deletedAt && (
-                      <Badge variant="destructive" className="text-xs shrink-0">
+                      <Pill className="shrink-0 text-destructive">
                         pending deletion
-                      </Badge>
+                      </Pill>
                     )}
                   </div>
                   <div className="text-sm tabular-nums">{p.issueCount}</div>

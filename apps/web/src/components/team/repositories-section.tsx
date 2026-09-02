@@ -14,7 +14,7 @@ import {
 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -251,14 +251,10 @@ export function TeamRepositoriesSection({
         <GlassSectionHeader
           label="Repositories"
           trailing={
-            <Button
-              variant="glass"
-              size="xs"
-              onClick={() => setConnectOpen(true)}
-            >
+            <Pill mode="action" onClick={() => setConnectOpen(true)}>
               <Github />
               Add repository
-            </Button>
+            </Pill>
           }
         />
         <p className="px-1 pb-2 text-xs text-foreground/50">
@@ -666,18 +662,15 @@ function RepoRow({
             onPick={onSetDefaultBranch}
           />
         ) : (
-          <Badge
-            variant="outline"
-            className="h-5 shrink-0 rounded-md px-1.5 font-mono text-xs font-normal"
-          >
+          <Pill className="shrink-0 font-mono font-normal">
             {repo.defaultBranch}
-          </Badge>
+          </Pill>
         )}
         {repo.private && (
-          <Badge variant="secondary" className="shrink-0 gap-1 text-xs">
+          <Pill className="shrink-0 gap-1">
             <Lock className="h-3 w-3" />
             Private
-          </Badge>
+          </Pill>
         )}
         {!canManage ? null : inUse ? (
           <TooltipProvider>
@@ -726,12 +719,12 @@ function RepoRow({
               : `The GitHub App lost access to this repository. Re-grant it on GitHub.`}
           </span>
           {manageUrl && (
-            <Button asChild size="xs" variant="outline">
+            <Pill asChild mode="action">
               <a href={manageUrl} target="_blank" rel="noreferrer">
                 {installationSuspended ? `Unsuspend` : `Re-grant`}
                 <ExternalLink />
               </a>
-            </Button>
+            </Pill>
           )}
         </div>
       )}
@@ -741,9 +734,9 @@ function RepoRow({
           <>
             <span className="text-xs text-muted-foreground">Used by</span>
             {repo.boards.map((board) => (
-              <Badge key={board.id} variant="outline" className="max-w-[12rem]">
+              <Pill key={board.id} className="max-w-[12rem]">
                 <span className="truncate">{board.name}</span>
-              </Badge>
+              </Pill>
             ))}
           </>
         ) : (

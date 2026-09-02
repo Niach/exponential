@@ -12,6 +12,7 @@ import { AssigneeDropdown } from "@/components/issue-properties/assignee-dropdow
 import { IssueRowContextMenu } from "@/components/issue-row-menu/context-menu"
 import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
@@ -286,16 +287,9 @@ const IssueRow = memo(function IssueRow({
             colour dots instead, which is all a phone-width row can hold. */}
         <div className="hidden md:flex items-center gap-1.5 ml-4 shrink-0">
           {issueLabels.map((label) => (
-            <span
-              key={label.id}
-              className="flex items-center gap-1 border border-border/50 rounded-full px-1.5 py-px text-xs text-muted-foreground"
-            >
-              <div
-                className="h-1.5 w-1.5 rounded-full shrink-0"
-                style={{ backgroundColor: label.color }}
-              />
+            <Pill key={label.id} dot={label.color}>
               {label.name}
-            </span>
+            </Pill>
           ))}
         </div>
         {issueLabels.length > 0 && (

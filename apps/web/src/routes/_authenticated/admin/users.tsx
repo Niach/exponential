@@ -4,7 +4,7 @@ import { Ellipsis, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { useSession } from "@/hooks/use-session"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
@@ -199,9 +199,7 @@ function AdminUsers() {
                     <span>password</span>
                   ) : (
                     user.providers.map((p: string) => (
-                      <Badge key={p} variant="secondary" className="text-xs">
-                        {p}
-                      </Badge>
+                      <Pill key={p}>{p}</Pill>
                     ))
                   )}
                 </div>
@@ -214,9 +212,7 @@ function AdminUsers() {
                   </span>
                 ) : (
                   user.providers.map((p: string) => (
-                    <Badge key={p} variant="secondary" className="text-xs">
-                      {p}
-                    </Badge>
+                    <Pill key={p}>{p}</Pill>
                   ))
                 )}
               </div>

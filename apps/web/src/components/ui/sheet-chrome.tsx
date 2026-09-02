@@ -48,7 +48,7 @@ export function SheetGrabber({
       {...drag}
       {...props}
       className={cn(
-        `mx-auto mt-2 -mb-1 h-1 w-9 shrink-0 rounded-full bg-foreground/25`,
+        `mx-auto mt-2 -mb-1 h-1 w-9 shrink-0 rounded-full bg-foreground/30`,
         className
       )}
     />

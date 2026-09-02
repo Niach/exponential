@@ -18,6 +18,7 @@ import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdo
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
+import { Pill } from "@/components/ui/pill"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -90,20 +91,20 @@ export function IssueEditorChips({
         renderTrigger={(selected) => {
           const Icon = selected.icon
           return (
-            <Button
-              variant="ghost"
-              size="xs"
-              className="text-muted-foreground shrink-0"
+            <Pill
+              mode="action"
               disabled={disabled || disableStatus}
+              leading={
+                <Icon
+                  className={`!h-3 !w-3 ${selected.color}`}
+                  style={
+                    selected.colorHex ? { color: selected.colorHex } : undefined
+                  }
+                />
+              }
             >
-              <Icon
-                className={`!h-3 !w-3 ${selected.color}`}
-                style={
-                  selected.colorHex ? { color: selected.colorHex } : undefined
-                }
-              />
               {selected.label}
-            </Button>
+            </Pill>
           )
         }}
       />
@@ -116,15 +117,15 @@ export function IssueEditorChips({
         onSelect={onPriorityChange}
         mobileTitle="Priority"
         renderTrigger={(selected) => (
-          <Button
-            variant="ghost"
-            size="xs"
-            className="text-muted-foreground shrink-0"
+          <Pill
+            mode="action"
             disabled={disabled}
+            leading={
+              <PriorityIcon priority={selected.value} className="!h-3 !w-3" />
+            }
           >
-            <PriorityIcon priority={selected.value} className="!h-3 !w-3" />
             {selected.label}
-          </Button>
+          </Pill>
         )}
       />
 
@@ -147,15 +148,13 @@ export function IssueEditorChips({
       {!hideDueDateChip && (
         <Popover>
           <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="xs"
-              className="text-muted-foreground shrink-0"
+            <Pill
+              mode="action"
               disabled={disabled}
+              leading={<CalendarDays className="size-3" />}
             >
-              <CalendarDays className="size-3" />
               {dueDate ? formatDate(dueDate) : `Due date`}
-            </Button>
+            </Pill>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="start">
             <Calendar

@@ -21,6 +21,7 @@ import { IconPicker } from "@/components/ui/icon-picker"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import {
   Dialog,
   DialogBody,
@@ -611,16 +612,9 @@ export function WidgetConfigDialog({
                           </span>
                         ) : (
                           selected.map((label: TeamLabel) => (
-                            <span
-                              key={label.id}
-                              className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs"
-                            >
-                              <span
-                                className="h-2 w-2 rounded-full"
-                                style={{ backgroundColor: label.color }}
-                              />
+                            <Pill key={label.id} dot={label.color}>
                               {label.name}
-                            </span>
+                            </Pill>
                           ))
                         )}
                       </Button>

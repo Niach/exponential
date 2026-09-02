@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { Archive, Github, Pencil, Plus, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { getBoardIcon } from "@/lib/board-icons"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import {
   GlassGroup,
@@ -103,14 +103,10 @@ export function TeamBoardsSection({
         <GlassSectionHeader
           label="Boards"
           trailing={
-            <Button
-              variant="glass"
-              size="xs"
-              onClick={() => setCreateOpen(true)}
-            >
+            <Pill mode="action" onClick={() => setCreateOpen(true)}>
               <Plus />
               New board
-            </Button>
+            </Pill>
           }
         />
         {boards.length === 0 ? (
@@ -138,8 +134,7 @@ export function TeamBoardsSection({
                     {board.name}
                   </span>
                   {repo && (
-                    <Badge
-                      variant="outline"
+                    <Pill
                       className="hidden max-w-[12rem] shrink-0 gap-1 sm:inline-flex"
                       title={repo?.fullName ?? `No repository`}
                     >
@@ -147,14 +142,11 @@ export function TeamBoardsSection({
                       <span className="truncate">
                         {repo?.fullName ?? `No repository`}
                       </span>
-                    </Badge>
+                    </Pill>
                   )}
-                  <Badge
-                    variant="outline"
-                    className="hidden shrink-0 font-mono text-xs sm:inline-flex"
-                  >
+                  <Pill className="hidden shrink-0 font-mono sm:inline-flex">
                     {board.prefix}
-                  </Badge>
+                  </Pill>
                   <Button
                     variant="glass"
                     size="icon-sm"
@@ -382,24 +374,19 @@ function ArchivedBoardsCard({
               <span className="min-w-0 flex-1 truncate text-sm font-medium">
                 {board.name}
               </span>
-              <Badge
-                variant="outline"
-                className="hidden shrink-0 font-mono text-xs sm:inline-flex"
-              >
+              <Pill className="hidden shrink-0 font-mono sm:inline-flex">
                 {board.prefix}
-              </Badge>
+              </Pill>
               <span className="shrink-0 text-xs text-muted-foreground">
                 {formatArchivedOn(board.archivedAt)}
               </span>
-              <Button
-                variant="glass"
-                size="xs"
-                className="shrink-0"
+              <Pill
+                mode="action"
                 disabled={restoringId === board.id}
                 onClick={() => void handleUnarchive(board.id)}
               >
                 {restoringId === board.id ? `Unarchiving…` : `Unarchive`}
-              </Button>
+              </Pill>
             </div>
           )
         })}
@@ -491,24 +478,19 @@ function PendingDeletionCard({
               <span className="min-w-0 flex-1 truncate text-sm font-medium">
                 {board.name}
               </span>
-              <Badge
-                variant="outline"
-                className="hidden shrink-0 font-mono text-xs sm:inline-flex"
-              >
+              <Pill className="hidden shrink-0 font-mono sm:inline-flex">
                 {board.prefix}
-              </Badge>
+              </Pill>
               <span className="shrink-0 text-xs text-muted-foreground">
                 {formatPurgeCountdown(board.purgeAt)}
               </span>
-              <Button
-                variant="glass"
-                size="xs"
-                className="shrink-0"
+              <Pill
+                mode="action"
                 disabled={restoringId === board.id}
                 onClick={() => void handleRestore(board.id)}
               >
                 {restoringId === board.id ? `Restoring…` : `Restore`}
-              </Button>
+              </Pill>
             </div>
           )
         })}

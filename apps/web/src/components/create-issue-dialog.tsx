@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import {
   Dialog,
   DialogCancel,
@@ -467,20 +468,19 @@ export function CreateIssueDialog({
     boards.length > 1 ? (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
+          <Pill
+            mode="action"
             disabled={dialogDisabled}
-            className="h-auto gap-1.5 rounded-md bg-accent/50 px-2 py-0.5 text-xs font-medium text-foreground transition-colors hover:bg-accent has-[>svg]:px-2"
+            leading={
+              <BoardGlyph
+                board={selectedBoard ?? { color: boardColor }}
+                className="size-3"
+              />
+            }
           >
-            <BoardGlyph
-              board={selectedBoard ?? { color: boardColor }}
-              className="size-3.5"
-            />
             {displayPrefix}
             <ChevronDown className="size-3 text-muted-foreground" />
-          </Button>
+          </Pill>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-56">
           {boards.map((board) => (
@@ -566,14 +566,9 @@ export function CreateIssueDialog({
               <span className="text-xs text-destructive">
                 {attachmentStatus}
               </span>
-              <Button
-                type="button"
-                variant="outline"
-                size="xs"
-                onClick={handleClose}
-              >
+              <Pill mode="action" onClick={handleClose}>
                 Close
-              </Button>
+              </Pill>
             </div>
           ) : draftFiles.length > 0 || attachmentStatus ? (
             // EXP-586: images live inline in the description only; the footer

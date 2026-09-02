@@ -305,6 +305,21 @@ html {
     inset 0 1px 0 oklch(1 0 0 / 6%);
 }
 
+/* EXP-698 — the OPAQUE card composite. Menus and the floating composer read
+   as the ordinary card fill (`bg-glass-card`) sitting on a SOLID surface
+   rather than on whatever scrolls behind them: no backdrop blur, no drop
+   shadow, just the fill over --popover. The tint has to ride the
+   background-IMAGE layer because `background-color` holds exactly one colour
+   and that one is the opaque base. Free of border/radius like every other
+   glass recipe — callers own those. */
+@utility bg-glass-card-opaque {
+  background-color: var(--popover);
+  background-image: linear-gradient(
+    var(--glass-fill-card),
+    var(--glass-fill-card)
+  );
+}
+
 /* Translucent chrome pinned to a viewport EDGE: sticky top bars, the docked
    agent bar. The scrim must read as the page gradient continuing behind the
    blur — so it is tinted with the gradient's own endpoint, never with

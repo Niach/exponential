@@ -169,7 +169,7 @@ export function MobileTabBar({
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[35] flex items-center justify-center gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:hidden">
       <nav
         aria-label="Primary"
-        className="pointer-events-auto flex items-center rounded-full border border-glass-stroke-card bg-popover/85 p-1 shadow-lg shadow-black/40 backdrop-blur-xl"
+        className="pointer-events-auto flex items-center rounded-full border border-glass-stroke-strong bg-glass-card-opaque p-1"
       >
         {boardTarget ? (
           <Link

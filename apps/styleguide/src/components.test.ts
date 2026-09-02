@@ -124,28 +124,47 @@ describe(`demo markup`, () => {
   const STRUCTURAL = new Set([
     `active`,
     `amount`,
+    `badge`,
     `bar`,
+    `borderless`,
     `box`,
+    `bubble`,
+    `card`,
+    `card-head`,
     `chevron`,
+    `close`,
     `content`,
     `desc`,
     `destructive`,
     `disabled`,
     `divider`,
+    `dot`,
+    `field`,
     `fill`,
+    `fold`,
     `glyph`,
     `grabber`,
     `header`,
+    `id`,
     `interactive`,
     `item`,
     `label`,
     `line`,
     `name`,
+    `narration`,
     `on`,
+    `opaque`,
+    `selected`,
+    `show-more`,
     `step`,
+    `strip`,
+    `submit`,
     `tab`,
     `text`,
     `title`,
+    `tool`,
+    `tool-row`,
+    `tools`,
     `track`,
     `trailing`,
     `value`,
@@ -161,6 +180,29 @@ describe(`demo markup`, () => {
         const known =
           /^cmp-[a-z0-9-]+$/.test(name) || STRUCTURAL.has(name) || TOKEN_MODIFIER.test(name)
         expect(known ? name : `${spec.id}: unknown class "${name}"`).toBe(name)
+      }
+    }
+  })
+})
+
+describe(`the pill absorbed the chip and the header button`, () => {
+  test(`neither survives as an id or a block class`, () => {
+    const ids = new Set(COMPONENTS.map((spec) => spec.id))
+    expect(ids.has(`chip`)).toBe(false)
+    expect(ids.has(`button-xs`)).toBe(false)
+    expect(componentStyles).not.toContain(`.cmp-chip`)
+    expect(componentStyles).not.toContain(`.cmp-button-xs`)
+  })
+
+  test(`the demo shows all six size × mode combinations`, () => {
+    const spec = COMPONENTS.find((entry) => entry.id === `pill`)
+    const markup = spec === undefined ? `` : spec.render()
+    for (const pillSize of [`md`, `sm`]) {
+      for (const mode of [`action`, `select`, `readonly`]) {
+        const combination = `data-size="${pillSize}" data-mode="${mode}"`
+        expect(markup.includes(combination) ? combination : `pill: ${combination} is missing`).toBe(
+          combination
+        )
       }
     }
   })

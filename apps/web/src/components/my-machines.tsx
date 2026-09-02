@@ -23,6 +23,7 @@ import {
 import { desktopDownloadHref } from "@/lib/desktop-download"
 import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import {
   Dialog,
@@ -201,14 +202,10 @@ export function MyMachines({
       <GlassSectionHeader
         label="My machines"
         trailing={
-          <Button
-            variant="glass"
-            size="xs"
-            onClick={() => setAddServerOpen(true)}
-          >
-            <AddIcon className="size-3.5" />
+          <Pill mode="action" onClick={() => setAddServerOpen(true)}>
+            <AddIcon className="size-3" />
             Add device
-          </Button>
+          </Pill>
         }
       />
 

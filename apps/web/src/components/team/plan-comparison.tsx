@@ -10,7 +10,7 @@ import {
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { GlassGroup } from "@/components/ui/glass-rows"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -281,11 +281,7 @@ export function PlanComparison({
               <div className="flex flex-col gap-1.5 px-4 py-4">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-semibold">{t.name}</span>
-                  {isCurrent && (
-                    <Badge variant="secondary" className="text-[10px]">
-                      Current
-                    </Badge>
-                  )}
+                  {isCurrent && <Pill>Current</Pill>}
                 </div>
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-semibold tracking-tight">

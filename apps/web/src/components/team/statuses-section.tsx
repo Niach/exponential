@@ -31,7 +31,7 @@ import {
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
 import { IconTooltip } from "@/components/icon-tooltip"
 import { hexWithAlpha } from "@/lib/status-icons"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import {
   GlassGroup,
@@ -260,9 +260,7 @@ function StatusRow({
         )}
 
         {isDefault && (
-          <Badge variant="secondary" className="font-normal">
-            Default
-          </Badge>
+          <Pill className="font-normal">Default</Pill>
         )}
         <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
           {count} issue{count === 1 ? `` : `s`}
@@ -560,9 +558,9 @@ function CreateStatusForm({
         >
           {busy ? `Creating...` : `Create status`}
         </Button>
-        <Button size="xs" variant="ghost" disabled={busy} onClick={onDone}>
+        <Pill mode="action" disabled={busy} onClick={onDone}>
           Cancel
-        </Button>
+        </Pill>
       </div>
     </GlassRow>
   )

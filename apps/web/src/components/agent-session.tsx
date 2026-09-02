@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import {
   Fragment,
   memo,
@@ -12,10 +13,11 @@ import { toast } from "sonner"
 import { linkSegments } from "@/lib/linkify"
 import { ArrowDown, Check, ChevronDown, ChevronRight, X } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
-import type { CodingSession, Issue } from "@/db/schema"
+import type { CodingSession, Issue, User } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import { SessionMergeButton } from "@/components/session-merge-button"
 import { useSessionDevice } from "@/hooks/use-session-device"
+import { useTeamUsers } from "@/hooks/use-team-data"
 import { useNow } from "@/hooks/use-now"
 import { useSessionAgentUsage } from "@/hooks/use-session-agent-usage"
 import { useKillSession } from "@/hooks/use-kill-session"
@@ -55,8 +57,14 @@ import {
 import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+import {
+  Composer,
+  ComposerSubmit,
+  ComposerTool,
+} from "@/components/composer"
+import { MentionTextarea } from "@/components/mention-textarea"
 import {
   Collapsible,
   CollapsibleContent,
@@ -203,6 +211,9 @@ export function AgentSessionView({
   // phase, answers) and dials only when nothing is connected yet, so
   // reopening a session renders instantly with no reconnect phase.
   const store = useMemo(() => acquireSteerSession(session.id), [session.id])
+  // EXP-698: the steer composer is the mention field, so it needs the run's
+  // team roster for `@` autocomplete.
+  const { users: teamUsers } = useTeamUsers(session.teamId)
   const { phase, feed, latestDiff, answerStates, connected } =
     useSyncExternalStore(store.subscribe, store.getSnapshot)
   useEffect(() => store.connect(), [store])
@@ -612,7 +623,7 @@ export function AgentSessionView({
           {/* EXP-356: conversation tabs — Main plus one per RUNNING subagent
               (ended tabs are dropped, EXP-387). */}
           {visibleTabs.length > 0 && (
-            <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/60 px-2 py-1">
+            <div className="flex shrink-0 items-center gap-1 overflow-x-auto px-2 py-1">
               <AgentTab
                 label="Main"
                 active={activeAgent === null}
@@ -836,6 +847,7 @@ export function AgentSessionView({
                 live={live && connected}
                 onSend={sendMessage}
                 sessionId={session.id}
+                users={teamUsers}
                 placeholder={
                   planPending ? `Tell Claude what to change…` : undefined
                 }
@@ -1281,26 +1293,26 @@ function QuestionPrompt({
               }
             }}
           />
-          <Button
-            variant="secondary"
-            size="xs"
+          <Pill
+            size="sm"
+            mode="action"
             disabled={freeTextValue.trim().length === 0}
             onClick={submitFreeText}
           >
             Answer
-          </Button>
+          </Pill>
         </div>
       )}
       {answerable && item.multiSelect && (
-        <Button
-          variant="secondary"
-          size="xs"
+        <Pill
+          size="sm"
+          mode="action"
           className="mt-2"
           disabled={picked.length === 0}
           onClick={submitPicked}
         >
           Answer
-        </Button>
+        </Pill>
       )}
       {answerState?.status === `error` && (
         <div className="mt-1.5 text-[0.6875rem] text-amber-400">
@@ -1345,6 +1357,55 @@ function AnsweredLine({
   )
 }
 
+/** The chrome BOTH ask cards wear (EXP-698): a NEUTRAL glass card. The accent
+ *  — primary for a plan, amber for a question — lives on the glyph and the
+ *  label only; a tinted border or fill made the feed read as an alert stack.
+ *  The two cards below stay separate components (a single-question card and a
+ *  multi-step stepper have almost no body in common) but cannot drift apart on
+ *  chrome. */
+function AskCard({
+  plan,
+  label,
+  meta,
+  children,
+}: {
+  plan?: boolean
+  label?: ReactNode
+  /** A trailing note beside the label — the stepper's "k of n". */
+  meta?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div className="my-1 rounded-xl border border-glass-stroke-card bg-glass-card p-3">
+      <div className="flex items-start gap-2">
+        {plan ? (
+          <CodingPlanIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
+        ) : (
+          <UiHelpIcon className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
+        )}
+        <div className="min-w-0 flex-1">
+          {(label !== undefined || meta !== undefined) && (
+            <div className="mb-1 flex items-center gap-2">
+              {label !== undefined && (
+                <span
+                  className={cn(
+                    `truncate text-xs font-medium`,
+                    plan ? `text-primary` : `text-amber-400`
+                  )}
+                >
+                  {label}
+                </span>
+              )}
+              {meta}
+            </div>
+          )}
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /** A standalone question (EXP-78): a plan approval, or an AskUserQuestion from
  *  a desktop that publishes no ask grouping. `planMode` cards (EXP-97) get a
  *  "Plan ready" presentation with the first option as the primary approve
@@ -1367,39 +1428,15 @@ function QuestionCard({
   const { expanded, setExpanded, clampable } = useClampToggle(item.text)
   const plan = item.planMode
   return (
-    <div
-      className={cn(
-        `my-1 rounded-md border px-3 py-2`,
-        plan
-          ? `border-primary/40 bg-primary/5`
-          : `border-amber-500/40 bg-amber-500/5`
-      )}
-    >
-      <div className="flex items-start gap-2">
-        {plan ? (
-          <CodingPlanIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
-        ) : (
-          <UiHelpIcon className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
-        )}
-        <div className="min-w-0 flex-1">
-          {plan ? (
-            <div className="mb-1 text-xs font-medium text-primary">
-              Plan ready
-            </div>
-          ) : (
-            item.header && (
-              <div className="mb-1 text-xs font-medium text-amber-400">
-                {item.header}
-              </div>
-            )
-          )}
+    <AskCard plan={plan} label={plan ? `Plan ready` : item.header}>
+      <>
           {plan ? (
             // The plan is GFM markdown — always rendered as markdown; a long
             // plan folds behind a height clamp instead of dropping to raw text.
             <div
               className={cn(
                 `text-sm`,
-                clampable && !expanded && `max-h-56 overflow-hidden`
+                clampable && !expanded && `max-h-40 overflow-hidden`
               )}
             >
               <MarkdownEditor
@@ -1413,7 +1450,7 @@ function QuestionCard({
             <div
               className={cn(
                 `text-sm text-foreground/90`,
-                clampable && !expanded && `max-h-56 overflow-hidden`
+                clampable && !expanded && `max-h-40 overflow-hidden`
               )}
             >
               <FeedText text={item.text} ariaLabel="Question" />
@@ -1433,9 +1470,8 @@ function QuestionCard({
             onAnswer={onAnswer}
             variant={plan ? `plan` : `default`}
           />
-        </div>
-      </div>
-    </div>
+      </>
+    </AskCard>
   )
 }
 
@@ -1466,22 +1502,19 @@ function AskStepperCard({
   const submitStep = current !== null && current.item.index === undefined
 
   return (
-    <div className="my-1 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2">
-      <div className="flex items-start gap-2">
-        <UiHelpIcon className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
-        <div className="min-w-0 flex-1">
-          <div className="mb-1 flex items-center gap-2">
-            <span className="truncate text-xs font-medium text-amber-400">
-              {header ?? (submitStep ? `Review answers` : `Question`)}
-            </span>
-            {view.total > 1 && (
-              <span className="shrink-0 text-[0.6875rem] text-muted-foreground">
-                {current && !submitStep
-                  ? `${view.position} of ${view.total}`
-                  : `${view.total} questions`}
-              </span>
-            )}
-          </div>
+    <AskCard
+      label={header ?? (submitStep ? `Review answers` : `Question`)}
+      meta={
+        view.total > 1 ? (
+          <span className="shrink-0 text-[0.6875rem] text-muted-foreground">
+            {current && !submitStep
+              ? `${view.position} of ${view.total}`
+              : `${view.total} questions`}
+          </span>
+        ) : undefined
+      }
+    >
+      <>
           {answered.map((step) => (
             <AnsweredStepRow
               key={step.item.id}
@@ -1515,9 +1548,8 @@ function AskStepperCard({
               </div>
             )
           )}
-        </div>
-      </div>
-    </div>
+      </>
+    </AskCard>
   )
 }
 
@@ -1661,15 +1693,19 @@ function AgentTab({
   onClick: () => void
 }) {
   return (
-    <Button
-      variant={active ? `secondary` : `ghost`}
+    <Pill
       size="sm"
-      className="h-6 shrink-0 gap-1.5 px-2 text-xs"
+      mode="select"
+      selected={active}
+      leading={
+        running ? (
+          <UiLoadingIcon className="size-3 shrink-0 animate-spin" />
+        ) : undefined
+      }
       onClick={onClick}
     >
       {label}
-      {running && <UiLoadingIcon className="size-3 shrink-0 animate-spin" />}
-    </Button>
+    </Pill>
   )
 }
 
@@ -1791,6 +1827,7 @@ function MessageComposer({
   onSend,
   sessionId,
   placeholder,
+  users,
 }: {
   store: SteerSessionStore
   /** Sending is possible — the composer itself stays mounted regardless
@@ -1804,6 +1841,9 @@ function MessageComposer({
   /** Context-aware hint (e.g. the plan-approval "Tell Claude what to
    *  change…"); the default stays the generic prompt. */
   placeholder?: string
+  /** EXP-698: the run's team, for the field's `@` autocomplete — `#` issue
+   *  refs and `:` emoji work without it. */
+  users: User[]
 }) {
   // EXP-621: the draft lives in the per-session store, so it survives
   // reconnects, dock collapse/reopen and navigation. Blob URLs are the
@@ -1873,12 +1913,73 @@ function MessageComposer({
     }
   }
 
-  // EXP-696: ONE rounded card laid out as a COLUMN — the pending strip, a
-  // borderless full-width field, then the `[+]`·spacer·send row (the natives'
-  // composerCard). Behavior and wire format are unchanged.
+  // EXP-696/EXP-698: ONE rounded card laid out as a COLUMN — the pending
+  // strip, a borderless full-width field, then the `[+]`·spacer·send row (the
+  // natives' composerCard), now the shared `Composer`. Behavior and wire
+  // format are unchanged.
   return (
-    <div
-      className="rounded-2xl border border-border bg-muted/40"
+    <Composer
+      strip={
+        pending.length > 0 && (
+          <div className="flex flex-wrap gap-2 px-3 pt-3">
+            {pending.map((image) => (
+              <div key={image.url} className="relative">
+                <img
+                  src={image.url}
+                  alt=""
+                  className="size-16 rounded-md border border-glass-stroke-card object-cover"
+                />
+                <button
+                  type="button"
+                  aria-label="Remove image"
+                  disabled={sending}
+                  onClick={() => store.removeDraftImage(image.url)}
+                  className="absolute -right-1.5 -top-1.5 rounded-full border border-glass-stroke-card bg-popover p-0.5 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )
+      }
+      tools={
+        <>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={acceptedImageContentTypes.join(`,`)}
+            className="hidden"
+            onChange={(e) => {
+              filePickerOpenRef.current = false
+              if (e.target.files) addFiles(Array.from(e.target.files))
+              e.target.value = ``
+            }}
+          />
+          <ComposerTool
+            aria-label="Attach image"
+            title="Attach image"
+            disabled={sending}
+            onClick={() => {
+              filePickerOpenRef.current = true
+              fileInputRef.current?.click()
+            }}
+          >
+            <UiAddIcon />
+          </ComposerTool>
+        </>
+      }
+      submit={
+        <ComposerSubmit
+          aria-label="Send"
+          title="Send"
+          disabled={sending || !live || (!text.trim() && pending.length === 0)}
+          onClick={() => void send()}
+        >
+          <UiSendIcon className="!size-6" />
+        </ComposerSubmit>
+      }
       onDrop={(event) => {
         if (event.dataTransfer.files.length === 0) return
         event.preventDefault()
@@ -1888,31 +1989,12 @@ function MessageComposer({
         if (event.dataTransfer.types.includes(`Files`)) event.preventDefault()
       }}
     >
-      {pending.length > 0 && (
-        <div className="flex flex-wrap gap-2 px-3 pt-3">
-          {pending.map((image) => (
-            <div key={image.url} className="relative">
-              <img
-                src={image.url}
-                alt=""
-                className="size-16 rounded-md border border-border/60 object-cover"
-              />
-              <button
-                type="button"
-                aria-label="Remove image"
-                disabled={sending}
-                onClick={() => store.removeDraftImage(image.url)}
-                className="absolute -right-1.5 -top-1.5 rounded-full border border-border bg-background p-0.5 text-muted-foreground hover:text-foreground"
-              >
-                <X className="size-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      <Textarea
+      {/* EXP-698: the steer field is the mention field — `@` members, `#`
+          issue refs and `:` emoji all work while steering. */}
+      <MentionTextarea
         value={text}
-        onChange={(e) => store.setDraftText(e.target.value)}
+        onValueChange={(next) => store.setDraftText(next)}
+        users={users}
         onKeyDown={(e) => {
           if (e.key === `Enter` && !e.shiftKey) {
             e.preventDefault()
@@ -1927,52 +2009,12 @@ function MessageComposer({
         placeholder={placeholder ?? `Message the agent…`}
         rows={1}
         className={cn(
-          `max-h-32 min-h-9 w-full resize-none border-none px-3 pb-1 pt-3 shadow-none focus-visible:ring-0`,
-          // The composer sits on the session's own surface, so it drops the
-          // stock Textarea's glass fill (EXP-616).
+          `max-h-32 min-h-9 w-full border-none px-3 pb-1 pt-3 shadow-none focus-visible:border-transparent`,
+          // The card IS the field chrome, so the field drops the stock
+          // Textarea's glass fill (EXP-616).
           `bg-transparent`
         )}
       />
-      <div className="flex items-center gap-1 px-2 pb-2">
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept={acceptedImageContentTypes.join(`,`)}
-          className="hidden"
-          onChange={(e) => {
-            filePickerOpenRef.current = false
-            if (e.target.files) addFiles(Array.from(e.target.files))
-            e.target.value = ``
-          }}
-        />
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0 text-muted-foreground"
-          aria-label="Attach image"
-          title="Attach image"
-          disabled={sending}
-          onClick={() => {
-            filePickerOpenRef.current = true
-            fileInputRef.current?.click()
-          }}
-        >
-          <UiAddIcon />
-        </Button>
-        <div className="flex-1" />
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0 text-foreground"
-          aria-label="Send"
-          title="Send"
-          disabled={sending || !live || (!text.trim() && pending.length === 0)}
-          onClick={() => void send()}
-        >
-          <UiSendIcon />
-        </Button>
-      </div>
-    </div>
+    </Composer>
   )
 }

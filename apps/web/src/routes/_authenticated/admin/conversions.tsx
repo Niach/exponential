@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
 import { getRuntimeConfig } from "@/lib/runtime-config"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -303,9 +303,7 @@ function AdminConversions() {
                   <span className="text-muted-foreground whitespace-nowrap text-xs">
                     {formatDateTime(event.createdAt)}
                   </span>
-                  <Badge variant="outline" className="text-xs">
-                    {event.name}
-                  </Badge>
+                  <Pill>{event.name}</Pill>
                   <span className="truncate">
                     {event.userEmail ??
                       (event.anonymousId

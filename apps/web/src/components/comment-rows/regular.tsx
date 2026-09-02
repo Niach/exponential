@@ -104,6 +104,9 @@ export function RegularCommentRow({
                   markdown={bodyText}
                   editable={false}
                   onChange={() => {}}
+                  // EXP-698: feed-sized markdown everywhere — zero pad and no
+                  // min-height, so the row's own `mt-0.5` is the only spacing.
+                  appearance="chat"
                 />
               </div>
             )}

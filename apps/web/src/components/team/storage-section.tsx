@@ -10,7 +10,7 @@ import { useBillingPlan, invalidateBillingCache } from "@/hooks/use-billing"
 import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
 import { formatAttachmentSize, getAttachmentIcon } from "@/lib/attachment-files"
 import { formatStorage, UsageBar } from "@/components/team/billing-section"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import { ImagePreviewDialog } from "@/components/image-preview-dialog"
@@ -161,16 +161,15 @@ export function TeamStorageSection({
         <GlassSectionHeader
           label="Storage"
           trailing={
-            <Button
-              variant="glass"
-              size="xs"
+            <Pill
+              mode="action"
               disabled={sweepCandidateCount === 0 || sweeping}
               onClick={() => setSweepConfirmOpen(true)}
             >
               <Eraser />
               Sweep unreferenced images
               {sweepCandidateCount > 0 ? ` (${sweepCandidateCount})` : ``}
-            </Button>
+            </Pill>
           }
         />
         <p className="px-1 pb-2 text-xs text-foreground/50">
@@ -248,18 +247,19 @@ export function TeamStorageSection({
                       {formatAttachmentSize(row.sizeBytes)}
                     </span>
                     {issue && boardSlug && (
-                      <Link
-                        to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
-                        params={{
-                          teamSlug,
-                          boardSlug,
-                          issueIdentifier: issue.identifier,
-                        }}
-                        title={issue.title}
-                        className="shrink-0 whitespace-nowrap rounded-full border bg-accent px-1.5 py-px font-mono text-xs text-accent-foreground hover:border-ring"
-                      >
-                        #{issue.identifier}
-                      </Link>
+                      <Pill mode="action" asChild className="font-mono">
+                        <Link
+                          to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+                          params={{
+                            teamSlug,
+                            boardSlug,
+                            issueIdentifier: issue.identifier,
+                          }}
+                          title={issue.title}
+                        >
+                          #{issue.identifier}
+                        </Link>
+                      </Pill>
                     )}
                     <span className="hidden w-28 shrink-0 truncate text-xs text-muted-foreground sm:inline">
                       {uploader?.name || uploader?.email || `—`}
@@ -269,11 +269,11 @@ export function TeamStorageSection({
                     </span>
                     <span className="shrink-0">
                       {!row.isImage ? (
-                        <Badge variant="outline">File</Badge>
+                        <Pill>File</Pill>
                       ) : row.referenced ? (
-                        <Badge variant="secondary">In use</Badge>
+                        <Pill>In use</Pill>
                       ) : (
-                        <Badge variant="outline">Unreferenced</Badge>
+                        <Pill>Unreferenced</Pill>
                       )}
                     </span>
                     <Button

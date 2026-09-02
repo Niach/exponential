@@ -28,6 +28,7 @@ import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import {
   Dialog,
   DialogCancel,
@@ -440,16 +441,14 @@ function ReviewDetailPage() {
         <div className="hidden flex-wrap items-center gap-2 border-b border-border px-4 py-2 md:flex">
           <span className="text-destructive text-xs">{actionError.message}</span>
           {canFixConflicts && (
-            <Button
-              variant="ghost"
-              size="xs"
-              className="text-muted-foreground"
+            <Pill
+              mode="action"
               disabled={merging || closing}
               onClick={() => setConfirmMergeOpen(true)}
             >
-              <GitMerge className="size-3.5" />
+              <GitMerge className="size-3" />
               Retry merge
-            </Button>
+            </Pill>
           )}
         </div>
       )}
@@ -461,15 +460,14 @@ function ReviewDetailPage() {
             {linked.length} linked issues
           </span>
           {linked.map((linkedIssue) => (
-            <Button
+            <Pill
               key={linkedIssue.id}
-              variant="outline"
-              size="xs"
-              className="h-5 rounded-full px-2 font-mono text-xs"
+              mode="action"
+              className="font-mono"
               onClick={() => openIssue(linkedIssue)}
             >
               #{linkedIssue.identifier}
-            </Button>
+            </Pill>
           ))}
         </div>
       )}
@@ -483,15 +481,10 @@ function ReviewDetailPage() {
         ) : filesState.kind === `error` ? (
           <div className="flex flex-wrap items-center gap-2 px-4 py-3 text-xs text-rose-300">
             {`Couldn’t load changes: ${filesState.message}`}
-            <Button
-              variant="ghost"
-              size="xs"
-              className="text-muted-foreground"
-              onClick={() => reloadReview()}
-            >
-              <RotateCw className="size-3.5" />
+            <Pill mode="action" onClick={() => reloadReview()}>
+              <RotateCw className="size-3" />
               Retry
-            </Button>
+            </Pill>
           </div>
         ) : filesState.kind === `files` && filesState.files.length > 0 ? (
           <FileDiffList
@@ -523,16 +516,14 @@ function ReviewDetailPage() {
                 {actionError.message}
               </span>
               {canFixConflicts && (
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  className="text-muted-foreground"
+                <Pill
+                  mode="action"
                   disabled={merging || closing}
                   onClick={() => setConfirmMergeOpen(true)}
                 >
-                  <GitMerge className="size-3.5" />
+                  <GitMerge className="size-3" />
                   Retry merge
-                </Button>
+                </Pill>
               )}
             </div>
           )}

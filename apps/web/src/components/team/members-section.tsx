@@ -21,7 +21,7 @@ import { getRuntimeConfig } from "@/lib/runtime-config"
 import { getInitials } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import {
@@ -113,15 +113,15 @@ export function TeamMembersSection({
             const displayName = displayUserName(user, member.userId)
             const roleIcon =
               member.role === `owner` ? (
-                <Crown className="h-3.5 w-3.5" />
+                <Crown className="size-3" />
               ) : (
-                <ShieldCheck className="h-3.5 w-3.5" />
+                <ShieldCheck className="size-3" />
               )
 
             return (
               <GlassRow
                 key={member.id}
-                className="justify-between gap-2 px-3 py-2"
+                className="justify-between gap-3 px-3 py-2"
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <Avatar className="h-8 w-8 shrink-0">
@@ -131,20 +131,14 @@ export function TeamMembersSection({
                     </AvatarFallback>
                   </Avatar>
                   <div className="min-w-0">
-                    <div className="flex min-w-0 items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-3">
                       <span className="truncate text-sm font-medium">
                         {displayName}
                         {isSelf && (
                           <span className="text-muted-foreground"> (you)</span>
                         )}
                       </span>
-                      <Badge
-                        variant="secondary"
-                        className="flex shrink-0 items-center gap-1"
-                      >
-                        {roleIcon}
-                        {member.role}
-                      </Badge>
+                      <Pill leading={roleIcon}>{member.role}</Pill>
                     </div>
                     {user?.email && user.email !== displayName && (
                       <div className="truncate text-xs text-muted-foreground">
@@ -449,8 +443,10 @@ function InviteControls({ teamId }: { teamId: string }) {
                 key={invite.id}
                 className="mb-2 justify-between px-3 py-2 text-sm last:mb-0"
               >
-                <div className="flex min-w-0 items-center gap-2">
-                  <Badge variant="secondary">{invite.role}</Badge>
+                <div className="flex min-w-0 items-center gap-3">
+                  <Pill leading={<Mail className="size-3" />}>
+                    {invite.role}
+                  </Pill>
                   {invite.email && (
                     <span className="min-w-0 truncate font-medium">
                       {invite.email}

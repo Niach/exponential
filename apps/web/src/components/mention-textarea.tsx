@@ -255,7 +255,7 @@ export const MentionTextarea = forwardRef<
         onKeyDown={handleKeyDown}
       />
       {menu && candidateCount > 0 && (
-        <div className="absolute bottom-full z-20 mb-1 w-72 overflow-hidden rounded-xl glass-panel">
+        <div className="absolute bottom-full z-20 mb-1 w-72 overflow-hidden rounded-lg border border-glass-stroke-card bg-glass-card-opaque">
           {menu.kind === `mention` &&
             mentionCandidates.map((u, i) => (
               <UserCandidateRow

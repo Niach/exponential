@@ -28,13 +28,22 @@ import { designTokens } from "@exp/design-tokens"
 import {
   escapeHtml,
   svgBell,
+  svgCheck,
   svgChevronRight,
+  svgCircleHelp,
   svgEllipsis,
   svgGitMerge,
+  svgHash,
+  svgImage,
   svgInbox,
+  svgPaperclip,
   svgPlay,
   svgPlus,
+  svgSend,
+  svgSmile,
+  svgTerminal,
   svgTrash,
+  svgX,
 } from "./html.ts"
 
 export type ComponentPlatform = `web` | `desktop` | `ios` | `android`
@@ -142,8 +151,81 @@ function iconButton(glyph: string): string {
   return `<button class="cmp-icon-button" type="button">${glyph}</button>`
 }
 
-function buttonXs(label: string, glyph?: string): string {
-  return `<button class="cmp-button-xs" type="button">${glyph ?? ``}${escapeHtml(label)}</button>`
+/**
+ * The ONE capsule. `readonly` is what used to be a chip, `sm` + `action` what
+ * used to be a "header button" — both were the same chrome wearing a second
+ * name, so EXP-698 kept the chrome and dropped the names.
+ */
+interface PillOptions {
+  size?: `md` | `sm`
+  mode?: `action` | `select` | `readonly`
+  selected?: boolean
+  glyph?: string
+  dot?: boolean
+}
+
+function pill(label: string, options: PillOptions = {}): string {
+  const { size = `sm`, mode = `action`, selected = false, glyph, dot = false } = options
+  const tag = mode === `readonly` ? `span` : `button`
+  return [
+    `<${tag} class="cmp-pill${selected ? ` selected` : ``}"`,
+    ` data-size="${size}" data-mode="${mode}"${mode === `readonly` ? `` : ` type="button"`}>`,
+    dot ? `<span class="dot"></span>` : ``,
+    glyph ?? ``,
+    `<span class="label">${escapeHtml(label)}</span>`,
+    `</${tag}>`,
+  ].join(``)
+}
+
+interface RichTabOptions {
+  title: string
+  /** The mono run identifier — a terminal index, an issue key, a branch. */
+  id?: string
+  glyph?: string
+  dot?: boolean
+  badge?: string
+  active?: boolean
+}
+
+function richTab(options: RichTabOptions): string {
+  const { title, id, glyph, dot = false, badge, active = false } = options
+  return [
+    `<span class="cmp-rich-tab${active ? ` active` : ``}">`,
+    dot ? `<span class="dot"></span>` : ``,
+    glyph ?? ``,
+    `<span class="title">${escapeHtml(title)}</span>`,
+    id === undefined ? `` : `<span class="id">${escapeHtml(id)}</span>`,
+    badge === undefined ? `` : `<span class="badge">${escapeHtml(badge)}</span>`,
+    `<span class="close">${svgX}</span>`,
+    `</span>`,
+  ].join(``)
+}
+
+interface ComposerOptions {
+  placeholder: string
+  tools: string[]
+  /** One attachment, to show the strip; the real one wraps. */
+  attachment?: string
+  submit?: string
+  opaque?: boolean
+}
+
+function composer(options: ComposerOptions): string {
+  const { placeholder, tools, attachment, submit = svgSend, opaque = false } = options
+  const strip =
+    attachment === undefined
+      ? ``
+      : `<div class="strip"><span class="item">${svgImage}<span class="label">${escapeHtml(attachment)}</span></span></div>`
+  return [
+    `<div class="cmp-composer${opaque ? ` opaque` : ``}">`,
+    strip,
+    `<textarea class="field" rows="1" placeholder="${escapeHtml(placeholder)}"></textarea>`,
+    `<div class="tools">`,
+    tools.map((glyph) => `<button class="tool" type="button">${glyph}</button>`).join(``),
+    `<button class="submit" type="button">${submit}</button>`,
+    `</div>`,
+    `</div>`,
+  ].join(``)
 }
 
 function row(label: string, trailing?: string, interactive = false): string {
@@ -180,9 +262,12 @@ function ok(symbol: string, file: string, note?: string): ComponentStatus {
   return { state: `ok`, symbol, file, note }
 }
 
-function leftover(symbol: string, file: string, note: string): ComponentStatus {
-  return { state: `leftover`, symbol, file, note }
-}
+/**
+ * There is deliberately no `leftover` helper: as of EXP-698 every control on
+ * this page agrees on all four platforms. A control that drifts again gets
+ * `{ state: `leftover`, symbol, file, note }` back — the state, the render and
+ * the yellow note styling all still exist for it.
+ */
 
 function na(note: string): ComponentStatus {
   return { state: `n/a`, note }
@@ -218,7 +303,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     render: () =>
       [
         `<div class="cmp-stack">`,
-        sectionHeader(`Boards`, buttonXs(`New`, svgPlus)),
+        sectionHeader(`Boards`, pill(`New`, { glyph: svgPlus })),
         group(pickerRow(`Mobile app`, `24 issues`), pickerRow(`Website`, `9 issues`)),
         sectionHeader(`Danger zone`),
         `</div>`,
@@ -261,8 +346,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     render: () =>
       [
         `<div class="cmp-stack">`,
-        row(`APP-14 · Fix the merge queue`, `<span class="cmp-chip">in review</span>`, true),
-        row(`APP-15 · Ship the usage sheet`, `<span class="cmp-chip">backlog</span>`, true),
+        row(`APP-14 · Fix the merge queue`, pill(`in review`, { mode: `readonly` }), true),
+        row(`APP-15 · Ship the usage sheet`, pill(`backlog`, { mode: `readonly` }), true),
         `</div>`,
       ].join(``),
   },
@@ -371,6 +456,26 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ].join(``),
   },
   {
+    id: `rich-tab`,
+    title: `Rich tab`,
+    kind: `Controls`,
+    blurb: `The STRIP tab — the desktop's top tab strip and terminal dock, the web agent dock. 26 tall, radius 10, padding 0/10, no chrome at rest: hover takes the row fill, active the active fill and full foreground. A 16px status glyph or a 6px dot leads, the title truncates at 180, a mono identifier sits at 50%, an exit code rides a small badge, and the close is a ghost 20px X. Never a pill: pills carry a label, this carries a state.`,
+    status: {
+      web: ok(`RichTab`, `apps/web/src/components/rich-tab.tsx`),
+      desktop: ok(`surface::rich_tab`, DESKTOP_SURFACE),
+      ios: na(`no terminal or top tab strips`),
+      android: na(`no terminal or top tab strips`),
+    },
+    render: () =>
+      [
+        `<div class="cmp-inline">`,
+        richTab({ glyph: svgTerminal, title: `zsh`, id: `1`, active: true }),
+        richTab({ dot: true, title: `Fix the merge queue`, id: `APP-14` }),
+        richTab({ glyph: svgTerminal, title: `bun run typecheck`, badge: `exit 1` }),
+        `</div>`,
+      ].join(``),
+  },
+  {
     id: `icon-button`,
     title: `Glass icon button`,
     kind: `Controls`,
@@ -385,26 +490,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       row(`Nightly changelog`, `${iconButton(svgPlay)}${iconButton(svgEllipsis)}`),
   },
   {
-    id: `button-xs`,
-    title: `Header button`,
-    kind: `Controls`,
-    blurb: `The 24-tall capsule that sits in a section header's trailing slot: 12/16 medium at 70% foreground, a card hairline over the card fill; hover goes active.`,
-    status: {
-      web: ok(`buttonVariants variant="glass" size="xs"`, `apps/web/src/components/ui/button.tsx`),
-      desktop: ok(`WebControl::web_xs`, DESKTOP_CONTROLS),
-      ios: na(`sheet header actions are GlassPillButton`),
-      android: na(`sheet header actions are GlassSheetHeaderAction`),
-    },
-    render: () =>
-      [
-        `<div class="cmp-inline">`,
-        buttonXs(`New board`, svgPlus),
-        buttonXs(`Merge`, svgGitMerge),
-        buttonXs(`Manage`),
-        `</div>`,
-      ].join(``),
-  },
-  {
     id: `button-primary`,
     title: `Primary submit`,
     kind: `Controls`,
@@ -417,7 +502,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ),
       desktop: ok(`Button::primary()`, DESKTOP_CONTROLS),
       ios: ok(`GlassSubmitButton`, IOS_CONTROLS),
-      android: ok(`GlassSubmitButton`, `${ANDROID_COMPONENTS}/GlassPillButton.kt`),
+      android: ok(`GlassSubmitButton`, `${ANDROID_COMPONENTS}/GlassSubmitButton.kt`),
     },
     render: () =>
       [
@@ -431,43 +516,30 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `pill`,
     title: `Pill`,
     kind: `Controls`,
-    blurb: `The selectable capsule: card fill, card stroke, 12px medium. Selected swaps to the active fill and the active stroke.`,
+    blurb: `The ONE capsule, a 2×3 matrix: size md 32 or sm 24, mode action / select / readonly. Card fill under a card stroke, label at 70% — action and select go active on hover, a selected one also takes the active stroke, readonly is metadata and never a target. There is no chip and no header button: those WERE this, under a second name. A conversation or subagent tab is sm select; a members-list role chip is sm readonly, 12px from its neighbours in a row.`,
     status: {
-      web: ok(`buttonVariants variant="glass" size="sm"`, `apps/web/src/components/ui/button.tsx`),
+      web: ok(`Pill`, `apps/web/src/components/ui/pill.tsx`),
       desktop: ok(`surface::glass_pill`, DESKTOP_SURFACE),
-      ios: ok(`GlassPillButton`, IOS_CONTROLS),
-      android: ok(`GlassPillButton`, `${ANDROID_COMPONENTS}/GlassPillButton.kt`),
+      ios: ok(`GlassPill`, `apps/ios/ExpUI/Sources/GlassPill.swift`),
+      android: ok(`GlassPill`, `${ANDROID_COMPONENTS}/GlassPill.kt`),
     },
     render: () =>
       [
+        `<div class="cmp-stack">`,
         `<div class="cmp-inline">`,
-        `<button class="cmp-pill active" type="button">All</button>`,
-        `<button class="cmp-pill" type="button">Assigned to me</button>`,
-        `<button class="cmp-pill" type="button">${svgPlus}Filter</button>`,
+        pill(`New`, { size: `md`, glyph: svgPlus }),
+        pill(`All`, { size: `md`, mode: `select`, selected: true }),
+        pill(`Mine`, { size: `md`, mode: `select` }),
+        pill(`in review`, { size: `md`, mode: `readonly` }),
         `</div>`,
-      ].join(``),
-  },
-  {
-    id: `chip`,
-    title: `Chip`,
-    kind: `Controls`,
-    blurb: `Static metadata, never a target: radius 8, card fill, NO stroke, padding 4/8 at 12px medium.`,
-    status: {
-      web: leftover(
-        `Badge`,
-        `apps/web/src/components/ui/badge.tsx`,
-        `capsule, not radius 8`
-      ),
-      desktop: ok(`surface::glass_chip`, DESKTOP_SURFACE),
-      ios: ok(`GlassChip`, IOS_CONTROLS),
-      android: ok(`Modifier.glassChip()`, ANDROID_GLASS),
-    },
-    render: () =>
-      [
         `<div class="cmp-inline">`,
-        `<span class="cmp-chip">in review</span>`,
-        `<span class="cmp-chip">bug</span>`,
-        `<span class="cmp-chip">APP-14</span>`,
+        pill(`New`, { glyph: svgPlus }),
+        pill(`Open`, { mode: `select`, selected: true }),
+        pill(`Merged`, { mode: `select` }),
+        pill(`Owner`, { mode: `readonly` }),
+        pill(`APP-14`, { mode: `readonly`, glyph: svgGitMerge }),
+        pill(`running`, { mode: `readonly`, dot: true }),
+        `</div>`,
         `</div>`,
       ].join(``),
   },
@@ -477,12 +549,12 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     kind: `Controls`,
     blurb: `36 tall, padding 0/12, radius 12, card fill under a card stroke; focus swaps the stroke to active — no ring. Placeholder at 50%.`,
     status: {
-      web: leftover(
-        `Input`,
-        `apps/web/src/components/ui/input.tsx`,
-        `radius 10 / fillRow / ring focus vs 12 / fillCard / strokeActive`
+      web: ok(`Input`, `apps/web/src/components/ui/input.tsx`),
+      desktop: ok(
+        `WebControl::web_input`,
+        DESKTOP_CONTROLS,
+        `the theme's input chrome IS the spec: fillCard, strokeCard, strokeActive on focus`
       ),
-      desktop: leftover(`WebControl::web_input`, DESKTOP_CONTROLS, `theme input chrome`),
       ios: ok(`GlassTextField`, IOS_CONTROLS),
       android: ok(`GlassTextField`, `${ANDROID_COMPONENTS}/GlassTextField.kt`),
     },
@@ -495,10 +567,33 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ].join(``),
   },
   {
+    id: `textarea`,
+    title: `Text area`,
+    kind: `Controls`,
+    blurb: `The field's own recipe, grown: radius 12, card fill under a card stroke, focus swaps the stroke to active — no ring. Padding 8/12, three rows tall, and it GROWS with content; the drag handle is off everywhere. Inside a group it goes borderless, because the row is already the chrome.`,
+    status: {
+      web: ok(`Textarea`, `apps/web/src/components/ui/textarea.tsx`),
+      desktop: ok(`WebControl::web_textarea`, DESKTOP_CONTROLS),
+      ios: ok(`GlassTextField(lines:)`, IOS_CONTROLS),
+      android: ok(`GlassTextField(minLines/maxLines)`, `${ANDROID_COMPONENTS}/GlassTextField.kt`),
+    },
+    render: () =>
+      [
+        `<div class="cmp-stack">`,
+        `<textarea class="cmp-textarea" rows="3">Rebase onto origin/master and force-push, then merge.</textarea>`,
+        `<textarea class="cmp-textarea" rows="3" placeholder="Describe the issue"></textarea>`,
+        group(
+          inputRow(`Title`, `Fix the merge queue`),
+          `<div class="cmp-row-shell"><textarea class="cmp-textarea borderless" rows="3" placeholder="Description"></textarea></div>`
+        ),
+        `</div>`,
+      ].join(``),
+  },
+  {
     id: `sheet`,
     title: `Sheet shell`,
     kind: `Surfaces`,
-    blurb: `Top radius 24 over the page's bottom gradient, a card hairline, a 36×4 grabber. Header gutter 20, content gutter 16.`,
+    blurb: `Top radius 24 over the page's bottom gradient, a card hairline, a 36×4 grabber. Header gutter 20, content gutter 16. Dismissal is the grabber drag or the backdrop — the header's trailing slot holds an optional ACTION, never a Cancel — and the bottom carries exactly one primary.`,
     status: {
       web: ok(`SheetContent side="bottom"`, `apps/web/src/components/ui/sheet.tsx`),
       desktop: na(`dialogs are OS windows`),
@@ -509,10 +604,66 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       [
         `<div class="cmp-sheet">`,
         `<div class="grabber"></div>`,
-        `<div class="header"><span class="title">New issue</span><span class="trailing">${buttonXs(`Cancel`)}</span></div>`,
+        `<div class="header"><span class="title">New issue</span><span class="trailing">${pill(`Clear all`)}</span></div>`,
         `<div class="content">`,
         group(pickerRow(`Board`, `Mobile app`), pickerRow(`Status`, `Backlog`)),
         `<button class="cmp-button-primary" type="button">Create</button>`,
+        `</div>`,
+        `</div>`,
+      ].join(``),
+  },
+  {
+    id: `composer`,
+    title: `Composer`,
+    kind: `Surfaces`,
+    blurb: `ONE composer for comments, steering and support replies: a radius-16 card of card fill under a card hairline, holding an optional attachment strip, a borderless 36-min field and a tool row of 24px ghost glyph buttons with a right-aligned submit whose glyph is the primary tint. The steer variant carries only attach and send. The opaque variant swaps to the opaque card fill and the strong stroke — it floats over a feed on mobile, and an alpha fill there shows the conversation through it.`,
+    status: {
+      web: ok(`Composer`, `apps/web/src/components/composer.tsx`),
+      desktop: ok(`composer::glass_composer`, `apps/desktop/crates/ui/src/composer.rs`),
+      ios: ok(`GlassComposer`, `apps/ios/ExpUI/Sources/GlassComposer.swift`),
+      android: ok(`GlassComposer`, `${ANDROID_COMPONENTS}/GlassComposer.kt`),
+    },
+    render: () =>
+      [
+        `<div class="cmp-stack">`,
+        composer({
+          placeholder: `Leave a comment`,
+          attachment: `screenshot.png`,
+          tools: [svgImage, svgPaperclip, svgHash, svgSmile],
+        }),
+        composer({ placeholder: `Steer the run`, tools: [svgPlus], submit: svgSend }),
+        composer({ placeholder: `Reply`, tools: [svgPaperclip], opaque: true }),
+        `</div>`,
+      ].join(``),
+  },
+  {
+    id: `markdown`,
+    title: `Markdown blocks`,
+    kind: `Surfaces`,
+    blurb: `The chat-sized set the steer feed is built from. Narration is bare text at 90% behind a 12px glyph at 50% — no bubble, because a wall of them is unreadable. The person's turn IS a bubble: radius 12, active fill, strong hairline. Plan and question share ONE neutral radius-16 card; only the header line is tinted, primary for a plan and yellow for a question. A tool line is a 12px label with a truncated mono detail at 50%, and any long block clamps at 160 behind Show more.`,
+    status: {
+      web: ok(`QuestionCard / NarrationBubble`, `apps/web/src/components/agent-session.tsx`),
+      desktop: ok(`steer_viewer`, `apps/desktop/crates/ui/src/steer_viewer.rs`),
+      ios: ok(`QuestionCard`, `apps/ios/Exponential/UI/Session/AgentSessionView.swift`),
+      android: ok(
+        `QuestionCard`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentSessionScreen.kt`
+      ),
+    },
+    render: () =>
+      [
+        `<div class="cmp-markdown">`,
+        `<div class="narration">${svgTerminal}<span class="label">Reading the merge queue, then the webhook that feeds it.</span></div>`,
+        `<div class="tool-row"><span class="label">Read</span><span class="value">apps/web/src/lib/trpc/coding-sessions.ts</span></div>`,
+        `<div class="bubble">Rebase onto master first, then open the PR.</div>`,
+        `<div class="card">`,
+        `<div class="card-head">${svgCheck}<span class="label">Plan ready</span></div>`,
+        `<div class="fold">Move the merge-state fan-out into applyPrMergeState, end every live session on the merged branch, and leave the run that merged its own PR alone. Then re-point the webhook and the poller at the same helper so the two paths cannot drift again, and cover both with one test that merges a batch PR and asserts every linked issue lands on the team's merge target, on the webhook path and the polling one.</div>`,
+        `<span class="show-more">Show more</span>`,
+        `</div>`,
+        `<div class="card warn">`,
+        `<div class="card-head">${svgCircleHelp}<span class="label">Needs input</span></div>`,
+        `<div>Should a batch PR merge close every linked issue, or only the ones whose branch matches?</div>`,
         `</div>`,
         `</div>`,
       ].join(``),
@@ -523,11 +674,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     kind: `Surfaces`,
     blurb: `180–280 wide, padding 4, radius 12. Opaque by construction: the card fill is composited over the popover solid so nothing shows through.`,
     status: {
-      web: leftover(
-        `DropdownMenuContent`,
-        `apps/web/src/components/ui/dropdown-menu.tsx`,
-        `rounded-xl + glass-panel, items ~32px`
-      ),
+      web: ok(`DropdownMenuContent`, `apps/web/src/components/ui/dropdown-menu.tsx`),
       desktop: na(`gpui-component PopupMenu, theme-driven`),
       ios: ok(`GlassMenu + GlassMenuTokens`, `apps/ios/ExpUI/Sources/GlassMenu.swift`),
       android: ok(`GlassDropdownMenu + GlassMenuDefaults`, `${ANDROID_COMPONENTS}/GlassMenu.kt`),
@@ -569,25 +716,12 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     kind: `Surfaces`,
     blurb: `A label/amount line above a 6px capsule track in the strong stroke; the fill is foreground at 30%, or the yellow semantic once it is nearly spent.`,
     status: {
-      web: leftover(
-        `AgentUsageCards`,
-        `apps/web/src/components/agent-usage-bar.tsx`,
-        `track border/60 + fill muted/60, not strokeStrong + fg 30%`
-      ),
-      desktop: leftover(
-        `render_usage_cards`,
-        `apps/desktop/crates/ui/src/usage_bar.rs`,
-        `fill is 35% fg, untokenized (canonical 30%)`
-      ),
-      ios: leftover(
-        `AgentUsageCardRow`,
-        `apps/ios/Exponential/UI/Session/AgentUsageCards.swift`,
-        `fill is 35% fg, untokenized (canonical 30%)`
-      ),
-      android: leftover(
+      web: ok(`AgentUsageCards`, `apps/web/src/components/agent-usage-bar.tsx`),
+      desktop: ok(`render_usage_cards`, `apps/desktop/crates/ui/src/usage_bar.rs`),
+      ios: ok(`AgentUsageCardRow`, `apps/ios/Exponential/UI/Session/AgentUsageCards.swift`),
+      android: ok(
         `UsageTrack`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentUsageBar.kt`,
-        `fill is 35% fg, untokenized (canonical 30%)`
+        `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentUsageBar.kt`
       ),
     },
     render: () =>
@@ -618,9 +752,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     render: () =>
       [
         `<div class="cmp-stack">`,
-        `<span class="cmp-chip">above</span>`,
+        pill(`above`, { mode: `readonly` }),
         `<div class="cmp-divider"></div>`,
-        `<span class="cmp-chip">below</span>`,
+        pill(`below`, { mode: `readonly` }),
         `</div>`,
       ].join(``),
   },
@@ -703,7 +837,11 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     kind: `Tokens`,
     blurb: `Three control heights plus the field and the list row. A control that is none of these is a control nobody agreed to.`,
     status: {
-      web: ok(`buttonVariants size-9 / h-8 / h-6`, `apps/web/src/components/ui/button.tsx`),
+      web: ok(
+        `buttonVariants size-9 / Pill size md|sm`,
+        `apps/web/src/components/ui/button.tsx`,
+        `32 and 24 are the pill's md and sm, in ui/pill.tsx`
+      ),
       desktop: ok(`theme::size::*`, `apps/desktop/crates/theme/src/tokens.generated.rs`),
       ios: ok(`GlassTokens`, `apps/ios/ExpUI/Sources/GlassTokens.swift`),
       android: ok(`GlassTokens`, ANDROID_GLASS, `aliases of DesignTokens.generated.kt`),

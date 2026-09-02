@@ -32,14 +32,27 @@ page renders the canonical form live rather than a photograph of one platform's
 guess at it. `shots/` holds nothing for these, `views.json` declares nothing —
 the group is synthetic — and `--check` never sees them.
 
+The set is deliberately SMALL, and shrinking it counts as progress. There is no
+chip and no header button: both were the **pill** under a second name, so the
+pill is now one 2×3 matrix — size `md` 32 or `sm` 24 × mode `action` / `select`
+/ `readonly` — and a status chip is `sm readonly`, a header action `sm action`,
+a conversation tab `sm select`. The other four entries that are not a single
+control are **rich tab** (the terminal and top strips, the only place a tab
+carries a state and a close), **text area** (the field's recipe grown, borderless
+inside a group), **composer** (ONE surface for comments, steering and support
+replies, with an opaque variant for mobile bottom bars) and **markdown blocks**
+(the chat-sized narration / bubble / plan / question / tool / fold set the steer
+feed is built from).
+
 Under each control is a per-platform table naming the ONE symbol and file that
 is supposed to match it on Web / Desktop / iOS / Android, marked `ok`,
 `leftover` (it exists but still disagrees; the note says how) or `n/a` (that
 platform deliberately has none). `bun test` gates the parts that rot: every
 named file exists, every platform is accounted for, notes stay one short line,
-the demos carry no inline styles, and `component-styles.ts` contains no colour
-literal — every value is a `var(--…)` declared from the tokens, and every radius
-is a ladder step.
+the demos carry no inline styles, the retired names never come back, the pill
+demo shows all six size × mode combinations, and `component-styles.ts` contains
+no colour literal — every value is a `var(--…)` declared from the tokens, and
+every radius is a ladder step.
 
 `SHOTS_DIR` points both commands at another store (scratch copies, tests);
 by default it is the repo-root `shots/`.
