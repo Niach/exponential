@@ -1392,15 +1392,14 @@ private struct UserMessageBubble: View {
 
 /// An interactive question (EXP-78): AskUserQuestion step or plan approval.
 ///
-/// Protocol v2 (EXP-249) cards carry a wire id, so a tap sends ONE semantic
+/// Every card carries a wire id (EXP-613), so a tap sends ONE semantic
 /// `answer` frame (the desktop maps keys to its own picker and confirms with
 /// `answer_ack`) and the card locks the moment it goes out — a second tap used
-/// to land on the NEXT question. Legacy cards keep the raw-keystroke path: a
-/// digit alone for single-select (never a trailing `\r`, which cascaded), digit
-/// toggles + Tab for multi-select. `planMode` cards (EXP-97) get a dedicated
-/// "Plan ready" presentation with the first wire option as the primary approve
-/// action; prompt and plan bodies render as markdown, which is what claude
-/// writes.
+/// to land on the NEXT question. There is no other answer path: EXP-672 retired
+/// the pre-EXP-249 raw-keystroke fallback. `planMode` cards (EXP-97) get a
+/// dedicated "Plan ready" presentation with the first wire option as the
+/// primary approve action; prompt and plan bodies render as markdown, which is
+/// what claude writes.
 private struct QuestionCard: View {
     let question: AgentQuestion
     /// "Question 2 of 3" for a step of a multi-question ask; nil for a lone card.

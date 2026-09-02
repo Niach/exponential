@@ -108,8 +108,9 @@ const UiUnselectedIcon = conceptIcon(`ui-unselected`)
 // Steering is message-shaped like mobile — chunked input + a SEPARATE `\r`
 // frame (EXP-312: no operator claim, no view/steer perm split — the mint is
 // owner-only, so a live connection just steers); question answers ride the
-// semantic `answer` frame (steer protocol v2, EXP-249) whenever the desktop
-// publishes question ids.
+// semantic `answer` frame (steer protocol v2, EXP-249) — the ONLY answer
+// path since EXP-672; a card from a desktop that publishes no question id
+// renders read-only.
 // Since EXP-106 this view is mounted ONLY by the global agent dock
 // (components/agent-dock) — one at a time — so it always auto-connects and
 // delegates its chrome (title, collapse) to the dock; the "coding now" rows +
@@ -228,7 +229,6 @@ export function AgentSessionView({
     labels: string[],
     text?: string
   ) => store.answerQuestion(item, keys, labels, text)
-  const toggleLegacyOption = (key: string) => store.toggleLegacyOption(key)
 
   // ── Follow-scroll: pinned to the newest event until the user scrolls up ───
 
@@ -316,10 +316,9 @@ export function AgentSessionView({
   const steerConfig = useSteerConfig()
   const steerEnabled = Boolean(steerConfig?.enabled)
 
-  /** Identity-scoped questions stay answerable until they resolve; legacy
-   *  cards fall back to the trailing-run heuristic, with a plan-approval card
-   *  answerable until a real resolution signal — lagged transcript flushes
-   *  don't retire a pending picker (EXP-174). */
+  /** Identity-scoped questions stay answerable until they resolve. A card
+   *  from a desktop too old to publish ids is never in here — it renders
+   *  read-only (EXP-672). */
   const questionIds = useMemo(() => activeQuestionIds(feed), [feed])
   const canAnswer = live && !sessionEnded
   /** Render rows: consecutive tool calls collapse into "N tool calls" runs
@@ -720,7 +719,6 @@ export function AgentSessionView({
                           canAnswer={canAnswer}
                           answerStates={answerStates}
                           onAnswer={answerQuestion}
-                          onToggleLegacy={toggleLegacyOption}
                         />
                       )
                     }
@@ -762,7 +760,6 @@ export function AgentSessionView({
                             canAnswer={canAnswer}
                             answerState={answerStates[answerKey(item)]}
                             onAnswer={answerQuestion}
-                            onToggleLegacy={toggleLegacyOption}
                           />
                         )
                     }
@@ -1118,20 +1115,17 @@ type AnswerHandler = (
 ) => void
 
 /** The interactive half of a question card: the options, the immediate lock
- *  once an answer goes out, and the resolved answer. Two answer paths:
- *  protocol v2 cards (a wire id) send the semantic `answer` frame and wait for
- *  `answer_ack`; legacy cards send raw TUI keystrokes — a single-select tap is
- *  the digit ALONE (the digit selects AND advances, so a trailing return used
- *  to auto-answer the NEXT question), multi-select taps toggle with the digit
- *  and Continue advances with `\t` (Enter would toggle the highlighted row,
- *  verified against claude v2.1.215). */
+ *  once an answer goes out, and the resolved answer. ONE answer path (EXP-672):
+ *  the card's wire id rides the semantic `answer` frame and the desktop
+ *  confirms with `answer_ack`. A card WITHOUT an id comes from a desktop too
+ *  old to publish one — it renders read-only with an update hint rather than a
+ *  dead control (the raw-keystroke fallback is gone). */
 function QuestionPrompt({
   item,
   active,
   canAnswer,
   answerState,
   onAnswer,
-  onToggleLegacy,
   variant = `default`,
 }: {
   item: QuestionItem
@@ -1141,7 +1135,6 @@ function QuestionPrompt({
   canAnswer: boolean
   answerState?: AnswerState
   onAnswer: AnswerHandler
-  onToggleLegacy: (key: string) => void
   /** `plan`/`submit` promote the first option to the primary action. */
   variant?: `default` | `plan` | `submit`
 }) {
@@ -1150,8 +1143,10 @@ function QuestionPrompt({
   const [freeTextKey, setFreeTextKey] = useState<string | null>(null)
   const [freeTextValue, setFreeTextValue] = useState(``)
   const locked = isAnswerLocked(answerState)
-  const semantic = item.questionId !== undefined
-  const answerable = active && canAnswer && !locked && item.resolved !== true
+  /** A card an old desktop published without a wire id — unanswerable here. */
+  const unanswerable = item.questionId === undefined
+  const answerable =
+    active && canAnswer && !locked && !unanswerable && item.resolved !== true
 
   if (item.resolved === true) {
     return (
@@ -1178,9 +1173,7 @@ function QuestionPrompt({
   const choose = (option: QuestionOption) => {
     if (!answerable) return
     if (item.multiSelect) {
-      // Legacy toggles land in the TUI right away; semantic ones stay local
-      // until the answer frame goes out.
-      if (!semantic) onToggleLegacy(option.key)
+      // The picks stay local until the answer frame goes out.
       setPicked((prev) =>
         prev.includes(option.key)
           ? prev.filter((k) => k !== option.key)
@@ -1190,7 +1183,7 @@ function QuestionPrompt({
     }
     // EXP-513: a free-text row collects the reply first — nothing is sent
     // until the input submits (the desktop types it into the TUI row).
-    if (option.freeText === true && semantic) {
+    if (option.freeText === true) {
       setFreeTextKey((prev) => (prev === option.key ? null : option.key))
       return
     }
@@ -1199,7 +1192,7 @@ function QuestionPrompt({
 
   const submitPicked = () => {
     if (!answerable) return
-    onAnswer(item, semantic ? picked : [`\t`], labelsFor(picked))
+    onAnswer(item, picked, labelsFor(picked))
   }
 
   const submitFreeText = () => {
@@ -1304,20 +1297,23 @@ function QuestionPrompt({
           variant="secondary"
           size="sm"
           className="mt-2 h-7 text-xs"
-          disabled={semantic && picked.length === 0}
+          disabled={picked.length === 0}
           onClick={submitPicked}
         >
-          {semantic ? `Answer` : `Continue`}
+          Answer
         </Button>
       )}
-      {/* Only the semantic path is acknowledged — a legacy card just unlocks
-          again, with nothing to report. */}
-      {answerState?.status === `error` && semantic && (
+      {answerState?.status === `error` && (
         <div className="mt-1.5 text-[0.6875rem] text-amber-400">
           No confirmation from the desktop. Pick again to retry.
         </div>
       )}
-      {active && !canAnswer && (
+      {unanswerable && active && canAnswer && (
+        <div className="mt-2 text-xs text-muted-foreground">
+          Update the desktop app to answer this here.
+        </div>
+      )}
+      {active && !canAnswer && !unanswerable && (
         <div className="mt-2 text-xs text-muted-foreground">
           {item.planMode
             ? `Waiting for approval. You're viewing read-only.`
@@ -1362,14 +1358,12 @@ function QuestionCard({
   canAnswer,
   answerState,
   onAnswer,
-  onToggleLegacy,
 }: {
   item: QuestionItem
   active: boolean
   canAnswer: boolean
   answerState?: AnswerState
   onAnswer: AnswerHandler
-  onToggleLegacy: (key: string) => void
 }) {
   const { expanded, setExpanded, clampable } = useClampToggle(item.text)
   const plan = item.planMode
@@ -1438,7 +1432,6 @@ function QuestionCard({
             canAnswer={canAnswer}
             answerState={answerState}
             onAnswer={onAnswer}
-            onToggleLegacy={onToggleLegacy}
             variant={plan ? `plan` : `default`}
           />
         </div>
@@ -1458,14 +1451,12 @@ function AskStepperCard({
   canAnswer,
   answerStates,
   onAnswer,
-  onToggleLegacy,
 }: {
   items: QuestionItem[]
   activeIds: Set<number>
   canAnswer: boolean
   answerStates: AnswerStates
   onAnswer: AnswerHandler
-  onToggleLegacy: (key: string) => void
 }) {
   const view = askStepperView(items, answerStates)
   const current =
@@ -1514,7 +1505,6 @@ function AskStepperCard({
                 canAnswer={canAnswer}
                 answerState={answerStates[answerKey(current.item)]}
                 onAnswer={onAnswer}
-                onToggleLegacy={onToggleLegacy}
                 variant={submitStep ? `submit` : `default`}
               />
             </div>

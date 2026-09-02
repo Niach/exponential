@@ -1404,7 +1404,6 @@ pub fn prepare_with_hooks(
             model: options.model.clone(),
             effort: options.effort.clone(),
             ultracode: options.ultracode,
-            skip_permissions: false,
             fix: None,
             // EXP-530/EXP-679: automations only fire action runs, but an
             // `agent`-started issue/batch run is unattended too.
@@ -2110,7 +2109,6 @@ fn prepare_action(
             model: options.model.clone(),
             effort: options.effort.clone(),
             ultracode: options.ultracode,
-            skip_permissions: false,
             fix: match &req.kind {
                 ActionRunKind::FixConflicts {
                     branch,
@@ -4364,7 +4362,6 @@ mod tests {
             model: "fable".to_string(),
             effort: String::new(),
             ultracode: false,
-            skip_permissions: false,
             fix: None,
             started_reason: Some("schedule".to_string()),
             resumed_from_id: None,

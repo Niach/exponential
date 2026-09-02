@@ -56,12 +56,8 @@ const formConfigSchema = z
   .object({
     buttonLabel: z.string().trim().max(40).optional(),
     accentColor: hexColorSchema.optional(),
-    // Legacy two-value launcher position, still written by the dialog
-    // (derived from the desktop launcher setting) for cached pre-EXP-569
-    // widget bundles; `launcher` is the current field.
-    position: z.enum([`bottom-right`, `bottom-left`]).optional(),
     // Per-device launcher appearance (EXP-569). Absent devices fall back to
-    // the legacy `position` (as a fab) and then the serve-time defaults.
+    // the serve-time defaults.
     launcher: z
       .object({
         desktop: launcherPlacementSchema.optional(),

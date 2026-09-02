@@ -98,8 +98,8 @@ function startingRetryDelay(retries: number): number {
 
 export interface QuestionOption {
   label: string
-  /** Raw keystroke that selects this option in the desktop TUI picker — also
-   *  the token the semantic `answer` frame carries back. */
+  /** The option token the `answer` frame carries back — the desktop maps it
+   *  onto its own picker. */
   key: string
   /** Claude's per-option blurb (protocol v2), rendered under the label. */
   description?: string
@@ -224,7 +224,8 @@ export type FeedItem =
       options: QuestionOption[]
       multiSelect: boolean
       planMode: boolean
-      /** Wire identity (protocol v2) — absent on legacy cards. */
+      /** Wire identity (protocol v2) — absent on cards from a desktop too
+       *  old to publish ids, which render read-only (EXP-672). */
       questionId?: string
       askId?: string
       index?: number
@@ -323,7 +324,6 @@ export interface SteerSessionStore {
     labels: string[],
     text?: string
   ): void
-  toggleLegacyOption(key: string): void
   setDraftText(text: string): void
   addDraftImages(files: File[]): AddDraftImagesResult
   removeDraftImage(url: string): void
@@ -830,20 +830,9 @@ export function createSteerSessionStore(
     return true
   }
 
-  /** Legacy answer path (a desktop that publishes no question ids): raw
-   *  keystrokes — the desktop passes single-byte frames to the PTY unwrapped,
-   *  so the TUI sees keypresses, not a paste. NO trailing `\r`: a digit
-   *  already selects AND advances in claude's picker, so the extra return
-   *  cascaded into the next question and auto-answered it (EXP-249).
-   *  Multi-select taps toggle with the digit alone; Continue sends `\t`. */
-  const sendKeystrokes = (keys: string[]): boolean => {
-    if (ws?.readyState !== WebSocket.OPEN) return false
-    for (const key of keys) ws.send(JSON.stringify({ t: `input`, data: key }))
-    return true
-  }
-
   /** Protocol v2 answer: the relay forwards it verbatim to the desktop, which
-   *  drives its own picker and confirms with `answer_ack`. */
+   *  drives its own picker and confirms with `answer_ack`. The ONLY answer
+   *  path (EXP-672) — a card without a wire id is not answerable from here. */
   const sendAnswerFrame = (
     questionId: string,
     askId: string | undefined,
@@ -984,14 +973,13 @@ export function createSteerSessionStore(
     /** Submit a card's answer and LOCK it immediately — a locked card never
      *  fires again. `answer_ack` confirms the lock; `question_resolved`
      *  finalizes it; ANSWER_ACK_TIMEOUT_MS without either re-enables the card
-     *  with an inline note. */
+     *  with an inline note. EXP-672: a card carrying no wire id is a no-op —
+     *  an old desktop's card renders read-only, it is never answered blind. */
     answerQuestion(item, keys, labels, text) {
+      if (item.questionId === undefined) return
       const key = answerKey(item)
       if (isAnswerLocked(answerStates[key]) || item.resolved === true) return
-      const sent = item.questionId
-        ? sendAnswerFrame(item.questionId, item.askId, keys, text)
-        : sendKeystrokes(keys)
-      if (!sent) return
+      if (!sendAnswerFrame(item.questionId, item.askId, keys, text)) return
       answerStates = beginAnswer(answerStates, key, keys, labels)
       clearAckTimer(key)
       ackTimers.set(
@@ -1003,11 +991,6 @@ export function createSteerSessionStore(
         }, ANSWER_ACK_TIMEOUT_MS)
       )
       commit()
-    },
-    /** A legacy multi-select toggle — one keystroke, no lock: the selection is
-     *  only submitted by Continue. */
-    toggleLegacyOption(key) {
-      sendKeystrokes([key])
     },
     setDraftText(text) {
       draftText = text

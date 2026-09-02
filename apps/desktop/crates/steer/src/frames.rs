@@ -68,22 +68,16 @@ pub enum SteerRole {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum ClientFrame<'a> {
-    /// EXP-485: presence ONLY. The agent/launch-defaults advertisement left
-    /// this frame — the web server reads it off the persisted `devices` row
-    /// written by `devices.register`, which survives relay restarts and
-    /// doesn't need a re-dial to change. `caps` stays: the relay itself
-    /// routes on it.
+    /// EXP-672: presence ONLY — the deviceId → socket map and nothing more.
+    /// EXP-485 took the agent/launch-defaults advertisement off this frame
+    /// and PR #584 took `deviceLabel` + the EXP-253 `caps` array: the web
+    /// server reads BOTH off the persisted `devices` row written by
+    /// `devices.register`, which survives relay restarts and doesn't need a
+    /// re-dial to change. Never re-add a field here — `onlineFrame` in
+    /// `protocol.ts` parses non-strictly precisely so shipped clients that
+    /// still send the old keys keep registering.
     #[serde(rename_all = "camelCase")]
-    Online {
-        device_id: &'a str,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        device_label: Option<&'a str>,
-        /// EXP-253/EXP-257: feature capabilities (`actions`,
-        /// `action-inputs`) — remote Run-action pickers strictly gate on
-        /// them (absent = no action launch path).
-        #[serde(skip_serializing_if = "Option::is_none")]
-        caps: Option<&'a [String]>,
-    },
+    Online { device_id: &'a str },
     #[serde(rename_all = "camelCase")]
     Hello {
         session_id: &'a str,
@@ -676,38 +670,14 @@ mod tests {
     // hub tests' literal frames (`hub.test.ts` sends exactly these shapes).
 
     #[test]
-    fn online_serializes_camel_case_device_fields() {
+    fn online_serializes_the_device_id_alone() {
+        // EXP-672 (PR #584): the relay stopped reading `deviceLabel` and the
+        // EXP-253 `caps` array off this frame — presence is the deviceId →
+        // socket map, and every start gate reads the persisted `devices` row
+        // `devices.register` writes. The frame carries exactly one field.
         assert_eq!(
-            ClientFrame::Online {
-                device_id: "dev-1",
-                device_label: Some("MacBook"),
-                caps: None,
-            }
-            .to_json(),
-            r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook"}"#
-        );
-        assert_eq!(
-            ClientFrame::Online {
-                device_id: "dev-1",
-                device_label: None,
-                caps: None,
-            }
-            .to_json(),
+            ClientFrame::Online { device_id: "dev-1" }.to_json(),
             r#"{"t":"online","deviceId":"dev-1"}"#
-        );
-        // EXP-253: the capability advertisement rides `caps` — the ONE
-        // advertisement left on this frame. EXP-485 took `agents`,
-        // `unauthedAgents` and `launchDefaults` off it: the web server reads
-        // them off the persisted devices row instead.
-        let caps = vec!["actions".to_string()];
-        assert_eq!(
-            ClientFrame::Online {
-                device_id: "dev-1",
-                device_label: Some("MacBook"),
-                caps: Some(&caps),
-            }
-            .to_json(),
-            r#"{"t":"online","deviceId":"dev-1","deviceLabel":"MacBook","caps":["actions"]}"#
         );
     }
 
@@ -1176,11 +1146,7 @@ mod tests {
         // assert the tag names the relay's discriminated union expects.
         for (frame, tag) in [
             (
-                ClientFrame::Online {
-                    device_id: "d",
-                    device_label: None,
-                    caps: None,
-                },
+                ClientFrame::Online { device_id: "d" },
                 "online",
             ),
             (

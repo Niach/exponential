@@ -1004,12 +1004,12 @@ fn dial_control(
     if advertised.nothing_installed() {
         return None;
     }
-    // EXP-485: presence + caps only — the agent lists and the launch defaults
-    // reach the server through `devices.register`'s persisted row.
+    // EXP-672: presence only — the label, the agent lists, the launch
+    // defaults and the caps every start gates on reach the server through
+    // `devices.register`'s persisted row.
     let device = DeviceIdentity {
         device_id: device_id.to_string(),
         device_label: device_label.to_string(),
-        caps: device_caps(advertised),
     };
     let inbox = inbox.clone();
     let on_start: StartSessionFn = Arc::new(move |start| {
@@ -2985,7 +2985,6 @@ mod tests {
             model: String::new(),
             effort: String::new(),
             ultracode: false,
-            skip_permissions: false,
             fix: None,
             started_reason: None,
             resumed_from_id: None,

@@ -1421,11 +1421,14 @@ describe(`exponential_report_bug`, () => {
   })
 })
 
-// ── pr_open batch session flip (EXP-194 / EXP-545) ───────────────────────────
-// Batch coding sessions carry no issue linkage, so the PR-open flip finds them
-// by `issue_id IS NULL` on the caller's running rows. Action runs are issue-less
-// too — they must never be flipped to in_review or stamped with the PR branch.
-describe(`exponential_pr_open batch session flip`, () => {
+// ── pr_open batch session parking (EXP-194 / EXP-545 / EXP-637) ──────────────
+// Batch coding sessions carry no issue linkage, so the per-issue PR-open flip
+// misses them and pr_open parks the caller's own row instead. The EXP-637
+// session header names it EXACTLY; EXP-710 removed the pre-EXP-637 heuristic
+// (the caller's issue-less, action-less running rows in the affected teams),
+// which two concurrent batch runs by one user in one team could not tell
+// apart — so a headerless caller now parks nothing at all.
+describe(`exponential_pr_open batch session parking`, () => {
   function armPrOpen(): Array<{ set: Record<string, unknown>; where: unknown }> {
     const updates: Array<{ set: Record<string, unknown>; where: unknown }> = []
     caller.repositories.forIssue.mockResolvedValue({
@@ -1465,7 +1468,44 @@ describe(`exponential_pr_open batch session flip`, () => {
     return updates
   }
 
-  it(`excludes ACTION runs from the issue-less flip`, async () => {
+  it(`parks the EXACT header session, stamping the batch branch`, async () => {
+    const updates = armPrOpen()
+    dbRows.current = [
+      {
+        id: SESSION,
+        teamId: WS,
+        issueId: null,
+        branch: null,
+        status: `running`,
+        needsInput: false,
+        mergedOwnPr: false,
+        userId: `user-1`,
+        hostUserId: null,
+      },
+    ]
+
+    const result = await collectTools(USER, SESSION).get(
+      `exponential_pr_open`
+    )!({
+      issueIds: [UUID, PROJ],
+      title: `Batch PR`,
+      head: `exp/batch-abcd1234`,
+    })
+
+    expect(parseOk(result)).toMatchObject({ number: 7 })
+    const flip = updates.find((u) => u.set.status === `in_review`)
+    expect(flip).toBeDefined()
+    // The branch stamp is the batch↔PR linkage clients hang Merge on.
+    expect(flip!.set.branch).toBe(`exp/batch-abcd1234`)
+    const { sql, params } = new PgDialect().sqlToQuery(flip!.where as never)
+    expect(sql).toContain(`"id" =`)
+    expect(params).toContain(SESSION)
+    // Never the removed heuristic sweep — it could reach an action or chat run.
+    expect(sql).not.toContain(`"issue_id" is null`)
+    expect(sql).not.toContain(`"action_id" is null`)
+  })
+
+  it(`parks NOTHING without a session header (EXP-710)`, async () => {
     const updates = armPrOpen()
     const result = await tool(`exponential_pr_open`)({
       issueIds: [UUID, PROJ],
@@ -1473,14 +1513,11 @@ describe(`exponential_pr_open batch session flip`, () => {
       head: `exp/batch-abcd1234`,
     })
     expect(parseOk(result)).toMatchObject({ number: 7 })
-    const flip = updates.find((u) => u.set.status === `in_review`)
-    expect(flip).toBeDefined()
-    // The branch stamp is the batch↔PR linkage — it must not land on an
-    // action row, whose `branch` is NULL by contract.
-    expect(flip!.set.branch).toBe(`exp/batch-abcd1234`)
-    const { sql } = new PgDialect().sqlToQuery(flip!.where as never)
-    expect(sql).toContain(`"issue_id" is null`)
-    expect(sql).toContain(`"action_id" is null`)
+    // The issues still move; only the guess at the caller's own run is gone.
+    expect(updates.some((u) => u.set.status === `in_review`)).toBe(false)
+    expect(updates.some((u) => u.set.branch === `exp/batch-abcd1234`)).toBe(
+      true
+    )
   })
 })
 

@@ -72,9 +72,11 @@ sealed interface AgentFeedItem {
         val planMode: Boolean = false,
         val resolved: Boolean = false,
         val answer: String? = null,
-        /** Stable wire identity (EXP-249). Present ⇒ answerable with a
-         *  semantic `answer` frame and re-emissions replace the card in place;
-         *  absent ⇒ a pre-EXP-249 card driven by raw keystrokes. */
+        /** Stable wire identity (EXP-249) and the key of the card's answer
+         *  lock. Present ⇒ answerable with a semantic `answer` frame and
+         *  re-emissions replace the card in place; absent ⇒ a card from a
+         *  pre-EXP-249 desktop, which renders READ-ONLY (EXP-672 retired the
+         *  raw-keystroke fallback that used to drive those). */
         val wireId: String? = null,
         /** Groups the steps of one multi-question ask into a stepper card. */
         val askId: String? = null,
@@ -106,11 +108,6 @@ sealed interface AgentFeedItem {
         val detail: String? = null,
     ) : AgentFeedItem
 }
-
-/** The key a question card's [AnswerState] is tracked under: its wire id, or a
- *  local stand-in for pre-EXP-249 cards that have none. */
-fun questionLockKey(item: AgentFeedItem.Question): String =
-    item.wireId ?: "local:${item.id}"
 
 /** `subagent.agentType` when the desktop's hook payload carried none — old
  *  desktop builds also stamp it onto the COMPLETED edge, so it is a sentinel
@@ -230,51 +227,20 @@ fun completeSubagent(
 }
 
 /**
- * Ids of the [AgentFeedItem.Question] items still answerable.
+ * Ids of the [AgentFeedItem.Question] items still answerable: every card that
+ * carries a wire id (EXP-249) and has not been retired by its own
+ * `question_resolved`. The desktop's structured stream states question
+ * lifetime outright, so no position guessing applies.
  *
- * A card carrying a wire id (EXP-249) is answerable until its own
- * `question_resolved` lands — the desktop's structured stream states question
- * lifetime outright, so no position guessing applies to it.
- *
- * Cards without one keep the EXP-174 heuristic: the TRAILING consecutive
- * question run (any later event means the desktop TUI moved on), PLUS any
- * plan-approval question with no resolution signal after it. Plan questions
- * are published from the live terminal grid the moment the picker appears,
- * while the transcript tail lags — so tool rows and narration can flush in
- * BEHIND a plan card whose picker is still on screen. Only a newer question
- * proves a plan picker actually resolved — a human message does NOT (steering
- * mid-plan leaves the picker up).
+ * A card WITHOUT a wire id was published by a pre-EXP-249 desktop and is never
+ * answerable from here (EXP-672 retired the raw-keystroke fallback) — the
+ * screen renders it read-only with an update hint. Mirrors iOS
+ * `AgentFeed.activeQuestionIds` and web `activeQuestionIds`.
  */
 fun activeQuestionIds(feed: List<AgentFeedItem>): Set<Long> {
     val ids = mutableSetOf<Long>()
     for (item in feed) {
         if (item is AgentFeedItem.Question && item.wireId != null && !item.resolved) ids.add(item.id)
-    }
-    // Still inside the trailing consecutive question run.
-    var trailing = true
-    // A resolution signal lies after the current position.
-    var retired = false
-    for (item in feed.asReversed()) {
-        when (item) {
-            is AgentFeedItem.Question -> {
-                if (item.resolved) {
-                    // An answered/dismissed card is itself a resolution signal
-                    // (it proves the TUI moved past it) and is never active.
-                    trailing = false
-                    retired = true
-                } else {
-                    if (item.wireId == null && (trailing || (item.planMode && !retired))) {
-                        ids.add(item.id)
-                    }
-                    retired = true
-                }
-            }
-            // Anything else breaks the trailing run but does NOT retire a plan
-            // card — steering a message mid-plan leaves the picker up (web
-            // parity, EXP-249).
-            else -> trailing = false
-        }
-        if (retired && !trailing) break
     }
     return ids
 }
@@ -427,14 +393,14 @@ fun visibleSubagentTabs(
 
 /** The step a stepper card should show: the first one still waiting on this
  *  client, or null once every step is answered — the card then renders the
- *  whole ask with its answers. [answered] holds the lock keys of steps whose
+ *  whole ask with its answers. [answered] holds the wire ids of steps whose
  *  answer is out (sent or acknowledged — a dropped Sending lock re-surfaces
  *  its step). */
 fun currentStepperStep(
     steps: List<AgentFeedItem.Question>,
     answered: Set<String>,
 ): AgentFeedItem.Question? =
-    steps.firstOrNull { !it.resolved && questionLockKey(it) !in answered }
+    steps.firstOrNull { step -> !step.resolved && step.wireId?.let { it in answered } != true }
 
 // Wire-field readers: a field of an unexpected shape reads as absent, never
 // throws — one malformed event must not tear down the socket.
@@ -452,7 +418,7 @@ data class ActivityFeedState(
     val feed: List<AgentFeedItem> = emptyList(),
     /** The most recent worktree diff — each one replaces the previous. */
     val latestDiff: String? = null,
-    /** Per-card answer locks, keyed by [questionLockKey] (EXP-249). */
+    /** Per-card answer locks, keyed by the card's wire id (EXP-249). */
     val answerLocks: Map<String, AnswerState> = emptyMap(),
     /** What THIS client picked per locked card — the option labels (a typed
      *  free-text reply in place of its row's label). The desktop only fills a
@@ -649,7 +615,7 @@ fun ActivityFeedState.failUnacknowledged(lockKey: String): ActivityFeedState =
 fun ActivityFeedState.releaseResolvedLocks(): ActivityFeedState {
     val done = feed.filterIsInstance<AgentFeedItem.Question>()
         .filter { it.resolved }
-        .map { questionLockKey(it) }
+        .mapNotNull { it.wireId }
         .toSet()
     val next = answerLocks - done
     return if (next.size == answerLocks.size) this else copy(answerLocks = next)

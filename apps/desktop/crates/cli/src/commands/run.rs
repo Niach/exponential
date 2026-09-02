@@ -25,8 +25,6 @@ pub fn run(args: &[String]) -> CommandResult {
         effort: take_value(&mut args, "--effort"),
         plan: take_flag(&mut args, "--plan"),
     };
-    // EXP-690: always on; tolerated so old scripts keep working.
-    let _ = take_flag(&mut args, "--skip-permissions");
     let team_flag = take_value(&mut args, "--team");
     let raw_inputs = take_values(&mut args, "--input");
     let detach = take_flag(&mut args, "--detach");

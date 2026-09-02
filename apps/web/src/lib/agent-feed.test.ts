@@ -57,10 +57,12 @@ describe(`local-echo dedupe`, () => {
   })
 })
 
-// ── Legacy cards (no wire question id) ───────────────────────────────────────
+// ── Id-less cards (a desktop too old to publish question ids) ────────────────
 
-describe(`activeQuestionIds — legacy cards`, () => {
-  it(`returns the trailing consecutive question run`, () => {
+describe(`activeQuestionIds — id-less cards`, () => {
+  // EXP-672: the raw-keystroke answer path is gone, so a card with no wire id
+  // is never answerable — not even the trailing one, and not a plan card.
+  it(`never answers a trailing question run`, () => {
     const feed = [
       { id: 1, kind: `narration` },
       { id: 2, kind: `question` },
@@ -68,15 +70,16 @@ describe(`activeQuestionIds — legacy cards`, () => {
       { id: 4, kind: `question` },
       { id: 5, kind: `question` },
     ]
-    expect(activeQuestionIds(feed)).toEqual(new Set([4, 5]))
+    expect(activeQuestionIds(feed)).toEqual(new Set())
   })
 
-  it(`is empty when the feed ends with a non-question`, () => {
+  it(`never answers a plan card, and mixes safely with id-carrying ones`, () => {
     const feed = [
       { id: 1, kind: `question` },
-      { id: 2, kind: `narration` },
+      { id: 2, kind: `question`, questionId: `tu_1` },
+      { id: 3, kind: `tool` },
     ]
-    expect(activeQuestionIds(feed)).toEqual(new Set())
+    expect(activeQuestionIds(feed)).toEqual(new Set([2]))
   })
 
   it(`handles an all-question feed and an empty feed`, () => {
@@ -85,56 +88,8 @@ describe(`activeQuestionIds — legacy cards`, () => {
         { id: 1, kind: `question` },
         { id: 2, kind: `question` },
       ])
-    ).toEqual(new Set([1, 2]))
+    ).toEqual(new Set())
     expect(activeQuestionIds([])).toEqual(new Set())
-  })
-
-  it(`is unaffected by tool runs preceding the trailing questions`, () => {
-    const feed = [
-      { id: 1, kind: `tool` },
-      { id: 2, kind: `tool` },
-      { id: 3, kind: `question` },
-    ]
-    expect(activeQuestionIds(feed)).toEqual(new Set([3]))
-  })
-
-  // EXP-174: plan questions publish from the live terminal grid at pending
-  // time while the transcript tail lags — lagged flushes must not retire them.
-  it(`keeps a plan question active behind lagged tool and narration flushes`, () => {
-    const feed = [
-      { id: 1, kind: `question`, planMode: true },
-      { id: 2, kind: `tool` },
-      { id: 3, kind: `narration`, text: `Let me finalize the plan file:` },
-    ]
-    expect(activeQuestionIds(feed)).toEqual(new Set([1]))
-  })
-
-  // EXP-249: steering mid-plan leaves the picker up — a human message is no
-  // resolution signal.
-  it(`keeps a plan question active behind a human message`, () => {
-    const feed = [
-      { id: 1, kind: `question`, planMode: true },
-      { id: 2, kind: `tool` },
-      { id: 3, kind: `user_message`, text: `also handle the empty state` },
-    ]
-    expect(activeQuestionIds(feed)).toEqual(new Set([1]))
-  })
-
-  it(`retires a plan question when a newer question follows`, () => {
-    const feed = [
-      { id: 1, kind: `question`, planMode: true },
-      { id: 2, kind: `tool` },
-      { id: 3, kind: `question` },
-    ]
-    expect(activeQuestionIds(feed)).toEqual(new Set([3]))
-  })
-
-  it(`still retires a non-plan question on any later event`, () => {
-    const feed = [
-      { id: 1, kind: `question` },
-      { id: 2, kind: `tool` },
-    ]
-    expect(activeQuestionIds(feed)).toEqual(new Set())
   })
 })
 
@@ -170,15 +125,14 @@ describe(`activeQuestionIds — protocol v2 cards`, () => {
 type QuestionItem = QuestionLike
 
 describe(`resolved cards`, () => {
-  it(`resolved question is never active and retires earlier plan cards`, () => {
-    expect(
-      activeQuestionIds([{ id: 1, kind: `question`, resolved: true }])
-    ).toEqual(new Set())
+  it(`a resolved question is never active`, () => {
     expect(
       activeQuestionIds([
-        { id: 1, kind: `question`, planMode: true },
-        { id: 2, kind: `question`, resolved: true },
+        { id: 1, kind: `question`, questionId: `tu_1`, resolved: true },
       ])
+    ).toEqual(new Set())
+    expect(
+      activeQuestionIds([{ id: 1, kind: `question`, resolved: true }])
     ).toEqual(new Set())
   })
 })

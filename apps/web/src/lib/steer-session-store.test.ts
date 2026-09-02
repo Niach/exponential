@@ -431,6 +431,58 @@ describe(`sending`, () => {
   })
 })
 
+// EXP-672: answers go out ONLY as the semantic `answer` frame. The legacy
+// raw-keystroke path (and its multi-select toggle) is gone, so a card an old
+// desktop published without a wire id is inert here — the view renders it
+// read-only with an update hint.
+describe(`answering questions`, () => {
+  const card = (questionId?: string) =>
+    ({
+      id: 1,
+      kind: `question` as const,
+      text: `Which approach?`,
+      options: [{ label: `Refactor`, key: `1` }],
+      multiSelect: false,
+      planMode: false,
+      questionId,
+    })
+
+  it(`sends one answer frame and locks the card`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.sent.length = 0
+    store.answerQuestion(card(`tu_1`), [`1`], [`Refactor`])
+    expect(socket.sent.map((s) => JSON.parse(s))).toEqual([
+      { t: `answer`, questionId: `tu_1`, keys: [`1`] },
+    ])
+    expect(store.getSnapshot().answerStates[`tu_1`]).toMatchObject({
+      status: `sending`,
+      labels: [`Refactor`],
+    })
+    store.dispose()
+  })
+
+  it(`an id-less card sends nothing and never locks`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.sent.length = 0
+    store.answerQuestion(card(), [`1`], [`Refactor`])
+    expect(socket.sent).toEqual([])
+    expect(store.getSnapshot().answerStates).toEqual({})
+    store.dispose()
+  })
+
+  it(`a locked card never fires twice`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    store.answerQuestion(card(`tu_1`), [`1`], [`Refactor`])
+    socket.sent.length = 0
+    store.answerQuestion(card(`tu_1`), [`1`], [`Refactor`])
+    expect(socket.sent).toEqual([])
+    store.dispose()
+  })
+})
+
 describe(`registry lifecycle`, () => {
   it(`an unsubscribed ended store self-disposes after the grace delay`, async () => {
     const { store, sockets, disposed } = makeStore()

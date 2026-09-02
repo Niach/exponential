@@ -1189,8 +1189,8 @@ describe(`sanitizeWidgetLabelIds / theme / hex color`, () => {
     expect(sanitizeWidgetHexColor(7)).toBeNull()
   })
 
-  // EXP-569 launcher resolution: stored launcher > stored legacy position
-  // (as a fab on both devices) > the new defaults; junk degrades per device.
+  // EXP-569 launcher resolution: stored launcher > the defaults; junk
+  // degrades per device. (EXP-672 dropped the legacy `position` read tier.)
   it(`sanitizeWidgetLauncher defaults bare rows to the new placements`, () => {
     expect(sanitizeWidgetLauncher(null)).toEqual({
       desktop: { mode: `fab`, position: `bottom-right` },
@@ -1207,14 +1207,10 @@ describe(`sanitizeWidgetLabelIds / theme / hex color`, () => {
     expect(widgetPackageDefaultLauncher).toEqual(defaultWidgetLauncher)
   })
 
-  it(`sanitizeWidgetLauncher honors a stored legacy position on both devices`, () => {
+  // EXP-672: every stored row carries `launcher`, so a leftover legacy
+  // `position` is ignored outright.
+  it(`sanitizeWidgetLauncher ignores a stored legacy position`, () => {
     expect(sanitizeWidgetLauncher({ position: `bottom-left` })).toEqual({
-      desktop: { mode: `fab`, position: `bottom-left` },
-      mobile: { mode: `fab`, position: `bottom-left` },
-      icon: null,
-    })
-    // Junk legacy values fall through to the defaults.
-    expect(sanitizeWidgetLauncher({ position: `top-center` })).toEqual({
       ...defaultWidgetLauncher,
       icon: null,
     })
@@ -1223,7 +1219,6 @@ describe(`sanitizeWidgetLabelIds / theme / hex color`, () => {
   it(`sanitizeWidgetLauncher prefers stored launcher entries, per device`, () => {
     expect(
       sanitizeWidgetLauncher({
-        position: `bottom-left`,
         launcher: {
           desktop: { mode: `tab`, position: `middle-left` },
           mobile: { mode: `pill`, position: `middle-left` },
@@ -1232,8 +1227,8 @@ describe(`sanitizeWidgetLabelIds / theme / hex color`, () => {
       })
     ).toEqual({
       desktop: { mode: `tab`, position: `middle-left` },
-      // The invalid mobile entry degrades to the legacy position tier.
-      mobile: { mode: `fab`, position: `bottom-left` },
+      // The invalid mobile entry degrades to the default.
+      mobile: defaultWidgetLauncher.mobile,
       icon: `bug`,
     })
   })

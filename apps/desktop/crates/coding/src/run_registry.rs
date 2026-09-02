@@ -168,10 +168,6 @@ pub struct RunRecord {
     pub effort: String,
     #[serde(default)]
     pub ultracode: bool,
-    /// EXP-690: retired; every resume bypasses. Kept so pre-0.15 records
-    /// still parse without the key sticking in [`RunRecord::extra`].
-    #[serde(default, skip_serializing)]
-    pub skip_permissions: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fix: Option<RunFix>,
     /// `schedule`/`event` when an automation started the run.
@@ -256,6 +252,12 @@ struct Registry {
     unknown: Vec<serde_json::Value>,
 }
 
+/// Record keys this build DELETED (never keys it merely predates) — dropped
+/// on load so [`RunRecord::extra`]'s forward-compat catch-all does not
+/// resurrect them on every rewrite. `skipPermissions` went with EXP-690's
+/// toggle; its `#[serde(skip_serializing)]` tombstone went with EXP-693.
+const DEAD_KEYS: &[&str] = &["skipPermissions"];
+
 fn load_registry(data_dir: &Path) -> Registry {
     let Ok(raw) = std::fs::read_to_string(registry_path(data_dir)) else {
         return Registry::default();
@@ -270,7 +272,15 @@ fn load_registry(data_dir: &Path) -> Registry {
     let mut registry = Registry::default();
     for entry in entries {
         match serde_json::from_value::<RunRecord>(entry.clone()) {
-            Ok(record) => registry.records.push(record),
+            Ok(mut record) => {
+                // EXP-693: keys this build RETIRED are not keys it never heard
+                // of — [`RunRecord::extra`] would otherwise carry a pre-0.15
+                // `skipPermissions` through every rewrite forever.
+                for dead in DEAD_KEYS {
+                    record.extra.remove(*dead);
+                }
+                registry.records.push(record);
+            }
             Err(err) => {
                 log::debug!("run registry: keeping an entry this build cannot read ({err})");
                 registry.unknown.push(entry);
@@ -444,7 +454,6 @@ mod tests {
             model: "fable".to_string(),
             effort: "high".to_string(),
             ultracode: false,
-            skip_permissions: false,
             fix: None,
             started_reason: None,
             resumed_from_id: None,
@@ -634,6 +643,40 @@ mod tests {
         assert_eq!(records[0].issue_id, None);
         assert!(records[0].issues.is_empty());
         assert_eq!(records[0].display_name(), "Code review");
+    }
+
+    #[test]
+    fn a_retired_skip_permissions_key_neither_breaks_a_load_nor_survives_a_write() {
+        // EXP-693 removed the `skip_permissions` tombstone field. Records the
+        // pre-0.15 builds wrote still carry the key: it must parse (no
+        // `deny_unknown_fields` anywhere on `RunRecord`) and must NOT ride
+        // `extra` back out — `extra` is for fields a NEWER build added, never
+        // for ones this build deleted.
+        let dir = temp_dir("dead-key");
+        let now = now_secs();
+        let json = format!(
+            r#"[{{
+                "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"team",
+                "actionId":"act-1","actionName":"Code review","teamId":"ws-1",
+                "cwd":"/repos/owner/name.worktrees/code-review-1a2b3c4d",
+                "claudeSessionId":"cs-1","model":"fable","effort":"high",
+                "ultracode":false,"skipPermissions":true,"recordedAt":{now}
+            }}]"#
+        );
+        std::fs::write(registry_path(&dir), json).unwrap();
+
+        let loaded = get(&dir, "sess-1").expect("a pre-0.15 record still parses");
+        assert_eq!(loaded.action_name, "Code review");
+        assert!(loaded.extra.get("skipPermissions").is_none());
+
+        // And the rewrite drops it for good.
+        record(&dir, sample("sess-2"));
+        let entries: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(registry_path(&dir)).unwrap()).unwrap();
+        assert!(entries
+            .iter()
+            .all(|entry| entry.get("skipPermissions").is_none()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

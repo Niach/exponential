@@ -59,7 +59,6 @@ const nameConfig: WidgetRemoteConfig = {
   form: {
     buttonLabel: null,
     accentColor: null,
-    position: `bottom-right`,
     emailRequired: false,
     collectEmail: true,
     collectName: true,

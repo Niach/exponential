@@ -103,8 +103,7 @@ function slugifyFieldKey(label: string): string {
 }
 
 // The stored launcher blob (EXP-569), mirroring the server's precedence: a
-// stored per-device entry > the legacy two-value `position` (an explicit
-// pre-EXP-569 corner choice, honored as a fab) > the defaults.
+// stored per-device entry > the defaults.
 function readLauncher(raw: Record<string, unknown> | null): {
   desktop: WidgetLauncherPlacement
   mobile: WidgetLauncherPlacement
@@ -114,10 +113,6 @@ function readLauncher(raw: Record<string, unknown> | null): {
     raw?.launcher !== null && typeof raw?.launcher === `object`
       ? (raw.launcher as Record<string, unknown>)
       : {}
-  const legacy =
-    raw?.position === `bottom-left` || raw?.position === `bottom-right`
-      ? ({ mode: `fab`, position: raw.position } as const)
-      : null
   const device = (key: WidgetDevice): WidgetLauncherPlacement => {
     const entry = launcher[key]
     if (entry !== null && typeof entry === `object`) {
@@ -130,7 +125,7 @@ function readLauncher(raw: Record<string, unknown> | null): {
         return { mode, position: position as WidgetLauncherPosition }
       }
     }
-    return legacy ?? defaultLauncher[key]
+    return defaultLauncher[key]
   }
   return {
     desktop: device(`desktop`),
@@ -332,11 +327,6 @@ export function WidgetConfigDialog({
         mobile: formLauncher.mobile,
         ...(formIcon ? { icon: formIcon } : {}),
       },
-      // Legacy two-value position for cached pre-EXP-569 widget bundles:
-      // the desktop launcher's corner.
-      position: formLauncher.desktop.position.endsWith(`left`)
-        ? (`bottom-left` as const)
-        : (`bottom-right` as const),
       emailRequired: formCollectEmail && formEmailRequired,
       ...(formCollectEmail ? {} : { collectEmail: false }),
       ...(formCollectName ? { collectName: true } : {}),

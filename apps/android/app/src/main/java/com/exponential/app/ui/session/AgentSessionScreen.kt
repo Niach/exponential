@@ -103,7 +103,6 @@ import com.exponential.app.domain.currentStepperStep
 import com.exponential.app.domain.groupFeedRows
 import com.exponential.app.domain.localAnswerSummary
 import com.exponential.app.domain.locksCard
-import com.exponential.app.domain.questionLockKey
 import com.exponential.app.domain.visibleSubagentTabs
 import com.exponential.app.ui.components.BottomBarPillFill
 import com.exponential.app.ui.components.GlassDropdownMenu
@@ -313,7 +312,7 @@ fun AgentSessionScreen(
             feed.any { item ->
                 item is AgentFeedItem.Question && item.planMode && !item.resolved &&
                     item.id in active &&
-                    answerStates[questionLockKey(item)]?.locksCard() != true
+                    item.wireId?.let { answerStates[it] }?.locksCard() != true
             }
         }
 
@@ -518,9 +517,9 @@ fun AgentSessionScreen(
                             answerEnabled = phase == AgentPhase.Live && !sessionEnded,
                             answerStates = answerStates,
                             answerLabels = answerLabels,
-                            // One place decides semantic vs legacy: a card with a
-                            // wire id answers through the `answer` frame, one
-                            // without falls back to raw keystrokes (EXP-249).
+                            // Every answer is one semantic `answer` frame keyed
+                            // by the card's wire id (EXP-249); an id-less card
+                            // renders read-only and never reaches this (EXP-672).
                             onAnswer = { question, keys, text ->
                                 val wireId = question.wireId
                                 if (wireId != null) {
@@ -536,17 +535,8 @@ fun AgentSessionScreen(
                                     viewModel.sendQuestionAnswer(
                                         wireId, question.askId, keys, text, labels,
                                     )
-                                } else {
-                                    keys.forEach {
-                                        viewModel.sendLegacyAnswer(
-                                            questionLockKey(question),
-                                            it,
-                                            lock = !question.multiSelect,
-                                        )
-                                    }
                                 }
                             },
-                            onSubmit = viewModel::sendSubmit,
                             // The floating bar overlays the tail of the feed —
                             // the list pads past it so the last message (and
                             // every scroll-to-bottom) lands above it.
@@ -1029,16 +1019,13 @@ private fun ActivityFeed(
      *  multi-select step sends all of them at once); `text` is the typed
      *  reply for a `freeText` option (EXP-513), else null. */
     onAnswer: (AgentFeedItem.Question, List<String>, String?) -> Unit,
-    /** Advances a LEGACY multi-select picker (Tab) — semantic cards submit
-     *  through [onAnswer] instead. */
-    onSubmit: () -> Unit,
     /** EXP-688: how much of the feed's tail the floating Latest-changes bar
      *  covers. The list pads past it (and so does the Jump-to-bottom pill), so
      *  the last message is never parked underneath it. */
     bottomInset: Dp = 0.dp,
 ) {
-    // A card with a wire id stays answerable until it resolves; a legacy card
-    // falls back to the trailing-run heuristic (EXP-78/EXP-174).
+    // A card with a wire id stays answerable until it resolves; an id-less one
+    // (a pre-EXP-249 desktop) is read-only (EXP-672).
     val activeQuestionIds = remember(feed) { activeQuestionIds(feed) }
     // Subagent groups, askId steppers and consecutive tool runs are all
     // render-time projections only — the flat feed stays the state.
@@ -1154,7 +1141,6 @@ private fun ActivityFeed(
                         answerStates = answerStates,
                         answerLabels = answerLabels,
                         onAnswer = onAnswer,
-                        onSubmit = onSubmit,
                     )
                     is AgentFeedRow.Single -> when (val item = row.item) {
                         is AgentFeedItem.Narration -> NarrationBubble(item.text)
@@ -1185,10 +1171,9 @@ private fun ActivityFeed(
                             item = item,
                             active = item.id in activeQuestionIds,
                             answerEnabled = answerEnabled,
-                            state = answerStates[questionLockKey(item)],
+                            state = item.wireId?.let { answerStates[it] },
                             stepLabel = null,
                             onAnswer = { keys, text -> onAnswer(item, keys, text) },
-                            onSubmit = onSubmit,
                         )
                     }
                 }
@@ -1460,7 +1445,6 @@ private fun QuestionStepperCard(
     /** EXP-588: lock key → the locally picked answer summary. */
     answerLabels: Map<String, String>,
     onAnswer: (AgentFeedItem.Question, List<String>, String?) -> Unit,
-    onSubmit: () -> Unit,
 ) {
     val current = remember(steps, answered) { currentStepperStep(steps, answered) }
     if (current == null) {
@@ -1475,7 +1459,7 @@ private fun QuestionStepperCard(
         item = current,
         active = current.id in activeQuestionIds,
         answerEnabled = answerEnabled,
-        state = answerStates[questionLockKey(current)],
+        state = current.wireId?.let { answerStates[it] },
         stepLabel = when {
             current.index != null && total > 0 -> "Question ${current.index} of $total"
             // No index: the ask's final review step.
@@ -1483,16 +1467,15 @@ private fun QuestionStepperCard(
         },
         priorSteps = prior,
         priorAnswers = prior.map { stepAnswer(it, answerLabels) },
-        localAnswer = answerLabels[questionLockKey(current)],
+        localAnswer = current.wireId?.let { answerLabels[it] },
         onAnswer = { keys, text -> onAnswer(current, keys, text) },
-        onSubmit = onSubmit,
     )
 }
 
 /** A step's answer for display: the desktop-resolved text, else what this
  *  client picked (EXP-588); null = answered elsewhere, unknown here. */
 private fun stepAnswer(step: AgentFeedItem.Question, answerLabels: Map<String, String>): String? =
-    step.answer?.takeIf { it.isNotBlank() } ?: answerLabels[questionLockKey(step)]
+    step.answer?.takeIf { it.isNotBlank() } ?: step.wireId?.let { answerLabels[it] }
 
 /** One already-answered step of a stepper: the question on the left, folded
  *  to one line, the answer on the right (web `AnsweredStepRow` parity). */
@@ -1591,10 +1574,10 @@ private fun AnsweredAskCard(
 }
 
 // An interactive question (EXP-78): AskUserQuestion step / plan approval. While
-// the card is answerable, option rows send their keys — semantically for cards
-// carrying a wire id, as raw TUI keystrokes for older desktops; stale/view-only
-// cards render options as plain rows. A tapped card locks IMMEDIATELY (EXP-249)
-// and stays locked through the desktop's answer_ack, so an answer can never be
+// the card is answerable, option rows send their keys in ONE semantic `answer`
+// frame keyed by the card's wire id; stale, view-only and id-less cards render
+// options as plain rows. A tapped card locks IMMEDIATELY (EXP-249) and stays
+// locked through the desktop's answer_ack, so an answer can never be
 // double-sent. planMode cards (EXP-97) get a dedicated "Plan ready"
 // presentation with the first option as the primary approve action and the plan
 // rendered as markdown — labels/keys always come from the wire options.
@@ -1610,7 +1593,6 @@ private fun QuestionCard(
     /** "Question 2 of 3" when the card is one step of a stepper. */
     stepLabel: String?,
     onAnswer: (List<String>, String?) -> Unit,
-    onSubmit: () -> Unit,
     /** The ask's already-answered steps, summarized above this one (EXP-588). */
     priorSteps: List<AgentFeedItem.Question> = emptyList(),
     /** Per prior step: its answer text, or null when unknown here. */
@@ -1631,7 +1613,6 @@ private fun QuestionCard(
     // and renders the retry hint below instead of the sent row.
     val locked = state.locksCard()
     val answerable = active && answerEnabled && !locked
-    val semantic = item.wireId != null
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1718,13 +1699,11 @@ private fun QuestionCard(
                                 if (answerable) {
                                     Modifier.clickable {
                                         if (item.multiSelect) {
+                                            // Every picked key goes out at once
+                                            // when the card submits.
                                             picked = if (selected) picked - option.key
                                             else picked + option.key
-                                            // A legacy picker toggles with the
-                                            // raw digit as you tap; a semantic
-                                            // one submits every key at once.
-                                            if (!semantic) onAnswer(listOf(option.key), null)
-                                        } else if (option.freeText && semantic) {
+                                        } else if (option.freeText) {
                                             // EXP-513: collect the reply first —
                                             // nothing is sent until it submits.
                                             freeTextKey =
@@ -1747,7 +1726,6 @@ private fun QuestionCard(
                     ) {
                         QuestionOptionLabel(
                             option = option,
-                            showKey = !item.planMode && !semantic,
                             checked = if (item.multiSelect) selected else null,
                         )
                     }
@@ -1794,19 +1772,16 @@ private fun QuestionCard(
                     }
                 }
                 if (item.multiSelect && (answerable || locked)) {
-                    // Semantic: one frame carrying every picked key. Legacy:
-                    // Tab, which advances the TUI picker to its next step.
-                    val enabled = answerable && (!semantic || picked.isNotEmpty())
+                    // One frame carrying every picked key.
+                    val enabled = answerable && picked.isNotEmpty()
                     Text(
-                        if (semantic) "Submit" else "Continue",
+                        "Submit",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier
                             .alpha(if (enabled) 1f else 0.5f)
                             .glassButton(active = true)
-                            .clickable(enabled = enabled) {
-                                if (semantic) onAnswer(picked.toList(), null) else onSubmit()
-                            }
+                            .clickable(enabled = enabled) { onAnswer(picked.toList(), null) }
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                     )
                 }
@@ -1859,6 +1834,15 @@ private fun QuestionCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 )
+            } else if (item.wireId == null && !item.resolved) {
+                // A card from a pre-EXP-249 desktop: it carries no wire id, so
+                // no `answer` frame can address it and the raw-keystroke
+                // fallback is gone (EXP-672). Read-only, and say why.
+                Text(
+                    "Update the desktop app to answer this here.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
             }
         }
     }
@@ -1890,7 +1874,6 @@ private fun AnsweredRow(answer: String?) {
 @Composable
 private fun RowScope.QuestionOptionLabel(
     option: QuestionOption,
-    showKey: Boolean = true,
     /** Non-null on a multi-select option — renders its checkbox state. */
     checked: Boolean? = null,
 ) {
@@ -1904,12 +1887,6 @@ private fun RowScope.QuestionOptionLabel(
             } else {
                 MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
             },
-        )
-    } else if (showKey) {
-        Text(
-            option.key,
-            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
     }
     Column(

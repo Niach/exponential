@@ -144,11 +144,10 @@ export const steerRouter = router({
 
       // Any authed user may register device presence for their own account.
       if (input.kind === `control`) {
-        return mintSteerTicket(config, {
-          kind: `control`,
-          userId,
-          deviceLabel: input.deviceLabel,
-        })
+        // EXP-710: `deviceLabel` is still ACCEPTED (shipped desktops send it)
+        // but no longer minted into the ticket — nothing has read it since
+        // the relay dropped presence metadata (EXP-672).
+        return mintSteerTicket(config, { kind: `control`, userId })
       }
 
       const sessionId = (input.sessionId ?? input.codingSessionId)!

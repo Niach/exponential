@@ -95,8 +95,8 @@ export function createActivityCoalescer<Op>(
 
 /** The feed `question` item the helpers reason over. `questionId` is the wire
  *  id (protocol v2): present ⇒ resolution arrives as explicit events and the
- *  card is answerable through the semantic `answer` frame; absent ⇒ a legacy
- *  card, answerable by raw keystroke and retired positionally. */
+ *  card is answerable through the `answer` frame; absent ⇒ a card from a
+ *  desktop too old to publish ids, which renders READ-ONLY (EXP-672). */
 export interface QuestionLike {
   id: number
   kind: string
@@ -208,28 +208,19 @@ export function applyQuestionResolved<T extends QuestionLike>(
   return matched ? next : null
 }
 
-/** Ids of the `question` items still answerable.
+/** Ids of the `question` items still answerable — the identity-scoped cards
+ *  only (a wire `questionId`): they stay answerable until an explicit
+ *  `question_resolved` retires them, no matter what flushes in behind them.
  *
- *  Protocol v2 cards (a wire `questionId`) are identity-scoped: they stay
- *  answerable until an explicit `question_resolved` retires them, no matter
- *  what flushes in behind them.
- *
- *  Legacy cards keep the EXP-174 heuristic: the TRAILING consecutive question
- *  run (a multi-question batch lands back-to-back and the TUI auto-advances in
- *  order), PLUS any plan-approval card with no resolution signal after it —
- *  plan questions are published from the live terminal grid the moment the
- *  picker appears while the transcript tail lags, so tool rows and narration
- *  flush in BEHIND a picker that is still on screen. Only a newer question
- *  proves a plan picker resolved — a human message does NOT (steering mid-plan
- *  leaves the picker up). */
+ *  EXP-672: an ID-LESS card (a desktop too old to publish question ids) is
+ *  never answerable. The raw-keystroke fallback and its positional
+ *  trailing-run heuristic are gone — such a card renders read-only. */
 export function activeQuestionIds(
   feed: readonly {
     id: number
     kind: string
-    planMode?: boolean
     resolved?: boolean
     questionId?: string
-    text?: string
   }[]
 ): Set<number> {
   const ids = new Set<number>()
@@ -241,27 +232,6 @@ export function activeQuestionIds(
     )
       ids.add(item.id)
   }
-  // Still inside the trailing consecutive question run.
-  let trailing = true
-  // A resolution signal lies after the current position.
-  let retired = false
-  for (let i = feed.length - 1; i >= 0; i--) {
-    const item = feed[i]
-    if (item.kind === `question`) {
-      if (item.resolved === true || item.questionId !== undefined) {
-        // An answered/dismissed card is itself a resolution signal (it proves
-        // the TUI moved past it), as is any newer question (EXP-197).
-        trailing = false
-        retired = true
-      } else {
-        if (trailing || (item.planMode === true && !retired)) ids.add(item.id)
-        retired = true
-      }
-    } else {
-      trailing = false
-    }
-    if (retired && !trailing) break
-  }
   return ids
 }
 
@@ -270,7 +240,7 @@ export function activeQuestionIds(
 export type AnswerStatus = `sending` | `acked` | `error`
 
 export interface AnswerState {
-  /** What was sent — option keys for a semantic answer, keystrokes legacy. */
+  /** The option keys the `answer` frame carried. */
   keys: string[]
   /** Option labels, rendered while the card is locked. */
   labels: string[]
@@ -287,7 +257,8 @@ export type AnswerStates = Record<string, AnswerState>
 export const ANSWER_ACK_TIMEOUT_MS = 8_000
 
 /** The key a card's answer state is tracked under: the wire question id when
- *  the desktop publishes one, else the local feed id. */
+ *  the desktop publishes one, else the local feed id — an id-less card never
+ *  gets an answer state, the fallback only keeps lookups total. */
 export function answerKey(item: { id: number; questionId?: string }): string {
   return item.questionId ?? `#${item.id}`
 }

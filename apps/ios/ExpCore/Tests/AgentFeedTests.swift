@@ -507,7 +507,7 @@ final class AgentFeedTests: XCTestCase {
         tracker.expire("tu#1")
         XCTAssertNil(tracker.answerSummary("tu#1"))
 
-        // A bare legacy keystroke carries no label — no summary, not "".
+        // A lock taken with no labels has no summary, not "".
         tracker.markSent("tu#2")
         XCTAssertNil(tracker.answerSummary("tu#2"))
 

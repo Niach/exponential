@@ -337,7 +337,7 @@ async function main() {
   const stopControl = hold({
     name: `control`,
     config,
-    seed: { kind: `control`, userId, deviceLabel: DEMO_DEVICE_LABEL },
+    seed: { kind: `control`, userId },
     onOpen: (send) =>
       send({
         t: `online`,

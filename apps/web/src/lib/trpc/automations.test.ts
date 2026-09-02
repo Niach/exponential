@@ -3,7 +3,8 @@ import { TRPCError } from "@trpc/server"
 
 // EXP-583 automations router: the target action must be a same-team custom
 // row with no required input (while enabled), the device must be the caller's
-// or shared with the team AND advertise `automations` (+ the pinned agent),
+// own or a SERVER one shared with the team, AND advertise `automations`
+// (+ the pinned agent),
 // event filters must be the team's, agent/model/effort follow the contract.
 // DB access is a queued select-chain + insert/update recorder (actions.test.ts
 // precedent); the transaction hands back the same fake.
@@ -85,6 +86,9 @@ const schedule = { kind: `schedule` as const, interval: `daily` as const, minute
 const ownDevice = {
   userId: `actor`,
   sharedTeamId: null,
+  // The caller's OWN registration is usable whatever kind it is; only the
+  // shared tier is server-only (EXP-672, mirroring visibleDeviceRows).
+  kind: `desktop`,
   caps: [`automations`],
   agents: [`claude`, `codex`],
 }
@@ -178,13 +182,30 @@ describe(`automations.create`, () => {
     expect((error as TRPCError).message).toContain(`yours or shared`)
   })
 
-  it(`accepts a device shared with the team by a current member`, async () => {
+  it(`accepts a SERVER device shared with the team by a current member`, async () => {
     selectResults.push([action])
-    selectResults.push([{ ...ownDevice, userId: `host`, sharedTeamId: TEAM_ID }])
+    selectResults.push([
+      { ...ownDevice, userId: `host`, sharedTeamId: TEAM_ID, kind: `server` },
+    ])
     selectResults.push([{ userId: `host` }]) // teamMembers probe
     selectResults.push([])
     await caller.create({ teamId: TEAM_ID, actionId: ACTION_ID, deviceId: `d`, trigger: schedule })
     expect(inserts).toHaveLength(1)
+  })
+
+  // A teammate's DESKTOP registration never surfaces in a device picker
+  // (visibleDeviceRows / steer's resolveTargetDevice both gate the shared tier
+  // on kind='server'), so it must not be bindable here either.
+  it(`rejects a shared DESKTOP device (server-only, like every other reader)`, async () => {
+    selectResults.push([action])
+    selectResults.push([
+      { ...ownDevice, userId: `host`, sharedTeamId: TEAM_ID, kind: `desktop` },
+    ])
+    const error = await rejectionOf(
+      caller.create({ teamId: TEAM_ID, actionId: ACTION_ID, deviceId: `d`, trigger: schedule })
+    )
+    expect((error as TRPCError).message).toContain(`yours or shared`)
+    expect(inserts).toHaveLength(0)
   })
 
   it(`rejects a device without the automations cap or the pinned agent`, async () => {

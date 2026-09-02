@@ -121,27 +121,21 @@ describe(`relay URL derivation`, () => {
 })
 
 describe(`ticket claim composition`, () => {
-  it(`control: any user, empty ws scope, deviceLabel passthrough`, () => {
-    expect(
-      buildSteerTicketClaims(
-        { kind: `control`, userId: `user-1`, deviceLabel: `My MacBook` },
-        NOW
-      )
-    ).toEqual({
-      sub: `user-1`,
-      team: ``,
-      role: `control`,
-      deviceLabel: `My MacBook`,
-      iat: NOW,
-      exp: NOW + STEER_TICKET_TTL_SECONDS,
-    })
-  })
-
-  it(`control: omits deviceLabel when not provided`, () => {
+  // EXP-710: control claims are the account, the empty team scope and the
+  // window — no `deviceLabel` any more (the relay stopped reading presence
+  // metadata in EXP-672, so minting it was dead weight on the wire).
+  it(`control: any user, empty ws scope, no device metadata`, () => {
     const claims = buildSteerTicketClaims(
       { kind: `control`, userId: `user-1` },
       NOW
     )
+    expect(claims).toEqual({
+      sub: `user-1`,
+      team: ``,
+      role: `control`,
+      iat: NOW,
+      exp: NOW + STEER_TICKET_TTL_SECONDS,
+    })
     expect(claims).not.toHaveProperty(`deviceLabel`)
   })
 
