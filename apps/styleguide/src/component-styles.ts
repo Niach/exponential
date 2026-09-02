@@ -18,7 +18,6 @@ export const componentStyles = `
 /* -------------------------------------------------------- section header */
 .cmp-section-header { display: flex; align-items: center; gap: 6px; padding: 4px 4px 8px; }
 .cmp-section-header .title { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fg-70); }
-.cmp-section-header .count { font-size: 12px; color: var(--fg-50); }
 .cmp-section-header .trailing { margin-left: auto; }
 
 /* ------------------------------------------------------- group container */

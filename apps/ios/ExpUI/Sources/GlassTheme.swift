@@ -130,12 +130,10 @@ public struct GlassDivider: View {
 /// they are a shared cross-client convention, not this app's section language.
 public struct GlassSectionHeader<Trailing: View>: View {
     let title: String
-    var count: Int?
     let trailing: Trailing
 
-    public init(_ title: String, count: Int? = nil, @ViewBuilder trailing: () -> Trailing) {
+    public init(_ title: String, @ViewBuilder trailing: () -> Trailing) {
         self.title = title
-        self.count = count
         self.trailing = trailing()
     }
 
@@ -144,11 +142,6 @@ public struct GlassSectionHeader<Trailing: View>: View {
             Text(title)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            if let count {
-                Text("\(count)")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
             Spacer(minLength: 0)
             trailing
         }
@@ -160,8 +153,8 @@ public struct GlassSectionHeader<Trailing: View>: View {
 }
 
 extension GlassSectionHeader where Trailing == EmptyView {
-    public init(_ title: String, count: Int? = nil) {
-        self.init(title, count: count) { EmptyView() }
+    public init(_ title: String) {
+        self.init(title) { EmptyView() }
     }
 }
 

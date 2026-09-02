@@ -250,7 +250,6 @@ export function TeamRepositoriesSection({
       <div>
         <GlassSectionHeader
           label="Repositories"
-          count={count}
           trailing={
             <Button
               variant="glass"

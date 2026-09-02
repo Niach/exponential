@@ -102,7 +102,6 @@ export function TeamBoardsSection({
       <div>
         <GlassSectionHeader
           label="Boards"
-          count={boards.length}
           trailing={
             <Button
               variant="glass"
@@ -363,7 +362,6 @@ function ArchivedBoardsCard({
       <GlassSectionHeader
         leading={<Archive className="size-3.5 text-foreground/50" />}
         label="Archived boards"
-        count={archived.length}
       />
       <p className="px-1 pb-2 text-xs text-foreground/50">
         Archived boards and their issues are hidden from everyone in the team.
@@ -473,7 +471,6 @@ function PendingDeletionCard({
       <GlassSectionHeader
         leading={<Trash2 className="size-3.5 text-foreground/50" />}
         label="Trash"
-        count={trashed.length}
       />
       <p className="px-1 pb-2 text-xs text-foreground/50">
         Deleted boards are kept for 48 hours, then permanently removed with all

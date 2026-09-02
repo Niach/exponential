@@ -83,11 +83,10 @@ const { glass, radius, size, motion } = designTokens
 
 /* ------------------------------------------------------------------ parts */
 
-function sectionHeader(title: string, count?: string, trailing?: string): string {
+function sectionHeader(title: string, trailing?: string): string {
   return [
     `<div class="cmp-section-header">`,
     `<span class="title">${escapeHtml(title)}</span>`,
-    count === undefined ? `` : `<span class="count">${escapeHtml(count)}</span>`,
     trailing === undefined ? `` : `<span class="trailing">${trailing}</span>`,
     `</div>`,
   ].join(``)
@@ -209,7 +208,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `section-header`,
     title: `Section header`,
     kind: `Grouped list`,
-    blurb: `Sentence case, 14/20 at 70% foreground, with an optional count and a trailing slot. Never uppercase and never a divider.`,
+    blurb: `Sentence case, 14/20 at 70% foreground, with a trailing slot. No count — EXP-698 retired header counts on every client. Never uppercase and never a divider.`,
     status: {
       web: ok(`GlassSectionHeader`, WEB_GLASS_ROWS, HEADER_EXCEPTION),
       desktop: ok(`surface::glass_section_header`, DESKTOP_SURFACE, HEADER_EXCEPTION),
@@ -219,7 +218,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     render: () =>
       [
         `<div class="cmp-stack">`,
-        sectionHeader(`Boards`, `6`, buttonXs(`New`, svgPlus)),
+        sectionHeader(`Boards`, buttonXs(`New`, svgPlus)),
         group(pickerRow(`Mobile app`, `24 issues`), pickerRow(`Website`, `9 issues`)),
         sectionHeader(`Danger zone`),
         `</div>`,
@@ -239,7 +238,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     render: () =>
       [
         `<div class="cmp-stack">`,
-        sectionHeader(`Board`, `3`),
+        sectionHeader(`Board`),
         group(
           pickerRow(`Repository`, `niach/exponential`),
           inputRow(`Slug`, `mobile-app`),

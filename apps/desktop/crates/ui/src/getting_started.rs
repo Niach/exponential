@@ -1053,7 +1053,7 @@ impl Render for GettingStartedView {
                         // rows carry their own gapped column.
                         v_flex()
                             .min_w_0()
-                            .child(glass_section_header("Suggestions", None, None, cx))
+                            .child(glass_section_header("Suggestions", None, cx))
                             .child(v_flex().min_w_0().gap_2().children(rows))
                             .into_any_element()
                     }

@@ -272,7 +272,7 @@ private fun BoardsSection(
         // with its own count slot. "New board" is owner-only in team settings
         // (web parity); the empty-state and switcher create entries elsewhere
         // stay open (they target the user's default team via getDefault).
-        SectionHeader("Boards", count = state.boards.size) {
+        SectionHeader("Boards") {
             if (isOwner) {
                 GlassPillButton(
                     label = "New board",
@@ -469,7 +469,7 @@ private fun RepositoriesSection(
         // Header row: title + repo count + a compact "Add repository" button
         // (owner + ≥1 linked installation), mirroring the Labels header's
         // inline action and the iOS Repositories header.
-        SectionHeader("Repositories", count = state.repos.size) {
+        SectionHeader("Repositories") {
             // Member-level since EXP-557 (repositories.add operates on the
             // viewer's OWN GitHub connection; connecting shares the repo).
             // Only meaningful once the server has a GitHub App — the picker
@@ -801,7 +801,7 @@ private fun MembersSection(
     onConfirm: (SettingsConfirm) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader("Members", count = state.members.size)
+        SectionHeader("Members")
         // A team must always keep at least one owner.
         val ownerCount = state.members.count { it.member.role == DomainContract.teamRoleOwner }
         Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
@@ -933,7 +933,7 @@ private fun LabelsSection(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Header row: title + label count + a compact "New label" pill — the
         // same recipe as the Boards/Repositories headers and iOS (EXP-331).
-        SectionHeader("Labels", count = state.labels.size) {
+        SectionHeader("Labels") {
             GlassPillButton(
                 label = "New label",
                 icon = ExpIcons.uiAdd,

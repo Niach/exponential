@@ -128,7 +128,6 @@ describe(`demo markup`, () => {
     `box`,
     `chevron`,
     `content`,
-    `count`,
     `desc`,
     `destructive`,
     `disabled`,

@@ -226,7 +226,6 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
     <div>
       <GlassSectionHeader
         label="Labels"
-        count={labelList.length}
         trailing={
           !creating && (
             <Button

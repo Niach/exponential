@@ -869,7 +869,6 @@ impl Render for MachinesSection {
             .min_w_0()
             .child(crate::surface::glass_section_header(
                 "My machines",
-                None,
                 Some(add_server),
                 cx,
             ))
@@ -906,7 +905,6 @@ impl Render for MachinesSection {
                         .pt_4()
                         .child(crate::surface::glass_section_header(
                             "Team machines",
-                            None,
                             None,
                             cx,
                         ))

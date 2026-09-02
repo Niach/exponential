@@ -338,7 +338,7 @@ impl AutomationsView {
         // 8px to the list, so the run rows live in their own gapped column.
         let recent = gpui_component::v_flex()
             .min_w_0()
-            .child(glass_section_header("Recent automated runs", None, None, cx));
+            .child(glass_section_header("Recent automated runs", None, cx));
         let mut run_rows = gpui_component::v_flex().min_w_0().gap_2();
         if runs.is_empty() {
             run_rows = run_rows.child(
@@ -446,7 +446,7 @@ impl Render for AutomationsView {
             .child(suggestions_button("automations-suggestions", cx))
             .children(new_automation)
             .into_any_element();
-        let header = glass_section_header("Automations", None, Some(trailing), cx);
+        let header = glass_section_header("Automations", Some(trailing), cx);
 
         let body = self.render_automations(&actions, &automations, team_id.as_deref(), is_owner, cx);
         // NO gap here (EXP-697) — the header's `pb_2` is the spacing to the

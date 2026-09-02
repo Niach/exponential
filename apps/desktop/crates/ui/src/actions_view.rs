@@ -468,7 +468,7 @@ impl Render for ActionsView {
             .children(new_action)
             .into_any_element();
         let header =
-            crate::surface::glass_section_header("Actions", None, Some(trailing), cx);
+            crate::surface::glass_section_header("Actions", Some(trailing), cx);
 
         let rows: Vec<gpui::AnyElement> = actions
             .iter()

@@ -104,7 +104,7 @@ export function TeamMembersSection({
 
   return (
     <div>
-      <GlassSectionHeader label="Members" count={members.length} />
+      <GlassSectionHeader label="Members" />
       <div className="space-y-4">
         <div className="space-y-2">
           {members.map((member) => {
@@ -443,7 +443,7 @@ function InviteControls({ teamId }: { teamId: string }) {
 
         {invites.length > 0 && (
           <div className="pt-2">
-            <GlassSectionHeader label="Pending invites" count={invites.length} />
+            <GlassSectionHeader label="Pending invites" />
             {invites.map((invite) => (
               <GlassRow
                 key={invite.id}

@@ -15,7 +15,7 @@ struct TeamLabelsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            GlassSectionHeader("Labels", count: labels.count) {
+            GlassSectionHeader("Labels") {
                 // "New label" rides the header (Boards' "New board" pattern,
                 // EXP-331) — labels stay member-level, so no owner gating.
                 GlassPillButton("New label", icon: AppIcons.uiAdd) {

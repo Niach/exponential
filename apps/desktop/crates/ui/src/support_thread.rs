@@ -678,7 +678,7 @@ impl Render for SupportThreadView {
         // EXP-698: the shared glass section header, sentence case — the rail's
         // headings used to be a bespoke uppercase caption.
         let mut reporter_section = v_flex()
-            .child(crate::surface::glass_section_header("Reporter", None, None, cx))
+            .child(crate::surface::glass_section_header("Reporter", None, cx))
             .child(
             div()
                 .text_sm()
@@ -715,7 +715,7 @@ impl Render for SupportThreadView {
 
         let context_section = self.submission.as_ref().and_then(|submission| {
             let mut section = v_flex()
-                .child(crate::surface::glass_section_header("Context", None, None, cx));
+                .child(crate::surface::glass_section_header("Context", None, cx));
             let mut any = false;
             if let Some(url) = submission.page_url.clone().filter(|url| !url.is_empty()) {
                 any = true;
@@ -761,7 +761,7 @@ impl Render for SupportThreadView {
                 };
                 let issue_id = issue.id.clone();
                 v_flex()
-                    .child(crate::surface::glass_section_header("Linked issue", None, None, cx))
+                    .child(crate::surface::glass_section_header("Linked issue", None, cx))
                     .child(
                         Button::new("support-linked-issue")
                             .outline().cursor_pointer()
@@ -793,7 +793,7 @@ impl Render for SupportThreadView {
                 // NO `gap_2` on the section (EXP-697): the header's own `pb_2`
                 // IS the gap to the body, so the rows carry the gap instead.
                 v_flex()
-                    .child(crate::surface::glass_section_header("Escalate", None, None, cx))
+                    .child(crate::surface::glass_section_header("Escalate", None, cx))
                     .child(
                         v_flex()
                             .gap_2()

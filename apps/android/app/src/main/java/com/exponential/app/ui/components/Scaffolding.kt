@@ -28,8 +28,8 @@ import com.exponential.app.ui.theme.TextEmphasis
  * edge (a "New action" pill). Three near-identical private copies (a
  * `labelLarge` in AgentsScreen, a `bodyMedium` row in ActionsScreen, a padded
  * `SectionLabel` in the sheets) collapsed into it. Signature and layout are
- * iOS's `GlassSectionHeader(title, count:, trailing:)`; the count is the 12sp
- * tertiary number web draws as `text-xs text-foreground/50`. The emoji
+ * iOS's `GlassSectionHeader(title, trailing:)` — no count slot anywhere (EXP-698
+ * retired the header counts on every client). The emoji
  * picker's uppercase category headers are the one documented exception (a
  * cross-client convention, not this app's section language).
  *
@@ -41,7 +41,6 @@ import com.exponential.app.ui.theme.TextEmphasis
 fun SectionHeader(
     title: String,
     modifier: Modifier = Modifier,
-    count: Int? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(
@@ -57,13 +56,6 @@ fun SectionHeader(
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )
-        if (count != null) {
-            Text(
-                count.toString(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-        }
         Spacer(Modifier.weight(1f))
         trailing?.invoke()
     }

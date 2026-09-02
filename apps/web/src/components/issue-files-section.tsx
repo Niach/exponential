@@ -155,7 +155,6 @@ export function IssueFilesSection({
     <div className="px-5 py-2" data-testid="issue-files-section">
       <GlassSectionHeader
         label="Files"
-        count={files.length}
         trailing={
           !readOnly && (
             <IssueEditorAttachmentButton

@@ -245,7 +245,6 @@ function ReviewsPage() {
                     <BoardGlyph board={group.board} className="size-3.5" />
                   }
                   label={group.board.name}
-                  count={group.entries.length}
                 />
 
                 <div className="flex flex-col gap-2">
@@ -379,7 +378,9 @@ function ReviewsPage() {
                     <GitPullRequest className="h-2.5 w-2.5 shrink-0 text-foreground/50" />
                   }
                   label={group.fullName}
-                  count={`not linked to an issue · ${group.pulls.length}`}
+                  trailing={
+                    <span className="text-xs text-foreground/50">not linked to an issue</span>
+                  }
                 />
 
                 <div className="flex flex-col gap-2">

@@ -128,7 +128,6 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
       <div>
         <GlassSectionHeader
           label="API keys"
-          count={keys.length}
           trailing={
             <Button
               variant="glass"

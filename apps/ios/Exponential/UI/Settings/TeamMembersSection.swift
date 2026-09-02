@@ -29,7 +29,7 @@ struct TeamMembersSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            GlassSectionHeader("Members", count: members.count)
+            GlassSectionHeader("Members")
 
             ForEach(members, id: \.id) { member in
                 memberRow(member)

@@ -18,8 +18,9 @@ use theme::tokens as t;
 /// EXP-698 — the web `GlassSectionHeader` (`components/ui/glass-rows.tsx`,
 /// EXP-616): a PLAIN-TEXT heading over a glass list — no band, no fill, no
 /// border — `px_1 pt_1 pb_2`, the label `text_sm` MEDIUM at 70% foreground,
-/// an optional `count` trailing it in `text_xs` at 50%, then a spacer and the
-/// optional trailing control. Labels are SENTENCE CASE, never uppercase.
+/// then a spacer and the optional trailing control. No count slot: EXP-698
+/// retired header counts on every client. Labels are SENTENCE CASE, never
+/// uppercase.
 ///
 /// Lived in `actions_view` until EXP-698 moved it here beside the other
 /// glass recipes; every page section (Actions, Automations, Devices,
@@ -30,7 +31,6 @@ use theme::tokens as t;
 /// `v_flex().gap_2()` instead.
 pub(crate) fn glass_section_header(
     label: impl Into<SharedString>,
-    count: Option<usize>,
     trailing: Option<AnyElement>,
     cx: &App,
 ) -> Div {
@@ -50,12 +50,6 @@ pub(crate) fn glass_section_header(
                 .text_color(foreground.opacity(0.7))
                 .child(label.into()),
         )
-        .children(count.map(|count| {
-            div()
-                .text_xs()
-                .text_color(foreground.opacity(0.5))
-                .child(SharedString::from(count.to_string()))
-        }))
         .child(div().flex_1())
         .children(trailing)
 }

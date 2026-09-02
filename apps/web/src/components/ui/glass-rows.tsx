@@ -32,14 +32,11 @@ import { cn } from "@/lib/utils"
 
 function GlassSectionHeader({
   label,
-  count,
   leading,
   trailing,
   className,
 }: {
   label: string
-  /** The quiet trailing caption — a plain count, or a short qualifier. */
-  count?: React.ReactNode
   /** Optional glyph before the label (e.g. the board icon on Reviews). */
   leading?: React.ReactNode
   trailing?: React.ReactNode
@@ -52,9 +49,6 @@ function GlassSectionHeader({
     >
       {leading}
       <span className="text-sm font-medium text-foreground/70">{label}</span>
-      {count !== undefined && (
-        <span className="text-xs text-foreground/50">{count}</span>
-      )}
       {trailing && (
         <div className="ml-auto flex items-center gap-1.5">{trailing}</div>
       )}
