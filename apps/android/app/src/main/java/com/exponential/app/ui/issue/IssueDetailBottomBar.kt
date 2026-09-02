@@ -54,6 +54,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
 import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.ui.components.ComposerSubmitButton
+import com.exponential.app.ui.components.ComposerToolButton
+import com.exponential.app.ui.components.GlassComposer
 import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.emoji.EmojiPickerSheet
 import com.exponential.app.ui.icons.ExpIcons
@@ -374,20 +377,61 @@ private fun ExpandedCommentComposer(
         ActivityResultContracts.OpenDocument(),
     ) { uri: Uri? -> uri?.let(onAddAttachment) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(GlassTokens.OpaqueCardFill)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, RoundedCornerShape(24.dp))
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+    val canSend = draft.isNotBlank() || pendingAttachments.isNotEmpty()
+    GlassComposer(
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        // The composer floats over the issue's own scrolling content.
+        opaque = true,
+        strip = {
+            PendingAttachmentStrip(
+                items = pendingAttachments,
+                enabled = !sending,
+                onRemove = onRemoveAttachment,
+            )
+        },
+        tools = {
+            ComposerToolButton(
+                ExpIcons.editorImage,
+                contentDescription = "Attach image",
+                onClick = {
+                    imagePicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                    )
+                },
+            )
+            ComposerToolButton(
+                ExpIcons.uiAttach,
+                contentDescription = "Attach file",
+                onClick = { filePicker.launch(arrayOf("*/*")) },
+            )
+            if (showMentionButton) {
+                ComposerToolButton(
+                    ExpIcons.editorMention,
+                    contentDescription = "Mention a member",
+                    onClick = { model.insertPlainText("@") },
+                )
+            }
+            ComposerToolButton(
+                ExpIcons.editorIssueRef,
+                contentDescription = "Reference an issue",
+                onClick = { model.insertPlainText("#") },
+            )
+            ComposerToolButton(
+                ExpIcons.editorEmoji,
+                contentDescription = "Insert emoji",
+                onClick = onRequestEmoji,
+            )
+        },
+        submit = {
+            ComposerSubmitButton(
+                ExpIcons.uiSubmit,
+                contentDescription = "Send",
+                onClick = onSend,
+                enabled = canSend,
+                sending = sending,
+            )
+        },
     ) {
-        PendingAttachmentStrip(
-            items = pendingAttachments,
-            enabled = !sending,
-            onRemove = onRemoveAttachment,
-        )
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -415,72 +459,6 @@ private fun ExpandedCommentComposer(
         // loop lands the OS focus and raises the keyboard.
         LaunchedEffect(Unit) {
             model.setFocused(model.rows.firstOrNull()?.id)
-        }
-        val canSend = draft.isNotBlank() || pendingAttachments.isNotEmpty()
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(
-                onClick = {
-                    imagePicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                    )
-                },
-            ) {
-                Icon(
-                    ExpIcons.editorImage,
-                    contentDescription = "Attach image",
-                    modifier = Modifier.size(20.dp),
-                    tint = Color.White.copy(alpha = TextEmphasis.Secondary),
-                )
-            }
-            IconButton(onClick = { filePicker.launch(arrayOf("*/*")) }) {
-                Icon(
-                    ExpIcons.uiAttach,
-                    contentDescription = "Attach file",
-                    modifier = Modifier.size(20.dp),
-                    tint = Color.White.copy(alpha = TextEmphasis.Secondary),
-                )
-            }
-            if (showMentionButton) {
-                IconButton(onClick = { model.insertPlainText("@") }) {
-                    Icon(
-                        ExpIcons.editorMention,
-                        contentDescription = "Mention a member",
-                        modifier = Modifier.size(20.dp),
-                        tint = Color.White.copy(alpha = TextEmphasis.Secondary),
-                    )
-                }
-            }
-            IconButton(onClick = { model.insertPlainText("#") }) {
-                Icon(
-                    ExpIcons.editorIssueRef,
-                    contentDescription = "Reference an issue",
-                    modifier = Modifier.size(20.dp),
-                    tint = Color.White.copy(alpha = TextEmphasis.Secondary),
-                )
-            }
-            IconButton(onClick = onRequestEmoji) {
-                Icon(
-                    ExpIcons.editorEmoji,
-                    contentDescription = "Insert emoji",
-                    modifier = Modifier.size(20.dp),
-                    tint = Color.White.copy(alpha = TextEmphasis.Secondary),
-                )
-            }
-            Spacer(Modifier.weight(1f))
-            IconButton(
-                onClick = onSend,
-                enabled = !sending && canSend,
-            ) {
-                Icon(
-                    ExpIcons.uiSubmit,
-                    contentDescription = "Send",
-                    modifier = Modifier.size(30.dp),
-                    tint = if (canSend) Color.White else Color.White.copy(alpha = 0.3f),
-                )
-            }
         }
     }
 }

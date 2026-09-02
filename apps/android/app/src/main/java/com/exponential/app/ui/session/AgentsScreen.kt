@@ -58,7 +58,8 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
-import com.exponential.app.ui.components.GlassPillButton
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
@@ -885,8 +886,9 @@ private fun AgentSessionRow(
                 }
             }
             when {
-                issueIdentifier != null -> GlassPillButton(
-                    label = issueIdentifier,
+                issueIdentifier != null -> GlassPill(
+                    issueIdentifier,
+                    size = PillSize.Sm,
                     onClick = onOpenIssue,
                     modifier = Modifier.padding(start = 8.dp),
                     // Identifiers are monospaced everywhere (web `font-mono`,

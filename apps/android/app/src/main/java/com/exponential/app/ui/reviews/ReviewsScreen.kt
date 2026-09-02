@@ -44,7 +44,7 @@ import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
-import com.exponential.app.ui.components.GlassPillButton
+import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.LoadingState
@@ -305,7 +305,7 @@ private fun ReviewRow(
             // just tapped.
             // EXP-698: the shared pill, not a second hand-rolled copy of it
             // (the steer screen's Merge control is the same component).
-            GlassPillButton(
+            GlassPill(
                 if (canFixConflicts) "Fix conflicts" else "Merge",
                 onClick = if (canFixConflicts) onFixConflicts else onMerge,
                 icon = if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,

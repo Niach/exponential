@@ -42,7 +42,8 @@ import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
+import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.theme.glassRow
 
 // The compact agent/PR card on the issue detail (EXP-156): a live "Coding now"
 // session row and the PR / branch summary as GitHub-style chips linking to the
@@ -214,8 +215,8 @@ private fun PrRow(prState: String?, prNumber: Int?, onOpenChanges: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onOpenChanges)
-            .glassButton()
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .glassRow()
+            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -258,8 +259,8 @@ private fun BranchRow(branch: String, onOpenChanges: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onOpenChanges)
-            .glassButton()
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .glassRow()
+            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {

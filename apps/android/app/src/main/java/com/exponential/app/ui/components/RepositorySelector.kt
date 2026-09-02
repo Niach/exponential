@@ -29,7 +29,6 @@ import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.GithubRepoPickerSheet
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
 
 // The (optional) repository picker for board creation (masterplan v4 §6 —
@@ -110,26 +109,11 @@ fun RepositorySelector(
 
         // The empty state doubles as the inline "Connect GitHub" affordance —
         // the picker sheet it opens handles the not-installed case itself.
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .glassButton()
-                .clickable { showPicker = true }
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-        ) {
-            Icon(
-                if (empty) ExpIcons.uiGithub else ExpIcons.uiAdd,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = secondary,
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                if (empty) "Connect GitHub…" else "Add another repository…",
-                style = MaterialTheme.typography.labelMedium,
-                color = secondary,
-            )
-        }
+        GlassPill(
+            if (empty) "Connect GitHub…" else "Add another repository…",
+            icon = if (empty) ExpIcons.uiGithub else ExpIcons.uiAdd,
+            onClick = { showPicker = true },
+        )
     }
 
     if (showPicker) {

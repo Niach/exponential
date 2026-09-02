@@ -5,14 +5,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.components.GlassNotice
+import com.exponential.app.ui.components.GlassNoticeDefaults
+import com.exponential.app.ui.components.GlassPillDefaults
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
 
 /**
  * The remote-start feedback caption every launcher host renders the same way
@@ -38,19 +41,37 @@ fun SteerRunCaptionRow(
         is ActionRunState.Failed -> state.message
     }
     val showSpinner = state is ActionRunState.Sending || state is ActionRunState.Sent
+    val color = if (state is ActionRunState.Failed) MaterialTheme.colorScheme.error else null
+    if (floating) {
+        // A NOTICE, not a pill: "Start sent to <device>. Waiting for the
+        // desktop…" and a server-written failure both wrap to two lines on a
+        // phone, which a fixed-height capsule can only clip (EXP-698).
+        GlassNotice(
+            text,
+            modifier = modifier,
+            contentColor = color,
+            leading = if (showSpinner) {
+                {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(GlassNoticeDefaults.GlyphSize),
+                        strokeWidth = 2.dp,
+                        color = LocalContentColor.current,
+                    )
+                }
+            } else {
+                null
+            },
+        )
+        return
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = modifier
-            .then(if (floating) Modifier.glassButton(opaque = true) else Modifier)
-            .padding(
-                horizontal = if (floating) 12.dp else 0.dp,
-                vertical = if (floating) 7.dp else 2.dp,
-            ),
+        horizontalArrangement = Arrangement.spacedBy(GlassPillDefaults.SmSpacing),
+        modifier = modifier.padding(vertical = 2.dp),
     ) {
         if (showSpinner) {
             CircularProgressIndicator(
-                modifier = Modifier.size(12.dp),
+                modifier = Modifier.size(GlassPillDefaults.SmGlyphSize),
                 strokeWidth = 2.dp,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -58,11 +79,7 @@ fun SteerRunCaptionRow(
         Text(
             text,
             style = MaterialTheme.typography.labelSmall,
-            color = if (state is ActionRunState.Failed) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-            },
+            color = color ?: MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )
     }
 }

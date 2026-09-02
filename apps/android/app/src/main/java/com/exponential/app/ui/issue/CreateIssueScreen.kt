@@ -66,7 +66,9 @@ import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.priorityIcon
-import com.exponential.app.ui.components.GlassPillButton
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillMode
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.PriorityIcon
@@ -87,7 +89,6 @@ import com.exponential.app.ui.share.SharePrefill
 import com.exponential.app.ui.share.TeamBoards
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
-import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassGroup
 import java.util.UUID
 import kotlinx.coroutines.launch
@@ -292,8 +293,8 @@ fun CreateIssueScreen(
                     actions = {
                         // iOS 26 renders the confirmation item as a glass
                         // capsule — same pill as every inline action (EXP-577).
-                        GlassPillButton(
-                            label = if (isCreating) "Creating…" else "Create",
+                        GlassPill(
+                            if (isCreating) "Creating…" else "Create",
                             onClick = ::submit,
                             enabled = canSubmit,
                             modifier = Modifier.padding(end = 8.dp),
@@ -451,42 +452,25 @@ fun CreateIssueScreen(
                     ) {
                         state.labels.forEach { label ->
                             val selected = label.id in selectedLabelIds
-                            Row(
-                                modifier = Modifier
-                                    .glassButton(active = selected)
-                                    .clickable {
-                                        selectedLabelIds =
-                                            if (selected) selectedLabelIds - label.id
-                                            else selectedLabelIds + label.id
-                                    }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Box(modifier = Modifier.size(8.dp).background(parseColor(label.color), CircleShape))
-                                Spacer(Modifier.width(5.dp))
-                                Text(label.name, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface)
-                            }
-                        }
-                        Row(
-                            modifier = Modifier
-                                .glassButton()
-                                .clickable { labelSheetOpen = true }
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                ExpIcons.uiAdd,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                "Label",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            GlassPill(
+                                label.name,
+                                size = PillSize.Sm,
+                                mode = PillMode.Select,
+                                selected = selected,
+                                dot = parseColor(label.color),
+                                onClick = {
+                                    selectedLabelIds =
+                                        if (selected) selectedLabelIds - label.id
+                                        else selectedLabelIds + label.id
+                                },
                             )
                         }
+                        GlassPill(
+                            "Label",
+                            size = PillSize.Sm,
+                            icon = ExpIcons.uiAdd,
+                            onClick = { labelSheetOpen = true },
+                        )
                     }
                 }
 

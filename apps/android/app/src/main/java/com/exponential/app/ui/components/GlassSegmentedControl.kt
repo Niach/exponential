@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -71,8 +73,9 @@ fun <T> GlassSegmentedControl(
                     Modifier
                 } else {
                     Modifier
+                        .height(GlassSegmentedControlDefaults.Height)
                         .clip(capsule)
-                        .background(GlassTokens.RowFill, capsule)
+                        .background(GlassSegmentedControlDefaults.ContainerFill, capsule)
                         .border(GlassTokens.Hairline, GlassSegmentedControlDefaults.Hairline, capsule)
                         .padding(GlassSegmentedControlDefaults.ContainerPadding)
                 },
@@ -93,7 +96,20 @@ fun <T> GlassSegmentedControl(
                         capsule,
                     )
                     .clickable { onSelect(option) }
-                    .padding(vertical = GlassSegmentedControlDefaults.SegmentVerticalPadding),
+                    // A STANDALONE strip has a fixed height, so its segments
+                    // fill it and pad nothing: 36 - 2x3 container inset - 2x6
+                    // segment padding left 18dp for a 20sp line and clipped
+                    // every label by ~2dp. An EMBEDDED strip has no height of
+                    // its own, so the padding is what gives it one.
+                    .then(
+                        if (embedded) {
+                            Modifier.padding(
+                                vertical = GlassSegmentedControlDefaults.SegmentVerticalPadding,
+                            )
+                        } else {
+                            Modifier.fillMaxHeight()
+                        },
+                    ),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -109,7 +125,10 @@ fun <T> GlassSegmentedControl(
                 Text(
                     label(option),
                     style = textStyle ?: MaterialTheme.typography.labelLarge,
-                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                    // EXP-698: CONSTANT weight — only the alpha moves. A weight
+                    // swap re-measures the label, so the strip used to twitch
+                    // horizontally on every selection.
+                    fontWeight = GlassSegmentedControlDefaults.LabelWeight,
                     color = contentColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -146,20 +165,44 @@ private val BadgeFill = DesignTokens.Palette.Primary
  * clients draw identically, so its chrome may not be re-typed at a call site.
  */
 object GlassSegmentedControlDefaults {
-    /** The capsule container's hairline — the heaviest non-active stroke. */
-    val Hairline: Color = GlassTokens.StrokeStrong
+    /**
+     * The capsule container's fill — the SECTION rung (EXP-698). A segmented
+     * strip is a container of choices, not a row; on the row fill it read as
+     * one more list row that happened to have tabs in it.
+     */
+    val ContainerFill: Color = GlassTokens.SectionFill
+
+    /** The capsule container's hairline — the section rung's own stroke. */
+    val Hairline: Color = GlassTokens.StrokeSection
 
     /** The selected segment's fill. */
     val ActiveFill: Color = GlassTokens.RowFillActive
 
-    /** Inset between the container's edge and a segment. */
-    val ContainerPadding: Dp = 4.dp
+    /**
+     * Inset between the container's edge and a segment. 3dp, not 4: at 4 the
+     * active pill floated inside a visible gutter instead of sitting in a
+     * track.
+     */
+    val ContainerPadding: Dp = 3.dp
 
-    /** Gap between two segments — the same 4dp the container insets by. */
-    val SegmentSpacing: Dp = 4.dp
+    /** Segments TOUCH — the active fill is the only thing separating them. */
+    val SegmentSpacing: Dp = 0.dp
 
-    /** A segment's own vertical padding — the strip's height comes from this. */
-    val SegmentVerticalPadding: Dp = 7.dp
+    /** A standalone strip is the large control rung. */
+    val Height: Dp = DesignTokens.Size.ControlLg
+
+    /**
+     * An EMBEDDED strip's segment padding, and ONLY that: a standalone strip
+     * pins [Height] and its segments fill it, so padding them too would eat
+     * into the line box and clip the label.
+     */
+    val SegmentVerticalPadding: Dp = 6.dp
+
+    /**
+     * A segment label never changes weight, only alpha (EXP-698) — a
+     * SemiBold/Normal swap re-measures the text and shifted the strip.
+     */
+    val LabelWeight: FontWeight = FontWeight.Medium
 
     /** Container and segments are both full capsules. */
     val Shape: RoundedCornerShape = RoundedCornerShape(percent = 50)

@@ -75,6 +75,10 @@ import com.exponential.app.domain.WebLinks
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.ui.components.BoardIcon
+import com.exponential.app.ui.components.GlassNotice
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassPillDefaults
+import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EmptyState
@@ -97,7 +101,6 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
-import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.delay
 
@@ -837,33 +840,27 @@ private fun BoardSwitcherControl(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .glassButton()
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        if (board != null) {
-            BoardIcon(board)
-        }
-        Text(
-            board?.name ?: "Issues",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Icon(
-            ExpIcons.uiSelector,
-            contentDescription = "Switch board",
-            modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
-            ),
-        )
-    }
+    // EXP-698: the control stays ENABLED-looking with nowhere to switch to —
+    // this is the screen's TITLE as much as it is a control, and dimming the
+    // board name to quaternary read as "this board is broken". Only the
+    // expander glyph (and the tap) reflect that there is no second board.
+    GlassPill(
+        board?.name ?: "Issues",
+        onClick = if (enabled) onClick else null,
+        mode = PillMode.Action,
+        maxLines = 1,
+        leading = board?.let { { BoardIcon(it) } },
+        trailing = {
+            Icon(
+                ExpIcons.uiSelector,
+                contentDescription = "Switch board",
+                modifier = Modifier.size(GlassPillDefaults.MdGlyphSize),
+                tint = MaterialTheme.colorScheme.onSurface.copy(
+                    alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+                ),
+            )
+        },
+    )
 }
 
 // Nav-row filter trigger: the circular glass filter button with its
@@ -1357,21 +1354,12 @@ private fun NoticeChip(
     isError: Boolean,
     onClick: (() -> Unit)?,
 ) {
-    val shape = RoundedCornerShape(12.dp)
-    Text(
+    // A NOTICE, not a pill: these are server-written sentences ("No desktop
+    // online to start this on…") that run to two lines on a phone, and a
+    // fixed-height capsule can only clip them (EXP-698).
+    GlassNotice(
         text,
-        style = MaterialTheme.typography.labelSmall,
-        color = if (isError) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-        },
-        modifier = Modifier
-            .clip(shape)
-            .background(DesignTokens.Palette.Card, shape)
-            .background(GlassTokens.RowFill, shape)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeRow, shape)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+        onClick = onClick,
+        contentColor = if (isError) MaterialTheme.colorScheme.error else null,
     )
 }

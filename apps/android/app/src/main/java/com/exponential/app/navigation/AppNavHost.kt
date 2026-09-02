@@ -77,7 +77,7 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.LocalReduceMotion
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
+import com.exponential.app.ui.theme.glassRow
 import com.exponential.app.ui.update.UpdateRequiredScreen
 import dagger.hilt.android.EntryPointAccessors
 
@@ -735,7 +735,10 @@ private fun GatedServersBanner(
         // (EXP-533) — applying it per banner would inset each one again.
         modifier = modifier
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .glassButton(opaque = true)
+            // EXP-698: the ROW rung, not the capsule one. This banner wraps to
+            // two lines and carries a dismiss button, so it is a notice
+            // surface; the capsule recipe belongs to GlassPill alone.
+            .glassRow(opaque = true)
             .padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -782,7 +785,8 @@ private fun OfflineBanner(
     Row(
         modifier = modifier
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .glassButton(opaque = true)
+            // Same notice rung as the gated-servers banner above.
+            .glassRow(opaque = true)
             .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

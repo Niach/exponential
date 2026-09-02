@@ -33,8 +33,11 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.ui.components.BoardIcon
+import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
+import com.exponential.app.ui.components.PillMode
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.UserAvatar
@@ -44,7 +47,6 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
-import com.exponential.app.ui.theme.glassButton
 
 /**
  * The combined Properties sheet (EXP-240): Status / Priority / Assignee / Due
@@ -154,46 +156,21 @@ fun PropertiesSheet(
             ) {
                 val assignedIds = remember(issueLabels) { issueLabels.map { it.id }.toSet() }
                 issueLabels.forEach { label ->
-                    Row(
-                        modifier = Modifier
-                            .glassButton(active = true)
-                            .clickable { onToggleLabel(label.id, label.id in assignedIds) }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .background(parseColor(label.color), CircleShape),
-                        )
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            label.name,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.9f),
-                        )
-                    }
-                }
-                Row(
-                    modifier = Modifier
-                        .glassButton()
-                        .clickable(onClick = onOpenLabels)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        ExpIcons.uiAdd,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = Color.White.copy(alpha = TextEmphasis.Secondary),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "Label",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = TextEmphasis.Secondary),
+                    GlassPill(
+                        label.name,
+                        size = PillSize.Sm,
+                        mode = PillMode.Select,
+                        selected = true,
+                        dot = parseColor(label.color),
+                        onClick = { onToggleLabel(label.id, label.id in assignedIds) },
                     )
                 }
+                GlassPill(
+                    "Label",
+                    size = PillSize.Sm,
+                    icon = ExpIcons.uiAdd,
+                    onClick = onOpenLabels,
+                )
             }
             Spacer(Modifier.height(12.dp))
 

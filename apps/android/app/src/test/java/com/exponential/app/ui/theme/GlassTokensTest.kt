@@ -44,7 +44,27 @@ class GlassTokensTest {
         assertEquals(DesignTokens.Radius.Md, GlassTokens.RowRadius)
         assertEquals(DesignTokens.Radius.Lg, GlassTokens.GroupRadius)
         assertEquals(DesignTokens.Radius.Xl, GlassTokens.CardRadius)
-        assertEquals(DesignTokens.Radius.Sm, GlassTokens.ChipRadius)
+    }
+
+    /**
+     * The section rung has a name here now (EXP-698) — the segmented strip's
+     * container reads it instead of re-typing `white.10`.
+     */
+    @Test
+    fun theSectionRungIsAliased() {
+        assertEquals(DesignTokens.Glass.FillSection, GlassTokens.SectionFill)
+        assertEquals(DesignTokens.Glass.StrokeSection, GlassTokens.StrokeSection)
+    }
+
+    /**
+     * The usage track's fill is NOT a glass tint: a progress quantity has to
+     * read as solid against the glass row it sits in, so it is opaque white at
+     * 30% and lives here as one named number rather than a literal in
+     * AgentUsageBar.
+     */
+    @Test
+    fun theUsageFillIsThirtyPercentWhite() {
+        assertEquals(Color.White.copy(alpha = 0.30f), GlassTokens.UsageFill)
     }
 
     /** The one control diameter — circle buttons, the 32dp control rung. */

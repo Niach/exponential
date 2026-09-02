@@ -50,7 +50,7 @@ import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.CircleIconButton
-import com.exponential.app.ui.components.GlassPillButton
+import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
@@ -597,7 +597,7 @@ private fun AgentAccountBlock(
                 canLogin -> {
                     val switching = account?.signedIn == true
                     Spacer(Modifier.width(8.dp))
-                    GlassPillButton(
+                    GlassPill(
                         if (switching) "Switch account" else "Login",
                         onClick = { onLogin(switching) },
                         icon = if (switching) ExpIcons.uiSwap else ExpIcons.uiSignIn,

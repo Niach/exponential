@@ -1,10 +1,12 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -17,10 +19,16 @@ import org.junit.Test
  */
 class GlassSegmentedControlDefaultsTest {
 
+    /**
+     * A strip is a CONTAINER of choices, so it sits on the section rung — not
+     * the row rung, where it read as one more list row with tabs in it.
+     */
     @Test
-    fun theContainerHairlineIsTheStrongStroke() {
-        assertEquals(GlassTokens.StrokeStrong, GlassSegmentedControlDefaults.Hairline)
-        assertEquals(DesignTokens.Glass.StrokeStrong, GlassSegmentedControlDefaults.Hairline)
+    fun theContainerIsTheSectionRung() {
+        assertEquals(GlassTokens.SectionFill, GlassSegmentedControlDefaults.ContainerFill)
+        assertEquals(DesignTokens.Glass.FillSection, GlassSegmentedControlDefaults.ContainerFill)
+        assertEquals(GlassTokens.StrokeSection, GlassSegmentedControlDefaults.Hairline)
+        assertEquals(DesignTokens.Glass.StrokeSection, GlassSegmentedControlDefaults.Hairline)
     }
 
     /**
@@ -34,25 +42,59 @@ class GlassSegmentedControlDefaultsTest {
         assertEquals(DesignTokens.Glass.FillActive, GlassSegmentedControlDefaults.ActiveFill)
     }
 
+    /** A track, not a gutter: 3dp of inset around the active pill. */
     @Test
-    fun theContainerInsetsItsSegmentsByFourDp() {
-        assertEquals(4.dp, GlassSegmentedControlDefaults.ContainerPadding)
+    fun theContainerInsetsItsSegmentsByThreeDp() {
+        assertEquals(3.dp, GlassSegmentedControlDefaults.ContainerPadding)
     }
 
     /**
-     * The gap between two segments is the container's own inset, so the active
-     * pill sits the same 4dp off every edge it can touch.
+     * Segments TOUCH. The active fill is the only thing that separates two of
+     * them, so the strip reads as one control rather than a row of chips.
      */
     @Test
-    fun segmentsAreSpacedFourDp() {
-        assertEquals(4.dp, GlassSegmentedControlDefaults.SegmentSpacing)
-        assertEquals(GlassSegmentedControlDefaults.ContainerPadding, GlassSegmentedControlDefaults.SegmentSpacing)
+    fun segmentsAreNotSpaced() {
+        assertEquals(0.dp, GlassSegmentedControlDefaults.SegmentSpacing)
     }
 
-    /** The strip's height comes from this alone — no fixed height anywhere. */
+    /** A standalone strip is the large control rung — the 36dp web/desktop height. */
     @Test
-    fun aSegmentPadsSevenDpVertically() {
-        assertEquals(7.dp, GlassSegmentedControlDefaults.SegmentVerticalPadding)
+    fun aStandaloneStripIsTheLargeControlRung() {
+        assertEquals(DesignTokens.Size.ControlLg, GlassSegmentedControlDefaults.Height)
+        assertEquals(36.dp, GlassSegmentedControlDefaults.Height)
+    }
+
+    /**
+     * The EMBEDDED strip only. It has no container and no pinned height, so
+     * this padding is what gives it one; a STANDALONE strip's segments fill
+     * [GlassSegmentedControlDefaults.Height] and pad nothing, because 36 minus
+     * two container insets minus two of these left 18dp for a 20sp line and
+     * clipped every label.
+     */
+    @Test
+    fun anEmbeddedSegmentPadsSixDpVertically() {
+        assertEquals(6.dp, GlassSegmentedControlDefaults.SegmentVerticalPadding)
+    }
+
+    /**
+     * A standalone segment must be able to draw a full line inside the strip:
+     * the height left after both container insets has to clear the 20sp
+     * (== 20dp at default density) `labelLarge` line box.
+     */
+    @Test
+    fun aStandaloneSegmentHasRoomForItsLine() {
+        val inner = GlassSegmentedControlDefaults.Height -
+            GlassSegmentedControlDefaults.ContainerPadding * 2
+        assertTrue("segment box $inner must clear a 20dp line", inner >= 20.dp)
+    }
+
+    /**
+     * Selection changes ALPHA, never weight: a SemiBold/Normal swap re-measures
+     * the label and shifted the whole strip on every tap.
+     */
+    @Test
+    fun theLabelWeightIsConstant() {
+        assertEquals(FontWeight.Medium, GlassSegmentedControlDefaults.LabelWeight)
     }
 
     @Test

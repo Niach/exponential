@@ -56,7 +56,9 @@ import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EndedRunRow
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
-import com.exponential.app.ui.components.GlassPillButton
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillMode
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.agentLabel
@@ -71,7 +73,6 @@ import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassChip
 import com.exponential.app.ui.theme.glassRow
 import java.text.DateFormat
 import java.util.Date
@@ -256,8 +257,8 @@ fun ActionsScreen(
                             // control.
                             item(key = "__actions_header__") {
                                 SectionHeader(title = "Actions") {
-                                    GlassPillButton(
-                                        label = "New action",
+                                    GlassPill(
+                                        "New action",
                                         icon = ExpIcons.actionCreate,
                                         enabled = selectedTeamId != null,
                                         onClick = { createOpen = true },
@@ -532,8 +533,8 @@ private fun AutomationsContent(
         item(key = "__automations_header__") {
             SectionHeader(title = "Automations") {
                 if (isOwner) {
-                    GlassPillButton(
-                        label = "New automation",
+                    GlassPill(
+                        "New automation",
                         icon = ExpIcons.uiAdd,
                         enabled = !busy,
                         onClick = onNew,
@@ -829,8 +830,8 @@ private fun AutomationsEmptyState(isOwner: Boolean, onNew: () -> Unit) {
                 textAlign = TextAlign.Center,
             )
             if (isOwner) {
-                GlassPillButton(
-                    label = "New automation",
+                GlassPill(
+                    "New automation",
                     icon = ExpIcons.uiAdd,
                     onClick = onNew,
                     modifier = Modifier.testTag("new-automation"),
@@ -910,15 +911,7 @@ private fun SuggestionRow(suggestion: ActionSuggestion, onUse: () -> Unit) {
 // The small "Action" / "Automation" pill on a suggestion row.
 @Composable
 private fun SuggestionKindChip(label: String) {
-    Text(
-        label,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        maxLines = 1,
-        modifier = Modifier
-            .glassChip()
-            .padding(horizontal = 8.dp, vertical = 2.dp),
-    )
+    GlassPill(label, size = PillSize.Sm, mode = PillMode.Readonly, maxLines = 1)
 }
 
 @Composable

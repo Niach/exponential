@@ -171,10 +171,14 @@ internal fun UsageTrack(percent: Double, severity: AgentUsageSeverity, height: D
             .background(GlassTokens.StrokeStrong),
     ) {
         if (fraction > 0f) {
+            // The fill takes the track's own capsule (EXP-698) — a square-ended
+            // bar inside a rounded track left two corner slivers of track
+            // showing at 100%.
             Box(
                 modifier = Modifier
                     .fillMaxWidth(fraction)
                     .fillMaxHeight()
+                    .clip(RoundedCornerShape(height / 2))
                     .background(severityColor(severity)),
             )
         }
@@ -185,7 +189,7 @@ internal fun UsageTrack(percent: Double, severity: AgentUsageSeverity, height: D
 private fun severityColor(severity: AgentUsageSeverity): Color = when (severity) {
     AgentUsageSeverity.Danger -> DesignTokens.Semantic.Red
     AgentUsageSeverity.Warning -> DesignTokens.Semantic.Yellow
-    AgentUsageSeverity.Normal -> Color.White.copy(alpha = 0.35f)
+    AgentUsageSeverity.Normal -> GlassTokens.UsageFill
 }
 
 /**

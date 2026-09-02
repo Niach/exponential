@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -14,6 +15,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.domain.TeamPermissions
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassPillDefaults
+import com.exponential.app.ui.components.PillMode
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 
@@ -50,20 +55,19 @@ internal fun syncBannerFor(
 @Composable
 fun GlobalSyncChip(visible: Boolean, modifier: Modifier = Modifier) {
     if (!visible) return
-    Row(
-        modifier = modifier
-            .glassRow()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
-        Text(
-            "Syncing…",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-    }
+    GlassPill(
+        "Syncing…",
+        modifier = modifier,
+        size = PillSize.Sm,
+        mode = PillMode.Readonly,
+        leading = {
+            CircularProgressIndicator(
+                strokeWidth = 2.dp,
+                modifier = Modifier.size(GlassPillDefaults.SmGlyphSize),
+                color = LocalContentColor.current,
+            )
+        },
+    )
 }
 
 /** Slim glass row rendered above issue content while [banner] is not [SyncBanner.None]. */

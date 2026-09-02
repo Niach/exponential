@@ -71,7 +71,10 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
+import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.components.PillMode
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
@@ -90,7 +93,6 @@ import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.markdown.stripDraftImages
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.launch
@@ -583,15 +585,11 @@ fun IssueDetailScreen(
                     Spacer(Modifier.width(6.dp))
                     val canonical = duplicateOf
                     if (canonical != null) {
-                        Text(
+                        GlassPill(
                             canonical.identifier,
-                            style = MaterialTheme.typography.labelMedium,
+                            size = PillSize.Sm,
                             fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier
-                                .glassButton()
-                                .clickable { onOpenIssue(canonical.id) }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            onClick = { onOpenIssue(canonical.id) },
                         )
                     } else {
                         Text(
@@ -602,14 +600,10 @@ fun IssueDetailScreen(
                     }
                     Spacer(Modifier.weight(1f))
                     if (isModerator) {
-                        Text(
+                        GlassPill(
                             "Unmark",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            modifier = Modifier
-                                .glassButton()
-                                .clickable { viewModel.unmarkDuplicate() }
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                            size = PillSize.Sm,
+                            onClick = { viewModel.unmarkDuplicate() },
                         )
                     }
                 }
@@ -997,23 +991,10 @@ private fun RemoteEditBanner(onReload: () -> Unit) {
 // read-only indicator built on the shared glass chip idiom.
 @Composable
 private fun OriginChip(isAgent: Boolean) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .glassButton()
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-    ) {
-        Icon(
-            if (isAgent) ExpIcons.uiAgentSource else ExpIcons.uiWidget,
-            contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        Spacer(Modifier.width(5.dp))
-        Text(
-            if (isAgent) "Agent" else "Feedback widget",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-    }
+    GlassPill(
+        if (isAgent) "Agent" else "Feedback widget",
+        size = PillSize.Sm,
+        mode = PillMode.Readonly,
+        icon = if (isAgent) ExpIcons.uiAgentSource else ExpIcons.uiWidget,
+    )
 }

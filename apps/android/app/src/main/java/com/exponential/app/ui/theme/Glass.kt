@@ -62,11 +62,18 @@ object GlassTokens {
     val StrokeActive = DesignTokens.Glass.StrokeActive
     val Hairline = 0.5.dp
 
+    /**
+     * The filled portion of a progress/usage track (the agent rate-limit bar).
+     * It is NOT a glass fill: a track has to read as a solid quantity against
+     * the glass row it sits in, so it is opaque white at 30% — the one place
+     * in the app that draws one, named here so it stays one number.
+     */
+    val UsageFill: Color = Color.White.copy(alpha = 0.30f)
+
     // Corner radii (iOS GlassRow 10 / GlassGroup 12 / GlassCard 16).
     val RowRadius = DesignTokens.Radius.Md
     val GroupRadius = DesignTokens.Radius.Lg
     val CardRadius = DesignTokens.Radius.Xl
-    val ChipRadius = DesignTokens.Radius.Sm
 
     /** The one circular/segmented control diameter (iOS 32pt). */
     val ControlSize = DesignTokens.Size.ControlMd
@@ -135,14 +142,6 @@ fun Modifier.glassGroup(): Modifier {
         .background(GlassTokens.RowFill, shape)
 }
 
-/** Small borderless label chip — the suggestion-row "Action"/"Automation" pill. */
-fun Modifier.glassChip(): Modifier {
-    val shape = RoundedCornerShape(GlassTokens.ChipRadius)
-    return this
-        .clip(shape)
-        .background(GlassTokens.CardFill, shape)
-}
-
 /**
  * Frosted elevated card — iOS `.glassCard()`. [opaque] swaps the translucent
  * tint for [GlassTokens.OpaqueCardFill] so the card can float over scrolling
@@ -164,7 +163,9 @@ fun Modifier.glassCard(opaque: Boolean = false): Modifier {
  *
  * EXP-698: a BUTTON is the card rung (fill + hairline), a notch above the row
  * rung it used to borrow — a pill has to read as a control against the rows
- * around it, not as another row.
+ * around it, not as another row. This modifier is the chrome UNDER
+ * `components/GlassPill.kt` and has no other caller: a capsule with a label in
+ * it is a `GlassPill`, never a hand-rolled Row with this on it.
  */
 fun Modifier.glassButton(active: Boolean = false, opaque: Boolean = false): Modifier {
     val shape = RoundedCornerShape(percent = 50)

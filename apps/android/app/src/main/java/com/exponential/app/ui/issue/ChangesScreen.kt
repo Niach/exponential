@@ -74,6 +74,9 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillMode
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.steer.ActionRunState
@@ -83,7 +86,6 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassGroup
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -708,13 +710,10 @@ private fun ChangesSummaryHeader(
         ) {
             val prState = issue?.prState
             if (!prState.isNullOrBlank()) {
-                Text(
+                GlassPill(
                     prState.replaceFirstChar { it.uppercase() },
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier
-                        .glassButton()
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                    size = PillSize.Sm,
+                    mode = PillMode.Readonly,
                 )
             }
             if (files != null) {

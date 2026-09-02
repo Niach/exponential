@@ -42,13 +42,14 @@ import com.exponential.app.data.db.CommentKind
 import com.exponential.app.data.db.commentKindOf
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.userDisplayName
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.fullBleed
-import com.exponential.app.ui.theme.glassButton
 import kotlinx.coroutines.launch
 
 // iOS comment palette (CommentRow.swift / CommentComposer.swift) — explicit white
@@ -294,15 +295,11 @@ private fun CollapsedRunRow(
                 )
             },
         )
-        Text(
+        GlassPill(
             "Show $count activity items",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            modifier = Modifier
-                .padding(vertical = 4.dp)
-                .glassButton()
-                .clickable(onClick = onExpand)
-                .padding(horizontal = 10.dp, vertical = 5.dp),
+            size = PillSize.Sm,
+            onClick = onExpand,
+            modifier = Modifier.padding(vertical = 4.dp),
         )
     }
 }
