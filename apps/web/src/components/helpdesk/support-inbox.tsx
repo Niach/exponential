@@ -37,9 +37,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { conceptIcon } from "@/lib/icons.generated"
+import { cn } from "@/lib/utils"
 
 // EXP-525: the Open/Resolved pills carry the shared registry's support glyphs,
 // so the tabs read the same here as in the desktop IDE.
@@ -215,34 +217,38 @@ export function SupportInbox({
           ) : (
             <div className="flex flex-col gap-2 p-2">
               {threads.map((thread) => (
-                <button
+                <GlassRow
                   key={thread.id}
-                  type="button"
-                  onClick={() => setSelectedId(thread.id)}
-                  className={`block w-full rounded-md border border-glass-stroke px-3 py-2.5 text-left transition-colors ${
-                    thread.id === selectedId
-                      ? `bg-glass-active`
-                      : `bg-glass-row hover:bg-glass-active/50`
-                  }`}
+                  asChild
+                  interactive
+                  className={cn(
+                    `w-full flex-col items-stretch gap-0 px-3 py-2.5 text-left`,
+                    thread.id === selectedId && `bg-glass-active`
+                  )}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                      {reporterLabel(thread)}
-                    </span>
-                    <span className="shrink-0 text-[0.65rem] text-muted-foreground">
-                      {relativeTime(thread.updatedAt)}
-                    </span>
-                    {thread.unread && (
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full bg-primary"
-                        aria-label="Awaiting reply"
-                      />
-                    )}
-                  </div>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {thread.lastMessage?.body ?? thread.title}
-                  </p>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(thread.id)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                        {reporterLabel(thread)}
+                      </span>
+                      <span className="shrink-0 text-[0.65rem] text-muted-foreground">
+                        {relativeTime(thread.updatedAt)}
+                      </span>
+                      {thread.unread && (
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full bg-primary"
+                          aria-label="Awaiting reply"
+                        />
+                      )}
+                    </div>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {thread.lastMessage?.body ?? thread.title}
+                    </p>
+                  </button>
+                </GlassRow>
               ))}
             </div>
           )}
@@ -250,8 +256,8 @@ export function SupportInbox({
             <div className="px-2 pb-2">
               <Button
                 variant="ghost"
-                size="sm"
-                className="h-7 w-full text-xs text-muted-foreground"
+                size="xs"
+                className="w-full text-muted-foreground"
                 disabled={loadingMore}
                 onClick={() => void loadMore()}
               >
@@ -397,8 +403,8 @@ function ConversationPane({
           </div>
           <Button
             variant="outline"
-            size="sm"
-            className="h-7 shrink-0"
+            size="xs"
+            className="shrink-0"
             disabled={statusBusy || detail === null}
             onClick={() => void toggleClosed()}
           >
@@ -412,13 +418,13 @@ function ConversationPane({
             {isResolved ? `Reopen ticket` : `Close ticket`}
           </Button>
           <Button
-            variant="ghost"
-            size="icon-xs"
-            className="shrink-0 text-muted-foreground lg:hidden"
+            variant="glass"
+            size="icon-sm"
+            className="shrink-0 lg:hidden"
             onClick={() => setDetailsOpen(true)}
             aria-label="Ticket details"
           >
-            <Info className="size-4" />
+            <Info />
           </Button>
         </div>
 
@@ -691,9 +697,7 @@ function ThreadDetails({
   return (
     <>
       <section>
-        <h2 className="mb-1.5 text-sm font-medium text-foreground/70">
-          Reporter
-        </h2>
+        <GlassSectionHeader label="Reporter" className="px-0 pt-0" />
         <p className="text-sm font-medium">{reporterLabel(thread)}</p>
         <p className="truncate text-xs text-muted-foreground">
           {thread.reporterEmail}
@@ -715,9 +719,7 @@ function ThreadDetails({
 
       {submission && (
         <section>
-          <h2 className="mb-1.5 text-sm font-medium text-foreground/70">
-            Context
-          </h2>
+          <GlassSectionHeader label="Context" className="px-0 pt-0" />
           {submission.pageUrl && (
             <p
               className="truncate text-xs text-muted-foreground"
@@ -746,9 +748,7 @@ function ThreadDetails({
         issue &&
         board && (
           <section>
-            <h2 className="mb-1.5 text-sm font-medium text-foreground/70">
-              Linked issue
-            </h2>
+            <GlassSectionHeader label="Linked issue" className="px-0 pt-0" />
             <Link
               to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
               params={{
@@ -768,9 +768,7 @@ function ThreadDetails({
         )
       ) : (
         <section>
-          <h2 className="mb-1.5 text-sm font-medium text-foreground/70">
-            Escalate
-          </h2>
+          <GlassSectionHeader label="Escalate" className="px-0 pt-0" />
           <p className="mb-2 text-xs text-muted-foreground">
             Create an issue from this ticket on one of the team&apos;s boards.
           </p>

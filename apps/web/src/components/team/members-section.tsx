@@ -23,13 +23,7 @@ import { displayUserName } from "@/lib/user-display"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogCancel,
@@ -109,14 +103,9 @@ export function TeamMembersSection({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Members</CardTitle>
-        <CardDescription>
-          {members.length} member{members.length !== 1 ? `s` : ``} in this team
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <div>
+      <GlassSectionHeader label="Members" count={members.length} />
+      <div className="space-y-4">
         <div className="space-y-2">
           {members.map((member) => {
             const isSelf = member.userId === currentUserId
@@ -130,9 +119,9 @@ export function TeamMembersSection({
               )
 
             return (
-              <div
+              <GlassRow
                 key={member.id}
-                className="flex items-center justify-between gap-2 rounded-md border border-glass-stroke bg-glass-row px-3 py-2"
+                className="justify-between gap-2 px-3 py-2"
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <Avatar className="h-8 w-8 shrink-0">
@@ -170,12 +159,11 @@ export function TeamMembersSection({
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
+                          variant="glass"
+                          size="icon-sm"
                           aria-label={`Member actions for ${displayName}`}
                         >
-                          <Ellipsis className="h-4 w-4" />
+                          <Ellipsis />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
@@ -237,7 +225,7 @@ export function TeamMembersSection({
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}
-              </div>
+              </GlassRow>
             )
           })}
         </div>
@@ -248,7 +236,7 @@ export function TeamMembersSection({
             <InviteControls teamId={teamId} />
           </>
         )}
-      </CardContent>
+      </div>
 
       <Dialog
         open={removeTarget !== null}
@@ -283,7 +271,7 @@ export function TeamMembersSection({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+    </div>
   )
 }
 
@@ -454,14 +442,12 @@ function InviteControls({ teamId }: { teamId: string }) {
         </Button>
 
         {invites.length > 0 && (
-          <div className="space-y-2 pt-2">
-            <div className="text-sm font-medium text-muted-foreground">
-              Pending invites
-            </div>
+          <div className="pt-2">
+            <GlassSectionHeader label="Pending invites" count={invites.length} />
             {invites.map((invite) => (
-              <div
+              <GlassRow
                 key={invite.id}
-                className="flex items-center justify-between rounded-md border border-glass-stroke bg-glass-row px-3 py-2 text-sm"
+                className="mb-2 justify-between px-3 py-2 text-sm last:mb-0"
               >
                 <div className="flex min-w-0 items-center gap-2">
                   <Badge variant="secondary">{invite.role}</Badge>
@@ -476,15 +462,14 @@ function InviteControls({ teamId }: { teamId: string }) {
                   </span>
                 </div>
                 <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
+                  variant="glass"
+                  size="icon-sm"
                   onClick={() => handleRevoke(invite.id)}
                   aria-label={`Revoke invite ${invite.id}`}
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <Trash2 />
                 </Button>
-              </div>
+              </GlassRow>
             ))}
           </div>
         )}

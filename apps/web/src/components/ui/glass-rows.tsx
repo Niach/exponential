@@ -1,5 +1,6 @@
 import * as React from "react"
 import { Check, ChevronRight } from "lucide-react"
+import { Slot } from "radix-ui"
 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -32,11 +33,15 @@ import { cn } from "@/lib/utils"
 function GlassSectionHeader({
   label,
   count,
+  leading,
   trailing,
   className,
 }: {
   label: string
-  count?: number
+  /** The quiet trailing caption — a plain count, or a short qualifier. */
+  count?: React.ReactNode
+  /** Optional glyph before the label (e.g. the board icon on Reviews). */
+  leading?: React.ReactNode
   trailing?: React.ReactNode
   className?: string
 }) {
@@ -45,6 +50,7 @@ function GlassSectionHeader({
       data-slot="glass-section-header"
       className={cn(`flex items-center gap-1.5 px-1 pt-1 pb-2`, className)}
     >
+      {leading}
       <span className="text-sm font-medium text-foreground/70">{label}</span>
       {count !== undefined && (
         <span className="text-xs text-foreground/50">{count}</span>
@@ -56,13 +62,41 @@ function GlassSectionHeader({
   )
 }
 
+const GLASS_ROW = `flex items-center gap-3 rounded-md border border-glass-stroke bg-glass-row p-3`
+const GLASS_ROW_INTERACTIVE = `cursor-pointer transition-colors duration-fast outline-none hover:bg-glass-active/50 focus-visible:ring-[3px] focus-visible:ring-ring/50`
+
 function GlassRow({
   interactive = false,
+  asChild = false,
   className,
   onClick,
   onKeyDown,
   ...props
-}: React.ComponentProps<`div`> & { interactive?: boolean }) {
+}: React.ComponentProps<`div`> & {
+  interactive?: boolean
+  /** Render the row as its single child (a `Link`/`<a>`), like `Button`. */
+  asChild?: boolean
+}) {
+  const rowClassName = cn(
+    GLASS_ROW,
+    interactive && GLASS_ROW_INTERACTIVE,
+    className
+  )
+
+  // The child arm already IS a link/button: it brings its own role, focus and
+  // Enter handling, so the div arm's synthetic keyboard plumbing stays out.
+  if (asChild) {
+    return (
+      <Slot.Root
+        data-slot="glass-row"
+        onClick={onClick}
+        onKeyDown={onKeyDown}
+        className={rowClassName}
+        {...props}
+      />
+    )
+  }
+
   const clickable = interactive && onClick != null
   return (
     <div
@@ -84,12 +118,7 @@ function GlassRow({
             }
           : onKeyDown
       }
-      className={cn(
-        `flex items-center gap-3 rounded-md border border-glass-stroke bg-glass-row p-3`,
-        interactive &&
-          `cursor-pointer transition-colors duration-fast outline-none hover:bg-glass-active/50 focus-visible:ring-[3px] focus-visible:ring-ring/50`,
-        className
-      )}
+      className={rowClassName}
       {...props}
     />
   )
@@ -341,7 +370,13 @@ function GlassToggleRow({
   )
 }
 
+/** The glass skin for a stock `SelectTrigger`/`PopoverTrigger` that sits INSIDE
+ * a form rather than being a picker row of its own (EXP-698 — one constant,
+ * not a per-file copy). */
+const GLASS_SELECT_TRIGGER = `border-glass-stroke bg-glass-row shadow-none dark:bg-glass-row dark:hover:bg-glass-active/50`
+
 export {
+  GLASS_SELECT_TRIGGER,
   GlassSectionHeader,
   GlassRow,
   GlassGroup,

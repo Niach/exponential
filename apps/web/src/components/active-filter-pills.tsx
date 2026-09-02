@@ -79,7 +79,6 @@ export function ActiveFilterPills({
           key={`s-${tokens[0]}`}
           variant="outline"
           size="xs"
-          className="h-6 gap-1 rounded-full text-xs"
           onClick={() => removeStatusTokens(tokens)}
         >
           {option ? (
@@ -98,7 +97,6 @@ export function ActiveFilterPills({
             key={`p-${priority}`}
             variant="outline"
             size="xs"
-            className="h-6 gap-1 rounded-full text-xs"
             onClick={() => removePriority(priority)}
           >
             <PriorityIcon priority={priority} className="!h-3 !w-3" />
@@ -115,7 +113,6 @@ export function ActiveFilterPills({
             key={`l-${id}`}
             variant="outline"
             size="xs"
-            className="h-6 gap-1 rounded-full text-xs"
             onClick={() => removeLabel(id)}
           >
             <div

@@ -133,8 +133,7 @@ export function SuggestionsButton() {
   return (
     <Button
       variant="glass"
-      size="icon"
-      className="size-6"
+      size="icon-xs"
       aria-label="Suggestions"
       title="Suggestions"
       onClick={() => sheet.open(`suggestions`)}

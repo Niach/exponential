@@ -12,6 +12,7 @@ import {
   isInlineImageAttachment,
 } from "@/lib/attachment-files"
 import { Button } from "@/components/ui/button"
+import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import { IconTooltip } from "@/components/icon-tooltip"
 import { IssueEditorAttachmentButton } from "@/components/issue-editor/attachment-button"
 import {
@@ -152,87 +153,78 @@ export function IssueFilesSection({
 
   return (
     <div className="px-5 py-2" data-testid="issue-files-section">
-      <div className="flex items-center gap-2">
-        <h3 className="text-xs font-medium text-muted-foreground">
-          Files · {files.length}
-        </h3>
-        {!readOnly && (
-          <div className="ml-auto">
+      <GlassSectionHeader
+        label="Files"
+        count={files.length}
+        trailing={
+          !readOnly && (
             <IssueEditorAttachmentButton
               accept="*/*"
               label="Attach file"
               onFiles={handleFiles}
               uploading={uploading}
             />
-          </div>
-        )}
-      </div>
+          )
+        }
+      />
 
       {files.length > 0 && (
-        <ul className="mt-1.5 flex flex-col gap-1">
+        <ul className="flex flex-col gap-1">
           {files.map((file) => {
             const Icon = getAttachmentIcon(file.contentType)
 
             return (
-              <li
+              <GlassRow
                 key={file.id}
-                className="flex min-w-0 items-center gap-2 rounded-md border border-glass-stroke-card bg-glass-section px-2 py-1.5"
-                data-testid={`issue-file-row-${file.id}`}
+                asChild
+                className="min-w-0 gap-2 px-2 py-1.5"
               >
-                <Icon className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate text-sm">
-                  {file.filename}
-                </span>
-                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                  {formatAttachmentSize(file.sizeBytes)}
-                </span>
-                <IconTooltip label="Open">
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="text-muted-foreground"
-                    asChild
-                  >
-                    <a
-                      href={file.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-label={`Open ${file.filename}`}
-                    >
-                      <ExternalLink />
-                    </a>
-                  </Button>
-                </IconTooltip>
-                <IconTooltip label="Download">
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="text-muted-foreground"
-                    asChild
-                  >
-                    <a
-                      href={buildAttachmentDownloadUrl(file.url)}
-                      download={file.filename}
-                      aria-label={`Download ${file.filename}`}
-                    >
-                      <Download />
-                    </a>
-                  </Button>
-                </IconTooltip>
-                {!readOnly && (
-                  <IconTooltip label="Delete">
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      className="text-muted-foreground hover:text-destructive"
-                      aria-label={`Delete ${file.filename}`}
-                      onClick={() => setPendingDelete(file)}
-                    >
-                      <Trash2 />
+                <li data-testid={`issue-file-row-${file.id}`}>
+                  <Icon className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate text-sm">
+                    {file.filename}
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                    {formatAttachmentSize(file.sizeBytes)}
+                  </span>
+                  <IconTooltip label="Open">
+                    <Button variant="glass" size="icon-sm" asChild>
+                      <a
+                        href={file.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label={`Open ${file.filename}`}
+                      >
+                        <ExternalLink />
+                      </a>
                     </Button>
                   </IconTooltip>
-                )}
-              </li>
+                  <IconTooltip label="Download">
+                    <Button variant="glass" size="icon-sm" asChild>
+                      <a
+                        href={buildAttachmentDownloadUrl(file.url)}
+                        download={file.filename}
+                        aria-label={`Download ${file.filename}`}
+                      >
+                        <Download />
+                      </a>
+                    </Button>
+                  </IconTooltip>
+                  {!readOnly && (
+                    <IconTooltip label="Delete">
+                      <Button
+                        variant="glass"
+                        size="icon-sm"
+                        className="hover:text-destructive"
+                        aria-label={`Delete ${file.filename}`}
+                        onClick={() => setPendingDelete(file)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </IconTooltip>
+                  )}
+                </li>
+              </GlassRow>
             )
           })}
         </ul>

@@ -3,13 +3,7 @@ import { Link } from "@tanstack/react-router"
 import { BookOpen, CircleCheck, Download, Lock } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { GlassGroup } from "@/components/ui/glass-rows"
 import { Progress } from "@/components/ui/progress"
 import {
   DESKTOP_RELEASES_URL,
@@ -135,9 +129,9 @@ function GettingStartedCard({
 }) {
   const locked = state === `locked`
   return (
-    <Card className={cn(`flex flex-col`, locked && `opacity-60`)}>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
+    <GlassGroup className={cn(locked && `opacity-60`)}>
+      <div className="flex flex-col gap-1.5 p-4">
+        <div className="flex items-center gap-2 text-base font-semibold">
           {state === `done` ? (
             <CircleCheck className="size-5 shrink-0 text-green-500" />
           ) : locked ? (
@@ -149,13 +143,15 @@ function GettingStartedCard({
           )}
           <Icon className="size-4 shrink-0" />
           <span>{title}</span>
-        </CardTitle>
-        <CardDescription>{locked && hint ? hint : description}</CardDescription>
-      </CardHeader>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {locked && hint ? hint : description}
+        </p>
+      </div>
       {!locked && children && (
-        <CardContent className="mt-auto space-y-3">{children}</CardContent>
+        <div className="mt-auto space-y-3 p-4">{children}</div>
       )}
-    </Card>
+    </GlassGroup>
   )
 }
 

@@ -4,6 +4,7 @@ import type {
   TeamAction,
 } from "@/components/action-editor-dialog"
 import { ActionInputFields } from "@/components/launch-dialog/action-input-fields"
+import { GlassGroup } from "@/components/ui/glass-rows"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { getActionIcon } from "@/lib/board-icons"
@@ -68,7 +69,7 @@ export function ActionsPane({
           className="h-9 rounded-md pl-8"
         />
       </div>
-      <div className="max-h-44 overflow-y-auto rounded-lg border-0 bg-glass-row sm:max-h-none sm:min-h-32 sm:flex-1">
+      <GlassGroup className="max-h-44 overflow-y-auto sm:max-h-none sm:min-h-32 sm:flex-1">
         {actions === null ? (
           <div className="px-3 py-6 text-center text-xs text-muted-foreground">
             Loading…
@@ -94,7 +95,7 @@ export function ActionsPane({
                   }
                 }}
                 className={cn(
-                  `flex cursor-pointer items-center gap-2 border-b border-glass-stroke px-3 py-2 last:border-b-0`,
+                  `flex cursor-pointer items-center gap-2 px-3 py-2`,
                   selected ? `bg-glass-active` : `hover:bg-glass-active/50`
                 )}
               >
@@ -107,7 +108,7 @@ export function ActionsPane({
             )
           })
         )}
-      </div>
+      </GlassGroup>
       {selectedAction && selectedAction.inputs.length > 0 && (
         <ActionInputFields
           defs={selectedAction.inputs}

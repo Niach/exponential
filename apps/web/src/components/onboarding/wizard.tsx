@@ -15,13 +15,7 @@ import { trpc } from "@/lib/trpc-client"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { useCreateBoard } from "@/hooks/use-create-board"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { GlassGroup } from "@/components/ui/glass-rows"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
@@ -101,18 +95,18 @@ function ChoiceStep({
   onJoin: () => void
 }) {
   return (
-    <Card>
-      <CardHeader className="text-center">
+    <GlassGroup>
+      <div className="flex flex-col gap-1.5 p-6 text-center">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
           <Users className="size-6 text-primary" />
         </div>
-        <CardTitle className="text-xl">Welcome to Exponential</CardTitle>
-        <CardDescription>
+        <h2 className="text-xl font-semibold">Welcome to Exponential</h2>
+        <p className="text-sm text-muted-foreground">
           Teams hold your boards and teammates. Create your own, or join one
           you&apos;ve been invited to.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
+        </p>
+      </div>
+      <div className="space-y-3 p-6">
         <Button
           variant="outline"
           className="h-auto w-full justify-start gap-3 px-4 py-3 text-left"
@@ -139,8 +133,8 @@ function ChoiceStep({
             </span>
           </span>
         </Button>
-      </CardContent>
-    </Card>
+      </div>
+    </GlassGroup>
   )
 }
 
@@ -184,17 +178,17 @@ function CreateTeamStep({
   }
 
   return (
-    <Card>
-      <CardHeader className="text-center">
+    <GlassGroup>
+      <div className="flex flex-col gap-1.5 p-6 text-center">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
           <Users className="size-6 text-primary" />
         </div>
-        <CardTitle className="text-xl">Create a team</CardTitle>
-        <CardDescription>
+        <h2 className="text-xl font-semibold">Create a team</h2>
+        <p className="text-sm text-muted-foreground">
           Name your team. You can rename it and invite teammates later.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+        </p>
+      </div>
+      <div className="p-6">
         <form onSubmit={handleCreate} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="onb-team-name">Team name</Label>
@@ -229,8 +223,8 @@ function CreateTeamStep({
             </Button>
           </div>
         </form>
-      </CardContent>
-    </Card>
+      </div>
+    </GlassGroup>
   )
 }
 
@@ -255,18 +249,18 @@ function JoinStep({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <Card>
-      <CardHeader className="text-center">
+    <GlassGroup>
+      <div className="flex flex-col gap-1.5 p-6 text-center">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
           <LinkIcon className="size-6 text-primary" />
         </div>
-        <CardTitle className="text-xl">Join a team</CardTitle>
-        <CardDescription>
+        <h2 className="text-xl font-semibold">Join a team</h2>
+        <p className="text-sm text-muted-foreground">
           Ask a teammate for an invite link (team settings → Members), then
           paste it below.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+        </p>
+      </div>
+      <div className="p-6">
         <form onSubmit={handleContinue} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="onb-invite-link">Invite link</Label>
@@ -298,8 +292,8 @@ function JoinStep({ onBack }: { onBack: () => void }) {
             </Button>
           </div>
         </form>
-      </CardContent>
-    </Card>
+      </div>
+    </GlassGroup>
   )
 }
 
@@ -367,20 +361,18 @@ function BoardStep({
   }
 
   return (
-    <Card>
-      <CardHeader className="text-center">
+    <GlassGroup>
+      <div className="flex flex-col gap-1.5 p-6 text-center">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
           <FolderKanban className="size-6 text-primary" />
         </div>
-        <CardTitle className="text-xl">
-          Create your first board
-        </CardTitle>
-        <CardDescription>
+        <h2 className="text-xl font-semibold">Create your first board</h2>
+        <p className="text-sm text-muted-foreground">
           Boards hold your issues. Connect a GitHub repository to code on them.
           Everything can be changed later.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+        </p>
+      </div>
+      <div className="space-y-4 p-6">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
           <div className="space-y-2">
             <Label htmlFor="onb-board-name">Board name</Label>
@@ -435,11 +427,11 @@ function BoardStep({
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs text-muted-foreground"
+                size="xs"
+                className="text-muted-foreground"
                 onClick={() => setRepo(null)}
               >
-                <X className="mr-1 h-3.5 w-3.5" />
+                <X />
                 Change
               </Button>
             </div>
@@ -482,7 +474,7 @@ function BoardStep({
             {saving ? `Creating…` : `Create board`}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </GlassGroup>
   )
 }

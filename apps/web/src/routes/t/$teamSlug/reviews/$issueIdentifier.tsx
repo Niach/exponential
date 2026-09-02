@@ -400,9 +400,8 @@ function ReviewDetailPage() {
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {isOpen && (
             <Button
-              variant="ghost"
-              size="icon"
-              className="size-9 rounded-full border border-glass-stroke-card bg-popover/85 text-muted-foreground backdrop-blur-xl hover:bg-muted/85 hover:text-foreground"
+              variant="glass"
+              size="icon-sm"
               aria-label="Close pull request without merging"
               title="Close PR without merging"
               disabled={merging || closing}
@@ -418,9 +417,8 @@ function ReviewDetailPage() {
           {isOpen && mergeControl}
           {issue.prUrl && (
             <Button
-              variant="ghost"
-              size="icon"
-              className="size-9 rounded-full border border-glass-stroke-card bg-popover/85 text-muted-foreground backdrop-blur-xl hover:bg-muted/85 hover:text-foreground"
+              variant="glass"
+              size="icon-sm"
               aria-label="Open pull request on GitHub"
               title="Open PR on GitHub"
               onClick={() =>

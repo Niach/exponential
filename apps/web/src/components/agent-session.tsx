@@ -1269,7 +1269,7 @@ function QuestionPrompt({
             value={freeTextValue}
             maxLength={4000}
             placeholder="Type your answer…"
-            className="h-7 flex-1 text-xs"
+            className="h-6 flex-1 text-xs"
             onChange={(e) => setFreeTextValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === `Enter`) {
@@ -1283,8 +1283,7 @@ function QuestionPrompt({
           />
           <Button
             variant="secondary"
-            size="sm"
-            className="h-7 text-xs"
+            size="xs"
             disabled={freeTextValue.trim().length === 0}
             onClick={submitFreeText}
           >
@@ -1295,8 +1294,8 @@ function QuestionPrompt({
       {answerable && item.multiSelect && (
         <Button
           variant="secondary"
-          size="sm"
-          className="mt-2 h-7 text-xs"
+          size="xs"
+          className="mt-2"
           disabled={picked.length === 0}
           onClick={submitPicked}
         >

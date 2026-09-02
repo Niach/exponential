@@ -65,8 +65,7 @@ export function SubscribeToggle({
     >
       <Button
         variant="ghost"
-        size="sm"
-        className="h-6 gap-1.5 px-2 text-xs"
+        size="xs"
         onClick={() => void toggle()}
         disabled={busy}
       >

@@ -2,13 +2,7 @@ import { useState } from "react"
 import { Check, Copy } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogBody,
@@ -131,32 +125,36 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <div className="flex items-start gap-3">
-            <div className="flex-1">
-              <CardTitle>API keys</CardTitle>
-              <CardDescription>
-                Personal keys authenticate MCP clients, scripts, and the CLI as
-                you. Send one as{` `}
-                <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                  Authorization: Bearer expu_…
-                </code>
-                {` `}
-                or pass it to{` `}
-                <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                  exponential login
-                </code>
-                {` `}
-                via <code className="rounded bg-muted px-1 py-0.5 text-xs">EXP_TOKEN</code>.
-              </CardDescription>
-            </div>
-            <Button size="sm" onClick={() => setCreateOpen(true)}>
+      <div>
+        <GlassSectionHeader
+          label="API keys"
+          count={keys.length}
+          trailing={
+            <Button
+              variant="glass"
+              size="xs"
+              onClick={() => setCreateOpen(true)}
+            >
               Create key
             </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
+          }
+        />
+        <p className="px-1 pb-2 text-xs text-foreground/50">
+          Personal keys authenticate MCP clients, scripts, and the CLI as you.
+          Send one as{` `}
+          <code className="rounded bg-muted px-1 py-0.5 text-xs">
+            Authorization: Bearer expu_…
+          </code>
+          {` `}
+          or pass it to{` `}
+          <code className="rounded bg-muted px-1 py-0.5 text-xs">
+            exponential login
+          </code>
+          {` `}
+          via <code className="rounded bg-muted px-1 py-0.5 text-xs">EXP_TOKEN</code>
+          .
+        </p>
+        <div>
           {keys.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No API keys yet. Keys minted by the desktop app or CLI show up
@@ -169,10 +167,7 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
                   row.name?.startsWith(DEVICE_KEY_PREFIX)
                 )
                 return (
-                  <div
-                    key={row.id}
-                    className="flex items-center gap-3 rounded-md border border-glass-stroke bg-glass-row p-3"
-                  >
+                  <GlassRow key={row.id}>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">
                         {row.name || `Personal key`}
@@ -198,13 +193,13 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
                     >
                       Revoke
                     </Button>
-                  </div>
+                  </GlassRow>
                 )
               })}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       <Dialog
         open={createOpen}

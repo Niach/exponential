@@ -51,12 +51,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { GlassGroup, GlassPickerRow } from "@/components/ui/glass-rows"
+import {
+  GLASS_SELECT_TRIGGER,
+  GlassGroup,
+  GlassPickerRow,
+} from "@/components/ui/glass-rows"
 import { cn } from "@/lib/utils"
-
-// EXP-616: Input/SelectTrigger carry the glass dress themselves now; only the
-// Button-backed multi-pickers below still need it spelled out.
-const GLASS_TRIGGER = `border-glass-stroke bg-glass-row shadow-none dark:bg-glass-row dark:hover:bg-glass-active/50`
 
 // The reusable Automation editing PIECES (EXP-530, reshaped in EXP-583 when
 // automations became their own rows): the trigger panes + event filters, the
@@ -596,7 +596,7 @@ function FilterMultiSelect({
           size="sm"
           className={cn(
             `h-8 font-normal`,
-            GLASS_TRIGGER,
+            GLASS_SELECT_TRIGGER,
             selected.length === 0 && `text-muted-foreground`
           )}
         >

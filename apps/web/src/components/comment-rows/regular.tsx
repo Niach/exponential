@@ -63,12 +63,12 @@ export function RegularCommentRow({
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
-                  variant="ghost"
-                  size="icon-xs"
-                  className="ml-auto text-muted-foreground"
+                  variant="glass"
+                  size="icon-sm"
+                  className="ml-auto"
                   aria-label="Comment actions"
                 >
-                  <Ellipsis className="size-3" />
+                  <Ellipsis />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">

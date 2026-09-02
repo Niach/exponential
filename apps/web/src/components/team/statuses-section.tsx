@@ -33,8 +33,11 @@ import { IconTooltip } from "@/components/icon-tooltip"
 import { hexWithAlpha } from "@/lib/status-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { GlassGroup } from "@/components/ui/glass-rows"
+import {
+  GlassGroup,
+  GlassRow,
+  GlassSectionHeader,
+} from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogBody,
@@ -201,7 +204,7 @@ function StatusRow({
   }
 
   return (
-    <div className="rounded-md border border-glass-stroke bg-glass-row px-3 py-2">
+    <GlassRow className="flex-col items-stretch gap-0 px-3 py-2">
       <div className="flex items-center gap-3">
         {isBuiltin ? (
           <StatusTile option={option} />
@@ -280,13 +283,12 @@ function StatusRow({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-muted-foreground"
+              variant="glass"
+              size="icon-sm"
               disabled={busy}
               aria-label={`Status actions for ${option.name}`}
             >
-              <Ellipsis className="h-4 w-4" />
+              <Ellipsis />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -317,7 +319,7 @@ function StatusRow({
         </DropdownMenu>
       </div>
       {error && <p className="mt-1 px-1 text-xs text-destructive">{error}</p>}
-    </div>
+    </GlassRow>
   )
 }
 
@@ -520,7 +522,7 @@ function CreateStatusForm({
   }
 
   return (
-    <div className="mt-2 space-y-3 rounded-md border border-glass-stroke bg-glass-row p-3">
+    <GlassRow className="mt-2 flex-col items-stretch gap-3">
       <Input
         value={name}
         onChange={(e) => {
@@ -562,7 +564,7 @@ function CreateStatusForm({
           Cancel
         </Button>
       </div>
-    </div>
+    </GlassRow>
   )
 }
 
@@ -645,12 +647,9 @@ function PrAutomationCard({
   if (!team || pickable.length === 0) return null
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">PR automation</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <GlassGroup>
+    <div>
+      <GlassSectionHeader label="PR automation" />
+      <GlassGroup>
           {PR_AUTOMATION_ROWS.map(({ event, label, defaultKey }) => {
             const statusId =
               event === `pr_opened`
@@ -712,10 +711,9 @@ function PrAutomationCard({
               </div>
             )
           })}
-        </GlassGroup>
-        {error && <p className="text-xs text-destructive">{error}</p>}
-      </CardContent>
-    </Card>
+      </GlassGroup>
+      {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+    </div>
   )
 }
 
@@ -758,103 +756,94 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
   // offering dead controls (desktop guards the same way, settings/statuses.rs).
   if (!ready) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Statuses</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="py-2 text-sm text-muted-foreground">Loading…</p>
-        </CardContent>
-      </Card>
+      <div>
+        <GlassSectionHeader label="Statuses" />
+        <p className="py-2 text-sm text-muted-foreground">Loading…</p>
+      </div>
     )
   }
 
   return (
     <>
       <div className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Statuses</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {issueStatusCategoryDisplayOrder.map((category) => {
-              const rows = byCategory.get(category) ?? []
-              const atStartedCap =
-                category === `started` &&
-                rows.length >= ISSUE_STATUS_STARTED_MAX
-              const canAdd = category !== `duplicate`
+        <div className="space-y-6">
+          {issueStatusCategoryDisplayOrder.map((category) => {
+            const rows = byCategory.get(category) ?? []
+            const atStartedCap =
+              category === `started` &&
+              rows.length >= ISSUE_STATUS_STARTED_MAX
+            const canAdd = category !== `duplicate`
 
-              return (
-                <div key={category}>
-                  <div className="mb-2 flex items-center justify-between">
-                    <h3 className="min-w-0 text-sm font-medium">
-                      {CATEGORY_LABEL[category]}
-                    </h3>
-                    {canAdd &&
-                      (atStartedCap ? (
-                        <IconTooltip
-                          label={`A team can have at most ${ISSUE_STATUS_STARTED_MAX} started statuses.`}
-                        >
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            disabled
-                            aria-label={`Add ${CATEGORY_LABEL[category]} status`}
-                          >
-                            <Plus className="h-4 w-4" />
-                          </Button>
-                        </IconTooltip>
-                      ) : (
+            return (
+              <div key={category}>
+                <GlassSectionHeader
+                  label={CATEGORY_LABEL[category]}
+                  trailing={
+                    canAdd &&
+                    (atStartedCap ? (
+                      <IconTooltip
+                        label={`A team can have at most ${ISSUE_STATUS_STARTED_MAX} started statuses.`}
+                      >
                         <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          onClick={() =>
-                            setCreatingIn(
-                              creatingIn === category ? null : category
-                            )
-                          }
+                          variant="glass"
+                          size="icon-sm"
+                          disabled
                           aria-label={`Add ${CATEGORY_LABEL[category]} status`}
                         >
-                          <Plus className="h-4 w-4" />
+                          <Plus />
                         </Button>
-                      ))}
-                  </div>
+                      </IconTooltip>
+                    ) : (
+                      <Button
+                        variant="glass"
+                        size="icon-sm"
+                        onClick={() =>
+                          setCreatingIn(
+                            creatingIn === category ? null : category
+                          )
+                        }
+                        aria-label={`Add ${CATEGORY_LABEL[category]} status`}
+                      >
+                        <Plus />
+                      </Button>
+                    ))
+                  }
+                />
 
-                  {rows.length === 0 && (
-                    <p className="py-1 text-xs text-muted-foreground">
-                      No statuses yet.
-                    </p>
-                  )}
-                  <div className="space-y-2">
-                    {rows.map((option, index) => (
-                      <StatusRow
-                        // Re-mount on rename/recolor so the inline editor's
-                        // local state can never shadow a synced change
-                        // (LabelRow convention).
-                        key={`${option.id}:${option.name}:${option.colorHex}`}
-                        teamId={teamId}
-                        option={option}
-                        count={counts.get(option.id) ?? 0}
-                        isFirst={index === 0}
-                        isLast={index === rows.length - 1}
-                        isDefault={option.id === defaultOptionId}
-                        onRequestDelete={requestDelete}
-                      />
-                    ))}
-                  </div>
-
-                  {creatingIn === category && (
-                    <CreateStatusForm
+                {rows.length === 0 && (
+                  <p className="py-1 text-xs text-muted-foreground">
+                    No statuses yet.
+                  </p>
+                )}
+                <div className="space-y-2">
+                  {rows.map((option, index) => (
+                    <StatusRow
+                      // Re-mount on rename/recolor so the inline editor's
+                      // local state can never shadow a synced change
+                      // (LabelRow convention).
+                      key={`${option.id}:${option.name}:${option.colorHex}`}
                       teamId={teamId}
-                      category={category}
-                      onDone={() => setCreatingIn(null)}
+                      option={option}
+                      count={counts.get(option.id) ?? 0}
+                      isFirst={index === 0}
+                      isLast={index === rows.length - 1}
+                      isDefault={option.id === defaultOptionId}
+                      onRequestDelete={requestDelete}
                     />
-                  )}
+                  ))}
                 </div>
-              )
-            })}
-          </CardContent>
-        </Card>
+
+                {creatingIn === category && (
+                  <CreateStatusForm
+                    teamId={teamId}
+                    category={category}
+                    onDone={() => setCreatingIn(null)}
+                  />
+                )}
+              </div>
+            )
+          })}
+        </div>
 
         <PrAutomationCard teamId={teamId} options={options} />
       </div>

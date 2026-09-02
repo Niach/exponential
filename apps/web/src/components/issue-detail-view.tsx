@@ -642,9 +642,8 @@ export function IssueDetailView({
     <>
       <IconTooltip label="Previous issue" shortcut="K">
         <Button
-          variant="ghost"
-          size="icon-xs"
-          className="text-muted-foreground"
+          variant="glass"
+          size="icon-sm"
           aria-label="Previous issue (K)"
           disabled={!position.prevIdentifier}
           onClick={() => navigateToIssue(position.prevIdentifier)}
@@ -654,9 +653,8 @@ export function IssueDetailView({
       </IconTooltip>
       <IconTooltip label="Next issue" shortcut="J">
         <Button
-          variant="ghost"
-          size="icon-xs"
-          className="text-muted-foreground"
+          variant="glass"
+          size="icon-sm"
           aria-label="Next issue (J)"
           disabled={!position.nextIdentifier}
           onClick={() => navigateToIssue(position.nextIdentifier)}
@@ -672,9 +670,8 @@ export function IssueDetailView({
   const copyLinkButton = (
     <IconTooltip label={linkCopied ? `Link copied` : `Copy link to issue`}>
       <Button
-        variant="ghost"
-        size="icon-xs"
-        className="text-muted-foreground"
+        variant="glass"
+        size="icon-sm"
         aria-label="Copy link to issue"
         onClick={() => {
           if (typeof navigator === `undefined` || !navigator.clipboard) {
@@ -709,12 +706,11 @@ export function IssueDetailView({
         <IconTooltip label="More actions">
           <DropdownMenuTrigger asChild>
             <Button
-              variant="ghost"
-              size="icon-xs"
-              className="text-muted-foreground"
+              variant="glass"
+              size="icon-sm"
               aria-label="Issue actions"
             >
-              <UiMoreIcon className="size-4" />
+              <UiMoreIcon />
             </Button>
           </DropdownMenuTrigger>
         </IconTooltip>
@@ -741,12 +737,11 @@ export function IssueDetailView({
       <IconTooltip label="Delete issue">
         <DropdownMenuTrigger asChild>
           <Button
-            variant="ghost"
-            size="icon-xs"
-            className="text-muted-foreground"
+            variant="glass"
+            size="icon-sm"
             aria-label="Delete issue"
           >
-            <UiDeleteIcon className="size-4" />
+            <UiDeleteIcon />
           </Button>
         </DropdownMenuTrigger>
       </IconTooltip>

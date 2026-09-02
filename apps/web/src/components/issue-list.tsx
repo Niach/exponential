@@ -712,9 +712,9 @@ export function IssueList({
               </div>
               {canCreate && (
                 <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className="hidden md:inline-flex text-muted-foreground opacity-0 group-hover:opacity-100 hover:opacity-100"
+                  variant="glass"
+                  size="icon-sm"
+                  className="hidden md:inline-flex opacity-0 group-hover:opacity-100 hover:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation()
                     // A new issue can never be born a duplicate (no canonical

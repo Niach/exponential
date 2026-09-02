@@ -157,8 +157,8 @@ export function SessionMergeButton({
               resolved outside the recovery run, so Merge stays one click
               away as a quiet secondary. */}
           <Button
-            variant="ghost"
-            size="icon"
+            variant="glass"
+            size="icon-sm"
             disabled={merging}
             aria-label={merging ? `Merging…` : `Retry merge`}
             title={merging ? `Merging…` : `Retry merge`}

@@ -59,10 +59,6 @@ function CodingRowStack({ children }: { children: ReactNode }) {
   return <div className="flex flex-col gap-2 px-5 py-2">{children}</div>
 }
 
-// The PR row is a <Link>, so it can't reuse the <GlassRow> div — same recipe,
-// interactive arm included.
-const PR_ROW_CLASS = `flex min-w-0 items-center gap-2 rounded-md border border-glass-stroke bg-glass-row p-3 text-sm transition-colors duration-fast hover:bg-glass-active/50`
-
 // The coding affordances of the issue detail (EXP-106): a compact "coding now"
 // / remote-start control that FOCUSES the global dock (never mounts the live
 // viewer itself), plus a PR / pushed-branch row that links to the review-detail
@@ -698,21 +694,22 @@ function PrRow({
   if (hasPr) {
     return (
       <CodingRowStack>
-        <Link
-          to="/t/$teamSlug/reviews/$issueIdentifier"
-          params={{ teamSlug, issueIdentifier: issue.identifier }}
-          className={PR_ROW_CLASS}
-        >
-          <GitPullRequest className="size-4 shrink-0 text-muted-foreground" />
-          <PrStateBadge state={issue.prState} />
-          <span className="shrink-0 font-mono">PR #{issue.prNumber}</span>
-          {issue.branch && (
-            <span className="hidden truncate font-mono text-xs text-muted-foreground md:inline">
-              {issue.branch}
-            </span>
-          )}
-          <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
-        </Link>
+        <GlassRow asChild interactive className="min-w-0 gap-2 text-sm">
+          <Link
+            to="/t/$teamSlug/reviews/$issueIdentifier"
+            params={{ teamSlug, issueIdentifier: issue.identifier }}
+          >
+            <GitPullRequest className="size-4 shrink-0 text-muted-foreground" />
+            <PrStateBadge state={issue.prState} />
+            <span className="shrink-0 font-mono">PR #{issue.prNumber}</span>
+            {issue.branch && (
+              <span className="hidden truncate font-mono text-xs text-muted-foreground md:inline">
+                {issue.branch}
+              </span>
+            )}
+            <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
+          </Link>
+        </GlassRow>
       </CodingRowStack>
     )
   }
@@ -720,18 +717,19 @@ function PrRow({
   if (canProbe && branchFileCount != null && branchFileCount > 0) {
     return (
       <CodingRowStack>
-        <Link
-          to="/t/$teamSlug/reviews/$issueIdentifier"
-          params={{ teamSlug, issueIdentifier: issue.identifier }}
-          className={PR_ROW_CLASS}
-        >
-          <GitBranch className="size-4 shrink-0 text-muted-foreground" />
-          <span className="truncate">
-            Branch <span className="font-mono">exp/{issue.identifier}</span>
-            {` · no PR yet`}
-          </span>
-          <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
-        </Link>
+        <GlassRow asChild interactive className="min-w-0 gap-2 text-sm">
+          <Link
+            to="/t/$teamSlug/reviews/$issueIdentifier"
+            params={{ teamSlug, issueIdentifier: issue.identifier }}
+          >
+            <GitBranch className="size-4 shrink-0 text-muted-foreground" />
+            <span className="truncate">
+              Branch <span className="font-mono">exp/{issue.identifier}</span>
+              {` · no PR yet`}
+            </span>
+            <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
+          </Link>
+        </GlassRow>
       </CodingRowStack>
     )
   }

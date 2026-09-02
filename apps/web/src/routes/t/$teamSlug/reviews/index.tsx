@@ -26,6 +26,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  GlassRow,
+  GlassSectionHeader,
+} from "@/components/ui/glass-rows"
 
 // Cross-board review queue: every issue in the team with an open PR,
 // grouped by board, with a one-click (confirmed) squash-merge that goes
@@ -236,18 +240,13 @@ function ReviewsPage() {
           <>
             {groups.map((group) => (
               <div key={group.board.id} className="mb-6">
-                {/* Plain-text section header (EXP-616) — GlassSectionHeader's
-                    recipe, inlined because the label area carries the board
-                    glyph as well as its name. */}
-                <div className="flex items-center gap-1.5 px-1 pt-1 pb-2">
-                  <BoardGlyph board={group.board} className="size-3.5" />
-                  <span className="text-sm font-medium text-foreground/70">
-                    {group.board.name}
-                  </span>
-                  <span className="text-xs text-foreground/50">
-                    {group.entries.length}
-                  </span>
-                </div>
+                <GlassSectionHeader
+                  leading={
+                    <BoardGlyph board={group.board} className="size-3.5" />
+                  }
+                  label={group.board.name}
+                  count={group.entries.length}
+                />
 
                 <div className="flex flex-col gap-2">
                   {group.entries.map((entry) => {
@@ -265,9 +264,10 @@ function ReviewsPage() {
                       mergeError?.conflict && issue.branch && steerEnabled
                     )
                     return (
-                      <div
+                      <GlassRow
                         key={entry.key}
-                        className="group/row grid cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center rounded-md border border-glass-stroke bg-glass-row p-3 transition-colors duration-fast hover:bg-glass-active/50"
+                        interactive
+                        className="group/row grid grid-cols-[1.5rem_4.5rem_1fr_auto] gap-0"
                         onClick={() => openReview(issue.identifier)}
                         data-testid={`review-row-${issue.identifier}`}
                       >
@@ -365,7 +365,7 @@ function ReviewsPage() {
                             )}
                           </div>
                         )}
-                      </div>
+                      </GlassRow>
                     )
                   })}
                 </div>
@@ -374,24 +374,23 @@ function ReviewsPage() {
 
             {externalGroups.map((group) => (
               <div key={group.repositoryId} className="mb-6">
-                <div className="flex items-center gap-1.5 px-1 pt-1 pb-2">
-                  <GitPullRequest className="h-2.5 w-2.5 shrink-0 text-foreground/50" />
-                  <span className="text-sm font-medium text-foreground/70">
-                    {group.fullName}
-                  </span>
-                  <span className="text-xs text-foreground/50">
-                    not linked to an issue · {group.pulls.length}
-                  </span>
-                </div>
+                <GlassSectionHeader
+                  leading={
+                    <GitPullRequest className="h-2.5 w-2.5 shrink-0 text-foreground/50" />
+                  }
+                  label={group.fullName}
+                  count={`not linked to an issue · ${group.pulls.length}`}
+                />
 
                 <div className="flex flex-col gap-2">
                   {group.pulls.map((pull) => {
                     const key = externalPullKey(group.repositoryId, pull.number)
                     const merging = mergingIds.has(key)
                     return (
-                      <div
+                      <GlassRow
                         key={pull.number}
-                        className="group/row grid cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center rounded-md border border-glass-stroke bg-glass-row p-3 transition-colors duration-fast hover:bg-glass-active/50"
+                        interactive
+                        className="group/row grid grid-cols-[1.5rem_4.5rem_1fr_auto] gap-0"
                         onClick={() =>
                           window.open(pull.url, `_blank`, `noopener,noreferrer`)
                         }
@@ -441,7 +440,7 @@ function ReviewsPage() {
                             </>
                           )}
                         </Button>
-                      </div>
+                      </GlassRow>
                     )
                   })}
                 </div>

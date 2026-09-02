@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react"
+import { useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { ChevronDown, LoaderCircle } from "lucide-react"
@@ -30,25 +30,6 @@ const ActionAutomationIcon = conceptIcon(`action-automation`)
 // (actionName snapshot set — survives the action's deletion) shows
 // "Action" + the action name, an issueless batch run shows "Batch",
 // everything else is the linked issue.
-
-export function SectionLabel({
-  label,
-  count,
-  trailing,
-}: {
-  label: string
-  count: number
-  /** Optional right-aligned control (e.g. the Actions "New action" button). */
-  trailing?: ReactNode
-}) {
-  return (
-    <div className="flex items-center gap-1.5 rounded-t-md border-b border-border/50 bg-zinc-500/10 px-3 py-1.5">
-      <span className="text-sm font-medium">{label}</span>
-      <span className="text-xs text-muted-foreground">{count}</span>
-      {trailing && <div className="ml-auto">{trailing}</div>}
-    </div>
-  )
-}
 
 // Steady dot per parked display state (EXP-194/EXP-214): review green,
 // done blue (both matching the issue-status palette), needs-input amber;
@@ -244,7 +225,7 @@ export function SessionRow({
             </Link>
           </Button>
         ) : editsAutomation && session.automationId ? (
-          <Button asChild variant="glass" size="icon" className="size-8">
+          <Button asChild variant="glass" size="icon-sm">
             <Link
               to="/t/$teamSlug/actions"
               params={{ teamSlug }}
@@ -260,7 +241,7 @@ export function SessionRow({
             </Link>
           </Button>
         ) : session.actionId ? (
-          <Button asChild variant="glass" size="icon" className="size-8">
+          <Button asChild variant="glass" size="icon-sm">
             <Link
               to="/t/$teamSlug/actions"
               params={{ teamSlug }}

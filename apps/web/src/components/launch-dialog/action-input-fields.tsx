@@ -29,7 +29,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { BoardGlyph } from "@/components/board-glyph"
-import { GlassGroup, GlassPickerRow } from "@/components/ui/glass-rows"
+import {
+  GLASS_SELECT_TRIGGER,
+  GlassGroup,
+  GlassPickerRow,
+} from "@/components/ui/glass-rows"
 import { cn } from "@/lib/utils"
 
 // The selected action's typed input fields (EXP-257): text → plain Input,
@@ -46,10 +50,6 @@ import { cn } from "@/lib/utils"
 // Radix Select forbids an empty-string item value; the unset optional repo
 // rides this sentinel inside the dialog only.
 const NO_REPO = `none`
-
-// EXP-616: Input/Textarea/SelectTrigger are glass on their own now; only the
-// Button-backed pickers below still need the field dress spelled out.
-const GLASS_TRIGGER = `border-glass-stroke bg-glass-row shadow-none dark:bg-glass-row`
 
 export function ActionInputFields({
   defs,
@@ -246,7 +246,7 @@ function PrInputField({
       <MobilePopoverTrigger asChild>
         <Button
           variant="outline"
-          className={cn(`w-full justify-start font-normal`, GLASS_TRIGGER)}
+          className={cn(`w-full justify-start font-normal`, GLASS_SELECT_TRIGGER)}
         >
           {selected ? (
             <span className="min-w-0 truncate">{selected.label}</span>
@@ -343,7 +343,7 @@ function BoardInputField({
       <MobilePopoverTrigger asChild>
         <Button
           variant="outline"
-          className={cn(`w-full justify-start font-normal`, GLASS_TRIGGER)}
+          className={cn(`w-full justify-start font-normal`, GLASS_SELECT_TRIGGER)}
         >
           {selected ? (
             <>

@@ -120,12 +120,11 @@ export function IssueDetailMobileMenu({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
-            variant="ghost"
-            size="icon-xs"
-            className="text-muted-foreground"
+            variant="glass"
+            size="icon-sm"
             aria-label="Issue actions"
           >
-            <UiMoreIcon className="size-4" />
+            <UiMoreIcon />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-[14rem]">

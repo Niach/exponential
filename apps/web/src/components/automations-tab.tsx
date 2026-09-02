@@ -94,12 +94,11 @@ function AutomationMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-muted-foreground"
+          variant="glass"
+          size="icon-sm"
           aria-label={`Automation menu for ${name}`}
         >
-          <Ellipsis className="h-4 w-4" />
+          <Ellipsis />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -367,8 +366,7 @@ export function AutomationsTab({
       {canCreate && (
         <Button
           variant="outline"
-          size="sm"
-          className="h-6 gap-1 px-2 text-xs"
+          size="xs"
           onClick={() => {
             setEditing(null)
             setDialogOpen(true)

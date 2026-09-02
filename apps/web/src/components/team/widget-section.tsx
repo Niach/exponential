@@ -25,13 +25,11 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+  GlassGroup,
+  GlassRow,
+  GlassSectionHeader,
+  GlassToggleRow,
+} from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogBody,
@@ -166,44 +164,43 @@ export function TeamWidgetSection({ team }: { team: Team }) {
   return (
     <div className="space-y-6">
       {/* Anchor target for the "Getting started" widget card's settings link. */}
-      <Card id="feedback-widget" className="scroll-mt-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <MessageSquarePlus className="h-4 w-4" />
-            Exponential widget
-          </CardTitle>
-          <CardDescription>
-            Embed the Exponential widget on your own site: visitors capture a
-            screenshot, describe the problem, and it lands here as an issue,
-            with reporter email and page context attached.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex justify-end">
-            <Button size="sm" onClick={openCreate}>
+      <div id="feedback-widget" className="scroll-mt-6">
+        <GlassSectionHeader
+          leading={
+            <MessageSquarePlus className="size-3.5 text-foreground/50" />
+          }
+          label="Exponential widget"
+          trailing={
+            <Button variant="glass" size="xs" onClick={openCreate}>
               New widget
             </Button>
-          </div>
-
+          }
+        />
+        <p className="px-1 pb-2 text-xs text-foreground/50">
+          Embed the Exponential widget on your own site: visitors capture a
+          screenshot, describe the problem, and it lands here as an issue, with
+          reporter email and page context attached.
+        </p>
+        <div className="space-y-4">
           <div className="space-y-2">
             {loading ? (
-              <div className="flex items-center gap-2 rounded-md border border-glass-stroke bg-glass-row px-3 py-2 text-sm text-muted-foreground">
+              <GlassRow className="gap-2 px-3 py-2 text-sm text-muted-foreground">
                 <LoaderCircle className="h-4 w-4 animate-spin" />
                 Loading widgets
-              </div>
+              </GlassRow>
             ) : error ? (
               <div className="rounded-md border border-destructive/50 px-3 py-2 text-sm text-destructive">
                 {error}
               </div>
             ) : widgets.length === 0 ? (
-              <div className="rounded-md border border-glass-stroke bg-glass-row px-3 py-2 text-sm text-muted-foreground">
+              <GlassRow className="px-3 py-2 text-sm text-muted-foreground">
                 No widgets yet. Create one to get an embed snippet.
-              </div>
+              </GlassRow>
             ) : (
               widgets.map((widget) => (
-                <div
+                <GlassRow
                   key={widget.id}
-                  className="flex flex-col gap-3 overflow-hidden rounded-md border border-glass-stroke bg-glass-row px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex-col items-stretch gap-3 overflow-hidden px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -254,32 +251,33 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                       aria-label={`Enable ${widget.name}`}
                     />
                     <Button
-                      variant="ghost"
-                      size="icon"
+                      variant="glass"
+                      size="icon-sm"
                       onClick={() => setSnippetTarget(widget)}
                       aria-label={`Show snippet for ${widget.name}`}
                     >
-                      <CodeXml className="h-4 w-4" />
+                      <CodeXml />
                     </Button>
                     <Button
-                      variant="ghost"
-                      size="icon"
+                      variant="glass"
+                      size="icon-sm"
                       onClick={() => openEdit(widget)}
                       aria-label={`Edit ${widget.name}`}
                     >
-                      <Pencil className="h-4 w-4" />
+                      <Pencil />
                     </Button>
                     <Button
-                      variant="ghost"
-                      size="icon"
+                      variant="glass"
+                      size="icon-sm"
+                      className="text-destructive"
                       onClick={() => deleteWidget(widget)}
                       disabled={busyId === widget.id}
                       aria-label={`Delete ${widget.name}`}
                     >
-                      <Trash2 className="h-4 w-4 text-destructive" />
+                      <Trash2 />
                     </Button>
                   </div>
-                </div>
+                </GlassRow>
               ))
             )}
           </div>
@@ -311,7 +309,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
               </div>
             </div>
           )}
-        </CardContent>
+        </div>
 
         <WidgetConfigDialog
           open={dialogOpen}
@@ -360,36 +358,32 @@ export function TeamWidgetSection({ team }: { team: Team }) {
             )}
           </DialogContent>
         </Dialog>
-      </Card>
+      </div>
 
       {/* Team-level helpdesk switch (owner-only page). Lives with the
           widget settings because support tickets arrive through the widget. */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <LifeBuoy className="h-4 w-4" />
-            Helpdesk
-          </CardTitle>
-          <CardDescription>
-            Give this team a shared support inbox. Support tickets from the
-            widget land there.
-          </CardDescription>
-          <CardAction>
-            <Switch
-              checked={team.helpdeskEnabled}
-              disabled={helpdeskBusy}
-              onCheckedChange={(next) => void toggleHelpdesk(next)}
-              aria-label="Enable the helpdesk"
-            />
-          </CardAction>
-        </CardHeader>
+      <div>
+        <GlassSectionHeader
+          leading={<LifeBuoy className="size-3.5 text-foreground/50" />}
+          label="Helpdesk"
+        />
+        <GlassGroup>
+          <GlassToggleRow
+            id="team-helpdesk-enabled"
+            label="Enable the helpdesk"
+            description="Give this team a shared support inbox. Support tickets from the widget land there."
+            checked={team.helpdeskEnabled}
+            disabled={helpdeskBusy}
+            onCheckedChange={(next) => void toggleHelpdesk(next)}
+          />
+        </GlassGroup>
         {(helpdeskError || team.helpdeskEnabled) && (
-          <CardContent className="space-y-2">
+          <div className="space-y-2 pt-2">
             {helpdeskError && (
               <p className="text-xs text-destructive">{helpdeskError}</p>
             )}
             {team.helpdeskEnabled && (
-              <Button variant="outline" size="sm" asChild className="w-fit">
+              <Button variant="glass" size="xs" asChild className="w-fit">
                 <Link
                   to="/t/$teamSlug/support"
                   params={{ teamSlug: team.slug }}
@@ -398,9 +392,9 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                 </Link>
               </Button>
             )}
-          </CardContent>
+          </div>
         )}
-      </Card>
+      </div>
     </div>
   )
 }

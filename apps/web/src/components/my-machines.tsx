@@ -71,9 +71,9 @@ function CopyIconButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   return (
     <Button
-      variant="ghost"
-      size="icon"
-      className="absolute top-1.5 right-1.5 size-7 text-muted-foreground"
+      variant="glass"
+      size="icon-sm"
+      className="absolute top-1.5 right-1.5"
       aria-label="Copy install command"
       title="Copy install command"
       onClick={() => {
@@ -203,8 +203,7 @@ export function MyMachines({
         trailing={
           <Button
             variant="outline"
-            size="sm"
-            className="h-6 gap-1 px-2 text-xs"
+            size="xs"
             onClick={() => setAddServerOpen(true)}
           >
             <AddIcon className="size-3.5" />
@@ -355,12 +354,11 @@ export function MyMachines({
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8 text-foreground/50"
+                          variant="glass"
+                          size="icon-sm"
                           aria-label={`Machine menu for ${device.deviceLabel || device.deviceId}`}
                         >
-                          <MoreIcon className="size-4" />
+                          <MoreIcon />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">

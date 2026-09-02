@@ -26,6 +26,10 @@ const buttonVariants = cva(
         sm: `h-8 gap-1.5 px-3 has-[>svg]:px-2.5`,
         lg: `h-10 px-6 has-[>svg]:px-4`,
         icon: `size-9`,
+        // EXP-698 — the ONE trailing-action size: every row/header action
+        // (play, merge, resume, copy link, the "…" menus) is a 32px chromed
+        // glass circle.
+        "icon-sm": `size-8 [&_svg:not([class*='size-'])]:size-4`,
         "icon-xs": `size-6 [&_svg:not([class*='size-'])]:size-3`,
       },
     },

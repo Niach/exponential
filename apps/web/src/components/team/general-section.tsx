@@ -2,18 +2,14 @@ import { useEffect, useState } from "react"
 import type { Team } from "@/db/schema"
 import { Button } from "@/components/ui/button"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+  GlassGroup,
+  GlassInputRow,
+  GlassSectionHeader,
+} from "@/components/ui/glass-rows"
 import { trpc } from "@/lib/trpc-client"
 
 // Team visibility is deliberately NOT configurable: every team is
-// member-only (EXP-180), so this card is just the name.
+// member-only (EXP-180), so this section is just the name.
 export function TeamGeneralSection({ team }: { team: Team }) {
   const [name, setName] = useState(team.name)
   const [saving, setSaving] = useState(false)
@@ -42,32 +38,26 @@ export function TeamGeneralSection({ team }: { team: Team }) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">General</CardTitle>
-        <CardDescription>Team name</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="rounded-lg bg-glass-row p-3">
-          <Label htmlFor="team-name" className="text-xs text-foreground/50">
-            Name
-          </Label>
-          <Input
+    <div className="space-y-5">
+      <div>
+        <GlassSectionHeader label="General" />
+        <GlassGroup>
+          <GlassInputRow
             id="team-name"
+            label="Name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
           />
-        </div>
+        </GlassGroup>
+      </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
 
-        <div className="flex justify-end">
-          <Button onClick={handleSave} disabled={!dirty || saving}>
-            {saving ? `Saving...` : `Save changes`}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+      <div className="flex justify-end">
+        <Button onClick={handleSave} disabled={!dirty || saving}>
+          {saving ? `Saving...` : `Save changes`}
+        </Button>
+      </div>
+    </div>
   )
 }
