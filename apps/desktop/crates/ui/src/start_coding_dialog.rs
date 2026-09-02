@@ -81,6 +81,7 @@ use gpui_component::{
     menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
     scroll::{Scrollbar, ScrollbarAxis},
+    switch::Switch,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 use sync::Store;
@@ -1978,7 +1979,7 @@ impl StartCodingDialogView {
             .into_any_element()
     }
 
-    /// EXP-202/EXP-662: the "Resume previous session" notice + checkbox —
+    /// EXP-202/EXP-662: the "Resume previous session" switch row —
     /// rendered only while a single checked issue has a resumable run record
     /// ([`Self::resume_candidate`]). The copy names the RECORDED agent, since
     /// that is the one the resume relaunches whatever the picker says (D2).
@@ -1987,8 +1988,7 @@ impl StartCodingDialogView {
         row: &IssueRow,
         record: &RunRecord,
         cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let muted = cx.theme().muted_foreground;
+    ) -> gpui::Div {
         let settings = CodingHub::global(cx).read(cx).settings.clone();
         let branch = record
             .branch
@@ -2014,42 +2014,26 @@ impl StartCodingDialogView {
             )
             .into()
         });
-        v_flex()
-            .gap_0p5()
-            .child(
-                Checkbox::new("sc-resume")
-                    .label("Resume previous session")
-                    .checked(self.resume)
-                    .on_click(cx.listener(|this, on: &bool, _, cx| {
-                        this.resume = *on;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .pl_6()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(format!(
-                        "A session on {branch} ended {when}."
-                    ))),
-            )
-            .child(
-                div()
-                    .pl_6()
-                    .text_xs()
-                    .text_color(muted.opacity(0.7))
-                    .child(hint),
-            )
-            .when_some(agent_note, |this, note| {
-                this.child(
-                    div()
-                        .pl_6()
-                        .text_xs()
-                        .text_color(muted.opacity(0.7))
-                        .child(note),
-                )
-            })
+        // EXP-698: a Switch on the group's row rhythm — never a checkbox
+        // inside a grouped stack. The three explanatory lines collapse into
+        // the row's ONE muted description.
+        let mut description = format!("A session on {branch} ended {when}. {hint}");
+        if let Some(note) = agent_note {
+            description.push(' ');
+            description.push_str(&note);
+        }
+        crate::surface::glass_toggle_row(
+            "Resume previous session",
+            Some(SharedString::from(description)),
+            Switch::new("sc-resume")
+                .checked(self.resume)
+                .on_click(cx.listener(|this, on: &bool, _, cx| {
+                    this.resume = *on;
+                    cx.notify();
+                }))
+                .into_any_element(),
+            cx,
+        )
     }
 
     /// EXP-696: the REMOTE machine's resume row. There is no local run record
@@ -2060,8 +2044,7 @@ impl StartCodingDialogView {
         resume: &RemoteResume,
         device_label: &str,
         cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let muted = cx.theme().muted_foreground;
+    ) -> gpui::Div {
         let where_line: SharedString = match resume.branch.trim() {
             "" => format!("A worktree for this issue is still on {device_label}."),
             branch => format!("A {branch} worktree is still on {device_label}."),
@@ -2078,33 +2061,24 @@ impl StartCodingDialogView {
                 )
                 .into()
             });
-        v_flex()
-            .gap_0p5()
-            .child(
-                Checkbox::new("sc-resume-remote")
-                    .label("Resume previous session")
-                    .checked(self.resume)
-                    .on_click(cx.listener(|this, on: &bool, _, cx| {
-                        this.resume = *on;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .pl_6()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(where_line),
-            )
-            .when_some(when, |this, when| {
-                this.child(
-                    div()
-                        .pl_6()
-                        .text_xs()
-                        .text_color(muted.opacity(0.7))
-                        .child(when),
-                )
-            })
+        // EXP-698: a Switch on the group's row rhythm — never a checkbox
+        // inside a grouped stack.
+        let description = match when {
+            Some(when) => format!("{where_line} {when}"),
+            None => where_line.to_string(),
+        };
+        crate::surface::glass_toggle_row(
+            "Resume previous session",
+            Some(SharedString::from(description)),
+            Switch::new("sc-resume-remote")
+                .checked(self.resume)
+                .on_click(cx.listener(|this, on: &bool, _, cx| {
+                    this.resume = *on;
+                    cx.notify();
+                }))
+                .into_any_element(),
+            cx,
+        )
     }
 
     /// The top-level Issues | Actions subject strip (EXP-257). EXP-525: the
@@ -2646,12 +2620,10 @@ impl Render for StartCodingDialogView {
             (resume, label)
         });
         let resume_row = match &remote_resume {
-            Some((resume, label)) => {
-                Some(self.remote_resume_row(resume, label, cx).into_any_element())
-            }
+            Some((resume, label)) => Some(self.remote_resume_row(resume, label, cx)),
             None => self
                 .resume_candidate()
-                .map(|(row, record)| self.resume_row(row, record, cx).into_any_element()),
+                .map(|(row, record)| self.resume_row(row, record, cx)),
         };
 
         let blocker = self.launch_blocker(cx);

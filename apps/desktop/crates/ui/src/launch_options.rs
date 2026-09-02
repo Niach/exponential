@@ -694,7 +694,7 @@ impl LaunchOptionsSection {
         &self,
         prefix: &'static str,
         access: fn(&mut V) -> &mut Self,
-        resume_row: Option<gpui::AnyElement>,
+        resume_row: Option<Div>,
         hide_plan_mode: bool,
         cx: &mut Context<V>,
     ) -> gpui::AnyElement {
@@ -736,8 +736,11 @@ impl LaunchOptionsSection {
             self.effort.clone(),
         )
         .effort_disabled(effort_disabled);
+        // EXP-698: the resume row arrives ALREADY on the group's row rhythm
+        // (a `glass_toggle_row`), so it is spliced in verbatim — wrapping it
+        // in a second `glass_row_shell` would double the row's padding.
         if let Some(resume_row) = resume_row {
-            group = group.after_effort(vec![surface::glass_row_shell().child(resume_row)]);
+            group = group.after_effort(vec![resume_row]);
         }
         // The capability-gated toggles (EXP-201; hint-free since EXP-206) —
         // switches on the group's row rhythm since EXP-694.

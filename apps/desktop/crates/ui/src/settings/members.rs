@@ -227,7 +227,7 @@ impl MembersPane {
         i_am_owner: bool,
         owner_count: usize,
         cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
+    ) -> gpui::Div {
         let member = &row.member;
         let is_self = member.user_id == my_user_id;
         let role = member
@@ -275,14 +275,11 @@ impl MembersPane {
             );
         }
 
-        h_flex()
+        // EXP-698: one row of an inset-grouped stack (the canonical container)
+        // instead of a hand-rolled bordered box; `glass_group_rows` draws the
+        // hairlines between them.
+        crate::surface::glass_row_shell()
             .justify_between()
-            .items_center()
-            .px_3()
-            .py_2()
-            .rounded(cx.theme().radius)
-            .border_1()
-            .border_color(super::row_stroke(cx))
             .child(
                 h_flex()
                     .gap_3()
@@ -304,6 +301,7 @@ impl MembersPane {
                     is_self,
                     is_owner_row,
                     i_am_owner,
+                    cx,
                 ))
             })
     }
@@ -317,11 +315,14 @@ fn member_actions_menu(
     is_self: bool,
     is_owner_row: bool,
     i_am_owner: bool,
+    cx: &gpui::App,
 ) -> impl IntoElement {
-    Button::new(row_id("member-actions", &member_id))
-        .ghost()
-        .web_icon_xs()
-        .icon(registry::UI_MORE)
+    // EXP-698: every trailing row action wears the one 32px glass chrome.
+    crate::controls::glass_icon_button(
+        row_id("member-actions", &member_id),
+        Icon::new(registry::UI_MORE),
+        cx,
+    )
         .dropdown_menu({
             let member_id = member_id.clone();
             let name = name.to_string();
@@ -402,11 +403,11 @@ impl Render for MembersPane {
             cx,
         ));
 
-        let mut list = v_flex().gap_2();
-        for row in &rows {
-            list = list.child(self.render_member_row(row, &my_user_id, i_am_owner, owner_count, cx));
-        }
-        body = body.child(list);
+        let list: Vec<gpui::Div> = rows
+            .iter()
+            .map(|row| self.render_member_row(row, &my_user_id, i_am_owner, owner_count, cx))
+            .collect();
+        body = body.child(crate::surface::glass_group_rows(list));
 
         // InviteControls (web: owner-only `showInvite`).
         if i_am_owner {

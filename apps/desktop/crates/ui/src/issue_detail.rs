@@ -920,10 +920,12 @@ impl IssueDetailView {
 
         let issue_id = issue.id.clone();
         // EXP-316: icon-only attach button (tooltip carries the wording).
-        let attach_button = Button::new("issue-files-attach")
-            .ghost()
-            .web_icon_xs()
-            .icon(Icon::from(ExpIcon::Paperclip).xsmall())
+        // EXP-698: the one 32px glass chrome every trailing action wears.
+        let attach_button = crate::controls::glass_icon_button(
+            "issue-files-attach",
+            Icon::from(ExpIcon::Paperclip),
+            cx,
+        )
             .tooltip("Attach file")
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.pick_files(issue_id.clone(), window, cx);
@@ -1149,11 +1151,12 @@ impl IssueDetailView {
             )
             .child({
                 let (id, label) = (id.clone(), label.clone());
-                Button::new(SharedString::from(format!("issue-file-open-{id}")))
-                    .ghost()
-                    .web_icon_xs()
+                crate::controls::glass_icon_button(
+                    SharedString::from(format!("issue-file-open-{id}")),
+                    Icon::from(ExpIcon::ExternalLink),
+                    cx,
+                )
                     .disabled(busy)
-                    .icon(Icon::from(ExpIcon::ExternalLink).xsmall())
                     .tooltip("Open")
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.open_file(id.clone(), label.clone(), window, cx);
@@ -1161,11 +1164,12 @@ impl IssueDetailView {
             })
             .child({
                 let (id, label) = (id.clone(), label.clone());
-                Button::new(SharedString::from(format!("issue-file-save-{id}")))
-                    .ghost()
-                    .web_icon_xs()
+                crate::controls::glass_icon_button(
+                    SharedString::from(format!("issue-file-save-{id}")),
+                    Icon::from(ExpIcon::Download),
+                    cx,
+                )
                     .disabled(busy)
-                    .icon(Icon::from(ExpIcon::Download).xsmall())
                     .tooltip("Save as…")
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.save_file_as(id.clone(), label.clone(), window, cx);
@@ -1173,15 +1177,12 @@ impl IssueDetailView {
             })
             .child({
                 let (id, label) = (id.clone(), label.clone());
-                Button::new(SharedString::from(format!("issue-file-delete-{id}")))
-                    .ghost()
-                    .web_icon_xs()
+                crate::controls::glass_icon_button(
+                    SharedString::from(format!("issue-file-delete-{id}")),
+                    Icon::from(ExpIcon::Trash2),
+                    cx,
+                )
                     .disabled(busy)
-                    .icon(
-                        Icon::from(ExpIcon::Trash2)
-                            .xsmall()
-                            .text_color(cx.theme().muted_foreground),
-                    )
                     .tooltip("Delete")
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.confirm_delete_file(id.clone(), label.clone(), window, cx);
@@ -1239,10 +1240,11 @@ impl IssueDetailView {
             )
             .when(failed, |row| {
                 row.child(
-                    Button::new(SharedString::from(format!("issue-file-dismiss-{key}")))
-                        .ghost()
-                        .web_icon_xs()
-                        .icon(Icon::new(registry::UI_CLOSE).xsmall())
+                    crate::controls::glass_icon_button(
+                        SharedString::from(format!("issue-file-dismiss-{key}")),
+                        Icon::new(registry::UI_CLOSE),
+                        cx,
+                    )
                         .tooltip("Dismiss")
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.pending_files.retain(|pending| pending.key != key);

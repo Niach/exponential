@@ -194,13 +194,12 @@ pub(crate) fn comment_row(
             let edit_id = comment_id.clone();
             let delete_id = comment_id.clone();
             row.child(div().flex_1()).child(
-                Button::new(SharedString::from(format!("comment-menu-{comment_id}")))
-                    .ghost().cursor_pointer()
-                    .xsmall()
-                    .icon(
-                        Icon::new(registry::UI_MORE)
-                            .text_color(cx.theme().muted_foreground),
-                    )
+                // EXP-698: the one 32px glass chrome every trailing action wears.
+                crate::controls::glass_icon_button(
+                    SharedString::from(format!("comment-menu-{comment_id}")),
+                    Icon::new(registry::UI_MORE),
+                    cx,
+                )
                     .dropdown_menu({
                         let timeline = cx.entity();
                         move |menu, _, cx| {

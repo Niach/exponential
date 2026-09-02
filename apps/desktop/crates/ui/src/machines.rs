@@ -19,7 +19,7 @@ use gpui::{
     SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant, ButtonVariants as _},
+    button::{Button, ButtonVariant},
     menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
     ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
@@ -325,10 +325,12 @@ impl MachinesSection {
             // EXP-420: offer the update only when a newer CLI version really
             // exists (or one is already in flight — keep its state visible).
             let can_update = server && device.online && (outdated || updating);
-            Button::new(("machine-menu", index))
-                .ghost().cursor_pointer()
-                .xsmall()
-                .icon(registry::UI_MORE)
+            // EXP-698: the one 32px glass chrome every row action wears.
+            crate::controls::glass_icon_button(
+                ("machine-menu", index),
+                Icon::new(registry::UI_MORE),
+                cx,
+            )
                 .dropdown_menu(move |menu, _window, cx| {
                     let edit_section = section.clone();
                     let edit_id = device_id.clone();
@@ -654,11 +656,11 @@ pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
                     )
                     .child(
                         div().absolute().top_1().right_1().child(
-                            Button::new("add-device-copy")
-                                .ghost()
-                                .cursor_pointer()
-                                .xsmall()
-                                .icon(Icon::new(registry::UI_COPY))
+                            crate::controls::glass_icon_button(
+                                "add-device-copy",
+                                Icon::new(registry::UI_COPY),
+                                cx,
+                            )
                                 .tooltip("Copy install command")
                                 .on_click(move |_, window, cx| {
                                     cx.write_to_clipboard(ClipboardItem::new_string(
@@ -865,8 +867,9 @@ impl Render for MachinesSection {
         // parent resolve their `w_full` correctly.
         gpui_component::v_flex()
             .min_w_0()
-            .child(crate::actions_view::section_heading(
+            .child(crate::surface::glass_section_header(
                 "My machines",
+                None,
                 Some(add_server),
                 cx,
             ))
@@ -901,8 +904,9 @@ impl Render for MachinesSection {
                     gpui_component::v_flex()
                         .min_w_0()
                         .pt_4()
-                        .child(crate::actions_view::section_heading(
+                        .child(crate::surface::glass_section_header(
                             "Team machines",
+                            None,
                             None,
                             cx,
                         ))

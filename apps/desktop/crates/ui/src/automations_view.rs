@@ -19,13 +19,14 @@ use gpui::{
     SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant, ButtonVariants as _},
+    button::{Button, ButtonVariant},
     menu::{DropdownMenu as _, PopupMenuItem},
     switch::Switch,
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
-use crate::actions_view::{page_scaffold, section_heading, suggestions_button};
+use crate::actions_view::{page_scaffold, suggestions_button};
+use crate::surface::glass_section_header;
 use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::navigation::{active_team_id, nav_for_window, Navigation};
@@ -221,11 +222,12 @@ impl AutomationsView {
         div()
             .flex_shrink_0()
             .child(
-                Button::new(("automation-menu", index))
-                    .ghost()
-                    .cursor_pointer()
-                    .xsmall()
-                    .icon(Icon::from(registry::UI_MORE))
+                // EXP-698: the one 32px glass chrome every row action wears.
+                crate::controls::glass_icon_button(
+                    ("automation-menu", index),
+                    Icon::from(registry::UI_MORE),
+                    cx,
+                )
                     .dropdown_menu(move |menu, _window, cx| {
                         let edit_id = edit_id.clone();
                         let delete_view = delete_view.clone();
@@ -336,7 +338,7 @@ impl AutomationsView {
         // 8px to the list, so the run rows live in their own gapped column.
         let recent = gpui_component::v_flex()
             .min_w_0()
-            .child(section_heading("Recent automated runs", None, cx));
+            .child(glass_section_header("Recent automated runs", None, None, cx));
         let mut run_rows = gpui_component::v_flex().min_w_0().gap_2();
         if runs.is_empty() {
             run_rows = run_rows.child(
@@ -444,7 +446,7 @@ impl Render for AutomationsView {
             .child(suggestions_button("automations-suggestions", cx))
             .children(new_automation)
             .into_any_element();
-        let header = section_heading("Automations", Some(trailing), cx);
+        let header = glass_section_header("Automations", None, Some(trailing), cx);
 
         let body = self.render_automations(&actions, &automations, team_id.as_deref(), is_owner, cx);
         // NO gap here (EXP-697) — the header's `pb_2` is the spacing to the
@@ -658,17 +660,15 @@ fn render_run_row(
         )
         .when(ended, |this| {
             this.child(
-                Button::new(SharedString::from(format!("run-toggle-{session_id}")))
-                    .ghost()
-                    .xsmall()
-                    .icon(
-                        Icon::from(if expanded {
-                            registry::UI_CHEVRON_UP
-                        } else {
-                            registry::UI_CHEVRON_DOWN
-                        })
-                        .xsmall(),
-                    )
+                crate::controls::glass_icon_button(
+                    SharedString::from(format!("run-toggle-{session_id}")),
+                    Icon::from(if expanded {
+                        registry::UI_CHEVRON_UP
+                    } else {
+                        registry::UI_CHEVRON_DOWN
+                    }),
+                    cx,
+                )
                     // The card itself may be clickable (a live local run) —
                     // the chevron must never fall through to it.
                     .on_click(move |event, window, cx| {
@@ -720,11 +720,12 @@ fn render_run_row(
             .when(resumable, |this| {
                 this.child(
                     div().flex().w_full().child(
-                        Button::new(SharedString::from(format!("run-resume-{session_id}")))
-                            .ghost()
-                            .xsmall()
-                            .icon(Icon::from(registry::RUN_RESUME).xsmall())
-                            .label("Resume")
+                        crate::controls::glass_icon_button(
+                            SharedString::from(format!("run-resume-{session_id}")),
+                            Icon::from(registry::RUN_RESUME),
+                            cx,
+                        )
+                            .tooltip("Resume")
                             .on_click(move |event, window, cx| {
                                 cx.stop_propagation();
                                 on_resume(event, window, cx);

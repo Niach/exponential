@@ -675,15 +675,11 @@ impl Render for SupportThreadView {
             });
 
         // ---- details rail (web `ThreadDetails`, EXP-525 brings it back) ----
-        let section_heading = |label: &'static str| {
-            div()
-                .text_xs()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(muted)
-                .mb_1p5()
-                .child(label)
-        };
-        let mut reporter_section = v_flex().child(section_heading("REPORTER")).child(
+        // EXP-698: the shared glass section header, sentence case — the rail's
+        // headings used to be a bespoke uppercase caption.
+        let mut reporter_section = v_flex()
+            .child(crate::surface::glass_section_header("Reporter", None, None, cx))
+            .child(
             div()
                 .text_sm()
                 .font_weight(FontWeight::MEDIUM)
@@ -718,7 +714,8 @@ impl Render for SupportThreadView {
         }
 
         let context_section = self.submission.as_ref().and_then(|submission| {
-            let mut section = v_flex().child(section_heading("CONTEXT"));
+            let mut section = v_flex()
+                .child(crate::surface::glass_section_header("Context", None, None, cx));
             let mut any = false;
             if let Some(url) = submission.page_url.clone().filter(|url| !url.is_empty()) {
                 any = true;
@@ -764,7 +761,7 @@ impl Render for SupportThreadView {
                 };
                 let issue_id = issue.id.clone();
                 v_flex()
-                    .child(section_heading("LINKED ISSUE"))
+                    .child(crate::surface::glass_section_header("Linked issue", None, None, cx))
                     .child(
                         Button::new("support-linked-issue")
                             .outline().cursor_pointer()
@@ -795,7 +792,7 @@ impl Render for SupportThreadView {
                 let picked_id = picked.as_ref().map(|(id, _)| id.clone());
                 v_flex()
                     .gap_2()
-                    .child(section_heading("ESCALATE"))
+                    .child(crate::surface::glass_section_header("Escalate", None, None, cx))
                     .child(
                         div()
                             .text_xs()

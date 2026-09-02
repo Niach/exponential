@@ -676,13 +676,12 @@ impl Render for RepositoriesPane {
                         ));
                     }
                     Ok(repos) if repos.is_empty() => {
+                        // EXP-698: the shared glass row card, not a bespoke
+                        // bordered-but-unfilled box.
                         body = body.child(
-                            div()
+                            crate::surface::glass_row_card()
                                 .px_3()
                                 .py_2()
-                                .rounded(cx.theme().radius)
-                                .border_1()
-                                .border_color(super::row_stroke(cx))
                                 .text_sm()
                                 .text_color(cx.theme().muted_foreground)
                                 .child("No repositories connected yet."),
@@ -976,10 +975,11 @@ impl RepositoriesPane {
         }
 
         if can_manage {
-            let remove = Button::new(("repo-remove", index)).ghost().web_icon_xs().icon(
-                Icon::new(registry::UI_DELETE)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
+            // EXP-698: the one 32px glass chrome every trailing row action wears.
+            let remove = crate::controls::glass_icon_button(
+                ("repo-remove", index),
+                Icon::new(registry::UI_DELETE),
+                cx,
             );
             let linked = repo.boards.len();
             head = head.child(if linked > 0 {
@@ -1015,17 +1015,9 @@ impl RepositoriesPane {
                     .child("Used by"),
             );
             for board in &repo.boards {
+                // EXP-698: the shared non-interactive glass chip.
                 links = links.child(
-                    h_flex()
-                        .gap_1()
-                        .px_1p5()
-                        .py_0p5()
-                        .items_center()
-                        .rounded(cx.theme().radius)
-                        .border_1()
-                        .border_color(super::row_stroke(cx))
-                        .text_xs()
-                        .child(SharedString::from(board.name.clone())),
+                    crate::surface::glass_chip().child(SharedString::from(board.name.clone())),
                 );
             }
         }
@@ -1039,13 +1031,14 @@ impl RepositoriesPane {
             );
         }
 
-        v_flex()
+        // EXP-698: the shared glass ROW CARD — the repo list around it is
+        // gapped, so each repo is its own object.
+        crate::surface::glass_row_card()
+            .flex()
+            .flex_col()
             .gap_1p5()
             .px_3()
             .py_2()
-            .rounded(cx.theme().radius)
-            .border_1()
-            .border_color(super::row_stroke(cx))
             .child(head)
             .child(links)
     }
@@ -1236,32 +1229,16 @@ impl RepositoriesPane {
 /// The "Private" chip — same outline chip with the lock glyph, so private
 /// repos read at a glance instead of by word.
 fn private_chip(cx: &gpui::App) -> impl IntoElement {
-    h_flex()
-        .gap_1()
-        .px_1p5()
-        .py_0p5()
-        .items_center()
-        .rounded(cx.theme().radius)
-        .border_1()
-        .border_color(super::row_stroke(cx))
-        .text_xs()
+    crate::surface::glass_chip()
         .text_color(cx.theme().muted_foreground)
-        .flex_shrink_0()
         .child(Icon::new(registry::UI_PRIVATE).xsmall())
         .child("Private")
 }
 
 /// Outline chip (web `Badge variant="outline"` at compact density).
 fn chip(label: SharedString, cx: &gpui::App) -> impl IntoElement {
-    div()
-        .px_1p5()
-        .py_0p5()
-        .rounded(cx.theme().radius)
-        .border_1()
-        .border_color(super::row_stroke(cx))
-        .text_xs()
+    crate::surface::glass_chip()
         .font_family(theme::terminal::FONT_FAMILY)
         .text_color(cx.theme().muted_foreground)
-        .flex_shrink_0()
         .child(label)
 }

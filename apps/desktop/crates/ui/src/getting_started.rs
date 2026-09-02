@@ -49,7 +49,7 @@ use gpui_component::{
 };
 use sync::Store;
 
-use crate::actions_view::section_heading;
+use crate::surface::glass_section_header;
 use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::navigation::{
@@ -1053,7 +1053,7 @@ impl Render for GettingStartedView {
                         // rows carry their own gapped column.
                         v_flex()
                             .min_w_0()
-                            .child(section_heading("Suggestions", None, cx))
+                            .child(glass_section_header("Suggestions", None, None, cx))
                             .child(v_flex().min_w_0().gap_2().children(rows))
                             .into_any_element()
                     }

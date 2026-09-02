@@ -444,11 +444,13 @@ impl CreateActionDialogView {
             .items_center()
             .gap_2()
             .child(
-                Button::new("ca-automation-back")
-                    .ghost()
-                    .cursor_pointer()
-                    .xsmall()
-                    .icon(Icon::from(registry::UI_CHEVRON_LEFT))
+                // EXP-698: the one 32px glass chrome every detail-header action
+                // wears.
+                crate::controls::glass_icon_button(
+                    "ca-automation-back",
+                    Icon::from(registry::UI_CHEVRON_LEFT),
+                    cx,
+                )
                     .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
                         this.pane = Pane::Form;
                         cx.notify();

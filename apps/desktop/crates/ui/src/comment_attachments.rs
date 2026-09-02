@@ -233,13 +233,15 @@ fn image_tile(
             .flex_shrink_0()
             .child(tile)
             .child(
-                Button::new(SharedString::from(format!(
-                    "comment-attachment-remove-{}",
-                    attachment.id
-                )))
-                .ghost()
-                .web_icon_xs()
-                .icon(Icon::new(registry::UI_CLOSE).xsmall())
+                // EXP-698: the one 32px glass chrome every trailing action wears.
+                crate::controls::glass_icon_button(
+                    SharedString::from(format!(
+                        "comment-attachment-remove-{}",
+                        attachment.id
+                    )),
+                    Icon::new(registry::UI_CLOSE),
+                    cx,
+                )
                 .absolute()
                 .top(px(-4.))
                 .right(px(-4.))
@@ -309,16 +311,13 @@ fn file_chip(
 
     if let Some(on_remove) = remove {
         chip = chip.child(
-            Button::new(SharedString::from(format!(
-                "comment-attachment-remove-{}",
-                attachment.id
-            )))
-            .ghost()
-            .web_icon_xs()
-            .icon(
-                Icon::new(registry::UI_CLOSE)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
+            crate::controls::glass_icon_button(
+                SharedString::from(format!(
+                    "comment-attachment-remove-{}",
+                    attachment.id
+                )),
+                Icon::new(registry::UI_CLOSE),
+                cx,
             )
             .on_click(move |event, window, cx| {
                 cx.stop_propagation();
@@ -445,16 +444,13 @@ fn pending_chip(
         )
         .child(body)
         .child(
-            Button::new(SharedString::from(format!(
-                "comment-pending-remove-{}-{key}",
-                scope.id_prefix()
-            )))
-            .ghost()
-            .web_icon_xs()
-            .icon(
-                Icon::new(registry::UI_CLOSE)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
+            crate::controls::glass_icon_button(
+                SharedString::from(format!(
+                    "comment-pending-remove-{}-{key}",
+                    scope.id_prefix()
+                )),
+                Icon::new(registry::UI_CLOSE),
+                cx,
             )
             .on_click(cx.listener(
                 move |this: &mut IssueTimeline, _: &gpui::ClickEvent, _window: &mut Window, cx| {

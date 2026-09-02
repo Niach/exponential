@@ -25,11 +25,9 @@
 
 use std::collections::HashMap;
 
-use gpui::{
-    div, px, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, Window,
-};
+use gpui::{div, px, IntoElement, ParentElement, Render, SharedString, Styled, Window};
 use gpui_component::{
-    button::Button,
+    button::{Button, ButtonVariants as _},
     h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
     skeleton::Skeleton,
@@ -38,6 +36,9 @@ use gpui_component::{
 };
 
 use crate::controls::WebControl as _;
+use crate::surface::{
+    glass_group_rows, glass_picker_row, glass_toggle_row, glass_tray, picker_value_label,
+};
 
 use api::notifications::{EmailPrefs, UpdateEmailPrefsInput};
 use domain::contract::{
@@ -50,8 +51,7 @@ use domain::contract::{
 use crate::coding_flow::CodingHub;
 use crate::queries;
 
-use super::{section, error_notice, spawn_trpc};
-use crate::icons::registry;
+use super::{error_notice, section, spawn_trpc};
 
 /// Web `TYPE_ROWS` — verbatim labels + hints, contract-locked type values.
 const TYPE_ROWS: [(&str, &str, &str); 8] = [
@@ -276,43 +276,41 @@ impl Render for NotificationsPrefsPane {
             _ => (false, false, false),
         };
 
-        // EXP-638: the per-machine OS-notification switch — its own section
-        // above the email group (desktop-only; see the module doc).
+        // EXP-638: the per-machine OS-notification switch — its own group
+        // above the email one (desktop-only; see the module doc).
+        // EXP-698: every pref is a row of an inset-grouped stack now — the
+        // old flat `pref_row` hairline ladder is gone.
         let os_notifications = CodingHub::global(cx).read(cx).settings.os_notifications;
-        let desktop = section(cx).child(super::pref_row(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child("Desktop notifications"),
-            "Show a system notification on this computer when something new lands in \
-             your inbox. This machine only; the per-type switches below apply to it too.",
+        let desktop = glass_group_rows(vec![glass_toggle_row(
+            "Desktop notifications",
+            Some(
+                "Show a system notification on this computer when something new lands in \
+                 your inbox. This machine only; the per-type switches below apply to it too."
+                    .into(),
+            ),
             Switch::new("os-notifications")
                 .checked(os_notifications)
                 .on_click(cx.listener(|this, checked: &bool, _, cx| {
                     this.set_os_notifications(*checked, cx);
-                })),
-            true,
+                }))
+                .into_any_element(),
             cx,
-        ));
+        )]);
 
-        // EXP-282: section header — title/description + the master switch.
-        // EXP-285: the shared `pref_row` shape — capped hint measure,
-        // vertically centered control, hairline rhythm.
-        let mut body = section(cx).child(super::pref_row(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child("Email notifications"),
-            "Notifications still unread are bundled into one digest email.",
+        // The master email switch — its own single-row group, the way the web
+        // card's header switch reads.
+        let mut body = section(cx).child(glass_group_rows(vec![glass_toggle_row(
+            "Email notifications",
+            Some("Notifications still unread are bundled into one digest email.".into()),
             Switch::new("email-enabled")
                 .checked(email_enabled)
                 .disabled(!transport || !have_prefs)
                 .on_click(cx.listener(|this, checked: &bool, _, cx| {
                     this.set_email_enabled(*checked, cx);
-                })),
-            true,
+                }))
+                .into_any_element(),
             cx,
-        ));
+        )]));
 
         match &self.load {
             Load::Idle | Load::Loading => {
@@ -347,22 +345,18 @@ impl Render for NotificationsPrefsPane {
             }
             Load::Ready(prefs) => {
                 if !transport {
+                    // EXP-698: the shared glass tray, not a bespoke bordered box.
                     body = body.child(
-                        div()
+                        glass_tray()
+                            .w_full()
                             .px_3()
                             .py_2()
-                            .rounded(cx.theme().radius)
-                            .border_1()
-                            .border_color(super::row_stroke(cx))
-                            // EXP-282: glass section fill, not the opaque
-                            // `theme.muted` panel.
-                            .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
-                            .child(
+                            .child(div().flex_1().min_w_0().child(
                                 "Email sending is not configured on this server. No \
                                  digest emails go out.",
-                            ),
+                            )),
                     );
                 }
 
@@ -372,26 +366,26 @@ impl Render for NotificationsPrefsPane {
                 let types_disabled = !transport;
                 let digest_disabled = !transport || !prefs.email_enabled;
 
-                // EXP-285: the hairlines between the `pref_row`s carry the
-                // rhythm — no extra gap inside the stack.
-                let mut rows = v_flex();
+                // The eight per-type switches fuse into ONE grouped stack;
+                // the hairlines between them come from `glass_group_rows`.
+                let mut rows = Vec::with_capacity(TYPE_ROWS.len());
                 for (kind, label, hint) in TYPE_ROWS {
                     // Web: `typePrefs[type] !== false` — missing means ON.
                     let checked = prefs.type_prefs.get(kind).copied() != Some(false);
-                    rows = rows.child(super::pref_row(
-                        div().text_sm().child(label),
-                        hint,
+                    rows.push(glass_toggle_row(
+                        label,
+                        Some(hint.into()),
                         Switch::new(SharedString::from(format!("type-{kind}")))
                             .checked(checked)
                             .disabled(types_disabled)
                             .on_click(cx.listener(move |this, checked: &bool, _, cx| {
                                 this.toggle_type(kind, *checked, cx);
-                            })),
-                        false,
+                            }))
+                            .into_any_element(),
                         cx,
                     ));
                 }
-                body = body.child(rows);
+                body = body.child(glass_group_rows(rows));
 
                 let digest = prefs.digest.clone().unwrap_or_else(|| DIGEST_OFF.to_string());
                 let digest_label: SharedString = if digest == DIGEST_DAILY {
@@ -399,15 +393,22 @@ impl Render for NotificationsPrefsPane {
                 } else {
                     "Hourly digest".into()
                 };
-                body = body.child(super::pref_row(
-                    div().text_sm().child("Delivery"),
-                    "How often the digest goes out.",
+                let value_color = cx.theme().foreground.opacity(0.7);
+                let mut digest_rows = vec![glass_picker_row(
+                    "Delivery",
+                    Some("How often the digest goes out.".into()),
                     Button::new("digest-select")
-                        .outline().cursor_pointer()
-                        .web_input_sm()
-                        .label(digest_label)
-                        .icon(registry::UI_CHEVRON_DOWN)
+                        .ghost()
+                        .cursor_pointer()
+                        .h_auto()
+                        .px_0()
+                        .py_0()
+                        .text_color(value_color)
+                        .dropdown_caret(true)
                         .disabled(digest_disabled)
+                        // EXP-697: NOT `.label()` — upstream draws that in a
+                        // `flex_none` box that neither shrinks nor truncates.
+                        .child(picker_value_label(digest_label))
                         .dropdown_menu({
                             let entity = cx.entity();
                             let current = digest.clone();
@@ -429,25 +430,29 @@ impl Render for NotificationsPrefsPane {
                                 }
                                 menu
                             }
-                        }),
-                    false,
+                        })
+                        .into_any_element(),
                     cx,
-                ));
+                )];
 
                 // EXP-369: the daily cadence's send time. Full hours only —
                 // the server's 10-minute sweep resolves send points at hour
                 // resolution, so there is nothing finer to offer.
                 if digest == DIGEST_DAILY {
                     let hour = prefs.digest_hour.unwrap_or(DEFAULT_DIGEST_HOUR);
-                    body = body.child(super::pref_row(
-                        div().text_sm().child("Send time"),
-                        "Full hours only, in your timezone.",
+                    digest_rows.push(glass_picker_row(
+                        "Send time",
+                        Some("Full hours only, in your timezone.".into()),
                         Button::new("digest-hour-select")
-                            .outline().cursor_pointer()
-                            .web_input_sm()
-                            .label(SharedString::from(format!("{hour}:00")))
-                            .icon(registry::UI_CHEVRON_DOWN)
+                            .ghost()
+                            .cursor_pointer()
+                            .h_auto()
+                            .px_0()
+                            .py_0()
+                            .text_color(value_color)
+                            .dropdown_caret(true)
                             .disabled(digest_disabled)
+                            .child(picker_value_label(SharedString::from(format!("{hour}:00"))))
                             .dropdown_menu({
                                 let entity = cx.entity();
                                 move |mut menu, _, _| {
@@ -466,11 +471,12 @@ impl Render for NotificationsPrefsPane {
                                     }
                                     menu
                                 }
-                            }),
-                        false,
+                            })
+                            .into_any_element(),
                         cx,
                     ));
                 }
+                body = body.child(glass_group_rows(digest_rows));
             }
         }
 

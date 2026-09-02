@@ -505,10 +505,12 @@ impl IssueListView {
             .border_b_1()
             .border_color(cx.theme().border.opacity(0.5))
             .child(
-                Button::new(header_id("collapse", &status.group_key))
-                    .ghost().cursor_pointer()
-                    .xsmall()
-                    .icon(Icon::new(chevron).text_color(cx.theme().muted_foreground))
+                // EXP-698: the one 32px glass chrome every list-row action wears.
+                crate::controls::glass_icon_button(
+                    header_id("collapse", &status.group_key),
+                    Icon::new(chevron),
+                    cx,
+                )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.toggle_group(group_key.clone(), cx);
                     })),

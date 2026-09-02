@@ -6,14 +6,59 @@
 //! hairlines vanish on 1x-scale displays.
 
 use gpui::{
-    div, px, AnyElement, App, Div, InteractiveElement as _, ParentElement as _, SharedString,
-    StyleRefinement, Styled,
+    div, px, AnyElement, App, Div, FontWeight, InteractiveElement as _, ParentElement as _,
+    SharedString, StyleRefinement, Styled,
 };
 use gpui_component::input::Input;
 use gpui_component::searchable_list::{SearchableListDelegate, SearchableListItem};
 use gpui_component::select::Select;
 use gpui_component::{h_flex, text::TextViewStyle, v_flex, ActiveTheme as _};
 use theme::tokens as t;
+
+/// EXP-698 — the web `GlassSectionHeader` (`components/ui/glass-rows.tsx`,
+/// EXP-616): a PLAIN-TEXT heading over a glass list — no band, no fill, no
+/// border — `px_1 pt_1 pb_2`, the label `text_sm` MEDIUM at 70% foreground,
+/// an optional `count` trailing it in `text_xs` at 50%, then a spacer and the
+/// optional trailing control. Labels are SENTENCE CASE, never uppercase.
+///
+/// Lived in `actions_view` until EXP-698 moved it here beside the other
+/// glass recipes; every page section (Actions, Automations, Devices,
+/// Getting started, the support rail) carries this one header design.
+///
+/// The `pb_2` IS the gap to the list below it — a section wrapper that adds
+/// its own `gap_2` doubles it (EXP-697); keep the rows in a nested
+/// `v_flex().gap_2()` instead.
+pub(crate) fn glass_section_header(
+    label: impl Into<SharedString>,
+    count: Option<usize>,
+    trailing: Option<AnyElement>,
+    cx: &App,
+) -> Div {
+    let foreground = cx.theme().foreground;
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .items_center()
+        .gap_1p5()
+        .px_1()
+        .pt_1()
+        .pb_2()
+        .child(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(foreground.opacity(0.7))
+                .child(label.into()),
+        )
+        .children(count.map(|count| {
+            div()
+                .text_xs()
+                .text_color(foreground.opacity(0.5))
+                .child(SharedString::from(count.to_string()))
+        }))
+        .child(div().flex_1())
+        .children(trailing)
+}
 
 /// Card surface: radius 16, white 6% fill, white 10% hairline (mobile
 /// `GlassCard`). Layout (width/padding/gap) is the caller's job.

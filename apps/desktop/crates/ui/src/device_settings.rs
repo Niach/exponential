@@ -35,7 +35,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, size, App, AppContext as _, Div, Entity, IntoElement,
+    div, px, size, App, AppContext as _, Div, Entity, IntoElement,
     ParentElement, Render, SharedString, Styled, Subscription, Task, Window,
 };
 use gpui_component::{
@@ -43,7 +43,6 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState},
     select::Select,
-    spinner::Spinner,
     switch::Switch,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -1729,16 +1728,14 @@ impl DeviceSettingsView {
             .child(
                 // EXP-688: icon-only — the label was the widest thing in the
                 // section header and said what the broom already says.
-                Button::new("device-worktrees-prune")
-                    .ghost()
-                    .web_icon_xs()
-                    .map(|button| {
-                        if prune_pending {
-                            button.child(Spinner::new().xsmall())
-                        } else {
-                            button.icon(registry::UI_CLEAN)
-                        }
-                    })
+                // EXP-698: the one 32px glass chrome every trailing action wears;
+                // `loading` swaps the glyph for the spinner.
+                crate::controls::glass_icon_button(
+                    "device-worktrees-prune",
+                    Icon::new(registry::UI_CLEAN),
+                    cx,
+                )
+                    .loading(prune_pending)
                     .tooltip("Prune merged worktrees")
                     .disabled(prune_pending || worktrees.is_empty())
                     .on_click(cx.listener(|this, _, _, cx| {

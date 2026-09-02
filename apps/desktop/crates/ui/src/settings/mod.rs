@@ -884,40 +884,6 @@ pub(crate) fn row_stroke(_cx: &App) -> gpui::Hsla {
     theme::tokens::glass::STROKE_ROW.to_hsla()
 }
 
-/// EXP-285: one settings preference row — label + hint column left (the hint
-/// wraps at a readable measure instead of sprawling the full pane), the
-/// control pinned right, hairline separators BETWEEN rows carrying the
-/// rhythm (`first` rows draw none).
-pub(crate) fn pref_row(
-    label: impl IntoElement,
-    hint: impl Into<SharedString>,
-    control: impl IntoElement,
-    first: bool,
-    cx: &App,
-) -> gpui::Div {
-    h_flex()
-        .w_full()
-        .items_center()
-        .gap_4()
-        .py_2p5()
-        .when(!first, |row| row.border_t_1().border_color(row_stroke(cx)))
-        .child(
-            v_flex()
-                .flex_1()
-                .min_w_0()
-                .gap_0p5()
-                .child(label)
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .max_w(px(460.))
-                        .child(hint.into()),
-                ),
-        )
-        .child(div().flex_none().child(control))
-}
-
 /// Web `formatStorage`: MB under a GB, one-decimal GB above. Shared by the
 /// General billing summary and the Storage pane's usage meter (EXP-297).
 pub(super) fn format_storage(mb: f64) -> String {

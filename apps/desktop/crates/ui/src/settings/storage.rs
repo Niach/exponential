@@ -23,7 +23,7 @@
 //! bar at all (web parity: `plan !== 'unlimited'`).
 
 use gpui::{
-    div, prelude::FluentBuilder as _, AnyElement, App, Entity, FontWeight,
+    div, AnyElement, App, Entity, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
@@ -303,12 +303,11 @@ impl StoragePane {
     /// those cells read a dash (web parity).
     fn render_row(
         &self,
-        index: usize,
         row: &TeamAttachmentRow,
         identifier: Option<String>,
         uploader: Option<String>,
         cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
+    ) -> gpui::Div {
         let muted = cx.theme().muted_foreground;
         let status: &str = if !row.is_image {
             "File"
@@ -398,14 +397,9 @@ impl StoragePane {
                 .into_any_element(),
         };
 
-        h_flex()
-            .w_full()
-            .items_center()
-            .gap_3()
-            .py_1p5()
-            .when(index > 0, |this| {
-                this.border_t_1().border_color(super::row_stroke(cx))
-            })
+        // EXP-698: one row of an inset-grouped stack; `glass_group_rows` owns
+        // the hairlines.
+        crate::surface::glass_row_shell()
             .child(
                 h_flex()
                     .flex_1()
@@ -450,10 +444,12 @@ impl StoragePane {
             )
             .child(status_chip(status, cx))
             .child(
-                Button::new(SharedString::from(format!("storage-delete-{}", row.id)))
-                    .ghost()
-                    .web_icon_xs()
-                    .icon(Icon::from(ExpIcon::Trash2).xsmall().text_color(muted))
+                // EXP-698: the one 32px glass chrome every row action wears.
+                crate::controls::glass_icon_button(
+                    SharedString::from(format!("storage-delete-{}", row.id)),
+                    Icon::from(ExpIcon::Trash2),
+                    cx,
+                )
                     .disabled(self.busy)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.confirm_delete(&row_for_delete, window, cx);
@@ -618,13 +614,14 @@ impl Render for StoragePane {
                             })
                             .collect()
                     };
-                    let mut list = v_flex().w_full();
-                    for (index, (row, (identifier, uploader))) in
-                        rows.iter().zip(joins.into_iter()).enumerate()
-                    {
-                        list = list.child(self.render_row(index, row, identifier, uploader, cx));
-                    }
-                    body = body.child(list);
+                    let list: Vec<gpui::Div> = rows
+                        .iter()
+                        .zip(joins.into_iter())
+                        .map(|(row, (identifier, uploader))| {
+                            self.render_row(row, identifier, uploader, cx)
+                        })
+                        .collect();
+                    body = body.child(crate::surface::glass_group_rows(list));
                 }
             }
         }

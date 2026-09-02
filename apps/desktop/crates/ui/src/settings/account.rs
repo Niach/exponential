@@ -137,9 +137,11 @@ impl AccountPane {
             Timezone::Ready(Some(_)) => cx.theme().foreground,
             _ => cx.theme().muted_foreground,
         };
-        super::pref_row(
-            div().text_sm().child("Timezone"),
-            "Used to schedule your daily digest email.",
+        // EXP-698: one row of an inset-grouped stack, not the old flat
+        // `pref_row` hairline ladder.
+        crate::surface::glass_group_rows(vec![crate::surface::glass_picker_row(
+            "Timezone",
+            Some("Used to schedule your daily digest email.".into()),
             h_flex()
                 .gap_2()
                 .items_center()
@@ -152,10 +154,10 @@ impl AccountPane {
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.use_system_timezone(cx);
                         })),
-                ),
-            true,
+                )
+                .into_any_element(),
             cx,
-        )
+        )])
     }
 
     /// Avatar + full name + email — the one place the full identity shows
@@ -222,6 +224,6 @@ impl Render for AccountPane {
         v_flex()
             .gap_6()
             .child(self.render_identity(cx))
-            .child(super::section(cx).child(self.render_timezone(cx)))
+            .child(self.render_timezone(cx))
     }
 }

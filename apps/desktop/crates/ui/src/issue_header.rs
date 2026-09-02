@@ -30,7 +30,7 @@ use gpui::{
     SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
+    button::Button,
     calendar::{CalendarEvent, CalendarState, Date},
     h_flex,
     input::InputState,
@@ -500,11 +500,13 @@ impl IssueHeader {
         let extra: Option<crate::pickers::DueExtra> = has_due.then(|| {
             Rc::new(move |_window: &mut Window, cx: &mut App| {
                 let panel = panel.clone();
-                Button::new("prop-due-clear")
-                    .ghost().cursor_pointer()
-                    .xsmall()
-                    .label("Clear due date")
-                    .text_color(cx.theme().muted_foreground)
+                // EXP-698: the one 32px glass chrome every trailing action wears.
+                crate::controls::glass_icon_button(
+                    "prop-due-clear",
+                    Icon::new(registry::UI_CLOSE),
+                    cx,
+                )
+                    .tooltip("Clear due date")
                     .on_click(move |_, _, cx| {
                         panel.update(cx, |panel, cx| {
                             panel.commit_due_date(None, cx);
@@ -863,13 +865,11 @@ impl IssueHeader {
                         ))),
                 )
                 .child(
-                    Button::new("issue-switch-prev")
-                        .ghost().cursor_pointer()
-                        .xsmall()
-                        .icon(
-                            Icon::new(registry::UI_CHEVRON_UP)
-                                .text_color(cx.theme().muted_foreground),
-                        )
+                    crate::controls::glass_icon_button(
+                        "issue-switch-prev",
+                        Icon::new(registry::UI_CHEVRON_UP),
+                        cx,
+                    )
                         .disabled(state.prev_id.is_none())
                         .tooltip("Previous issue")
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -877,13 +877,11 @@ impl IssueHeader {
                         })),
                 )
                 .child(
-                    Button::new("issue-switch-next")
-                        .ghost().cursor_pointer()
-                        .xsmall()
-                        .icon(
-                            Icon::new(registry::UI_CHEVRON_DOWN)
-                                .text_color(cx.theme().muted_foreground),
-                        )
+                    crate::controls::glass_icon_button(
+                        "issue-switch-next",
+                        Icon::new(registry::UI_CHEVRON_DOWN),
+                        cx,
+                    )
                         .disabled(state.next_id.is_none())
                         .tooltip("Next issue")
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -900,12 +898,9 @@ impl IssueHeader {
         let icon = if self.link_copied {
             Icon::from(ExpIcon::Check).text_color(cx.theme().primary)
         } else {
-            Icon::from(ExpIcon::Link).text_color(cx.theme().muted_foreground)
+            Icon::from(ExpIcon::Link)
         };
-        Button::new("copy-issue-link")
-            .ghost().cursor_pointer()
-            .xsmall()
-            .icon(icon)
+        crate::controls::glass_icon_button("copy-issue-link", icon, cx)
             .disabled(url.is_none())
             .tooltip(if self.link_copied {
                 "Link copied"
@@ -952,10 +947,11 @@ impl IssueHeader {
         } else {
             cx.theme().muted_foreground
         };
-        Button::new("subscribe-toggle")
-            .ghost().cursor_pointer()
-            .xsmall()
-            .icon(Icon::from(icon).text_color(tint))
+        crate::controls::glass_icon_button(
+            "subscribe-toggle",
+            Icon::from(icon).text_color(tint),
+            cx,
+        )
             .disabled(self.subscribe_busy || account.is_none())
             .tooltip(if subscribed {
                 "Subscribed. Click to unsubscribe."
@@ -979,10 +975,11 @@ impl IssueHeader {
         }
         let issue_id = issue.id.clone();
         Some(
-            Button::new("issue-actions")
-                .ghost().cursor_pointer()
-                .xsmall()
-                .icon(Icon::new(registry::UI_MORE).text_color(cx.theme().muted_foreground))
+            crate::controls::glass_icon_button(
+                "issue-actions",
+                Icon::new(registry::UI_MORE),
+                cx,
+            )
                 .dropdown_menu(move |menu, _window, _cx| {
                     let issue_id = issue_id.clone();
                     menu.item(
@@ -1006,10 +1003,11 @@ impl IssueHeader {
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let issue_id = issue.id.clone();
-        Button::new("issue-delete")
-            .ghost().cursor_pointer()
-            .xsmall()
-            .icon(Icon::new(registry::UI_DELETE).text_color(cx.theme().muted_foreground))
+        crate::controls::glass_icon_button(
+            "issue-delete",
+            Icon::new(registry::UI_DELETE),
+            cx,
+        )
             .tooltip("Delete issue")
             .dropdown_menu(move |menu, _window, cx| {
                 let issue_id = issue_id.clone();

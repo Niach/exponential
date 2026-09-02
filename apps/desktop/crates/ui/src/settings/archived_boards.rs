@@ -16,7 +16,7 @@
 //! the row leaves this server list and re-enters sync at its own pace).
 
 use gpui::{
-    div, prelude::FluentBuilder as _, Entity, IntoElement, ParentElement, Render, SharedString,
+    div, Entity, IntoElement, ParentElement, Render, SharedString,
     Styled, Subscription, Window,
 };
 use gpui_component::{
@@ -35,7 +35,7 @@ use crate::icons::{board_icon_name_glyph, registry};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
-use super::{card_header, error_notice, row_stroke, section};
+use super::{card_header, error_notice, section};
 
 enum Load {
     Idle,
@@ -168,22 +168,12 @@ impl ArchivedBoardsPane {
         .detach();
     }
 
-    fn row(
-        &self,
-        index: usize,
-        board: &ArchivedBoard,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
+    fn row(&self, board: &ArchivedBoard, cx: &mut gpui::Context<Self>) -> gpui::Div {
         let pending = self.pending.as_deref() == Some(board.id.as_str());
         let board_for_click = board.clone();
-        h_flex()
-            .w_full()
-            .items_center()
-            .gap_3()
-            .py_1p5()
-            .when(index > 0, |this| {
-                this.border_t_1().border_color(row_stroke(cx))
-            })
+        // EXP-698: one row of an inset-grouped stack; `glass_group_rows` owns
+        // the hairlines.
+        crate::surface::glass_row_shell()
             .child(board_icon_name_glyph(board.icon.as_deref().unwrap_or_default()))
             .child(div().flex_1().min_w_0().text_sm().child(board.name.clone()))
             .child(
@@ -267,14 +257,9 @@ impl Render for ArchivedBoardsPane {
             }
             Load::Ready(Ok(rows)) => {
                 let rows = rows.clone();
-                body = body.child(
-                    v_flex().w_full().children(
-                        rows.iter()
-                            .enumerate()
-                            .map(|(index, board)| self.row(index, board, cx).into_any_element())
-                            .collect::<Vec<_>>(),
-                    ),
-                );
+                body = body.child(crate::surface::glass_group_rows(
+                    rows.iter().map(|board| self.row(board, cx)).collect(),
+                ));
             }
         }
 
