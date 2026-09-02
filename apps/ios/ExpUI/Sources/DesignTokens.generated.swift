@@ -43,6 +43,20 @@ public enum DesignTokens {
         public static let codeStroke: Color = Color(red: 0.5412, green: 0.7059, blue: 0.9725, opacity: 0.2000)
     }
 
+    // Avatar fallback hues (EXP-698 r4) — index = fnv1a32(userId) % hues.count,
+    // see ExpCore AvatarColor.swift. Order is the contract; never reorder.
+    public enum Avatar {
+        public static let red: Color = Color(red: 0.9725, green: 0.4431, blue: 0.4431, opacity: 1.0000)
+        public static let orange: Color = Color(red: 0.9843, green: 0.5725, blue: 0.2353, opacity: 1.0000)
+        public static let yellow: Color = Color(red: 0.9804, green: 0.8000, blue: 0.0824, opacity: 1.0000)
+        public static let green: Color = Color(red: 0.2902, green: 0.8706, blue: 0.5020, opacity: 1.0000)
+        public static let teal: Color = Color(red: 0.1765, green: 0.8314, blue: 0.7490, opacity: 1.0000)
+        public static let blue: Color = Color(red: 0.3765, green: 0.6471, blue: 0.9804, opacity: 1.0000)
+        public static let violet: Color = Color(red: 0.6549, green: 0.5451, blue: 0.9804, opacity: 1.0000)
+        public static let pink: Color = Color(red: 0.9569, green: 0.4471, blue: 0.7137, opacity: 1.0000)
+        public static let hues: [Color] = [red, orange, yellow, green, teal, blue, violet, pink]
+    }
+
     // Glass surfaces (EXP-269) — read through ExpUI GlassTokens.swift; the
     // styleguide Components group renders the same values (EXP-698).
     public enum Glass {

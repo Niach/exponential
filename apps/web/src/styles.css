@@ -72,6 +72,15 @@ html {
   --color-code-text: var(--code-text);
   --color-code-fill: var(--code-fill);
   --color-code-stroke: var(--code-stroke);
+  /* EXP-698 r4 — avatar fallback hues, tokens.json `avatar` in order. */
+  --color-avatar-0: var(--avatar-0);
+  --color-avatar-1: var(--avatar-1);
+  --color-avatar-2: var(--avatar-2);
+  --color-avatar-3: var(--avatar-3);
+  --color-avatar-4: var(--avatar-4);
+  --color-avatar-5: var(--avatar-5);
+  --color-avatar-6: var(--avatar-6);
+  --color-avatar-7: var(--avatar-7);
   /* EXP-523 — Tailwind v4's `--ease-*` theme namespace, so `ease-standard`,
      `ease-decelerate` and `ease-accelerate` exist as utilities. Same
      var-indirection shape as --color-glass-* above; the raw vars carry the
@@ -148,6 +157,15 @@ html {
   --code-text: #8AB4F8;
   --code-fill: #8AB4F81F;
   --code-stroke: #8AB4F833;
+  /* EXP-698 r4: avatar fallback hues — tokens.json `avatar`, index = fnv1a32(userId) % 8 (lib/avatar-color.ts). */
+  --avatar-0: #F87171;
+  --avatar-1: #FB923C;
+  --avatar-2: #FACC15;
+  --avatar-3: #4ADE80;
+  --avatar-4: #2DD4BF;
+  --avatar-5: #60A5FA;
+  --avatar-6: #A78BFA;
+  --avatar-7: #F472B6;
   /* EXP-523 motion tokens. THEME-INVARIANT, so unlike --glass-* these
      live in :root ONLY and are never duplicated into .dark. Values mirror
      packages/design-tokens/tokens.json `motion` (the source the three native
@@ -222,6 +240,15 @@ html {
   --code-text: #8AB4F8;
   --code-fill: #8AB4F81F;
   --code-stroke: #8AB4F833;
+  /* EXP-698 r4: avatar fallback hues — tokens.json `avatar`, index = fnv1a32(userId) % 8 (lib/avatar-color.ts). */
+  --avatar-0: #F87171;
+  --avatar-1: #FB923C;
+  --avatar-2: #FACC15;
+  --avatar-3: #4ADE80;
+  --avatar-4: #2DD4BF;
+  --avatar-5: #60A5FA;
+  --avatar-6: #A78BFA;
+  --avatar-7: #F472B6;
 }
 
 @layer base {

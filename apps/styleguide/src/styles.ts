@@ -47,6 +47,7 @@ const page = `
   --code-text: ${designTokens.semantic.codeText};
   --code-fill: ${designTokens.semantic.codeFill};
   --code-stroke: ${designTokens.semantic.codeStroke};
+${Object.entries(designTokens.avatar).filter(([k]) => !k.startsWith(`$`)).map(([, v], i) => `  --avatar-${i}: ${v};`).join(`\n`)}
   --primary: ${palette.primary};
   --primary-fg: ${palette.primaryForeground};
   --popover: ${palette.popover};

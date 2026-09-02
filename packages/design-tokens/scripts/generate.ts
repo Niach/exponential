@@ -19,6 +19,9 @@ const repoRoot = join(__dirname, "..", "..", "..")
 interface Tokens {
   palette: Record<string, string>
   semantic: Record<string, string>
+  // Ordered avatar fallback hues (EXP-698 r4): key order IS the hash index,
+  // so every emitter also writes the list form the hash indexes into.
+  avatar: Record<string, string>
   glass: Record<string, string>
   radius: Record<string, number>
   size: Record<string, number>
@@ -203,6 +206,13 @@ function emitKotlin(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        val ${pascalCase(k)}: Color = ${kotlinColor(v)}`)
     .join(`\n`)
+  const avatarEntries = Object.entries(tokens.avatar).filter(
+    ([k]) => !k.startsWith(`$`)
+  )
+  const avatar = avatarEntries
+    .map(([k, v]) => `        val ${pascalCase(k)}: Color = ${kotlinColor(v)}`)
+    .join(`\n`)
+  const avatarList = avatarEntries.map(([k]) => pascalCase(k)).join(`, `)
   const glass = Object.entries(tokens.glass)
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        val ${pascalCase(k)}: Color = ${kotlinColor(v)}`)
@@ -244,6 +254,13 @@ ${palette}
     // Fixed brand accents (status / priority / due-date).
     object Semantic {
 ${semantic}
+    }
+
+    // Avatar fallback hues (EXP-698 r4) — index = fnv1a32(userId) % Hues.size,
+    // see ui/components/Avatars.kt. Order is the contract; never reorder.
+    object Avatar {
+${avatar}
+        val Hues: List<Color> = listOf(${avatarList})
     }
 
     // Glass surfaces (EXP-269) — read through the ui/theme/Glass.kt GlassTokens
@@ -294,6 +311,13 @@ function emitSwift(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        public static let ${k}: Color = ${swiftColor(v)}`)
     .join(`\n`)
+  const avatarEntries = Object.entries(tokens.avatar).filter(
+    ([k]) => !k.startsWith(`$`)
+  )
+  const avatar = avatarEntries
+    .map(([k, v]) => `        public static let ${k}: Color = ${swiftColor(v)}`)
+    .join(`\n`)
+  const avatarList = avatarEntries.map(([k]) => k).join(`, `)
   const glass = Object.entries(tokens.glass)
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        public static let ${k}: Color = ${swiftColor(v)}`)
@@ -331,6 +355,13 @@ ${palette}
     // Fixed brand accents (status / priority / due-date).
     public enum Semantic {
 ${semantic}
+    }
+
+    // Avatar fallback hues (EXP-698 r4) — index = fnv1a32(userId) % hues.count,
+    // see ExpCore AvatarColor.swift. Order is the contract; never reorder.
+    public enum Avatar {
+${avatar}
+        public static let hues: [Color] = [${avatarList}]
     }
 
     // Glass surfaces (EXP-269) — read through ExpUI GlassTokens.swift; the
@@ -384,6 +415,13 @@ function emitRust(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => rustSrgb8(k, v))
     .join(`\n`)
+  const avatarEntries = Object.entries(tokens.avatar).filter(
+    ([k]) => !k.startsWith(`$`)
+  )
+  const avatar = avatarEntries
+    .map(([k, v]) => `    ${rustSrgb8(k, v)}`)
+    .join(`\n`)
+  const avatarList = avatarEntries.map(([k]) => screamingSnake(k)).join(`, `)
   const glass = Object.entries(tokens.glass)
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `    ${rustSrgb8(k, v)}`)
@@ -413,6 +451,14 @@ ${palette}
 
 // Fixed brand accents (status / priority / due-date).
 ${semantic}
+
+// Avatar fallback hues (EXP-698 r4) — index = fnv1a32(user_id) % HUES.len(),
+// see crates/ui/src/user_avatar.rs. Order is the contract; never reorder.
+pub mod avatar {
+    use crate::Srgb8;
+${avatar}
+    pub const HUES: [Srgb8; ${avatarEntries.length}] = [${avatarList}];
+}
 
 // Glass surfaces (EXP-269) — the mobile GlassTheme transcription. The nested
 // module keeps the short fill/stroke keys from colliding with palette names.
