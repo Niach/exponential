@@ -25,7 +25,6 @@ import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.failUnacknowledged
 import com.exponential.app.domain.lockAnswer
 import com.exponential.app.domain.locksCard
-import com.exponential.app.domain.questionLockKey
 import io.ktor.http.HttpStatusCode
 import kotlin.math.pow
 import kotlin.random.Random
@@ -69,9 +68,10 @@ import kotlinx.serialization.json.putJsonArray
 // BINARY frame from an old desktop is dropped by the transport. Steering is
 // message-shaped and fully seamless (EXP-312 — no operator claim, no
 // view/steer perm split; the ticket mint is owner-only, so a live connection
-// just steers): chunked input + a separate \r; answers are semantic
-// {t:'answer'} frames, with the raw-keystroke path kept only for question
-// cards published by pre-EXP-249 desktops (no wire id).
+// just steers): chunked input + a separate \r; answers are ALWAYS semantic
+// {t:'answer'} frames keyed by the card's wire id (EXP-672 retired the
+// raw-keystroke fallback — an id-less card from a pre-EXP-249 desktop renders
+// read-only).
 //
 // EXP-621: all of this lives in an app singleton keyed by coding session
 // ([SteerConnectionStore]), NOT in the screen's ViewModel — the socket, the
@@ -843,7 +843,7 @@ class SteerConnection internal constructor(
         // A card that survived the replay keeps its in-flight lock (and the
         // labels the stepper renders for it); everything else is released.
         val liveKeys = next.feed.filterIsInstance<AgentFeedItem.Question>()
-            .mapTo(mutableSetOf()) { questionLockKey(it) }
+            .mapNotNullTo(mutableSetOf()) { it.wireId }
         val carried = previous.answerLocks
             .filterKeys { it in liveKeys }
             .filterValues { it == AnswerState.Sending }
@@ -1059,29 +1059,6 @@ class SteerConnection internal constructor(
         }
     }
 
-    /**
-     * Answer a question card published by a pre-EXP-249 desktop (no wire id):
-     * the option's raw TUI keystroke. The digit ALONE — bundling
-     * a `\r` submitted the picker AND cascaded into whatever picker claude
-     * opened next. [lock] is off for multi-select toggles, which tap repeatedly
-     * before [sendSubmit] advances the picker.
-     */
-    fun sendLegacyAnswer(lockKey: String, key: String, lock: Boolean = true) {
-        if (key.isEmpty()) return
-        if (lock && _activity.value.answerLocks[lockKey].locksCard()) return
-        val socket = ws ?: return
-        if (lock) lockAnswer(lockKey)
-        scope.launch {
-            runCatching {
-                val frame = buildJsonObject {
-                    put("t", "input")
-                    put("data", key)
-                }
-                socket.send(json.encodeToString(JsonObject.serializer(), frame))
-            }
-        }
-    }
-
     private fun lockAnswer(lockKey: String, labels: List<String> = emptyList()) {
         _activity.value = _activity.value.lockAnswer(lockKey, labels)
         ackTimeouts.remove(lockKey)?.cancel()
@@ -1092,11 +1069,4 @@ class SteerConnection internal constructor(
             _activity.value = _activity.value.failUnacknowledged(lockKey)
         }
     }
-
-    /** Advance a legacy multi-select question. Tab, NOT Enter: with the cursor
-     *  on an option row Enter TOGGLES it (verified against claude v2.1.215 —
-     *  silently corrupting the selection), while Tab moves to the next
-     *  tab/review step, whose picker the grid watcher publishes as its own
-     *  card (EXP-197). */
-    fun sendSubmit() = sendLegacyAnswer("", "\t", lock = false)
 }

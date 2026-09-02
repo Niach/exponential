@@ -209,7 +209,7 @@ const IGNORED: RegExp[] = [
   // One-off operator scripts. Named individually rather than by a `scripts/`
   // prefix, because the capture pipeline itself lives in that directory and
   // absolutely does widen (see BROAD).
-  /^apps\/web\/scripts\/(backfill-[a-z-]+|scrub-widget-descriptions|fix-server-trace|capture-social-shots)\.ts$/,
+  /^apps\/web\/scripts\/(backfill-[a-z-]+|fix-server-trace|capture-social-shots)\.ts$/,
 ]
 
 /** The catalog file, diffed entry by entry instead of matched by rule. */

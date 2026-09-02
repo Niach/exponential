@@ -77,19 +77,16 @@ describe(`resolveLauncher`, () => {
     )
   })
 
-  it(`maps a legacy served position to a fab on both devices`, () => {
+  // EXP-672: the served legacy `position` read shim is gone (every stored
+  // row carries `launcher`) — a stray field from an old server is ignored.
+  it(`ignores a legacy served position`, () => {
     const legacy = config({ position: `bottom-left` })
-    expect(resolveLauncher({ key: `k` }, legacy, false)).toMatchObject({
-      mode: `fab`,
-      position: `bottom-left`,
-    })
-    expect(resolveLauncher({ key: `k` }, legacy, true)).toMatchObject({
-      mode: `fab`,
-      position: `bottom-left`,
-    })
-  })
-
-  it(`prefers the served launcher over the legacy served position`, () => {
+    expect(resolveLauncher({ key: `k` }, legacy, false)).toMatchObject(
+      defaultLauncher.desktop
+    )
+    expect(resolveLauncher({ key: `k` }, legacy, true)).toMatchObject(
+      defaultLauncher.mobile
+    )
     const both = config({
       position: `bottom-left`,
       launcher: {

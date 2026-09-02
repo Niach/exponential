@@ -512,54 +512,30 @@ export function registerExponentialTools(
 
   // Park the run that just opened a PR in `in_review` and stamp the PR's head
   // branch on it (EXP-545: the row↔PR linkage clients tie their Merge
-  // shortcut to). With the session header this hits the EXACT row; without it
-  // (a pre-EXP-637 launcher) the batch path falls back to the historical
-  // heuristic — the caller's issue-less, action-less running rows in the
-  // affected teams, which two concurrent batch runs by the same user in one
-  // team cannot tell apart. `needsInput` resets with the flip like the
-  // per-issue path (EXP-531).
+  // shortcut to). The EXP-637 session header names the EXACT row; a call
+  // without one parks NOTHING (EXP-710 removed the pre-EXP-637 heuristic
+  // over the caller's issue-less running rows — two concurrent batch runs by
+  // one user in one team were indistinguishable to it). `needsInput` resets
+  // with the flip like the per-issue path (EXP-531).
   async function parkSessionInReview(
     tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
     opts: {
       callerSessionId: string | null
-      teamIds: string[]
       headBranch: string
-      fallbackBatchFlip: boolean
     }
   ): Promise<void> {
-    const set = {
-      status: `in_review` as const,
-      branch: opts.headBranch,
-      needsInput: false,
-      updatedAt: new Date(),
-    }
-    if (opts.callerSessionId) {
-      await tx
-        .update(codingSessions)
-        .set(set)
-        .where(
-          and(
-            eq(codingSessions.id, opts.callerSessionId),
-            eq(codingSessions.status, `running`)
-          )
-        )
-      return
-    }
-    if (!opts.fallbackBatchFlip || opts.teamIds.length === 0) return
+    if (!opts.callerSessionId) return
     await tx
       .update(codingSessions)
-      .set(set)
+      .set({
+        status: `in_review` as const,
+        branch: opts.headBranch,
+        needsInput: false,
+        updatedAt: new Date(),
+      })
       .where(
         and(
-          or(
-            eq(codingSessions.userId, user.id),
-            eq(codingSessions.hostUserId, user.id)
-          ),
-          inArray(codingSessions.teamId, opts.teamIds),
-          isNull(codingSessions.issueId),
-          // Action runs are issue-less too, and one may well be running
-          // alongside the batch — never flip or stamp those.
-          isNull(codingSessions.actionId),
+          eq(codingSessions.id, opts.callerSessionId),
           eq(codingSessions.status, `running`)
         )
       )
@@ -1820,9 +1796,7 @@ export function registerExponentialTools(
             await db.transaction(async (tx) => {
               await parkSessionInReview(tx, {
                 callerSessionId: callerSession.id,
-                teamIds: [repo.teamId],
                 headBranch: head!,
-                fallbackBatchFlip: false,
               })
             })
           }
@@ -1976,15 +1950,12 @@ export function registerExponentialTools(
           // per-issue session flip inside applyPrLifecycleStatusInTx misses
           // them — park the CALLER's batch session instead (EXP-194), with
           // the PR's head branch stamped on it (EXP-545: the row↔PR linkage
-          // clients tie their Merge shortcut to). Since EXP-637 the session
-          // header names the exact row; only a pre-EXP-637 launcher still
-          // takes the loose heuristic parkSessionInReview falls back to.
+          // clients tie their Merge shortcut to). The EXP-637 session header
+          // names the exact row; a headerless caller parks nothing.
           if (issueIds?.length) {
             await parkSessionInReview(tx, {
               callerSessionId: callerSession?.id ?? null,
-              teamIds: [...new Set(teamIdByIssue.values())],
               headBranch,
-              fallbackBatchFlip: true,
             })
           }
         })

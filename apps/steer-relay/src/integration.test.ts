@@ -23,7 +23,12 @@ afterAll(() => {
   server.stop(true)
 })
 
-function ticket(overrides: Partial<SteerTicketClaims>): string {
+// EXP-710: `Record<string, unknown>` on purpose — a ticket minted seconds
+// before a deploy still carries dropped claims (`deviceLabel`), and the relay
+// must keep verifying it.
+function ticket(
+  overrides: Partial<SteerTicketClaims> & Record<string, unknown>
+): string {
   const now = Math.floor(Date.now() / 1000)
   return signSteerTicket(
     {
@@ -383,6 +388,8 @@ describe(`steer relay end-to-end`, () => {
 
   test(`remote start routes through the control socket`, async () => {
     const desktop = await connect(
+      // A pre-EXP-710 ticket, legacy `deviceLabel` claim and all: verification
+      // is tolerant, so an in-flight desktop still connects across the deploy.
       ticket({ role: `control`, sub: `owner-1`, deviceLabel: `Test Box` })
     )
     const desktopIn = collector(desktop)
@@ -615,7 +622,7 @@ describe(`steer relay end-to-end`, () => {
 
   test(`batch remote start routes a fat frame; bad shapes are 400`, async () => {
     const desktop = await connect(
-      ticket({ role: `control`, sub: `owner-2`, deviceLabel: `Batch Box` })
+      ticket({ role: `control`, sub: `owner-2` })
     )
     const desktopIn = collector(desktop)
     desktop.send(JSON.stringify({ t: `online`, deviceId: `dev-batch` }))
@@ -711,7 +718,7 @@ describe(`steer relay end-to-end`, () => {
 
   test(`action remote start routes a fat frame; bad shapes are 400 (EXP-253)`, async () => {
     const desktop = await connect(
-      ticket({ role: `control`, sub: `owner-3`, deviceLabel: `Action Box` })
+      ticket({ role: `control`, sub: `owner-3` })
     )
     const desktopIn = collector(desktop)
     desktop.send(

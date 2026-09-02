@@ -48,7 +48,6 @@ const labelConfig: WidgetRemoteConfig = {
   form: {
     buttonLabel: null,
     accentColor: null,
-    position: `bottom-right`,
     emailRequired: false,
     labels: [
       { id: `l-bug`, name: `Bug`, color: `#ef4444` },

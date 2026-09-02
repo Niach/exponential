@@ -16,7 +16,9 @@
 //!    `mintTicket`, whose own `{disabled}` result re-routes to the slow poll
 //!    (that mint-side answer IS the config cache refresh).
 //! 2. persistent `deviceId` + hostname `deviceLabel` (owned by the caller —
-//!    [`crate::persistent_device_id`] / `api::users::hostname()`).
+//!    [`crate::persistent_device_id`] / `api::users::hostname()`). The label
+//!    rides the ticket mint only: EXP-672 left `online` carrying the
+//!    `deviceId` alone.
 //! 3. mint control ticket → dial the returned URL as-is → send `online`.
 //! 4. inbound `start_session {issueId}` → hand to the launcher callback (the
 //!    callback marshals to the gpui foreground itself). `bye`/`error`/`kill`
@@ -68,14 +70,11 @@ const LIVENESS_TIMEOUT: Duration = Duration::from_secs(90);
 pub struct DeviceIdentity {
     /// Install-persistent UUID ([`crate::persistent_device_id`]).
     pub device_id: String,
-    /// OS hostname (`api::users::hostname()`) — the phone picker's label.
+    /// OS hostname (`api::users::hostname()`). It rides the CONTROL TICKET
+    /// mint, not the `online` frame — EXP-672 took `deviceLabel` (and the
+    /// EXP-253 `caps` array) off that frame, and the phone picker's label
+    /// comes off the persisted `devices` row `devices.register` writes.
     pub device_label: String,
-    /// EXP-253/EXP-257: feature capabilities (`actions`, `action-inputs`) —
-    /// advertised in the `online` frame; remote Run-action pickers strictly
-    /// gate on `actions`, and the server additionally requires
-    /// `action-inputs` for builtin/inputs-carrying starts. Empty = omit the
-    /// field.
-    pub caps: Vec<String>,
 }
 
 /// The two server calls the channel needs, injectable for tests. Blocking
@@ -476,12 +475,11 @@ async fn connect_and_listen(
         Err(crate::DialError::Other(reason)) => return ConnectionOutcome::ConnectFailed(reason),
     };
 
-    // §8.3 #3 — announce presence immediately on open. EXP-485: presence +
-    // `caps` only; the agent lists and launch defaults ride `devices.register`.
+    // §8.3 #3 — announce presence immediately on open. EXP-672: the deviceId
+    // and nothing else; the label, the agent lists, the launch defaults and
+    // the caps every start gates on all ride `devices.register`.
     let online = ClientFrame::Online {
         device_id: &device.device_id,
-        device_label: Some(&device.device_label),
-        caps: (!device.caps.is_empty()).then_some(device.caps.as_slice()),
     }
     .to_json();
     if let Err(err) = ws.send(Message::Text(online)).await {

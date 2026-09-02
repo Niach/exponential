@@ -80,8 +80,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === `object`
 }
 
-// The legacy two-value position (pre-EXP-569 init option / remote form
-// field / old stored configs): a bottom-corner FAB on both devices.
+// The legacy two-value `init({position})` snippet argument (pre-EXP-569, a
+// public API): a bottom-corner FAB on both devices. The served config's own
+// legacy `position` is gone (EXP-672) — every stored row carries `launcher`.
 function legacyPosition(value: unknown): WidgetLauncherPosition | null {
   return value === `bottom-left` || value === `bottom-right` ? value : null
 }
@@ -101,9 +102,8 @@ function readPlacement(entry: unknown): Partial<WidgetLauncherPlacement> {
 
 // Per-device resolution: init `launcher` field > legacy init `position`
 // (ignored entirely once `launcher` is passed, so hosts can pin one device
-// and leave the other to the config) > served `launcher` > legacy served
-// `position` (old/self-hosted servers) > defaults. Every remote value is
-// re-validated — the config JSON is an unvalidated fetch.
+// and leave the other to the config) > served `launcher` > defaults. Every
+// remote value is re-validated — the config JSON is an unvalidated fetch.
 export function resolveLauncher(
   options: ExponentialWidgetInitOptions | undefined,
   config: WidgetRemoteConfig | null | undefined,
@@ -121,19 +121,11 @@ export function resolveLauncher(
   const remote = readPlacement(
     isRecord(remoteLauncher) ? remoteLauncher[device] : null
   )
-  const legacyRemote = legacyPosition(config?.form?.position)
 
   const mode: WidgetLauncherMode =
-    init.mode ??
-    (legacyInit
-      ? `fab`
-      : (remote.mode ?? (legacyRemote ? `fab` : fallback.mode)))
+    init.mode ?? (legacyInit ? `fab` : (remote.mode ?? fallback.mode))
   const position: WidgetLauncherPosition =
-    init.position ??
-    legacyInit ??
-    remote.position ??
-    legacyRemote ??
-    fallback.position
+    init.position ?? legacyInit ?? remote.position ?? fallback.position
 
   return {
     mode,

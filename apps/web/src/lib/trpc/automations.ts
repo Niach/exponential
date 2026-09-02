@@ -124,8 +124,11 @@ function assertRunnable(inputs: unknown, enabled: boolean): void {
 
 // The runner binding: `deviceId` is the steer TEXT id (devices.device_id) —
 // unique per (userId, deviceId), so the same id can exist under several
-// users: usable when any matching row is the caller's own, or is shared with
-// THIS team by an owner who is still a member. The device must also advertise
+// users: usable when any matching row is the caller's own (any kind), or is a
+// SERVER registration shared with THIS team by an owner who is still a member
+// — the same shared-row gate `visibleDeviceRows` (EXP-639) and steer's
+// `resolveTargetDevice` apply, so a teammate's desktop can never be bound to
+// an automation it would never surface in a picker. The device must advertise
 // the `automations` cap — an ACTION cap (EXP-409), so its absence really means
 // no agent is signed in on that machine, which is what the refusal says — and,
 // when an agent is pinned, advertise that agent.
@@ -141,6 +144,7 @@ async function assertDeviceUsable(
     .select({
       userId: devices.userId,
       sharedTeamId: devices.sharedTeamId,
+      kind: devices.kind,
       caps: devices.caps,
       agents: devices.agents,
     })
@@ -148,7 +152,9 @@ async function assertDeviceUsable(
     .where(eq(devices.deviceId, deviceId))
   let usableRows = rows.filter((row) => row.userId === callerUserId)
   if (usableRows.length === 0) {
-    const shared = rows.filter((row) => row.sharedTeamId === teamId)
+    const shared = rows.filter(
+      (row) => row.sharedTeamId === teamId && row.kind === `server`
+    )
     if (shared.length > 0) {
       const members = await db
         .select({ userId: teamMembers.userId })

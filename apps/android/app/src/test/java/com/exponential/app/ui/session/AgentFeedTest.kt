@@ -31,83 +31,18 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// EXP-78: the TRAILING consecutive run of question items is answerable — any
-// later event means the desktop TUI moved on. EXP-174: a plan-approval card
-// additionally stays answerable until a real resolution signal, because lagged
-// transcript flushes can land behind a picker that's still on screen. EXP-249:
-// none of that guessing applies to a card carrying a WIRE ID — the desktop's
-// structured stream states question lifetime outright.
+// EXP-249: a question card's lifetime is stated outright by the desktop's
+// structured stream — a card carrying a WIRE ID stays answerable until its own
+// `question_resolved` lands, wherever it sits in the feed. EXP-672: a card
+// WITHOUT one came from a pre-EXP-249 desktop and is never answerable here (the
+// raw-keystroke fallback that used to drive those is gone) — the screen renders
+// it read-only with an update hint.
 class AgentFeedTest {
-
-    @Test
-    fun `returns the trailing consecutive question run`() {
-        val feed = listOf<AgentFeedItem>(
-            AgentFeedItem.Narration(1, "working"),
-            question(2),
-            AgentFeedItem.Tool(3, "Edit", "src/a.ts"),
-            question(4),
-            question(5),
-        )
-        assertEquals(setOf(4L, 5L), activeQuestionIds(feed))
-    }
-
-    @Test
-    fun `empty when the feed ends with a non-question`() {
-        val feed = listOf(
-            question(1),
-            AgentFeedItem.Narration(2, "moved on"),
-        )
-        assertEquals(emptySet<Long>(), activeQuestionIds(feed))
-    }
-
-    @Test
-    fun `handles an all-question feed and an empty feed`() {
-        assertEquals(setOf(1L, 2L), activeQuestionIds(listOf(question(1), question(2))))
-        assertEquals(emptySet<Long>(), activeQuestionIds(emptyList()))
-    }
-
-    @Test
-    fun `trailing questions are unaffected by tool runs before them`() {
-        val feed = listOf(tool(1), tool(2), question(3))
-        assertEquals(setOf(3L), activeQuestionIds(feed))
-    }
-
-    @Test
-    fun `plan question stays active behind lagged tool and narration flushes`() {
-        val feed = listOf(
-            plan(1),
-            tool(2),
-            AgentFeedItem.Narration(3, "Let me finalize the plan file:"),
-        )
-        assertEquals(setOf(1L), activeQuestionIds(feed))
-    }
-
-    @Test
-    fun `plan question survives a human message`() {
-        // Steering a message mid-plan leaves the picker up (EXP-249, web
-        // parity) — only a newer question retires a plan card.
-        val feed = listOf(plan(1), tool(2), AgentFeedItem.UserMessage(3, "1"))
-        assertEquals(setOf(1L), activeQuestionIds(feed))
-    }
-
-    @Test
-    fun `plan question retires when a newer question follows`() {
-        val feed = listOf(plan(1), tool(2), question(3))
-        assertEquals(setOf(3L), activeQuestionIds(feed))
-    }
-
-    @Test
-    fun `non-plan question is still retired by any later event`() {
-        val feed = listOf(question(1), tool(2))
-        assertEquals(emptySet<Long>(), activeQuestionIds(feed))
-    }
-
-    // EXP-249: wire-id cards ignore position entirely.
 
     @Test
     fun `a wire-id question stays active behind any later event`() {
         val feed = listOf(
-            question(1).copy(wireId = "q1"),
+            question(1),
             tool(2),
             AgentFeedItem.Narration(3, "still working"),
             AgentFeedItem.Permission(4, "Bash"),
@@ -116,29 +51,43 @@ class AgentFeedTest {
     }
 
     @Test
+    fun `every unresolved wire-id card is active, in any position`() {
+        val feed = listOf(question(1), tool(2), plan(3), AgentFeedItem.Narration(4, "x"))
+        assertEquals(setOf(1L, 3L), activeQuestionIds(feed))
+        assertEquals(emptySet<Long>(), activeQuestionIds(emptyList()))
+    }
+
+    @Test
     fun `a wire-id plan card survives lagged flushes and dies on resolution`() {
-        val pending = listOf(plan(1).copy(wireId = "plan"), tool(2), AgentFeedItem.Narration(3, "x"))
+        val pending = listOf(plan(1), tool(2), AgentFeedItem.Narration(3, "x"))
         assertEquals(setOf(1L), activeQuestionIds(pending))
-        val resolved = resolveQuestions(pending, id = "plan", askId = null, answers = listOf("Approve"))!!
+        val resolved = resolveQuestions(pending, id = "q1", askId = null, answers = listOf("Approve"))!!
         assertEquals(emptySet<Long>(), activeQuestionIds(resolved))
         assertEquals("Approve", (resolved[0] as AgentFeedItem.Question).answer)
     }
 
     @Test
-    fun `legacy and wire-id cards coexist`() {
-        val feed = listOf(question(1).copy(wireId = "q1"), tool(2), question(3))
-        assertEquals(setOf(1L, 3L), activeQuestionIds(feed))
+    fun `an id-less card is never answerable`() {
+        // EXP-672: no wire id means no `answer` frame can address the card, so
+        // it renders read-only ("Update the desktop app to answer this here.")
+        // instead of offering a dead control.
+        assertEquals(emptySet<Long>(), activeQuestionIds(listOf(idlessQuestion(1), idlessQuestion(2))))
+        assertEquals(emptySet<Long>(), activeQuestionIds(listOf(idlessQuestion(1), tool(2))))
+        // A plan card is no exception, however fresh it looks.
+        assertEquals(emptySet<Long>(), activeQuestionIds(listOf(idlessQuestion(1).copy(planMode = true))))
+        // A wire-id card next to one is unaffected.
+        assertEquals(setOf(2L), activeQuestionIds(listOf(idlessQuestion(1), question(2))))
     }
 
-    // Resolved cards are never active.
-
     @Test
-    fun `resolved question is never active and retires earlier plan cards`() {
-        val feed = listOf(question(1).copy(resolved = true, answer = "Red"))
-        assertEquals(emptySet<Long>(), activeQuestionIds(feed))
+    fun `a resolved question is never active`() {
         assertEquals(
             emptySet<Long>(),
-            activeQuestionIds(listOf(plan(1), question(2).copy(resolved = true))),
+            activeQuestionIds(listOf(question(1).copy(resolved = true, answer = "Red"))),
+        )
+        assertEquals(
+            emptySet<Long>(),
+            activeQuestionIds(listOf(plan(1).copy(resolved = true), question(2).copy(resolved = true))),
         )
     }
 
@@ -170,8 +119,8 @@ class AgentFeedTest {
 
     @Test
     fun `a card with no wire id always appends`() {
-        val feed = listOf<AgentFeedItem>(question(1))
-        assertEquals(2, upsertQuestion(feed, question(2)).size)
+        val feed = listOf<AgentFeedItem>(idlessQuestion(1))
+        assertEquals(2, upsertQuestion(feed, idlessQuestion(2)).size)
     }
 
     // EXP-249: question_resolved retires by id, else by askId.
@@ -220,9 +169,9 @@ class AgentFeedTest {
         assertNull(resolveQuestions(feed, id = null, askId = "ghost"))
     }
 
-    // The codex publisher's rollout cards carry NEITHER a wire id nor an ask
-    // id, so its `question_resolved` names nothing: retire every card still
-    // unresolved and land the answers positionally (web/iOS parity).
+    // A `question_resolved` naming NEITHER an id nor an ask id (older
+    // publishers emit those): retire every card still unresolved and land the
+    // answers positionally (web/iOS parity).
 
     @Test
     fun `an id-less resolution retires every unresolved card in answer order`() {
@@ -597,8 +546,8 @@ class AgentFeedTest {
         val acked = sent.applying(event("""{"kind":"answer_ack","id":"q1"}"""))
         assertEquals("Blue, Green", acked.localAnswerSummary("q1"))
         assertNull(sent.failUnacknowledged("q1").localAnswerSummary("q1"))
-        // A bare legacy keystroke carries no label — no summary, not "".
-        assertNull(ActivityFeedState().lockAnswer("local:1").localAnswerSummary("local:1"))
+        // A lock taken with no labels has no summary, not "".
+        assertNull(ActivityFeedState().lockAnswer("q2").localAnswerSummary("q2"))
         assertNull(ActivityFeedState().localAnswerSummary("q1"))
     }
 
@@ -606,14 +555,14 @@ class AgentFeedTest {
     fun `an unacknowledged answer flips to Failed so it can be retried`() {
         // EXP-334: Failed (not removed) — the card re-surfaces WITH a retry
         // hint, no longer holds the stepper, and a re-tap re-locks it.
-        val state = ActivityFeedState().lockAnswer("local:1")
-        val failed = state.failUnacknowledged("local:1")
-        assertEquals(AnswerState.Failed, failed.answerLocks["local:1"])
-        assertFalse(failed.answerLocks["local:1"].locksCard())
-        assertEquals(AnswerState.Sending, failed.lockAnswer("local:1").answerLocks["local:1"])
+        val state = ActivityFeedState().lockAnswer("q1")
+        val failed = state.failUnacknowledged("q1")
+        assertEquals(AnswerState.Failed, failed.answerLocks["q1"])
+        assertFalse(failed.answerLocks["q1"].locksCard())
+        assertEquals(AnswerState.Sending, failed.lockAnswer("q1").answerLocks["q1"])
         // A LATE ack after the expiry still locks the card for good.
-        val late = failed.applying(event("""{"kind":"answer_ack","id":"local:1"}"""))
-        assertEquals(AnswerState.Acked, late.answerLocks["local:1"])
+        val late = failed.applying(event("""{"kind":"answer_ack","id":"q1"}"""))
+        assertEquals(AnswerState.Acked, late.answerLocks["q1"])
     }
 
     // EXP-483: prose from the withheld ask/plan entry flushes AFTER its
@@ -767,7 +716,11 @@ class AgentFeedTest {
         text = "Which color?",
         options = listOf(QuestionOption("Red", "1"), QuestionOption("Blue", "2")),
         multiSelect = false,
+        wireId = "q$id",
     )
+
+    /** A card from a pre-EXP-249 desktop: no wire id, so it is read-only. */
+    private fun idlessQuestion(id: Long) = question(id).copy(wireId = null)
 
     private fun plan(id: Long) = question(id).copy(planMode = true)
 

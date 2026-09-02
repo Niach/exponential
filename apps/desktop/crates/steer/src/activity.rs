@@ -1004,6 +1004,11 @@ fn parse_assistant_entry(entry: &Value, redactor: &Redactor) -> Vec<ActivityEven
         return Vec::new();
     };
 
+    // EXP-672: the deterministic stand-in when a tool_use block carries no id
+    // of its own — the entry's uuid is stable across every re-parse of the
+    // same transcript line.
+    let entry_uuid = entry.get("uuid").and_then(Value::as_str);
+
     let mut events = Vec::new();
     for block in content {
         match block.get("type").and_then(Value::as_str) {
@@ -1019,13 +1024,24 @@ fn parse_assistant_entry(entry: &Value, redactor: &Redactor) -> Vec<ActivityEven
                 let name = block.get("name").and_then(Value::as_str).unwrap_or("tool");
                 // Interactive prompts become answerable question events; a
                 // malformed input falls through to the generic tool headline.
+                let tool_use_id = block.get("id").and_then(Value::as_str);
                 if name == "AskUserQuestion" {
-                    if let Some(questions) = parse_ask_user_question(block.get("input"), redactor) {
+                    if let Some(questions) = parse_ask_user_question(
+                        tool_use_id,
+                        entry_uuid,
+                        block.get("input"),
+                        redactor,
+                    ) {
                         events.extend(questions);
                         continue;
                     }
                 } else if name == "ExitPlanMode" {
-                    events.push(parse_exit_plan_mode(block.get("input"), redactor));
+                    events.push(parse_exit_plan_mode(
+                        tool_use_id,
+                        entry_uuid,
+                        block.get("input"),
+                        redactor,
+                    ));
                     continue;
                 }
                 let detail = tool_detail(name, block.get("input"))
@@ -1091,17 +1107,77 @@ fn parse_user_entry(
     Some(ActivityEvent::user_message(redacted))
 }
 
+/// EXP-672: how much of a card's text seeds [`synthetic_question_id`] — long
+/// enough that two live cards never collide, short enough that the hash cost
+/// is flat for a 64 KiB plan body.
+const SYNTHETIC_ID_TEXT_SEED: usize = 256;
+
+/// EXP-672: a STABLE id for a claude card no identity path minted one for.
+///
+/// Every question the hooks sidecar announces carries claude's own
+/// `tool_use_id`; the FALLBACKS (a hookless claude, an old claude, a card the
+/// grid found and the transcript never described) used to publish `id: None`,
+/// and an id-less card is answerable only by the legacy blind-keystroke path.
+/// This mints one from what the fallback DOES know, so the semantic `answer`
+/// frame reaches every card.
+///
+/// The id must be deterministic for the same card — a re-publish (the history
+/// buffer's replay, a twin re-parsed off the same transcript line) has to land
+/// on the same identity or clients would show the card twice and its
+/// `question_resolved` would retire nothing. FNV-1a over the seed parts, with
+/// a `\u{1f}` separator so `("a","bc")` can never hash like `("ab","c")`.
+///
+/// `ordinal` disambiguates two cards whose text is genuinely identical (the
+/// same picker re-asked later in the run); pass a per-session counter.
+fn synthetic_question_id(session: &str, kind: &str, text: &str, ordinal: u32) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let ordinal = ordinal.to_string();
+    let text = truncate(text, SYNTHETIC_ID_TEXT_SEED);
+    for part in [session, kind, text.as_str(), ordinal.as_str()] {
+        for byte in part.bytes().chain(std::iter::once(0x1f)) {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    // Namespaced so a synthetic id can never be mistaken for one of claude's
+    // own `toolu_…` ids, and short enough to clear `ID_MAX` outright.
+    format!("syn-{kind}-{hash:016x}")
+}
+
 /// `AskUserQuestion` input → one `question` event per entry of
 /// `input.questions[]`, options mapped positionally to the TUI's digit keys
 /// (`1`..`9`). `None` when the input doesn't match the expected shape (the
 /// caller falls back to a generic tool headline).
+///
+/// EXP-672: the cards carry the SAME identity the `QuestionsAsked` hook would
+/// have published them under — ask id = the entry's `tool_use_id`, card id =
+/// `{ask_id}#{0-based index}` — so a hookless run is answerable semantically
+/// and the ask's `question_resolved` (keyed on that same tool_use_id by
+/// [`take_ask_answers`]) retires exactly these cards.
 fn parse_ask_user_question(
+    tool_use_id: Option<&str>,
+    entry_uuid: Option<&str>,
     input: Option<&Value>,
     redactor: &Redactor,
 ) -> Option<Vec<ActivityEvent>> {
-    let questions = input?.get("questions")?.as_array()?;
+    let input = input?;
+    let questions = input.get("questions")?.as_array()?;
+    let total = questions.len() as u32;
+    // claude always stamps a tool_use id; the entry uuid (plus the raw input,
+    // for the pathological entry that has neither) is the deterministic
+    // stand-in if a future transcript shape ever drops it.
+    let ask_id = tool_use_id
+        .map(|id| truncate(id, ID_MAX))
+        .unwrap_or_else(|| {
+            synthetic_question_id(
+                entry_uuid.unwrap_or_default(),
+                "ask",
+                &input.to_string(),
+                0,
+            )
+        });
     let mut events = Vec::new();
-    for question in questions {
+    for (index, question) in questions.iter().enumerate() {
         let text = question.get("question").and_then(Value::as_str)?;
         let options: Vec<QuestionOption> = question
             .get("options")?
@@ -1127,10 +1203,12 @@ fn parse_ask_user_question(
             options,
             multi_select,
             plan_mode: None,
-            id: None,
-            ask_id: None,
-            index: None,
-            total: None,
+            // Byte-identical to the hook's shape (`QuestionsAsked`): the id
+            // indexes from 0, the DISPLAYED step from 1.
+            id: Some(format!("{ask_id}#{index}")),
+            ask_id: Some(ask_id.clone()),
+            index: Some(index as u32 + 1),
+            total: Some(total),
             header: None,
             at: None,
         });
@@ -1145,14 +1223,28 @@ fn parse_ask_user_question(
 /// approve keys are offered — key "3" is no longer safe to send blind (on
 /// claude v2.1.211 it launches "refine with Ultraplan on Claude Code on the
 /// web", not "keep planning").
-fn parse_exit_plan_mode(input: Option<&Value>, redactor: &Redactor) -> ActivityEvent {
+///
+/// EXP-672: the card carries claude's own `tool_use_id` — the SAME id the
+/// `PlanProposed` hook publishes the plan under — so a hookless run's plan is
+/// answerable semantically, and the two paths cannot mint rival identities for
+/// one plan.
+fn parse_exit_plan_mode(
+    tool_use_id: Option<&str>,
+    entry_uuid: Option<&str>,
+    input: Option<&Value>,
+    redactor: &Redactor,
+) -> ActivityEvent {
     let plan = input
         .and_then(|i| i.get("plan"))
         .and_then(Value::as_str)
         .map(|p| truncate_marked(&redactor.redact(p), QUESTION_TEXT_MAX))
         .filter(|p| !p.trim().is_empty());
+    let text = plan.unwrap_or_else(|| "Plan ready for approval.".to_string());
+    let id = tool_use_id
+        .map(|id| truncate(id, ID_MAX))
+        .unwrap_or_else(|| synthetic_question_id(entry_uuid.unwrap_or_default(), "plan", &text, 0));
     ActivityEvent::Question {
-        text: plan.unwrap_or_else(|| "Plan ready for approval.".to_string()),
+        text,
         options: vec![
             QuestionOption::new("Approve — auto-accept edits", "1"),
             QuestionOption::new("Approve — manually approve edits", "2"),
@@ -1161,7 +1253,7 @@ fn parse_exit_plan_mode(input: Option<&Value>, redactor: &Redactor) -> ActivityE
         // Marks the question as a plan-approval picker so clients can render
         // a dedicated "Plan ready" card (EXP-97).
         plan_mode: Some(true),
-        id: None,
+        id: Some(id),
         ask_id: None,
         index: None,
         total: None,
@@ -2092,6 +2184,22 @@ struct SteerState {
     pending_permission: Option<PendingPermission>,
     /// Fallback plan identity when a hook payload carries no `tool_use_id`.
     plan_seq: u32,
+    /// EXP-672: the ordinal feeding [`synthetic_question_id`] for the two
+    /// GRID-only fallbacks (a plan/ask picker the hooks never announced and
+    /// the transcript never described). Bumped per publication so two
+    /// word-for-word identical pickers in one run get distinct identities.
+    grid_seq: u32,
+    /// EXP-672: the live grid-only plan card's synthetic id — retired by
+    /// [`Self::resolve_plan`] exactly like a hook-born one, so a legacy
+    /// hookless run no longer leaves an answerable card behind.
+    grid_plan: Option<String>,
+    /// EXP-672: the live grid-only ASK cards' synthetic ids. Unlike the plan
+    /// slot this is a set: the question watcher re-fires per question of a
+    /// multi-question picker, so one picker can leave several cards up. They
+    /// carry no `ask_id` (nothing announced the ask), so the ask-keyed retire
+    /// in [`Self::observe_published`] can never reach them — they are retired
+    /// as a group by [`Self::resolve_grid_asks`].
+    grid_asks: Vec<String>,
     /// Fallback subagent-card identity when a `Task` hook payload carries no
     /// `tool_use_id` (EXP-350 — the card used to be dropped entirely).
     task_seq: u32,
@@ -2245,6 +2353,90 @@ impl SteerState {
             header: question.header,
             at: None,
         });
+    }
+
+    /// EXP-672: retire the grid-only plan card, if one is live. Its own
+    /// [`Self::grid_plan`] slot rather than [`Self::plan`]: the fallback fires
+    /// exactly when no hook ever announced the plan, so there is no
+    /// `PendingPlan` to hang it off.
+    fn resolve_grid_plan(&mut self, sender: &ActivitySender) {
+        let Some(id) = self.grid_plan.take() else {
+            return;
+        };
+        self.live.remove(&id);
+        sender.send(ActivityEvent::QuestionResolved {
+            id: Some(id),
+            ask_id: None,
+            answers: None,
+            dismissed: None,
+            at: None,
+        });
+    }
+
+    /// EXP-672: retire every live grid-only ask card. Two edges mean "that
+    /// picker is gone": the transcript's own ask resolution (the answers
+    /// flush, seen by [`Self::observe_published`]) and the question watcher's
+    /// hide edge in the emitter loop — a fully hookless run whose claude
+    /// withholds the ask entry until it is answered has only the latter. The
+    /// watcher publishes no `Resolved` transition of its own (unlike the plan
+    /// one), which is exactly why these cards used to be immortal.
+    /// `resolution_seen` is deliberately NOT raised here: it is the
+    /// publisher's grid-reroute flag and each caller already owns that edge.
+    fn resolve_grid_asks(&mut self, sender: &ActivitySender) {
+        for id in std::mem::take(&mut self.grid_asks) {
+            self.live.remove(&id);
+            sender.send(ActivityEvent::QuestionResolved {
+                id: Some(id),
+                ask_id: None,
+                answers: None,
+                dismissed: None,
+                at: None,
+            });
+        }
+    }
+
+    /// EXP-672: publish a GRID-only card — one the hooks sidecar never
+    /// announced and the transcript never described — with a stable synthetic
+    /// identity instead of the pre-v2 `id: None`. It goes through
+    /// [`Self::publish_question`] like every other card, so it is registered
+    /// as answerable and a viewer never has to fall back to blind keystrokes.
+    fn publish_grid_fallback(
+        &mut self,
+        session_seed: &str,
+        kind: QuestionKind,
+        text: String,
+        options: Vec<QuestionOption>,
+        multi_select: bool,
+        sender: &ActivitySender,
+    ) -> String {
+        self.grid_seq += 1;
+        let tag = match kind {
+            QuestionKind::Plan => "plan",
+            _ => "ask",
+        };
+        let id = synthetic_question_id(session_seed, tag, &text, self.grid_seq);
+        // The PLAN slot stays the caller's to set — a superseding plan retires
+        // its predecessor BEFORE publishing. An ask picker has no such
+        // supersede edge, so its cards are collected here and retired as a
+        // group ([`Self::resolve_grid_asks`]).
+        if kind == QuestionKind::Ask {
+            self.grid_asks.push(id.clone());
+        }
+        self.publish_question(
+            Publishable {
+                id: id.clone(),
+                kind,
+                ask_id: None,
+                index: None,
+                total: None,
+                header: None,
+                text,
+                options,
+                multi_select,
+            },
+            sender,
+        );
+        id
     }
 
     /// A hook delivery → published events + state.
@@ -2650,12 +2842,35 @@ impl SteerState {
             .is_some_and(|plan| plan.id == tool_use_id)
         {
             self.resolve_plan(sender);
+            return;
+        }
+        // EXP-672: hookless (no sidecar, or one that never drained) with an
+        // immediate-flush claude, the card on screen is the TRANSCRIPT twin —
+        // published under claude's own `tool_use_id` and enrolled in `live` by
+        // [`Self::observe_published`], with no `PendingPlan` behind it and the
+        // grid fallback skipped (`twin_flushed`). Its result is the only
+        // resolution evidence there is, so retire it by that id or an
+        // answerable plan card sits on every viewer for the rest of the run.
+        // Both sides mint the id through `truncate(.., ID_MAX)`, so they match
+        // byte for byte.
+        let id = truncate(tool_use_id, ID_MAX);
+        if self.live.remove(&id).is_some() {
+            sender.send(ActivityEvent::QuestionResolved {
+                id: Some(id),
+                ask_id: None,
+                answers: None,
+                dismissed: None,
+                at: None,
+            });
         }
     }
 
     /// The plan picker left the screen — answered, dismissed, or superseded.
     fn resolve_plan(&mut self, sender: &ActivitySender) {
         self.resolution_seen = true;
+        // EXP-672: the grid-only fallback card retires on the same edge — it
+        // has an id now, so it can be.
+        self.resolve_grid_plan(sender);
         let Some(plan) = self.plan.take() else { return };
         self.live.remove(&plan.id);
         if plan.published {
@@ -2930,15 +3145,55 @@ impl SteerState {
 
     /// Watch what the transcript published: an ask resolution retires its
     /// cards, progress clears a stale permission block, and a new turn's
-    /// first event un-parks an idle one (EXP-679).
-    fn observe_published(&mut self, event: &ActivityEvent) {
+    /// first event un-parks an idle one (EXP-679). Takes the sender because
+    /// retiring a grid-only ask card (EXP-672) has to reach viewers.
+    fn observe_published(&mut self, event: &ActivityEvent, sender: &ActivitySender) {
         // EXP-529: remember the freshest tool headline — the tool-less
         // Notification's name fallback (see [`Self::recent_tool`]).
         if let ActivityEvent::Tool { name, .. } = event {
             self.last_tool = Some((name.clone(), Instant::now()));
         }
+        // EXP-672: a transcript-born question card now carries a stable id
+        // (`parse_ask_user_question` / `parse_exit_plan_mode`) — register it
+        // so [`Self::handle_answer`] can drive it and no viewer is pushed onto
+        // the legacy keystroke path. Only the FALLBACK lands here: with the
+        // hooks sidecar wired every twin is swallowed upstream, and the hook's
+        // own cards were inserted by [`Self::publish_question`] already.
+        if let ActivityEvent::Question {
+            id: Some(id),
+            text,
+            options,
+            multi_select,
+            plan_mode,
+            ask_id,
+            ..
+        } = event
+        {
+            if !self.live.contains_key(id) && !self.answered.contains(id) {
+                self.live.insert(
+                    id.clone(),
+                    LiveQuestion {
+                        kind: if *plan_mode == Some(true) {
+                            QuestionKind::Plan
+                        } else {
+                            QuestionKind::Ask
+                        },
+                        ask_id: ask_id.clone(),
+                        text_norm: normalize_question_text(text),
+                        options: options.clone(),
+                        multi_select: multi_select.unwrap_or(false),
+                    },
+                );
+            }
+        }
         if let ActivityEvent::QuestionResolved { ask_id, .. } = event {
             self.resolution_seen = true;
+            if ask_id.is_some() {
+                // EXP-672: the ask that just resolved is the one whose picker
+                // was on the grid — the grid-only cards belong to it but
+                // carry no `ask_id` to be matched on, so they retire here.
+                self.resolve_grid_asks(sender);
+            }
             if let Some(ask_id) = ask_id {
                 self.live
                     .retain(|_, live| live.ask_id.as_deref() != Some(ask_id.as_str()));
@@ -3702,6 +3957,20 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     )));
 
     let spawn_time = SystemTime::now();
+    // EXP-672: seeds the synthetic ids the GRID fallbacks mint. The
+    // launcher-minted claude session id when there is one; otherwise a token
+    // unique to this run (a resume relaunches claude with `--resume`, not a
+    // fresh `--session-id`), so two sessions in the same worktree can never
+    // mint the same card identity. A resumed run is its OWN `coding_sessions`
+    // row on its own relay room, so the worktree + spawn-nanos seed is enough
+    // — no viewer ever sees two runs' cards side by side.
+    let session_seed = config.claude_session_id.clone().unwrap_or_else(|| {
+        let nanos = spawn_time
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        format!("{}:{nanos}", config.worktree.display())
+    });
     let transcript_dir =
         transcript_root().map(|root| root.join(munge_claude_project_dir(&config.worktree)));
 
@@ -3716,6 +3985,9 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     let mut transcript_deadline = Some(Instant::now() + TRANSCRIPT_WAIT);
     let mut picker_watcher = PlanPickerWatcher::new();
     let mut question_watcher = QuestionPickerWatcher::new();
+    // EXP-672: the previous tick's `question_watcher.is_pending()` — its
+    // true→false edge retires the grid-only ask cards.
+    let mut grid_ask_pending = false;
     let mut login_watcher = LoginWatcher::new();
     let mut permission_watcher = PermissionPickerWatcher::new();
     let mut transcript_state = TranscriptState {
@@ -3803,7 +4075,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                 offset,
                 &mut |line| process_transcript_line(line, &redactor, &mut transcript_state),
                 &mut |event| {
-                    steer.observe_published(&event);
+                    steer.observe_published(&event, &sender);
                     sender.send(event);
                 },
             );
@@ -3845,20 +4117,23 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                         // would present the plan twice, so skip it; wired,
                         // that twin was swallowed and this card is still the
                         // only one.
+                        // EXP-672: it carries a stable synthetic id now, so
+                        // this card is answerable like every other one — the
+                        // keystroke path is no longer its only way in.
                         let twin_flushed = !transcript_state.pending_plans.is_empty();
                         if transcript_state.suppress_plan_twins || !twin_flushed {
-                            sender.send(ActivityEvent::Question {
-                                text: "Plan ready for approval.".to_string(),
+                            // A superseding plan retires its predecessor's
+                            // card rather than orphaning it.
+                            steer.resolve_grid_plan(&sender);
+                            let id = steer.publish_grid_fallback(
+                                &session_seed,
+                                QuestionKind::Plan,
+                                "Plan ready for approval.".to_string(),
                                 options,
-                                multi_select: None,
-                                plan_mode: Some(true),
-                                id: None,
-                                ask_id: None,
-                                index: None,
-                                total: None,
-                                header: None,
-                                at: None,
-                            });
+                                false,
+                                &sender,
+                            );
+                            steer.grid_plan = Some(id);
                         }
                         // Old-claude withholding, no sidecar: the twin echoes
                         // AFTER the answer — pre-pay exactly one swallow.
@@ -3921,20 +4196,34 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                 if !steer.confirm_question_from_grid(&snapshot, &sender, &redactor) {
                     let text = truncate(&redactor.redact(&snapshot.text), QUESTION_TEXT_MAX);
                     transcript_state.remember_grid_question(&text);
-                    sender.send(ActivityEvent::Question {
+                    // EXP-672: the pre-v2 grid-only publication carried
+                    // `id: None` and was answerable only by blind keystrokes.
+                    // A stable synthetic id makes it an ordinary answerable
+                    // card on every viewer.
+                    let options = grid_options(&snapshot, &redactor);
+                    steer.publish_grid_fallback(
+                        &session_seed,
+                        QuestionKind::Ask,
                         text,
-                        options: grid_options(&snapshot, &redactor),
-                        multi_select: snapshot.multi_select.then_some(true),
-                        plan_mode: None,
-                        id: None,
-                        ask_id: None,
-                        index: None,
-                        total: None,
-                        header: None,
-                        at: None,
-                    });
+                        options,
+                        snapshot.multi_select,
+                        &sender,
+                    );
                 }
             }
+            // EXP-672: the ask picker left the grid — retire any grid-only
+            // cards it left behind. The question watcher exposes no
+            // `Resolved` transition (see [`QuestionPickerWatcher`]), so its
+            // debounced `is_pending` edge IS the hide signal; on a hookless
+            // run whose claude withholds the ask entry until it is answered
+            // it is the ONLY one (the transcript's answers flush retires them
+            // through `observe_published` when it does arrive, and a drained
+            // set makes the second edge a no-op).
+            let ask_pending = question_watcher.is_pending();
+            if grid_ask_pending && !ask_pending {
+                steer.resolve_grid_asks(&sender);
+            }
+            grid_ask_pending = ask_pending;
             // EXP-430: the `/login` flow. A steered `/login` reaches the PTY
             // fine, but the TUI it opens renders only on the grid — without
             // this watcher a headless-server session dead-ends on an expired
@@ -5040,7 +5329,7 @@ mod tests {
         let line = serde_json::json!({
             "type": "assistant",
             "message": { "content": [
-                { "type": "tool_use", "name": "AskUserQuestion", "input": { "questions": [
+                { "type": "tool_use", "id": "toolu_ask1", "name": "AskUserQuestion", "input": { "questions": [
                     { "question": "Which auth method?", "header": "Auth", "multiSelect": false,
                       "options": [
                         { "label": "OAuth", "description": "..." },
@@ -5068,10 +5357,12 @@ mod tests {
                     ],
                     multi_select: None,
                     plan_mode: None,
-                    id: None,
-                    ask_id: None,
-                    index: None,
-                    total: None,
+                    // EXP-672: byte-identical to what the `QuestionsAsked`
+                    // hook would publish for this same ask.
+                    id: Some("toolu_ask1#0".into()),
+                    ask_id: Some("toolu_ask1".into()),
+                    index: Some(1),
+                    total: Some(2),
                     header: None,
                     at: None,
                 },
@@ -5083,10 +5374,10 @@ mod tests {
                     ],
                     multi_select: Some(true),
                     plan_mode: None,
-                    id: None,
-                    ask_id: None,
-                    index: None,
-                    total: None,
+                    id: Some("toolu_ask1#1".into()),
+                    ask_id: Some("toolu_ask1".into()),
+                    index: Some(2),
+                    total: Some(2),
                     header: None,
                     at: None,
                 },
@@ -5315,6 +5606,363 @@ mod tests {
             other => panic!("expected narration + one plan question, got {other:?}"),
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ── EXP-672: no fallback card is id-less any more ───────────────────────
+
+    #[test]
+    fn synthetic_ids_are_deterministic_and_seed_separated() {
+        // The whole point is REPRODUCIBILITY: a card re-published (history
+        // replay, a re-tailed transcript line) must land on the same identity
+        // or clients double it and its `question_resolved` retires nothing.
+        assert_eq!(
+            synthetic_question_id("sess-1", "plan", "Plan ready", 3),
+            synthetic_question_id("sess-1", "plan", "Plan ready", 3)
+        );
+        // Every seed part is load-bearing.
+        assert_ne!(
+            synthetic_question_id("sess-1", "plan", "Plan ready", 3),
+            synthetic_question_id("sess-2", "plan", "Plan ready", 3)
+        );
+        assert_ne!(
+            synthetic_question_id("sess-1", "plan", "Plan ready", 3),
+            synthetic_question_id("sess-1", "ask", "Plan ready", 3)
+        );
+        assert_ne!(
+            synthetic_question_id("sess-1", "plan", "Plan ready", 3),
+            synthetic_question_id("sess-1", "plan", "Plan ready?", 3)
+        );
+        assert_ne!(
+            synthetic_question_id("sess-1", "plan", "Plan ready", 3),
+            synthetic_question_id("sess-1", "plan", "Plan ready", 4)
+        );
+        // The `\u{1f}` separator: concatenation collisions are impossible.
+        assert_ne!(
+            synthetic_question_id("a", "ask", "bc", 0),
+            synthetic_question_id("ab", "ask", "c", 0)
+        );
+        // It clears `ID_MAX` (the relay caps `question.id` at 128) even for a
+        // 64 KiB plan body.
+        let id = synthetic_question_id("sess-1", "plan", &"x".repeat(70_000), 1);
+        assert!(id.len() <= ID_MAX, "{} chars", id.len());
+    }
+
+    #[test]
+    fn transcript_fallback_cards_carry_the_hooks_own_identity() {
+        // EXP-672: the hookless transcript fallbacks used to publish
+        // `id: None`, so a viewer could only answer them with blind
+        // keystrokes. They now mint the SAME identity the sidecar would have
+        // — `PlanProposed` publishes a plan under its `tool_use_id`,
+        // `QuestionsAsked` its questions under `{tool_use_id}#{index}` — so
+        // the twin and the hook can never disagree about which card is which.
+        let redactor = Redactor::new(vec![]);
+        let plan = serde_json::json!({
+            "type": "assistant",
+            "uuid": "entry-1",
+            "message": { "content": [
+                { "type": "tool_use", "id": "toolu_plan1", "name": "ExitPlanMode",
+                  "input": { "plan": "## Plan\n1. Do the thing" } },
+            ]}
+        })
+        .to_string();
+        match &parse_transcript_line(&plan, &redactor)[..] {
+            [ActivityEvent::Question { id, plan_mode, .. }] => {
+                assert_eq!(*plan_mode, Some(true));
+                assert_eq!(id.as_deref(), Some("toolu_plan1"));
+            }
+            other => panic!("expected one plan question, got {other:?}"),
+        }
+        // The hook publishes that very same plan under that very same id.
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        steer.apply_hook(
+            hook(HookEventKind::PlanProposed {
+                tool_use_id: Some("toolu_plan1".to_string()),
+                plan: "## Plan\n1. Do the thing".to_string(),
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        assert!(steer.confirm_plan_from_grid(
+            vec![QuestionOption::new("Approve", "1")],
+            &sender
+        ));
+        match &drained(&rx)[..] {
+            [ActivityEvent::Question { id, .. }] => {
+                assert_eq!(id.as_deref(), Some("toolu_plan1"), "twin and hook agree");
+            }
+            other => panic!("expected one plan question, got {other:?}"),
+        }
+
+        let ask = serde_json::json!({
+            "type": "assistant",
+            "uuid": "entry-2",
+            "message": { "content": [
+                { "type": "tool_use", "id": "toolu_ask9", "name": "AskUserQuestion",
+                  "input": { "questions": [
+                    { "question": "Which one?", "options": [ { "label": "A" }, { "label": "B" } ] },
+                    { "question": "And then?", "options": [ { "label": "C" } ] },
+                  ] } },
+            ]}
+        })
+        .to_string();
+        let events = parse_transcript_line(&ask, &redactor);
+        let ids: Vec<Option<&str>> = events
+            .iter()
+            .map(|event| match event {
+                ActivityEvent::Question { id, .. } => id.as_deref(),
+                other => panic!("expected questions, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(ids, vec![Some("toolu_ask9#0"), Some("toolu_ask9#1")]);
+        // Re-tailing the same line (an offset reset) reproduces them exactly.
+        assert_eq!(parse_transcript_line(&ask, &redactor), events);
+    }
+
+    #[test]
+    fn a_tool_use_without_an_id_still_gets_a_stable_synthetic_one() {
+        // claude always stamps `id`, but the fallback must not silently go
+        // back to `id: None` if a transcript shape ever drops it: the entry
+        // uuid is the deterministic stand-in.
+        let redactor = Redactor::new(vec![]);
+        let entry = |uuid: &str| {
+            serde_json::json!({
+                "type": "assistant",
+                "uuid": uuid,
+                "message": { "content": [
+                    { "type": "tool_use", "name": "ExitPlanMode",
+                      "input": { "plan": "## Plan" } },
+                ]}
+            })
+            .to_string()
+        };
+        let id_of = |line: &str| match &parse_transcript_line(line, &redactor)[..] {
+            [ActivityEvent::Question { id: Some(id), .. }] => id.clone(),
+            other => panic!("expected one identified plan question, got {other:?}"),
+        };
+        let first = id_of(&entry("entry-1"));
+        assert!(first.starts_with("syn-plan-"), "{first}");
+        assert_eq!(first, id_of(&entry("entry-1")), "same entry, same id");
+        assert_ne!(first, id_of(&entry("entry-2")), "different entry, new id");
+    }
+
+    #[test]
+    fn a_transcript_fallback_card_registers_as_answerable() {
+        // An id nothing can answer would be worse than none: the transcript
+        // path publishes THROUGH `observe_published`, which now enrolls the
+        // card in `live` so `handle_answer` finds it.
+        let (sender, _rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let line = serde_json::json!({
+            "type": "assistant",
+            "uuid": "entry-1",
+            "message": { "content": [
+                { "type": "tool_use", "id": "toolu_plan1", "name": "ExitPlanMode",
+                  "input": { "plan": "## Plan" } },
+            ]}
+        })
+        .to_string();
+        for event in parse_transcript_line(&line, &redactor) {
+            steer.observe_published(&event, &sender);
+        }
+        let live = steer.live.get("toolu_plan1").expect("registered as live");
+        assert_eq!(live.kind, QuestionKind::Plan);
+        assert_eq!(live.options.len(), 2);
+    }
+
+    #[test]
+    fn grid_fallback_cards_are_identified_answerable_and_retired() {
+        // The legacy grid-only publication (no sidecar, an old claude): its
+        // card used to be id-less and keystroke-only. It now carries a stable
+        // synthetic id, is enrolled in `live`, and retires by that id.
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let id = steer.publish_grid_fallback(
+            "sess-1",
+            QuestionKind::Plan,
+            "Plan ready for approval.".to_string(),
+            vec![QuestionOption::new("Approve", "1")],
+            false,
+            &sender,
+        );
+        steer.grid_plan = Some(id.clone());
+        assert_eq!(
+            id,
+            synthetic_question_id("sess-1", "plan", "Plan ready for approval.", 1),
+            "the ordinal-1 card of this session reproduces exactly"
+        );
+        match &drained(&rx)[..] {
+            [ActivityEvent::Question {
+                id: published,
+                plan_mode,
+                ..
+            }] => {
+                assert_eq!(published.as_deref(), Some(id.as_str()));
+                assert_eq!(*plan_mode, Some(true));
+            }
+            other => panic!("expected one plan question, got {other:?}"),
+        }
+        assert!(steer.live.contains_key(&id), "answerable by id");
+
+        // A second, word-for-word identical picker later in the run is a
+        // DIFFERENT card — the ordinal keeps them apart.
+        let again = steer.publish_grid_fallback(
+            "sess-1",
+            QuestionKind::Plan,
+            "Plan ready for approval.".to_string(),
+            vec![QuestionOption::new("Approve", "1")],
+            false,
+            &sender,
+        );
+        assert_ne!(again, id);
+        let _ = drained(&rx);
+
+        // And the picker leaving the screen retires the grid card by id.
+        steer.grid_plan = Some(again.clone());
+        steer.resolve_plan(&sender);
+        match &drained(&rx)[..] {
+            [ActivityEvent::QuestionResolved { id: resolved, .. }] => {
+                assert_eq!(resolved.as_deref(), Some(again.as_str()));
+            }
+            other => panic!("expected one resolution, got {other:?}"),
+        }
+        assert!(!steer.live.contains_key(&again));
+    }
+
+    #[test]
+    fn a_grid_ask_fallback_card_is_answerable_by_id() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let id = steer.publish_grid_fallback(
+            "sess-1",
+            QuestionKind::Ask,
+            "Which toppings?".to_string(),
+            vec![
+                QuestionOption::new("Cheese", "1"),
+                QuestionOption::new("Ham", "2"),
+            ],
+            true,
+            &sender,
+        );
+        assert!(id.starts_with("syn-ask-"), "{id}");
+        match &drained(&rx)[..] {
+            [ActivityEvent::Question {
+                id: published,
+                multi_select,
+                plan_mode,
+                ..
+            }] => {
+                assert_eq!(published.as_deref(), Some(id.as_str()));
+                assert_eq!(*multi_select, Some(true));
+                assert_eq!(*plan_mode, None);
+            }
+            other => panic!("expected one ask question, got {other:?}"),
+        }
+        let live = steer.live.get(&id).expect("answerable by id");
+        assert_eq!(live.kind, QuestionKind::Ask);
+        assert!(live.multi_select);
+    }
+
+    #[test]
+    fn a_grid_ask_fallback_card_retires_when_the_ask_resolves() {
+        // EXP-672: the ask resolution is keyed by claude's own ask id, which
+        // a grid-only card never had — without the group retire the card sat
+        // on every viewer for the rest of the run.
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let id = steer.publish_grid_fallback(
+            "sess-1",
+            QuestionKind::Ask,
+            "Which toppings?".to_string(),
+            vec![QuestionOption::new("Cheese", "1")],
+            false,
+            &sender,
+        );
+        assert_eq!(steer.grid_asks, vec![id.clone()]);
+        let _ = drained(&rx);
+
+        // The transcript's answers flush (the emitter's `observe_published`).
+        steer.observe_published(
+            &ActivityEvent::QuestionResolved {
+                id: None,
+                ask_id: Some("toolu_ask1".to_string()),
+                answers: Some(vec!["Cheese".to_string()]),
+                dismissed: None,
+                at: None,
+            },
+            &sender,
+        );
+        match &drained(&rx)[..] {
+            [ActivityEvent::QuestionResolved { id: resolved, .. }] => {
+                assert_eq!(resolved.as_deref(), Some(id.as_str()));
+            }
+            other => panic!("expected the grid card's retirement, got {other:?}"),
+        }
+        assert!(!steer.live.contains_key(&id), "the card is gone");
+        assert!(steer.grid_asks.is_empty());
+
+        // The other edge — the picker leaving the grid with no transcript
+        // evidence at all — is a no-op once the set is drained.
+        steer.resolve_grid_asks(&sender);
+        assert!(drained(&rx).is_empty(), "nothing left to retire");
+    }
+
+    #[test]
+    fn a_hookless_transcript_plan_card_retires_on_its_tool_result() {
+        // EXP-672: no sidecar + an immediate-flush claude — the transcript
+        // twin IS the card (published under `toolu_…`, enrolled in `live` by
+        // `observe_published`, the grid fallback skipped as a duplicate) and
+        // nothing hangs it off `self.plan`. Answered at the local TUI, only
+        // the ExitPlanMode tool_result names it, so that is where it retires.
+        let (sender, rx) = ActivitySender::test_pair();
+        let redactor = Redactor::new(vec![]);
+        let mut steer = SteerState::default();
+        let mut state = TranscriptState::default();
+        let tool_use = serde_json::json!({
+            "type": "assistant",
+            "uuid": "entry-1",
+            "message": { "content": [
+                { "type": "tool_use", "id": "toolu_plan1", "name": "ExitPlanMode",
+                  "input": { "plan": "## Plan\n1. Do the thing" } },
+            ]}
+        })
+        .to_string();
+        for event in process_transcript_line(&tool_use, &redactor, &mut state) {
+            steer.observe_published(&event, &sender);
+        }
+        assert!(steer.live.contains_key("toolu_plan1"), "answerable card");
+        assert!(steer.plan.is_none(), "no hook ever announced this plan");
+        let _ = drained(&rx);
+
+        let tool_result = serde_json::json!({
+            "type": "user",
+            "message": { "content": [
+                { "type": "tool_result", "tool_use_id": "toolu_plan1",
+                  "content": "User has approved your plan." },
+            ]}
+        })
+        .to_string();
+        for event in process_transcript_line(&tool_result, &redactor, &mut state) {
+            steer.observe_published(&event, &sender);
+        }
+        assert_eq!(state.resolved_plans, vec!["toolu_plan1".to_string()]);
+        // …the emitter's step 6.
+        for id in std::mem::take(&mut state.resolved_plans) {
+            steer.resolve_plan_from_result(&id, &sender);
+        }
+        match &drained(&rx)[..] {
+            [ActivityEvent::QuestionResolved { id: resolved, .. }] => {
+                assert_eq!(resolved.as_deref(), Some("toolu_plan1"));
+            }
+            other => panic!("expected the plan card's retirement, got {other:?}"),
+        }
+        assert!(!steer.live.contains_key("toolu_plan1"), "the card is gone");
+        // Idempotent: a re-tailed result cannot double-retire.
+        steer.resolve_plan_from_result("toolu_plan1", &sender);
+        assert!(drained(&rx).is_empty());
     }
 
     #[test]
@@ -6130,7 +6778,7 @@ mod tests {
         assert!(drained(&rx).is_empty());
         // Transcript progress clears the degraded plan so "needs input"
         // cannot stick for the rest of the session.
-        steer.observe_published(&ActivityEvent::narration("moving on"));
+        steer.observe_published(&ActivityEvent::narration("moving on"), &sender);
         assert!(!steer.has_pending_question());
     }
 
@@ -6924,7 +7572,7 @@ mod tests {
         // EXP-455: nothing publishes yet — the grid watcher owns the card.
         assert!(drained(&rx).is_empty(), "the informational card is held");
         assert!(steer.attention.is_some(), "the session is blocked");
-        steer.observe_published(&ActivityEvent::tool("Bash", None));
+        steer.observe_published(&ActivityEvent::tool("Bash", None), &sender);
         assert!(steer.attention.is_none(), "progress clears it");
     }
 
@@ -7364,7 +8012,7 @@ mod tests {
         let (sender, rx) = ActivitySender::test_pair();
         let mut steer = SteerState::default();
         let mut transcript = TranscriptState::default();
-        steer.observe_published(&ActivityEvent::tool("ToolSearch", None));
+        steer.observe_published(&ActivityEvent::tool("ToolSearch", None), &sender);
         steer.apply_hook(
             hook(HookEventKind::PermissionPrompt {
                 message: "Session paused".to_string(),
@@ -7498,7 +8146,7 @@ mod tests {
             &Redactor::new(vec![]),
             &mut transcript,
         );
-        steer.observe_published(&ActivityEvent::narration("Done — the tests pass."));
+        steer.observe_published(&ActivityEvent::narration("Done — the tests pass."), &sender);
         assert!(
             steer.attention == Some(Attention::Idle),
             "a late prose flush is not a new turn"
@@ -7516,15 +8164,18 @@ mod tests {
 
         let mut steer = SteerState::default();
         steer.apply_hook(hook(HookEventKind::Stop), &sender, &redactor, &mut transcript);
-        steer.observe_published(&ActivityEvent::UserMessage {
-            text: "and now the migration".to_string(),
-            at: None,
-        });
+        steer.observe_published(
+            &ActivityEvent::UserMessage {
+                text: "and now the migration".to_string(),
+                at: None,
+            },
+            &sender,
+        );
         assert!(steer.attention.is_none(), "a human turn landed");
 
         let mut steer = SteerState::default();
         steer.apply_hook(hook(HookEventKind::Stop), &sender, &redactor, &mut transcript);
-        steer.observe_published(&ActivityEvent::tool("Read", None));
+        steer.observe_published(&ActivityEvent::tool("Read", None), &sender);
         assert!(steer.attention.is_none(), "the agent is working again");
         drained(&rx);
     }
@@ -7533,11 +8184,12 @@ mod tests {
     /// clears a permission block — the blocking call is through.
     #[test]
     fn transcript_progress_still_clears_a_permission_block() {
+        let (sender, _rx) = ActivitySender::test_pair();
         let mut steer = SteerState {
             attention: Some(Attention::Permission),
             ..Default::default()
         };
-        steer.observe_published(&ActivityEvent::narration("running the command"));
+        steer.observe_published(&ActivityEvent::narration("running the command"), &sender);
         assert!(steer.attention.is_none(), "progress clears the block");
     }
 
@@ -8427,13 +9079,16 @@ mod tests {
         assert!(!steer.take_resolution());
 
         // A transcript-flushed ask resolution (observe_published).
-        steer.observe_published(&ActivityEvent::QuestionResolved {
-            id: None,
-            ask_id: Some("toolu_ask".to_string()),
-            answers: None,
-            dismissed: Some(true),
-            at: None,
-        });
+        steer.observe_published(
+            &ActivityEvent::QuestionResolved {
+                id: None,
+                ask_id: Some("toolu_ask".to_string()),
+                answers: None,
+                dismissed: Some(true),
+                at: None,
+            },
+            &sender,
+        );
         assert!(steer.take_resolution());
         assert!(!steer.take_resolution(), "consuming read");
 

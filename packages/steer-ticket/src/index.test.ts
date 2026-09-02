@@ -54,6 +54,27 @@ describe(`steer tickets`, () => {
     expect(result).toEqual({ ok: false, reason: `expired` })
   })
 
+  // EXP-710: `deviceLabel` was dropped from the claims, but a control ticket
+  // minted seconds before the deploy still carries it — verification must
+  // stay tolerant of legacy claims (and of any future one), never schema-check
+  // them, or an in-flight desktop is locked out for a minute.
+  test(`verifies a ticket carrying a legacy claim`, () => {
+    const legacy = {
+      ...claims({ role: `control`, team: `` }),
+      deviceLabel: `My MacBook`,
+    } as SteerTicketClaims
+    const result = verifySteerTicket(signSteerTicket(legacy, SECRET), SECRET)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.claims.role).toBe(`control`)
+      expect(result.claims.sub).toBe(`user-1`)
+      // Unknown claims ride through untouched — nothing reads them.
+      expect((result.claims as Record<string, unknown>).deviceLabel).toBe(
+        `My MacBook`
+      )
+    }
+  })
+
   test(`rejects malformed tokens`, () => {
     for (const bad of [``, `abc`, `.`, `a.`, `.b`, `not-base64!.sig`]) {
       const result = verifySteerTicket(bad, SECRET)

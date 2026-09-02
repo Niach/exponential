@@ -18,13 +18,16 @@ export type SteerRole = `control` | `publisher` | `viewer`
 // session is visible and steerable only by its owner, enforced at mint time,
 // so a ticket in hand IS full access to its session. Clean wire cut: bump
 // CLIENT_MIN_VERSION_* past pre-EXP-312 builds when deploying.
+// EXP-710: the control ticket's `deviceLabel` claim is GONE too — presence is
+// the deviceId → socket map and nothing more since EXP-672, so no reader was
+// left. Verification stays TOLERANT of it (and of any other legacy claim): the
+// claims object is parsed, never schema-checked, so a ticket minted seconds
+// before a deploy still verifies and connects.
 export interface SteerTicketClaims {
   /** userId of the authenticated caller. */
   sub: string
   /** teamId the ticket is scoped to (empty string for control tickets). */
   team: string
-  /** Human device label (control tickets). */
-  deviceLabel?: string
   /** coding_sessions.id (publisher/viewer tickets). */
   sessionId?: string
   role: SteerRole

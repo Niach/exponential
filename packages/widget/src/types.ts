@@ -142,10 +142,6 @@ export interface WidgetRemoteLabel {
 export interface WidgetRemoteForm {
   buttonLabel: string | null
   accentColor: string | null
-  // Legacy launcher position, still served for cached pre-EXP-569 bundles;
-  // current clients read `launcher` and only fall back here against old
-  // self-hosted servers.
-  position: `bottom-right` | `bottom-left`
   emailRequired: boolean
   // EXP-244 field toggles — absent on older servers: collectEmail defaults
   // true, collectName false (legacy behavior).

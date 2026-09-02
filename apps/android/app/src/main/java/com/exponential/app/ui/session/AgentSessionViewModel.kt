@@ -342,11 +342,6 @@ class AgentSessionViewModel @Inject constructor(
         labels: List<String> = emptyList(),
     ) = connection.sendQuestionAnswer(questionId, askId, keys, text, labels)
 
-    fun sendLegacyAnswer(lockKey: String, key: String, lock: Boolean = true) =
-        connection.sendLegacyAnswer(lockKey, key, lock)
-
-    fun sendSubmit() = connection.sendSubmit()
-
     /**
      * Kill the session (EXP-268): tRPC `steer.killSession` flips the synced
      * row to `ended` (which this screen already reacts to) and best-effort

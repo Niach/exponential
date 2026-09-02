@@ -429,12 +429,12 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                 });
                 return;
             }
-            // EXP-485: presence + caps only — `devices.register` above owns
-            // the agent lists and the launch defaults.
+            // EXP-672: the control socket announces presence and nothing
+            // else — `devices.register` above owns the label, the agent
+            // lists, the launch defaults and the caps starts gate on.
             let device = DeviceIdentity {
                 device_id,
                 device_label,
-                caps,
             };
             let on_start: steer::control_channel::StartSessionFn = Arc::new(move |start| {
                 let _ = inbox.send(start);

@@ -1,0 +1,1 @@
+Stability release: steering answers always go by question id, and internal compatibility code for older builds is removed.

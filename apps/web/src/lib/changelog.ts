@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-clean-slate`,
+    date: `2026-09-02`,
+    title: `Clean slate`,
+    summary: `Every steering card can now be answered by id on every client, and the last compatibility code for older builds is gone.`,
+    body: `- **Cards always carry an id**: the desktop stamps a stable id on every steering card, including plan approvals that used to arrive without one, so web and mobile answer by id everywhere and the old keystroke fallback is retired.
+- **Widget config**: the legacy launcher position field is retired; every stored widget config carries the launcher shape.
+- **Agent sessions**: a pull-request opened without a session header no longer guesses which running batch run to park.
+- **Housekeeping**: the accepted-but-inert CLI \`--skip-permissions\` flag is removed, and the relay ticket drops an unused label claim.`,
+  },
+  {
     id: `2026-09-steer-from-anywhere`,
     date: `2026-09-02`,
     title: `Steer from anywhere`,

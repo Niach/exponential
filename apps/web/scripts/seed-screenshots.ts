@@ -23,6 +23,9 @@
  * on it, which `screenshot-desktop.ts` provides — run that next and leave it
  * running for the capture.
  *
+ * The teardown is destructive, so the script refuses a DATABASE_URL that is
+ * not obviously local (see assertLocalDatabase) unless `--allow-remote`.
+ *
  * Usage (from apps/web, local dev env with password signup enabled):
  *   bun run seed:screenshots
  *   bun run screenshots:desktop   # second shell, stays up during the capture
@@ -218,6 +221,37 @@ async function ensureTeammates(): Promise<Record<string, string>> {
   return ids
 }
 
+// This script DESTROYS data before it writes any: `teardown` drops the whole
+// `TEAM_SLUG` team, the demo users and the personal teams they solely own. That
+// is only ever correct against a local dev database — pointed at staging or
+// production it would delete a real team and real accounts. So refuse anything
+// that is not obviously local: the loopback hosts, or the dev compose
+// Postgres port (54321) on whatever host name resolves to it. `--allow-remote`
+// is the deliberate, typed-out override.
+function assertLocalDatabase(): void {
+  if (process.argv.includes(`--allow-remote`)) return
+  const raw = process.env.DATABASE_URL
+  if (!raw) throw new Error(`DATABASE_URL is not set`)
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    throw new Error(`DATABASE_URL is not a parsable URL`)
+  }
+  // `new URL('postgres://h@[::1]:5432/db').hostname` keeps the brackets.
+  const host = url.hostname.replace(/^\[|\]$/g, ``).toLowerCase()
+  const isLocal =
+    host === `localhost` ||
+    host === `127.0.0.1` ||
+    host === `::1` ||
+    url.port === `54321`
+  if (isLocal) return
+  throw new Error(
+    `Refusing to seed "${host}": seed:screenshots DELETES the "${TEAM_SLUG}" team, the demo users and their personal teams. ` +
+      `Point DATABASE_URL at the local dev database (localhost, 127.0.0.1, ::1, or port 54321), or pass --allow-remote if you truly mean this one.`
+  )
+}
+
 async function teardown() {
   const [ws] = await db
     .select()
@@ -256,6 +290,7 @@ async function teardown() {
 }
 
 async function main() {
+  assertLocalDatabase()
   await teardown()
   const demoId = await ensureDemoUser()
   await ensureNewcomerUser()
@@ -1275,7 +1310,14 @@ async function main() {
       formConfig: {
         buttonLabel: `Feedback`,
         accentColor: `#6366f1`,
-        position: `bottom-right`,
+        // EXP-672 dropped the legacy two-value `position` read shim, so the
+        // row carries the explicit per-device `launcher` every stored config
+        // now has. These values are what the old `position: bottom-right`
+        // resolved to on both devices, so the seeded shots do not move.
+        launcher: {
+          desktop: { mode: `fab`, position: `bottom-right` },
+          mobile: { mode: `fab`, position: `bottom-right` },
+        },
         collectEmail: true,
         collectName: true,
         modes: [`feedback`, `support`],

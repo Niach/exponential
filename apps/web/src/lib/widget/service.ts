@@ -273,9 +273,9 @@ export interface WidgetLauncherConfig {
 }
 
 // The EFFECTIVE launcher a row resolves to. Precedence per device: a stored
-// `launcher` entry > the stored legacy two-value `position` (an explicit
-// pre-EXP-569 corner choice, honored as a fab on both devices) > the new
-// defaults. Same defensive-read rule as every sibling sanitizer.
+// `launcher` entry > the defaults. Same defensive-read rule as every sibling
+// sanitizer. (EXP-672: the pre-EXP-569 two-value `position` read shim is
+// gone — every stored row carries `launcher`.)
 export function sanitizeWidgetLauncher(
   formConfig: Record<string, unknown> | null | undefined
 ): WidgetLauncherConfig {
@@ -283,11 +283,6 @@ export function sanitizeWidgetLauncher(
     formConfig?.launcher !== null && typeof formConfig?.launcher === `object`
       ? (formConfig.launcher as Record<string, unknown>)
       : {}
-  const legacy =
-    formConfig?.position === `bottom-left` ||
-    formConfig?.position === `bottom-right`
-      ? ({ mode: `fab`, position: formConfig.position } as const)
-      : null
   const device = (key: `desktop` | `mobile`): WidgetLauncherPlacement => {
     const entry = raw[key]
     if (entry !== null && typeof entry === `object`) {
@@ -299,7 +294,7 @@ export function sanitizeWidgetLauncher(
         return { mode, position } as WidgetLauncherPlacement
       }
     }
-    return legacy ?? defaultWidgetLauncher[key]
+    return defaultWidgetLauncher[key]
   }
   return {
     desktop: device(`desktop`),
@@ -1103,14 +1098,11 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
         buttonLabel:
           typeof form.buttonLabel === `string` ? form.buttonLabel : null,
         accentColor: sanitizeWidgetHexColor(form.accentColor),
-        // Legacy two-value position, kept ONLY for cached pre-EXP-569
-        // bundles (whose pre-config render defaults bottom-left — hence the
-        // bottom-left default here). Current bundles read `launcher` below.
-        position:
-          form.position === `bottom-right` ? `bottom-right` : `bottom-left`,
-        // EXP-569 — the resolved per-device launcher. ADDITIVE (cached older
-        // bundles ignore it); `iconSvg` is server-rendered markup from the
-        // shared icon registry, never stored content.
+        // EXP-569 — the resolved per-device launcher. `iconSvg` is
+        // server-rendered markup from the shared icon registry, never stored
+        // content. The legacy top-level `position` is no longer served
+        // (EXP-672): every bundle since EXP-569 reads `launcher`, and the
+        // bundle ships inside the same image as this server.
         launcher: (() => {
           const launcher = sanitizeWidgetLauncher(config.formConfig)
           return {
