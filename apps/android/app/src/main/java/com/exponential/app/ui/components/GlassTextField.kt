@@ -80,7 +80,8 @@ fun GlassTextField(
     )
 }
 
-/** [TextFieldValue] twin for callers that track selection (the instance URL field). */
+/** [TextFieldValue] twin for callers that track selection (the instance URL
+ *  field; the steer composer, which inserts `[Image #N]` at the caret). */
 @Composable
 fun GlassTextField(
     value: TextFieldValue,
@@ -98,13 +99,14 @@ fun GlassTextField(
     visualTransformation: VisualTransformation = VisualTransformation.None,
     textStyle: TextStyle = LocalTextStyle.current,
     containerColor: Color = GlassTokens.CardFill,
+    bordered: Boolean = true,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
     TextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier.glassFieldBorder(focused),
+        modifier = if (bordered) modifier.glassFieldBorder(focused) else modifier,
         enabled = enabled,
         textStyle = textStyle,
         placeholder = placeholder?.let { { GlassPlaceholder(it) } },
@@ -118,7 +120,7 @@ fun GlassTextField(
         maxLines = maxLines,
         interactionSource = interactionSource,
         shape = GlassFieldShape,
-        colors = glassTextFieldColors(containerColor),
+        colors = glassTextFieldColors(if (bordered) containerColor else Color.Transparent),
     )
 }
 

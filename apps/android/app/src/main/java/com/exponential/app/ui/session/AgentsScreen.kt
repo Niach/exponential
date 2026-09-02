@@ -33,7 +33,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,8 +57,6 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
-import com.exponential.app.ui.components.GlassPill
-import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
@@ -886,14 +883,17 @@ private fun AgentSessionRow(
                 }
             }
             when {
-                issueIdentifier != null -> GlassPill(
-                    issueIdentifier,
-                    size = PillSize.Sm,
+                // EXP-698: the identity line above already prints the
+                // identifier, so a trailing pill repeating it said "APP-5"
+                // twice in one row — and at [PillSize.Sm] it also sat a rung
+                // below the 32dp merge circle beside it. The trailing control
+                // is now the same 32dp circle in BOTH cases: open the issue,
+                // or open the action.
+                issueIdentifier != null -> CircleIconButton(
+                    ExpIcons.uiIssue,
+                    contentDescription = "Open $issueIdentifier",
                     onClick = onOpenIssue,
                     modifier = Modifier.padding(start = 8.dp),
-                    // Identifiers are monospaced everywhere (web `font-mono`,
-                    // iOS `.monospaced()`, and this app's own inbox/run rows).
-                    fontFamily = FontFamily.Monospace,
                 )
                 actionIcon != null -> CircleIconButton(
                     actionIcon,

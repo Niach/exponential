@@ -2,7 +2,7 @@ package com.exponential.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -95,7 +96,17 @@ fun <T> GlassSegmentedControl(
                         if (active) GlassSegmentedControlDefaults.ActiveFill else Color.Transparent,
                         capsule,
                     )
-                    .clickable { onSelect(option) }
+                    // EXP-698: SELECTABLE, not merely clickable — the segment
+                    // is one of a set and says so (`Role.Tab` + a selected
+                    // state), which is both what TalkBack needs to announce
+                    // "2 of 3, selected" and what gives a capture suite a
+                    // segment it can address and assert on by role instead of
+                    // by a label that also matches rows elsewhere on the sheet.
+                    .selectable(
+                        selected = active,
+                        role = Role.Tab,
+                        onClick = { onSelect(option) },
+                    )
                     // A STANDALONE strip has a fixed height, so its segments
                     // fill it and pad nothing: 36 - 2x3 container inset - 2x6
                     // segment padding left 18dp for a 20sp line and clipped

@@ -342,7 +342,14 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(SEEDED_ACTION_NAME, substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_start-coding-actions")
-        composeRule.onNode(hasTestTag("start-coding-tab-chat")).performClick()
+        // EXP-698: the Chat tap has to be PROVEN to have landed — this shot
+        // once came out byte-identical to the Actions one above, i.e. a
+        // silently swallowed tap wrote the previous screen twice. Gate on the
+        // two fields only the Chat tab renders, so a tap that does not land
+        // fails the run instead of duplicating a shot.
+        composeRule.onAllNodes(hasTestTag("start-coding-tab-chat")).onFirst().performClick()
+        flow.waitFor(hasText("Prompt"), NAV_TIMEOUT)
+        flow.waitFor(hasText("Repository"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_start-coding-chat")
         // EXP-687: sheets carry no Cancel pill — back (like a swipe down)

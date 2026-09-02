@@ -301,13 +301,22 @@ private fun BoardsSection(
                 modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 BoardIcon(board)
-                Text(board.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                // Backing repo (one board = one repo): a chip resolving the
-                // synced repositoryId against the tRPC registry — iOS
-                // RepoNameChip parity (EXP-577).
-                val repo = state.repos.firstOrNull { it.id == board.repositoryId }
-                if (repo != null) {
-                    RepoNameChip(repo)
+                // EXP-698: the NAME owns the first line and the repo chip sits
+                // under it. Side by side, a `owner/repo` chip is wide enough
+                // that the board it belongs to was ellipsized to "Mobile …" —
+                // the chip pushed out the one string the row exists to show.
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(board.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // Backing repo (one board = one repo): a chip resolving the
+                    // synced repositoryId against the tRPC registry — iOS
+                    // RepoNameChip parity (EXP-577).
+                    val repo = state.repos.firstOrNull { it.id == board.repositoryId }
+                    if (repo != null) {
+                        RepoNameChip(repo)
+                    }
                 }
                 // Member-level retarget → boards.setRepository (iOS parity:
                 // the swap glyph opens the connected-repos picker).

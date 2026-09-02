@@ -35,6 +35,7 @@ import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassSheetDefaults
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
@@ -140,19 +141,36 @@ fun PropertiesSheet(
             )
 
             Spacer(Modifier.height(8.dp))
-            Text(
-                "Labels",
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
+            // EXP-698: Labels is a property like the four rows above it, so it
+            // gets their leading glyph in the same 30dp column — it was the one
+            // heading in the sheet whose label started at the row TEXT's x.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = GlassSheetDefaults.HorizontalPadding),
+            ) {
+                Box(modifier = Modifier.width(30.dp), contentAlignment = Alignment.CenterStart) {
+                    Icon(
+                        ExpIcons.settingsLabels,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+                    )
+                }
+                Text(
+                    "Labels",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = TextEmphasis.Tertiary),
+                )
+            }
             Spacer(Modifier.height(8.dp))
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
+                    .padding(horizontal = GlassSheetDefaults.HorizontalPadding),
             ) {
                 val assignedIds = remember(issueLabels) { issueLabels.map { it.id }.toSet() }
                 issueLabels.forEach { label ->

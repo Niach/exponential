@@ -61,8 +61,10 @@ import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.components.SwitchThumb
 import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.components.effortLabel
+import com.exponential.app.ui.components.glassSwitchColors
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.StartCodingSheet
@@ -726,39 +728,50 @@ private fun AutomationRow(
             }
         }
         Spacer(Modifier.width(8.dp))
-        // Owner-only (every `automations` write is owner-gated server-side).
-        Switch(
-            checked = automation.enabled,
-            onCheckedChange = onSetEnabled,
-            enabled = isOwner && !busy,
-        )
-        if (isOwner) {
-            Box {
-                CircleIconButton(
-                    ExpIcons.uiMore,
-                    contentDescription = "Automation options",
-                    onClick = { menuOpen = true },
-                    enabled = !busy,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
-                GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    GlassMenuItem(
-                        text = { Text("Edit") },
-                        leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            onEdit()
-                        },
+        // EXP-698: the trailing controls are their OWN cluster, CENTRED against
+        // the row — the body wraps to four lines on a scheduled automation, and
+        // a top-aligned toggle then floated beside the title while every other
+        // list row in the app lines its actions up on the row's middle.
+        Row(
+            modifier = Modifier.align(Alignment.CenterVertically),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Owner-only (every `automations` write is owner-gated server-side).
+            Switch(
+                checked = automation.enabled,
+                onCheckedChange = onSetEnabled,
+                enabled = isOwner && !busy,
+                colors = glassSwitchColors(),
+                thumbContent = SwitchThumb,
+            )
+            if (isOwner) {
+                Box {
+                    CircleIconButton(
+                        ExpIcons.uiMore,
+                        contentDescription = "Automation options",
+                        onClick = { menuOpen = true },
+                        enabled = !busy,
+                        modifier = Modifier.padding(start = 8.dp),
                     )
-                    GlassMenuItem(
-                        text = { Text("Delete") },
-                        leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
-                        destructive = true,
-                        onClick = {
-                            menuOpen = false
-                            confirmDelete = true
-                        },
-                    )
+                    GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        GlassMenuItem(
+                            text = { Text("Edit") },
+                            leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
+                            onClick = {
+                                menuOpen = false
+                                onEdit()
+                            },
+                        )
+                        GlassMenuItem(
+                            text = { Text("Delete") },
+                            leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
+                            destructive = true,
+                            onClick = {
+                                menuOpen = false
+                                confirmDelete = true
+                            },
+                        )
+                    }
                 }
             }
         }

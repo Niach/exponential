@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -314,11 +315,36 @@ private fun CollapsedBar(
                         strokeWidth = 2.dp,
                         color = Color.White,
                     )
-                    is StartButtonUi.Session -> when (startButton.state) {
-                        CodingSessionDisplayState.Running -> PulsingDot(size = 10.dp)
-                        CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber, size = 10.dp)
-                        CodingSessionDisplayState.Review -> StaticDot(ReviewGreen, size = 10.dp)
-                        CodingSessionDisplayState.Done -> StaticDot(DoneBlue, size = 10.dp)
+                    // EXP-698: a live run's control is the SESSIONS glyph
+                    // badged with its status dot. A bare dot in a 52dp circle
+                    // named nothing — beside a play triangle and a properties
+                    // glyph it read as a stray indicator, not as "open the
+                    // session running on this issue".
+                    is StartButtonUi.Session -> Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            ExpIcons.navDevices,
+                            contentDescription = "Open coding session",
+                            modifier = Modifier.size(22.dp),
+                            tint = Color.White,
+                        )
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(x = 3.dp, y = (-3).dp)
+                                // The dot rides its own opaque disc so it
+                                // stays legible where it overlaps the glyph.
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(GlassTokens.OpaqueCardFill),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            when (startButton.state) {
+                                CodingSessionDisplayState.Running -> PulsingDot(size = 8.dp)
+                                CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber, size = 8.dp)
+                                CodingSessionDisplayState.Review -> StaticDot(ReviewGreen, size = 8.dp)
+                                CodingSessionDisplayState.Done -> StaticDot(DoneBlue, size = 8.dp)
+                            }
+                        }
                     }
                 }
             }

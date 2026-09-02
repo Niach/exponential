@@ -15,6 +15,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchColors
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -23,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -30,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.R
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassGroup
@@ -176,8 +180,49 @@ internal fun SwitchRow(
             ),
             modifier = Modifier.weight(1f),
         )
-        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+        Switch(
+            checked = checked,
+            onCheckedChange = null,
+            enabled = enabled,
+            colors = glassSwitchColors(),
+            thumbContent = SwitchThumb,
+        )
     }
+}
+
+/**
+ * THE toggle chrome (EXP-698). M3's default unchecked switch is a hollow
+ * outlined capsule with a 16dp knob rattling inside it — on the app's dark
+ * glass that reads as "broken", not as "off". Off is the shared active fill
+ * with a white knob and NO border; on is the primary track with a
+ * primary-foreground knob. Every `Switch` in the app takes these.
+ */
+@Composable
+fun glassSwitchColors(): SwitchColors = SwitchDefaults.colors(
+    checkedThumbColor = DesignTokens.Palette.PrimaryForeground,
+    checkedTrackColor = DesignTokens.Palette.Primary,
+    checkedBorderColor = Color.Transparent,
+    checkedIconColor = Color.Transparent,
+    uncheckedThumbColor = Color.White,
+    uncheckedTrackColor = GlassTokens.RowFillActive,
+    uncheckedBorderColor = Color.Transparent,
+    uncheckedIconColor = Color.Transparent,
+    disabledCheckedThumbColor = DesignTokens.Palette.PrimaryForeground.copy(alpha = TextEmphasis.Secondary),
+    disabledCheckedTrackColor = DesignTokens.Palette.Primary.copy(alpha = TextEmphasis.Tertiary),
+    disabledCheckedBorderColor = Color.Transparent,
+    disabledUncheckedThumbColor = Color.White.copy(alpha = TextEmphasis.Tertiary),
+    disabledUncheckedTrackColor = GlassTokens.RowFill,
+    disabledUncheckedBorderColor = Color.Transparent,
+)
+
+/**
+ * A blank 24dp thumb slot. M3 shrinks an unchecked thumb to 16dp unless the
+ * caller fills the icon slot, so the OFF knob came out visibly smaller than
+ * the ON one; an empty box at [SwitchDefaults.IconSize] keeps ONE knob size
+ * across both states (the icon color above is transparent, so nothing paints).
+ */
+val SwitchThumb: @Composable () -> Unit = {
+    Spacer(Modifier.size(SwitchDefaults.IconSize))
 }
 
 // ── Agent launch-option vocabulary (shared by the start + settings sheets) ──

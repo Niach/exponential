@@ -69,15 +69,39 @@ class IssueImagesApi @Inject constructor(
         bytes: ByteArray,
         filename: String,
         contentType: String,
+    ): UploadedImage =
+        // EXP-613: inline images ride the general /files route too — the
+        // legacy image-only /images route stays server-side for old builds.
+        post(accountId, "api/issues/$issueId/files", bytes, filename, contentType)
+
+    /**
+     * A steer image (EXP-511) uploads against the SESSION, not against an
+     * issue: a batch, action or chat run has no issue to hang an attachment
+     * on, and gating the attach button on `issueId` meant most runs simply
+     * could not be shown a screenshot. Same multipart shape, same response.
+     */
+    suspend fun uploadSessionImage(
+        accountId: String,
+        sessionId: String,
+        bytes: ByteArray,
+        filename: String,
+        contentType: String,
+    ): UploadedImage =
+        post(accountId, "api/sessions/$sessionId/files", bytes, filename, contentType)
+
+    private suspend fun post(
+        accountId: String,
+        path: String,
+        bytes: ByteArray,
+        filename: String,
+        contentType: String,
     ): UploadedImage {
         val account = auth.accounts.value.firstOrNull { it.id == accountId }
         val baseUrl = account?.instanceUrl
             ?: throw TrpcException("No instance URL for account $accountId")
         val token = account.token
         val (body, boundary) = buildImageUploadBody(bytes, filename, contentType)
-        // EXP-613: inline images ride the general /files route too — the
-        // legacy image-only /images route stays server-side for old builds.
-        val response = client.post("$baseUrl/api/issues/$issueId/files") {
+        val response = client.post("${baseUrl.trimEnd('/')}/$path") {
             // A multi-MB photo on a slow uplink can legitimately take longer
             // than the client-wide 30s request budget.
             timeout { requestTimeoutMillis = 120_000 }

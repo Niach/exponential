@@ -31,6 +31,7 @@ import com.exponential.app.domain.isStatusSelected
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassSheetDefaults
 import com.exponential.app.ui.components.GlassSheetHeaderAction
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.LabelDot
@@ -70,7 +71,10 @@ fun IssueFilterSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
+                // EXP-698: the sheet's own gutter, so the "Filters" heading
+                // and the rows under it share one left edge (this column had
+                // hand-typed 16 against the header's 20).
+                .padding(horizontal = GlassSheetDefaults.HorizontalPadding)
                 .padding(bottom = 4.dp),
         ) {
             when (view) {

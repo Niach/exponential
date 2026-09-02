@@ -1234,6 +1234,11 @@ private fun SelectionBar(
                         .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // EXP-698: the LABEL always renders — only the GLYPH slot
+                    // swaps for the spinner while the devices load (the
+                    // [GlassPill] `loading` contract). Dropping the text left
+                    // the bar's one primary action as a blank white capsule
+                    // with a dot in it.
                     if (devicesLoading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(14.dp),
@@ -1247,14 +1252,14 @@ private fun SelectionBar(
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.onPrimary,
                         )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "Start coding",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            maxLines = 1,
-                        )
                     }
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Start coding",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        maxLines = 1,
+                    )
                 }
             }
         }

@@ -73,7 +73,9 @@ import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.components.SwitchThumb
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.glassSwitchColors
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.IssueRefHandler
@@ -425,7 +427,11 @@ fun CreateIssueScreen(
                         Icon(ExpIcons.uiDueDate, null, modifier = Modifier.size(14.dp), tint = dueDate?.let { dueDateColor(it) } ?: MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary))
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            dueDate?.let { formatDueDate(it) } ?: "—",
+                            // EXP-698: an EMPTY value says so in words, like
+                            // "Unassigned" / "No priority" two rows up — a bare
+                            // em-dash read as a second glyph beside the
+                            // calendar rather than as "nothing picked".
+                            dueDate?.let { formatDueDate(it) } ?: "No date",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (dueDate != null) TextEmphasis.Primary else TextEmphasis.Tertiary),
                         )
@@ -486,7 +492,12 @@ fun CreateIssueScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text("Create more", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                        Switch(checked = createMore, onCheckedChange = { createMore = it })
+                        Switch(
+                            checked = createMore,
+                            onCheckedChange = { createMore = it },
+                            colors = glassSwitchColors(),
+                            thumbContent = SwitchThumb,
+                        )
                     }
                 }
                 Spacer(Modifier.height(8.dp))

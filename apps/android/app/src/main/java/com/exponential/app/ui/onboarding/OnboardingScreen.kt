@@ -22,7 +22,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,6 +40,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.LocalReduceMotion
@@ -271,13 +271,16 @@ private fun TeamStep(
                         enabled = !submitting,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Button(
+                    // EXP-698: ONE primary chrome on both cards. These were a
+                    // Material `Button` and an `OutlinedButton`, so the two
+                    // disabled first-run actions sitting one above the other
+                    // rendered as two different controls — one filled, one an
+                    // empty outline.
+                    GlassSubmitButton(
+                        label = if (submitting) "Creating…" else "Create team",
                         onClick = { onCreateTeam(teamName) },
                         enabled = !submitting && teamName.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(if (submitting) "Creating…" else "Create team")
-                    }
+                    )
                 }
                 Spacer(Modifier.height(16.dp))
                 Column(
@@ -298,13 +301,11 @@ private fun TeamStep(
                         enabled = !submitting,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    OutlinedButton(
+                    GlassSubmitButton(
+                        label = if (submitting) "Joining…" else "Join team",
                         onClick = { onJoinTeam(inviteInput) },
                         enabled = !submitting && inviteInput.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(if (submitting) "Joining…" else "Join team")
-                    }
+                    )
                 }
                 if (actionError != null) {
                     Spacer(Modifier.height(12.dp))
