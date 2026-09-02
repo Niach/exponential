@@ -57,10 +57,10 @@ import kotlinx.coroutines.launch
 // Surface), so any Text without an explicit color would inherit LocalContentColor's
 // black default. Mirrors the glass theme exactly. Internal so the extracted
 // EventRow / RegularCommentRow / IssueDetailBottomBar share the exact values.
+// (EXP-698 r4 retired the comment-only avatar chip: a comment draws the SAME
+// `UserAvatar` as every other surface, picture and hashed hue included.)
 internal val CommentAuthor = Color.White.copy(alpha = 0.9f)
 internal val CommentMeta = Color.White.copy(alpha = 0.5f)
-internal val CommentAvatarBg = GlassTokens.CardFill
-internal val CommentAvatarText = Color.White.copy(alpha = 0.7f)
 internal val CommentAccent = Color(red = 0.42f, green = 0.64f, blue = 1.0f)
 
 // Timeline gutter geometry (EXP-240): the shared leading column every timeline

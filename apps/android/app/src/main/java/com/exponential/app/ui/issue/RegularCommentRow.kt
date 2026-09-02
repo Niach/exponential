@@ -45,6 +45,7 @@ import com.exponential.app.ui.components.CommentAttachmentsStrip
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.PendingAttachmentStrip
+import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.emoji.EmojiPickerSheet
 import com.exponential.app.ui.icons.ExpIcons
@@ -130,19 +131,18 @@ internal fun RegularCommentRow(
                     .width(1.dp)
                     .background(if (lineAbove) TimelineRail else Color.Transparent),
             )
-            Box(
-                modifier = Modifier
-                    .size(26.dp)
-                    .clip(RoundedCornerShape(percent = 50))
-                    .background(CommentAvatarBg),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    initials(userDisplayName(author, comment.authorId)),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = CommentAvatarText,
-                )
-            }
+            // EXP-698 r4: the author's PICTURE when they have one, else their
+            // initials on their own hashed hue — the same avatar every other
+            // surface draws, not a comment-only glass chip.
+            UserAvatar(
+                user = author,
+                nameOrEmail = userDisplayName(author, comment.authorId),
+                size = 26.dp,
+                // The author row may not have synced (or may have left the
+                // team); the comment still carries the id web/iOS hash, so the
+                // hue stays the same person's everywhere.
+                userId = comment.authorId,
+            )
             Box(
                 Modifier
                     .weight(1f)
@@ -300,6 +300,3 @@ internal fun RegularCommentRow(
         }
     }
 }
-
-private fun initials(name: String): String =
-    name.split(" ", limit = 2).mapNotNull { it.firstOrNull()?.toString() }.joinToString("").uppercase()

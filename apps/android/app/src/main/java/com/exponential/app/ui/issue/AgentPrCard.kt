@@ -38,18 +38,23 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.codingSessionDisplayState
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassRow
 
-// The compact agent/PR card on the issue detail (EXP-156): a live "Coding now"
-// session row and the PR / branch summary as GitHub-style chips linking to the
-// dedicated Changes page. The Start-coding launcher moved into the bottom
-// bar's start circle (EXP-240) — this card renders only when there is a
-// session, a PR, or a pushed branch.
+// The issue detail's agent surfaces (EXP-156). EXP-698 r4 split them in two,
+// because they answer different questions and belong in different places:
+// [CodingNowCard] is the live session, in the property-chip box's own chrome
+// directly under it, and [AgentPrCard] is only the PR / branch row below the
+// description, linking to the dedicated Changes page. The Start-coding
+// launcher moved into the bottom bar's start circle (EXP-240), so neither of
+// them starts anything; each renders only when it has something to say.
 
 // The remote-start progress state — relocated here from the deleted SteerPanel.
 // EXP-536: `Sent` is a pure WAITING state now (single and batch alike) — the
@@ -81,42 +86,58 @@ private val PrClosedRed = DesignTokens.Semantic.Red
 @Composable
 fun AgentPrCard(
     issue: IssueEntity,
-    session: CodingSessionEntity?,
-    sessionOwner: UserEntity?,
-    steerEnabled: Boolean?,
-    /** EXP-312: live sessions are owner-only — tap-to-watch renders only on
-     *  the caller's own session. */
-    currentUserId: String?,
-    onWatch: (String) -> Unit,
     onOpenChanges: () -> Unit,
 ) {
     val hasPr = !issue.prUrl.isNullOrBlank()
     val hasBranch = !hasPr && !issue.branch.isNullOrBlank()
-    val hasContent = session != null || hasPr || hasBranch
-    if (!hasContent) return
+    if (!hasPr && !hasBranch) return
 
-    // No card wrapper (EXP-246): the session row + PR/branch chips render full
-    // width against the screen background, matching iOS.
+    // No card wrapper (EXP-246): the PR/branch chips render full width against
+    // the screen background, matching iOS.
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (session != null) {
-            SessionRow(
-                session = session,
-                prState = issue.prState,
-                sessionOwner = sessionOwner,
-                steerEnabled = steerEnabled,
-                currentUserId = currentUserId,
-                onWatch = onWatch,
-            )
-        }
         if (hasPr) {
             PrRow(prState = issue.prState, prNumber = issue.prNumber, onOpenChanges = onOpenChanges)
-        } else if (hasBranch) {
+        } else {
             BranchRow(branch = issue.branch!!, onOpenChanges = onOpenChanges)
         }
     }
+}
+
+/**
+ * The live session, in the SAME box the property chips sit in (EXP-698 r4) and
+ * mounted right under them: a run in progress is a property of the issue you
+ * are looking at, not a footnote below the description. The PR/branch rows
+ * stay where they were, next to the code they link to.
+ */
+@Composable
+fun CodingNowCard(
+    session: CodingSessionEntity,
+    prState: String?,
+    sessionOwner: UserEntity?,
+    steerEnabled: Boolean?,
+    /** EXP-312: live sessions are owner-only — Watch renders only on the
+     *  caller's own session. */
+    currentUserId: String?,
+    onWatch: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    SessionRow(
+        session = session,
+        prState = prState,
+        sessionOwner = sessionOwner,
+        steerEnabled = steerEnabled,
+        currentUserId = currentUserId,
+        onWatch = onWatch,
+        // The property-chip box's own chrome, to the pixel — the two boxes
+        // stack, so a different fill or padding would read as a mistake.
+        modifier = modifier
+            .fillMaxWidth()
+            .glassCard()
+            .padding(10.dp),
+    )
 }
 
 // Live session: a status dot + label + who/where, tapping into the steer
@@ -131,20 +152,24 @@ private fun SessionRow(
     steerEnabled: Boolean?,
     currentUserId: String?,
     onWatch: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     // EXP-312: only the session's own runner may open it live — teammates see
     // the status badge + byline, nothing tappable.
     val ownSession = currentUserId != null && session.userId == currentUserId
     val watchable = ownSession && steerEnabled == true
     val state = codingSessionDisplayState(session, prState)
-    Column {
+    Column(modifier = modifier) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 // EXP-627: the store slide's pop-out rect is measured off this
                 // row (`PopRects`), iOS parity.
-                .testTag("coding-now-row")
-                .let { if (watchable) it.clickable { onWatch(session.id) } else it },
+                .testTag("coding-now-row"),
+            // EXP-698 r4: the ROW is inert — the Watch pill is the only tap
+            // (iOS does the same). A clickable row inside a rounded card drew
+            // a rectangular ripple across its corners, and gave the same
+            // action two hit targets with only one of them looking tappable.
             verticalAlignment = Alignment.CenterVertically,
         ) {
             when (state) {
@@ -181,11 +206,16 @@ private fun SessionRow(
                 modifier = Modifier.weight(1f),
             )
             if (watchable) {
-                Icon(
-                    ExpIcons.uiChevronRight,
-                    contentDescription = "Watch live",
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                Spacer(Modifier.width(8.dp))
+                // EXP-698 r4: the ONE emphatic pill on the issue screen —
+                // watching your own run live is the action the card exists
+                // for, and a 18dp chevron never said so.
+                GlassPill(
+                    "Watch",
+                    size = PillSize.Sm,
+                    primary = true,
+                    icon = ExpIcons.navDevices,
+                    onClick = { onWatch(session.id) },
                 )
             }
         }

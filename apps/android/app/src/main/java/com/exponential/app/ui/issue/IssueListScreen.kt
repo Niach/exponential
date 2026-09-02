@@ -86,11 +86,11 @@ import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.GlassSheetSearchField
 import com.exponential.app.ui.components.GlassTextField
-import com.exponential.app.ui.components.InitialsAvatar
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.home.BoardSwitcherSheet
 import com.exponential.app.ui.home.HomeViewModel
@@ -1051,7 +1051,11 @@ internal fun IssueRow(
         }
         if (assignee != null) {
             Spacer(Modifier.width(8.dp))
-            InitialsAvatar(nameOrEmail = assignee.name ?: assignee.email, size = 22.dp)
+            UserAvatar(
+                user = assignee,
+                nameOrEmail = assignee.name ?: assignee.email,
+                size = 22.dp,
+            )
         }
         Spacer(Modifier.width(6.dp))
         Icon(

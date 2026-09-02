@@ -1,7 +1,10 @@
 package com.exponential.app.ui.components
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -16,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
@@ -55,12 +60,13 @@ enum class PillMode { Action, Select, Readonly }
  * now; [GlassPillDefaults] pins the numbers and `GlassPillDefaultsTest` keeps
  * them from being re-typed at a call site.
  *
- * Chrome is a pure function of ([size], [mode], [selected]): the capsule is
- * always [GlassTokens.CardFill] behind a [GlassTokens.StrokeCard] hairline
+ * Chrome is a pure function of ([size], [mode], [selected], [primary]): the
+ * capsule is always [GlassTokens.CardFill] behind a [GlassTokens.StrokeCard] hairline
  * with a secondary-emphasis label, and ONLY a selected [PillMode.Select] pill
  * brightens to the shared active fill + stroke and a primary label. A
  * [PillMode.Readonly] pill takes the same rest chrome, is not clickable and
- * shows no ripple.
+ * shows no ripple. [primary] is the one emphatic paint — a solid capsule for
+ * the single call to action on a surface.
  *
  * [leading] is a free slot (a progress ring, a status glyph, an avatar) drawn
  * in the pill's own content color; [icon] is the common case of a plain glyph.
@@ -77,6 +83,13 @@ fun GlassPill(
     size: PillSize = PillSize.Md,
     mode: PillMode = if (onClick == null) PillMode.Readonly else PillMode.Action,
     selected: Boolean = false,
+    /**
+     * PAINT, orthogonal to [size] and [mode] (EXP-698 r4 — web `primary`,
+     * desktop `.primary()`, iOS `primary:`): the solid primary fill with
+     * primary-foreground content and no hairline, for the ONE call to action
+     * on a surface. A disabled pill ignores it and keeps the dimmed glass.
+     */
+    primary: Boolean = false,
     icon: ImageVector? = null,
     leading: (@Composable () -> Unit)? = null,
     dot: Color? = null,
@@ -106,13 +119,20 @@ fun GlassPill(
     // A DISABLED select pill is never lit: the active fill plus a quaternary
     // label rendered as a bright capsule with near-invisible text in it.
     val active = enabled && mode == PillMode.Select && selected
-    val fg = contentColor ?: MaterialTheme.colorScheme.onSurface.copy(
-        alpha = when {
-            !enabled -> TextEmphasis.Quaternary
-            active -> TextEmphasis.Primary
-            else -> TextEmphasis.Secondary
-        },
-    )
+    // The emphatic paint is for a LIVE call to action only: a disabled primary
+    // capsule would read as tappable at full brightness.
+    val emphatic = enabled && primary
+    val fg = contentColor ?: if (emphatic) {
+        DesignTokens.Palette.PrimaryForeground
+    } else {
+        MaterialTheme.colorScheme.onSurface.copy(
+            alpha = when {
+                !enabled -> TextEmphasis.Quaternary
+                active -> TextEmphasis.Primary
+                else -> TextEmphasis.Secondary
+            },
+        )
+    }
     val tap = if (enabled && mode != PillMode.Readonly) onClick else null
     // An icon-only capsule insets by whatever centres its glyph, so it comes
     // out a CIRCLE. The label padding would have made it a stubby 28x24 oval.
@@ -120,6 +140,11 @@ fun GlassPill(
     // Aliased because inside `semantics {}` the bare name resolves to THIS
     // parameter, not to the receiver's property of the same name.
     val describedAs = contentDescription
+    // Only a solid fill needs a press state of its own — the glass rungs get
+    // theirs from the ripple, and collecting the interaction stream for them
+    // would recompose fifty capsules for nothing.
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed = if (emphatic) interactionSource.collectIsPressedAsState().value else false
     Row(
         verticalAlignment = Alignment.CenterVertically,
         // Centred, so a pill told to fillMaxWidth (the one destructive
@@ -131,8 +156,20 @@ fun GlassPill(
         ),
         modifier = modifier
             .height(GlassPillDefaults.height(size))
-            .glassButton(active = active, opaque = opaque)
-            .then(if (tap != null) Modifier.clickable(onClick = tap) else Modifier)
+            .glassButton(active = active, opaque = opaque, primary = emphatic, pressed = pressed)
+            .then(
+                if (tap != null) {
+                    Modifier.clickable(
+                        interactionSource = interactionSource,
+                        // The primary capsule's press cue IS the fill dipping;
+                        // a ripple over a solid fill only muddies it.
+                        indication = if (emphatic) null else LocalIndication.current,
+                        onClick = tap,
+                    )
+                } else {
+                    Modifier
+                },
+            )
             .then(
                 if (describedAs != null) {
                     Modifier.semantics { this.contentDescription = describedAs }

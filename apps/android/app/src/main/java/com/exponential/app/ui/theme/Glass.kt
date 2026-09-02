@@ -167,14 +167,44 @@ fun Modifier.glassCard(opaque: Boolean = false): Modifier {
  * `components/GlassPill.kt` and has no other caller: a capsule with a label in
  * it is a `GlassPill`, never a hand-rolled Row with this on it.
  */
-fun Modifier.glassButton(active: Boolean = false, opaque: Boolean = false): Modifier {
+fun Modifier.glassButton(
+    active: Boolean = false,
+    opaque: Boolean = false,
+    /**
+     * The ONE emphatic capsule (EXP-698 r4, mirrored on every client — web
+     * `primary`, desktop `.primary()`, iOS `primary:`): the solid near-white
+     * [DesignTokens.Palette.Primary] with dark content and NO hairline, for
+     * the single call to action on a surface (the issue card's "Watch"). It is
+     * PAINT only — orthogonal to the pill's size and mode — and never applies
+     * to a disabled pill, which keeps the ordinary dimmed glass.
+     */
+    primary: Boolean = false,
+    /** Held down: the primary fill dips, since it has no glass to brighten. */
+    pressed: Boolean = false,
+): Modifier {
     val shape = RoundedCornerShape(percent = 50)
+    if (primary) {
+        return this
+            .clip(shape)
+            .background(
+                if (pressed) {
+                    DesignTokens.Palette.Primary.copy(alpha = PrimaryPressedAlpha)
+                } else {
+                    DesignTokens.Palette.Primary
+                },
+                shape,
+            )
+    }
     return this
         .clip(shape)
         .then(if (opaque) Modifier.background(DesignTokens.Palette.Card, shape) else Modifier)
         .background(if (active) GlassTokens.RowFillActive else GlassTokens.CardFill, shape)
         .border(GlassTokens.Hairline, if (active) GlassTokens.StrokeActive else GlassTokens.StrokeCard, shape)
 }
+
+/** How far a pressed primary capsule dims — the glass rungs use fill/stroke
+ *  swaps for this, which a solid fill has nothing to swap to. */
+private const val PrimaryPressedAlpha = 0.85f
 
 /**
  * Let an element escape its parent's horizontal padding and run edge to edge

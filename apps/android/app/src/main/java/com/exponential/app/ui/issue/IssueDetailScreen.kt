@@ -466,7 +466,7 @@ fun IssueDetailScreen(
         val session = runningSession
         // EXP-312: the start circle deep-links into the live viewer, which is
         // owner-only — only the caller's OWN session flips it to the state
-        // dot; a teammate's run shows in the AgentPrCard badge and the circle
+        // dot; a teammate's run shows in the Coding-now card and the circle
         // falls through to Start coding.
         val ownSession = session?.takeIf { it.userId == currentUserId }
         val devices = steerDevices
@@ -661,6 +661,22 @@ fun IssueDetailScreen(
                 onOpenProperties = { propertiesOpen = true },
             )
 
+            // EXP-698 r4: the live run sits in its OWN box directly under the
+            // property chips — same chrome, same width — instead of below the
+            // description where it read as an afterthought. The PR/branch rows
+            // stay down there, next to the code they link to.
+            if (session != null) {
+                Spacer(Modifier.height(16.dp))
+                CodingNowCard(
+                    session = session,
+                    prState = issue.prState,
+                    sessionOwner = state.users.firstOrNull { it.id == session.userId },
+                    steerEnabled = steerEnabled,
+                    currentUserId = currentUserId,
+                    onWatch = onOpenSteer,
+                )
+            }
+
             Spacer(Modifier.height(16.dp))
             MarkdownEditor(
                 model = descriptionModel,
@@ -685,13 +701,11 @@ fun IssueDetailScreen(
                 onDispose { viewModel.flushDescription() }
             }
 
-            // The agent/PR card (EXP-156): a live "Coding now" session and the
-            // PR/branch chips linking to the dedicated Changes page. Start
-            // moved to the bottom bar (EXP-240), so this renders only with a
-            // session, a PR, or a pushed branch.
-            val cardVisible = session != null ||
-                !issue.prUrl.isNullOrBlank() ||
-                !issue.branch.isNullOrBlank()
+            // The PR/branch rows (EXP-156) linking to the dedicated Changes
+            // page. Start moved to the bottom bar (EXP-240) and the live
+            // session to its own card above (EXP-698 r4), so this renders only
+            // with a PR or a pushed branch.
+            val cardVisible = !issue.prUrl.isNullOrBlank() || !issue.branch.isNullOrBlank()
             if (cardVisible) {
                 Spacer(Modifier.height(20.dp))
                 // EXP-327: no repo chip here — the PR row itself is the link to
@@ -699,11 +713,6 @@ fun IssueDetailScreen(
                 // says (Linear parity).
                 AgentPrCard(
                     issue = issue,
-                    session = session,
-                    sessionOwner = session?.let { s -> state.users.firstOrNull { it.id == s.userId } },
-                    steerEnabled = steerEnabled,
-                    currentUserId = currentUserId,
-                    onWatch = onOpenSteer,
                     onOpenChanges = onOpenChanges,
                 )
             }

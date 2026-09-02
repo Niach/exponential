@@ -2,9 +2,7 @@ package com.exponential.app.ui.actions
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
@@ -171,10 +169,12 @@ private fun intervalLabel(interval: String): String = when (interval) {
 }
 
 /**
- * The trigger half of the editor: the segmented kind switch (with a leading
- * "None" only when [allowNone]), the schedule pane (interval + contextual
- * weekday/day pickers + an HH:MM time field) and the event pane (event picker
- * + contextual filter pickers off the synced tables).
+ * The trigger half of the editor, as ONE grouped card (EXP-698): the segmented
+ * kind switch (with a leading "None" only when [allowNone]) is its first row,
+ * and under a hairline come the picked kind's rows — the schedule pane
+ * (interval + contextual weekday/day pickers + the wall-clock row) or the
+ * event pane (event picker + contextual filter pickers off the synced
+ * tables). "None" leaves the strip alone in the card.
  */
 @Composable
 internal fun AutomationTriggerFields(
@@ -185,27 +185,32 @@ internal fun AutomationTriggerFields(
     onChange: (AutomationDraft) -> Unit,
     allowNone: Boolean = false,
 ) {
-    GlassSegmentedControl(
-        options = if (allowNone) {
-            listOf(AUTOMATION_KIND_NONE, AUTOMATION_KIND_SCHEDULE, AUTOMATION_KIND_EVENT)
-        } else {
-            listOf(AUTOMATION_KIND_SCHEDULE, AUTOMATION_KIND_EVENT)
-        },
-        selected = draft.kind,
-        label = {
-            when (it) {
-                AUTOMATION_KIND_SCHEDULE -> "Schedule"
-                AUTOMATION_KIND_EVENT -> "On event"
-                else -> "None"
-            }
-        },
-        onSelect = { onChange(draft.copy(kind = it)) },
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-    )
+    // EXP-698: ONE card, exactly like the agent card in
+    // [LaunchOptionsSection] — the kind strip is the card's FIRST ROW and the
+    // picked kind's rows follow it under a hairline, instead of a loose
+    // capsule floating above a second, separate group.
+    OptionGroup {
+        GlassSegmentedControl(
+            options = if (allowNone) {
+                listOf(AUTOMATION_KIND_NONE, AUTOMATION_KIND_SCHEDULE, AUTOMATION_KIND_EVENT)
+            } else {
+                listOf(AUTOMATION_KIND_SCHEDULE, AUTOMATION_KIND_EVENT)
+            },
+            selected = draft.kind,
+            label = {
+                when (it) {
+                    AUTOMATION_KIND_SCHEDULE -> "Schedule"
+                    AUTOMATION_KIND_EVENT -> "On event"
+                    else -> "None"
+                }
+            },
+            onSelect = { onChange(draft.copy(kind = it)) },
+            modifier = Modifier.padding(8.dp),
+            embedded = true,
+        )
 
-    if (draft.kind == AUTOMATION_KIND_SCHEDULE) {
-        Spacer(Modifier.height(4.dp))
-        OptionGroup {
+        if (draft.kind == AUTOMATION_KIND_SCHEDULE) {
+            GroupDivider()
             PickerRow(
                 label = "Every",
                 value = intervalLabel(draft.interval),
@@ -241,10 +246,8 @@ internal fun AutomationTriggerFields(
                 time = draft.time,
                 onChange = { onChange(draft.copy(time = it)) },
             )
-        }
-    } else if (draft.kind == AUTOMATION_KIND_EVENT) {
-        Spacer(Modifier.height(4.dp))
-        OptionGroup {
+        } else if (draft.kind == AUTOMATION_KIND_EVENT) {
+            GroupDivider()
             PickerRow(
                 label = "When",
                 value = triggerEventLabel(draft.event),

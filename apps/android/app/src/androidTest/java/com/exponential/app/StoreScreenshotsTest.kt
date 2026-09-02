@@ -139,11 +139,12 @@ class StoreScreenshotsTest {
         flow.settle()
         flow.screenshot("2_issue-detail", popRects = true)
 
-        // --- Live steering: the session row's chevron is only clickable for
-        // the session's own owner (EXP-312). Gate on the FEED tag, not the
-        // screen: it shows "Connecting…" / "Waiting for activity…" placeholders
-        // until the first relay frame lands.
-        composeRule.onNode(hasContentDescription("Watch live")).performClick()
+        // --- Live steering: the card's Watch pill (EXP-698 r4 — it replaced
+        // the chevron) renders only for the session's own owner (EXP-312).
+        // Gate on the FEED tag, not the screen: it shows "Connecting…" /
+        // "Waiting for activity…" placeholders until the first relay frame
+        // lands.
+        composeRule.onAllNodes(hasText("Watch")).onFirst().performClick()
         flow.waitFor(hasTestTag("agent-feed"), SYNC_TIMEOUT)
         // An EMPTY feed still renders the container (a relay the emulator can't
         // reach leaves the view "Reconnecting…" with nothing in it), so the tag

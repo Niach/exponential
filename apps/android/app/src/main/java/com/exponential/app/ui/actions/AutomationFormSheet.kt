@@ -27,7 +27,6 @@ import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
-import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.issue.StartCodingSheetViewModel
@@ -169,7 +168,8 @@ fun AutomationFormSheet(
             }
             Spacer(Modifier.height(8.dp))
 
-            SectionHeader("Trigger", modifier = Modifier.padding(horizontal = 12.dp))
+            // EXP-698: no "Trigger" heading — the card's own kind strip says
+            // what it is, and the heading only pushed the groups apart.
             AutomationTriggerFields(
                 draft = draft,
                 boards = boardOptions,
