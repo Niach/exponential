@@ -46,8 +46,8 @@ object DesignTokens {
         val Blue: Color = Color(0xFF3B82F6)
     }
 
-    // Glass surfaces (EXP-269) — mobile UI keeps its hand-written
-    // GlassTokens (ui/theme/Glass.kt); do not migrate.
+    // Glass surfaces (EXP-269) — read through the ui/theme/Glass.kt GlassTokens
+    // aliases; the styleguide Components group renders the same values (EXP-698).
     object Glass {
         val BackgroundTop: Color = Color(0xFF09090B)
         val BackgroundBottom: Color = Color(0xFF18181B)

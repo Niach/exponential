@@ -40,8 +40,8 @@ public enum DesignTokens {
         public static let blue: Color = Color(red: 0.2314, green: 0.5098, blue: 0.9647, opacity: 1.0000)
     }
 
-    // Glass surfaces (EXP-269) — mobile UI keeps its hand-written
-    // GlassTheme.swift; do not migrate.
+    // Glass surfaces (EXP-269) — read through ExpUI GlassTokens.swift; the
+    // styleguide Components group renders the same values (EXP-698).
     public enum Glass {
         public static let backgroundTop: Color = Color(red: 0.0353, green: 0.0353, blue: 0.0431, opacity: 1.0000)
         public static let backgroundBottom: Color = Color(red: 0.0941, green: 0.0941, blue: 0.1059, opacity: 1.0000)

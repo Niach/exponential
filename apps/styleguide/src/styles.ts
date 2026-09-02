@@ -5,12 +5,15 @@
  * webfont fetch, works over `file://`).
  */
 
+import { componentStyles } from "./component-styles.ts"
+
 import { designTokens } from "@exp/design-tokens"
 
-const { palette, glass, radius, motion } = designTokens
-const ease = `cubic-bezier(${motion.ease.standard.join(`, `)})`
+const { palette, glass, radius, size, motion } = designTokens
+const bezier = (points: readonly number[]): string => `cubic-bezier(${points.join(`, `)})`
+const ease = bezier(motion.ease.standard)
 
-export const styles = `
+const page = `
 :root {
   color-scheme: dark;
   --bg-top: ${glass.backgroundTop};
@@ -34,6 +37,42 @@ export const styles = `
   --shot-h: 520px;
   --dur: ${motion.duration.fast}ms;
   --ease: ${ease};
+  /* Everything below exists for the Components group (EXP-698): its demos are
+     forbidden a single colour / radius / duration literal, so every value they
+     need is a token-derived var declared HERE. components.test.ts fails on a
+     var(--x) in component-styles.ts that this block does not declare. */
+  --section: ${glass.fillSection};
+  --stroke-section: ${glass.strokeSection};
+  --stroke-active: ${glass.strokeActive};
+  --primary: ${palette.primary};
+  --primary-fg: ${palette.primaryForeground};
+  --popover: ${palette.popover};
+  --card-solid: ${palette.card};
+  --destructive: ${palette.destructive};
+  --r-xl: ${radius.xl}px;
+  --r-xl2: ${radius.xl2}px;
+  --r-xl3: ${radius.xl3}px;
+  --ctl-lg: ${size.controlLg}px;
+  --ctl-md: ${size.controlMd}px;
+  --ctl-sm: ${size.controlSm}px;
+  --input-h: ${size.inputHeight}px;
+  --row-h: ${size.rowHeight}px;
+  --dur-standard: ${motion.duration.standard}ms;
+  --dur-slow: ${motion.duration.slow}ms;
+  --ease-decelerate: ${bezier(motion.ease.decelerate)};
+  --ease-accelerate: ${bezier(motion.ease.accelerate)};
+  --fg-90: color-mix(in oklab, var(--fg) 90%, transparent);
+  --fg-70: color-mix(in oklab, var(--fg) 70%, transparent);
+  --fg-50: color-mix(in oklab, var(--fg) 50%, transparent);
+  --fg-30: color-mix(in oklab, var(--fg) 30%, transparent);
+  --active-50: color-mix(in oklab, var(--active) 50%, transparent);
+  --input-30: color-mix(in oklab, var(--input) 30%, transparent);
+  --input-50: color-mix(in oklab, var(--input) 50%, transparent);
+  --popover-85: color-mix(in oklab, var(--popover) 85%, transparent);
+  /* An alpha fill over a SOLID: the only way a menu or a floating bar stops
+     showing the row underneath it. Two layers, one background shorthand. */
+  --menu-bg: linear-gradient(var(--card), var(--card)) var(--popover);
+  --opaque-card: linear-gradient(var(--card), var(--card)) var(--card-solid);
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 * { box-sizing: border-box; }
@@ -108,6 +147,9 @@ a { color: inherit; text-decoration: none; }
    reads as a capture the automation forgot. */
 .dot.manual { background: transparent; border: 1px solid var(--muted-fg); box-shadow: inset 0 -3px 0 var(--muted-fg); }
 .dot.na { background: transparent; border: 1px solid var(--stroke-strong); }
+/* A component that exists on that platform but still disagrees with the
+   canonical form: present, so not missing; wrong, so not ok. */
+.dot.leftover { background: var(--warn); }
 .nav-empty { padding: 10px 16px; font-size: 12px; color: var(--muted-fg); }
 .hidden { display: none !important; }
 
@@ -203,6 +245,37 @@ body.actual figure.shot img { max-height: none; max-width: none; }
 .na-note ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
 .na-note b { color: var(--fg); font-weight: 500; }
 
+/* Components (EXP-698) — code, not screenshots. The demo sits on a phone-width
+   canvas over the SAME page gradient the controls are designed against, so the
+   white-alpha fills read at the weight they have in the app; a dashed edge says
+   this is the specimen, not a screenshot of one. */
+.view.component .cmp-demo {
+  width: min(100%, 420px);
+  margin-top: 22px;
+  padding: 20px;
+  border: 1px dashed var(--stroke-soft);
+  border-radius: var(--r-xl);
+  background: linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+}
+.cmp-status { margin-top: 22px; border-collapse: collapse; font-size: 12px; }
+.cmp-status th {
+  width: 64px;
+  padding: 6px 12px 6px 0;
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted-fg);
+  vertical-align: top;
+}
+.cmp-status td { padding: 6px 12px 6px 0; border-top: 1px solid var(--stroke-soft); vertical-align: top; }
+.cmp-status tr:first-child th, .cmp-status tr:first-child td { border-top: none; }
+.cmp-status .dot { display: inline-block; }
+.cmp-status code { color: var(--fg); }
+.cmp-status .path { display: block; margin-top: 2px; color: var(--muted-fg); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+/* A note is a caveat on an ok row, a to-do on a leftover row: only the latter shouts. */
+.cmp-status .note { display: block; margin-top: 2px; color: var(--muted-fg); max-width: 60ch; }
+.cmp-status tr.leftover .note { color: var(--warn); }
+.cmp-status tr.na td { color: var(--muted-fg); }
+
 /* Lightbox */
 dialog.lightbox {
   padding: 0;
@@ -222,3 +295,5 @@ dialog.lightbox img { display: block; cursor: zoom-out; }
   .main { padding: 20px 16px 48px; }
 }
 `
+
+export const styles = `${page}${componentStyles}`

@@ -246,8 +246,8 @@ ${palette}
 ${semantic}
     }
 
-    // Glass surfaces (EXP-269) — mobile UI keeps its hand-written
-    // GlassTokens (ui/theme/Glass.kt); do not migrate.
+    // Glass surfaces (EXP-269) — read through the ui/theme/Glass.kt GlassTokens
+    // aliases; the styleguide Components group renders the same values (EXP-698).
     object Glass {
 ${glass}
     }
@@ -333,8 +333,8 @@ ${palette}
 ${semantic}
     }
 
-    // Glass surfaces (EXP-269) — mobile UI keeps its hand-written
-    // GlassTheme.swift; do not migrate.
+    // Glass surfaces (EXP-269) — read through ExpUI GlassTokens.swift; the
+    // styleguide Components group renders the same values (EXP-698).
     public enum Glass {
 ${glass}
     }

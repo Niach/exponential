@@ -8,12 +8,23 @@ import { PLATFORM_FRAME } from "@exp/view-catalog"
 import type { Platform } from "@exp/view-catalog"
 
 import { client } from "./client.ts"
+import { COMPONENTS, COMPONENTS_GROUP, COMPONENT_PLATFORMS } from "./components.ts"
+import type { ComponentPlatform, ComponentSpec, ComponentStatus } from "./components.ts"
+import { escapeHtml } from "./html.ts"
 import { styles } from "./styles.ts"
 import type { GalleryData, Shot, ViewEntry } from "./store.ts"
 
 const PLATFORM_LABEL: Record<Platform, string> = {
   web: `Web`,
   [`web-mobile`]: `Web mobile`,
+  desktop: `Desktop`,
+  ios: `iOS`,
+  android: `Android`,
+}
+
+/** The component table has no web-mobile column — a control is one control. */
+const COMPONENT_PLATFORM_LABEL: Record<ComponentPlatform, string> = {
+  web: `Web`,
   desktop: `Desktop`,
   ios: `iOS`,
   android: `Android`,
@@ -27,14 +38,6 @@ const STATE_TEXT: Record<Shot[`state`], string> = {
   missing: `declared, not captured yet`,
   manual: `awaiting a manual capture (--manual <view-id>)`,
   [`n/a`]: `not declared for this platform`,
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, `&amp;`)
-    .replace(/</g, `&lt;`)
-    .replace(/>/g, `&gt;`)
-    .replace(/"/g, `&quot;`)
 }
 
 function formatBytes(bytes: number | undefined): string | undefined {
@@ -140,12 +143,88 @@ function renderNavLink(entry: ViewEntry): string {
   ].join(``)
 }
 
-function summary(data: GalleryData): string {
+/* ------------------------------------------------------------- components */
+
+/** `n/a` gets the same hollow dot a not-declared shot does; `leftover` its own. */
+function componentDotClass(state: ComponentStatus[`state`]): string {
+  if (state === `ok`) return `ok`
+  return state === `leftover` ? `leftover` : `na`
+}
+
+function fileBasename(file: string): string {
+  const at = file.lastIndexOf(`/`)
+  return at < 0 ? file : file.slice(at + 1)
+}
+
+function renderStatus(spec: ComponentSpec): string {
+  const rows = COMPONENT_PLATFORMS.map((platform) => {
+    const status = spec.status[platform]
+    const dot = `<span class="dot ${componentDotClass(status.state)}"></span>`
+    const symbol =
+      status.symbol === undefined
+        ? `<span class="path">${escapeHtml(status.state)}</span>`
+        : `<code>${escapeHtml(status.symbol)}</code>`
+    const file =
+      status.file === undefined ? `` : `<span class="path">${escapeHtml(status.file)}</span>`
+    const note = status.note === undefined ? `` : `<span class="note">${escapeHtml(status.note)}</span>`
+    return [
+      `<tr class="${componentDotClass(status.state)}">`,
+      `<th scope="row">${dot} ${escapeHtml(COMPONENT_PLATFORM_LABEL[platform])}</th>`,
+      `<td>${symbol}${file}${note}</td>`,
+      `</tr>`,
+    ].join(``)
+  }).join(``)
+  return `<table class="cmp-status"><tbody>${rows}</tbody></table>`
+}
+
+function renderComponentSection(spec: ComponentSpec): string {
+  return [
+    `<section class="view component" data-view="${escapeHtml(spec.id)}" id="view-${escapeHtml(spec.id)}">`,
+    `<p class="meta-note">${escapeHtml(`${COMPONENTS_GROUP.label} · ${spec.kind}`)}</p>`,
+    `<h2>${escapeHtml(spec.title)}</h2>`,
+    `<div><code class="view-id">${escapeHtml(spec.id)}</code></div>`,
+    `<p class="blurb">${escapeHtml(spec.blurb)}</p>`,
+    `<div class="cmp-demo">${spec.render()}</div>`,
+    renderStatus(spec),
+    `</section>`,
+  ].join(``)
+}
+
+function renderComponentNavLink(spec: ComponentSpec): string {
+  const dots = COMPONENT_PLATFORMS.map((platform) => {
+    const status = spec.status[platform]
+    const title = `${COMPONENT_PLATFORM_LABEL[platform]}: ${status.state}`
+    return `<span class="dot ${componentDotClass(status.state)}" title="${escapeHtml(title)}"></span>`
+  }).join(``)
+  const searchable = [
+    spec.id,
+    spec.title,
+    COMPONENTS_GROUP.label,
+    spec.kind,
+    spec.blurb,
+    ...COMPONENT_PLATFORMS.flatMap((platform) => {
+      const status = spec.status[platform]
+      return [status.symbol, status.file === undefined ? undefined : fileBasename(status.file)]
+    }),
+  ]
+    .filter((part) => part !== undefined)
+    .join(` `)
+  return [
+    `<a class="nav-link" href="#${escapeHtml(spec.id)}" data-view="${escapeHtml(spec.id)}"`,
+    ` data-title="${escapeHtml(spec.title)}" data-search="${escapeHtml(searchable.toLowerCase())}">`,
+    `<span class="label">${escapeHtml(spec.title)}</span>`,
+    `<span class="dots">${dots}</span>`,
+    `</a>`,
+  ].join(``)
+}
+
+function summary(data: GalleryData, components: readonly ComponentSpec[]): string {
   const total = data.counts.ok + data.counts.missing
   const parts = [
     `${data.views.length} views`,
     `${data.counts.ok}/${total} captured`,
     data.counts.na > 0 ? `${data.counts.na} n/a` : undefined,
+    components.length > 0 ? `${components.length} components` : undefined,
     data.undeclared.length > 0 ? `${data.undeclared.length} undeclared` : undefined,
     data.indexPresent ? undefined : `no index.json`,
   ].filter((part) => part !== undefined)
@@ -153,15 +232,21 @@ function summary(data: GalleryData): string {
 }
 
 /** Serialise for a `<script type="application/json">` block. */
-function inlineJson(data: GalleryData): string {
+function inlineJson(data: GalleryData, components: readonly ComponentSpec[]): string {
   const { groups, views, undeclared, indexPresent, counts } = data
-  return JSON.stringify({ groups, views, undeclared, indexPresent, counts }).replace(
-    /</g,
-    `\\u003c`
-  )
+  return JSON.stringify({
+    groups,
+    views,
+    undeclared,
+    indexPresent,
+    counts,
+    // Only what the client routes on: `render` is a function and the status
+    // table is already in the document.
+    components: components.map((spec) => ({ id: spec.id, title: spec.title })),
+  }).replace(/</g, `\\u003c`)
 }
 
-export function renderHtml(data: GalleryData): string {
+export function renderHtml(data: GalleryData, components = COMPONENTS): string {
   const nav = data.groups
     .map((section) =>
       [
@@ -173,11 +258,26 @@ export function renderHtml(data: GalleryData): string {
     )
     .join(``)
 
+  // The Components group is SYNTHETIC — no catalog entry, no shots, no
+  // `--check`. It is appended after the photographed groups rather than
+  // interleaved, because it answers a different question.
+  const componentNav =
+    components.length === 0
+      ? ``
+      : [
+          `<div class="group-section" data-group="${escapeHtml(COMPONENTS_GROUP.id)}">`,
+          `<div class="group-label" title="${escapeHtml(COMPONENTS_GROUP.blurb)}">${escapeHtml(COMPONENTS_GROUP.label)}</div>`,
+          components.map(renderComponentNavLink).join(``),
+          `</div>`,
+        ].join(``)
+
   const sections = data.groups
     .map((section) =>
       section.views.map((entry) => renderView(entry, section.group.label)).join(``)
     )
     .join(``)
+
+  const componentSections = components.map(renderComponentSection).join(``)
 
   const empty =
     data.views.length === 0
@@ -199,23 +299,24 @@ export function renderHtml(data: GalleryData): string {
     `<body>`,
     `<div class="layout">`,
     `<aside class="sidebar">`,
-    `<div class="brand"><h1>Exponential views</h1><p>${escapeHtml(summary(data))}</p></div>`,
-    `<div class="filter-wrap"><input id="filter" class="filter" type="search" placeholder="Filter views  ( / )" autocomplete="off" spellcheck="false"></div>`,
-    `<nav>${nav}<div class="nav-empty hidden">No view matches.</div></nav>`,
+    `<div class="brand"><h1>Exponential views</h1><p>${escapeHtml(summary(data, components))}</p></div>`,
+    `<div class="filter-wrap"><input id="filter" class="filter" type="search" placeholder="Filter views &amp; components  ( / )" autocomplete="off" spellcheck="false"></div>`,
+    `<nav>${nav}${componentNav}<div class="nav-empty hidden">Nothing matches.</div></nav>`,
     `</aside>`,
     `<main class="main">`,
     `<div class="toolbar">`,
     `<button id="toggle-size" class="btn" type="button" aria-pressed="false">Fit to height</button>`,
     `<span class="meta-note">j / k moves · / filters · click a shot for 1:1</span>`,
     `<span class="spacer"></span>`,
-    `<span class="meta-note">${escapeHtml(summary(data))}</span>`,
+    `<span class="meta-note">${escapeHtml(summary(data, components))}</span>`,
     `</div>`,
     empty,
     sections,
+    componentSections,
     `</main>`,
     `</div>`,
     `<dialog class="lightbox"><img alt="Full size screenshot"></dialog>`,
-    `<script type="application/json" id="gallery-data">${inlineJson(data)}</script>`,
+    `<script type="application/json" id="gallery-data">${inlineJson(data, components)}</script>`,
     `<script>${client}</script>`,
     `</body>`,
     `</html>`,

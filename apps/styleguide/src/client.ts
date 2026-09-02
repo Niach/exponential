@@ -2,12 +2,15 @@
  * The browser half of the gallery, inlined into the page. Plain DOM, no build
  * step, no framework: every view section is already in the document, so this
  * only routes, filters, and zooms.
+ *
+ * Component sections route exactly like view sections — same `.view` class,
+ * same nav link, same hash. They just carry no shots.
  */
 
 export const client = `
 const raw = document.getElementById("gallery-data").textContent;
 const data = JSON.parse(raw);
-const ids = data.views.map((entry) => entry.view.id);
+const ids = data.views.map((entry) => entry.view.id).concat((data.components || []).map((c) => c.id));
 const links = new Map();
 document.querySelectorAll(".nav-link").forEach((link) => links.set(link.dataset.view, link));
 const filter = document.getElementById("filter");

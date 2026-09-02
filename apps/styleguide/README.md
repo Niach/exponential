@@ -23,6 +23,24 @@ Per platform a view is either **captured**, **missing** or **n/a**:
 - **undeclared** — a file in `shots/` that no view/platform pair claims. Either
   the catalog entry was renamed or the file is stale.
 
+## Components
+
+The last sidebar group is **Components** (EXP-698), and nothing in it is a
+screenshot. Each glass control is hardcoded ONCE in plain HTML/CSS driven by
+`@exp/design-tokens` (`src/components.ts` + `src/component-styles.ts`), so the
+page renders the canonical form live rather than a photograph of one platform's
+guess at it. `shots/` holds nothing for these, `views.json` declares nothing —
+the group is synthetic — and `--check` never sees them.
+
+Under each control is a per-platform table naming the ONE symbol and file that
+is supposed to match it on Web / Desktop / iOS / Android, marked `ok`,
+`leftover` (it exists but still disagrees; the note says how) or `n/a` (that
+platform deliberately has none). `bun test` gates the parts that rot: every
+named file exists, every platform is accounted for, notes stay one short line,
+the demos carry no inline styles, and `component-styles.ts` contains no colour
+literal — every value is a `var(--…)` declared from the tokens, and every radius
+is a ladder step.
+
 `SHOTS_DIR` points both commands at another store (scratch copies, tests);
 by default it is the repo-root `shots/`.
 
