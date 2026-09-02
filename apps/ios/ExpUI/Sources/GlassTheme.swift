@@ -174,9 +174,41 @@ public struct AppBackground: View {
     }
 }
 
+/// EXP-698: the 24pt wash a scrolling surface wears directly under a sticky
+/// translucent header. Without it a line of body text that happens to sit at
+/// the header's edge is SLICED through its letterforms — half the glyph reads
+/// crisp, half reads behind the material — which is what made the steering
+/// feed look broken at the top of every scroll. The gradient starts at the
+/// page's own background colour so the fade reads as the page receding, not
+/// as a grey band.
+public struct StickyHeaderFade: View {
+    public static let height: CGFloat = 24
+
+    public init() {}
+
+    public var body: some View {
+        LinearGradient(
+            colors: [
+                GlassTokens.backgroundTop,
+                GlassTokens.backgroundTop.opacity(0),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: Self.height)
+        .allowsHitTesting(false)
+    }
+}
+
 // MARK: - View Extensions
 
 extension View {
+    /// Overlays `StickyHeaderFade` at the top edge — for a scroller that runs
+    /// under a translucent nav bar.
+    public func stickyHeaderFade() -> some View {
+        overlay(alignment: .top) { StickyHeaderFade() }
+    }
+
     public func glassCard(
         cornerRadius: CGFloat = GlassTokens.cardRadius,
         isOpaque: Bool = false

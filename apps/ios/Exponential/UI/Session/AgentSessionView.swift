@@ -119,11 +119,19 @@ struct AgentSessionView: View {
     /// glyph. Usage opens the per-window cards; Kill (EXP-268) force-ends a
     /// live session — owner-only, like everything about one (EXP-312).
     private var hasToolbarMenu: Bool {
-        model?.agentUsage != nil || model?.canKill == true
+        headerIssue != nil || model?.agentUsage != nil || model?.canKill == true
     }
 
     @ViewBuilder
     private var toolbarMenuItems: some View {
+        // EXP-698: the run's issue is reachable from the run. The Agents list
+        // dropped its duplicate identifier pill (the title prints it), so this
+        // menu — and the list row's long press — are the two ways there.
+        if let issue = headerIssue {
+            GlassMenuItem("Open issue", icon: AppIcons.uiIssue) {
+                deps.deepLinkBus.navigateToIssue(issue.id, accountId: accountId)
+            }
+        }
         if model?.agentUsage != nil {
             GlassMenuItem("Usage", icon: AppIcons.uiUsage) {
                 showUsageSheet = true
@@ -573,6 +581,10 @@ struct AgentSessionView: View {
                 // already accounts for it, so the last line still comes to
                 // rest fully above the bar.
                 .safeAreaInset(edge: .bottom, spacing: 0) { changesBar() }
+                // EXP-698: the nav bar is `.ultraThinMaterial`, so a scrolled
+                // narration line used to be sliced through its letterforms at
+                // the header's edge. The fade lets it recede instead.
+                .stickyHeaderFade()
                 .coordinateSpace(name: Self.feedCoordSpace)
                 .modifier(FollowPinTracker(
                     atBottom: $atBottom,
@@ -1109,9 +1121,8 @@ struct AgentSessionView: View {
     /// `SteerImageMessage` wire format.
     private func composerCard(_ model: AgentSessionModel) -> some View {
         @Bindable var model = model
-        // Images attach to the session's ISSUE, so a batch or action run has
-        // nowhere to put them (EXP-511).
-        let canAttach = model.session?.issueId != nil
+        // EXP-702: images attach to the SESSION, so every run can carry them —
+        // a batch or action run no longer has "nowhere to put them".
         let attachFull = model.pendingImages.count >= SteerImageMessage.maxImages
         let canSend = !model.trimmedDraft.isEmpty || !model.pendingImages.isEmpty
         // EXP-621: only SENDING waits for the socket — the field, the picker
@@ -1138,7 +1149,7 @@ struct AgentSessionView: View {
         } strip: {
             if !model.pendingImages.isEmpty {
                 PendingAttachmentStrip(items: model.pendingImages) { id in
-                    model.pendingImages.removeAll { $0.id == id }
+                    removePendingImage(model, id: id)
                 }
                 .padding(.horizontal, 8)
                 .padding(.bottom, 4)
@@ -1153,14 +1164,12 @@ struct AgentSessionView: View {
                     .padding(.bottom, 4)
             }
         } tools: {
-            if canAttach {
-                GlassComposerToolButton(
-                    AppIcons.uiAdd,
-                    accessibilityLabel: "Attach image",
-                    enabled: !attachDisabled
-                ) {
-                    showPhotoPicker = true
-                }
+            GlassComposerToolButton(
+                AppIcons.uiAdd,
+                accessibilityLabel: "Attach image",
+                enabled: !attachDisabled
+            ) {
+                showPhotoPicker = true
             }
         } submit: {
             GlassComposerSubmitButton(
@@ -1228,7 +1237,29 @@ struct AgentSessionView: View {
                 contentType: normalized.contentType,
                 uploadedId: nil
             ))
+            // EXP-698: the k-th image drops its positional `[Image #k]` into
+            // the draft, so a sentence can name the picture it means. The
+            // composer's field is a SwiftUI `TextField` bound to `draftText`
+            // with no selection API, so the marker lands at the END of the
+            // draft (spaced off whatever is there) rather than at the caret.
+            let inserted = SteerImageMessage.insertImageMarker(
+                text: model.draftText,
+                caret: (model.draftText as NSString).length,
+                index: model.pendingImages.count
+            )
+            model.draftText = inserted.text
         }
+    }
+
+    /// Dropping a pending image renumbers the draft's markers: the removed
+    /// one goes and every higher one slides down, so `[Image #N]` keeps
+    /// naming the N-th image that will actually be sent.
+    private func removePendingImage(_ model: AgentSessionModel, id: UUID) {
+        guard let position = model.pendingImages.firstIndex(where: { $0.id == id }) else { return }
+        model.pendingImages.remove(at: position)
+        model.draftText = SteerImageMessage.renumberImageMarkers(
+            model.draftText, removedIndex: position + 1
+        )
     }
 }
 
@@ -1311,21 +1342,53 @@ private struct UserMessageBubble: View {
     /// clipped height cap instead — same approach as QuestionCard's prompt.
     private static let clampHeight: CGFloat = 160
 
-    private var clampable: Bool {
-        text.count > Self.clampChars
-            || text.filter { $0 == "\n" }.count >= Self.clampLines
+    private func isClampable(_ body: String) -> Bool {
+        body.count > Self.clampChars
+            || body.filter { $0 == "\n" }.count >= Self.clampLines
     }
 
+    /// EXP-698: a steered message with images (EXP-511) splits into its PROSE
+    /// — whose `[Image #N]` markers become chips — and the embeds themselves,
+    /// which stay below it. A message without embeds is the wire message and
+    /// keeps the full markdown block render, markers and all: a marker with no
+    /// picture behind it is prose, and chipping it would promise a preview
+    /// that does not exist (web's `MarkerText` `count` gate).
+    private var parsed: SteerImageMessage.Parsed { SteerImageMessage.parse(text) }
+
     var body: some View {
-        HStack {
+        let parsed = parsed
+        let hasImages = !parsed.attachmentIds.isEmpty
+        // Clamp the PROSE, never the wire message: four embed lines are four
+        // more "lines" of nothing, and they used to push a two-line steer into
+        // the fold — which then hid the images the fold was measuring.
+        let clampable = isClampable(hasImages ? parsed.text : text)
+        return HStack {
             Spacer(minLength: 32)
             VStack(alignment: .leading, spacing: 4) {
-                AgentMarkdownText(
-                    text: text,
-                    context: context,
-                    options: [.autolinkBareURLs, .hardLineBreaks],
-                    hugsWidth: true
-                )
+                Group {
+                    if !hasImages {
+                        AgentMarkdownText(
+                            text: text,
+                            context: context,
+                            options: [.autolinkBareURLs, .hardLineBreaks],
+                            hugsWidth: true
+                        )
+                    } else if !parsed.text.isEmpty {
+                        if parsed.markers.isEmpty {
+                            AgentMarkdownText(
+                                text: parsed.text,
+                                context: context,
+                                options: [.autolinkBareURLs, .hardLineBreaks],
+                                hugsWidth: true
+                            )
+                        } else {
+                            MarkedUpUserText(
+                                text: parsed.text,
+                                imageCount: parsed.attachmentIds.count
+                            )
+                        }
+                    }
+                }
                 .frame(maxHeight: clampable && !expanded ? Self.clampHeight : nil, alignment: .top)
                 .clipped()
                 if clampable {
@@ -1335,6 +1398,19 @@ private struct UserMessageBubble: View {
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .buttonStyle(.plain)
+                }
+                // OUTSIDE the fold: the images are the point of the message,
+                // and a long prose clamp must never be what hides them.
+                if hasImages {
+                    AgentMarkdownText(
+                        text: SteerImageMessage.build(
+                            text: "", attachmentIds: parsed.attachmentIds
+                        ),
+                        context: context,
+                        options: [.autolinkBareURLs, .hardLineBreaks],
+                        hugsWidth: true
+                    )
+                    .padding(.top, parsed.text.isEmpty ? 0 : 4)
                 }
             }
             .padding(.horizontal, 12)
@@ -1349,6 +1425,169 @@ private struct UserMessageBubble: View {
             )
         }
         .padding(.vertical, 5)
+    }
+}
+
+/// EXP-698: the PROSE of a steered message that carries `[Image #N]` markers.
+/// The words flow as plain runs and a marker becomes a readonly `GlassPill`
+/// beside them, so "crop [Image #2] tighter" reads as a sentence with a chip
+/// in it. Markdown is deliberately NOT re-parsed here — a message that names
+/// its pictures came from the composer as chat prose, and a block stack could
+/// not flow around an inline chip anyway — but the two things the plain path
+/// would otherwise lose are kept: line breaks (one flow row per line) and
+/// bare URLs (rendered as `Link`, what cmark's autolink does on the markdown
+/// path). The embeds are the caller's; this view renders text only.
+private struct MarkedUpUserText: View {
+    let text: String
+    /// How many images the message actually carries. A marker outside
+    /// `1...imageCount` — hand-typed, or left behind by an edit — is prose,
+    /// not a chip: chipping it would promise a picture that is not there.
+    let imageCount: Int
+
+    /// One flowed item. Words are split out so the flow layout can wrap
+    /// between them — a whole paragraph as one subview would simply overflow
+    /// the bubble.
+    private enum Piece: Identifiable {
+        /// `text` is the word; when `url` is set only `text` is the anchor and
+        /// `suffix` is the prose punctuation that followed it inside the same
+        /// whitespace-delimited word (`https://x.dev).` → anchor + `).`).
+        case word(id: Int, text: String, url: URL?, suffix: String)
+        case marker(id: Int, index: Int)
+
+        var id: Int {
+            switch self {
+            case .word(let id, _, _, _), .marker(let id, _): return id
+            }
+        }
+    }
+
+    /// A source line's pieces. Splitting on `\n` FIRST is what keeps a
+    /// multi-line steer multi-line — one flow row per line, instead of every
+    /// word of the message poured into a single wrapping paragraph.
+    private struct Line: Identifiable {
+        let id: Int
+        let pieces: [Piece]
+    }
+
+    private var lines: [Line] {
+        var lines: [Line] = []
+        var current: [Piece] = []
+        var nextId = 0
+
+        func take() -> Int {
+            defer { nextId += 1 }
+            return nextId
+        }
+        func breakLine() {
+            lines.append(Line(id: lines.count, pieces: current))
+            current = []
+        }
+
+        for segment in SteerImageMessage.segments(of: text) {
+            switch segment {
+            case .text(let run):
+                let runLines = run.components(separatedBy: "\n")
+                for (offset, runLine) in runLines.enumerated() {
+                    if offset > 0 { breakLine() }
+                    for word in runLine.split(whereSeparator: \.isWhitespace) {
+                        let word = String(word)
+                        let anchor = Self.link(in: word)
+                        current.append(.word(
+                            id: take(),
+                            text: anchor?.text ?? word,
+                            url: anchor?.url,
+                            suffix: anchor?.suffix ?? ""
+                        ))
+                    }
+                }
+            case .marker(let index):
+                if index >= 1 && index <= imageCount {
+                    current.append(.marker(id: take(), index: index))
+                } else {
+                    // Out of range: prose, exactly as the wire carried it.
+                    current.append(.word(
+                        id: take(),
+                        text: SteerImageMessage.imageMarker(index),
+                        url: nil,
+                        suffix: ""
+                    ))
+                }
+            }
+        }
+        breakLine()
+        return lines
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(lines) { line in
+                if line.pieces.isEmpty {
+                    // A blank line keeps its height — the paragraph break the
+                    // sender typed is part of the message.
+                    Text(verbatim: " ")
+                        .font(.body)
+                        .foregroundStyle(.clear)
+                } else {
+                    FlowLayout(spacing: 4) {
+                        ForEach(line.pieces) { piece in
+                            switch piece {
+                            case .word(_, let word, let url, let suffix):
+                                if let url {
+                                    // One subview, no flow spacing inside it:
+                                    // the punctuation belongs against the
+                                    // anchor, not a space away from it.
+                                    HStack(spacing: 0) {
+                                        Link(destination: url) {
+                                            Text(word)
+                                                .font(.body)
+                                                .underline()
+                                                .foregroundStyle(Color(MarkdownStyle.linkColor))
+                                        }
+                                        if !suffix.isEmpty {
+                                            Text(suffix)
+                                                .font(.body)
+                                                .foregroundStyle(.white.opacity(0.9))
+                                        }
+                                    }
+                                } else {
+                                    Text(word)
+                                        .font(.body)
+                                        .foregroundStyle(.white.opacity(0.9))
+                                }
+                            case .marker(_, let index):
+                                GlassPill("Image \(index)", icon: AppIcons.editorImage)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A bare `http(s)://` word, with prose punctuation trimmed off the end —
+    /// `(see https://x.dev).` must not link the `).`. Balanced closing
+    /// brackets are kept, so `https://x.dev/a(b)` stays whole. Hand-mirrored
+    /// from web's `lib/linkify.ts`, scoped to one whitespace-delimited word
+    /// because that is all this flow layout ever hands it.
+    private static func link(in word: String) -> (text: String, url: URL, suffix: String)? {
+        let lowered = word.lowercased()
+        guard lowered.hasPrefix("http://") || lowered.hasPrefix("https://") else { return nil }
+        var anchor = Substring(word)
+        while let last = anchor.last {
+            let opens: (Character) -> Int = { open in anchor.filter { $0 == open }.count }
+            if ".,;:!?".contains(last) {
+                anchor = anchor.dropLast()
+            } else if last == ")", opens("(") < opens(")") {
+                anchor = anchor.dropLast()
+            } else if last == "]", opens("[") < opens("]") {
+                anchor = anchor.dropLast()
+            } else {
+                break
+            }
+        }
+        guard !anchor.isEmpty, let url = URL(string: String(anchor)) else { return nil }
+        return (String(anchor), url, String(word.dropFirst(anchor.count)))
     }
 }
 

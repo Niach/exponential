@@ -523,54 +523,62 @@ struct ActionsListView: View {
         let trigger = automation.parsedTrigger
         let boundDevice = vm.allDevices.first { $0.deviceId == automation.deviceId }
         let busy = vm.automationBusyId == automation.id
-        return HStack(alignment: .top, spacing: 12) {
-            AppIcon(action?.icon ?? AppIcons.actionDefault, size: AppIcon.Size.medium)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        // EXP-698: the row's trailing cluster (toggle + menu) is CENTRED —
+        // an automation body runs to five lines, and a top-pinned toggle left
+        // it floating beside the first one instead of lining up with the play
+        // and "…" controls every other row in this list wears. The glyph and
+        // the body keep their own top alignment inside the leading group.
+        return HStack(spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                AppIcon(action?.icon ?? AppIcons.actionDefault, size: AppIcon.Size.medium)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(action?.name ?? "Deleted action")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                if let trigger {
-                    Text(AutomationTriggerDisplay.summary(trigger))
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                }
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(boundDevice?.isOnline == true
-                            ? DesignTokens.Semantic.green
-                            : Color.white.opacity(0.25))
-                        .frame(width: 6, height: 6)
-                    Text(deviceLabel(boundDevice, deviceId: automation.deviceId))
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(action?.name ?? "Deleted action")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
                         .lineLimit(1)
-                }
-                if let launch = launchCaption(automation) {
-                    Text(launch)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(1)
-                }
-                if case let .schedule(schedule)? = trigger, automation.enabled,
-                   let next = AutomationTriggerDisplay.nextScheduleRun(schedule, after: Date()) {
-                    Text("Next run \(next.formatted(date: .abbreviated, time: .shortened)) (device time)")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
-                if let last = vm.lastRunByAutomation[automation.id] {
-                    let time = relativeDate(last.startedAt)
-                    if !time.isEmpty {
-                        Text("Last run \(time)")
+                    if let trigger {
+                        Text(AutomationTriggerDisplay.summary(trigger))
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(boundDevice?.isOnline == true
+                                ? DesignTokens.Semantic.green
+                                : Color.white.opacity(0.25))
+                            .frame(width: 6, height: 6)
+                        Text(deviceLabel(boundDevice, deviceId: automation.deviceId))
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                    }
+                    if let launch = launchCaption(automation) {
+                        Text(launch)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                    }
+                    if case let .schedule(schedule)? = trigger, automation.enabled,
+                       let next = AutomationTriggerDisplay.nextScheduleRun(schedule, after: Date()) {
+                        Text("Next run \(next.formatted(date: .abbreviated, time: .shortened)) (device time)")
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
+                    if let last = vm.lastRunByAutomation[automation.id] {
+                        let time = relativeDate(last.startedAt)
+                        if !time.isEmpty {
+                            Text("Last run \(time)")
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        }
+                    }
                 }
-            }
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             // Owner-only (the automations router is owner-gated server-side).
             Toggle("", isOn: Binding(

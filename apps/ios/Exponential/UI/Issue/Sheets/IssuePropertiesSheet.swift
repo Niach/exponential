@@ -78,12 +78,20 @@ struct IssuePropertiesSheet<Child: View>: View {
 
                 // Labels: assigned chips toggle inline (removal), the add
                 // chip hands off to the searchable sheet.
-                Text("Labels")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .padding(.horizontal, 14)
-                    .padding(.top, 14)
-                    .padding(.bottom, 6)
+                // EXP-698: the leading glyph every row above wears, on the
+                // same 24pt gutter — Labels was the one property whose header
+                // started at the margin instead.
+                HStack(spacing: 10) {
+                    AppIcon(AppIcons.settingsLabels, size: AppIcon.Size.medium)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .frame(width: 24)
+                    Text("Labels")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 14)
+                .padding(.bottom, 6)
 
                 FlowLayout(spacing: 6) {
                     ForEach(labels.filter { assignedIds.contains($0.id) }, id: \.id) { label in

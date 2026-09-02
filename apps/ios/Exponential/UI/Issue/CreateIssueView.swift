@@ -185,7 +185,15 @@ struct CreateIssueView: View {
                             // Assignee — hidden on solo teams, where the
                             // sole member is pre-assigned (EXP-50).
                             if !singleMemberTeam {
-                                metadataRow(label: "Assignee", icon: "person.circle", iconColor: .white.opacity(0.6)) {
+                                // EXP-698: the registry's assignee concept —
+                                // the raw `person.circle` SF Symbol here was
+                                // not an `AppIcons` name, so the row simply
+                                // rendered no glyph at all.
+                                metadataRow(
+                                    label: "Assignee",
+                                    icon: assigneeId == nil ? AppIcons.uiUnassigned : AppIcons.uiAssignee,
+                                    iconColor: .white.opacity(TextOpacity.secondary)
+                                ) {
                                     Button {
                                         picker = .assignee
                                     } label: {
@@ -220,9 +228,17 @@ struct CreateIssueView: View {
                     // moderator-gated: issues.create lets any creator set
                     // title/description/labels.
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Labels")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        // EXP-698: the same leading glyph the metadata rows
+                        // wear, on the same 20pt gutter — Labels used to be
+                        // the one property whose header started at the margin.
+                        HStack(spacing: 8) {
+                            AppIcon(AppIcons.settingsLabels, size: AppIcon.Size.small)
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                .frame(width: 20)
+                            Text("Labels")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        }
 
                         FlowLayout(spacing: 6) {
                             ForEach(labels, id: \.id) { label in
@@ -495,8 +511,12 @@ struct CreateIssueView: View {
     }
 
     @ViewBuilder
+    /// One recipe for every property row (EXP-698): a leading registry glyph
+    /// on a 20pt gutter, the name, the value, and the disclosure chevron that
+    /// says the row opens a picker — the Due-date row below already had one,
+    /// and the three above it read as static captions without it.
     private func metadataRow<Content: View>(label: String, icon: String, iconColor: Color, @ViewBuilder content: () -> Content) -> some View {
-        HStack {
+        HStack(spacing: 8) {
             AppIcon(icon, size: AppIcon.Size.small)
                 .foregroundStyle(iconColor)
                 .frame(width: 20)
@@ -505,9 +525,12 @@ struct CreateIssueView: View {
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
-            Spacer()
+            Spacer(minLength: 8)
 
             content()
+
+            AppIcon(AppIcons.uiChevronRight, size: 11)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         }
     }
 

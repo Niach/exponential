@@ -283,8 +283,15 @@ public final class IssueEditorModel {
     /// ever passed by display-only models (EXP-440) — `applyRemote` and
     /// `reloadPendingRemote` deliberately keep the default, since a model that
     /// can serialize must parse exactly what it saves.
-    public func load(markdown: String, baseURL: URL?, options: MarkdownParseOptions = []) {
-        blocks = MarkdownConversion.markdownToBlocks(markdown, baseURL: baseURL, options: options)
+    public func load(
+        markdown: String,
+        baseURL: URL?,
+        options: MarkdownParseOptions = [],
+        overrides: MarkdownStyle.Overrides = .none
+    ) {
+        blocks = MarkdownConversion.markdownToBlocks(
+            markdown, baseURL: baseURL, options: options, overrides: overrides
+        )
         decorateChips()
         bumpAllRevisions()
         // Baseline against the DERIVED markdown, not the raw input: the

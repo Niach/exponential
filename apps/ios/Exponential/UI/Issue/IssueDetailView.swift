@@ -276,6 +276,10 @@ struct IssueDetailView: View {
                     }
                 }
                 .scrollDismissesKeyboard(.interactively)
+                // EXP-698: the toolbar is `.ultraThinMaterial`, so scrolled
+                // prose used to be sliced through its letterforms right at the
+                // header's edge — the same 24pt wash the steering feed wears.
+                .stickyHeaderFade()
                 // The floating bottom bar (EXP-240): reserves scroll clearance
                 // and rides the keyboard automatically. ALWAYS mounted so the
                 // composer draft (bar-owned @State) survives; the bar renders

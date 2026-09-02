@@ -533,6 +533,7 @@ struct IssueListView: View {
                     .font(.caption.monospaced())
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                     .frame(minWidth: identifierMinWidth, alignment: .leading)
 
                 // Status icon — resolved against the team's status rows (EXP-314).
@@ -546,47 +547,58 @@ struct IssueListView: View {
 
                 // Title — the ONLY flexible element (Android parity): it
                 // truncates under pressure so the due date never wraps.
+                // EXP-698: it takes ALL the width the trailing meta leaves,
+                // instead of ceding a `Spacer()`'s default minimum plus a
+                // stack gap to dead space — titles were ellipsizing three
+                // words early with a visible gap to their right.
                 Text(issue.title)
                     .font(.subheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
 
-                Spacer()
+                // Trailing meta — labels, due date, assignee. ONE fixed-size
+                // group so the row reserves exactly its intrinsic width and
+                // everything left over goes to the title.
+                HStack(spacing: 10) {
+                    // Labels
+                    HStack(spacing: 4) {
+                        let issueLabels = vm.labelsFor(issueId: issue.id)
+                        ForEach(issueLabels.prefix(3), id: \.id) { label in
+                            Circle()
+                                .fill(Color(hex: label.color) ?? .gray)
+                                .frame(width: 8, height: 8)
+                        }
+                    }
 
-                // Labels
-                HStack(spacing: 4) {
-                    let issueLabels = vm.labelsFor(issueId: issue.id)
-                    ForEach(issueLabels.prefix(3), id: \.id) { label in
-                        Circle()
-                            .fill(Color(hex: label.color) ?? .gray)
-                            .frame(width: 8, height: 8)
+                    // Due date — never wraps mid-word ("Tomor-row"); it holds
+                    // its intrinsic width and the title truncates instead
+                    // (EXP-55).
+                    if let dueDate = issue.dueDate {
+                        HStack(spacing: 3) {
+                            AppIcon(AppIcons.uiDueDate, size: 11)
+                            Text(formatDueDate(dueDate))
+                                .font(.caption)
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(dueDateColor(dueDate))
+                    }
+
+                    // Assignee avatar (pseudonym initial when the user row
+                    // isn't synced) — hidden on solo teams, where every issue
+                    // is the sole member's (EXP-247).
+                    if !vm.singleMemberTeam, let assigneeId = issue.assigneeId {
+                        // Sized off the height floor rather than a fixed 22:
+                        // the floor scales with Dynamic Type, so a hard 22
+                        // would poke above it at text sizes below default and
+                        // make rows with an assignee taller than rows without.
+                        userAvatar(
+                            vm.userFor(id: assigneeId), id: assigneeId, size: rowContentMinHeight
+                        )
                     }
                 }
-
-                // Due date — never wraps mid-word ("Tomor-row"); it holds its
-                // intrinsic width and the title truncates instead (EXP-55).
-                if let dueDate = issue.dueDate {
-                    HStack(spacing: 3) {
-                        AppIcon(AppIcons.uiDueDate, size: 11)
-                        Text(formatDueDate(dueDate))
-                            .font(.caption)
-                            .lineLimit(1)
-                    }
-                    .fixedSize(horizontal: true, vertical: false)
-                    .foregroundStyle(dueDateColor(dueDate))
-                }
-
-                // Assignee avatar (pseudonym initial when the user row isn't
-                // synced) — hidden on solo teams, where every issue is the
-                // sole member's (EXP-247).
-                if !vm.singleMemberTeam, let assigneeId = issue.assigneeId {
-                    // Sized off the height floor rather than a fixed 22: the
-                    // floor scales with Dynamic Type, so a hard 22 would poke
-                    // above it at text sizes below default and make rows with
-                    // an assignee taller than rows without.
-                    userAvatar(vm.userFor(id: assigneeId), id: assigneeId, size: rowContentMinHeight)
-                }
+                .fixedSize(horizontal: true, vertical: false)
             }
             .frame(minHeight: rowContentMinHeight)
             .padding(.horizontal, 12)

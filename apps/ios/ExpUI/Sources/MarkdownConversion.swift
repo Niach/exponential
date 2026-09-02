@@ -1,6 +1,7 @@
 import cmark_gfm
 import cmark_gfm_extensions
 import Foundation
+import SwiftUI
 import os
 import UIKit
 
@@ -222,7 +223,8 @@ public enum MarkdownConversion {
     public static func markdownToBlocks(
         _ markdown: String,
         baseURL: URL? = nil,
-        options: MarkdownParseOptions = []
+        options: MarkdownParseOptions = [],
+        overrides: MarkdownStyle.Overrides = .none
     ) -> [ContentBlock] {
         cmark_gfm_core_extensions_ensure_registered()
 
@@ -258,7 +260,7 @@ public enum MarkdownConversion {
         defer { cmark_node_free(doc) }
 
         let collector = BlockCollector(baseURL: baseURL)
-        var context = RenderContext(baseURL: baseURL, options: options)
+        var context = RenderContext(baseURL: baseURL, options: options, overrides: overrides)
         renderNodeToBlocks(doc, collector: collector, context: &context)
         return collector.finalize()
     }
@@ -297,6 +299,8 @@ private struct ListContext {
 private struct RenderContext {
     var baseURL: URL?
     var options: MarkdownParseOptions = []
+    /// EXP-698: display-only palette deviations (the chat feeds' code tint).
+    var overrides: MarkdownStyle.Overrides = .none
     var styleStack: [StyleFrame] = [StyleFrame(
         font: MarkdownStyle.bodyFont,
         foregroundColor: MarkdownStyle.textColor,
@@ -456,7 +460,13 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         let literal = String(cString: cmark_node_get_literal(node))
         var attrs = context.makeAttributes()
         attrs[.font] = MarkdownStyle.monospaceFont
-        attrs[.backgroundColor] = MarkdownStyle.codeBackground
+        // EXP-698: the chat feeds tint inline code (`Semantic.codeText` on a
+        // `codeFill` wash); everywhere else keeps the neutral white@8 %.
+        attrs[.backgroundColor] = context.overrides.inlineCodeBackground
+            .map { PlatformColor($0) } ?? MarkdownStyle.codeBackground
+        if let foreground = context.overrides.inlineCodeForeground {
+            attrs[.foregroundColor] = PlatformColor(foreground)
+        }
         attrs[.markdownInlineCode] = true
         collector.currentText.append(NSAttributedString(string: literal, attributes: attrs))
 

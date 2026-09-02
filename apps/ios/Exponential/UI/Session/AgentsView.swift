@@ -708,6 +708,17 @@ struct AgentsView: View {
         .padding(.vertical, 12)
         .glassRow()
         .accessibilityIdentifier("agent-session-row")
+        // EXP-698: the row's tap goes to the LIVE session when steering is on,
+        // and the identifier pill that used to be the way to the issue is gone
+        // (the title already prints the identifier). The issue keeps a route:
+        // press and hold. The steering screen's "…" menu carries the twin.
+        .contextMenu {
+            if let issue = row.issue, !(issue.identifier ?? "").isEmpty {
+                NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
+                    Label("Open issue", appIcon: AppIcons.uiIssue)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -758,24 +769,24 @@ struct AgentsView: View {
 
             sessionTrailingControl(row)
         }
+        .frame(minHeight: sessionTrailingColumnHeight)
     }
 
     /// EXP-694 (S6): the row's trailing affordance names WHAT the run is
     /// about, instead of the old `ui-info` glyph that only ever appeared on
-    /// issue runs. An issue run wears its identifier as a pill straight to the
-    /// issue; an action or automation run wears that action's own glyph and
-    /// opens its editor. A chat or batch run points at nothing, so it gets
+    /// issue runs. An action or automation run wears that action's own glyph
+    /// and opens its editor. A chat or batch run points at nothing, so it gets
     /// nothing.
+    ///
+    /// EXP-698: an ISSUE run gets nothing here either — `SessionRowTitle`
+    /// already prints the identifier as the title's prefix, so the trailing
+    /// pill printed it a second time and stole the width the (truncating)
+    /// title needed.
     @ViewBuilder
     private func sessionTrailingControl(_ row: AgentsViewModel.Row) -> some View {
-        if let issue = row.issue, let identifier = issue.identifier, !identifier.isEmpty {
-            NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
-                GlassPill(identifier)
-                    .monospaced()
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open issue \(identifier)")
+        if !(row.issue?.identifier ?? "").isEmpty {
+            // The title carries the identifier; nothing to repeat here.
+            EmptyView()
         } else if let action = sessionAction(row) {
             let target = editTarget(for: row, action: action)
             CircleIconButton(
@@ -786,6 +797,11 @@ struct AgentsView: View {
             }
         }
     }
+
+    /// The row's trailing column: `controlMd` tall whatever it holds, so the
+    /// merge circle, the action button and the "…" of the machine rows above
+    /// all sit on one centre line (EXP-698).
+    private var sessionTrailingColumnHeight: CGFloat { GlassTokens.controlSize }
 
     /// The action a run came from, off the synced store (`action_id` nulls
     /// when the action is deleted — the row keeps its name snapshot, but there

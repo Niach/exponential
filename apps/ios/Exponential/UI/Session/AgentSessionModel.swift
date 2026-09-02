@@ -620,18 +620,19 @@ final class AgentSessionModel {
     }
 
     /// Send a steer message carrying attached images (EXP-511): upload every
-    /// not-yet-uploaded image to the session's issue, then send ONE message
-    /// composed of the text plus a markdown embed per attachment (the host
-    /// device downloads each embed and hands the agent a local file path).
+    /// not-yet-uploaded image to THIS SESSION, then send ONE message composed
+    /// of the text plus a markdown embed per attachment (the host device
+    /// downloads each embed and hands the agent a local file path).
+    ///
+    /// EXP-702: the upload goes to `/api/sessions/{id}/files`, not to the
+    /// issue's — a steered screenshot is not an issue attachment, and a batch
+    /// or action run (no issue at all) can carry images too.
     ///
     /// Returns nil once the message is out; on failure it returns the images
     /// with whatever ids were already stamped, so the caller can keep the strip
     /// and a retry re-uploads only the rest.
     func sendSteerImages(_ text: String, images: [PendingSteerImage]) async -> [PendingSteerImage]? {
-        guard let issueId = session?.issueId, !issueId.isEmpty else {
-            steerImageError = "Images can only be attached to an issue's session."
-            return images
-        }
+        let sessionId = codingSessionId
         guard connected else {
             steerImageError = "Not connected. Wait for the session to reconnect."
             return images
@@ -642,9 +643,9 @@ final class AgentSessionModel {
         var pending = images
         for index in pending.indices where pending[index].uploadedId == nil {
             do {
-                let uploaded = try await attachmentsApi.upload(
+                let uploaded = try await attachmentsApi.uploadSessionImage(
                     accountId: accountId,
-                    issueId: issueId,
+                    sessionId: sessionId,
                     data: pending[index].data,
                     filename: pending[index].filename,
                     contentType: pending[index].contentType

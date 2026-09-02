@@ -459,7 +459,12 @@ struct ChangesView: View {
                     .padding(.horizontal, 16)
                 }
 
-                HStack(spacing: 12) {
+                // EXP-698: ONE centre line for the whole cluster — the two
+                // circles and the labelled pill share `barSlotHeight`, and
+                // the row centres them, so no slot can drift off the others
+                // whichever combination is on screen (Merge, Fix conflicts,
+                // GitHub-only).
+                HStack(alignment: .center, spacing: 12) {
                     if canReview {
                         Button {
                             closeConfirm = true
@@ -636,9 +641,14 @@ struct ChangesView: View {
             && !(vm.issue?.branch ?? "").isEmpty
     }
 
+    /// Every slot in the floating bar is this tall — the circles and the
+    /// labelled pill alike (EXP-698), so the row's centre alignment lands
+    /// them all on one line.
+    private static let barSlotHeight: CGFloat = 52
+
     /// The bar's labelled primary action (EXP-706): a SOLID white capsule with
     /// dark content — the near-white primary the web review bar wears — at the
-    /// same 52pt height as the glass circles flanking it. No hairline: a
+    /// same height as the glass circles flanking it. No hairline: a
     /// white-on-white stroke only muddies the edge; the shadow still lifts it
     /// off the feed.
     private func barPill<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -647,7 +657,7 @@ struct ChangesView: View {
         }
         .foregroundStyle(.black.opacity(0.9))
         .padding(.horizontal, 28)
-        .frame(height: 52)
+        .frame(height: Self.barSlotHeight)
         .background(Capsule().fill(.white))
         .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
         .contentShape(Capsule())
@@ -657,7 +667,7 @@ struct ChangesView: View {
     /// (EXP-698: the opaque card fill, `strokeStrong` hairline, soft shadow).
     private func barCircle<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
-            .frame(width: 52, height: 52)
+            .frame(width: Self.barSlotHeight, height: Self.barSlotHeight)
             .background(GlassTokens.opaqueCardFill, in: Circle())
             .overlay(
                 Circle().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)

@@ -199,7 +199,7 @@ struct IssueDetailBottomBar: View {
         case let .session(state, sessionId):
             NavigationLink(value: AppRoute.agentSession(accountId: accountId, sessionId: sessionId)) {
                 circleChrome {
-                    sessionDot(state)
+                    sessionGlyph(state)
                 }
             }
             .buttonStyle(.plain)
@@ -221,6 +221,22 @@ struct IssueDetailBottomBar: View {
                     .tint(.white)
             }
         }
+    }
+
+    /// EXP-698: the circle NAMES the thing it opens — the machine glyph the
+    /// Devices tab wears — and the state dot rides it as a badge. A bare dot
+    /// in a glass circle said nothing about where the tap went, and read as a
+    /// decoration next to the two labelled controls beside it.
+    @ViewBuilder
+    private func sessionGlyph(_ state: CodingSessionDisplayState) -> some View {
+        AppIcon(AppIcons.navDevices, size: AppIcon.Size.medium, weight: .medium)
+            .foregroundStyle(.white)
+            .overlay(alignment: .topTrailing) {
+                sessionDot(state)
+                    // Clear of the glyph's own bounds, like a notification
+                    // badge — the dot is state, not part of the mark.
+                    .offset(x: 6, y: -5)
+            }
     }
 
     @ViewBuilder
