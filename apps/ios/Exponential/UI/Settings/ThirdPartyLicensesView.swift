@@ -64,9 +64,7 @@ struct ThirdPartyLicensesView: View {
     private func sectionBlock(_ section: ThirdPartyNotices.Section) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if !section.title.isEmpty {
-                Text(section.title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
+                GlassSectionHeader(section.title)
             }
             Text(section.body)
                 .font(.caption2.monospaced())

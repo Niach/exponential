@@ -421,7 +421,7 @@ struct StartCodingSheet: View {
                 .frame(maxHeight: 280)
             }
         } header: {
-            Text("Issues")
+            GlassSectionHeader("Issues")
         } footer: {
             // Only attach a footer when there's a message — an empty
             // footer view still reserves space, inflating the gap to
@@ -625,7 +625,7 @@ struct StartCodingSheet: View {
                 .frame(maxHeight: 280)
             }
         } header: {
-            Text("Actions")
+            GlassSectionHeader("Actions")
         }
         .listRowBackground(glassFormRowFill)
     }

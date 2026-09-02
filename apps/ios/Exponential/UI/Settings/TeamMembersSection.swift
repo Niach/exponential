@@ -137,9 +137,7 @@ struct TeamMembersSection: View {
                         }
                     }
                 } label: {
-                    AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .padding(6)
+                    CircleIconLabel(AppIcons.uiMore)
                 }
             }
         }

@@ -44,25 +44,21 @@ struct TeamLabelsSection: View {
 
                     // Explicit edit entry (EXP-331 — Android parity; replaces
                     // the undiscoverable tap-to-rename / swatch-menu recolor).
-                    Button {
+                    // EXP-698: the horizontal `…` concept every other row's
+                    // trailing control wears, in the shared chromed circle.
+                    CircleIconButton(AppIcons.uiMore, accessibilityLabel: "Edit label") {
                         editingLabel = label
-                    } label: {
-                        AppIcon(AppIcons.uiMoreVertical, size: AppIcon.Size.small)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Edit label")
 
                     // Delete (confirmed — labels stay member-level, so no owner
                     // gating, only a confirmation).
-                    Button {
+                    CircleIconButton(
+                        AppIcons.uiDelete,
+                        accessibilityLabel: "Delete label",
+                        tint: DesignTokens.Palette.destructive.opacity(0.7)
+                    ) {
                         deleteTarget = label
-                    } label: {
-                        AppIcon(AppIcons.uiDelete, size: AppIcon.Size.small)
-                            .foregroundStyle(.red.opacity(0.5))
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Delete label")
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)

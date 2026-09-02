@@ -984,7 +984,7 @@ struct IssueListView: View {
             .font(.caption)
             .foregroundStyle(notice.isError ? DesignTokens.Semantic.red : .white.opacity(TextOpacity.secondary))
             .multilineTextAlignment(.center)
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .glassCard(cornerRadius: 14)
             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -1210,7 +1210,7 @@ private struct BulkLabelsSheet: View {
                                     EmptyView()
                                 }
                             }
-                            .padding(.horizontal, 14)
+                            .padding(.horizontal, 16)
                             .frame(minHeight: 44)
                             .contentShape(Rectangle())
                         }

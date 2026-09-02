@@ -595,10 +595,7 @@ private struct RegularCommentRow: View {
                         GlassMenuItem("Edit", icon: AppIcons.uiEdit, action: onEdit)
                         GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true, action: onDelete)
                     } label: {
-                        AppIcon(AppIcons.uiMore, size: AppIcon.Size.small)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .frame(width: 32, height: 32)
-                            .contentShape(Rectangle())
+                        CircleIconLabel(AppIcons.uiMore)
                     }
                 }
             }

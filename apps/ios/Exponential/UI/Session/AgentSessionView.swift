@@ -458,7 +458,7 @@ struct AgentSessionView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 6)
             }
         }
@@ -562,7 +562,7 @@ struct AgentSessionView: View {
                             .frame(height: 1)
                             .id(Self.bottomAnchor)
                     }
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(
@@ -634,7 +634,7 @@ struct AgentSessionView: View {
                             Text("Jump to bottom ↓")
                                 .font(.caption.weight(.medium))
                                 .foregroundStyle(.white)
-                                .padding(.horizontal, 14)
+                                .padding(.horizontal, 16)
                                 .padding(.vertical, 8)
                         }
                         // Opaque: the feed scrolls beneath this pill
@@ -874,7 +874,7 @@ struct AgentSessionView: View {
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
         .padding(.vertical, 8)
     }
 
@@ -891,7 +891,7 @@ struct AgentSessionView: View {
             // Steering is fully seamless (EXP-312) — no captions, no
             // operator state; input just sends.
             composerCard(model)
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 10)
         }
     }
@@ -929,7 +929,7 @@ struct AgentSessionView: View {
                     }
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 16)
             .padding(.bottom, 8)
             .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
                 changesBarHeight = height

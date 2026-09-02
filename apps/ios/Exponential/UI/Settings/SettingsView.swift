@@ -210,13 +210,12 @@ struct SettingsView: View {
         }
     }
 
+    /// EXP-698: the header is the ONE shared `GlassSectionHeader` (which
+    /// carries its own bottom inset), so the stack only owns the content gap.
     @ViewBuilder
     private func sectionStack<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .padding(.horizontal, 4)
+        VStack(alignment: .leading, spacing: 0) {
+            GlassSectionHeader(title)
             content()
         }
     }

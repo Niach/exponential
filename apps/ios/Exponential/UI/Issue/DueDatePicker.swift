@@ -64,7 +64,7 @@ struct DueDatePicker: View {
             .buttonStyle(.plain)
 
             if expanded, date != nil {
-                Divider().background(Color.white.opacity(0.06))
+                GlassDivider()
                 DatePicker(
                     "",
                     selection: Binding(

@@ -287,10 +287,14 @@ public extension View {
     }
 }
 
-/// The 44pt trigger for a toolbar-hosted `GlassMenu` (EXP-687): it captures its
-/// own global frame into `anchor` and flips `isPresented` animation-free. The
-/// popup itself is a `.glassMenuOverlay(…, presentation: .inline)` on the
+/// The toolbar trigger for a toolbar-hosted `GlassMenu` (EXP-687): it captures
+/// its own global frame into `anchor` and flips `isPresented` animation-free.
+/// The popup itself is a `.glassMenuOverlay(…, presentation: .inline)` on the
 /// screen's root.
+///
+/// EXP-698: the ink is a CHROMED `controlMd` circle — the same trailing-action
+/// treatment as every list row's `…` and Android's `TopBarActionButton` — but
+/// the tap target stays the shared 44pt `triggerHitSize` around it.
 public struct GlassMenuBarButton: View {
     let icon: String
     let accessibilityLabel: String
@@ -315,7 +319,7 @@ public struct GlassMenuBarButton: View {
             transaction.disablesAnimations = true
             withTransaction(transaction) { isPresented.toggle() }
         } label: {
-            AppIcon(icon, size: AppIcon.Size.large)
+            CircleIconLabel(icon)
                 .frame(
                     width: GlassMenuTokens.triggerHitSize,
                     height: GlassMenuTokens.triggerHitSize

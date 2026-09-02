@@ -133,9 +133,12 @@ struct MobileTabBar: View {
             }
             .animation(motion.standard, value: activeKey)
             .padding(5)
-            .background(.ultraThinMaterial, in: Capsule())
+            // EXP-698: flat, not blurred — the pill floats over scrolling
+            // content, so its fill is the OPAQUE composite (`fillCard` over
+            // the card surface), never a low-alpha tint the feed shows through.
+            .background(GlassTokens.opaqueCardFill, in: Capsule())
             .overlay(
-                Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                Capsule().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
             )
             .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
 

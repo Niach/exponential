@@ -332,7 +332,7 @@ struct AgentsView: View {
     private func agentsContent(_ vm: AgentsViewModel) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 8) {
-                sectionHeader("My machines")
+                GlassSectionHeader("My machines")
                 if let myDevices {
                     if myDevices.isEmpty {
                         deviceHintRow
@@ -346,7 +346,7 @@ struct AgentsView: View {
                 // EXP-432: teammates' shared servers, grouped below the
                 // caller's own. Absent entirely when nothing is shared.
                 if !teamDevices.isEmpty {
-                    sectionHeader("Team machines")
+                    GlassSectionHeader("Team machines")
                     ForEach(teamDevices) { deviceRow($0) }
                 }
                 if let deviceError {
@@ -371,7 +371,7 @@ struct AgentsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                sectionHeader("Running")
+                GlassSectionHeader("Running")
                 if vm.rows.isEmpty {
                     noAgentsRow
                 } else {
@@ -432,16 +432,6 @@ struct AgentsView: View {
         } message: { device in
             Text("Remove “\(deviceName(device))” from your machines? A machine with the daemon still running re-registers itself on its next heartbeat.")
         }
-    }
-
-    private func sectionHeader(_ title: String) -> some View {
-        HStack {
-            Text(title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Spacer()
-        }
-        .padding(.top, 4)
     }
 
     /// One machine: kind glyph, label + version, live/last-seen state, the
@@ -514,9 +504,7 @@ struct AgentsView: View {
                 GlassMenu {
                     deviceMenu(device)
                 } label: {
-                    AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .padding(6)
+                    CircleIconLabel(AppIcons.uiMore)
                 }
                 .accessibilityLabel("Machine actions")
                 .accessibilityIdentifier("machine-menu")
@@ -755,23 +743,16 @@ struct AgentsView: View {
             if let prIssue = row.issue ?? row.batchPrIssue,
                 prIssue.prState == DomainContract.prStateOpen
             {
-                Button {
-                    mergeTarget = MergeTarget(rowId: row.id, issueId: prIssue.id)
-                } label: {
-                    Group {
-                        if merging.contains(row.id) {
-                            ProgressView().controlSize(.mini).tint(.white)
-                        } else {
-                            AppIcon(AppIcons.prMerged, size: AppIcon.Size.medium)
-                        }
+                if merging.contains(row.id) {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.white)
+                        .frame(width: GlassTokens.controlSize, height: GlassTokens.controlSize)
+                } else {
+                    CircleIconButton(AppIcons.prMerged, accessibilityLabel: "Merge") {
+                        mergeTarget = MergeTarget(rowId: row.id, issueId: prIssue.id)
                     }
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .frame(width: 32, height: 32)
-                    .contentShape(Circle())
                 }
-                .buttonStyle(.plain)
-                .disabled(merging.contains(row.id))
-                .accessibilityLabel("Merge")
             }
 
             sessionTrailingControl(row)
@@ -797,9 +778,7 @@ struct AgentsView: View {
             let target = editTarget(for: row, action: action)
             CircleIconButton(
                 action.icon ?? AppIcons.actionDefault,
-                accessibilityLabel: target.accessibilityLabel,
-                size: 28,
-                glyphSize: 15
+                accessibilityLabel: target.accessibilityLabel
             ) {
                 sessionEditTarget = target
             }

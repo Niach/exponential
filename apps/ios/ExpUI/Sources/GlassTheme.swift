@@ -1,42 +1,33 @@
 import SwiftUI
 
-// MARK: - Zinc Color Palette (OKLCH-mapped)
-
-public enum Zinc {
-    public static let _50 = Color(red: 0.98, green: 0.98, blue: 0.99)
-    public static let _100 = Color(red: 0.95, green: 0.95, blue: 0.96)
-    public static let _200 = Color(red: 0.90, green: 0.90, blue: 0.92)
-    public static let _300 = Color(red: 0.83, green: 0.83, blue: 0.85)
-    public static let _400 = Color(red: 0.63, green: 0.63, blue: 0.67)
-    public static let _500 = Color(red: 0.44, green: 0.44, blue: 0.48)
-    public static let _600 = Color(red: 0.33, green: 0.33, blue: 0.36)
-    public static let _700 = Color(red: 0.25, green: 0.25, blue: 0.27)
-    public static let _800 = Color(red: 0.16, green: 0.16, blue: 0.18)
-    public static let _900 = Color(red: 0.10, green: 0.10, blue: 0.11)
-    public static let _950 = Color(red: 0.06, green: 0.06, blue: 0.07)
-}
+// The glass vocabulary (EXP-698). Every fill, stroke and radius below is a
+// `GlassTokens` read — no materials, no shadows, no hand-typed palette. The
+// hand-written `Zinc` ramp that used to live here is GONE: it was a second,
+// slightly-off copy of `DesignTokens.Palette`.
 
 // MARK: - Glass Modifiers
 
+/// A BORDERED panel around free content — the outermost chrome on a page that
+/// is not already inside a group. Radius `xl`, `fillCard`, `strokeCard`.
 public struct GlassCard: ViewModifier {
-    public var cornerRadius: CGFloat = 16
+    public var cornerRadius: CGFloat = GlassTokens.cardRadius
 
-    public init(cornerRadius: CGFloat = 16) {
+    public init(cornerRadius: CGFloat = GlassTokens.cardRadius) {
         self.cornerRadius = cornerRadius
     }
 
     public func body(content: Content) -> some View {
         content
-            .background(.ultraThinMaterial)
+            .background(GlassTokens.fillCard)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+                    .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
             )
-            .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
     }
 }
 
+/// A gapped list item — radius `md`, `fillRow` + `strokeRow`.
 public struct GlassRow: ViewModifier {
     /// Brighter fill + stroke for a selected/primary row (Android
     /// `glassRow(active:)` parity — EXP-274 moved question options onto rows,
@@ -50,21 +41,26 @@ public struct GlassRow: ViewModifier {
 
     public func body(content: Content) -> some View {
         content
-            .background(isActive ? Color.white.opacity(0.15) : Color.clear)
-            .background(.ultraThinMaterial.opacity(0.5))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .background(isActive ? GlassTokens.fillActive : GlassTokens.fillRow)
+            .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.white.opacity(isActive ? 0.2 : 0.06), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+                    .stroke(
+                        isActive ? GlassTokens.strokeActive : GlassTokens.strokeRow,
+                        lineWidth: GlassTokens.hairline
+                    )
             )
     }
 }
 
+/// A capsule pill — `fillCard` + `strokeCard` at rest, `fillActive` +
+/// `strokeActive` active.
 public struct GlassButton: ViewModifier {
     public var isActive: Bool = false
-    /// Lays a solid card fill beneath the glass tint — for pills floating
-    /// over scrolling content, where the low-alpha fill alone lets the
-    /// content bleed through (Android glassButton `opaque` parity, EXP-165).
+    /// Lays the opaque card surface beneath the glass tint — for pills
+    /// floating over scrolling content, where the low-alpha fill alone lets
+    /// the content bleed through (Android glassButton `opaque` parity,
+    /// EXP-165).
     public var isOpaque: Bool = false
 
     public init(isActive: Bool = false, isOpaque: Bool = false) {
@@ -74,38 +70,103 @@ public struct GlassButton: ViewModifier {
 
     public func body(content: Content) -> some View {
         content
-            .background(isActive ? Color.white.opacity(0.15) : Color.white.opacity(0.06))
+            .background(isActive ? GlassTokens.fillActive : GlassTokens.fillCard)
             .background(isOpaque ? DesignTokens.Palette.card : Color.clear)
             .clipShape(Capsule())
             .overlay(
                 Capsule()
-                    .stroke(Color.white.opacity(isActive ? 0.2 : 0.1), lineWidth: 0.5)
+                    .stroke(
+                        isActive ? GlassTokens.strokeActive : GlassTokens.strokeCard,
+                        lineWidth: GlassTokens.hairline
+                    )
             )
     }
 }
 
+/// The BORDERLESS group container — the iOS twin of web's `GlassGroup`
+/// (EXP-698): radius `lg`, `fillRow`, and NO outer stroke. Rows inside it are
+/// separated by `GlassDivider` hairlines, never by their own borders. A
+/// bordered panel is `GlassCard`.
 public struct GlassSection: ViewModifier {
     public init() {}
 
     public func body(content: Content) -> some View {
         content
-            .background(.thinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
-            )
+            .background(GlassTokens.fillRow)
+            .clipShape(RoundedRectangle(cornerRadius: GlassTokens.groupRadius))
     }
 }
 
-// MARK: - Background Gradient
+// MARK: - Divider
 
+/// The ONE hairline rule between rows of a group — `strokeRow` at the same
+/// physical thickness as every glass stroke.
+public struct GlassDivider: View {
+    public init() {}
+
+    public var body: some View {
+        Rectangle()
+            .fill(GlassTokens.strokeRow)
+            .frame(height: GlassTokens.hairline)
+    }
+}
+
+// MARK: - Section header
+
+/// The ONE section header on iOS (EXP-698): sentence-case title, an optional
+/// count, and a trailing slot pushed to the right edge. It replaces the five
+/// hand-rolled `sectionHeader` / `sectionLabel` / `sectionStack` idioms that
+/// each picked their own font, opacity and padding, and it is what the `Form`
+/// sections hand to `header:` instead of the uppercased system label.
+///
+/// Deliberate exception: the emoji picker's category headers stay uppercase —
+/// they are a shared cross-client convention, not this app's section language.
+public struct GlassSectionHeader<Trailing: View>: View {
+    let title: String
+    var count: Int?
+    let trailing: Trailing
+
+    public init(_ title: String, count: Int? = nil, @ViewBuilder trailing: () -> Trailing) {
+        self.title = title
+        self.count = count
+        self.trailing = trailing()
+    }
+
+    public var body: some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            if let count {
+                Text("\(count)")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            Spacer(minLength: 0)
+            trailing
+        }
+        .textCase(nil)
+        .padding(.horizontal, 4)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
+    }
+}
+
+extension GlassSectionHeader where Trailing == EmptyView {
+    public init(_ title: String, count: Int? = nil) {
+        self.init(title, count: count) { EmptyView() }
+    }
+}
+
+// MARK: - Background
+
+/// The app ground: the shared `glass.background*` pair, top to bottom.
 public struct AppBackground: View {
     public init() {}
 
     public var body: some View {
         LinearGradient(
-            colors: [Zinc._950, Zinc._900],
+            colors: [GlassTokens.backgroundTop, GlassTokens.backgroundBottom],
             startPoint: .top,
             endPoint: .bottom
         )
@@ -116,7 +177,7 @@ public struct AppBackground: View {
 // MARK: - View Extensions
 
 extension View {
-    public func glassCard(cornerRadius: CGFloat = 16) -> some View {
+    public func glassCard(cornerRadius: CGFloat = GlassTokens.cardRadius) -> some View {
         modifier(GlassCard(cornerRadius: cornerRadius))
     }
 
@@ -154,8 +215,8 @@ public enum TextOpacity {
 // MARK: - Status Colors
 
 // Semantic status/priority colors come from the shared design tokens
-// (packages/design-tokens) so all clients stay in lockstep. The glass
-// materials are deliberately NOT tokenized.
+// (packages/design-tokens) so all clients stay in lockstep — as, since
+// EXP-698, does every glass fill/stroke/radius (`GlassTokens`).
 public enum StatusColor {
     public static let backlog = DesignTokens.Semantic.neutral
     public static let inProgress = DesignTokens.Semantic.yellow

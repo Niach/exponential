@@ -353,9 +353,7 @@ struct ActionsListView: View {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     // EXP-574 (web parity): the "Actions" header with the
                     // "New action" entry (EXP-431) as its trailing control.
-                    HStack(spacing: 6) {
-                        sectionLabel("Actions")
-                        Spacer(minLength: 0)
+                    GlassSectionHeader("Actions") {
                         newActionButton
                     }
                     if let sentCaption = vm.startWatcher.sentCaption {
@@ -387,15 +385,6 @@ struct ActionsListView: View {
 
     /// The web `SectionLabel` — "Actions", "Automations" — heading each
     /// segment's list (EXP-574 layout parity; EXP-697 dropped the count).
-    private func sectionLabel(_ title: String) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white)
-        }
-        .padding(.horizontal, 4)
-    }
-
     /// EXP-431: creation left the list ("Create action" no longer poses as a
     /// row); EXP-615 gave it its own sheet.
     private var newActionButton: some View {
@@ -418,9 +407,7 @@ struct ActionsListView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     // EXP-574 (web parity): section headers.
-                    HStack(spacing: 6) {
-                        sectionLabel("Automations")
-                        Spacer(minLength: 0)
+                    GlassSectionHeader("Automations") {
                         if vm.permissions.isOwner {
                             newAutomationButton(vm)
                         }
@@ -454,7 +441,7 @@ struct ActionsListView: View {
     @ViewBuilder
     private func recentAutomatedRuns(_ vm: ActionsViewModel) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionLabel("Recent automated runs")
+            GlassSectionHeader("Recent automated runs")
                 .padding(.top, 12)
             // EXP-637: a resume is a remote start like any other — the same
             // "waiting for the desktop" caption reports it here too.
@@ -600,9 +587,7 @@ struct ActionsListView: View {
                         pendingDelete = automation
                     }
                 } label: {
-                    AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .padding(6)
+                    CircleIconLabel(AppIcons.uiMore)
                 }
                 .accessibilityLabel("Automation actions")
             }
@@ -867,9 +852,7 @@ struct ActionsListView: View {
                         editTarget = action
                     }
                 } label: {
-                    AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .padding(6)
+                    CircleIconLabel(AppIcons.uiMore)
                 }
                 .accessibilityLabel("Action actions")
                 .accessibilityIdentifier("action-menu")

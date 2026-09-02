@@ -203,7 +203,7 @@ struct CreateIssueView: View {
                         }
                         .padding(16)
 
-                        Divider().background(Color.white.opacity(0.06))
+                        GlassDivider()
 
                         // Due date — embedded so it carries no card of its own.
                         DueDatePicker(date: $dueDate, embedded: true)

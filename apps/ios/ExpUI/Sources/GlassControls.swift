@@ -4,10 +4,10 @@ import SwiftUI
 // ui/components/GlassPillButton.kt, CircleIconButton.kt and GlassTextField.kt,
 // which were themselves 1:1 ports of the ad-hoc styling these extract.
 // Geometry (paddings, icon sizes, radii, hairlines) is byte-matched across the
-// platforms; fills/strokes stay in each platform's glass vocabulary
-// (`.glassButton()` / `TextOpacity` here, GlassTokens there). Fonts
-// approximate: Android labelMedium ≈ `.caption.weight(.medium)`,
-// bodyLarge ≈ `.body.weight(.medium)`.
+// platforms, and since EXP-698 so are the fills and strokes: both sides read
+// `GlassTokens`, which is nothing but `DesignTokens` reads. Fonts approximate:
+// Android labelMedium ≈ `.caption.weight(.medium)`, bodyLarge ≈
+// `.body.weight(.medium)`.
 //
 // Absent twins, deliberately: sheets have no close control at all since
 // EXP-687 (swipe down, both platforms), and the 52pt `.ultraThinMaterial`
@@ -171,12 +171,15 @@ public struct GlassSubmitLabel<Icon: View>: View {
         )
         .frame(maxWidth: .infinity)
         .padding(.vertical, 14)
-        .background(enabled ? DesignTokens.Palette.primary : Color.white.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(enabled ? DesignTokens.Palette.primary : GlassTokens.fillCard)
+        .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
         // A filled button needs no hairline — only the disabled glass does.
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(enabled ? Color.clear : Color.white.opacity(0.1), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+                .stroke(
+                    enabled ? Color.clear : GlassTokens.strokeCard,
+                    lineWidth: GlassTokens.hairline
+                )
         )
     }
 }
@@ -235,11 +238,11 @@ public struct GlassOAuthButton<Icon: View>: View {
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
-            .background(Color.white.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .background(GlassTokens.fillCard)
+            .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+                    .stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
             )
             .contentShape(Rectangle())
         }
@@ -284,14 +287,21 @@ public struct GlassToggleStyle: ToggleStyle {
 
     private func track(isOn: Bool) -> some View {
         Capsule()
-            .fill(isOn ? DesignTokens.Palette.primary : Color.white.opacity(0.08))
+            .fill(isOn ? DesignTokens.Palette.primary : GlassTokens.fillCard)
             .overlay(
                 Capsule()
-                    .stroke(Color.white.opacity(isOn ? 0 : 0.15), lineWidth: 0.5)
+                    .stroke(
+                        isOn ? Color.clear : GlassTokens.strokeCard,
+                        lineWidth: GlassTokens.hairline
+                    )
             )
             .overlay(alignment: isOn ? .trailing : .leading) {
                 Circle()
-                    .fill(isOn ? DesignTokens.Palette.primaryForeground : Zinc._400)
+                    .fill(
+                        isOn
+                            ? DesignTokens.Palette.primaryForeground
+                            : DesignTokens.Palette.mutedForeground
+                    )
                     .frame(width: 27, height: 27)
                     .padding(2)
             }
@@ -305,13 +315,15 @@ extension ToggleStyle where Self == GlassToggleStyle {
 
 // MARK: - Circle icon button
 
-/// A drawn glass circle around a single glyph (Android CircleIconButton:
-/// 38pt circle, 20pt glyph).
+/// A drawn glass circle around a single glyph — the ONE chrome for a trailing
+/// action, in a list row or a toolbar alike (EXP-698). `controlMd` (32pt) with
+/// a 17pt glyph at 70 % white is the shared default on every client; the
+/// explicit sizes that survive are the deliberately smaller in-row ones.
 public struct CircleIconButton: View {
     let icon: String
     let accessibilityLabel: String
-    var size: CGFloat = 38
-    var glyphSize: CGFloat = 20
+    var size: CGFloat = GlassTokens.controlSize
+    var glyphSize: CGFloat = AppIcon.Size.medium
     var tint: Color? = nil
     var enabled: Bool = true
     let action: () -> Void
@@ -319,8 +331,8 @@ public struct CircleIconButton: View {
     public init(
         _ icon: String,
         accessibilityLabel: String,
-        size: CGFloat = 38,
-        glyphSize: CGFloat = 20,
+        size: CGFloat = GlassTokens.controlSize,
+        glyphSize: CGFloat = AppIcon.Size.medium,
         tint: Color? = nil,
         enabled: Bool = true,
         action: @escaping () -> Void
@@ -336,21 +348,85 @@ public struct CircleIconButton: View {
 
     public var body: some View {
         Button(action: action) {
-            AppIcon(icon, size: glyphSize, weight: .medium)
-                .foregroundStyle(
-                    tint ?? .white.opacity(enabled ? TextOpacity.secondary : TextOpacity.quaternary)
-                )
-                .frame(width: size, height: size)
-                .background(Color.white.opacity(0.06), in: Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-                )
-                .contentShape(Circle())
+            CircleIconLabel(
+                icon,
+                size: size,
+                glyphSize: glyphSize,
+                tint: tint,
+                enabled: enabled
+            )
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
         .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+/// The styled content of a `CircleIconButton` — for the hosts that are not a
+/// `Button` (a `GlassMenu` label, which owns its own tap handling). Everything
+/// else uses `CircleIconButton`.
+public struct CircleIconLabel: View {
+    let icon: String
+    var size: CGFloat = GlassTokens.controlSize
+    var glyphSize: CGFloat = AppIcon.Size.medium
+    var tint: Color? = nil
+    var enabled: Bool = true
+
+    public init(
+        _ icon: String,
+        size: CGFloat = GlassTokens.controlSize,
+        glyphSize: CGFloat = AppIcon.Size.medium,
+        tint: Color? = nil,
+        enabled: Bool = true
+    ) {
+        self.icon = icon
+        self.size = size
+        self.glyphSize = glyphSize
+        self.tint = tint
+        self.enabled = enabled
+    }
+
+    public var body: some View {
+        AppIcon(icon, size: glyphSize, weight: .medium)
+            .foregroundStyle(
+                tint ?? .white.opacity(enabled ? TextOpacity.secondary : TextOpacity.quaternary)
+            )
+            .frame(width: size, height: size)
+            .background(GlassTokens.fillCard, in: Circle())
+            .overlay(
+                Circle()
+                    .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
+            )
+            .contentShape(Circle())
+    }
+}
+
+// MARK: - Chip
+
+/// A small metadata chip (EXP-698): radius `sm`, `fillCard`, NO stroke — a
+/// chip is a label, not a control, so it never wears a hairline.
+public struct GlassChip<Content: View>: View {
+    let content: Content
+
+    public init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    public var body: some View {
+        content
+            .font(.caption.weight(.medium))
+            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
+            .background(
+                GlassTokens.fillCard,
+                in: RoundedRectangle(cornerRadius: GlassTokens.chipRadius)
+            )
+    }
+}
+
+extension GlassChip where Content == Text {
+    public init(_ text: String) {
+        self.init { Text(text) }
     }
 }
 
@@ -376,8 +452,6 @@ public struct TopBarBackButton: View {
         CircleIconButton(
             AppIcons.uiBack,
             accessibilityLabel: accessibilityLabel,
-            size: 32,
-            glyphSize: 17,
             enabled: enabled,
             action: action
         )
@@ -386,8 +460,9 @@ public struct TopBarBackButton: View {
 
 // MARK: - Text field
 
-/// The ONE glass text input (Android GlassTextField parity): 12pt corners,
-/// white .06 fill, hairline that brightens while focused. Behavior modifiers
+/// The ONE glass text input (Android GlassTextField parity): `fieldRadius`
+/// corners, `fillCard`, a hairline that brightens to `strokeActive` while
+/// focused. Behavior modifiers
 /// (`.keyboardType`, `.submitLabel`, `.font`, autocapitalization/correction,
 /// `.focused`, `.onSubmit`) are applied by the CALLER — they propagate to the
 /// inner field. `showsBackground: false` drops the chrome and padding for
@@ -477,10 +552,16 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
                 content
                     .padding(.horizontal, horizontalPadding)
                     .padding(.vertical, verticalPadding)
-                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+                    .background(
+                        GlassTokens.fillCard,
+                        in: RoundedRectangle(cornerRadius: GlassTokens.fieldRadius)
+                    )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.white.opacity(focused ? 0.2 : 0.1), lineWidth: 0.5)
+                        RoundedRectangle(cornerRadius: GlassTokens.fieldRadius)
+                            .stroke(
+                                focused ? GlassTokens.strokeActive : GlassTokens.strokeCard,
+                                lineWidth: GlassTokens.hairline
+                            )
                     )
             } else {
                 content
