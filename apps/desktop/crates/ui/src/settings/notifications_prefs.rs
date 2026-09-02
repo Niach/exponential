@@ -36,7 +36,7 @@ use gpui_component::{
 };
 
 use crate::surface::{
-    glass_group_rows, glass_picker_row, glass_toggle_row, glass_tray, picker_value_label,
+    glass_group_rows, glass_picker_row, glass_row_shell, glass_toggle_row, picker_value_label,
 };
 
 use api::notifications::{EmailPrefs, UpdateEmailPrefsInput};
@@ -296,9 +296,9 @@ impl Render for NotificationsPrefsPane {
             cx,
         )]);
 
-        // The master email switch — its own single-row group, the way the web
-        // card's header switch reads.
-        let mut body = section(cx).child(glass_group_rows(vec![glass_toggle_row(
+        // The master email switch — its own group, the way the web card's
+        // header switch reads.
+        let mut email_rows = vec![glass_toggle_row(
             "Email notifications",
             Some("Notifications still unread are bundled into one digest email.".into()),
             Switch::new("email-enabled")
@@ -309,7 +309,28 @@ impl Render for NotificationsPrefsPane {
                 }))
                 .into_any_element(),
             cx,
-        )]));
+        )];
+        // EXP-698: the "no mail transport" caption is a ROW OF THE EMAIL
+        // GROUP, hairline-divided under the switch it explains — it used to
+        // float between two groups as its own bordered box, which read as a
+        // third, unrelated card. Only once the prefs are loaded: `transport`
+        // is false while they are still in flight.
+        if have_prefs && !transport {
+            email_rows.push(
+                glass_row_shell().child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(
+                            "Email sending is not configured on this server. No \
+                             digest emails go out.",
+                        ),
+                ),
+            );
+        }
+        let mut body = section(cx).child(glass_group_rows(email_rows));
 
         match &self.load {
             Load::Idle | Load::Loading => {
@@ -341,22 +362,6 @@ impl Render for NotificationsPrefsPane {
                     );
             }
             Load::Ready(prefs) => {
-                if !transport {
-                    // EXP-698: the shared glass tray, not a bespoke bordered box.
-                    body = body.child(
-                        glass_tray()
-                            .w_full()
-                            .px_3()
-                            .py_2()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(div().flex_1().min_w_0().child(
-                                "Email sending is not configured on this server. No \
-                                 digest emails go out.",
-                            )),
-                    );
-                }
-
                 // EXP-369: the per-type switches gate PUSH too, so the master
                 // email switch no longer disables them — only the digest
                 // controls (which are email-only) follow it.

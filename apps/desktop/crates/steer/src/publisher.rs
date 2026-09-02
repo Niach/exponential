@@ -204,16 +204,55 @@ fn image_embed_pattern() -> &'static regex::Regex {
     })
 }
 
-/// EXP-511: `(local path, the embed token it replaced)` for every image
-/// localized on this session. Created in [`publish`] and shared across
-/// reconnects — `pump_connection` is re-entered per connection, but the
-/// journal it replays outlives them.
+/// EXP-511: `(needle, the embed token it replaced)` for every image localized
+/// on this session — what [`restore_image_embeds`] rewrites back out. Created
+/// in [`publish`] and shared across reconnects — `pump_connection` is
+/// re-entered per connection, but the journal it replays outlives them.
+///
+/// EXP-698: each image contributes TWO kinds of entry — the whole
+/// `Image #N: <path>` MANIFEST LINE, and the bare `<path>` — so a transcript
+/// echo of the line collapses to one embed token and a stray mention of the
+/// path elsewhere still resolves.
+///
+/// Push order does NOT encode the precedence: one attachment can be sent
+/// twice under different numbers (`Image #1:` in one message, `Image #3:` in
+/// the next), and by the second message the bare path is already in the map
+/// AHEAD of the new line — replacing it first would strand the `Image #3: `
+/// prefix in the feed. [`restore_image_embeds`] therefore runs the LINE
+/// needles in a first pass and the bare paths in a second.
 type ImageEmbedMap = Arc<Mutex<Vec<(String, String)>>>;
 
-/// Replace every image embed in a steered message with the local file the
-/// agent should read, recording the substitution for the reverse rewrite.
-/// A download that fails leaves its token untouched — the agent then sees the
-/// URL, which is the pre-EXP-511 behavior and still fetchable over MCP.
+/// The prefix every manifest-line needle starts with — how
+/// [`restore_image_embeds`] tells a line needle from a bare path.
+const MANIFEST_PREFIX: &str = "Image #";
+
+/// One image's manifest line, as the agent reads it.
+fn image_manifest_line(index: usize, target: &str) -> String {
+    format!("{MANIFEST_PREFIX}{index}: {target}")
+}
+
+/// Localize a steered message's image embeds for the agent.
+///
+/// EXP-698 changed the SHAPE (not the wire — the composer's message is still
+/// `buildSteerImageMessage`'s): the embed block is REMOVED from the prose and
+/// replaced by a numbered manifest appended after a blank line —
+///
+/// ```text
+/// crop [Image #1] please
+///
+/// Image #1: /…/.exp-steer-images/a.png
+/// Image #2: /…/.exp-steer-images/b.png
+/// ```
+///
+/// The numbers are the EMBED ORDER, which is the image order the composer's
+/// `[Image #N]` markers count in, so a marker in the prose and a line in the
+/// manifest name the same file. Every image gets a line whether or not a
+/// marker references it. Substituting each embed in place (the pre-EXP-698
+/// behaviour) left the agent a bare path with nothing tying it to the
+/// sentence that meant it.
+///
+/// A download that fails keeps its URL in the manifest line — the agent can
+/// still fetch it over MCP, which is the pre-EXP-511 behaviour.
 async fn localize_image_embeds(
     data: String,
     hook: &AttachmentHook,
@@ -226,46 +265,125 @@ async fn localize_image_embeds(
             tokens.push((token, captures[1].to_string()));
         }
     }
-    let mut data = data;
-    for (token, id) in tokens {
+    if tokens.is_empty() {
+        return data;
+    }
+    let mut manifest: Vec<String> = Vec::with_capacity(tokens.len());
+    let mut restores: Vec<(String, String)> = Vec::new();
+    for (index, (token, id)) in tokens.iter().enumerate() {
+        let number = index + 1;
         let hook = hook.clone();
         let requested = id.clone();
         match tokio::task::spawn_blocking(move || hook(&requested)).await {
             Ok(Ok(path)) => {
                 let path = path.display().to_string();
-                data = data.replace(&token, &path);
-                if let Ok(mut embeds) = embeds.lock() {
-                    if !embeds.iter().any(|(known, _)| known == &path) {
-                        embeds.push((path, token));
-                    }
-                }
+                let line = image_manifest_line(number, &path);
+                restores.push((line.clone(), token.clone()));
+                restores.push((path, token.clone()));
+                manifest.push(line);
             }
             Ok(Err(reason)) => {
                 log::warn!("steer publisher: attachment {id} not localized ({reason})");
+                // No local file — the manifest carries the URL itself, and
+                // the line restores to the token like any other.
+                let line = image_manifest_line(number, token);
+                restores.push((line.clone(), token.clone()));
+                manifest.push(line);
             }
             Err(join_err) => {
                 log::warn!("steer publisher: attachment {id} download panicked: {join_err}");
+                let line = image_manifest_line(number, token);
+                restores.push((line.clone(), token.clone()));
+                manifest.push(line);
             }
         }
     }
-    data
+    if let Ok(mut embeds) = embeds.lock() {
+        for (needle, token) in restores {
+            if !embeds.iter().any(|(known, _)| *known == needle) {
+                embeds.push((needle, token));
+            }
+        }
+    }
+    // Strip the embed block out of the prose, then hang the manifest off it.
+    // A line that held NOTHING but an embed goes entirely (the composer puts
+    // them on their own lines); an inline one leaves its line tidied, so the
+    // agent never reads a double space where a token used to be.
+    let mut kept: Vec<String> = Vec::new();
+    for line in data.split('\n') {
+        let mut next = line.to_string();
+        let mut touched = false;
+        for (token, _) in &tokens {
+            if next.contains(token.as_str()) {
+                next = next.replace(token.as_str(), "");
+                touched = true;
+            }
+        }
+        if touched {
+            if next.trim().is_empty() {
+                continue;
+            }
+            next = tidy_gaps(&next);
+        }
+        kept.push(next);
+    }
+    let prose = kept.join("\n");
+    let prose = prose.trim_end();
+    let manifest = manifest.join("\n");
+    if prose.is_empty() {
+        manifest
+    } else {
+        format!("{prose}\n\n{manifest}")
+    }
+}
+
+/// Collapse the gap a removed embed token left: runs of 2+ spaces/tabs become
+/// one, trailing ones go. Mirrors the tidy `renumber_image_markers` applies on
+/// the client when a marker is dropped.
+fn tidy_gaps(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut run = false;
+    for ch in line.chars() {
+        if ch == ' ' || ch == '\t' {
+            run = true;
+            continue;
+        }
+        if run {
+            out.push(' ');
+            run = false;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 /// The reverse of [`localize_image_embeds`], applied to every text field of an
 /// activity event before it is journaled or published: the agent's transcript
-/// echoes the LOCAL path we substituted, and a viewer's echo-dedupe (and its
-/// image rendering) only work against the token they sent. Local paths must
-/// never reach the published feed at all, hence every field, not just
-/// `user_message`.
+/// echoes the manifest LINE (and sometimes just the local path) we
+/// substituted, and a viewer's echo-dedupe (and its image rendering) only work
+/// against the embed token they sent. Local paths must never reach the
+/// published feed at all, hence every field, not just `user_message`.
+///
+/// TWO passes (EXP-698): every manifest-LINE needle first, then the bare
+/// paths. An echoed `Image #1: /…/a.png` must collapse to ONE `![image](…)`
+/// token rather than leaving the `Image #1: ` prefix stranded in front of it,
+/// and a single map order cannot guarantee that — resending the same
+/// attachment under a different number puts its bare path in the map ahead of
+/// the new line. The pass split makes the precedence structural.
 fn restore_image_embeds(event: &mut ActivityEvent, embeds: &ImageEmbedMap) {
     let Ok(embeds) = embeds.lock() else { return };
     if embeds.is_empty() {
         return; // the overwhelmingly common case — no allocation, no walk
     }
     for field in event.text_fields_mut() {
-        for (path, token) in embeds.iter() {
-            if field.contains(path.as_str()) {
-                *field = field.replace(path.as_str(), token);
+        for lines_pass in [true, false] {
+            for (needle, token) in embeds.iter() {
+                if needle.starts_with(MANIFEST_PREFIX) != lines_pass {
+                    continue;
+                }
+                if field.contains(needle.as_str()) {
+                    *field = field.replace(needle.as_str(), token);
+                }
             }
         }
     }
@@ -677,9 +795,13 @@ async fn handle_input(
     // EXP-511: localize the message's image embeds
     // FIRST, so every consumer below (the pi sink, the
     // codex sigil guard, the PTY write) sees the paths
-    // the agent can actually read. A localized message
-    // may now START with `/` — the codex guard's space
-    // prefix is then exactly right, so it stays.
+    // the agent can actually read. EXP-698: the paths
+    // ride a trailing `Image #N: <path>` manifest, so a
+    // localized message starts with the sender's prose —
+    // or, when it was images only, with `Image #1:`. It
+    // no longer starts with a bare `/path`, but the codex
+    // guard's space prefix stays: it is cheap, and the
+    // slash could come back from the sender's own text.
     if is_message_text(&data) {
         if let Some(localize) = &hooks.attachments {
             data = localize_image_embeds(data, localize, embeds).await;
@@ -1555,16 +1677,18 @@ mod tests {
         wait_for(|| !recorded.inputs.lock().unwrap().is_empty());
         assert_eq!(
             recorded.inputs.lock().unwrap()[0],
-            format!("look at {path} please").into_bytes(),
-            "the agent gets a file to read, not an auth-gated URL"
+            format!("look at please\n\nImage #1: {path}").into_bytes(),
+            "the agent gets a numbered file to read, not an auth-gated URL"
         );
 
-        // The transcript echoes the LOCAL path — the published event must
+        // The transcript echoes the manifest LINE — the published event must
         // carry the token the steerer sent, or echo-dedupe misses and the
         // feed renders a path instead of the image.
         handle
             .activity_sender()
-            .send(ActivityEvent::user_message(format!("look at {path} please")));
+            .send(ActivityEvent::user_message(format!(
+                "look at please\n\nImage #1: {path}"
+            )));
         let event = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(event.contains(r#""kind":"user_message""#), "{event}");
         assert!(!event.contains(&path), "a local path leaked to the feed: {event}");
@@ -1576,9 +1700,10 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_image_download_leaves_the_embed_untouched() {
-        // Benign degradation: the agent sees the URL and can still fetch it
-        // over MCP; the echo then matches trivially.
+    fn a_failed_image_download_keeps_the_url_in_the_manifest() {
+        // Benign degradation: the manifest line carries the URL instead of a
+        // path — the agent can still fetch it over MCP, and the line restores
+        // to the embed token like any other.
         let runtime = SteerRuntime::new().unwrap();
         let (port, seen_rx, inject_tx) = fake_relay(&runtime);
         let recorded = Arc::new(Recorded::default());
@@ -1605,7 +1730,10 @@ mod tests {
             )))
             .unwrap();
         wait_for(|| !recorded.inputs.lock().unwrap().is_empty());
-        assert_eq!(recorded.inputs.lock().unwrap()[0], EMBED.as_bytes());
+        assert_eq!(
+            recorded.inputs.lock().unwrap()[0],
+            format!("Image #1: {EMBED}").into_bytes()
+        );
         handle.shutdown(None);
     }
 
@@ -1673,7 +1801,7 @@ mod tests {
         assert_eq!(
             recorded.inputs.lock().unwrap().as_slice(),
             &[
-                format!("look at {}", local.display()).into_bytes(),
+                format!("look at\n\nImage #1: {}", local.display()).into_bytes(),
                 b"\r".to_vec()
             ]
         );
@@ -1721,7 +1849,7 @@ mod tests {
         wait_for(|| !sunk.lock().unwrap().is_empty());
         assert_eq!(
             sunk.lock().unwrap().as_slice(),
-            &[format!("crop this\n\n{}", local.display())]
+            &[format!("crop this\n\nImage #1: {}", local.display())]
         );
         handle.shutdown(None);
     }
@@ -1738,10 +1866,16 @@ mod tests {
 
         // The reverse rewrite covers every text field an agent could quote a
         // path into, never the machine fields (ids, option keys).
-        let embeds: ImageEmbedMap = Arc::new(Mutex::new(vec![(
-            "/tmp/w/.exp-steer-images/img.png".to_string(),
-            EMBED.to_string(),
-        )]));
+        let embeds: ImageEmbedMap = Arc::new(Mutex::new(vec![
+            (
+                "Image #1: /tmp/w/.exp-steer-images/img.png".to_string(),
+                EMBED.to_string(),
+            ),
+            (
+                "/tmp/w/.exp-steer-images/img.png".to_string(),
+                EMBED.to_string(),
+            ),
+        ]));
         let mut tool = ActivityEvent::tool("Read", Some("/tmp/w/.exp-steer-images/img.png".into()));
         restore_image_embeds(&mut tool, &embeds);
         assert_eq!(tool, ActivityEvent::tool("Read", Some(EMBED.to_string())));
@@ -1765,6 +1899,132 @@ mod tests {
             }
             other => panic!("expected Question, got {other:?}"),
         }
+    }
+
+    // ── EXP-698: the numbered manifest ─────────────────────────────────────
+
+    const EMBED_B: &str = "![image](/api/attachments/22222222-3333-4444-5555-666666666666)";
+
+    /// Localize with a hook that answers `/img/<n>.png` per call, so the
+    /// manifest's numbering is readable in the assertions.
+    fn localize(message: &str) -> (String, ImageEmbedMap) {
+        let counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let hook: AttachmentHook = Arc::new(move |_id| {
+            let n = counter.fetch_add(1, Ordering::SeqCst) + 1;
+            Ok(PathBuf::from(format!("/img/{n}.png")))
+        });
+        let embeds: ImageEmbedMap = Arc::new(Mutex::new(Vec::new()));
+        let runtime = SteerRuntime::new().unwrap();
+        let out = runtime.handle().block_on(localize_image_embeds(
+            message.to_string(),
+            &hook,
+            &embeds,
+        ));
+        (out, embeds)
+    }
+
+    #[test]
+    fn the_manifest_numbers_every_image_in_embed_order() {
+        // A marker in the prose and a line in the manifest name the same
+        // file: image order IS embed order, which is the whole contract.
+        let (out, _) = localize(&format!("crop [Image #2]\n\n{EMBED}\n{EMBED_B}"));
+        assert_eq!(
+            out,
+            "crop [Image #2]\n\nImage #1: /img/1.png\nImage #2: /img/2.png"
+        );
+    }
+
+    #[test]
+    fn an_unreferenced_image_still_gets_its_line() {
+        // "every image gets a line whether or not a marker references it" —
+        // an agent handed two images must be able to find both.
+        let (out, _) = localize(&format!("have a look\n\n{EMBED}\n{EMBED_B}"));
+        assert_eq!(
+            out,
+            "have a look\n\nImage #1: /img/1.png\nImage #2: /img/2.png"
+        );
+    }
+
+    #[test]
+    fn embeds_alone_become_the_manifest_alone() {
+        let (out, _) = localize(EMBED);
+        assert_eq!(out, "Image #1: /img/1.png");
+    }
+
+    #[test]
+    fn an_inline_embed_leaves_no_gap_behind() {
+        let (out, _) = localize(&format!("look at {EMBED} please"));
+        assert_eq!(out, "look at please\n\nImage #1: /img/1.png");
+    }
+
+    #[test]
+    fn one_attachment_resent_under_a_new_number_still_restores_whole() {
+        // The two-pass restore's reason to exist. The SAME image is sent
+        // twice — image #1 of one message, image #2 of the next — so by the
+        // second message its bare path is already in the map, pushed ahead of
+        // the `Image #2:` line that now needs to win. A single-pass walk
+        // would replace the path first and strand `Image #2: ` in the feed.
+        let hook: AttachmentHook = Arc::new(|id| {
+            // Stable per id: the same attachment localizes to the same file
+            // however many messages carry it.
+            Ok(PathBuf::from(format!("/img/{id}.png")))
+        });
+        let embeds: ImageEmbedMap = Arc::new(Mutex::new(Vec::new()));
+        let runtime = SteerRuntime::new().unwrap();
+        let first = runtime.handle().block_on(localize_image_embeds(
+            format!("look [Image #1]\n\n{EMBED}"),
+            &hook,
+            &embeds,
+        ));
+        let second = runtime.handle().block_on(localize_image_embeds(
+            format!("again [Image #2]\n\n{EMBED_B}\n{EMBED}"),
+            &hook,
+            &embeds,
+        ));
+        // In the second message the shared image is #2, not #1.
+        assert!(second.contains("Image #2: /img/11111111-2222-3333-4444-555555555555.png"));
+
+        for (localized, original) in [
+            (first, format!("look [Image #1]\n\n{EMBED}")),
+            (
+                second,
+                format!("again [Image #2]\n\n{EMBED_B}\n{EMBED}"),
+            ),
+        ] {
+            let mut echo = ActivityEvent::user_message(localized);
+            restore_image_embeds(&mut echo, &embeds);
+            match echo {
+                ActivityEvent::UserMessage { text, .. } => {
+                    assert_eq!(text, original);
+                    // The prose keeps its `[Image #N]` MARKERS; what must not
+                    // survive is a manifest prefix left in front of a token.
+                    assert!(!text.contains(": !["), "a prefix was stranded: {text}");
+                    assert!(!text.contains("/img/"), "a local path leaked: {text}");
+                }
+                other => panic!("expected UserMessage, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn the_manifest_line_maps_back_to_the_embed_token() {
+        // The round trip viewers depend on: the agent's transcript echoes the
+        // LINE, and the published event must carry the token again — prefix
+        // and all, or `Image #1: ` would be stranded in the feed.
+        let (out, embeds) = localize(&format!("crop [Image #1]\n\n{EMBED}"));
+        let mut echo = ActivityEvent::user_message(out);
+        restore_image_embeds(&mut echo, &embeds);
+        match echo {
+            ActivityEvent::UserMessage { text, .. } => {
+                assert_eq!(text, format!("crop [Image #1]\n\n{EMBED}"));
+            }
+            other => panic!("expected UserMessage, got {other:?}"),
+        }
+        // A bare path quoted somewhere else still resolves (the second map
+        // entry per image).
+        let mut tool = ActivityEvent::tool("Read", Some("/img/1.png".into()));
+        restore_image_embeds(&mut tool, &embeds);
+        assert_eq!(tool, ActivityEvent::tool("Read", Some(EMBED.to_string())));
     }
 
     #[test]

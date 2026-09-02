@@ -250,6 +250,9 @@ pub(crate) fn own_agent_status(
     coding::agent_accounts::AgentAccounts,
     coding::agent_usage::AgentUsageMap,
 ) {
+    if let Some(demo) = dev_agent_status() {
+        return demo;
+    }
     let hub = CodingHub::global(cx);
     let hub = hub.read(cx);
     let status = hub.agent_status.clone().unwrap_or_default();
@@ -260,6 +263,79 @@ pub(crate) fn own_agent_status(
         }
     }
     (accounts, status.usage)
+}
+
+/// DEV-ONLY `EXP_DEV_AGENT_ACCOUNT` (EXP-698) — stand a DEMO claude account
+/// and demo usage windows in place of whatever this machine actually probed.
+///
+/// Settings → Agents renders the LOCAL install's own account row, so the
+/// shots pipeline (`packages/view-catalog`) was baking the operator's real
+/// address and real rate-limit numbers into a committed screenshot. With the
+/// variable set the pane never consults the hub at all: no keychain read, no
+/// usage fetch, nothing personal to leak. Unset (every real build) this is a
+/// no-op.
+fn dev_agent_status() -> Option<(
+    coding::agent_accounts::AgentAccounts,
+    coding::agent_usage::AgentUsageMap,
+)> {
+    use coding::agent_accounts::{AgentAccount, AgentAccounts};
+    use coding::agent_usage::{AgentUsage, AgentUsageMap, UsageWindow};
+
+    let email = std::env::var("EXP_DEV_AGENT_ACCOUNT")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())?;
+    let now = chrono::Utc::now();
+    let stamp = now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let resets_in = |seconds: i64| {
+        Some(
+            (now + chrono::Duration::seconds(seconds))
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        )
+    };
+
+    let mut accounts = AgentAccounts::new();
+    accounts.insert(
+        CodingAgent::Claude.id().to_string(),
+        AgentAccount {
+            signed_in: true,
+            email: Some(email),
+            plan: Some("max".to_string()),
+            checked_at: stamp.clone(),
+        },
+    );
+
+    // The three windows the pane groups: the 5h session, the weekly
+    // all-models bucket and one per-model bucket under it.
+    let mut usage = AgentUsageMap::new();
+    usage.insert(
+        CodingAgent::Claude.id().to_string(),
+        AgentUsage {
+            fetched_at: stamp,
+            stale: false,
+            windows: vec![
+                UsageWindow {
+                    key: "session".to_string(),
+                    label: "5h".to_string(),
+                    percent: 73,
+                    resets_at: resets_in(3 * 3_600 + 32 * 60),
+                },
+                UsageWindow {
+                    key: "weekly".to_string(),
+                    label: "7d".to_string(),
+                    percent: 24,
+                    resets_at: resets_in(30 * 3_600),
+                },
+                UsageWindow {
+                    key: "model:fable".to_string(),
+                    label: "Fable".to_string(),
+                    percent: 38,
+                    resets_at: resets_in(30 * 3_600),
+                },
+            ],
+        },
+    );
+    Some((accounts, usage))
 }
 
 /// EXP-694: the account + usage ROWS of one agent's grouped defaults stack —

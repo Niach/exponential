@@ -368,6 +368,11 @@ pub const SHAPES: [ShapeSpec; 19] = [
             // the usage bar with it (heals onto existing store tables).
             "agent",
             "needs_input",
+            // EXP-545/EXP-698: the head branch `pr_open` stamped on the row.
+            // It is what ties a BATCH run (no issue linkage at all) to its
+            // OWN pull request, which is how the steer viewer's Merge pill
+            // finds a target. Heals onto existing store tables like the rest.
+            "branch",
             // EXP-530 automation attribution: `action_id`/`action_name` scope
             // a run to its action (name snapshotted — outlives a deleted
             // row), `started_reason` (`schedule`/`event`, NULL = manual)
@@ -631,6 +636,16 @@ mod tests {
         assert!(spec.columns.contains(&"action_id"));
         assert!(spec.columns.contains(&"action_name"));
         assert!(spec.columns.contains(&"started_reason"));
+    }
+
+    #[test]
+    fn coding_sessions_sync_the_batch_pr_branch() {
+        // EXP-545/EXP-698: a batch run carries no issue linkage, so the
+        // steer viewer's Merge pill resolves its PR through the head branch
+        // `pr_open` stamped here — dropping it silently kills Merge on every
+        // batch session.
+        let spec = shape_by_name("coding_sessions").unwrap();
+        assert!(spec.columns.contains(&"branch"));
     }
 
     #[test]

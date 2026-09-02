@@ -397,7 +397,10 @@ impl StoragePane {
         };
 
         // EXP-698: one row of an inset-grouped stack; `glass_group_rows` owns
-        // the hairlines.
+        // the hairlines. The cells are a fixed GRID — every column but the
+        // filename carries a definite width, so size/issue/author/date/status
+        // stack in straight columns instead of each row laying its own cells
+        // out around its own content (which is what made the table zig-zag).
         crate::surface::glass_row_shell()
             .child(
                 h_flex()
@@ -415,16 +418,21 @@ impl StoragePane {
             )
             .child(
                 div()
-                    .w_16()
+                    .w(gpui::px(STORAGE_COL_SIZE))
                     .flex_shrink_0()
                     .text_xs()
                     .text_color(muted)
                     .child(SharedString::from(format_bytes(row.size_bytes))),
             )
-            .child(h_flex().w_20().flex_shrink_0().child(issue_cell))
+            .child(
+                h_flex()
+                    .w(gpui::px(STORAGE_COL_ISSUE))
+                    .flex_shrink_0()
+                    .child(issue_cell),
+            )
             .child(
                 div()
-                    .w(gpui::px(112.))
+                    .w(gpui::px(STORAGE_COL_AUTHOR))
                     .flex_shrink_0()
                     .text_xs()
                     .text_color(muted)
@@ -435,13 +443,19 @@ impl StoragePane {
             )
             .child(
                 div()
-                    .w_24()
+                    .w(gpui::px(STORAGE_COL_DATE))
                     .flex_shrink_0()
                     .text_xs()
                     .text_color(muted)
+                    .whitespace_nowrap()
                     .child(SharedString::from(format_created_date(&row.created_at))),
             )
-            .child(status_chip(status, cx))
+            .child(
+                h_flex()
+                    .w(gpui::px(STORAGE_COL_STATUS))
+                    .flex_shrink_0()
+                    .child(status_chip(status, cx)),
+            )
             .child(
                 // EXP-698: the one 32px glass chrome every row action wears.
                 crate::controls::glass_icon_button(
@@ -624,6 +638,22 @@ impl Render for StoragePane {
         v_flex().child(body)
     }
 }
+
+// EXP-698 — the attachment table's fixed COLUMN ladder. Only the filename
+// cell flexes; every other cell is a definite width so the columns line up
+// down the list. The widths are the widest realistic content plus a little
+// air: "403.2 KB", "#APP-123", "Aug 30, 2026", "Unreferenced".
+/// Size cell.
+const STORAGE_COL_SIZE: f32 = 80.;
+/// The `#IDENT` chip cell.
+const STORAGE_COL_ISSUE: f32 = 120.;
+/// Uploader cell (ellipsised).
+const STORAGE_COL_AUTHOR: f32 = 120.;
+/// Created-date cell.
+const STORAGE_COL_DATE: f32 = 90.;
+/// Status-chip cell — fixed so the trailing delete button never zig-zags
+/// with the chip's label length.
+const STORAGE_COL_STATUS: f32 = 104.;
 
 /// Outline status chip (web `Badge` at compact density): images are
 /// "In use" / "Unreferenced", non-images are "File".

@@ -2023,6 +2023,13 @@ pub struct MarkdownView {
     /// EXP-521: join the window-level TextSelection layer (gpui-base #2730).
     /// Opt-in: the blurred editor preview keeps click-to-edit un-selectable.
     selectable: bool,
+    /// EXP-698 CHAT rhythm — the steer feed's bodies (narration, the user
+    /// bubble, the plan/ask cards). Two things change, both web parity:
+    /// a taller 1.625 line height with an 8px paragraph gap, and INLINE CODE
+    /// painted in the semantic code tint instead of the neutral muted fill.
+    /// Comments and issue descriptions are deliberately NOT chat — a document
+    /// reads at the document rhythm, and its inline code stays neutral.
+    chat: bool,
 }
 
 impl MarkdownView {
@@ -2035,6 +2042,7 @@ impl MarkdownView {
             on_open_issue: None,
             on_source_edit: None,
             selectable: false,
+            chat: false,
         }
     }
 
@@ -2065,6 +2073,12 @@ impl MarkdownView {
     /// thing a browser copy of the rendered web comment produces.
     pub fn selectable(mut self, selectable: bool) -> Self {
         self.selectable = selectable;
+        self
+    }
+
+    /// EXP-698: render at the CHAT rhythm — see the `chat` field.
+    pub fn chat(mut self, chat: bool) -> Self {
+        self.chat = chat;
         self
     }
 
@@ -2213,7 +2227,18 @@ impl gpui::RenderOnce for MarkdownView {
         // at a 980px window the whole detail pane collapsed to roughly a
         // third of its correct width (counterfactual screenshots, headless
         // Xvfb A/B). Do not delete without re-running that A/B.
-        let content = v_flex().w_full().gap_1p5().children(children);
+        // EXP-698: chat bodies read at the web's message rhythm — `text-sm`
+        // over a 1.625 line height with an 8px paragraph gap; documents keep
+        // the tighter 6px block gap and the inherited line height.
+        let content = v_flex()
+            .w_full()
+            .when(self.chat, |this| {
+                this.gap_2()
+                    .text_sm()
+                    .line_height(gpui::relative(1.625))
+            })
+            .when(!self.chat, |this| this.gap_1p5())
+            .children(children);
         let key = (window.window_handle().window_id(), self.id.clone());
         let known_width = view_widths()
             .lock()
@@ -2285,7 +2310,7 @@ fn render_view_line(
         "{}-line-{block_index}-{line_index}",
         view.id
     )));
-    let display = build_display_line(line, &marks, view.resolver.as_ref(), cx);
+    let display = build_display_line(line, &marks, view.resolver.as_ref(), view.chat, cx);
     let mono = theme.mono_font_family.clone();
 
     // Inline code AND `#IDENT` chip tokens render monospace (web parity: the
@@ -2856,6 +2881,7 @@ fn build_display_line(
     line: &str,
     marks: &[InlineMark],
     resolver: Option<&RefResolver>,
+    chat: bool,
     cx: &App,
 ) -> DisplayLine {
     // 1. Find decorations on the source line (skipping inline-code ranges —
@@ -3084,7 +3110,19 @@ fn build_display_line(
             });
         }
         if bits.code {
-            style.background_color = Some(theme.muted);
+            // EXP-698: in a CHAT feed inline code takes the semantic code
+            // tint (the same blue on all four clients) — a neutral `muted`
+            // fill was invisible against the bubbles it sits in. Documents
+            // keep the neutral fill: there the page IS the surface.
+            //
+            // Fill + foreground only: `HighlightStyle` has no border, and
+            // borrowing `underline` for the outline would read as a link.
+            if chat {
+                style.color = Some(theme::tokens::CODE_TEXT.to_hsla());
+                style.background_color = Some(theme::tokens::CODE_FILL.to_hsla());
+            } else {
+                style.background_color = Some(theme.muted);
+            }
             code_ranges.push(a..b);
         }
         if bits.link {
@@ -3324,7 +3362,7 @@ mod tests {
         cx.update(|cx| {
             gpui_component::init(cx);
             let line = "Ping @ada@example.com about #EXP-42 now";
-            let display = build_display_line(line, &[], Some(&test_resolver()), cx);
+            let display = build_display_line(line, &[], Some(&test_resolver()), false, cx);
 
             // EXP-423: the chip display text carries the leading icon gutter;
             // EXP-469: a blank margin NBSP on each side keeps the pill quad's
@@ -3376,7 +3414,7 @@ mod tests {
         cx.update(|cx| {
             gpui_component::init(cx);
             let line = "see #EXP-99 and @ghost@example.com";
-            let display = build_display_line(line, &[], Some(&test_resolver()), cx);
+            let display = build_display_line(line, &[], Some(&test_resolver()), false, cx);
             assert_eq!(display.text, line);
             assert!(display.mention_pill_ranges.is_empty());
             assert!(display.issue_pill_ranges.is_empty());

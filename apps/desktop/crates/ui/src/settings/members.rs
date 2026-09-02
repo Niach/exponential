@@ -543,13 +543,27 @@ impl Render for MembersPane {
                     // Emailed invites show who they went to as the primary
                     // text; link-only invites keep the chip-first row.
                     let mut invite_identity = h_flex().gap_2().items_center();
-                    if let Some(email) = invite.email.clone() {
-                        invite_identity = invite_identity.child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child(SharedString::from(email)),
-                        );
+                    match invite.email.clone() {
+                        Some(email) => {
+                            invite_identity = invite_identity.child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(SharedString::from(email)),
+                            );
+                        }
+                        // EXP-698: a link-only invite went to nobody in
+                        // particular — the address slot says so (muted)
+                        // instead of collapsing, so the role chip and the
+                        // expiry stay in the same column on every row.
+                        None => {
+                            invite_identity = invite_identity.child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("Link invite"),
+                            );
+                        }
                     }
                     invite_identity = invite_identity
                         .child(role_chip(

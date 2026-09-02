@@ -1697,6 +1697,9 @@
         "drive": {
           "kind": "settings",
           "value": "agents"
+        },
+        "env": {
+          "EXP_DEV_AGENT_ACCOUNT": "demo@exponential.at"
         }
       },
       "notes": {

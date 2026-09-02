@@ -89,6 +89,24 @@ pub(crate) trait WebControl: Styled + Sizable + Sized {
 
 impl<T: Styled + Sizable> WebControl for T {}
 
+/// EXP-698 — the web's 11px caption rung (`text-[11px]`), one step below
+/// `text_xs` (12px). gpui has no rung there, and the steer feed needs two
+/// caption levels: a tool row's mono argument, a permission's detail and
+/// hint, a subagent's status line and the stepper counter all render at 11 on
+/// the web, and rendering them at 12 flattens them into the labels above them.
+///
+/// Its own trait, not a [`WebControl`] method: that one is bounded on
+/// `Sizable` (a gpui-component CONTROL), and these are plain `Div`s.
+///
+/// One import per file: `use crate::controls::WebText as _;`
+pub(crate) trait WebText: Styled + Sized {
+    fn text_2xs(self) -> Self {
+        self.text_size(gpui::rems(0.6875))
+    }
+}
+
+impl<T: Styled> WebText for T {}
+
 /// Web `EmptyState` (`components/empty-state.tsx`): centered column, a 48px
 /// primary-tinted icon disc, semibold title, muted description.
 pub(crate) fn empty_state(

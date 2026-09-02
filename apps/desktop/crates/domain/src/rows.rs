@@ -456,6 +456,12 @@ pub struct CodingSession {
     pub action_id: Option<String>,
     #[serde(default)]
     pub action_name: Option<String>,
+    /// EXP-545: the head branch of the run's pull request, stamped by the
+    /// server's `pr_open` flip. On a BATCH run (no `issue_id` at all) it is
+    /// the ONLY link back to the PR — the Merge affordance resolves the
+    /// representative open-PR issue through it.
+    #[serde(default)]
+    pub branch: Option<String>,
     /// EXP-583: the `automations` row that fired this run; `None` on manual
     /// runs (and on rows written before automations became their own entity).
     #[serde(default)]

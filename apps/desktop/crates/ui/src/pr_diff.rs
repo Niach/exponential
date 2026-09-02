@@ -222,24 +222,24 @@ impl Render for PrDiffView {
                         .into_any_element()
                 });
 
-            // The reject path — a quiet round ghost `×` that only grows into a
-            // labeled danger confirm once armed (EXP-100).
+            // The reject path — a quiet round `×` that only grows into a
+            // labeled danger confirm once armed (EXP-100). EXP-698: the glyph
+            // wears the ONE 32px glass icon chrome instead of a bare ghost —
+            // a chrome-less glyph on the page gradient reads as decoration.
             let close_button = is_open.then(|| {
-                let mut button = Button::new("pr-diff-close");
-                if closing {
-                    button = button
-                        .ghost()
-                        .web_icon_sm()
-                        .icon(Icon::new(registry::UI_CLOSE))
-                        .loading(true)
-                        .disabled(true);
-                } else if close_armed {
-                    button = button.web_sm().label("Close PR").danger();
+                let mut button = if close_armed && !closing {
+                    Button::new("pr-diff-close").web_sm().label("Close PR").danger()
                 } else {
+                    crate::controls::glass_icon_button(
+                        "pr-diff-close",
+                        Icon::new(registry::UI_CLOSE),
+                        cx,
+                    )
+                };
+                if closing {
+                    button = button.loading(true).disabled(true);
+                } else if !close_armed {
                     button = button
-                        .ghost()
-                        .web_icon_sm()
-                        .icon(Icon::new(registry::UI_CLOSE).text_color(muted))
                         .tooltip("Close PR without merging")
                         .disabled(merging);
                 }
@@ -302,10 +302,11 @@ impl Render for PrDiffView {
                 merge_button.into_iter().chain(fix_button).collect();
 
             let external = issue.pr_url.clone().map(|url| {
-                Button::new("pr-diff-open-github")
-                    .ghost()
-                    .web_icon_sm()
-                    .icon(Icon::new(registry::UI_EXTERNAL_LINK).text_color(muted))
+                crate::controls::glass_icon_button(
+                    "pr-diff-open-github",
+                    Icon::new(registry::UI_EXTERNAL_LINK),
+                    cx,
+                )
                     .tooltip("Open pull request on GitHub")
                     .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                         crate::settings::open_url(cx, url.clone());
@@ -425,10 +426,11 @@ impl Render for PrDiffView {
                                 // beside an actual external link (the GitHub
                                 // button), and two identical icons in one
                                 // cluster read as a duplicate control.
-                                Button::new("pr-diff-undock")
-                                    .ghost()
-                                    .web_icon_sm()
-                                    .icon(Icon::new(registry::UI_UNDOCK).text_color(muted))
+                                crate::controls::glass_icon_button(
+                                    "pr-diff-undock",
+                                    Icon::new(registry::UI_UNDOCK),
+                                    cx,
+                                )
                                     .tooltip("Open in new window")
                                     .on_click(cx.listener(
                                         move |_, _: &ClickEvent, window, cx| {

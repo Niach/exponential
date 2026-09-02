@@ -1612,6 +1612,16 @@ mod tests {
             unreachable!("fetch-only stub")
         }
 
+        fn upload_session(
+            &self,
+            _session_id: &str,
+            _filename: &str,
+            _content_type: &str,
+            _bytes: &[u8],
+        ) -> anyhow::Result<UploadedImage> {
+            unreachable!("fetch-only stub")
+        }
+
         fn fetch(&self, _url: &str) -> anyhow::Result<Vec<u8>> {
             self.fetches.fetch_add(1, Ordering::SeqCst);
             if self

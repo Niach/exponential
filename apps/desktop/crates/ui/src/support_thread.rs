@@ -801,11 +801,17 @@ impl Render for SupportThreadView {
                                 ),
                             )
                             .child(
-                                Button::new("support-escalate-board")
-                                    .outline().cursor_pointer()
-                                    .web_input_sm()
+                                // EXP-698: the board picker is the glass pill,
+                                // never a filled/outline field — "Create
+                                // issue" below it is the ONE primary of this
+                                // section, and two solid boxes stacked read
+                                // as two equal calls to action.
+                                crate::surface::glass_pill_button(
+                                    "support-escalate-board",
+                                    crate::surface::PillSize::Md,
+                                    cx,
+                                )
                                     .w_full()
-                                    .cursor_pointer()
                                     .label(dropdown_label)
                                     .disabled(boards.is_empty())
                                     .dropdown_menu(move |mut menu, _window, _cx| {

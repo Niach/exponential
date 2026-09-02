@@ -582,8 +582,23 @@ impl MachinesSection {
                             }),
                     ),
             )
-            .child(div().flex_shrink_0().child(start_coding))
-            .children(menu.map(|menu| div().flex_shrink_0().child(menu)))
+            // EXP-698: a FIXED trailing COLUMN — ▶ and ⋯ each own a 32px
+            // slot, so the two actions line up down the list. A row without a
+            // menu (a relay-only build, a teammate's shared machine) keeps an
+            // empty placeholder instead of sliding its ▶ under the ⋯ column.
+            .child(
+                gpui_component::h_flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap_1()
+                    .child(start_coding)
+                    .child(match menu {
+                        Some(menu) => div().flex_shrink_0().child(menu),
+                        None => div()
+                            .flex_shrink_0()
+                            .w(px(theme::tokens::size::CONTROL_MD)),
+                    }),
+            )
             .into_any_element()
     }
 }
