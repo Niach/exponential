@@ -377,7 +377,7 @@ export function TeamActionsPanel({
               {showSuggestions && <SuggestionsButton />}
               {canCreateAction && (
                 <Button
-                  variant="outline"
+                  variant="glass"
                   size="xs"
                   disabled={runBusy}
                   onClick={() => setCreateActionOpen(true)}

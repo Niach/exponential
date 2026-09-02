@@ -719,13 +719,14 @@ fn render_run_row(
             })
             .when(resumable, |this| {
                 this.child(
+                    // The row wrapper keeps the button at its label width —
+                    // a bare child of this `flex_col` card would stretch.
                     div().flex().w_full().child(
-                        crate::controls::glass_icon_button(
-                            SharedString::from(format!("run-resume-{session_id}")),
-                            Icon::from(registry::RUN_RESUME),
-                            cx,
-                        )
-                            .tooltip("Resume")
+                        Button::new(SharedString::from(format!("run-resume-{session_id}")))
+                            .outline()
+                            .web_sm()
+                            .icon(Icon::from(registry::RUN_RESUME))
+                            .label("Resume")
                             .on_click(move |event, window, cx| {
                                 cx.stop_propagation();
                                 on_resume(event, window, cx);

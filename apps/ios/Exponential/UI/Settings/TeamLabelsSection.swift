@@ -15,14 +15,7 @@ struct TeamLabelsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Labels")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                Text("\(labels.count)")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                Spacer()
+            GlassSectionHeader("Labels", count: labels.count) {
                 // "New label" rides the header (Boards' "New board" pattern,
                 // EXP-331) — labels stay member-level, so no owner gating.
                 GlassPillButton("New label", icon: AppIcons.uiAdd) {
@@ -44,9 +37,10 @@ struct TeamLabelsSection: View {
 
                     // Explicit edit entry (EXP-331 — Android parity; replaces
                     // the undiscoverable tap-to-rename / swatch-menu recolor).
-                    // EXP-698: the horizontal `…` concept every other row's
-                    // trailing control wears, in the shared chromed circle.
-                    CircleIconButton(AppIcons.uiMore, accessibilityLabel: "Edit label") {
+                    // EXP-698: the shared chromed circle, but the `ui-edit`
+                    // pencil — this opens the editor straight away, so the
+                    // overflow glyph would promise a menu that never appears.
+                    CircleIconButton(AppIcons.uiEdit, accessibilityLabel: "Edit label") {
                         editingLabel = label
                     }
 

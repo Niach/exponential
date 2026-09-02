@@ -389,9 +389,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `button-xs`,
     title: `Header button`,
     kind: `Controls`,
-    blurb: `The 24-tall capsule that sits in a section header's trailing slot: 12/16 medium, an input-coloured hairline over 30% input fill.`,
+    blurb: `The 24-tall capsule that sits in a section header's trailing slot: 12/16 medium at 70% foreground, a card hairline over the card fill; hover goes active.`,
     status: {
-      web: ok(`buttonVariants size="xs"`, `apps/web/src/components/ui/button.tsx`),
+      web: ok(`buttonVariants variant="glass" size="xs"`, `apps/web/src/components/ui/button.tsx`),
       desktop: ok(`WebControl::web_xs`, DESKTOP_CONTROLS),
       ios: na(`sheet header actions are GlassPillButton`),
       android: na(`sheet header actions are GlassSheetHeaderAction`),
@@ -454,7 +454,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     kind: `Controls`,
     blurb: `Static metadata, never a target: radius 8, card fill, NO stroke, padding 4/8 at 12px medium.`,
     status: {
-      web: ok(
+      web: leftover(
         `Badge`,
         `apps/web/src/components/ui/badge.tsx`,
         `capsule, not radius 8`
@@ -570,25 +570,25 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     kind: `Surfaces`,
     blurb: `A label/amount line above a 6px capsule track in the strong stroke; the fill is foreground at 30%, or the yellow semantic once it is nearly spent.`,
     status: {
-      web: ok(
+      web: leftover(
         `AgentUsageCards`,
         `apps/web/src/components/agent-usage-bar.tsx`,
-        `fill stays 35% fg, untokenized`
+        `track border/60 + fill muted/60, not strokeStrong + fg 30%`
       ),
-      desktop: ok(
+      desktop: leftover(
         `render_usage_cards`,
         `apps/desktop/crates/ui/src/usage_bar.rs`,
-        `fill stays 35% fg, untokenized`
+        `fill is 35% fg, untokenized (canonical 30%)`
       ),
-      ios: ok(
+      ios: leftover(
         `AgentUsageCardRow`,
         `apps/ios/Exponential/UI/Session/AgentUsageCards.swift`,
-        `fill stays 35% fg, untokenized`
+        `fill is 35% fg, untokenized (canonical 30%)`
       ),
-      android: ok(
+      android: leftover(
         `UsageTrack`,
         `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentUsageBar.kt`,
-        `fill stays 35% fg, untokenized`
+        `fill is 35% fg, untokenized (canonical 30%)`
       ),
     },
     render: () =>

@@ -411,7 +411,7 @@ struct ChangesView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .glassSection()
+        .glassCard()
     }
 
     // MARK: - Floating action bar
@@ -460,7 +460,7 @@ struct ChangesView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .glassSection()
+                    .glassCard()
                     .padding(.horizontal, 16)
                 }
 
@@ -659,13 +659,13 @@ struct ChangesView: View {
     }
 
     /// Icon-only circle — same chrome as MobileTabBar / IssueDetailBottomBar
-    /// (ultraThinMaterial, white-12% hairline, soft shadow).
+    /// (EXP-698: the opaque card fill, `strokeStrong` hairline, soft shadow).
     private func barCircle<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .frame(width: 52, height: 52)
-            .background(.ultraThinMaterial, in: Circle())
+            .background(GlassTokens.opaqueCardFill, in: Circle())
             .overlay(
-                Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                Circle().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
             )
             .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
             .contentShape(Circle())
@@ -726,7 +726,9 @@ struct ChangesView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassSection()
+        // A gapped list item (one file among many), so it wears the row
+        // hairline the borderless group no longer draws.
+        .glassRow()
     }
 
     // GitHub file statuses: added / modified / removed / renamed / copied / changed.

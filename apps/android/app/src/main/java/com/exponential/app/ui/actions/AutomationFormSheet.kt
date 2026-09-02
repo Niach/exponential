@@ -169,7 +169,7 @@ fun AutomationFormSheet(
             }
             Spacer(Modifier.height(8.dp))
 
-            SectionHeader("Trigger", modifier = Modifier.padding(horizontal = 16.dp))
+            SectionHeader("Trigger", modifier = Modifier.padding(horizontal = 12.dp))
             AutomationTriggerFields(
                 draft = draft,
                 boards = boardOptions,

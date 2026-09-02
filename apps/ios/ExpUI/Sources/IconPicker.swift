@@ -36,12 +36,12 @@ public struct IconPicker: View {
                 }
             }
             .frame(width: 36, height: 36)
-            .background(Color.white.opacity(0.06))
+            .background(GlassTokens.fillCard)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(
-                        Color.white.opacity(0.12),
+                        GlassTokens.strokeStrong,
                         style: StrokeStyle(lineWidth: 1, dash: selection.isEmpty ? [3, 3] : [])
                     )
             )

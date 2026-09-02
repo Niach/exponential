@@ -1511,7 +1511,9 @@ private struct QuestionCard: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .glassSection()
+        // A bordered card, not a group container: the ask is one free-content
+        // block that has to stand off the transcript behind it.
+        .glassCard()
         .padding(.vertical, 5)
     }
 
@@ -2233,7 +2235,9 @@ private struct LatestChangesSheet: View {
                                     .padding(.bottom, 8)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .glassSection()
+                            // One file among many in a gapped stack — a row,
+                            // not a borderless group.
+                            .glassRow()
                         }
                     }
                     .padding(.horizontal, 16)

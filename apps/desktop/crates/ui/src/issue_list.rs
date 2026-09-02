@@ -49,6 +49,7 @@ use domain::rows::{Issue, Label, Board, User};
 use domain::statuses::{ResolvedStatus, StatusTint};
 use domain::{IssueFilters, IssueStatus};
 
+use crate::controls::WebControl as _;
 use crate::icons::{option_icon, registry, resolved_status_icon, ExpIcon};
 use crate::issue_detail::{apply_status_selection, set_duplicate_of};
 use crate::pickers::{option_item, status_menu, StatusMenuScope, StatusPick};
@@ -505,12 +506,15 @@ impl IssueListView {
             .border_b_1()
             .border_color(cx.theme().border.opacity(0.5))
             .child(
-                // EXP-698: the one 32px glass chrome every list-row action wears.
+                // EXP-698: the glass chrome every list-row action wears, at
+                // the 24px size — the default 32px circle overflows this
+                // `HEADER_HEIGHT` row (the virtual list measures it at 28).
                 crate::controls::glass_icon_button(
                     header_id("collapse", &status.group_key),
                     Icon::new(chevron),
                     cx,
                 )
+                    .web_icon_xs()
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.toggle_group(group_key.clone(), cx);
                     })),

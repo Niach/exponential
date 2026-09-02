@@ -801,7 +801,7 @@ struct IssueListView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .glassCard(cornerRadius: 24)
+        .glassCard(cornerRadius: 24, isOpaque: true)
         .transition(.move(edge: .bottom).combined(with: .opacity))
         // EXP-642: the styleguide capture addresses the bar directly.
         // `contain` keeps its buttons queryable.
@@ -986,7 +986,7 @@ struct IssueListView: View {
             .multilineTextAlignment(.center)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .glassCard(cornerRadius: 14)
+            .glassCard(cornerRadius: 14, isOpaque: true)
             .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 

@@ -155,7 +155,7 @@ struct AutomationTriggerForm: View {
             .listRowInsets(EdgeInsets())
             .listRowSeparator(.hidden)
         } header: {
-            Text("Trigger")
+            GlassSectionHeader("Trigger")
         }
         // No footer note about the machine's own clock (EXP-615) — the "Runs
         // on" row already names the machine the schedule belongs to.

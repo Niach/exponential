@@ -9,25 +9,23 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.R
 import com.exponential.app.domain.DomainContract
@@ -145,7 +143,6 @@ internal fun PickerRow(
 // EXP-615: the loose agent pill strip is gone — every surface now renders ONE
 // segmented capsule via [AgentSegmentedTabs] (LaunchOptionsSection.kt).
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SwitchRow(
     title: String,
@@ -156,7 +153,18 @@ internal fun SwitchRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            // EXP-698: 16/12, the same rhythm every other row in a group has.
+            // EXP-698: the ROW is the tap target, exactly like [PickerRow] —
+            // which is what lets the Switch drop its own 48dp enforcement and
+            // the row keep the group's 16/12 rhythm. `onCheckedChange = null`
+            // makes the Switch a pure indicator (M3 then applies neither
+            // `toggleable` nor `minimumInteractiveComponentSize` to it), so
+            // TalkBack reads ONE switch control here, not a row plus a switch.
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -168,13 +176,7 @@ internal fun SwitchRow(
             ),
             modifier = Modifier.weight(1f),
         )
-        // M3 pads a Switch out to a 48dp touch target of its own, which on top
-        // of the row's new 12dp padding would make this the one oversized row
-        // in the group. The track is 32dp tall and the ROW is the tap target
-        // in every other picker here, so the enforcement is waived.
-        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
-            Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
-        }
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
 }
 

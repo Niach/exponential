@@ -16,7 +16,7 @@ export const componentStyles = `
 .cmp-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 
 /* -------------------------------------------------------- section header */
-.cmp-section-header { display: flex; align-items: baseline; gap: 6px; padding: 4px 4px 8px; }
+.cmp-section-header { display: flex; align-items: center; gap: 6px; padding: 4px 4px 8px; }
 .cmp-section-header .title { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--fg-70); }
 .cmp-section-header .count { font-size: 12px; color: var(--fg-50); }
 .cmp-section-header .trailing { margin-left: auto; }
@@ -92,7 +92,7 @@ export const componentStyles = `
 .cmp-switch.on::after { background: var(--primary-fg); transform: translateX(16px); }
 
 /* -------------------------------------------------------------- segments */
-.cmp-tabs-row, .cmp-segmented { display: flex; align-items: center; gap: 4px; }
+.cmp-tabs-row, .cmp-segmented { display: flex; align-items: center; }
 /* Embedded: the FIRST row of a group, so it carries no fill and no stroke —
    the group already draws both. */
 .cmp-tabs-row { width: 100%; padding: 8px; }
@@ -105,7 +105,7 @@ export const componentStyles = `
 }
 .cmp-tabs-row .tab, .cmp-segmented .tab {
   flex: 1;
-  padding: 6px 10px;
+  padding: 4px 8px;
   border-radius: 9999px;
   border: 1px solid transparent;
   font-size: 14px;
@@ -115,6 +115,8 @@ export const componentStyles = `
   color: var(--muted-fg);
   transition: background var(--dur) var(--ease);
 }
+/* Embedded in a group the strip has no capsule to fill, so the segments take py-1.5. */
+.cmp-tabs-row .tab { padding-top: 6px; padding-bottom: 6px; }
 .cmp-tabs-row .tab.active, .cmp-segmented .tab.active {
   background: var(--active);
   border-color: var(--stroke-active);
@@ -146,9 +148,9 @@ export const componentStyles = `
   height: var(--ctl-sm);
   padding: 0 8px;
   border-radius: 9999px;
-  border: 1px solid var(--input);
-  background: var(--input-30);
-  color: var(--fg);
+  border: 1px solid var(--stroke);
+  background: var(--card);
+  color: var(--fg-70);
   font: inherit;
   font-size: 12px;
   line-height: 16px;
@@ -157,7 +159,7 @@ export const componentStyles = `
   cursor: pointer;
   transition: background var(--dur) var(--ease);
 }
-.cmp-button-xs:hover { background: var(--input-50); }
+.cmp-button-xs:hover { background: var(--active); color: var(--fg); }
 .cmp-button-xs .glyph { width: 12px; height: 12px; }
 
 /* The MOBILE sheet submit: full width, radius 10, solid. Web and desktop

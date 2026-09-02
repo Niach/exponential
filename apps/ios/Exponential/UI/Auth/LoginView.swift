@@ -19,9 +19,13 @@ struct LoginView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack {
+                        // Free-standing (no toolbar row to grow the target),
+                        // so the 32pt circle rides inside a 44pt hit area.
                         CircleIconButton(AppIcons.uiChevronLeft, accessibilityLabel: "Back") {
                             viewModel?.goBack()
                         }
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                         Spacer()
                     }
 

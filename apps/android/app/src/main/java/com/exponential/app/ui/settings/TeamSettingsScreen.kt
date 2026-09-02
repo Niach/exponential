@@ -267,17 +267,12 @@ private fun BoardsSection(
 ) {
     var showCreateBoard by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // Header row: title + board count + a compact "New board" pill —
-        // byte-for-byte the iOS Boards header (EXP-331). "New board" is
-        // owner-only in team settings (web parity); the empty-state and
-        // switcher create entries elsewhere stay open (they target the
-        // user's default team via getDefault).
-        SectionHeader("Boards") {
-            Text(
-                state.boards.size.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
+        // Header row: title + board count + a compact "New board" pill — the
+        // iOS Boards header's shape (EXP-331), now the shared [SectionHeader]
+        // with its own count slot. "New board" is owner-only in team settings
+        // (web parity); the empty-state and switcher create entries elsewhere
+        // stay open (they target the user's default team via getDefault).
+        SectionHeader("Boards", count = state.boards.size) {
             if (isOwner) {
                 GlassPillButton(
                     label = "New board",
@@ -458,7 +453,6 @@ private fun RepositoriesSection(
     val reauthInstalls = installations.filter { it.needsReauth && !it.stale && !it.suspended }
     val needsReauth = suspended.isEmpty() && reauthInstalls.isNotEmpty()
     val configured = github != null && github.configured
-    val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
 
     // Resume-refresh fallback (EXP-365): if the exponential://github-connected
     // deep link never arrives (older server, swallowed handoff, user closed the
@@ -475,12 +469,7 @@ private fun RepositoriesSection(
         // Header row: title + repo count + a compact "Add repository" button
         // (owner + ≥1 linked installation), mirroring the Labels header's
         // inline action and the iOS Repositories header.
-        SectionHeader("Repositories") {
-            Text(
-                state.repos.size.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = tertiary,
-            )
+        SectionHeader("Repositories", count = state.repos.size) {
             // Member-level since EXP-557 (repositories.add operates on the
             // viewer's OWN GitHub connection; connecting shares the repo).
             // Only meaningful once the server has a GitHub App — the picker
@@ -812,13 +801,7 @@ private fun MembersSection(
     onConfirm: (SettingsConfirm) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader("Members") {
-            Text(
-                state.members.size.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-        }
+        SectionHeader("Members", count = state.members.size)
         // A team must always keep at least one owner.
         val ownerCount = state.members.count { it.member.role == DomainContract.teamRoleOwner }
         Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
@@ -950,12 +933,7 @@ private fun LabelsSection(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Header row: title + label count + a compact "New label" pill — the
         // same recipe as the Boards/Repositories headers and iOS (EXP-331).
-        SectionHeader("Labels") {
-            Text(
-                state.labels.size.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
+        SectionHeader("Labels", count = state.labels.size) {
             GlassPillButton(
                 label = "New label",
                 icon = ExpIcons.uiAdd,
@@ -1009,18 +987,18 @@ private fun LabelRow(
     ) {
         Box(Modifier.size(12.dp).background(parseColor(label.color), CircleShape))
         Text(label.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        // The pencil, not an overflow glyph: the tap opens the editor sheet
+        // directly, there is no menu behind it (iOS twin does the same).
         CircleIconButton(
-            ExpIcons.uiMoreVertical,
+            ExpIcons.uiEdit,
             contentDescription = "Edit label",
             onClick = { editing = true },
-            glyphSize = 16.dp,
         )
         CircleIconButton(
             ExpIcons.uiDelete,
             contentDescription = "Delete label",
             onClick = { onDelete(label) },
-            tint = DesignTokens.Semantic.Red.copy(alpha = 0.5f),
-            glyphSize = 16.dp,
+            tint = DesignTokens.Palette.Destructive.copy(alpha = 0.7f),
         )
     }
 

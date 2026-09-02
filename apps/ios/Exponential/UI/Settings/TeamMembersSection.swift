@@ -29,14 +29,7 @@ struct TeamMembersSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Members")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                Text("\(members.count)")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
+            GlassSectionHeader("Members", count: members.count)
 
             ForEach(members, id: \.id) { member in
                 memberRow(member)
@@ -138,6 +131,7 @@ struct TeamMembersSection: View {
                     }
                 } label: {
                     CircleIconLabel(AppIcons.uiMore)
+                        .accessibilityLabel("Member actions")
                 }
             }
         }

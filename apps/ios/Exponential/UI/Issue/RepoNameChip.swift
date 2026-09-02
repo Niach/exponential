@@ -69,7 +69,7 @@ struct RepoNameChip: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .background(Color.white.opacity(0.04))
+                    .background(GlassTokens.fillSection)
                 } else {
                     chip(repo)
                 }
@@ -84,18 +84,19 @@ struct RepoNameChip: View {
                 Platform.open(url)
             }
         } label: {
-            HStack(spacing: 6) {
-                AppIcon(AppIcons.uiRepository, size: 11)
-                Text(repo.fullName)
-                    .font(.caption.monospaced())
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                AppIcon(AppIcons.uiExternalLink, size: 11)
+            // The shared metadata chip (EXP-698) — same 8/4 padding and
+            // `fillCard` this hand-rolled it with, minus the pill's hairline.
+            GlassChip {
+                HStack(spacing: 6) {
+                    AppIcon(AppIcons.uiRepository, size: 11)
+                    Text(repo.fullName)
+                        .font(.caption.monospaced())
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    AppIcon(AppIcons.uiExternalLink, size: 11)
+                }
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .glassButton()
         }
         .buttonStyle(.plain)
     }

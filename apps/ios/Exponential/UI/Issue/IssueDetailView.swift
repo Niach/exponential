@@ -796,7 +796,8 @@ struct IssueDetailView: View {
             }
         }
         .padding(10)
-        .glassSection()
+        // A single banner, not a group of rows: it keeps a border of its own.
+        .glassCard()
     }
 
     private func parseDate(_ dateString: String?) -> Date? {

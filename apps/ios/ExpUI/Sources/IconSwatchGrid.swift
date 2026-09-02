@@ -56,12 +56,15 @@ public struct IconSwatchGrid: View {
                 .foregroundStyle(.white.opacity(selected ? 1 : TextOpacity.secondary))
                 .frame(maxWidth: .infinity)
                 .frame(height: 32)
-                .background(Color.white.opacity(selected ? 0.12 : 0.04))
+                .background(selected ? GlassTokens.fillActive : GlassTokens.fillSection)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(
-                            selected ? Color.white.opacity(0.6) : Color.white.opacity(0.08),
+                            // The selected ring is deliberately brighter than
+                            // any glass rung — a picker needs one unmistakable
+                            // "this one"; the resting hairline is a token.
+                            selected ? .white.opacity(0.6) : GlassTokens.strokeSection,
                             lineWidth: 1
                         )
                 )

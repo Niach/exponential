@@ -517,7 +517,7 @@ fun StartCodingSheet(
         ) {
             if (subjectTab == SubjectTab.Issues) {
                 // ── Issues ───────────────────────────────────────────────
-                SectionHeader("Issues", modifier = Modifier.padding(horizontal = 16.dp))
+                SectionHeader("Issues", modifier = Modifier.padding(horizontal = 12.dp))
                 // ONE grouped card for search + rows (EXP-211 — iOS Form
                 // parity): the search field is the first row of the glass
                 // container and hairlines separate the issue rows, instead of
@@ -628,7 +628,7 @@ fun StartCodingSheet(
                 // no branch, no worktree. The two fields ARE the hidden
                 // builtin's two inputs, labelled exactly as it declares
                 // them.
-                SectionHeader("Prompt", modifier = Modifier.padding(horizontal = 16.dp))
+                SectionHeader("Prompt", modifier = Modifier.padding(horizontal = 12.dp))
                 // EXP-698: inside the grouped card like every other field on
                 // this sheet, instead of a second chromed box beside them.
                 OptionGroup {
@@ -669,7 +669,7 @@ fun StartCodingSheet(
                 Spacer(Modifier.height(4.dp))
             } else {
                 // ── Actions ──────────────────────────────────────────────
-                SectionHeader("Actions", modifier = Modifier.padding(horizontal = 16.dp))
+                SectionHeader("Actions", modifier = Modifier.padding(horizontal = 12.dp))
                 // Same grouped-card layout as the issue picker: search row
                 // + hairline-divided SINGLE-select action rows (builtin
                 // pinned first by its flag).

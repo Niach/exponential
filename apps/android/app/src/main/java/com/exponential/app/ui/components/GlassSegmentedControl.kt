@@ -32,7 +32,8 @@ import com.exponential.app.ui.theme.TextEmphasis
 /**
  * Full-width glass-pill segmented control — a 1:1 port of the iOS My Work
  * Inbox/My Issues tab language (EXP-192): one glass capsule container holding
- * equal-width segments, the active one filled white-0.12. Optional
+ * equal-width segments, the active one filled with the shared
+ * [GlassSegmentedControlDefaults.ActiveFill] (`glass.fillActive`). Optional
  * per-segment count [badge] (white primary capsule, the Inbox unread count).
  * EXP-615 adds an optional per-segment [leadingIcon] (the agent strip's brand
  * marks); it draws in the segment's own content color via [LocalContentColor],
@@ -76,7 +77,7 @@ fun <T> GlassSegmentedControl(
                         .padding(GlassSegmentedControlDefaults.ContainerPadding)
                 },
             ),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(GlassSegmentedControlDefaults.SegmentSpacing),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         options.forEach { option ->
@@ -153,6 +154,9 @@ object GlassSegmentedControlDefaults {
 
     /** Inset between the container's edge and a segment. */
     val ContainerPadding: Dp = 4.dp
+
+    /** Gap between two segments — the same 4dp the container insets by. */
+    val SegmentSpacing: Dp = 4.dp
 
     /** A segment's own vertical padding — the strip's height comes from this. */
     val SegmentVerticalPadding: Dp = 7.dp

@@ -48,6 +48,6 @@ public struct UserAvatar: View {
             .minimumScaleFactor(0.6)
             .foregroundStyle(.white)
             .frame(width: size, height: size)
-            .background(Color.white.opacity(0.15))
+            .background(GlassTokens.fillActive)
     }
 }

@@ -166,9 +166,11 @@ struct MobileTabBar: View {
             AppIcon(glyph, size: AppIcon.Size.large, weight: .semibold)
                 .foregroundStyle(.white)
                 .frame(width: 52, height: 52)
-                .background(.ultraThinMaterial, in: Circle())
+                // EXP-698: the same opaque chrome as the pill beside it — a
+                // circle floating over the feed, so no material, no tint.
+                .background(GlassTokens.opaqueCardFill, in: Circle())
                 .overlay(
-                    Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                    Circle().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
                 )
                 .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
         }

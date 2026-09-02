@@ -790,54 +790,58 @@ impl Render for SupportThreadView {
                 let view = cx.entity().clone();
                 let menu_boards = boards.clone();
                 let picked_id = picked.as_ref().map(|(id, _)| id.clone());
+                // NO `gap_2` on the section (EXP-697): the header's own `pb_2`
+                // IS the gap to the body, so the rows carry the gap instead.
                 v_flex()
-                    .gap_2()
                     .child(crate::surface::glass_section_header("Escalate", None, None, cx))
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(muted)
-                            .child("Create an issue from this ticket on one of the team's boards."),
-                    )
-                    .child(
-                        Button::new("support-escalate-board")
-                            .outline().cursor_pointer()
-                            .web_input_sm()
-                            .w_full()
-                            .cursor_pointer()
-                            .label(dropdown_label)
-                            .disabled(boards.is_empty())
-                            .dropdown_menu(move |mut menu, _window, _cx| {
-                                for (id, name) in &menu_boards {
-                                    let view = view.clone();
-                                    let choice = (id.clone(), name.clone());
-                                    let checked = picked_id.as_deref() == Some(id.as_str());
-                                    menu = menu.item(
-                                        PopupMenuItem::new(SharedString::from(name.clone()))
-                                            .checked(checked)
-                                            .on_click(move |_, _, cx| {
-                                                let choice = choice.clone();
-                                                view.update(cx, |this, cx| {
-                                                    this.escalate_board = Some(choice);
-                                                    cx.notify();
-                                                });
-                                            }),
-                                    );
-                                }
-                                menu
-                            }),
-                    )
-                    .child(
-                        Button::new("support-escalate")
-                            .primary().cursor_pointer()
-                            .web_sm()
-                            .w_full()
-                            .label("Create issue")
-                            .loading(self.escalating)
-                            .disabled(self.escalating || picked.is_none())
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.escalate(cx);
-                            })),
+                        v_flex()
+                            .gap_2()
+                            .child(
+                                div().text_xs().text_color(muted).child(
+                                    "Create an issue from this ticket on one of the team's boards.",
+                                ),
+                            )
+                            .child(
+                                Button::new("support-escalate-board")
+                                    .outline().cursor_pointer()
+                                    .web_input_sm()
+                                    .w_full()
+                                    .cursor_pointer()
+                                    .label(dropdown_label)
+                                    .disabled(boards.is_empty())
+                                    .dropdown_menu(move |mut menu, _window, _cx| {
+                                        for (id, name) in &menu_boards {
+                                            let view = view.clone();
+                                            let choice = (id.clone(), name.clone());
+                                            let checked = picked_id.as_deref() == Some(id.as_str());
+                                            menu = menu.item(
+                                                PopupMenuItem::new(SharedString::from(name.clone()))
+                                                    .checked(checked)
+                                                    .on_click(move |_, _, cx| {
+                                                        let choice = choice.clone();
+                                                        view.update(cx, |this, cx| {
+                                                            this.escalate_board = Some(choice);
+                                                            cx.notify();
+                                                        });
+                                                    }),
+                                            );
+                                        }
+                                        menu
+                                    }),
+                            )
+                            .child(
+                                Button::new("support-escalate")
+                                    .primary().cursor_pointer()
+                                    .web_sm()
+                                    .w_full()
+                                    .label("Create issue")
+                                    .loading(self.escalating)
+                                    .disabled(self.escalating || picked.is_none())
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.escalate(cx);
+                                    })),
+                            ),
                     )
                     .into_any_element()
             }

@@ -22,8 +22,10 @@ enum StartCircleUi: Equatable {
 
 /// The issue-detail floating bottom bar (EXP-240): properties circle +
 /// expanding comment pill + start-coding circle, cloning the main
-/// MobileTabBar treatment exactly (ultraThinMaterial capsule/circles,
-/// white-12% 0.5pt stroke, black-35% shadow r16 y6, 5pt inner padding).
+/// MobileTabBar treatment exactly (EXP-698: the OPAQUE card fill on the
+/// capsule and circles — they float over the scrolling issue, so a low-alpha
+/// tint would let it through — `strokeStrong` hairline, black-35% shadow
+/// r16 y6, 5pt inner padding).
 /// Tapping the pill expands it into the docked comment composer — a
 /// full-width glass card that rides the keyboard (the bar lives in a bottom
 /// `safeAreaInset`). Collapse on blur only when the draft is empty (drafts
@@ -175,9 +177,9 @@ struct IssueDetailBottomBar: View {
                 .frame(height: 42)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(5)
-                .background(.ultraThinMaterial, in: Capsule())
+                .background(GlassTokens.opaqueCardFill, in: Capsule())
                 .overlay(
-                    Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                    Capsule().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
                 )
                 .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
                 .contentShape(Capsule())
@@ -250,9 +252,9 @@ struct IssueDetailBottomBar: View {
     private func circleChrome<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .frame(width: 52, height: 52)
-            .background(.ultraThinMaterial, in: Circle())
+            .background(GlassTokens.opaqueCardFill, in: Circle())
             .overlay(
-                Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                Circle().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
             )
             .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
             .contentShape(Circle())
@@ -389,10 +391,11 @@ struct IssueDetailBottomBar: View {
             .padding(.horizontal, 8)
             .padding(.bottom, 6)
         }
-        .background(.ultraThinMaterial)
+        .background(GlassTokens.opaqueCardFill)
         .clipShape(RoundedRectangle(cornerRadius: 20))
         .overlay(
-            RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
         )
         .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
     }

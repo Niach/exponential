@@ -10,7 +10,7 @@
 //! timezone row — the clock the daily digest's send hour is read in.
 
 use gpui::{
-    div, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, Subscription,
+    div, px, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, Subscription,
     Window,
 };
 use gpui_component::{button::Button, h_flex, v_flex, ActiveTheme as _};
@@ -137,27 +137,39 @@ impl AccountPane {
             Timezone::Ready(Some(_)) => cx.theme().foreground,
             _ => cx.theme().muted_foreground,
         };
+        let foreground = cx.theme().foreground;
         // EXP-698: one row of an inset-grouped stack, not the old flat
-        // `pref_row` hairline ladder.
-        crate::surface::glass_group_rows(vec![crate::surface::glass_picker_row(
-            "Timezone",
-            Some("Used to schedule your daily digest email.".into()),
-            h_flex()
-                .gap_2()
-                .items_center()
-                .child(div().text_sm().text_color(value_color).child(value))
-                .child(
-                    Button::new("use-system-timezone")
-                        .outline().cursor_pointer()
-                        .web_sm()
-                        .label("Use system timezone")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.use_system_timezone(cx);
-                        })),
-                )
-                .into_any_element(),
-            cx,
-        )])
+        // `pref_row` hairline ladder. NOT `glass_picker_row` — this is no
+        // picker, and that recipe's trailing control must arrive UNCHROMED,
+        // while the row ends in a real outline button. So it rides the bare
+        // row shell: label column, spacer, value, button.
+        crate::surface::glass_group_rows(vec![crate::surface::glass_row_shell()
+            .child(
+                v_flex()
+                    .flex_shrink_0()
+                    .gap_0p5()
+                    .text_sm()
+                    .text_color(foreground)
+                    .child(div().child("Timezone"))
+                    .child(
+                        div()
+                            .max_w(px(crate::surface::ROW_DESCRIPTION_MAX_W))
+                            .text_xs()
+                            .text_color(foreground.opacity(0.5))
+                            .child("Used to schedule your daily digest email."),
+                    ),
+            )
+            .child(div().flex_1())
+            .child(div().text_sm().text_color(value_color).child(value))
+            .child(
+                Button::new("use-system-timezone")
+                    .outline().cursor_pointer()
+                    .web_sm()
+                    .label("Use system timezone")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.use_system_timezone(cx);
+                    })),
+            )])
     }
 
     /// Avatar + full name + email — the one place the full identity shows

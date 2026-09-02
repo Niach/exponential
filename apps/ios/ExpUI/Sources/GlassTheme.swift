@@ -11,14 +11,21 @@ import SwiftUI
 /// is not already inside a group. Radius `xl`, `fillCard`, `strokeCard`.
 public struct GlassCard: ViewModifier {
     public var cornerRadius: CGFloat = GlassTokens.cardRadius
+    /// Lays the opaque card surface beneath the glass tint — for cards that
+    /// FLOAT over scrolling content (the bulk-selection bar, the start
+    /// notices), where the low-alpha fill alone lets the feed bleed through.
+    /// The same switch `GlassButton` carries.
+    public var isOpaque: Bool = false
 
-    public init(cornerRadius: CGFloat = GlassTokens.cardRadius) {
+    public init(cornerRadius: CGFloat = GlassTokens.cardRadius, isOpaque: Bool = false) {
         self.cornerRadius = cornerRadius
+        self.isOpaque = isOpaque
     }
 
     public func body(content: Content) -> some View {
         content
             .background(GlassTokens.fillCard)
+            .background(isOpaque ? DesignTokens.Palette.card : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)
@@ -177,8 +184,11 @@ public struct AppBackground: View {
 // MARK: - View Extensions
 
 extension View {
-    public func glassCard(cornerRadius: CGFloat = GlassTokens.cardRadius) -> some View {
-        modifier(GlassCard(cornerRadius: cornerRadius))
+    public func glassCard(
+        cornerRadius: CGFloat = GlassTokens.cardRadius,
+        isOpaque: Bool = false
+    ) -> some View {
+        modifier(GlassCard(cornerRadius: cornerRadius, isOpaque: isOpaque))
     }
 
     public func glassRow(isActive: Bool = false) -> some View {

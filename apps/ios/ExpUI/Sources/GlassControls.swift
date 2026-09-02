@@ -317,8 +317,10 @@ extension ToggleStyle where Self == GlassToggleStyle {
 
 /// A drawn glass circle around a single glyph — the ONE chrome for a trailing
 /// action, in a list row or a toolbar alike (EXP-698). `controlMd` (32pt) with
-/// a 17pt glyph at 70 % white is the shared default on every client; the
-/// explicit sizes that survive are the deliberately smaller in-row ones.
+/// a 17pt glyph at 70 % white is the default on both mobile clients (Android
+/// matches 17dp); web and desktop use a 16px glyph in the same 32px circle.
+/// The explicit sizes that survive here are the deliberately smaller in-row
+/// ones.
 public struct CircleIconButton: View {
     let icon: String
     let accessibilityLabel: String

@@ -233,7 +233,8 @@ fn image_tile(
             .flex_shrink_0()
             .child(tile)
             .child(
-                // EXP-698: the one 32px glass chrome every trailing action wears.
+                // EXP-698: the glass chrome every trailing action wears, at
+                // the 24px size — a 32px badge covers half a 64px thumbnail.
                 crate::controls::glass_icon_button(
                     SharedString::from(format!(
                         "comment-attachment-remove-{}",
@@ -242,9 +243,10 @@ fn image_tile(
                     Icon::new(registry::UI_CLOSE),
                     cx,
                 )
+                .web_icon_xs()
                 .absolute()
-                .top(px(-4.))
-                .right(px(-4.))
+                .top(px(-6.))
+                .right(px(-6.))
                 .on_click(move |event, window, cx| {
                     cx.stop_propagation();
                     on_remove(event, window, cx);
@@ -311,6 +313,8 @@ fn file_chip(
 
     if let Some(on_remove) = remove {
         chip = chip.child(
+            // 24px: the chip is itself a FILL_CARD surface, so a 32px circle
+            // both self-composites and grows the chip past its row height.
             crate::controls::glass_icon_button(
                 SharedString::from(format!(
                     "comment-attachment-remove-{}",
@@ -319,6 +323,7 @@ fn file_chip(
                 Icon::new(registry::UI_CLOSE),
                 cx,
             )
+            .web_icon_xs()
             .on_click(move |event, window, cx| {
                 cx.stop_propagation();
                 on_remove(event, window, cx);
@@ -444,6 +449,7 @@ fn pending_chip(
         )
         .child(body)
         .child(
+            // 24px — same reason as the uploaded chip above.
             crate::controls::glass_icon_button(
                 SharedString::from(format!(
                     "comment-pending-remove-{}-{key}",
@@ -452,6 +458,7 @@ fn pending_chip(
                 Icon::new(registry::UI_CLOSE),
                 cx,
             )
+            .web_icon_xs()
             .on_click(cx.listener(
                 move |this: &mut IssueTimeline, _: &gpui::ClickEvent, _window: &mut Window, cx| {
                     this.remove_pending_attachment(scope, key, cx);

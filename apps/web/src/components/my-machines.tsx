@@ -202,7 +202,7 @@ export function MyMachines({
         label="My machines"
         trailing={
           <Button
-            variant="outline"
+            variant="glass"
             size="xs"
             onClick={() => setAddServerOpen(true)}
           >

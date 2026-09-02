@@ -134,6 +134,13 @@ pub(crate) fn glass_row_shell() -> Div {
     h_flex().w_full().items_center().gap_3().px_4().py_3()
 }
 
+/// How wide a row's muted DESCRIPTION line may grow before it wraps. The
+/// settings panes are ~550px, and a hint set full-bleed across one reads as a
+/// paragraph rather than as a caption under its label — the deleted
+/// `notifications_prefs::pref_row` capped it here, so the recipe does it for
+/// every consumer.
+pub(crate) const ROW_DESCRIPTION_MAX_W: f32 = 460.;
+
 /// A picker row: the label leading at full foreground (with an optional muted
 /// second line), the value trailing at 70% with its own chevron, and NO field
 /// chrome — the group IS the field. Pass the trailing control through
@@ -156,6 +163,7 @@ pub(crate) fn glass_picker_row(
                 .child(div().child(label.into()))
                 .children(description.map(|description| {
                     div()
+                        .max_w(px(ROW_DESCRIPTION_MAX_W))
                         .text_xs()
                         .text_color(foreground.opacity(0.5))
                         .child(description)
@@ -263,6 +271,7 @@ pub(crate) fn glass_toggle_row(
                 .child(div().text_sm().text_color(foreground).child(label.into()))
                 .children(description.map(|description| {
                     div()
+                        .max_w(px(ROW_DESCRIPTION_MAX_W))
                         .text_xs()
                         .text_color(foreground.opacity(0.5))
                         .child(description)

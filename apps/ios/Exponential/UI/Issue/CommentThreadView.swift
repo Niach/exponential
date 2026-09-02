@@ -596,6 +596,7 @@ private struct RegularCommentRow: View {
                         GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true, action: onDelete)
                     } label: {
                         CircleIconLabel(AppIcons.uiMore)
+                            .accessibilityLabel("Comment actions")
                     }
                 }
             }
@@ -745,7 +746,7 @@ private struct RegularCommentRow: View {
         .padding(.top, 8)
         .padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassSection()
+        .glassCard()
         .photosPicker(
             isPresented: $showPhotoPicker,
             selection: $photoItems,

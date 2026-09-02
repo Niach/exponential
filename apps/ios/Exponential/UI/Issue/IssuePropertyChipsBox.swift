@@ -91,7 +91,8 @@ struct IssuePropertyChipsBox: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .glassSection()
+        // A chip cloud, not a stack of rows: it needs the card's own border.
+        .glassCard()
         // Box background opens the combined sheet; chip buttons win the hit
         // test over this tap gesture.
         .onTapGesture {

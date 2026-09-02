@@ -213,7 +213,7 @@ struct CreateActionSheet: View {
                 }
             }
         } header: {
-            Text("Automation")
+            GlassSectionHeader("Automation")
         } footer: {
             if hasAutomation {
                 Text("The agent sets this up after writing the action.")

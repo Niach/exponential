@@ -170,7 +170,7 @@ fun DeviceSettingsSheet(
                 .verticalScroll(rememberScrollState()),
         ) {
             // ── Name ─────────────────────────────────────────────────────
-            SectionHeader("Name", modifier = Modifier.padding(horizontal = 16.dp))
+            SectionHeader("Name", modifier = Modifier.padding(horizontal = 12.dp))
             OptionGroup {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -235,7 +235,7 @@ fun DeviceSettingsSheet(
 
             // ── Sharing (server machines only, EXP-432/EXP-481) ─────────
             if (device.isServer) {
-                SectionHeader("Sharing", modifier = Modifier.padding(horizontal = 16.dp))
+                SectionHeader("Sharing", modifier = Modifier.padding(horizontal = 12.dp))
                 OptionGroup {
                     PickerRow(
                         label = "Shared with",
@@ -356,8 +356,9 @@ fun DeviceSettingsSheet(
             Spacer(Modifier.height(8.dp))
 
             // ── Worktrees (EXP-481) ──────────────────────────────────────
-            // 16dp: the header's edges line up with the section cards below it.
-            SectionHeader("Worktrees", modifier = Modifier.padding(horizontal = 16.dp)) {
+            // 12dp + the header's own 4dp = 16: the label sits 4dp inside the
+            // OptionGroup edge below it, like web and iOS.
+            SectionHeader("Worktrees", modifier = Modifier.padding(horizontal = 12.dp)) {
                 val pruneState = commandStates[PRUNE_COMMAND_KEY]
                 if (worktrees.isNotEmpty()) {
                     if (pruneState is DeviceCommandUiState.Sending ||

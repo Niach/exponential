@@ -16,6 +16,7 @@ use gpui_component::{
     h_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
+use crate::controls::WebControl as _;
 use crate::icons::registry;
 
 /// One `![alt](url)` occurrence in a markdown string — the web's
@@ -197,8 +198,10 @@ pub(crate) fn file_chip(
 
     if let Some((id, on_click)) = on_remove {
         row = row.child(
-            // EXP-698: the one 32px glass chrome every trailing action wears.
+            // EXP-698, at the 24px size: the chip is itself a FILL_CARD
+            // surface, so a 32px circle self-composites and grows the chip.
             crate::controls::glass_icon_button(id, Icon::new(registry::UI_CLOSE), cx)
+                .web_icon_xs()
                 .on_click(move |event, window, cx| {
                     cx.stop_propagation();
                     on_click(event, window, cx);

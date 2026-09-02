@@ -7,13 +7,14 @@ import UIKit
 /// member below is a plain read of `DesignTokens` — generated from
 /// `packages/design-tokens/tokens.json`, the same file Android, web and the
 /// desktop generate from. A literal `Color.white.opacity(…)` or a bare `12`
-/// corner anywhere in the UI is a drift bug: it is how iOS ended up with a
-/// hand-typed `Zinc` palette and nine slightly different whites.
+/// corner in ExpUI is a drift bug: it is how iOS ended up with a hand-typed
+/// `Zinc` palette and nine slightly different whites. (The app target still
+/// carries a handful of literals, migrating surface by surface; the only one
+/// left in ExpUI is the icon grid's deliberately brighter selection ring.)
 ///
 /// The look is FLAT: no `.ultraThinMaterial` / `.thinMaterial` backdrop, no
 /// drop shadows, no gradient palette — a low-alpha white fill over the app
-/// background, plus a hairline. The styleguide's Components group renders
-/// exactly these values, so a shot diff catches a drift the tests miss.
+/// background, plus a hairline.
 public enum GlassTokens {
 
     // MARK: - Fills

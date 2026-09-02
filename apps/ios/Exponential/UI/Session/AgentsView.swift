@@ -748,6 +748,7 @@ struct AgentsView: View {
                         .controlSize(.mini)
                         .tint(.white)
                         .frame(width: GlassTokens.controlSize, height: GlassTokens.controlSize)
+                        .accessibilityLabel("Merging")
                 } else {
                     CircleIconButton(AppIcons.prMerged, accessibilityLabel: "Merge") {
                         mergeTarget = MergeTarget(rowId: row.id, issueId: prIssue.id)

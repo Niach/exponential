@@ -359,7 +359,9 @@ struct ReviewsListContent: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .glassSection()
+        // A bordered card, not a group container: the caption is one free
+        // block that has to read as attached-but-separate from its row.
+        .glassCard()
     }
 
     /// The recovery run rebases the PR's branch, so it needs one recorded —

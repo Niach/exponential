@@ -383,8 +383,6 @@ struct ActionsListView: View {
         }
     }
 
-    /// The web `SectionLabel` — "Actions", "Automations" — heading each
-    /// segment's list (EXP-574 layout parity; EXP-697 dropped the count).
     /// EXP-431: creation left the list ("Create action" no longer poses as a
     /// row); EXP-615 gave it its own sheet.
     private var newActionButton: some View {

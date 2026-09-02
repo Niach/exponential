@@ -64,7 +64,12 @@ struct ThirdPartyLicensesView: View {
     private func sectionBlock(_ section: ThirdPartyNotices.Section) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if !section.title.isEmpty {
-                GlassSectionHeader(section.title)
+                // Not a `GlassSectionHeader`: this title sits INSIDE the card
+                // it labels, so it needs full-white emphasis over the body and
+                // no header indent of its own.
+                Text(section.title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
             }
             Text(section.body)
                 .font(.caption2.monospaced())

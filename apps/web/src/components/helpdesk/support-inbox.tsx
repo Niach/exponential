@@ -220,7 +220,7 @@ export function SupportInbox({
                 <GlassRow
                   key={thread.id}
                   asChild
-                  interactive
+                  interactive={thread.id !== selectedId}
                   className={cn(
                     `w-full flex-col items-stretch gap-0 px-3 py-2.5 text-left`,
                     thread.id === selectedId && `bg-glass-active`

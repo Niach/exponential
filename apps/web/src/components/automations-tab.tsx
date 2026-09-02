@@ -365,7 +365,7 @@ export function AutomationsTab({
       {showSuggestions && <SuggestionsButton />}
       {canCreate && (
         <Button
-          variant="outline"
+          variant="glass"
           size="xs"
           onClick={() => {
             setEditing(null)

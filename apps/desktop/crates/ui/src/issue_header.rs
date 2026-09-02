@@ -30,7 +30,7 @@ use gpui::{
     SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::Button,
+    button::{Button, ButtonVariants as _},
     calendar::{CalendarEvent, CalendarState, Date},
     h_flex,
     input::InputState,
@@ -500,13 +500,15 @@ impl IssueHeader {
         let extra: Option<crate::pickers::DueExtra> = has_due.then(|| {
             Rc::new(move |_window: &mut Window, cx: &mut App| {
                 let panel = panel.clone();
-                // EXP-698: the one 32px glass chrome every trailing action wears.
-                crate::controls::glass_icon_button(
-                    "prop-due-clear",
-                    Icon::new(registry::UI_CLOSE),
-                    cx,
-                )
-                    .tooltip("Clear due date")
+                // Stays LABELLED: it is the only thing under the calendar
+                // (`pickers::due_date_popover`), so a bare ✕ circle would
+                // read as "close the popover".
+                Button::new("prop-due-clear")
+                    .ghost()
+                    .cursor_pointer()
+                    .xsmall()
+                    .label("Clear due date")
+                    .text_color(cx.theme().muted_foreground)
                     .on_click(move |_, _, cx| {
                         panel.update(cx, |panel, cx| {
                             panel.commit_due_date(None, cx);

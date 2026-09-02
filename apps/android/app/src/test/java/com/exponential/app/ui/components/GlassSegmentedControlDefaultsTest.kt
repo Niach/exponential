@@ -11,8 +11,8 @@ import org.junit.Test
  * EXP-698: the segmented capsule (Inbox/My issues, the agent strip, the
  * Start-coding sheet's subject tabs) is the one control all four clients draw
  * identically, and it used to carry its chrome as literals inside the
- * composable — a `white.12` hairline, a `white.12` active pill, 4dp and 7dp
- * paddings. iOS pins the twins in `GlassSegmentedControlTokenTests`; these are
+ * composable — a `white.12` hairline, a `white.12` active pill, 4dp
+ * paddings and spacing, a 7dp segment inset. iOS pins the twins in `GlassSegmentedControlTokenTests`; these are
  * the numbers Android must not drift from.
  */
 class GlassSegmentedControlDefaultsTest {
@@ -37,6 +37,16 @@ class GlassSegmentedControlDefaultsTest {
     @Test
     fun theContainerInsetsItsSegmentsByFourDp() {
         assertEquals(4.dp, GlassSegmentedControlDefaults.ContainerPadding)
+    }
+
+    /**
+     * The gap between two segments is the container's own inset, so the active
+     * pill sits the same 4dp off every edge it can touch.
+     */
+    @Test
+    fun segmentsAreSpacedFourDp() {
+        assertEquals(4.dp, GlassSegmentedControlDefaults.SegmentSpacing)
+        assertEquals(GlassSegmentedControlDefaults.ContainerPadding, GlassSegmentedControlDefaults.SegmentSpacing)
     }
 
     /** The strip's height comes from this alone — no fixed height anywhere. */
