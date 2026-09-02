@@ -250,7 +250,9 @@ impl MembersPane {
 
         let mut identity = v_flex().gap_0p5().child(
             h_flex()
-                .gap_2()
+                // EXP-698: 12px from the name to the role pill, the same
+                // rhythm the row keeps to its trailing icon button.
+                .gap_3()
                 .items_center()
                 .child(
                     div()
@@ -262,7 +264,12 @@ impl MembersPane {
                             name.clone()
                         })),
                 )
-                .child(role_chip(role_icon, SharedString::from(role.clone()), cx)),
+                .child(role_chip(
+                    row_id("member-role", &member.id),
+                    role_icon,
+                    SharedString::from(role.clone()),
+                    cx,
+                )),
         );
         // Skip the email sub-line when the resolved name already IS the email
         // (the name-less Apple-ID case above), so it never shows twice.
@@ -545,7 +552,12 @@ impl Render for MembersPane {
                         );
                     }
                     invite_identity = invite_identity
-                        .child(role_chip(registry::UI_MEMBER, role, cx))
+                        .child(role_chip(
+                            row_id("invite-role", &invite.id),
+                            registry::UI_MEMBER,
+                            role,
+                            cx,
+                        ))
                         .child(
                             div()
                                 .text_xs()
@@ -618,21 +630,19 @@ fn sent_notice(message: SharedString, cx: &App) -> impl IntoElement {
         .child(message)
 }
 
-/// Web role `Badge`: secondary chip with the role icon.
-fn role_chip(icon: crate::icons::ExpIcon, label: SharedString, cx: &App) -> impl IntoElement {
-    h_flex()
-        .gap_1()
-        .px_1p5()
-        .py_0p5()
-        .rounded(cx.theme().radius)
-        // EXP-282: glass row fill instead of the opaque `theme.secondary`
-        // chip — the panes are flat over the page gradient now.
-        .bg(theme::tokens::glass::FILL_ROW.to_hsla())
-        .text_xs()
-        .text_color(cx.theme().secondary_foreground)
-        .items_center()
-        .child(Icon::new(icon).xsmall())
-        .child(label)
+/// EXP-698: the role badge IS the shared small READONLY pill, with the role
+/// glyph leading. (It was a bespoke `role_chip` recipe — the last chip shape
+/// in the settings panes.)
+fn role_chip(
+    id: impl Into<ElementId>,
+    icon: crate::icons::ExpIcon,
+    label: SharedString,
+    cx: &App,
+) -> impl IntoElement {
+    use crate::surface::{PillMode, PillSize};
+    crate::surface::glass_pill(id, PillSize::Sm, PillMode::Readonly, cx)
+    .child(Icon::new(icon).with_size(gpui::px(PillSize::Sm.glyph())))
+    .child(label)
 }
 
 fn row_id(kind: &str, id: &str) -> ElementId {

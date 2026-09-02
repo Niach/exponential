@@ -35,7 +35,6 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Disableable as _,
 };
 
-use crate::controls::WebControl as _;
 use crate::surface::{
     glass_group_rows, glass_picker_row, glass_toggle_row, glass_tray, picker_value_label,
 };
@@ -332,9 +331,7 @@ impl Render for NotificationsPrefsPane {
                     ))
                     .child(
                         h_flex().child(
-                            Button::new("prefs-retry")
-                                .outline()
-                                .web_xs()
+                            crate::surface::glass_pill_button("prefs-retry", crate::surface::PillSize::Sm, cx)
                                 .label("Retry")
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.load = Load::Idle;

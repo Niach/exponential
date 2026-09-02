@@ -28,12 +28,11 @@ use gpui::{
     Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant},
+    button::ButtonVariant,
     menu::{DropdownMenu as _, PopupMenuItem},
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
-use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::navigation::{
     active_team_id, nav_for_window, navigate, GettingStartedTab, Navigation, Screen,
@@ -447,9 +446,7 @@ impl Render for ActionsView {
             .then(|| team_id.clone())
             .flatten()
             .map(|new_team| {
-                Button::new("actions-new")
-                    .outline().cursor_pointer()
-                    .web_xs()
+                crate::surface::glass_pill_button("actions-new", crate::surface::PillSize::Sm, cx)
                     .icon(Icon::from(registry::ACTION_CREATE))
                     .label("New action")
                     .tooltip(no_agent.clone().unwrap_or_else(|| "New action".into()))

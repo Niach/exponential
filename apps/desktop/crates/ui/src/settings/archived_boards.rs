@@ -184,9 +184,7 @@ impl ArchivedBoardsPane {
                     .child(board.prefix.clone().unwrap_or_default()),
             )
             .child(
-                Button::new(SharedString::from(format!("unarchive-{}", board.id)))
-                    .outline().cursor_pointer()
-                    .web_xs()
+                crate::surface::glass_pill_button(SharedString::from(format!("unarchive-{}", board.id)), crate::surface::PillSize::Sm, cx)
                     .label(if pending { "Unarchiving\u{2026}" } else { "Unarchive" })
                     .disabled(pending)
                     .on_click(cx.listener(move |this, _, window, cx| {

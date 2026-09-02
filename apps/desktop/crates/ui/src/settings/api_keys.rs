@@ -360,18 +360,14 @@ impl ApiKeysPane {
                             .child(SharedString::from(key.clone())),
                     )
                     .child(
-                        Button::new("api-key-copy")
-                            .outline().cursor_pointer()
-                            .web_xs()
+                        crate::surface::glass_pill_button("api-key-copy", crate::surface::PillSize::Sm, cx)
                             .label("Copy")
                             .on_click(move |_, _, cx| {
                                 cx.write_to_clipboard(ClipboardItem::new_string(key.clone()));
                             }),
                     )
                     .child(
-                        Button::new("api-key-dismiss")
-                            .ghost().cursor_pointer()
-                            .web_xs()
+                        crate::surface::glass_pill_button("api-key-dismiss", crate::surface::PillSize::Sm, cx)
                             .label("Dismiss")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.minted = None;
@@ -466,9 +462,7 @@ impl ApiKeysPane {
                     .child(SharedString::from(last_used)),
             )
             .child(
-                Button::new(SharedString::from(format!("api-key-revoke-{}", row.id)))
-                    .outline().cursor_pointer()
-                    .web_xs()
+                crate::surface::glass_pill_button(SharedString::from(format!("api-key-revoke-{}", row.id)), crate::surface::PillSize::Sm, cx)
                     .label("Revoke")
                     .disabled(self.busy)
                     .on_click(cx.listener(move |this, _, window, cx| {

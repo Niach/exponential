@@ -1283,7 +1283,7 @@ impl TerminalDockPanel {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        // EXP-277: hand-rolled rounded chips (crate::surface::tab_chip), same
+        // EXP-277: hand-rolled rounded chips (crate::surface::rich_tab), same
         // treatment as the center tab strip — gpui-component's TabBar is
         // square with a strip-wide bottom border.
         //
@@ -1588,8 +1588,30 @@ impl TerminalDockPanel {
     ) -> AnyElement {
         let id = meta.id;
         let manager_ix = meta.manager_ix;
-        let chip = crate::surface::tab_chip(ix == selected_ix, cx)
-            .id(("terminal-tab", ix))
+        let mut tab = crate::surface::RichTab::new(("terminal-tab", ix), ix == selected_ix);
+        // EXP-325: an issue-session tab renders the center issue-tab
+        // treatment (status glyph + mono identifier + synced title,
+        // mirroring `screens::render_tab_strip`); everything else keeps
+        // the plain terminal title.
+        match &meta.issue {
+            Some(issue) => {
+                tab.status = crate::surface::RichTabStatus::Glyph(
+                    crate::icons::resolved_status_icon(&issue.status, cx),
+                );
+                tab.identifier = Some(issue.identifier.clone());
+                tab.title = issue.title.clone();
+            }
+            None => tab.title = Some(meta.title.clone()),
+        }
+        tab.badge = meta.exit_code.map(|code| {
+            let color = if code == 0 {
+                cx.theme().success
+            } else {
+                cx.theme().danger
+            };
+            (SharedString::from(code.to_string()), color)
+        });
+        let chip = crate::surface::rich_tab(tab, cx)
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 cx.stop_propagation();
                 // EXP-688: from the collapsed strip a chip click is also
@@ -1614,46 +1636,10 @@ impl TerminalDockPanel {
                         .update(cx, |manager, cx| manager.close_tab(id, cx));
                 }),
             );
-        // EXP-325: an issue-session tab renders the center issue-tab
-        // treatment (status glyph + mono identifier + synced title,
-        // mirroring `screens::render_tab_strip`); everything else keeps
-        // the plain terminal title.
-        let chip = match &meta.issue {
-            Some(issue) => chip
-                .child(crate::icons::resolved_status_icon(&issue.status, cx).xsmall())
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .whitespace_nowrap()
-                        .child(issue.identifier.clone()),
-                )
-                .when_some(issue.title.clone(), |chip, title| {
-                    chip.child(div().max_w(px(180.)).truncate().child(title))
-                }),
-            None => chip.child(div().max_w(px(180.)).truncate().child(meta.title.clone())),
-        };
         chip.child(
             h_flex()
                 .gap_0p5()
                 .items_center()
-                .when_some(meta.exit_code, |this, code| {
-                    let color = if code == 0 {
-                        cx.theme().success
-                    } else {
-                        cx.theme().danger
-                    };
-                    this.child(
-                        div()
-                            .text_xs()
-                            .px_1()
-                            .rounded(px(3.))
-                            .bg(color.opacity(0.15))
-                            .text_color(color)
-                            .child(SharedString::from(code.to_string())),
-                    )
-                })
                 .child(
                     Button::new(("close-terminal-tab", ix))
                         .ghost()
@@ -1684,40 +1670,24 @@ impl TerminalDockPanel {
         selected_ix: usize,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
         let tone = remote_chip_tone(chip.display, chip.paused, cx);
         let session_id = chip.session_id.clone();
         let kill_id = chip.session_id.clone();
         let kill_label = chip.device.clone();
-        crate::surface::tab_chip(ix == selected_ix, cx)
-            .id(("steer-tab", ix))
-            .when(chip.paused, |this| this.opacity(0.6))
+        let mut tab = crate::surface::RichTab::new(("steer-tab", ix), ix == selected_ix);
+        tab.paused = chip.paused;
+        tab.status = crate::surface::RichTabStatus::Dot(tone);
+        tab.identifier = chip.identifier.clone();
+        tab.title = Some(chip.title.clone());
+        tab.caption = chip
+            .device
+            .clone()
+            .map(|device| SharedString::from(format!(" · {device}")));
+        crate::surface::rich_tab(tab, cx)
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 cx.stop_propagation();
                 this.activate_steer(&session_id, window, cx);
             }))
-            .child(div().flex_shrink_0().size_1p5().rounded_full().bg(tone))
-            .when_some(chip.identifier.clone(), |this, identifier| {
-                this.child(
-                    div()
-                        .text_xs()
-                        .text_color(muted)
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .whitespace_nowrap()
-                        .child(identifier),
-                )
-            })
-            .child(div().max_w(px(180.)).truncate().child(chip.title.clone()))
-            .when_some(chip.device.clone(), |this, device| {
-                this.child(
-                    div()
-                        .max_w(px(110.))
-                        .truncate()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(SharedString::from(format!(" · {device}"))),
-                )
-            })
             .when(chip.killable, |this| {
                 this.child(
                     Button::new(("kill-steer-tab", ix))
@@ -2327,13 +2297,20 @@ impl TerminalDockPanel {
             .child(left);
         if let Some(merge) = merge.as_ref() {
             let merge_state = crate::pr_merge::MergeState::global(cx);
-            row = row.child(crate::surface::glass_pill(
-                h_flex()
-                    .flex_shrink_0()
-                    .items_center()
-                    .child(self.tab_merge_button(tab, merge, &merge_state, cx)),
-                false,
-            ));
+            row = row.child(
+                // READONLY: the shell is only the capsule around the merge
+                // button — the button owns the cursor and the hover, and a
+                // second hover lift on the wrapper would light up on the
+                // capsule's own padding, which does nothing.
+                crate::surface::glass_pill(
+                    "changes-bar-merge",
+                    crate::surface::PillSize::Sm,
+                    crate::surface::PillMode::Readonly,
+                    cx,
+                )
+                .px_0()
+                .child(self.tab_merge_button(tab, merge, &merge_state, cx)),
+            );
         }
 
         let bar = v_flex().w_full().flex_shrink_0().child(row);
@@ -2677,8 +2654,8 @@ struct MergeTabMeta {
 /// helpers resolve against the rem size and labels are SHAPED with the
 /// window's text system, so "fits" means fits).
 fn measure_tab_chip_width(meta: &TabMeta, window: &Window) -> f32 {
-    /// `tab_chip`'s `px_2`, both sides.
-    const CHIP_PADDING_REMS: f32 = 0.5 * 2.;
+    /// `surface::rich_tab`'s `px_2p5`, both sides.
+    const CHIP_PADDING_REMS: f32 = 0.625 * 2.;
     /// `Icon::xsmall()` — `size_3` (the issue chip's status glyph).
     const LEAD_ICON_REMS: f32 = 0.75;
     /// An icon-only xsmall `Button` — `size_5` (the chip's close).
@@ -2687,9 +2664,9 @@ fn measure_tab_chip_width(meta: &TabMeta, window: &Window) -> f32 {
     const CLUSTER_GAP_REMS: f32 = 0.125;
     /// The exit badge's `px_1`, both sides.
     const BADGE_PADDING_REMS: f32 = 0.25 * 2.;
-    /// `.max_w(px(180.)).truncate()` on the title child — a real pixel
+    /// `surface::RICH_TAB_TITLE_MAX_W` on the title child — a real pixel
     /// value, so it does NOT scale with the rem.
-    const TITLE_MAX_W: f32 = 180.;
+    const TITLE_MAX_W: f32 = crate::surface::RICH_TAB_TITLE_MAX_W;
 
     let rem = f32::from(window.rem_size());
     let base_font = window.text_style().font();
@@ -2725,13 +2702,11 @@ fn measure_tab_chip_width(meta: &TabMeta, window: &Window) -> f32 {
         ),
     }
 
-    // The trailing cluster: exit badge and close. EXP-484 removed the merge
-    // button from the chip and EXP-688 the hover-undock slot (the strip's
-    // right cluster undocks the active tab), so nothing here reserves a
-    // variable-width labeled button or a second icon button any more.
-    let mut cluster: Vec<f32> = Vec::with_capacity(2);
+    // EXP-698: the exit badge is a `rich_tab` CHILD now (the builder renders
+    // it), not a member of the trailing cluster — so it costs a chip gap
+    // (`gap_1p5`), not the cluster's `gap_0p5`.
     if let Some(code) = meta.exit_code {
-        cluster.push(
+        children.push(
             BADGE_PADDING_REMS * rem
                 + crate::screens::measure_text(
                     window,
@@ -2741,12 +2716,16 @@ fn measure_tab_chip_width(meta: &TabMeta, window: &Window) -> f32 {
                 ),
         );
     }
-    cluster.push(XSMALL_BUTTON_REMS * rem);
-    let cluster_width = cluster.iter().sum::<f32>()
-        + CLUSTER_GAP_REMS * rem * cluster.len().saturating_sub(1) as f32;
-    children.push(cluster_width);
+    // The trailing cluster is the close button alone. EXP-484 removed the
+    // merge button from the chip and EXP-688 the hover-undock slot (the
+    // strip's right cluster undocks the active tab), so nothing here reserves
+    // a variable-width labeled button or a second icon button any more — the
+    // cluster's own `gap_0p5` has nothing left to separate.
+    let _ = CLUSTER_GAP_REMS;
+    children.push(XSMALL_BUTTON_REMS * rem);
 
-    let gaps = crate::screens::chip_gap(window) * children.len().saturating_sub(1) as f32;
+    let gaps =
+        crate::screens::rich_tab_child_gap(window) * children.len().saturating_sub(1) as f32;
     CHIP_PADDING_REMS * rem + gaps + children.into_iter().sum::<f32>()
 }
 
@@ -3005,14 +2984,14 @@ fn measure_remote_chip_width(chip: &RemoteChip, window: &Window) -> f32 {
 /// The measurement itself (see [`measure_remote_chip_width`], which memoizes
 /// it).
 fn shape_remote_chip_width(chip: &RemoteChip, window: &Window) -> f32 {
-    /// `tab_chip`'s `px_2`, both sides.
-    const CHIP_PADDING_REMS: f32 = 0.5 * 2.;
+    /// `surface::rich_tab`'s `px_2p5`, both sides.
+    const CHIP_PADDING_REMS: f32 = 0.625 * 2.;
     /// The `size_1p5` status dot.
     const DOT_REMS: f32 = 0.375;
     /// An icon-only xsmall `Button` — `size_5` (the chip's kill button).
     const XSMALL_BUTTON_REMS: f32 = 1.25;
-    const TITLE_MAX_W: f32 = 180.;
-    const DEVICE_MAX_W: f32 = 110.;
+    const TITLE_MAX_W: f32 = crate::surface::RICH_TAB_TITLE_MAX_W;
+    const DEVICE_MAX_W: f32 = crate::surface::RICH_TAB_CAPTION_MAX_W;
 
     let rem = f32::from(window.rem_size());
     let base_font = window.text_style().font();
@@ -3045,7 +3024,8 @@ fn shape_remote_chip_width(chip: &RemoteChip, window: &Window) -> f32 {
     if chip.killable {
         children.push(XSMALL_BUTTON_REMS * rem);
     }
-    let gaps = crate::screens::chip_gap(window) * children.len().saturating_sub(1) as f32;
+    let gaps =
+        crate::screens::rich_tab_child_gap(window) * children.len().saturating_sub(1) as f32;
     CHIP_PADDING_REMS * rem + gaps + children.into_iter().sum::<f32>()
 }
 

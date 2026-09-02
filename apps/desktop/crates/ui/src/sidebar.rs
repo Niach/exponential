@@ -1935,8 +1935,10 @@ impl SidebarPanel {
             .child(h_flex().gap_1().items_center().children(tabs))
     }
 
-    /// One chip of [`Self::tool_tab_strip`] — the shared glass chip with a
-    /// leading glyph (`surface::tab_chip` already carries the gap).
+    /// One chip of [`Self::tool_tab_strip`] — EXP-698: a small SELECT pill
+    /// (`surface::glass_pill`), the same capsule the helpdesk composer's
+    /// Reply / Internal note modes wear. The tool tabs pick one of a set;
+    /// that is what `PillMode::Select` means.
     fn tool_tab(
         &self,
         id: &'static str,
@@ -1945,10 +1947,14 @@ impl SidebarPanel {
         selected: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        crate::surface::tab_chip(selected, cx)
-            .id(id)
-            .child(icon.xsmall())
-            .child(label)
+        crate::surface::glass_pill(
+            id,
+            crate::surface::PillSize::Sm,
+            crate::surface::PillMode::Select { selected },
+            cx,
+        )
+        .child(icon.with_size(px(crate::surface::PillSize::Sm.glyph())))
+        .child(label)
     }
 
     fn list_skeleton(&self, _cx: &mut gpui::Context<Self>) -> gpui::AnyElement {

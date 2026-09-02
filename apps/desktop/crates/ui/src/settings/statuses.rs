@@ -47,7 +47,7 @@ use domain::statuses::{
     ResolvedStatus,
 };
 
-use crate::controls::{WebControl as _, CTL_XS_H};
+use crate::controls::{WebControl as _, CTL_SM_H};
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 
@@ -633,7 +633,7 @@ impl StatusesPane {
         line = if builtin.is_some() {
             line.child(
                 div()
-                    .size(gpui::px(CTL_XS_H))
+                    .size(gpui::px(CTL_SM_H))
                     .flex_shrink_0()
                     .flex()
                     .items_center()
@@ -699,11 +699,13 @@ impl StatusesPane {
         if builtin.as_deref() == Some("backlog") {
             // EXP-698: the shared non-interactive glass chip, not a bespoke
             // bordered-but-unfilled badge.
-            line = line.child(
-                crate::surface::glass_chip()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("Default"),
-            );
+            line = line.child(crate::surface::glass_pill(
+                gpui::SharedString::from(format!("status-default-{}", row.id)),
+                crate::surface::PillSize::Sm,
+                crate::surface::PillMode::Readonly,
+                cx,
+            )
+            .child("Default"));
         }
 
         line = line.child(
@@ -793,7 +795,7 @@ impl StatusesPane {
             // counts and badges stay column-aligned with the custom rows.
             line = line.child(
                 div()
-                    .size(gpui::px(crate::controls::CTL_SM_H))
+                    .size(gpui::px(crate::controls::CTL_MD_H))
                     .flex_shrink_0(),
             );
         }
@@ -888,9 +890,7 @@ impl StatusesPane {
                             .on_click(cx.listener(|this, _, _, cx| this.create(cx))),
                     )
                     .child(
-                        Button::new(category_id("status-create-cancel", category))
-                            .ghost()
-                            .web_xs()
+                        crate::surface::glass_pill_button(category_id("status-create-cancel", category), crate::surface::PillSize::Sm, cx)
                             .label("Cancel")
                             .disabled(self.submitting)
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -983,9 +983,7 @@ impl Render for StatusesPane {
                             .gap_2()
                             .items_center()
                             .child(
-                                Button::new(category_id("status-new", category))
-                                    .outline()
-                                    .web_xs()
+                                crate::surface::glass_pill_button(category_id("status-new", category), crate::surface::PillSize::Sm, cx)
                                     .icon(registry::UI_ADD)
                                     .label("Add status")
                                     .disabled(capped)

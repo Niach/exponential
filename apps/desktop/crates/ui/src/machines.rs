@@ -849,9 +849,7 @@ impl Render for MachinesSection {
         // EXP-642: the web `GlassSectionHeader` — a plain-text heading with
         // no count, the "Add device" control trailing (EXP-697: the dialog
         // leads with the desktop app, so the button no longer says server).
-        let add_server = Button::new("machines-add-server")
-            .outline().cursor_pointer()
-            .web_xs()
+        let add_server = crate::surface::glass_pill_button("machines-add-server", crate::surface::PillSize::Sm, cx)
             .icon(registry::UI_ADD)
             .label("Add device")
             .on_click(|_: &gpui::ClickEvent, window, cx| {

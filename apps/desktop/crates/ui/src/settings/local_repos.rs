@@ -1028,9 +1028,7 @@ impl Render for LocalReposPane {
 
         body = body.child(
             h_flex().gap_2().child(
-                Button::new("local-repos-refresh")
-                    .ghost()
-                    .web_xs()
+                crate::surface::glass_pill_button("local-repos-refresh", crate::surface::PillSize::Sm, cx)
                     .label("Refresh")
                     .loading(self.scanning)
                     .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),

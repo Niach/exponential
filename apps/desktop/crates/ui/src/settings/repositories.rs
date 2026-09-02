@@ -115,6 +115,9 @@ impl RepoSharedBy {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct RepoBoardRef {
+    /// EXP-698: kept off the struct until the board chips became stateful
+    /// pills, which need a STABLE element id — two boards may share a name.
+    pub id: String,
     pub name: String,
 }
 
@@ -615,7 +618,9 @@ impl Render for RepositoriesPane {
                     .gap_2()
                     .child(card_title("Repositories"))
                     .children(
-                        repo_count.map(|count| chip(SharedString::from(count.to_string()), cx)),
+                        repo_count.map(|count| {
+                            chip("repos-count", SharedString::from(count.to_string()), cx)
+                        }),
                     )
                     .child(div().flex_1())
                     .child(
@@ -770,9 +775,7 @@ impl RepositoriesPane {
                  reconnecting can\u{2019}t refresh it."
             ))))
             .child(
-                Button::new(("gh-disconnect-stale", index))
-                    .outline()
-                    .web_xs()
+                crate::surface::glass_pill_button(("gh-disconnect-stale", index), crate::surface::PillSize::Sm, cx)
                     .label("Disconnect account")
                     .disabled(self.busy)
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -823,9 +826,7 @@ fn primary_status_line(status: Option<&GithubStatus>, cx: &gpui::App) -> impl In
             .child(Icon::new(registry::UI_GITHUB).xsmall())
             .child("No GitHub account connected")
             .children(connect_url.map(|url| {
-                Button::new("gh-connect")
-                    .outline()
-                    .web_xs()
+                crate::surface::glass_pill_button("gh-connect", crate::surface::PillSize::Sm, cx)
                     .label("Connect GitHub")
                     .on_click(move |_, _, cx| open_url(cx, url.clone()))
             }));
@@ -860,9 +861,7 @@ fn primary_status_line(status: Option<&GithubStatus>, cx: &gpui::App) -> impl In
                 "GitHub suspended the Exponential app for {names}. Unsuspend it on GitHub."
             ))
             .children(manage_url.map(|url| {
-                Button::new("gh-unsuspend")
-                    .outline()
-                    .web_xs()
+                crate::surface::glass_pill_button("gh-unsuspend", crate::surface::PillSize::Sm, cx)
                     .label("Manage")
                     .on_click(move |_, _, cx| open_url(cx, url.clone()))
             }));
@@ -890,9 +889,7 @@ fn primary_status_line(status: Option<&GithubStatus>, cx: &gpui::App) -> impl In
                 "Reconnect GitHub to refresh which repositories you can access{suffix}."
             ))
             .children(connect_url.map(|url| {
-                Button::new("gh-reconnect")
-                    .ghost()
-                    .web_xs()
+                crate::surface::glass_pill_button("gh-reconnect", crate::surface::PillSize::Sm, cx)
                     .label("Reconnect")
                     .on_click(move |_, _, cx| open_url(cx, url.clone()))
             }));
@@ -921,9 +918,7 @@ fn primary_status_line(status: Option<&GithubStatus>, cx: &gpui::App) -> impl In
     .child(Icon::new(registry::UI_GITHUB).xsmall())
     .child(label)
     .children(connect_url.map(|url| {
-        Button::new("gh-manage")
-            .ghost()
-            .web_xs()
+        crate::surface::glass_pill_button("gh-manage", crate::surface::PillSize::Sm, cx)
             .label("Manage")
             .on_click(move |_, _, cx| open_url(cx, url.clone()))
     }))
@@ -968,10 +963,14 @@ impl RepositoriesPane {
         head = if can_manage {
             head.child(self.branch_picker(index, repo, cx))
         } else {
-            head.child(chip(SharedString::from(repo.default_branch.clone()), cx))
+            head.child(chip(
+                ("repo-branch-static", index),
+                SharedString::from(repo.default_branch.clone()),
+                cx,
+            ))
         };
         if repo.private {
-            head = head.child(private_chip(cx));
+            head = head.child(private_chip(index, cx));
         }
 
         if can_manage {
@@ -1017,7 +1016,13 @@ impl RepositoriesPane {
             for board in &repo.boards {
                 // EXP-698: the shared non-interactive glass chip.
                 links = links.child(
-                    crate::surface::glass_chip().child(SharedString::from(board.name.clone())),
+                    crate::surface::glass_pill(
+                        SharedString::from(format!("repo-board-{}", board.id)),
+                        crate::surface::PillSize::Sm,
+                        crate::surface::PillMode::Readonly,
+                        cx,
+                    )
+                    .child(SharedString::from(board.name.clone())),
                 );
             }
         }
@@ -1057,9 +1062,7 @@ impl RepositoriesPane {
     ) -> gpui::AnyElement {
         use gpui::{ElementId, InteractiveElement as _, StatefulInteractiveElement as _};
 
-        let button = Button::new(("repo-branch", index))
-            .outline()
-            .web_xs()
+        let button = crate::surface::glass_pill_button(("repo-branch", index), crate::surface::PillSize::Sm, cx)
             .max_w(px(240.))
             .label(SharedString::from(repo.default_branch.clone()))
             .disabled(self.busy);
@@ -1228,17 +1231,17 @@ impl RepositoriesPane {
 
 /// The "Private" chip — same outline chip with the lock glyph, so private
 /// repos read at a glance instead of by word.
-fn private_chip(cx: &gpui::App) -> impl IntoElement {
-    crate::surface::glass_chip()
-        .text_color(cx.theme().muted_foreground)
-        .child(Icon::new(registry::UI_PRIVATE).xsmall())
+fn private_chip(index: usize, cx: &gpui::App) -> impl IntoElement {
+    use crate::surface::{PillMode, PillSize};
+    crate::surface::glass_pill(("repo-private", index), PillSize::Sm, PillMode::Readonly, cx)
+        .child(Icon::new(registry::UI_PRIVATE).with_size(gpui::px(PillSize::Sm.glyph())))
         .child("Private")
 }
 
 /// Outline chip (web `Badge variant="outline"` at compact density).
-fn chip(label: SharedString, cx: &gpui::App) -> impl IntoElement {
-    crate::surface::glass_chip()
-        .font_family(theme::terminal::FONT_FAMILY)
-        .text_color(cx.theme().muted_foreground)
-        .child(label)
+fn chip(id: impl Into<gpui::ElementId>, label: SharedString, cx: &gpui::App) -> impl IntoElement {
+    use crate::surface::{PillMode, PillSize};
+    crate::surface::glass_pill(id, PillSize::Sm, PillMode::Readonly, cx)
+    .font_family(theme::terminal::FONT_FAMILY)
+    .child(label)
 }

@@ -172,11 +172,20 @@ pub(crate) fn measure_text(window: &Window, text: &str, font: gpui::Font, size: 
     f32::from(layout.width)
 }
 
-/// Gap between chips in the strip — the `gap_1()` on the strip's `h_flex`,
+/// Gap BETWEEN chips in the strip — the `gap_1()` on the strip's `h_flex`,
 /// which like every gpui spacing helper resolves against the rem size.
 /// Shared with the terminal dock's strip (EXP-497), which uses the same gap.
 pub(crate) fn chip_gap(window: &Window) -> f32 {
     0.25 * f32::from(window.rem_size())
+}
+
+/// Gap between a chip's own CHILDREN — `surface::rich_tab`'s `gap_1p5`.
+/// EXP-698: this used to be measured with [`chip_gap`], which is the gap
+/// between chips, not inside one; the two are different helpers on different
+/// elements (`gap_1` on the strip, `gap_1p5` on the chip) and reading one for
+/// the other under-measured every chip by a third of a gap per child.
+pub(crate) fn rich_tab_child_gap(window: &Window) -> f32 {
+    0.375 * f32::from(window.rem_size())
 }
 
 /// Width of the trailing "+N" button: an xsmall `Button` (`px_1` a side)
@@ -850,8 +859,8 @@ impl ScreensPanel {
     /// — reading them as their 16px-rem pixel values inflated every chip by
     /// ~23%. The one genuine pixel constant is the title's `max_w`.
     fn measure_chip_width(&self, entry: &TabEntry, window: &Window, cx: &App) -> f32 {
-        /// `tab_chip`'s `px_2`, both sides.
-        const CHIP_PADDING_REMS: f32 = 0.5 * 2.;
+        /// `surface::rich_tab`'s `px_2p5`, both sides.
+        const CHIP_PADDING_REMS: f32 = 0.625 * 2.;
         /// `Icon::xsmall()` — `size_3` (status AND action leads render
         /// xsmall, so one constant covers both — EXP-426).
         const LEAD_ICON_REMS: f32 = 0.75;
@@ -859,9 +868,9 @@ impl ScreensPanel {
         const XSMALL_BUTTON_REMS: f32 = 1.25;
         /// The trailing button cluster's own `gap_0p5`.
         const CLUSTER_GAP_REMS: f32 = 0.125;
-        /// `.max_w(px(180.)).truncate()` on the title child — a real pixel
+        /// `surface::RICH_TAB_TITLE_MAX_W` on the title child — a real pixel
         /// value, so it does NOT scale with the rem.
-        const TITLE_MAX_W: f32 = 180.;
+        const TITLE_MAX_W: f32 = crate::surface::RICH_TAB_TITLE_MAX_W;
 
         let rem = f32::from(window.rem_size());
         let content = chip_content(&entry.screen, cx);
@@ -888,7 +897,7 @@ impl ScreensPanel {
             XSMALL_BUTTON_REMS * rem
         });
 
-        let gaps = chip_gap(window) * children.len().saturating_sub(1) as f32;
+        let gaps = rich_tab_child_gap(window) * children.len().saturating_sub(1) as f32;
         CHIP_PADDING_REMS * rem + gaps + children.into_iter().sum::<f32>()
     }
 
@@ -944,8 +953,15 @@ impl ScreensPanel {
             .children(chips.into_iter().map(|(ix, screen)| {
                 let screen = &screen;
                 let content = chip_content(screen, cx);
-                crate::surface::tab_chip(Some(ix) == active_ix, cx)
-                    .id(("center-tab", ix))
+                let mut tab =
+                    crate::surface::RichTab::new(("center-tab", ix), Some(ix) == active_ix);
+                tab.status = match content.lead.icon(cx) {
+                    Some(icon) => crate::surface::RichTabStatus::Glyph(icon),
+                    None => crate::surface::RichTabStatus::None,
+                };
+                tab.identifier = content.identifier;
+                tab.title = content.title;
+                crate::surface::rich_tab(tab, cx)
                     .group(TAB_GROUP)
                     // Tab activation re-selects the tab's origin sidebar
                     // entry, then shows the screen (EXP-288) — never a
@@ -997,25 +1013,9 @@ impl ScreensPanel {
                             ))
                         }
                     })
-                    // EXP-310: lead glyph (status icon / action glyph) +
-                    // identifier shortcode ahead of the title, mirroring the
-                    // issue list row's glyph/mono-identifier treatment.
-                    .when_some(content.lead.icon(cx), |chip, icon| {
-                        chip.child(icon.xsmall())
-                    })
-                    .when_some(content.identifier, |chip, identifier| {
-                        chip.child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .font_family(theme::terminal::FONT_FAMILY)
-                                .whitespace_nowrap()
-                                .child(identifier),
-                        )
-                    })
-                    .when_some(content.title, |chip, title| {
-                        chip.child(div().max_w(px(180.)).truncate().child(title))
-                    })
+                    // EXP-698: the lead glyph, the mono shortcode and the
+                    // truncating title are `rich_tab`'s standard children;
+                    // only the strip-specific trailing cluster is built here.
                     .child(
                         h_flex()
                             .gap_0p5()

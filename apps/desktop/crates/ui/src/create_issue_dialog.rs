@@ -159,10 +159,15 @@ fn title_board_select(
     // uses (EXP-57 `move_target_boards`): a single-board team gets a static
     // chip instead of a one-entry menu.
     let chip: AnyElement = if crate::issue_list::move_target_boards(cx, &board.id).is_empty() {
-        crate::surface::glass_chip()
-            .child(icon)
-            .child(crate::pickers::chip_label(prefix, false, cx))
-            .into_any_element()
+        crate::surface::glass_pill(
+            "create-board-chip",
+            crate::surface::PillSize::Sm,
+            crate::surface::PillMode::Readonly,
+            cx,
+        )
+        .child(icon)
+        .child(crate::pickers::chip_label(prefix, false, cx))
+        .into_any_element()
     } else {
         let current_id = board.id.clone();
         let team_id = team_id.to_string();

@@ -550,11 +550,12 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `36 tall, padding 0/12, radius 12, card fill under a card stroke; focus swaps the stroke to active — no ring. Placeholder at 50%.`,
     status: {
       web: ok(`Input`, `apps/web/src/components/ui/input.tsx`),
-      desktop: ok(
-        `WebControl::web_input`,
-        DESKTOP_CONTROLS,
-        `the theme's input chrome IS the spec: fillCard, strokeCard, strokeActive on focus`
-      ),
+      desktop: {
+        state: `leftover`,
+        symbol: `WebControl::web_input`,
+        file: DESKTOP_CONTROLS,
+        note: `stroke is strokeCard via theme.input; radius and focus ring are theme-wide (10 / neutral ring), not 12 / strokeActive`,
+      },
       ios: ok(`GlassTextField`, IOS_CONTROLS),
       android: ok(`GlassTextField`, `${ANDROID_COMPONENTS}/GlassTextField.kt`),
     },
@@ -573,7 +574,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `The field's own recipe, grown: radius 12, card fill under a card stroke, focus swaps the stroke to active — no ring. Padding 8/12, three rows tall, and it GROWS with content; the drag handle is off everywhere. Inside a group it goes borderless, because the row is already the chrome.`,
     status: {
       web: ok(`Textarea`, `apps/web/src/components/ui/textarea.tsx`),
-      desktop: ok(`WebControl::web_textarea`, DESKTOP_CONTROLS),
+      desktop: ok(`controls::web_textarea`, DESKTOP_CONTROLS),
       ios: ok(`GlassTextField(lines:)`, IOS_CONTROLS),
       android: ok(`GlassTextField(minLines/maxLines)`, `${ANDROID_COMPONENTS}/GlassTextField.kt`),
     },

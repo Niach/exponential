@@ -19,7 +19,7 @@ use gpui::{
     ParentElement, SharedString, Styled, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
+    button::Button,
     calendar::{Calendar, CalendarState},
     checkbox::Checkbox,
     input::{Input, InputState},
@@ -29,7 +29,6 @@ use gpui_component::{
 };
 use theme::tokens as t;
 
-use crate::controls::WebControl as _;
 
 use domain::options::ISSUE_PRIORITY_OPTIONS;
 use domain::rows::{Board, Label, User};
@@ -62,10 +61,11 @@ pub(crate) const PICKER_SEARCH_WIDTH: f32 = 260.;
 /// content-sized. Every picker host — the create-issue dialog's chip row and
 /// the issue/action headers — triggers through this ONE shape.
 pub(crate) fn chip_button(id: impl Into<ElementId>, cx: &App) -> Button {
-    let _ = cx;
-    // EXP-525: web `xs` chip metrics (h-6 capsule) + pointer cursor via the
-    // shared control layer.
-    Button::new(id).ghost().cursor_pointer().web_xs()
+    // EXP-698: a picker chip is a small ACTION pill — FILLED, like every
+    // other client's property chips — not a ghost outline. It stays a
+    // `Button` because `DropdownMenu`/`Popover` triggers must be one; the
+    // paint is the shared pill's.
+    crate::surface::glass_pill_button(id, crate::surface::PillSize::Sm, cx)
 }
 
 /// Cap on a chip's label before it ellipsizes (EXP-424): wide enough for a

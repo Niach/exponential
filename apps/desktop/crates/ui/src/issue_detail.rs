@@ -39,7 +39,7 @@ use gpui::{
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant, ButtonVariants as _},
+    button::ButtonVariant,
     h_flex,
     input::{self, Input, InputEvent, InputState, Textarea, TextareaState},
     notification::Notification,
@@ -681,9 +681,7 @@ impl IssueDetailView {
                         .child("Duplicate of"),
                 )
                 .child(
-                    Button::new("duplicate-of-link")
-                        .outline()
-                        .web_xs()
+                    crate::surface::glass_pill_button("duplicate-of-link", crate::surface::PillSize::Sm, cx)
                         .label(SharedString::from(format!("#{}", canonical.identifier)))
                         .on_click(cx.listener(move |_, _, window, cx| {
                             navigate(
@@ -706,9 +704,7 @@ impl IssueDetailView {
                         .child(SharedString::from(canonical.title)),
                 )
                 .child(
-                    Button::new("duplicate-unmark")
-                        .ghost()
-                        .web_xs()
+                    crate::surface::glass_pill_button("duplicate-unmark", crate::surface::PillSize::Sm, cx)
                         .icon(Icon::new(registry::UI_UNDO).text_color(cx.theme().muted_foreground))
                         .label("Unmark")
                         .on_click(cx.listener(|this, _, _, cx| {

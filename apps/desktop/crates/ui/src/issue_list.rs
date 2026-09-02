@@ -2148,24 +2148,24 @@ fn label_dot(label: &Label, cx: &App) -> impl IntoElement {
     div().size_1p5().rounded_full().flex_shrink_0().bg(color)
 }
 
-/// Web label chip: rounded-full border, 1.5px color dot, label name.
+/// EXP-698: a label chip IS the shared small READONLY pill with the label's
+/// colour dot leading — the same capsule the active-filter pills, the role
+/// badges and the attachment chips wear.
 fn label_chip(label: &Label, cx: &App) -> impl IntoElement {
+    use crate::surface::{pill_dot, PillMode, PillSize};
     let color = label
         .color
         .as_deref()
         .and_then(parse_hex_color)
         .unwrap_or(cx.theme().muted_foreground);
-    h_flex()
-        .gap_1()
-        .px_1p5()
-        .border_1()
-        .border_color(cx.theme().border.opacity(0.5))
-        .rounded_full()
-        .text_xs()
-        .text_color(cx.theme().muted_foreground)
-        .items_center()
-        .child(div().size_1p5().rounded_full().flex_shrink_0().bg(color))
-        .child(SharedString::from(label.name.clone()))
+    crate::surface::glass_pill(
+        gpui::ElementId::Name(SharedString::from(format!("label-chip-{}", label.id))),
+        PillSize::Sm,
+        PillMode::Readonly,
+        cx,
+    )
+    .child(pill_dot(color))
+    .child(SharedString::from(label.name.clone()))
 }
 
 /// Due-date urgency (REV2-48) — the mobile rule ported verbatim (iOS

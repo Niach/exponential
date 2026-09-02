@@ -182,7 +182,7 @@ impl CreateActionDialogView {
             InputState::new(window, cx).placeholder(SharedString::from(placeholder("name")))
         });
         let description_state = cx.new(|cx| {
-            let mut state = TextareaState::new(window, cx)
+            let mut state = crate::controls::web_textarea(4, 12, window, cx)
                 .placeholder(SharedString::from(placeholder("description")));
             if let Some(seed) = description.as_ref() {
                 state.set_value(seed.clone(), window, cx);
@@ -465,10 +465,7 @@ impl CreateActionDialogView {
                     .child("Automation"),
             )
             .child(
-                Button::new("ca-automation-remove")
-                    .ghost()
-                    .cursor_pointer()
-                    .web_xs()
+                crate::surface::glass_pill_button("ca-automation-remove", crate::surface::PillSize::Sm, cx)
                     .label("Remove automation")
                     .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
                         this.automation_set = false;
@@ -528,7 +525,6 @@ impl CreateActionDialogView {
         let description_row = div().w_full().child(
             Textarea::new(&self.description)
                 .appearance(false)
-                .h(px(120.))
                 .w_full()
                 .px_4()
                 .py_3(),

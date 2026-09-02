@@ -12,12 +12,11 @@
 //! `IssueFilterBar` guards with `.when(...)`.
 
 use gpui::{
-    div, px, App, ElementId, InteractiveElement as _, IntoElement, ParentElement, RenderOnce,
+    px, App, ElementId, IntoElement, ParentElement, RenderOnce,
     SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    h_flex, ActiveTheme as _, Icon,
+    h_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
 use domain::options::get_issue_priority_config;
@@ -25,13 +24,10 @@ use domain::rows::Label;
 use domain::statuses::{status_key_matches, ResolvedStatus};
 use domain::{empty_filters, IssueFilters, IssuePriority};
 
-use crate::controls::WebControl as _;
 use crate::filter_popover::OnFiltersChange;
 use crate::icons::{option_icon, registry, resolved_status_icon};
 use crate::issue_list::parse_hex_color;
-
-/// Compact pill height (web `h-6` = 24px, compact density).
-const PILL_HEIGHT: f32 = 20.;
+use crate::surface::{pill_dot, PillMode, PillSize};
 
 #[derive(IntoElement)]
 pub struct ActiveFilterPills {
@@ -113,9 +109,7 @@ impl RenderOnce for ActiveFilterPills {
 
         let on_clear = self.on_filters_change.clone();
         row.child(
-            Button::new("filter-pills-clear-all")
-                .ghost()
-                .web_xs()
+            crate::surface::glass_pill_button("filter-pills-clear-all", crate::surface::PillSize::Sm, cx)
                 .text_color(cx.theme().muted_foreground)
                 .label("Clear all")
                 .on_click(move |_, window, cx| on_clear(empty_filters(), window, cx)),
@@ -123,23 +117,12 @@ impl RenderOnce for ActiveFilterPills {
     }
 }
 
-/// The web pill skeleton: outline rounded-full h-6 gap-1 text-xs with the
-/// trailing ✕ — a stateful div (Button's icon/label slots cannot express the
-/// icon + text + suffix-✕ order).
-fn pill_base(id: impl Into<ElementId>, _cx: &App) -> gpui::Stateful<gpui::Div> {
-    crate::surface::glass_pill(
-        div()
-            .id(id)
-            .flex()
-            .items_center()
-            .h(px(PILL_HEIGHT))
-            .gap_1()
-            .px_2()
-            .text_xs()
-            .cursor_pointer(),
-        false,
-    )
-    .hover(|style| style.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
+/// EXP-698: an active-filter pill IS the shared small ACTION pill — the ✕
+/// rides inside it as a trailing child (a `Button`'s icon/label slots cannot
+/// express the glyph + text + suffix-✕ order), and clicking anywhere on the
+/// capsule removes that value.
+fn pill_base(id: impl Into<ElementId>, cx: &App) -> gpui::Stateful<gpui::Div> {
+    crate::surface::glass_pill(id, PillSize::Sm, PillMode::Action, cx)
 }
 
 fn pill_close_icon(cx: &App) -> impl IntoElement {
@@ -163,7 +146,7 @@ fn status_pill(
     // names a synced row is removed by its own pill, not pruned as dead.
     let live: Vec<ResolvedStatus> = known.to_vec();
     pill_base(("filter-pill-status", ix), cx)
-        .child(resolved_status_icon(status, cx).size_3())
+        .child(resolved_status_icon(status, cx).with_size(px(PillSize::Sm.glyph())))
         .child(SharedString::from(status.name.clone()))
         .child(pill_close_icon(cx))
         .on_click(move |_, window, cx| {
@@ -187,7 +170,7 @@ fn priority_pill(
 ) -> impl IntoElement {
     let config = get_issue_priority_config(priority);
     pill_base(("filter-pill-priority", ix), cx)
-        .child(option_icon(config, cx).size_3())
+        .child(option_icon(config, cx).with_size(px(PillSize::Sm.glyph())))
         .child(SharedString::from(config.label))
         .child(pill_close_icon(cx))
         .on_click(move |_, window, cx| {
@@ -213,7 +196,7 @@ fn label_pill(
         ElementId::Name(SharedString::from(format!("filter-pill-label-{}", label.id))),
         cx,
     )
-    .child(div().size_2().rounded_full().flex_shrink_0().bg(color))
+    .child(pill_dot(color))
     .child(SharedString::from(label.name.clone()))
     .child(pill_close_icon(cx))
     .on_click(move |_, window, cx| {

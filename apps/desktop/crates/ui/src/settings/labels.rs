@@ -557,9 +557,7 @@ impl Render for LabelsPane {
                                     .on_click(cx.listener(|this, _, _, cx| this.create(cx))),
                             )
                             .child(
-                                Button::new("label-create-cancel")
-                                    .ghost().cursor_pointer()
-                                    .web_xs()
+                                crate::surface::glass_pill_button("label-create-cancel", crate::surface::PillSize::Sm, cx)
                                     .label("Cancel")
                                     .disabled(self.submitting)
                                     .on_click(cx.listener(|this, _, window, cx| {

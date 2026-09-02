@@ -52,7 +52,7 @@ use crate::issue_detail::{is_subscribed, issue_web_url, set_duplicate_of, DETAIL
 use crate::issue_list::IssueQuery;
 use crate::navigation::{go_back, replace_screen, Screen};
 use crate::queries;
-use crate::surface::glass_chip;
+use crate::surface::{glass_pill, PillMode, PillSize};
 
 /// EXP-48 switcher position: where the displayed issue sits in the active
 /// issue list's flattened visible ordering. (Moved here with the toolbar
@@ -539,12 +539,8 @@ impl IssueHeader {
             _ => return None,
         };
         Some(
-            glass_chip()
-                .child(
-                    Icon::from(icon)
-                        .xsmall()
-                        .text_color(cx.theme().muted_foreground),
-                )
+            glass_pill("prop-origin", PillSize::Sm, PillMode::Readonly, cx)
+                .child(Icon::from(icon).with_size(px(PillSize::Sm.glyph())))
                 .child(SharedString::from(label)),
         )
     }
@@ -1129,8 +1125,8 @@ impl IssueHeader {
 
         if crate::issue_list::move_target_boards(cx, &issue.board_id).is_empty() {
             return Some(
-                glass_chip()
-                    .child(icon.xsmall())
+                glass_pill("prop-board", PillSize::Sm, PillMode::Readonly, cx)
+                    .child(icon.with_size(px(PillSize::Sm.glyph())))
                     .child(crate::pickers::chip_label(name, false, cx))
                     .into_any_element(),
             );

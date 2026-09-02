@@ -113,7 +113,10 @@ pub fn exponential_dark() -> ThemeColor {
     let bg = t::BACKGROUND.to_hsla();
     let fg = t::FOREGROUND.to_hsla();
     let border = t::BORDER.to_hsla(); // white @ 10% — matches web `--border`
-    let input = t::INPUT.to_hsla(); // white @ 15% — matches web `--input`
+    // white @ 15% — the web `--input` token. It stays the GHOST BUTTON
+    // formula's base below; the input FIELD chrome no longer reads it
+    // (EXP-698 — see `c.input`).
+    let input = t::INPUT.to_hsla();
     let primary = t::PRIMARY.to_hsla();
     let primary_foreground = t::PRIMARY_FOREGROUND.to_hsla();
     let secondary = t::SECONDARY.to_hsla();
@@ -130,7 +133,36 @@ pub fn exponential_dark() -> ThemeColor {
     c.background = bg;
     c.foreground = fg;
     c.border = border;
-    c.input = input;
+    // EXP-698 — the text FIELD is a glass field now: `theme.input` becomes the
+    // glass CARD stroke, byte-equal to the hairline a `glass_card` /
+    // `glass_pill` wears (white 10%, down from the web `--input` white 15%).
+    //
+    // `theme.input` is NOT input-only, so this moves more than the text
+    // fields. Everything gpui-component paints from it drops to the same card
+    // hairline: `Input`/`Textarea`/`NumberInput`/`OtpInput` borders, the
+    // unchecked `Checkbox` and `Radio` borders, `Select` / `Combobox` /
+    // `DatePicker` trigger borders, and the `Default`-variant `Button` border
+    // (`ButtonVariant::border_color` reads `theme.input` for that one
+    // variant). That is the intended end state — every control edge in the
+    // app is now the ONE glass card stroke — but it is why this line is worth
+    // more than a token swap's usual attention. Fills are untouched:
+    // `c.button*` below still derives from the local `input` binding (the web
+    // `--input` value), so ghost/default button surfaces do not move.
+    //
+    // There is no separate input-BACKGROUND field to set. `input_background()`
+    // is a DERIVED METHOD on gpui-component's `Theme`, not a field:
+    // `input.mix_oklab(transparent, 0.3)`, and that mix weights SELF by the
+    // factor (`a = self.a * factor + other.a * (1 - factor)`), so the enabled
+    // fill is 30% of the border's alpha — white ~3.1% here, down from ~4.5%.
+    // The DISABLED fill is `input.mix_oklab(transparent, 0.8)` then
+    // `.opacity(0.5)`, i.e. 40% of the alpha == white ~4.1%: still painted,
+    // and still BRIGHTER than the enabled fill, which is the upstream
+    // relationship and the only thing that has to hold for a disabled field
+    // to stay legible. The theme exposes no hook to set either fill
+    // independently (only `highlight_theme.style.editor_background`, which
+    // covers the CODE EDITOR mode alone), so the stroke is what this knob
+    // buys — and the stroke is the half you actually see.
+    c.input = t::glass::STROKE_CARD.to_hsla();
     // EXP-594: the indigo brand accent is retired — focus rings return to the
     // neutral RING token (web `--ring` parity; it also drives the scrollbar
     // thumb below).
@@ -730,6 +762,17 @@ mod tests {
             c.status_bar_border
         );
         assert_hsla_eq(c.window_border, tokens::glass::STROKE_ACTIVE.to_hsla(), "window_border");
+        // EXP-698: the text FIELD wears the glass card stroke. gpui-component
+        // reads `theme.input` as the input BORDER and derives the fill from
+        // it (`input_background()` == `input * 0.7` alpha), so this one field
+        // is the whole field chrome — it must be the glass token, not the
+        // brighter web `--input`.
+        assert_hsla_eq(c.input, tokens::glass::STROKE_CARD.to_hsla(), "input");
+        assert!(
+            !approx(c.input.a, tokens::INPUT.to_hsla().a),
+            "input must have left the web --input alpha behind: {:?}",
+            c.input
+        );
         // EXP-594: ring is the neutral token (web --ring parity), links are
         // foreground body text (underline carries the affordance), selection
         // is the white-alpha glass wash.

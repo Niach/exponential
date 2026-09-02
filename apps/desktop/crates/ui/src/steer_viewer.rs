@@ -142,8 +142,7 @@ impl SteerSessionView {
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let input = cx.new(|cx| {
-            TextareaState::new(window, cx)
-                .auto_grow(1, 6)
+            crate::controls::web_textarea(1, 6, window, cx)
                 // Enter sends, Shift+Enter inserts a newline (web parity).
                 .submit_on_enter(true)
                 .placeholder("Message the agent…")
@@ -1618,17 +1617,16 @@ impl SteerSessionView {
         } else {
             card.header.clone().map(SharedString::from)
         };
-        v_flex()
+        // EXP-698: NEUTRAL card chrome — the shared glass card, radius XL.
+        // Only the glyph and the heading carry the accent (primary for a
+        // ready plan, yellow for a question); a tinted border + tinted fill
+        // made these read as two more materials in the feed.
+        crate::surface::glass_card()
             .w_full()
             .min_w_0()
             .my_1()
             .gap_1()
-            .rounded(px(theme::tokens::radius::MD))
-            .border_1()
-            .border_color(accent.opacity(0.4))
-            .bg(accent.opacity(0.05))
-            .px_3()
-            .py_2()
+            .p_3()
             .child(
                 h_flex()
                     .gap_1p5()
@@ -1977,18 +1975,45 @@ impl SteerSessionView {
     }
 
     fn render_composer(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
         let can_send = self.can_send(cx);
         let has_issue = self
             .row
             .as_ref()
             .and_then(|row| row.issue_id.as_ref())
             .is_some();
-        let tint = if can_send {
-            cx.theme().primary
-        } else {
-            cx.theme().primary.opacity(0.4)
-        };
+        let mut composer = crate::composer::GlassComposer::new(
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .child(Textarea::new(&self.input).w_full().appearance(false))
+                .into_any_element(),
+        )
+        .strip(
+            (!self.pending.is_empty()).then(|| self.render_pending_strip(cx)),
+        );
+        if has_issue {
+            composer = composer.tool(
+                crate::composer::composer_tool("steer-attach", registry::EDITOR_IMAGE, cx)
+                    .tooltip("Attach image")
+                    .disabled(self.sending)
+                    .on_click(
+                        cx.listener(|this, _: &ClickEvent, window, cx| {
+                            this.pick_images(window, cx);
+                        }),
+                    ),
+            );
+        }
+        // The steer composer's send is `ui-send` on web/iOS/Android
+        // (`ui-submit` is the COMMENT composer's) — same surface, same
+        // concept.
+        let composer = composer.submit(
+            crate::composer::composer_submit("steer-send", registry::UI_SEND, !can_send, cx)
+                .tooltip("Send")
+                .loading(self.sending)
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    this.send(window, cx);
+                })),
+        );
         div()
             .w_full()
             .flex_shrink_0()
@@ -1996,65 +2021,8 @@ impl SteerSessionView {
             .border_t_1()
             .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .child(
-                v_flex()
-                    .w_full()
-                    .min_w_0()
-                    .gap_1p5()
-                    .p_2()
-                    .rounded(px(theme::tokens::radius::XL))
-                    .border_1()
-                    .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                    .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-                    .capture_action(cx.listener(Self::on_paste))
-                    .when(!self.pending.is_empty(), |this| {
-                        this.child(self.render_pending_strip(cx))
-                    })
-                    .child(
-                        v_flex()
-                            .w_full()
-                            .min_w_0()
-                            .child(Textarea::new(&self.input).w_full().appearance(false)),
-                    )
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .gap_1()
-                            .items_center()
-                            .when(has_issue, |this| {
-                                this.child(
-                                    Button::new("steer-attach")
-                                        .ghost()
-                                        .cursor_pointer()
-                                        .xsmall()
-                                        .icon(Icon::new(registry::EDITOR_IMAGE).text_color(muted))
-                                        .tooltip("Attach image")
-                                        .disabled(self.sending)
-                                        .on_click(cx.listener(
-                                            |this, _: &ClickEvent, window, cx| {
-                                                this.pick_images(window, cx);
-                                            },
-                                        )),
-                                )
-                            })
-                            .child(div().flex_1())
-                            .child(
-                                Button::new("steer-send")
-                                    .ghost()
-                                    .cursor_pointer()
-                                    .rounded_full()
-                                    // The steer composer's send is `ui-send` on
-                                    // web/iOS/Android (`ui-submit` is the
-                                    // COMMENT composer's) — same surface, same
-                                    // concept.
-                                    .icon(Icon::new(registry::UI_SEND).text_color(tint))
-                                    .tooltip("Send")
-                                    .loading(self.sending)
-                                    .disabled(!can_send)
-                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                        this.send(window, cx);
-                                    })),
-                            ),
-                    ),
+                crate::composer::glass_composer(composer)
+                    .capture_action(cx.listener(Self::on_paste)),
             )
             .into_any_element()
     }
@@ -2068,8 +2036,13 @@ impl SteerSessionView {
         for image in &self.pending {
             let key = image.key;
             strip = strip.child(
-                crate::surface::glass_chip()
-                    .py_0p5()
+                crate::surface::glass_pill(
+                    ("steer-pending-chip", key as usize),
+                    crate::surface::PillSize::Sm,
+                    crate::surface::PillMode::Readonly,
+                    cx,
+                )
+                    .pr_0p5()
                     .child(Icon::new(registry::EDITOR_IMAGE).xsmall().text_color(muted))
                     .child(
                         div()

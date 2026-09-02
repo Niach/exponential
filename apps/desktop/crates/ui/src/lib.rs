@@ -38,6 +38,7 @@ pub mod coding_flow;
 mod coding_selects;
 mod comment_attachments;
 mod comments;
+mod composer;
 mod commit_graph;
 mod controls;
 mod create_action_dialog;

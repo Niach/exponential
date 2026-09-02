@@ -275,10 +275,11 @@ impl DoctorPanel {
             if let Some(agent) = tool.agent() {
                 block = block.child(
                     h_flex().child(
-                        Button::new(SharedString::from(format!("doctor-login-{}", agent.id())))
-                            .outline()
-                            .cursor_pointer()
-                            .web_xs()
+                        crate::surface::glass_pill_button(
+                            SharedString::from(format!("doctor-login-{}", agent.id())),
+                            crate::surface::PillSize::Sm,
+                            cx,
+                        )
                             .icon(registry::UI_SIGN_IN)
                             .label("Login")
                             .on_click(cx.listener(move |_, _, _, cx| {
@@ -296,9 +297,11 @@ impl DoctorPanel {
             .child(div().text_xs().text_color(muted.opacity(0.9)).child(hint))
             .child(
                 h_flex().child(
-                    Button::new(SharedString::from(format!("doctor-install-{}", tool.label())))
-                        .outline().cursor_pointer()
-                        .web_xs()
+                    crate::surface::glass_pill_button(
+                        SharedString::from(format!("doctor-install-{}", tool.label())),
+                        crate::surface::PillSize::Sm,
+                        cx,
+                    )
                         .label("Install page")
                         .icon(registry::UI_EXTERNAL_LINK)
                         .on_click(cx.listener(move |_, _, _, cx| {
@@ -315,12 +318,11 @@ impl DoctorPanel {
                         Input::new(self.input_for(agent)).web_input_sm(),
                     ))
                     .child(
-                        Button::new(SharedString::from(format!(
-                            "doctor-save-path-{}",
-                            agent.id()
-                        )))
-                        .outline().cursor_pointer()
-                        .web_xs()
+                        crate::surface::glass_pill_button(
+                            SharedString::from(format!("doctor-save-path-{}", agent.id())),
+                            crate::surface::PillSize::Sm,
+                            cx,
+                        )
                         .label("Save path")
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.save_path(agent, cx);

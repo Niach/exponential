@@ -429,9 +429,7 @@ impl Render for AutomationsView {
             .then(|| team_id.clone())
             .flatten()
             .map(|new_team| {
-                Button::new("automations-new")
-                    .outline().cursor_pointer()
-                    .web_xs()
+                crate::surface::glass_pill_button("automations-new", crate::surface::PillSize::Sm, cx)
                     .icon(Icon::from(registry::ACTION_AUTOMATION))
                     .label("New automation")
                     .on_click(move |_, window, cx| {

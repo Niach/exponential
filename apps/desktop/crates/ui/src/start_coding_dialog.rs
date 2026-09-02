@@ -639,7 +639,8 @@ impl StartCodingDialogView {
             .and_then(|input| input.placeholder.clone())
             .unwrap_or_default();
         let chat_prompt = cx.new(|cx| {
-            TextareaState::new(window, cx).placeholder(SharedString::from(chat_placeholder))
+            crate::controls::web_textarea(6, 12, window, cx)
+                .placeholder(SharedString::from(chat_placeholder))
         });
 
         let mut this = Self {
@@ -1039,7 +1040,7 @@ impl StartCodingDialogView {
                 continue;
             }
             let state = cx.new(|cx| {
-                let mut state = TextareaState::new(window, cx);
+                let mut state = crate::controls::web_textarea(3, 8, window, cx);
                 if let Some(placeholder) = placeholder {
                     state = state.placeholder(placeholder);
                 }
@@ -2146,7 +2147,7 @@ impl StartCodingDialogView {
             .gap_3()
             .child(launch_options::labeled_field(
                 "Prompt",
-                Textarea::new(&self.chat_prompt).h(px(180.)).into_any_element(),
+                Textarea::new(&self.chat_prompt).into_any_element(),
                 None,
                 cx,
             ))
@@ -2228,7 +2229,7 @@ impl StartCodingDialogView {
             // EXP-530: the multi-line twin of `text` — same value on the
             // wire, a taller editor in the form.
             "textarea" => match self.action_textarea_inputs.get(&input.key) {
-                Some(state) => Textarea::new(state).h(px(80.)).into_any_element(),
+                Some(state) => Textarea::new(state).into_any_element(),
                 None => div().into_any_element(), // transient re-selection frame
             },
             "repo" => {

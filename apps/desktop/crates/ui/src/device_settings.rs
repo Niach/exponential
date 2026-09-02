@@ -35,8 +35,9 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use gpui::{
-    div, px, size, App, AppContext as _, Div, Entity, IntoElement,
-    ParentElement, Render, SharedString, Styled, Subscription, Task, Window,
+    div, prelude::FluentBuilder as _, px, size, App, AppContext as _, Div, Entity, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
+    Task, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
@@ -295,22 +296,35 @@ pub(crate) fn agent_account_rows<V: Render>(
             .child(SharedString::from(account_line(account))),
     );
     if let Some(affordance) = affordance {
-        account_row = account_row.child(surface::glass_pill(
-            Button::new(SharedString::from(format!("agent-login-{}", agent.id())))
-                .ghost()
-                .web_xs()
-                .icon(if affordance.switch {
-                    registry::UI_SWAP
+        // EXP-698: ONE pill, not a ghost button inside a pill wrapper.
+        let icon = if affordance.switch {
+            registry::UI_SWAP
+        } else {
+            registry::UI_SIGN_IN
+        };
+        account_row = account_row.child(
+            surface::glass_pill(
+                SharedString::from(format!("agent-login-{}", agent.id())),
+                surface::PillSize::Sm,
+                // A pending login has nothing to click: READONLY is what
+                // takes the pointer cursor and the hover lift away, so the
+                // dimmed pill does not keep advertising a target.
+                if pending {
+                    surface::PillMode::Readonly
                 } else {
-                    registry::UI_SIGN_IN
-                })
-                .label(affordance.label)
-                .disabled(pending)
-                .on_click(cx.listener(move |view: &mut V, _, _, cx| {
+                    surface::PillMode::Action
+                },
+                cx,
+            )
+            .when(pending, |pill| pill.opacity(0.5))
+            .child(Icon::new(icon).with_size(px(surface::PillSize::Sm.glyph())))
+            .child(SharedString::from(affordance.label))
+            .on_click(cx.listener(move |view: &mut V, _, _, cx| {
+                if !pending {
                     on_login(view, affordance.switch, cx);
-                })),
-            false,
-        ));
+                }
+            })),
+        );
     }
     let mut rows = vec![account_row];
 
@@ -1680,9 +1694,11 @@ impl DeviceSettingsView {
             );
         }
         line = line.child(
-            Button::new(SharedString::from(format!("device-login-copy-{}", agent.id())))
-                .ghost()
-                .web_xs()
+            surface::glass_pill_button(
+                SharedString::from(format!("device-login-copy-{}", agent.id())),
+                surface::PillSize::Sm,
+                cx,
+            )
                 .icon(registry::UI_COPY)
                 .label("Copy link")
                 .on_click(move |_, _, cx| {
