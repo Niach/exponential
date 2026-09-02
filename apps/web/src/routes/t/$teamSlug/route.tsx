@@ -174,6 +174,14 @@ function TeamLayout() {
                 team={team}
                 boards={boards}
               />
+              {/* EXP-698: NO dock inset here. The dock below is `sticky
+                  bottom-0` AND the last in-flow child of `main`, so the
+                  content column already ends at the dock's top edge —
+                  reserving `--dock-h` on top of that opens a second, empty
+                  dock-sized gap (up to 85vh with the panel dragged open).
+                  The dock still publishes the measured height (agent-dock.tsx)
+                  for a page that owns a viewport-sized scroller of its own and
+                  therefore really does run under the panel. */}
               <div className="flex-1 min-h-0 min-w-0 overflow-x-clip">
                 <Outlet />
               </div>

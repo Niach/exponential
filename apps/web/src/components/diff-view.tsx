@@ -8,6 +8,8 @@ import {
 import { common, createLowlight } from "lowlight"
 import { ChevronDown, LoaderCircle } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { middleTruncate } from "@/lib/format"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -208,13 +210,30 @@ function statusMeta(status: string) {
   return STATUS_META[status] ?? { label: `M`, className: `text-amber-400` }
 }
 
-function FilePathLabel({ filename }: { filename: string }) {
+// EXP-698: on a phone a trailing ellipsis eats the only part of a path that
+// identifies the file. The DIRECTORY gives way instead — middle-truncated, so
+// both ends of it stay readable — and the filename is never cut.
+// `isMobile` is threaded in rather than read here: a 200-file diff would
+// otherwise register 200 matchMedia listeners, one per path label.
+const MOBILE_DIR_CHARS = 22
+
+function FilePathLabel({
+  filename,
+  isMobile,
+}: {
+  filename: string
+  isMobile: boolean
+}) {
   const slash = filename.lastIndexOf(`/`)
   const dir = slash >= 0 ? filename.slice(0, slash + 1) : ``
   const base = filename.slice(slash + 1)
   return (
     <span className="min-w-0 truncate font-mono">
-      {dir ? <span className="text-muted-foreground">{dir}</span> : null}
+      {dir ? (
+        <span className="text-muted-foreground">
+          {isMobile ? middleTruncate(dir, MOBILE_DIR_CHARS) : dir}
+        </span>
+      ) : null}
       {base}
     </span>
   )
@@ -250,9 +269,10 @@ interface FilePatchProps {
   file: PullFile
   open: boolean
   onOpenChange: (open: boolean) => void
+  isMobile: boolean
 }
 
-function FilePatch({ file, open, onOpenChange }: FilePatchProps) {
+function FilePatch({ file, open, onOpenChange, isMobile }: FilePatchProps) {
   const meta = statusMeta(file.status)
   const lines = useMemo(
     () => (file.patch ? parsePatch(file.patch) : []),
@@ -355,7 +375,7 @@ function FilePatch({ file, open, onOpenChange }: FilePatchProps) {
           >
             {meta.label}
           </span>
-          <FilePathLabel filename={file.filename} />
+          <FilePathLabel filename={file.filename} isMobile={isMobile} />
           <span className="ml-auto" />
           <AddDelCounts additions={file.additions} deletions={file.deletions} />
           {/* EXP-706: the disclosure chevron trails the row (native parity) —
@@ -406,9 +426,11 @@ function FilePatch({ file, open, onOpenChange }: FilePatchProps) {
 function FileNav({
   files,
   onJump,
+  isMobile,
 }: {
   files: PullFile[]
   onJump: (filename: string) => void
+  isMobile: boolean
 }) {
   const additions = files.reduce((n, f) => n + f.additions, 0)
   const deletions = files.reduce((n, f) => n + f.deletions, 0)
@@ -438,7 +460,7 @@ function FileNav({
               >
                 {meta.label}
               </span>
-              <FilePathLabel filename={f.filename} />
+              <FilePathLabel filename={f.filename} isMobile={isMobile} />
               <span className="ml-auto" />
               <AddDelCounts additions={f.additions} deletions={f.deletions} />
             </Button>
@@ -469,6 +491,9 @@ export function FileDiffList({
   // a tier-3 refresh replaces `files` without discarding the user's toggles.
   const [overrides, setOverrides] = useState<Record<string, boolean>>({})
   const sectionRefs = useRef(new Map<string, HTMLDivElement>())
+  // ONE matchMedia subscription for the whole list — the path labels below
+  // only need the answer (EXP-698).
+  const isMobile = useIsMobile()
 
   const defaults = useMemo(() => {
     const map = new Map<string, boolean>()
@@ -494,7 +519,7 @@ export function FileDiffList({
   return (
     <div className="space-y-2 p-3">
       {showFileNav && files.length > 1 && (
-        <FileNav files={files} onJump={jumpTo} />
+        <FileNav files={files} onJump={jumpTo} isMobile={isMobile} />
       )}
       {files.map((f) => (
         <div
@@ -507,6 +532,7 @@ export function FileDiffList({
         >
           <FilePatch
             file={f}
+            isMobile={isMobile}
             open={overrides[f.filename] ?? defaults.get(f.filename) ?? true}
             onOpenChange={(open) =>
               setOverrides((prev) => ({ ...prev, [f.filename]: open }))

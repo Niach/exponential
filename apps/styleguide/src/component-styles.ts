@@ -409,6 +409,18 @@ export const componentStyles = `
   color: var(--fg-50);
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
+/* Inline code is TINTED here and only here: agent prose is mostly paths and
+   flags, and the neutral chip the issue/comment renderers use vanishes into
+   the bubble. Blue text over a 12% fill under a 20% hairline. */
+.cmp-markdown code {
+  padding: 1px 5px;
+  border-radius: var(--r-sm);
+  color: var(--code-text);
+  background: var(--code-fill);
+  box-shadow: inset 0 0 0 1px var(--code-stroke);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+}
 /* A long block clamps instead of pushing the next turn off the screen. */
 .cmp-markdown .fold { max-height: 160px; overflow: hidden; }
 .cmp-markdown .show-more { display: inline-block; margin-top: 6px; font-size: 12px; color: var(--fg-70); cursor: pointer; }

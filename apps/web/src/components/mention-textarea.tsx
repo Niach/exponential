@@ -56,6 +56,15 @@ export interface MentionTextareaHandle {
    *  at a token start, so a `#` typed straight after a word needs a space in
    *  front of it (EXP-568). */
   charBeforeCaret: () => string | undefined
+  /** The caret offset into the current value. A host that rewrites the WHOLE
+   *  draft around the caret — the steer composer's `[Image #N]` markers
+   *  (EXP-698) — needs the position before it computes the new text. */
+  caret: () => number
+  /** Puts the caret at `position` once React has applied the value the host
+   *  just committed. Focus is restored only if the field still had it when
+   *  `caret()` was called — an image attached from the picker must not pop
+   *  the phone keyboard. */
+  setCaret: (position: number) => void
 }
 
 // A Textarea with @-mention, #-issue-reference and :emoji autocomplete.
@@ -73,6 +82,8 @@ export const MentionTextarea = forwardRef<
   ref
 ) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // Latched by `caret()`, spent by `setCaret()` (EXP-698).
+  const caretReadWhileFocusedRef = useRef(false)
   const issueRefs = useIssueRefs()
   const [menu, setMenu] = useState<AutocompleteMenu | null>(null)
   const [active, setActive] = useState(0)
@@ -209,6 +220,26 @@ export const MentionTextarea = forwardRef<
       const el = textareaRef.current
       const start = el?.selectionStart ?? value.length
       return start > 0 ? value.slice(start - 1, start) : undefined
+    },
+    caret: () => {
+      const el = textareaRef.current
+      // Whether the field HAD focus decides whether `setCaret` may take it
+      // back — see below.
+      caretReadWhileFocusedRef.current =
+        el != null && document.activeElement === el
+      return el?.selectionStart ?? value.length
+    },
+    setCaret: (position: number) => {
+      const el = textareaRef.current
+      const refocus = caretReadWhileFocusedRef.current
+      requestAnimationFrame(() => {
+        if (!el) return
+        // Focus is only RESTORED, never taken: attaching an image from the
+        // picker or a drop happens with the field blurred, and focusing it
+        // there throws the phone's keyboard up over the composer.
+        if (refocus) el.focus()
+        el.setSelectionRange(position, position)
+      })
     },
   }))
 

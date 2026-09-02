@@ -601,6 +601,12 @@ export function DeviceSettingsDialog({
         mobile="sheet-full"
         className="gap-4 sm:max-h-[85dvh] sm:max-w-lg"
         aria-describedby={undefined}
+        // EXP-698: Radix autofocuses the first field and SELECTS its text, so
+        // the Name row opened as a white selection block filling the row (and
+        // the phone keyboard shot up over the sheet). The sheet is a list of
+        // settings, not a form to type into — focus stays on the panel until
+        // the field is tapped.
+        onOpenAutoFocus={(event) => event.preventDefault()}
       >
         <DialogHeader>
           <DialogTitle>Device settings</DialogTitle>

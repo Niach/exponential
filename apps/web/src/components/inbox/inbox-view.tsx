@@ -264,12 +264,18 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
                             {g.teamName}
                           </span>
                         )}
-                        <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                        {/* EXP-698: fixed trailing columns — the stamp is
+                            right-aligned in its own 4rem slot and the unread
+                            dot keeps its 8px slot whether or not it is lit, so
+                            read and unread rows line up exactly. */}
+                        <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
                           {relativeTime(latest.createdAt)}
                         </span>
-                        {g.unread > 0 && (
-                          <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
-                        )}
+                        <span className="w-2 shrink-0" aria-hidden>
+                          {g.unread > 0 && (
+                            <span className="block h-2 w-2 rounded-full bg-primary" />
+                          )}
+                        </span>
                       </div>
                       <div className="mt-0.5 truncate text-xs text-muted-foreground">
                         {latest.title}
@@ -315,12 +321,14 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
                       >
                         {g.issue.title}
                       </span>
-                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                      <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
                         {relativeTime(latest.createdAt)}
                       </span>
-                      {g.unread > 0 && (
-                        <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
-                      )}
+                      <span className="w-2 shrink-0" aria-hidden>
+                        {g.unread > 0 && (
+                          <span className="block h-2 w-2 rounded-full bg-primary" />
+                        )}
+                      </span>
                     </div>
                     <div className="mt-0.5 truncate text-xs text-muted-foreground">
                       {latest.title}

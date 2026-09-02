@@ -3,6 +3,7 @@ import { conceptIcon } from "@/lib/icons.generated"
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { readLastVisited } from "@/lib/last-visited"
+import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useSession } from "@/hooks/use-session"
 import {
   useUnreadNotificationCount,
@@ -27,7 +28,13 @@ const NavSupportIcon = conceptIcon(`nav-support`)
 // Bottom padding for every scroll container that sits under the floating
 // tab bar, so list ends scroll clear of the glass pill. Detail routes hide
 // the bar (useMobileChromeVisible) and must NOT reserve this.
-export const TAB_BAR_CLEARANCE = `max-md:pb-[calc(5.5rem+env(safe-area-inset-bottom))]`
+// EXP-698: the bar MEASURES itself into `--tabbar-h` (its own safe-area
+// padding included) instead of every scroller re-guessing the pill geometry.
+// The literal covers ONLY the frames before the first measurement — a hidden
+// bar publishes `0px` rather than dropping the property, so no route ever
+// falls back to it while there is no pill on screen. `+1.25rem` is the gap
+// above the pill.
+export const TAB_BAR_CLEARANCE = `max-md:pb-[calc(var(--tabbar-h,4.25rem)+1.25rem)]`
 
 // Mobile chrome (topbar + tab bar) hides on the detail routes — they carry
 // their own breadcrumb/back headers, mirroring the native apps pushing a
@@ -139,6 +146,10 @@ export function MobileTabBar({
   const matchRoute = useMatchRoute()
   const visible = useMobileChromeVisible()
   const { boardSlug } = useParams({ strict: false })
+  // EXP-698: what TAB_BAR_CLEARANCE spends. `0px` on the detail routes that
+  // hide the bar (never removed — the literal fallback would reserve a
+  // phantom pill there), and 0 on md+ where the element is `display:none`.
+  const publishTabBarHeight = useChromeHeightVar(`--tabbar-h`)
 
   const boardTarget = resolveBoardTarget(teamSlug, boards, boardSlug)
 
@@ -166,7 +177,10 @@ export function MobileTabBar({
   if (!visible) return null
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[35] flex items-center justify-center gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:hidden">
+    <div
+      ref={publishTabBarHeight}
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[35] flex items-center justify-center gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:hidden"
+    >
       <nav
         aria-label="Primary"
         className="pointer-events-auto flex items-center rounded-full border border-glass-stroke-strong bg-glass-card-opaque p-1"

@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router"
-import { Fragment } from "react"
+import { useEffect, useRef } from "react"
 import { Separator } from "@/components/ui/separator"
 import { SEGMENTED_ITEM, SEGMENTED_LIST } from "@/components/ui/tabs"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
@@ -25,6 +25,21 @@ function SettingsLayout() {
   const { teamSlug } = Route.useParams()
   const { team, permissions, config } = useSettingsPage(teamSlug)
   const navContext = { isCloud: Boolean(config?.isCloud) }
+  const navItems = SETTINGS_NAV.flatMap((group) =>
+    group.items.filter((item) => item.visible(permissions, navContext))
+  )
+
+  // EXP-698: the strip is wider than a phone, so the section you are ON can
+  // start scrolled out of frame ("…torage"). Bring it into view once the row
+  // is populated — permissions land async, so this keys on the item count
+  // rather than plain mount. `nearest` on both axes means an already-visible
+  // tab is left alone and the page never scrolls vertically.
+  const navRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    navRef.current
+      ?.querySelector(`[aria-current="page"]`)
+      ?.scrollIntoView({ inline: `nearest`, block: `nearest` })
+  }, [navItems.length])
 
   return (
     <div
@@ -49,40 +64,33 @@ function SettingsLayout() {
             classes (EXP-698) rather than forcing Radix Tabs semantics onto
             them. Groups flatten into one strip (their labels were already
             hidden here); the strip still scrolls horizontally, with the
-            scrollbar itself hidden so the capsule edge stays clean. */}
+            scrollbar itself hidden so the capsule edge stays clean.
+            EXP-698: `px-1` keeps the first and last pill off the capsule's
+            rounded edge — flush against it they read as clipped. */}
         <nav
+          ref={navRef}
           className={cn(
             SEGMENTED_LIST,
-            `max-w-full gap-1 self-start overflow-x-auto [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden`
+            `max-w-full gap-1 self-start overflow-x-auto px-1 [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden`
           )}
         >
-          {SETTINGS_NAV.map((group) => {
-            const items = group.items.filter((item) =>
-              item.visible(permissions, navContext)
-            )
-            if (items.length === 0) return null
-            return (
-              <Fragment key={group.group}>
-                {items.map((item) => (
-                  <Link
-                    key={item.label}
-                    to={item.to}
-                    params={{ teamSlug }}
-                    className={SEGMENTED_ITEM}
-                    activeProps={{
-                      className: `border-glass-stroke-active bg-glass-active text-foreground`,
-                    }}
-                    inactiveProps={{
-                      className: `border-transparent text-muted-foreground hover:text-foreground`,
-                    }}
-                  >
-                    <item.icon className="h-4 w-4" />
-                    {item.label}
-                  </Link>
-                ))}
-              </Fragment>
-            )
-          })}
+          {navItems.map((item) => (
+            <Link
+              key={item.label}
+              to={item.to}
+              params={{ teamSlug }}
+              className={SEGMENTED_ITEM}
+              activeProps={{
+                className: `border-glass-stroke-active bg-glass-active text-foreground`,
+              }}
+              inactiveProps={{
+                className: `border-transparent text-muted-foreground hover:text-foreground`,
+              }}
+            >
+              <item.icon className="h-4 w-4" />
+              {item.label}
+            </Link>
+          ))}
         </nav>
 
         <div className="min-w-0 flex-1">

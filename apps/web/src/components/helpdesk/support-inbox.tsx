@@ -241,15 +241,23 @@ export function SupportInbox({
                       <span className="min-w-0 flex-1 truncate text-sm font-medium">
                         {reporterLabel(thread)}
                       </span>
-                      <span className="shrink-0 text-[0.65rem] text-muted-foreground">
+                      {/* EXP-698: fixed trailing columns — the stamp is
+                          right-aligned in its own slot and the unread dot
+                          keeps its 8px slot whether or not it is lit, so read
+                          and unread rows line up exactly. 6rem, not the
+                          inbox's 4: helpdesk prints the long form
+                          ("2 minutes ago"), which a 4rem slot truncates. */}
+                      <span className="w-24 shrink-0 truncate text-right text-[0.65rem] text-muted-foreground">
                         {relativeTime(thread.updatedAt)}
                       </span>
-                      {thread.unread && (
-                        <span
-                          className="h-2 w-2 shrink-0 rounded-full bg-primary"
-                          aria-label="Awaiting reply"
-                        />
-                      )}
+                      <span className="w-2 shrink-0">
+                        {thread.unread && (
+                          <span
+                            className="block h-2 w-2 rounded-full bg-primary"
+                            aria-label="Awaiting reply"
+                          />
+                        )}
+                      </span>
                     </div>
                     <p className="mt-0.5 truncate text-xs text-muted-foreground">
                       {thread.lastMessage?.body ?? thread.title}
@@ -493,11 +501,14 @@ function ConversationPane({
                   <p className="whitespace-pre-wrap break-words">
                     {message.body}
                   </p>
+                  {/* EXP-698: the outgoing bubble is filled with `primary`,
+                      which is near-WHITE — `text-white/70` on it was invisible.
+                      The meta line reads on the fill it actually sits on. */}
                   <p
                     className={`mt-1 text-[0.65rem] ${
                       isInbound || isInternal
                         ? `text-muted-foreground`
-                        : `text-white/70`
+                        : `text-black/60`
                     }`}
                   >
                     {author} · {relativeTime(message.createdAt)}

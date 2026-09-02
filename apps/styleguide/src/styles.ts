@@ -44,6 +44,9 @@ const page = `
   --section: ${glass.fillSection};
   --stroke-section: ${glass.strokeSection};
   --stroke-active: ${glass.strokeActive};
+  --code-text: ${designTokens.semantic.codeText};
+  --code-fill: ${designTokens.semantic.codeFill};
+  --code-stroke: ${designTokens.semantic.codeStroke};
   --primary: ${palette.primary};
   --primary-fg: ${palette.primaryForeground};
   --popover: ${palette.popover};

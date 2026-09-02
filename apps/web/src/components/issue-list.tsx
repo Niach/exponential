@@ -292,8 +292,10 @@ const IssueRow = memo(function IssueRow({
             </Pill>
           ))}
         </div>
+        {/* EXP-698: below `sm` the title gets the whole line — the dots and
+            the due date are what truncated it to "Pus…". */}
         {issueLabels.length > 0 && (
-          <div className="flex md:hidden items-center gap-1 shrink-0">
+          <div className="hidden sm:flex md:hidden items-center gap-1 shrink-0">
             {issueLabels.slice(0, 3).map((label) => (
               <div
                 key={label.id}
@@ -325,7 +327,7 @@ const IssueRow = memo(function IssueRow({
             detail, never inline from the list (EXP-247). The
             tone (red overdue / orange today) is what explains
             the overdue-first ordering — REV2-48. */}
-        <div className="flex items-center justify-end">
+        <div className="max-sm:hidden flex items-center justify-end">
           {issue.dueDate && (
             <span
               className={`flex items-center gap-1 px-1 ${dueDateToneClass(issue.dueDate, today)}`}

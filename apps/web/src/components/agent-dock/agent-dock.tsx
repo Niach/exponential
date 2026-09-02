@@ -22,6 +22,7 @@ import {
 } from "@/lib/agent-dock-height"
 import { MOTION_DURATION_MS } from "@/lib/motion"
 import { useExitPresence } from "@/hooks/use-exit-presence"
+import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useWheelContainment } from "@/hooks/use-wheel-containment"
 
 // The global agent-coding dock (EXP-106) — an IDE-style bottom strip of the
@@ -73,6 +74,16 @@ export function AgentDock({
   useEffect(() => {
     if (!expandedId) setFullscreen(false)
   }, [expandedId])
+
+  // EXP-698: the docked strip floats over the page (it is `sticky`, and the
+  // page keeps scrolling underneath it), so the team layout has to reserve its
+  // height at the bottom of the content region — `--dock-h`, measured off the
+  // real element rather than the persisted resting height in
+  // lib/agent-dock-height.ts, so the drag and the open/close slide stay in
+  // step with the padding. Fullscreen covers the page outright: nothing below
+  // it is worth reserving, and its `inset-0` box would reserve a whole
+  // viewport.
+  const publishDockHeight = useChromeHeightVar(`--dock-h`, !fullscreen)
 
   // EXP-619: the expanded panel floats over the page, which keeps scrolling
   // underneath it — a wheel gesture the terminal cannot use must die here
@@ -275,6 +286,7 @@ export function AgentDock({
 
   return (
     <div
+      ref={publishDockHeight}
       className={cn(
         // z-40 covers the layout while staying under every z-50 overlay
         // (dialogs, dropdowns) so kill-confirm etc. still stack above.

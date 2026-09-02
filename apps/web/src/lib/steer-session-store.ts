@@ -278,6 +278,9 @@ export interface AddDraftImagesResult {
   rejected: number
   /** Accepted files dropped over MAX_STEER_IMAGES (the "up to N" toast). */
   overflow: number
+  /** How many files actually joined the strip — the composer numbers its
+   *  `[Image #N]` markers from the strip length it already knows (EXP-698). */
+  added: number
 }
 
 interface SteerStoreDeps {
@@ -1014,6 +1017,7 @@ export function createSteerSessionStore(
       return {
         rejected: files.length - accepted.length,
         overflow: accepted.length - taking.length,
+        added: taking.length,
       }
     },
     removeDraftImage(url) {

@@ -978,8 +978,12 @@ export function IssueDetailView({
       <div className="flex flex-col h-full min-h-0">
         {mobileHeader}
         {duplicateBanner}
-        {/* pb-24 clears the floating bar so the last comment stays readable. */}
-        <div className="flex-1 overflow-y-auto pb-24">
+        {/* EXP-698: clearance for the floating IssueDetailMobileBar below, so
+            the last comment scrolls clear of it instead of ending under the
+            glass. Same recipe as the tab bar's (52px circles + the bar's own
+            safe-area padding + a gap); the tab bar itself is hidden on this
+            route, so nothing else is reserved here. */}
+        <div className="flex-1 overflow-y-auto pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
           {propsBand}
           {titleField}
           {editor}

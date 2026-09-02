@@ -276,7 +276,10 @@ function ReviewsPage() {
                             ? `#${issue.prNumber}`
                             : issue.identifier}
                         </span>
-                        <div className="min-w-0 pr-2">
+                        {/* EXP-698: pr-3 IS the gap to the trailing Merge
+                            control — on a phone the two used to sit 8px
+                            apart, which read as one blob. */}
+                        <div className="min-w-0 pr-3">
                           <div className="truncate text-sm">
                             {isBatch ? (
                               <>
@@ -299,11 +302,14 @@ function ReviewsPage() {
                         </div>
                         {/* EXP-706: the recovery run takes the Merge button's
                             OWN slot on a real conflict — one trailing action
-                            per row, never two. */}
+                            per row, never two.
+                            EXP-698: the row's Merge and the review detail's
+                            header Merge are ONE control at ONE weight —
+                            `Pill size="md" mode="action"`. */}
                         {canFixConflicts ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
+                          <Pill
+                            size="md"
+                            mode="action"
                             onClick={(e) => {
                               e.stopPropagation()
                               setFixTarget(entry)
@@ -311,11 +317,11 @@ function ReviewsPage() {
                           >
                             <GitBranch className="h-3.5 w-3.5" />
                             Fix conflicts
-                          </Button>
+                          </Pill>
                         ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
+                          <Pill
+                            size="md"
+                            mode="action"
                             disabled={merging}
                             onClick={(e) => {
                               e.stopPropagation()
@@ -333,7 +339,7 @@ function ReviewsPage() {
                                 Merge
                               </>
                             )}
-                          </Button>
+                          </Pill>
                         )}
                         {/* The refusal captions its own row (EXP-323) —
                             spanning the grid so the full GitHub message stays
@@ -399,7 +405,7 @@ function ReviewsPage() {
                         <span className="truncate font-mono text-xs text-muted-foreground">
                           #{pull.number}
                         </span>
-                        <div className="min-w-0 pr-2">
+                        <div className="min-w-0 pr-3">
                           <div className="flex min-w-0 items-center gap-2">
                             <span className="min-w-0 truncate text-sm">
                               {pull.title}
@@ -412,9 +418,9 @@ function ReviewsPage() {
                             </div>
                           )}
                         </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
+                        <Pill
+                          size="md"
+                          mode="action"
                           disabled={merging || pull.draft}
                           onClick={(e) => {
                             e.stopPropagation()
@@ -436,7 +442,7 @@ function ReviewsPage() {
                               Merge
                             </>
                           )}
-                        </Button>
+                        </Pill>
                       </GlassRow>
                     )
                   })}

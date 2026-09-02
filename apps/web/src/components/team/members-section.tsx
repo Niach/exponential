@@ -447,9 +447,16 @@ function InviteControls({ teamId }: { teamId: string }) {
                   <Pill leading={<Mail className="size-3" />}>
                     {invite.role}
                   </Pill>
-                  {invite.email && (
+                  {/* EXP-698: a link invite carries no address, and an empty
+                      slot collapsed the row so the chips of a mixed list never
+                      lined up. It says what it is instead. */}
+                  {invite.email ? (
                     <span className="min-w-0 truncate font-medium">
                       {invite.email}
+                    </span>
+                  ) : (
+                    <span className="min-w-0 truncate text-muted-foreground">
+                      Link invite
                     </span>
                   )}
                   <span className="shrink-0 text-muted-foreground">

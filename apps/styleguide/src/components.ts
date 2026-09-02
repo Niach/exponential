@@ -641,7 +641,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `markdown`,
     title: `Markdown blocks`,
     kind: `Surfaces`,
-    blurb: `The chat-sized set the steer feed is built from. Narration is bare text at 90% behind a 12px glyph at 50% — no bubble, because a wall of them is unreadable. The person's turn IS a bubble: radius 12, active fill, strong hairline. Plan and question share ONE neutral radius-16 card; only the header line is tinted, primary for a plan and yellow for a question. A tool line is a 12px label with a truncated mono detail at 50%, and any long block clamps at 160 behind Show more.`,
+    blurb: `The chat-sized set the steer feed is built from. Narration is bare text at 90% behind a 12px glyph at 50% — no bubble, because a wall of them is unreadable. The person's turn IS a bubble: radius 12, active fill, strong hairline. Plan and question share ONE neutral radius-16 card; only the header line is tinted, primary for a plan and yellow for a question. A tool line is a 12px label with a truncated mono detail at 50%, and any long block clamps at 160 behind Show more. Inline code is tinted in chat feeds only — the issue and comment renderers keep the neutral chip.`,
     status: {
       web: ok(`QuestionCard / NarrationBubble`, `apps/web/src/components/agent-session.tsx`),
       desktop: ok(`steer_viewer`, `apps/desktop/crates/ui/src/steer_viewer.rs`),
@@ -654,9 +654,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     render: () =>
       [
         `<div class="cmp-markdown">`,
-        `<div class="narration">${svgTerminal}<span class="label">Reading the merge queue, then the webhook that feeds it.</span></div>`,
+        `<div class="narration">${svgTerminal}<span class="label">Reading the merge queue, then the <code>applyPrMergeState</code> webhook that feeds it.</span></div>`,
         `<div class="tool-row"><span class="label">Read</span><span class="value">apps/web/src/lib/trpc/coding-sessions.ts</span></div>`,
-        `<div class="bubble">Rebase onto master first, then open the PR.</div>`,
+        `<div class="bubble">Rebase onto <code>master</code> first, then open the PR.</div>`,
         `<div class="card">`,
         `<div class="card-head">${svgCheck}<span class="label">Plan ready</span></div>`,
         `<div class="fold">Move the merge-state fan-out into applyPrMergeState, end every live session on the merged branch, and leave the run that merged its own PR alone. Then re-point the webhook and the poller at the same helper so the two paths cannot drift again, and cover both with one test that merges a batch PR and asserts every linked issue lands on the team's merge target, on the webhook path and the polling one.</div>`,

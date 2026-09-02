@@ -347,10 +347,13 @@ export function SupportConversationView({ token }: { token: string }) {
             }
           >
             <p className="whitespace-pre-wrap break-words">{message.body}</p>
+            {/* EXP-698: the reporter's own (outgoing) bubble is filled with
+                `primary`, which is near-WHITE — the meta line has to be dark
+                on it, not another light tint. */}
             <p
               className={`mt-1 text-[0.65rem] ${
                 message.direction === `inbound`
-                  ? `text-primary-foreground/70`
+                  ? `text-black/60`
                   : `text-muted-foreground`
               }`}
             >

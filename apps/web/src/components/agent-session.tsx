@@ -52,7 +52,10 @@ import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
 import { uploadSessionImageFile } from "@/lib/storage/issue-image-upload"
 import {
   buildSteerImageMessage,
+  insertImageMarker,
   MAX_STEER_IMAGES,
+  parseSteerMessage,
+  renumberImageMarkers,
 } from "@/lib/steer-image-message"
 import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
@@ -64,7 +67,10 @@ import {
   ComposerSubmit,
   ComposerTool,
 } from "@/components/composer"
-import { MentionTextarea } from "@/components/mention-textarea"
+import {
+  MentionTextarea,
+  type MentionTextareaHandle,
+} from "@/components/mention-textarea"
 import {
   Collapsible,
   CollapsibleContent,
@@ -83,6 +89,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { FileDiffList } from "@/components/diff-view"
+import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 
 // EXP-317: the session glyphs the native clients also draw resolve through
 // the shared registry (packages/icons/icons.json).
@@ -91,6 +98,7 @@ const CodingPlanIcon = conceptIcon(`coding-plan`)
 const CodingStopIcon = conceptIcon(`coding-stop`)
 const CodingSubagentIcon = conceptIcon(`coding-subagent`)
 const CodingToolIcon = conceptIcon(`coding-tool`)
+const EditorImageIcon = conceptIcon(`editor-image`)
 const UiAddIcon = conceptIcon(`ui-add`)
 const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 const UiFullscreenIcon = conceptIcon(`ui-fullscreen`)
@@ -648,7 +656,10 @@ export function AgentSessionView({
               // EXP-619: the feed rides its own bottom edge, so without
               // containment every downward wheel tick over the terminal
               // scrolled the page behind the dock instead.
-              className="h-full overflow-y-auto overscroll-contain"
+              // `agent-feed`: the hook the inline-code tint keys on
+              // (EXP-698, styles.css) — chat-sized markdown alone is not it,
+              // comment bodies render that way too.
+              className="agent-feed h-full overflow-y-auto overscroll-contain"
             >
               {feed.length === 0 && paused ? (
                 <CenteredState>
@@ -1086,14 +1097,86 @@ function ShowMoreButton({
   )
 }
 
+/** Splits the prose around its `[Image #N]` markers (EXP-698) and draws each
+ *  one as a chip that opens that image. A message carrying markers came from
+ *  the composer as chat prose, so the inline linkified rendering is the right
+ *  one — markdown blocks could not flow around an inline chip anyway. */
+function MarkerText({
+  text,
+  count,
+  onOpen,
+}: {
+  text: string
+  /** How many images the message actually carries. A marker outside
+   *  `1..count` — hand-typed, or left behind by an edit — is prose, not a
+   *  chip: chipping it would promise a preview there is no image for. */
+  count: number
+  onOpen: (index: number) => void
+}) {
+  // A capture group keeps the delimiters, and a literal keeps `lastIndex`
+  // out of it (the exported pattern is global).
+  const parts = text.split(/(\[Image #\d+\])/)
+  return (
+    <div className="whitespace-pre-wrap break-words">
+      {parts.map((part, i) => {
+        const marker = /^\[Image #(\d+)\]$/.exec(part)
+        if (marker && Number(marker[1]) >= 1 && Number(marker[1]) <= count) {
+          const index = Number(marker[1])
+          return (
+            <button
+              key={i}
+              type="button"
+              className="align-middle"
+              onClick={() => onOpen(index)}
+            >
+              <Pill size="sm" mode="readonly" leading={<EditorImageIcon />}>
+                {`Image ${index}`}
+              </Pill>
+            </button>
+          )
+        }
+        return linkSegments(part).map((segment, j) =>
+          segment.href ? (
+            <a
+              key={`${i}-${j}`}
+              href={segment.href}
+              target="_blank"
+              rel="noreferrer"
+              className="break-all text-primary underline underline-offset-2 hover:opacity-80"
+            >
+              {segment.text}
+            </a>
+          ) : (
+            <Fragment key={`${i}-${j}`}>{segment.text}</Fragment>
+          ),
+        )
+      })}
+    </div>
+  )
+}
+
 /** A human turn (EXP-78): the initial prompt or a steered message — rendered
- *  right-aligned like the sender's own chat bubble, long text folded. */
+ *  right-aligned like the sender's own chat bubble, long text folded. A
+ *  steered message with images (EXP-511) splits into its prose — whose
+ *  `[Image #N]` markers become chips — and the embeds themselves, which stay
+ *  below it. */
 const UserMessageBubble = memo(function UserMessageBubble({
   text,
 }: {
   text: string
 }) {
-  const { expanded, setExpanded, clampable } = useClampToggle(text)
+  const { text: body, attachmentIds, markers } = parseSteerMessage(text)
+  const hasImages = attachmentIds.length > 0
+  // Clamp the PROSE, never the wire message: four embed lines are four more
+  // "lines" of nothing, and they used to push a two-line steer into the fold
+  // — which then hid the images the fold was measuring.
+  const { expanded, setExpanded, clampable } = useClampToggle(
+    hasImages ? body : text
+  )
+  const [preview, setPreview] = useState<number | null>(null)
+  const openMarker = (index: number) => {
+    if (index >= 1 && index <= attachmentIds.length) setPreview(index - 1)
+  }
   return (
     <div className="flex justify-end py-1 pl-8">
       {/* EXP-696: the natives' neutral glass bubble, not a primary tint —
@@ -1105,7 +1188,20 @@ const UserMessageBubble = memo(function UserMessageBubble({
         <div
           className={cn(clampable && !expanded && `max-h-40 overflow-hidden`)}
         >
-          <FeedText text={text} ariaLabel="Your message" hardBreaks />
+          {!hasImages ? (
+            <FeedText text={text} ariaLabel="Your message" hardBreaks />
+          ) : (
+            body &&
+            (markers.length > 0 ? (
+              <MarkerText
+                text={body}
+                count={attachmentIds.length}
+                onOpen={openMarker}
+              />
+            ) : (
+              <FeedText text={body} ariaLabel="Your message" hardBreaks />
+            ))
+          )}
         </div>
         {clampable && (
           <ShowMoreButton
@@ -1113,7 +1209,37 @@ const UserMessageBubble = memo(function UserMessageBubble({
             onToggle={() => setExpanded((v) => !v)}
           />
         )}
+        {/* OUTSIDE the fold: the images are the point of the message, and a
+            long prose clamp must never be what hides them. */}
+        {hasImages && (
+          <div className={cn(`flex flex-col gap-2`, body && `mt-2`)}>
+            {attachmentIds.map((id, i) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setPreview(i)}
+                className="block"
+              >
+                <img
+                  src={`/api/attachments/${id}`}
+                  alt={`Image ${i + 1}`}
+                  className="max-h-64 w-auto max-w-full rounded-md border border-glass-stroke-card"
+                />
+              </button>
+            ))}
+          </div>
+        )}
       </div>
+      {preview !== null && attachmentIds[preview] && (
+        <ImagePreviewDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setPreview(null)
+          }}
+          src={`/api/attachments/${attachmentIds[preview]}`}
+          label={`Image ${preview + 1}`}
+        />
+      )}
     </div>
   )
 })
@@ -1854,6 +1980,7 @@ function MessageComposer({
   )
   const [sending, setSending] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const fieldRef = useRef<MentionTextareaHandle>(null)
   // A file chooser steals focus without moving it anywhere in the document
   // AND can stall the tab long enough for the relay to evict the viewer —
   // latched on the click that opens one, released when it resolves either
@@ -1869,13 +1996,36 @@ function MessageComposer({
   }, [])
 
   const addFiles = (files: File[]) => {
-    const { rejected, overflow } = store.addDraftImages(files)
+    // EXP-698: an attached image also drops its POSITIONAL reference at the
+    // caret, so "crop [Image #2]" names one of several embeds. The strip
+    // length before the add IS the numbering base.
+    const base = pending.length
+    const { rejected, overflow, added } = store.addDraftImages(files)
+    if (added > 0) {
+      let next = text
+      let caret = fieldRef.current?.caret() ?? text.length
+      for (let i = 0; i < added; i++) {
+        const inserted = insertImageMarker(next, caret, base + i + 1)
+        next = inserted.text
+        caret = inserted.caret
+      }
+      store.setDraftText(next)
+      fieldRef.current?.setCaret(caret)
+    }
     if (rejected > 0) {
       toast.error(`Only images up to 10 MB can be attached`)
     }
     if (overflow > 0) {
       toast.error(`Up to ${MAX_STEER_IMAGES} images per message`)
     }
+  }
+
+  /** Dropping a pending image takes its markers with it and slides the
+   *  higher ones down, so the numbers keep matching the strip. */
+  const removeImage = (url: string) => {
+    const index = pending.findIndex((image) => image.url === url)
+    if (index >= 0) store.setDraftText(renumberImageMarkers(text, index + 1))
+    store.removeDraftImage(url)
   }
 
   const send = async () => {
@@ -1933,7 +2083,7 @@ function MessageComposer({
                   type="button"
                   aria-label="Remove image"
                   disabled={sending}
-                  onClick={() => store.removeDraftImage(image.url)}
+                  onClick={() => removeImage(image.url)}
                   className="absolute -right-1.5 -top-1.5 rounded-full border border-glass-stroke-card bg-popover p-0.5 text-muted-foreground hover:text-foreground"
                 >
                   <X className="size-3" />
@@ -1992,6 +2142,7 @@ function MessageComposer({
       {/* EXP-698: the steer field is the mention field — `@` members, `#`
           issue refs and `:` emoji all work while steering. */}
       <MentionTextarea
+        ref={fieldRef}
         value={text}
         onValueChange={(next) => store.setDraftText(next)}
         users={users}
