@@ -22,8 +22,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,7 +58,7 @@ import com.exponential.app.ui.components.LaunchOptionsVariant
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PriorityIcon
-import com.exponential.app.ui.components.SectionLabel
+import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.StatusIcon
@@ -519,22 +517,19 @@ fun StartCodingSheet(
         ) {
             if (subjectTab == SubjectTab.Issues) {
                 // ── Issues ───────────────────────────────────────────────
-                SectionLabel("Issues")
+                SectionHeader("Issues", modifier = Modifier.padding(horizontal = 16.dp))
                 // ONE grouped card for search + rows (EXP-211 — iOS Form
                 // parity): the search field is the first row of the glass
                 // container and hairlines separate the issue rows, instead of
                 // bare edge-to-edge rows on the sheet background.
                 OptionGroup {
-                    TextField(
+                    // EXP-698: the shared field, chrome-less inside the
+                    // group (the group owns the fill and the hairlines).
+                    GlassTextField(
                         value = query,
                         onValueChange = { query = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = {
-                            Text(
-                                "Search issues",
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                            )
-                        },
+                        placeholder = "Search issues",
                         leadingIcon = {
                             Icon(
                                 ExpIcons.navSearch,
@@ -558,14 +553,7 @@ fun StartCodingSheet(
                             }
                         },
                         singleLine = true,
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            disabledContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            disabledIndicatorColor = Color.Transparent,
-                        ),
+                        bordered = false,
                     )
                     GroupDivider()
                     if (pinnedRows.isEmpty() && otherRows.isEmpty()) {
@@ -640,18 +628,21 @@ fun StartCodingSheet(
                 // no branch, no worktree. The two fields ARE the hidden
                 // builtin's two inputs, labelled exactly as it declares
                 // them.
-                SectionLabel("Prompt")
-                GlassTextField(
-                    value = chatPrompt,
-                    onValueChange = {
-                        chatPrompt = it.take(DomainContract.actionInputTextMax)
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    placeholder = "What should the agent do?",
-                    minLines = 4,
-                )
+                SectionHeader("Prompt", modifier = Modifier.padding(horizontal = 16.dp))
+                // EXP-698: inside the grouped card like every other field on
+                // this sheet, instead of a second chromed box beside them.
+                OptionGroup {
+                    GlassTextField(
+                        value = chatPrompt,
+                        onValueChange = {
+                            chatPrompt = it.take(DomainContract.actionInputTextMax)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = "What should the agent do?",
+                        minLines = 4,
+                        bordered = false,
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
                 OptionGroup {
                     PickerRow(
@@ -678,21 +669,18 @@ fun StartCodingSheet(
                 Spacer(Modifier.height(4.dp))
             } else {
                 // ── Actions ──────────────────────────────────────────────
-                SectionLabel("Actions")
+                SectionHeader("Actions", modifier = Modifier.padding(horizontal = 16.dp))
                 // Same grouped-card layout as the issue picker: search row
                 // + hairline-divided SINGLE-select action rows (builtin
                 // pinned first by its flag).
                 OptionGroup {
-                    TextField(
+                    // EXP-698: the shared field, chrome-less inside the
+                    // group (the group owns the fill and the hairlines).
+                    GlassTextField(
                         value = actionQuery,
                         onValueChange = { actionQuery = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = {
-                            Text(
-                                "Search actions",
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                            )
-                        },
+                        placeholder = "Search actions",
                         leadingIcon = {
                             Icon(
                                 ExpIcons.navSearch,
@@ -716,14 +704,7 @@ fun StartCodingSheet(
                             }
                         },
                         singleLine = true,
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            disabledContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            disabledIndicatorColor = Color.Transparent,
-                        ),
+                        bordered = false,
                     )
                     GroupDivider()
                     val actionRows = filteredActions

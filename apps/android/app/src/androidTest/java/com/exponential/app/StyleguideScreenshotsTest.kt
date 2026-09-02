@@ -452,8 +452,8 @@ class StyleguideScreenshotsTest {
         flow.settle()
 
         // --- Settings root: the gear lives on the board root, not on a profile
-        // menu. SectionHeader UPPERCASES its title, so every header match here
-        // must pass ignoreCase.
+        // menu. Header matches keep ignoreCase so they hold whichever case
+        // SectionHeader renders (sentence case since EXP-698).
         composeRule.onNode(hasContentDescription("Issues")).performClick()
         flow.waitFor(hasContentDescription("Settings"), NAV_TIMEOUT)
         composeRule.onNode(hasContentDescription("Settings")).performClick()

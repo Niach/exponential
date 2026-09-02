@@ -27,7 +27,7 @@ import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
-import com.exponential.app.ui.components.SectionLabel
+import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.issue.StartCodingSheetViewModel
@@ -169,7 +169,7 @@ fun AutomationFormSheet(
             }
             Spacer(Modifier.height(8.dp))
 
-            SectionLabel("Trigger")
+            SectionHeader("Trigger", modifier = Modifier.padding(horizontal = 16.dp))
             AutomationTriggerFields(
                 draft = draft,
                 boards = boardOptions,

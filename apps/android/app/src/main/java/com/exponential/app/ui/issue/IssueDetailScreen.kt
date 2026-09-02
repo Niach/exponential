@@ -47,7 +47,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -56,6 +55,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -91,8 +91,8 @@ import com.exponential.app.ui.markdown.stripDraftImages
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
+import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassRow
-import com.exponential.app.ui.theme.glassSection
 import kotlinx.coroutines.launch
 
 // The per-property/combined sheets the detail screen can present (EXP-240).
@@ -564,7 +564,7 @@ fun IssueDetailScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .glassSection()
+                        .glassCard()
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

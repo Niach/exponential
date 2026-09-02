@@ -36,6 +36,7 @@ import com.exponential.app.domain.AgentUsageSeverity
 import com.exponential.app.domain.UsageCard
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.DesignTokens
+import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.delay
@@ -167,7 +168,7 @@ internal fun UsageTrack(percent: Double, severity: AgentUsageSeverity, height: D
             .fillMaxWidth()
             .height(height)
             .clip(RoundedCornerShape(height / 2))
-            .background(Color.White.copy(alpha = 0.10f)),
+            .background(GlassTokens.StrokeStrong),
     ) {
         if (fraction > 0f) {
             Box(

@@ -28,7 +28,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -69,6 +68,7 @@ import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.TopBarBackButton
@@ -88,13 +88,13 @@ import com.exponential.app.ui.share.TeamBoards
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
 import com.exponential.app.ui.theme.glassButton
-import com.exponential.app.ui.theme.glassSection
+import com.exponential.app.ui.theme.glassGroup
 import java.util.UUID
 import kotlinx.coroutines.launch
 
 // Full-screen issue creation (iOS CreateIssueSheet parity): a "New Issue" nav
 // title with Cancel/Create actions over the shared AppBackground, then the
-// title field, description editor, and stacked glassSection metadata rows.
+// title field, description editor, and one grouped card of metadata rows.
 // Reuses the same pickers, payload and createIssue path the bottom sheet used —
 // only the container and layout changed (a route screen, not a ModalBottomSheet).
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -388,7 +388,7 @@ fun CreateIssueScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .glassSection()
+                        .glassGroup()
                         .padding(vertical = 4.dp)
                         .alpha(if (isModerator) 1f else 0.55f),
                 ) {
@@ -397,7 +397,7 @@ fun CreateIssueScreen(
                         Spacer(Modifier.width(6.dp))
                         Text(status.name, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                     }
-                    MetaDivider()
+                    GroupDivider()
                     MetaRow(label = "Priority", enabled = isModerator, onClick = { priorityMenuOpen = true }) {
                         PriorityIcon(priority, size = 14.dp)
                         Spacer(Modifier.width(6.dp))
@@ -405,7 +405,7 @@ fun CreateIssueScreen(
                     }
                     // EXP-50: hidden in a solo team (no one else to assign to).
                     if (!isSoloTeam) {
-                        MetaDivider()
+                        GroupDivider()
                         MetaRow(label = "Assignee", enabled = isModerator, onClick = { assigneeMenuOpen = true }) {
                             Icon(ExpIcons.uiAssignee, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
                             Spacer(Modifier.width(6.dp))
@@ -419,7 +419,7 @@ fun CreateIssueScreen(
                         }
                     }
                     // Due date — same grouped card (EXP-247).
-                    MetaDivider()
+                    GroupDivider()
                     MetaRow(label = "Due date", enabled = isModerator, onClick = { datePickerOpen = true }) {
                         Icon(ExpIcons.uiDueDate, null, modifier = Modifier.size(14.dp), tint = dueDate?.let { dueDateColor(it) } ?: MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary))
                         Spacer(Modifier.width(6.dp))
@@ -641,10 +641,6 @@ private fun MetaRow(
     }
 }
 
-@Composable
-private fun MetaDivider() {
-    HorizontalDivider(thickness = 0.5.dp, color = Color.White.copy(alpha = 0.06f))
-}
 
 /**
  * Draft file attachments on the create screen (EXP-327). The issue has no id

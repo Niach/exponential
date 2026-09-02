@@ -37,10 +37,10 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
@@ -104,14 +104,13 @@ import com.exponential.app.domain.groupFeedRows
 import com.exponential.app.domain.localAnswerSummary
 import com.exponential.app.domain.locksCard
 import com.exponential.app.domain.visibleSubagentTabs
-import com.exponential.app.ui.components.BottomBarPillFill
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPillButton
-import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GlassSheet
-import com.exponential.app.ui.components.SheetHeight
+import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.PendingAttachmentStrip
+import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.TopBarActionButton
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
@@ -134,8 +133,9 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
+import com.exponential.app.ui.theme.glassCard
+import com.exponential.app.ui.theme.glassGroup
 import com.exponential.app.ui.theme.glassRow
-import com.exponential.app.ui.theme.glassSection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -155,8 +155,6 @@ private val ConnectingYellow = Color(0xFFFBBF24)
 internal val LostGray = Color(0xFF71717A)
 /** Accent for the "Plan ready" card + header cue (EXP-97). */
 private val PlanAccent = DesignTokens.Semantic.Blue
-/** Hairline around the steer composer card — the comment composer's stroke. */
-private val ComposerStroke = Color.White.copy(alpha = 0.12f)
 
 /** EXP-550: the one explanation of a paused (offline-machine) session. */
 private const val DEVICE_OFFLINE_DETAIL =
@@ -845,7 +843,8 @@ fun AgentSessionScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp),
+                    // EXP-698: 16dp — the group inset every other sheet uses.
+                    .padding(horizontal = 16.dp),
             ) {
                 // Whose limits these are — the machine's sign-in for this
                 // agent, without the agent prefix (the sheet is already about
@@ -1534,7 +1533,7 @@ private fun AnsweredAskCard(
         Column(
             modifier = Modifier
                 .weight(1f)
-                .glassSection()
+                .glassCard()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -1632,7 +1631,7 @@ private fun QuestionCard(
         Column(
             modifier = Modifier
                 .weight(1f)
-                .glassSection()
+                .glassCard()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -2170,8 +2169,8 @@ private fun SteerComposer(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(BottomBarPillFill)
-            .border(GlassTokens.Hairline, ComposerStroke, shape)
+            .background(GlassTokens.OpaqueCardFill)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape)
             .padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
         PendingAttachmentStrip(
@@ -2313,7 +2312,7 @@ private fun UnifiedDiffPanel(diff: String, onDismiss: () -> Unit) {
             ) {
                 items(sections.size, key = { it }) { index ->
                     val section = sections[index]
-                    Column(modifier = Modifier.fillMaxWidth().glassSection()) {
+                    Column(modifier = Modifier.fillMaxWidth().glassGroup()) {
                         if (section.filename.isNotBlank()) {
                             Text(
                                 section.filename,

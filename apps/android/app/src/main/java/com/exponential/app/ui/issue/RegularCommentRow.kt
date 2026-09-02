@@ -40,6 +40,7 @@ import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
 import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.CommentAttachmentsStrip
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
@@ -176,19 +177,17 @@ internal fun RegularCommentRow(
                 if (isAuthor && !isEditing) {
                     Spacer(Modifier.weight(1f))
                     Box {
-                        // A plain clickable icon, not an IconButton: M3's 48dp
-                        // minimum touch target made the header row three times
-                        // the height of its text and read as stray padding at
-                        // the top of the card (EXP-398).
-                        Icon(
+                        // EXP-698: the shared 32dp glass circle — a bare
+                        // clickable glyph read as no control at all, and M3's
+                        // own IconButton pads a 48dp target that made this
+                        // header row three times the height of its text
+                        // (EXP-398).
+                        CircleIconButton(
                             ExpIcons.uiMore,
                             contentDescription = "Comment actions",
+                            onClick = { menuOpen = true },
                             tint = CommentMeta,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(percent = 50))
-                                .clickable { menuOpen = true }
-                                .padding(4.dp)
-                                .size(16.dp),
+                            glyphSize = 16.dp,
                         )
                         GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             GlassMenuItem(

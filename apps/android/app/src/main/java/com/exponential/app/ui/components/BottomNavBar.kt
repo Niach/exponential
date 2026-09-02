@@ -43,10 +43,9 @@ import com.exponential.app.ui.theme.TextEmphasis
 // compose button on the right. Search left the bar in EXP-686: it is a button
 // in the board header now.
 // Overlaid above the NavHost; AppNavHost shows it only on the top-level routes.
-// (Compose has no cheap backdrop blur, so the pill uses a near-opaque dark fill
-// instead of the iOS material.)
-// Internal (EXP-240): the issue-detail bottom bar clones this exact treatment.
-internal val BottomBarPillFill = Color(0xF2151518)
+// (Compose has no cheap backdrop blur, so the bar takes the shared OPAQUE glass
+// fill — GlassTokens.OpaqueCardFill, EXP-698 — instead of the iOS material and
+// instead of the hand-mixed near-black it used to carry.)
 
 // Bottom contentPadding for scrollable content on screens the floating bar
 // overlays (the bar stack is ~68dp above the system nav inset — 42dp tab +
@@ -104,8 +103,8 @@ fun BottomNavBar(
         Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(percent = 50))
-                .background(BottomBarPillFill)
-                .border(GlassTokens.Hairline, Color.White.copy(alpha = 0.12f), RoundedCornerShape(percent = 50))
+                .background(GlassTokens.OpaqueCardFill)
+                .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, RoundedCornerShape(percent = 50))
                 .padding(5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -201,8 +200,8 @@ private fun Fab(
         modifier = Modifier
             .size(52.dp)
             .clip(CircleShape)
-            .background(BottomBarPillFill)
-            .border(GlassTokens.Hairline, Color.White.copy(alpha = 0.12f), CircleShape)
+            .background(GlassTokens.OpaqueCardFill)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

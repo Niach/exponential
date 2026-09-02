@@ -15,7 +15,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -30,11 +29,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.exponential.app.AppConstants
+import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassSection
+import com.exponential.app.ui.theme.glassGroup
 
 private const val SOURCE_URL = "https://github.com/Niach/exponential"
 private const val LICENSE_URL = "https://github.com/Niach/exponential/blob/master/LICENSE"
@@ -76,7 +76,7 @@ fun AboutScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
+                Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
                     AboutRow(
                         icon = ExpIcons.settingsAbout,
                         title = "Exponential",
@@ -85,14 +85,14 @@ fun AboutScreen(
                         onClick = null,
                     )
                 }
-                Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
+                Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
                     AboutRow(
                         icon = ExpIcons.settingsLicenses,
                         title = "Third-party licenses",
                         trailingIcon = ExpIcons.uiChevronRight,
                         onClick = onOpenThirdPartyLicenses,
                     )
-                    AboutDivider()
+                    GroupDivider()
                     AboutRow(
                         icon = ExpIcons.uiGithub,
                         title = "Source code",
@@ -101,7 +101,7 @@ fun AboutScreen(
                             context.startActivity(Intent(Intent.ACTION_VIEW, SOURCE_URL.toUri()))
                         },
                     )
-                    AboutDivider()
+                    GroupDivider()
                     AboutRow(
                         icon = ExpIcons.uiInfo,
                         title = "License (Apache-2.0)",
@@ -164,7 +164,3 @@ private fun AboutRow(
     }
 }
 
-@Composable
-private fun AboutDivider() {
-    HorizontalDivider(thickness = 0.5.dp, color = Color.White.copy(alpha = 0.06f))
-}

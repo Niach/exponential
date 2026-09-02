@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.ui.theme.GlassTokens
 
 /**
  * Up-to-two-letter initials derived from a display name or email. Unifies the
@@ -52,7 +53,7 @@ fun InitialsAvatar(
     nameOrEmail: String?,
     modifier: Modifier = Modifier,
     size: Dp = 28.dp,
-    background: Color = Color.White.copy(alpha = 0.15f),
+    background: Color = GlassTokens.RowFillActive,
     contentColor: Color = Color.White,
 ) {
     val initials = remember(nameOrEmail) { initialsFor(nameOrEmail) }

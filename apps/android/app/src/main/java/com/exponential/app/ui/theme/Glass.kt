@@ -26,15 +26,21 @@ import androidx.compose.ui.unit.dp
  * no extra dependency).
  */
 object GlassTokens {
+    // EXP-698: every member below is an ALIAS of the generated
+    // [DesignTokens] twin — the hand-written literals this object used to
+    // carry drifted from the shared design-token source by a percent or two on
+    // every rung. Nothing here may be written down again; add a token to
+    // packages/design-tokens/tokens.json and alias it.
+
     // Background gradient — iOS Zinc 950 -> 900 (top -> bottom).
-    val BackgroundTop = Color(0xFF09090B)
-    val BackgroundBottom = Color(0xFF18181B)
+    val BackgroundTop = DesignTokens.Glass.BackgroundTop
+    val BackgroundBottom = DesignTokens.Glass.BackgroundBottom
 
     // Surface fills (approximating .ultraThinMaterial over dark).
-    val RowFill = Color.White.copy(alpha = 0.05f)
-    val RowFillActive = Color.White.copy(alpha = 0.15f)
-    val SectionFill = Color.White.copy(alpha = 0.04f)
-    val CardFill = Color.White.copy(alpha = 0.06f)
+    val RowFill = DesignTokens.Glass.FillRow
+    val RowFillActive = DesignTokens.Glass.FillActive
+    val SectionFill = DesignTokens.Glass.FillSection
+    val CardFill = DesignTokens.Glass.FillCard
 
     /**
      * [CardFill] composited over the opaque card base (white .06 over #171717 ==
@@ -47,16 +53,23 @@ object GlassTokens {
     val OpaqueCardFill: Color = CardFill.compositeOver(DesignTokens.Palette.Card)
 
     // Hairline strokes.
-    val StrokeRow = Color.White.copy(alpha = 0.06f)
-    val StrokeSection = Color.White.copy(alpha = 0.08f)
-    val StrokeCard = Color.White.copy(alpha = 0.10f)
-    val StrokeActive = Color.White.copy(alpha = 0.20f)
+    val StrokeRow = DesignTokens.Glass.StrokeRow
+    val StrokeSection = DesignTokens.Glass.StrokeSection
+    val StrokeCard = DesignTokens.Glass.StrokeCard
+
+    /** The heaviest non-active hairline — bars, composers, segmented capsules. */
+    val StrokeStrong = DesignTokens.Glass.StrokeStrong
+    val StrokeActive = DesignTokens.Glass.StrokeActive
     val Hairline = 0.5.dp
 
-    // Corner radii (iOS GlassRow 10 / GlassSection 12 / GlassCard 16).
-    val RowRadius = 10.dp
-    val SectionRadius = 12.dp
-    val CardRadius = 16.dp
+    // Corner radii (iOS GlassRow 10 / GlassGroup 12 / GlassCard 16).
+    val RowRadius = DesignTokens.Radius.Md
+    val GroupRadius = DesignTokens.Radius.Lg
+    val CardRadius = DesignTokens.Radius.Xl
+    val ChipRadius = DesignTokens.Radius.Sm
+
+    /** The one circular/segmented control diameter (iOS 32pt). */
+    val ControlSize = DesignTokens.Size.ControlMd
 
     // Standard row padding.
     val RowPaddingH = 12.dp
@@ -109,13 +122,25 @@ fun Modifier.glassRow(active: Boolean = false, opaque: Boolean = false): Modifie
         .border(GlassTokens.Hairline, if (active) GlassTokens.StrokeActive else GlassTokens.StrokeRow, shape)
 }
 
-/** Frosted grouped-section container — iOS `.glassSection()`. */
-fun Modifier.glassSection(): Modifier {
-    val shape = RoundedCornerShape(GlassTokens.SectionRadius)
+/**
+ * Frosted grouped-row container — iOS `.glassGroup()`. BORDERLESS on purpose
+ * (EXP-698): a group is a stack of rows separated by hairlines, so an outer
+ * stroke around it drew a second, competing edge. A bordered panel around FREE
+ * content is [glassCard] instead.
+ */
+fun Modifier.glassGroup(): Modifier {
+    val shape = RoundedCornerShape(GlassTokens.GroupRadius)
     return this
         .clip(shape)
-        .background(GlassTokens.SectionFill, shape)
-        .border(GlassTokens.Hairline, GlassTokens.StrokeSection, shape)
+        .background(GlassTokens.RowFill, shape)
+}
+
+/** Small borderless label chip — the suggestion-row "Action"/"Automation" pill. */
+fun Modifier.glassChip(): Modifier {
+    val shape = RoundedCornerShape(GlassTokens.ChipRadius)
+    return this
+        .clip(shape)
+        .background(GlassTokens.CardFill, shape)
 }
 
 /**
@@ -136,14 +161,18 @@ fun Modifier.glassCard(opaque: Boolean = false): Modifier {
  * solid Card fill beneath the glass tint (same shape) for pills floating over
  * scrolling content, where the low-alpha fill alone lets it bleed through
  * (EXP-165).
+ *
+ * EXP-698: a BUTTON is the card rung (fill + hairline), a notch above the row
+ * rung it used to borrow — a pill has to read as a control against the rows
+ * around it, not as another row.
  */
 fun Modifier.glassButton(active: Boolean = false, opaque: Boolean = false): Modifier {
     val shape = RoundedCornerShape(percent = 50)
     return this
         .clip(shape)
         .then(if (opaque) Modifier.background(DesignTokens.Palette.Card, shape) else Modifier)
-        .background(if (active) GlassTokens.RowFillActive else GlassTokens.RowFill, shape)
-        .border(GlassTokens.Hairline, if (active) GlassTokens.StrokeActive else GlassTokens.StrokeRow, shape)
+        .background(if (active) GlassTokens.RowFillActive else GlassTokens.CardFill, shape)
+        .border(GlassTokens.Hairline, if (active) GlassTokens.StrokeActive else GlassTokens.StrokeCard, shape)
 }
 
 /**

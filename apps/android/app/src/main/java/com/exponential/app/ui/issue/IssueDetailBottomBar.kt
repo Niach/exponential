@@ -54,7 +54,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
 import com.exponential.app.domain.PendingAttachment
-import com.exponential.app.ui.components.BottomBarPillFill
 import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.emoji.EmojiPickerSheet
 import com.exponential.app.ui.icons.ExpIcons
@@ -78,8 +77,6 @@ sealed interface StartButtonUi {
     data object Sending : StartButtonUi
     data class Session(val state: CodingSessionDisplayState) : StartButtonUi
 }
-
-private val BarStroke = Color.White.copy(alpha = 0.12f)
 
 // The four signals collapse-on-blur watches, as one snapshotFlow value (Kotlin
 // stops at Triple, and all four have to be observed together).
@@ -279,8 +276,8 @@ private fun CollapsedBar(
                 .weight(1f)
                 .height(52.dp)
                 .clip(capsule)
-                .background(BottomBarPillFill)
-                .border(GlassTokens.Hairline, BarStroke, capsule)
+                .background(GlassTokens.OpaqueCardFill)
+                .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, capsule)
                 .clickable(onClick = onExpand)
                 .padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -335,8 +332,8 @@ private fun BarCircle(
         modifier = Modifier
             .size(52.dp)
             .clip(CircleShape)
-            .background(BottomBarPillFill)
-            .border(GlassTokens.Hairline, BarStroke, CircleShape)
+            .background(GlassTokens.OpaqueCardFill)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -382,8 +379,8 @@ private fun ExpandedCommentComposer(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .clip(RoundedCornerShape(24.dp))
-            .background(BottomBarPillFill)
-            .border(GlassTokens.Hairline, BarStroke, RoundedCornerShape(24.dp))
+            .background(GlassTokens.OpaqueCardFill)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, RoundedCornerShape(24.dp))
             .padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
         PendingAttachmentStrip(

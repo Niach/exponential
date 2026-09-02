@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -59,6 +58,7 @@ import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassSegmentedControl
+import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.modelLabel
@@ -71,6 +71,7 @@ import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassChip
 import com.exponential.app.ui.theme.glassRow
 import java.text.DateFormat
 import java.util.Date
@@ -254,7 +255,7 @@ fun ActionsScreen(
                             // the "New action" entry (EXP-431) as its trailing
                             // control.
                             item(key = "__actions_header__") {
-                                SectionLabel(title = "Actions") {
+                                SectionHeader(title = "Actions") {
                                     GlassPillButton(
                                         label = "New action",
                                         icon = ExpIcons.actionCreate,
@@ -469,14 +470,15 @@ private fun ActionRow(
         // carries none today — the guard keeps it that way).
         if (!action.isBuiltin) {
             Box {
-                IconButton(onClick = { menuOpen = true }) {
-                    Icon(
-                        ExpIcons.uiMore,
-                        contentDescription = "Action options",
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                }
+                // EXP-698: every trailing row action is the one 32dp glass
+                // circle — a bare glyph in an M3 touch box read as a hitbox,
+                // not a control.
+                CircleIconButton(
+                    ExpIcons.uiMore,
+                    contentDescription = "Action options",
+                    onClick = { menuOpen = true },
+                    modifier = Modifier.padding(start = 8.dp),
+                )
                 GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     GlassMenuItem(
                         text = { Text("Edit") },
@@ -528,7 +530,7 @@ private fun AutomationsContent(
         // EXP-574 (web parity): section header, with the owner-only create
         // entry as its trailing control.
         item(key = "__automations_header__") {
-            SectionLabel(title = "Automations") {
+            SectionHeader(title = "Automations") {
                 if (isOwner) {
                     GlassPillButton(
                         label = "New automation",
@@ -583,7 +585,7 @@ private fun AutomationsContent(
         }
         if (runs.isNotEmpty()) {
             item(key = "__recent_runs_header__") {
-                SectionLabel(
+                SectionHeader(
                     title = "Recent automated runs",
                     modifier = Modifier.padding(top = 12.dp),
                 )
@@ -731,14 +733,13 @@ private fun AutomationRow(
         )
         if (isOwner) {
             Box {
-                IconButton(onClick = { menuOpen = true }, enabled = !busy) {
-                    Icon(
-                        ExpIcons.uiMore,
-                        contentDescription = "Automation options",
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                }
+                CircleIconButton(
+                    ExpIcons.uiMore,
+                    contentDescription = "Automation options",
+                    onClick = { menuOpen = true },
+                    enabled = !busy,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
                 GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     GlassMenuItem(
                         text = { Text("Edit") },
@@ -915,33 +916,9 @@ private fun SuggestionKindChip(label: String) {
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         maxLines = 1,
         modifier = Modifier
-            .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.08f))
+            .glassChip()
             .padding(horizontal = 8.dp, vertical = 2.dp),
     )
-}
-
-// The web `SectionLabel` (agent-session-row.tsx): title · spacer · optional
-// trailing control (EXP-574 layout parity; EXP-697 dropped the count).
-@Composable
-private fun SectionLabel(
-    title: String,
-    modifier: Modifier = Modifier,
-    trailing: (@Composable () -> Unit)? = null,
-) {
-    Row(
-        modifier = modifier.fillMaxWidth().padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.weight(1f))
-        trailing?.invoke()
-    }
 }
 
 @Composable

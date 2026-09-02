@@ -58,14 +58,14 @@ import kotlinx.coroutines.launch
 // EventRow / RegularCommentRow / IssueDetailBottomBar share the exact values.
 internal val CommentAuthor = Color.White.copy(alpha = 0.9f)
 internal val CommentMeta = Color.White.copy(alpha = 0.5f)
-internal val CommentAvatarBg = Color.White.copy(alpha = 0.08f)
+internal val CommentAvatarBg = GlassTokens.CardFill
 internal val CommentAvatarText = Color.White.copy(alpha = 0.7f)
 internal val CommentAccent = Color(red = 0.42f, green = 0.64f, blue = 1.0f)
 
 // Timeline gutter geometry (EXP-240): the shared leading column every timeline
 // row aligns to — event dot, collapsed-run dot, and comment avatar.
 internal val TimelineGutterWidth = 28.dp
-internal val TimelineRail = Color.White.copy(alpha = 0.08f)
+internal val TimelineRail = GlassTokens.CardFill
 
 // The activity timeline: the synthesized "created the issue" item, regular
 // comments as glass cards, and activity events (status/assignee/label/PR

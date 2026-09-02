@@ -44,8 +44,8 @@ class GlassMenuDefaultsTest {
     }
 
     @Test
-    fun radiusIsTheSectionRungNotM3ExtraSmall() {
-        assertEquals(RoundedCornerShape(GlassTokens.SectionRadius), GlassMenuDefaults.Shape)
+    fun radiusIsTheGroupRungNotM3ExtraSmall() {
+        assertEquals(RoundedCornerShape(GlassTokens.GroupRadius), GlassMenuDefaults.Shape)
     }
 
     /**

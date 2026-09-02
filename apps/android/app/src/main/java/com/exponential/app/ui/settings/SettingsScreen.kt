@@ -14,7 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -44,13 +43,14 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.MultiAccountTeamRepository
 import com.exponential.app.data.db.ServerTeamGroup
+import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TeamAvatar
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassSection
+import com.exponential.app.ui.theme.glassGroup
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
@@ -134,15 +134,15 @@ fun SettingsScreen(
                 // Servers section — one row per server account, then "Add server".
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SectionHeader("Servers")
-                    Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
+                    Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
                         accounts.forEachIndexed { i, account ->
-                            if (i > 0) CardDivider()
+                            if (i > 0) GroupDivider()
                             ServerRow(
                                 account = account,
                                 onClick = { onOpenServerDetail(account.id) },
                             )
                         }
-                        if (accounts.isNotEmpty()) CardDivider()
+                        if (accounts.isNotEmpty()) GroupDivider()
                         SettingsRow(
                             icon = ExpIcons.uiAdd,
                             title = "Add server",
@@ -183,7 +183,7 @@ fun SettingsScreen(
                 // General section.
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SectionHeader("General")
-                    Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
+                    Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
                         // EXP-232: staging-only — exposes live shape status and
                         // a "Resync now" data-wipe hatch, not for store builds.
                         if (AppConstants.IS_STAGING) {
@@ -193,7 +193,7 @@ fun SettingsScreen(
                                 subtitle = "Live Electric shape status",
                                 onClick = onOpenSyncDiagnostics,
                             )
-                            CardDivider()
+                            GroupDivider()
                         }
                         // EXP-260 — Android is the only client with a store
                         // listing so far, so this row is Android-only.
@@ -214,7 +214,7 @@ fun SettingsScreen(
                                 }
                             },
                         )
-                        CardDivider()
+                        GroupDivider()
                         // EXP-262: version + third-party licence notices.
                         SettingsRow(
                             icon = ExpIcons.settingsAbout,
@@ -369,9 +369,9 @@ private fun TeamGroupBlock(
                 }
             }
         }
-        Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
+        Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
             group.teams.forEachIndexed { i, team ->
-                if (i > 0) CardDivider()
+                if (i > 0) GroupDivider()
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -402,8 +402,3 @@ private fun TeamGroupBlock(
     }
 }
 
-// Hairline divider between grouped-card rows (iOS Divider white@6%).
-@Composable
-private fun CardDivider() {
-    HorizontalDivider(thickness = 0.5.dp, color = Color.White.copy(alpha = 0.06f))
-}

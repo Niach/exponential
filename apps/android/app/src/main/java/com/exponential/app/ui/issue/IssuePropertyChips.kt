@@ -38,7 +38,7 @@ import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
 import com.exponential.app.ui.theme.glassButton
-import com.exponential.app.ui.theme.glassSection
+import com.exponential.app.ui.theme.glassCard
 
 /**
  * The top property chip box (EXP-240) — one glass box of wrapping capsule
@@ -70,7 +70,7 @@ fun IssuePropertyChips(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .glassSection()
+            .glassCard()
             // Box-level clickable first, so the chips' own clickables win on
             // the chips and the gaps fall through to Properties.
             .then(if (isModerator) Modifier.clickable(onClick = onOpenProperties) else Modifier)

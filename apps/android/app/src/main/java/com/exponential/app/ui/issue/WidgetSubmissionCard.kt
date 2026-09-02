@@ -21,11 +21,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.WidgetSubmissionResult
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.DesignTokens
+import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.serialization.json.Json
@@ -130,7 +131,7 @@ fun WidgetSubmissionCard(
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                             modifier = Modifier
                                 .weight(1f)
-                                .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(8.dp))
+                                .background(GlassTokens.SectionFill, RoundedCornerShape(DesignTokens.Radius.Sm))
                                 .padding(8.dp),
                         )
                     }

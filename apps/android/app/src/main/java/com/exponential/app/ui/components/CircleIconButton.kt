@@ -33,9 +33,11 @@ import com.exponential.app.ui.theme.TextEmphasis
  * [tint] overrides the secondary-emphasis glyph color (the red kill switch);
  * [enabled] dims the glyph to quaternary and drops the tap.
  *
- * EXP-694: [size]/[glyphSize] make the circle scalable — 38/20 is the nav-bar
- * default, 28/15 the in-list size (iOS `CircleIconButton(28, 15)` parity: the
- * worktrees prune sweep, the session-row action buttons).
+ * EXP-698: ONE size — [GlassTokens.ControlSize] (32dp), the control rung every
+ * client draws — and the card fill/stroke rung a control sits on, so it reads
+ * as a button against the rows around it. [active] is the pressed/on look
+ * (`glassButton(active = true)`'s twin). [size]/[glyphSize] stay overridable
+ * for the nav bar, which draws the roomier 38/20 circle.
  */
 @Composable
 fun CircleIconButton(
@@ -45,8 +47,9 @@ fun CircleIconButton(
     modifier: Modifier = Modifier,
     tint: Color? = null,
     enabled: Boolean = true,
-    size: Dp = 38.dp,
-    glyphSize: Dp = 20.dp,
+    active: Boolean = false,
+    size: Dp = GlassTokens.ControlSize,
+    glyphSize: Dp = 18.dp,
 ) {
     val glyph = tint ?: MaterialTheme.colorScheme.onSurface.copy(
         alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
@@ -55,8 +58,12 @@ fun CircleIconButton(
         modifier = modifier
             .size(size)
             .clip(CircleShape)
-            .background(GlassTokens.RowFill, CircleShape)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeRow, CircleShape)
+            .background(if (active) GlassTokens.RowFillActive else GlassTokens.CardFill, CircleShape)
+            .border(
+                GlassTokens.Hairline,
+                if (active) GlassTokens.StrokeActive else GlassTokens.StrokeCard,
+                CircleShape,
+            )
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

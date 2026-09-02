@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
@@ -60,7 +61,7 @@ fun <T> GlassSegmentedControl(
     // active pill still reads the same inside the card.
     embedded: Boolean = false,
 ) {
-    val capsule = RoundedCornerShape(percent = 50)
+    val capsule = GlassSegmentedControlDefaults.Shape
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -71,8 +72,8 @@ fun <T> GlassSegmentedControl(
                     Modifier
                         .clip(capsule)
                         .background(GlassTokens.RowFill, capsule)
-                        .border(GlassTokens.Hairline, Color.White.copy(alpha = 0.12f), capsule)
-                        .padding(4.dp)
+                        .border(GlassTokens.Hairline, GlassSegmentedControlDefaults.Hairline, capsule)
+                        .padding(GlassSegmentedControlDefaults.ContainerPadding)
                 },
             ),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -87,11 +88,11 @@ fun <T> GlassSegmentedControl(
                     .then(if (tag != null) Modifier.testTag(tag) else Modifier)
                     .clip(capsule)
                     .background(
-                        if (active) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+                        if (active) GlassSegmentedControlDefaults.ActiveFill else Color.Transparent,
                         capsule,
                     )
                     .clickable { onSelect(option) }
-                    .padding(vertical = 7.dp),
+                    .padding(vertical = GlassSegmentedControlDefaults.SegmentVerticalPadding),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -136,3 +137,26 @@ fun <T> GlassSegmentedControl(
  * — the indigo accent is retired), like its iOS counterpart.
  */
 private val BadgeFill = DesignTokens.Palette.Primary
+
+/**
+ * The segmented strip's own numbers (EXP-698). Pinned by
+ * `GlassSegmentedControlDefaultsTest`, mirroring iOS's
+ * `GlassSegmentedControlTokenTests` — the strip is the one control the four
+ * clients draw identically, so its chrome may not be re-typed at a call site.
+ */
+object GlassSegmentedControlDefaults {
+    /** The capsule container's hairline — the heaviest non-active stroke. */
+    val Hairline: Color = GlassTokens.StrokeStrong
+
+    /** The selected segment's fill. */
+    val ActiveFill: Color = GlassTokens.RowFillActive
+
+    /** Inset between the container's edge and a segment. */
+    val ContainerPadding: Dp = 4.dp
+
+    /** A segment's own vertical padding — the strip's height comes from this. */
+    val SegmentVerticalPadding: Dp = 7.dp
+
+    /** Container and segments are both full capsules. */
+    val Shape: RoundedCornerShape = RoundedCornerShape(percent = 50)
+}

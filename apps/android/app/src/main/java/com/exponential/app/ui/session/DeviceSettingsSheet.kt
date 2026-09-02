@@ -18,8 +18,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -30,7 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
@@ -55,12 +52,13 @@ import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassPillButton
 import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.LaunchOptionsSection
 import com.exponential.app.ui.components.LaunchOptionsVariant
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
-import com.exponential.app.ui.components.SectionLabel
+import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.components.agentLabel
@@ -172,13 +170,13 @@ fun DeviceSettingsSheet(
                 .verticalScroll(rememberScrollState()),
         ) {
             // ── Name ─────────────────────────────────────────────────────
-            SectionLabel("Name")
+            SectionHeader("Name", modifier = Modifier.padding(horizontal = 16.dp))
             OptionGroup {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    TextField(
+                    GlassTextField(
                         value = label,
                         onValueChange = { next ->
                             label = next.take(MAX_DEVICE_LABEL)
@@ -189,6 +187,8 @@ fun DeviceSettingsSheet(
                             )
                         },
                         singleLine = true,
+                        // Inside the group — the group owns the chrome.
+                        bordered = false,
                         modifier = Modifier
                             .weight(1f)
                             .onFocusChanged {
@@ -205,14 +205,6 @@ fun DeviceSettingsSheet(
                                     }
                                 }
                             },
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            disabledContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            disabledIndicatorColor = Color.Transparent,
-                        ),
                     )
                     if (nameBusy) {
                         CircularProgressIndicator(
@@ -243,7 +235,7 @@ fun DeviceSettingsSheet(
 
             // ── Sharing (server machines only, EXP-432/EXP-481) ─────────
             if (device.isServer) {
-                SectionLabel("Sharing")
+                SectionHeader("Sharing", modifier = Modifier.padding(horizontal = 16.dp))
                 OptionGroup {
                     PickerRow(
                         label = "Shared with",
@@ -364,14 +356,8 @@ fun DeviceSettingsSheet(
             Spacer(Modifier.height(8.dp))
 
             // ── Worktrees (EXP-481) ──────────────────────────────────────
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                // 16dp: the icon button's right edge lines up with the
-                // section cards below it.
-                modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
-            ) {
-                SectionLabel("Worktrees")
-                Spacer(Modifier.weight(1f))
+            // 16dp: the header's edges line up with the section cards below it.
+            SectionHeader("Worktrees", modifier = Modifier.padding(horizontal = 16.dp)) {
                 val pruneState = commandStates[PRUNE_COMMAND_KEY]
                 if (worktrees.isNotEmpty()) {
                     if (pruneState is DeviceCommandUiState.Sending ||
@@ -384,17 +370,14 @@ fun DeviceSettingsSheet(
                         )
                     } else {
                         // EXP-688: icon-only, at the trailing edge of the
-                        // section header (web/desktop/iOS parity). EXP-694
-                        // sizes it 28/15 — the in-list circle iOS uses; the
-                        // 38dp nav-bar default towered over the label.
+                        // section header (web/desktop/iOS parity), on the one
+                        // 32dp control circle (EXP-698).
                         CircleIconButton(
                             ExpIcons.uiClean,
                             "Prune merged worktrees",
                             onClick = {
                                 viewModel.pruneWorktrees(device.deviceId, device.online)
                             },
-                            size = 28.dp,
-                            glyphSize = 15.dp,
                         )
                     }
                 }

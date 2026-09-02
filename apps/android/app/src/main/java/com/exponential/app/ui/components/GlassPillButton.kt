@@ -117,13 +117,13 @@ fun GlassSubmitButton(
             .fillMaxWidth()
             .clip(shape)
             .background(
-                if (enabled) DesignTokens.Palette.Primary else Color.White.copy(alpha = 0.06f),
+                if (enabled) DesignTokens.Palette.Primary else GlassTokens.CardFill,
                 shape,
             )
             .border(
                 GlassTokens.Hairline,
                 // The fill carries the shape on its own once it is opaque.
-                if (enabled) Color.Transparent else Color.White.copy(alpha = 0.10f),
+                if (enabled) Color.Transparent else GlassTokens.StrokeCard,
                 shape,
             )
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
@@ -161,8 +161,8 @@ fun GlassOAuthButton(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(Color.White.copy(alpha = 0.08f), shape)
-            .border(GlassTokens.Hairline, Color.White.copy(alpha = 0.15f), shape)
+            .background(GlassTokens.CardFill, shape)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape)
             .clickable(onClick = onClick)
             .padding(vertical = 14.dp),
     ) {

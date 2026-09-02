@@ -38,6 +38,7 @@ import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -117,14 +118,14 @@ private fun ShapeRow(status: SyncStats.ShapeStatus) {
     // The dot reflects CURRENT health, not the lifetime error tally: a long-gone
     // transient blip (errorCount > 0 but consecutiveErrors == 0) reads as healthy.
     val isUnauthorized = status.phase == "unauthorized"
-    val recoverBlue = Color(0xFF3B82F6)
+    val recoverBlue = DesignTokens.Semantic.Blue
     val dot = when {
-        isUnauthorized -> Color(0xFFEF4444)              // red: persistent auth failure
-        status.consecutiveErrors > 0 -> Color(0xFFF97316) // orange: currently failing
-        status.recovering -> recoverBlue                  // blue: auto-recovering
-        status.phase == "live" -> Color(0xFF22C55E)       // green: healthy
-        status.phase == "initial" -> recoverBlue          // blue: initial sync
-        else -> Color(0xFFA1A1AA)                          // grey: idle
+        isUnauthorized -> DesignTokens.Semantic.Red      // persistent auth failure
+        status.consecutiveErrors > 0 -> DesignTokens.Semantic.Orange // currently failing
+        status.recovering -> recoverBlue                 // auto-recovering
+        status.phase == "live" -> DesignTokens.Semantic.Green        // healthy
+        status.phase == "initial" -> recoverBlue         // initial sync
+        else -> DesignTokens.Semantic.Neutral            // idle
     }
     val phaseLabel = if (isUnauthorized) "unauthorized" else status.phase
     val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
