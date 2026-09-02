@@ -470,25 +470,13 @@ struct AgentSessionView: View {
         selected: Bool,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Text(label)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white.opacity(
-                        selected ? TextOpacity.primary : TextOpacity.secondary
-                    ))
-                    .lineLimit(1)
-                if running {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(.white)
-                }
+        GlassPill(label, mode: .select(isSelected: selected, action: action)) {
+            if running {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(.white)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
         }
-        .glassButton(isActive: selected)
-        .buttonStyle(.plain)
     }
 
     private func centeredState(@ViewBuilder content: () -> some View) -> some View {
@@ -615,32 +603,30 @@ struct AgentSessionView: View {
                 }
                 .overlay(alignment: .bottom) {
                     if !atBottom {
-                        Button {
-                            // Re-arm follow directly (Android parity: the pill
-                            // tap sets follow=true) instead of waiting for the
-                            // scroll geometry to flip atBottom — while the
-                            // agent streams, the animated scrollTo targets the
-                            // bottom as of the tap, the content keeps growing
-                            // underneath it, and the animation lands short of
-                            // the moving max offset, so the pill never
-                            // vanished (EXP-306). With atBottom set here the
-                            // pill hides at once and the growth observer keeps
-                            // chasing the bottom.
-                            atBottom = true
-                            withAnimation {
-                                proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
-                            }
-                        } label: {
-                            Text("Jump to bottom ↓")
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                        }
                         // Opaque: the feed scrolls beneath this pill
                         // (EXP-165 Android parity, EXP-242).
-                        .glassButton(isActive: true, isOpaque: true)
-                        .buttonStyle(.plain)
+                        GlassPill(
+                            "Jump to bottom ↓",
+                            size: .md,
+                            mode: .select(isSelected: true) {
+                                // Re-arm follow directly (Android parity: the
+                                // pill tap sets follow=true) instead of waiting
+                                // for the scroll geometry to flip atBottom —
+                                // while the agent streams, the animated
+                                // scrollTo targets the bottom as of the tap,
+                                // the content keeps growing underneath it, and
+                                // the animation lands short of the moving max
+                                // offset, so the pill never vanished
+                                // (EXP-306). With atBottom set here the pill
+                                // hides at once and the growth observer keeps
+                                // chasing the bottom.
+                                atBottom = true
+                                withAnimation {
+                                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                                }
+                            },
+                            isOpaque: true
+                        )
                         .padding(.bottom, 8)
                     }
                 }
@@ -961,7 +947,10 @@ struct AgentSessionView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            // EXP-698: the chip shares its row with the `.md` Merge /
+            // Fix-conflicts pills, so it takes their height rather than
+            // whatever its own padding happened to add up to.
+            .frame(height: GlassPillTokens.heightMd)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -972,20 +961,18 @@ struct AgentSessionView: View {
     /// (EXP-498), so it only shows while there IS an open PR (`model.canMerge`,
     /// which resolves a batch run's PR through EXP-535's representative issue).
     private func mergePill(_ model: AgentSessionModel) -> some View {
-        Button {
-            showMergeConfirm = true
-        } label: {
-            GlassPillLabel("Merge", enabled: !merging, verticalPadding: 10) {
-                if merging {
-                    ProgressView().controlSize(.mini).tint(.white)
-                } else {
-                    AppIcon(AppIcons.prMerged, size: 14)
-                }
+        GlassPill(
+            "Merge",
+            size: .md,
+            mode: .action { showMergeConfirm = true },
+            enabled: !merging
+        ) {
+            if merging {
+                ProgressView().controlSize(.mini).tint(.white)
+            } else {
+                AppIcon(AppIcons.prMerged, size: GlassPillTokens.glyphMd)
             }
-            .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
-        .disabled(merging)
         .accessibilityLabel("Merge pull request")
     }
 
@@ -993,15 +980,12 @@ struct AgentSessionView: View {
     /// same height, opening the shared "Fix merge conflicts" launcher seeded
     /// with THIS run's pull request.
     private func fixConflictsPill() -> some View {
-        Button {
-            fixSheetOpen = true
-        } label: {
-            GlassPillLabel("Fix conflicts", verticalPadding: 10) {
-                AppIcon(AppIcons.uiBranch, size: 14)
-            }
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
+        GlassPill(
+            "Fix conflicts",
+            icon: AppIcons.uiBranch,
+            size: .md,
+            mode: .action { fixSheetOpen = true }
+        )
         .accessibilityLabel("Fix merge conflicts")
     }
 
@@ -1117,10 +1101,11 @@ struct AgentSessionView: View {
         }
     }
 
-    /// EXP-554: the steer composer now wears the comment composer's chrome — ONE
-    /// rounded (rc20) ultraThinMaterial card holding the pending strip, a
-    /// transparent field, and the `[+]`·spacer·send row. Behavior is untouched:
-    /// four images max, the same `sendSteerImages` upload, the same frozen
+    /// EXP-554: the steer composer wears the comment composer's chrome, and
+    /// since EXP-698 that IS the same object — one `GlassComposer` holding the
+    /// transparent field, the pending strip and the `[+]`·spacer·send row. No
+    /// material, no shadow, no radius of its own. Behavior is untouched: four
+    /// images max, the same `sendSteerImages` upload, the same frozen
     /// `SteerImageMessage` wire format.
     private func composerCard(_ model: AgentSessionModel) -> some View {
         @Bindable var model = model
@@ -1134,13 +1119,29 @@ struct AgentSessionView: View {
         // reconnect lands.
         let sendDisabled = !canSend || model.steerSending || !model.canSteer
         let attachDisabled = attachFull || model.steerSending
-        return VStack(alignment: .leading, spacing: 0) {
+        return GlassComposer(isOpaque: true) {
+            GlassTextField(
+                // A pending plan approval routes free text into the plan
+                // feedback flow (the desktop Esc's the picker and types the
+                // message) — say so instead of the generic prompt (EXP-529).
+                model.awaitingPlanApproval
+                    ? "Tell Claude what to change…" : "Message the agent…",
+                text: $model.draftText,
+                lines: 1...4,
+                bordered: false
+            )
+            .font(.subheadline)
+            .focused($inputFocused)
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+        } strip: {
             if !model.pendingImages.isEmpty {
                 PendingAttachmentStrip(items: model.pendingImages) { id in
                     model.pendingImages.removeAll { $0.id == id }
                 }
                 .padding(.horizontal, 8)
-                .padding(.top, 8)
+                .padding(.bottom, 4)
             }
 
             if let imageError = model.steerImageError {
@@ -1149,66 +1150,27 @@ struct AgentSessionView: View {
                     .foregroundStyle(DesignTokens.Semantic.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
-                    .padding(.top, 8)
+                    .padding(.bottom, 4)
             }
-
-            TextField(
-                // A pending plan approval routes free text into the plan
-                // feedback flow (the desktop Esc's the picker and types the
-                // message) — say so instead of the generic prompt (EXP-529).
-                model.awaitingPlanApproval
-                    ? "Tell Claude what to change…" : "Message the agent…",
-                text: $model.draftText,
-                axis: .vertical
-            )
-                .textFieldStyle(.plain)
-                .lineLimit(1...4)
-                .font(.subheadline)
-                .foregroundStyle(.white)
-                .focused($inputFocused)
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-                .padding(.bottom, 4)
-
-            HStack(spacing: 2) {
-                if canAttach {
-                    Button {
-                        showPhotoPicker = true
-                    } label: {
-                        AppIcon(AppIcons.uiAdd, size: AppIcon.Size.medium)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .frame(width: 36, height: 36)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(attachDisabled)
-                    .opacity(attachDisabled ? 0.4 : 1)
-                    .accessibilityLabel("Attach image")
+        } tools: {
+            if canAttach {
+                GlassComposerToolButton(
+                    AppIcons.uiAdd,
+                    accessibilityLabel: "Attach image",
+                    enabled: !attachDisabled
+                ) {
+                    showPhotoPicker = true
                 }
-
-                Spacer(minLength: 0)
-
-                Button {
-                    sendMessage(model)
-                } label: {
-                    AppIcon(AppIcons.uiSend, size: 28)
-                        .foregroundStyle(
-                            sendDisabled ? Color.white.opacity(0.3) : Color.white
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(sendDisabled)
-                .accessibilityLabel("Send")
             }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 6)
+        } submit: {
+            GlassComposerSubmitButton(
+                AppIcons.uiSend,
+                accessibilityLabel: "Send",
+                enabled: !sendDisabled
+            ) {
+                sendMessage(model)
+            }
         }
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
     }
 
     private func sendMessage(_ model: AgentSessionModel) {
@@ -1347,7 +1309,7 @@ private struct UserMessageBubble: View {
     private static let clampChars = 600
     /// Folded height. A block render has no `lineLimit`, so the fold is a
     /// clipped height cap instead — same approach as QuestionCard's prompt.
-    private static let clampHeight: CGFloat = 220
+    private static let clampHeight: CGFloat = 160
 
     private var clampable: Bool {
         text.count > Self.clampChars
@@ -1440,7 +1402,7 @@ private struct QuestionCard: View {
 
     private static let clampChars = 600
     private static let clampLines = 6
-    private static let clampHeight: CGFloat = 220
+    private static let clampHeight: CGFloat = 160
     /// The relay's answer frame rejects `text` past 4000 UTF-16 units WHOLE
     /// (steer-relay protocol.ts — dropped, not truncated), so an oversize
     /// reply would silently fail at the 8s lock and retry could never
@@ -1662,26 +1624,24 @@ private struct QuestionCard: View {
                     .glassRow(isActive: true)
                 let disabled = freeTextValue
                     .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                Button {
-                    submitFreeText()
-                } label: {
-                    AppIcon(AppIcons.uiSend, size: 13)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
+                GlassPill(
+                    "",
+                    mode: .select(isSelected: !disabled) { submitFreeText() },
+                    enabled: !disabled
+                ) {
+                    AppIcon(AppIcons.uiSend, size: GlassPillTokens.glyphSm)
                 }
-                .glassButton(isActive: !disabled)
-                .buttonStyle(.plain)
-                .disabled(disabled)
-                .opacity(disabled ? 0.5 : 1)
+                .accessibilityLabel("Send")
             }
         }
         if answerable, needsExplicitSubmit {
             // Multi-select submits every picked key at once.
             let disabled = locked || picked.isEmpty
-            GlassPillButton(submitTitle, isActive: !disabled, enabled: !disabled) {
-                submit()
-            }
+            GlassPill(
+                submitTitle,
+                mode: .select(isSelected: !disabled) { submit() },
+                enabled: !disabled
+            )
         }
         if locked, !question.resolved {
             HStack(spacing: 6) {
@@ -1997,7 +1957,7 @@ private struct PermissionRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             AppIcon(AppIcons.uiPermission, size: 11)
-                .foregroundStyle(DesignTokens.Semantic.orange)
+                .foregroundStyle(DesignTokens.Semantic.yellow)
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Permission requested · \(tool)")

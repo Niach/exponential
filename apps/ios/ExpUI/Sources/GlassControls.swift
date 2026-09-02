@@ -1,128 +1,22 @@
 import SwiftUI
 
 // Shared glass controls (EXP-604) — the iOS twins of Android's
-// ui/components/GlassPillButton.kt, CircleIconButton.kt and GlassTextField.kt,
-// which were themselves 1:1 ports of the ad-hoc styling these extract.
+// ui/components/CircleIconButton.kt and GlassTextField.kt, which were
+// themselves 1:1 ports of the ad-hoc styling these extract.
 // Geometry (paddings, icon sizes, radii, hairlines) is byte-matched across the
 // platforms, and since EXP-698 so are the fills and strokes: both sides read
 // `GlassTokens`, which is nothing but `DesignTokens` reads. Fonts approximate:
 // Android labelMedium ≈ `.caption.weight(.medium)`, bodyLarge ≈
 // `.body.weight(.medium)`.
 //
+// The pill vocabulary moved OUT of this file in EXP-698 round 2: the three
+// types that used to live here (`GlassPillLabel`, `GlassPillButton`,
+// `GlassChip`) collapsed into the one `GlassPill` in GlassPill.swift, and the
+// three hand-rolled composer cards into `GlassComposer`.
+//
 // Absent twins, deliberately: sheets have no close control at all since
 // EXP-687 (swipe down, both platforms), and the 52pt `.ultraThinMaterial`
 // floating-bar circles are a different chrome class.
-
-// MARK: - Pill
-
-/// The styled content of a glass pill — for the rare hosts that are not a
-/// `Button` (NavigationLink labels, tap-gesture rows). Everything else uses
-/// `GlassPillButton`.
-public struct GlassPillLabel<Leading: View>: View {
-    let label: String
-    var isActive: Bool = false
-    var isOpaque: Bool = false
-    var enabled: Bool = true
-    /// EXP-678: the ONE geometry knob — a pill sitting beside a taller row
-    /// (the steer screen's "Latest changes" chip) matches its height instead
-    /// of drawing a short pill against it. Default = the shared 6pt.
-    var verticalPadding: CGFloat = 6
-    let leading: Leading
-
-    public init(
-        _ label: String,
-        isActive: Bool = false,
-        isOpaque: Bool = false,
-        enabled: Bool = true,
-        verticalPadding: CGFloat = 6,
-        @ViewBuilder leading: () -> Leading
-    ) {
-        self.label = label
-        self.isActive = isActive
-        self.isOpaque = isOpaque
-        self.enabled = enabled
-        self.verticalPadding = verticalPadding
-        self.leading = leading()
-    }
-
-    public var body: some View {
-        HStack(spacing: 6) {
-            leading
-            Text(label)
-                .font(.caption.weight(.medium))
-        }
-        .foregroundStyle(.white.opacity(enabled ? TextOpacity.primary : TextOpacity.quaternary))
-        .padding(.horizontal, 12)
-        .padding(.vertical, verticalPadding)
-        .glassButton(isActive: isActive, isOpaque: isOpaque)
-    }
-}
-
-extension GlassPillLabel where Leading == EmptyView {
-    public init(
-        _ label: String,
-        isActive: Bool = false,
-        isOpaque: Bool = false,
-        enabled: Bool = true,
-        verticalPadding: CGFloat = 6
-    ) {
-        self.init(
-            label,
-            isActive: isActive,
-            isOpaque: isOpaque,
-            enabled: enabled,
-            verticalPadding: verticalPadding
-        ) { EmptyView() }
-    }
-}
-
-/// The capsule action pill: optional 14pt leading icon, caption/medium label.
-public struct GlassPillButton: View {
-    let label: String
-    var icon: String? = nil
-    var isActive: Bool = false
-    var isOpaque: Bool = false
-    var enabled: Bool = true
-    var verticalPadding: CGFloat = 6
-    let action: () -> Void
-
-    public init(
-        _ label: String,
-        icon: String? = nil,
-        isActive: Bool = false,
-        isOpaque: Bool = false,
-        enabled: Bool = true,
-        verticalPadding: CGFloat = 6,
-        action: @escaping () -> Void
-    ) {
-        self.label = label
-        self.icon = icon
-        self.isActive = isActive
-        self.isOpaque = isOpaque
-        self.enabled = enabled
-        self.verticalPadding = verticalPadding
-        self.action = action
-    }
-
-    public var body: some View {
-        Button(action: action) {
-            GlassPillLabel(
-                label,
-                isActive: isActive,
-                isOpaque: isOpaque,
-                enabled: enabled,
-                verticalPadding: verticalPadding
-            ) {
-                if let icon {
-                    AppIcon(icon, size: 14)
-                }
-            }
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-    }
-}
 
 // MARK: - Submit
 
@@ -403,35 +297,6 @@ public struct CircleIconLabel: View {
     }
 }
 
-// MARK: - Chip
-
-/// A small metadata chip (EXP-698): radius `sm`, `fillCard`, NO stroke — a
-/// chip is a label, not a control, so it never wears a hairline.
-public struct GlassChip<Content: View>: View {
-    let content: Content
-
-    public init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
-
-    public var body: some View {
-        content
-            .font(.caption.weight(.medium))
-            .padding(.vertical, 4)
-            .padding(.horizontal, 8)
-            .background(
-                GlassTokens.fillCard,
-                in: RoundedRectangle(cornerRadius: GlassTokens.chipRadius)
-            )
-    }
-}
-
-extension GlassChip where Content == Text {
-    public init(_ text: String) {
-        self.init { Text(text) }
-    }
-}
-
 /// The one back button for a `topBarLeading` slot on a page that hides the
 /// system chevron (EXP-687 made New issue a page) — Android's
 /// `TopBarBackButton`, the same circle around the `ui-back` glyph.
@@ -467,14 +332,24 @@ public struct TopBarBackButton: View {
 /// focused. Behavior modifiers
 /// (`.keyboardType`, `.submitLabel`, `.font`, autocapitalization/correction,
 /// `.focused`, `.onSubmit`) are applied by the CALLER — they propagate to the
-/// inner field. `showsBackground: false` drops the chrome and padding for
-/// fields living inside already-chromed rows (Form).
+/// inner field, which is why there is no `font:` parameter: a prompt box keeps
+/// its `.footnote.monospaced()` with a plain modifier.
+///
+/// `bordered: false` drops the chrome and padding for fields living inside an
+/// already-chromed row (a `GlassSection` row, a `Form`, a `GlassComposer`).
+///
+/// `lines:` makes it a TEXT AREA (EXP-698 round 2): the field grows on the
+/// vertical axis within that many lines. It replaces the nine hand-rolled
+/// `TextField(axis: .vertical)` boxes that each drew their own fill, radius and
+/// padding — the multi-line input is the same control as the single-line one.
 public struct GlassTextField<Leading: View, Trailing: View>: View {
     let placeholder: String
     @Binding var text: String
     var isSecure: Bool = false
-    var showsBackground: Bool = true
-    var horizontalPadding: CGFloat = 14
+    /// The growth range of a multi-line field; nil = a single-line field.
+    var lines: ClosedRange<Int>? = nil
+    var bordered: Bool = true
+    var horizontalPadding: CGFloat = 12
     var verticalPadding: CGFloat = 12
     /// Applied directly to the field so XCUITest `textFields[id]` queries keep
     /// resolving (an identifier on the container lands on the wrong element).
@@ -488,8 +363,9 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
         _ placeholder: String,
         text: Binding<String>,
         isSecure: Bool = false,
-        showsBackground: Bool = true,
-        horizontalPadding: CGFloat = 14,
+        lines: ClosedRange<Int>? = nil,
+        bordered: Bool = true,
+        horizontalPadding: CGFloat = 12,
         verticalPadding: CGFloat = 12,
         accessibilityIdentifier: String = "",
         @ViewBuilder leading: () -> Leading,
@@ -498,7 +374,8 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
         self.placeholder = placeholder
         self._text = text
         self.isSecure = isSecure
-        self.showsBackground = showsBackground
+        self.lines = lines
+        self.bordered = bordered
         self.horizontalPadding = horizontalPadding
         self.verticalPadding = verticalPadding
         self.accessibilityIdentifier = accessibilityIdentifier
@@ -507,7 +384,7 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
     }
 
     public var body: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: lines == nil ? .center : .top, spacing: 8) {
             leading
             field
                 .accessibilityIdentifier(accessibilityIdentifier)
@@ -517,7 +394,7 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
             trailing
         }
         .modifier(Chrome(
-            shows: showsBackground,
+            shows: bordered,
             horizontalPadding: horizontalPadding,
             verticalPadding: verticalPadding,
             focused: focused
@@ -538,6 +415,9 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
             } else {
                 SecureField(placeholder, text: $text)
             }
+        } else if let lines {
+            TextField(placeholder, text: $text, axis: .vertical)
+                .lineLimit(lines)
         } else {
             TextField(placeholder, text: $text)
         }
@@ -577,8 +457,9 @@ extension GlassTextField where Leading == EmptyView, Trailing == EmptyView {
         _ placeholder: String,
         text: Binding<String>,
         isSecure: Bool = false,
-        showsBackground: Bool = true,
-        horizontalPadding: CGFloat = 14,
+        lines: ClosedRange<Int>? = nil,
+        bordered: Bool = true,
+        horizontalPadding: CGFloat = 12,
         verticalPadding: CGFloat = 12,
         accessibilityIdentifier: String = ""
     ) {
@@ -586,7 +467,8 @@ extension GlassTextField where Leading == EmptyView, Trailing == EmptyView {
             placeholder,
             text: text,
             isSecure: isSecure,
-            showsBackground: showsBackground,
+            lines: lines,
+            bordered: bordered,
             horizontalPadding: horizontalPadding,
             verticalPadding: verticalPadding,
             accessibilityIdentifier: accessibilityIdentifier
@@ -599,22 +481,22 @@ extension GlassTextField where Leading == EmptyView, Trailing == EmptyView {
 /// Inline search field for the searchable sheets — deliberately NOT system
 /// `.searchable` (iOS 26 renders that as a bottom-edge glass bar; see
 /// DuplicatePickerSheet, whose styling this extracts). Layout margins are the
-/// caller's. `showsBackground: false` for bare Form rows (StartCodingSheet).
+/// caller's. `bordered: false` for bare Form rows (StartCodingSheet).
 public struct GlassSheetSearchField: View {
     let placeholder: String
     @Binding var text: String
-    var showsBackground: Bool = true
+    var bordered: Bool = true
     var accessibilityIdentifier: String = ""
 
     public init(
         placeholder: String,
         text: Binding<String>,
-        showsBackground: Bool = true,
+        bordered: Bool = true,
         accessibilityIdentifier: String = ""
     ) {
         self.placeholder = placeholder
         self._text = text
-        self.showsBackground = showsBackground
+        self.bordered = bordered
         self.accessibilityIdentifier = accessibilityIdentifier
     }
 
@@ -622,7 +504,7 @@ public struct GlassSheetSearchField: View {
         GlassTextField(
             placeholder,
             text: $text,
-            showsBackground: showsBackground,
+            bordered: bordered,
             horizontalPadding: 12,
             verticalPadding: 9,
             accessibilityIdentifier: accessibilityIdentifier

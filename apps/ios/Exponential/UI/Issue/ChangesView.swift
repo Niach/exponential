@@ -387,12 +387,7 @@ struct ChangesView: View {
             }
             HStack(spacing: 8) {
                 if let prState = issue?.prState, !prState.isEmpty {
-                    Text(prState.capitalized)
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .glassButton()
+                    GlassPill(prState.capitalized)
                 }
                 // Stats depend on the diff fetch — shown only once it lands.
                 if let files {

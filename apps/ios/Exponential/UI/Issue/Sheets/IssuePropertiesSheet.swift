@@ -87,26 +87,15 @@ struct IssuePropertiesSheet<Child: View>: View {
 
                 FlowLayout(spacing: 6) {
                     ForEach(labels.filter { assignedIds.contains($0.id) }, id: \.id) { label in
-                        Button {
-                            onToggleLabel(label.id)
-                        } label: {
-                            HStack(spacing: 5) {
-                                Circle()
-                                    .fill(Color(hex: label.color) ?? .gray)
-                                    .frame(width: 8, height: 8)
-                                Text(label.name)
-                                    .font(.caption)
-                                    .foregroundStyle(.white)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .glassButton(isActive: true)
-                        }
-                        .buttonStyle(.plain)
+                        GlassPill(
+                            label.name,
+                            mode: .select(isSelected: true) { onToggleLabel(label.id) },
+                            dot: Color(hex: label.color) ?? .gray
+                        )
                     }
-                    GlassPillButton("Label", icon: AppIcons.uiAdd) {
+                    GlassPill("Label", icon: AppIcons.uiAdd, mode: .action {
                         activeChild = .labels
-                    }
+                    })
                 }
                 .padding(.horizontal, 14)
 

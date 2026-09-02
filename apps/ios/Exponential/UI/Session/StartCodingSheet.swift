@@ -437,7 +437,7 @@ struct StartCodingSheet: View {
         // Inline search field. NOT system .searchable — same rationale as
         // DuplicatePickerSheet (iOS 26 renders it as a bottom-edge glass bar).
         // Bare (no chrome) — it lives in an already-chromed Form row.
-        GlassSheetSearchField(placeholder: "Search issues", text: $searchText, showsBackground: false)
+        GlassSheetSearchField(placeholder: "Search issues", text: $searchText, bordered: false)
     }
 
     private func issueRow(_ option: IssueOption) -> some View {
@@ -631,7 +631,7 @@ struct StartCodingSheet: View {
     }
 
     private var actionSearchField: some View {
-        GlassSheetSearchField(placeholder: "Search actions", text: $actionSearchText, showsBackground: false)
+        GlassSheetSearchField(placeholder: "Search actions", text: $actionSearchText, bordered: false)
     }
 
     private func actionRow(_ action: ActionDto) -> some View {
@@ -702,8 +702,12 @@ struct StartCodingSheet: View {
                 Text(inputLabel(def))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                TextField(def.placeholder ?? "", text: inputBinding(def.key), axis: .vertical)
-                    .lineLimit(1...4)
+                GlassTextField(
+                    def.placeholder ?? "",
+                    text: inputBinding(def.key),
+                    lines: 1...4,
+                    bordered: false
+                )
             }
         case "textarea":
             // EXP-530: the multi-line variant — same value rules as `text`
@@ -712,8 +716,12 @@ struct StartCodingSheet: View {
                 Text(inputLabel(def))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                TextField(def.placeholder ?? "", text: inputBinding(def.key), axis: .vertical)
-                    .lineLimit(3...8)
+                GlassTextField(
+                    def.placeholder ?? "",
+                    text: inputBinding(def.key),
+                    lines: 3...8,
+                    bordered: false
+                )
             }
         case "repo":
             // The leading `""` is the unset sentinel the picker used to spell
@@ -967,8 +975,12 @@ struct StartCodingSheet: View {
                 Text("Prompt")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                TextField("What should the agent do?", text: $chatPrompt, axis: .vertical)
-                    .lineLimit(4...10)
+                GlassTextField(
+                    "What should the agent do?",
+                    text: $chatPrompt,
+                    lines: 4...10,
+                    bordered: false
+                )
             }
         }
         .listRowBackground(glassFormRowFill)

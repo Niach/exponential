@@ -103,17 +103,7 @@ struct IssueDetailView: View {
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .multilineTextAlignment(.center)
-            Button {
-                vm.retryLoad()
-            } label: {
-                Text("Try again")
-                    .font(.callout)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-            }
-            .glassButton()
-            .buttonStyle(.plain)
+            GlassPill("Try again", size: .md, mode: .action { vm.retryLoad() })
         }
         .padding(24)
     }
@@ -141,16 +131,10 @@ struct IssueDetailView: View {
                             || issue.source == DomainContract.issueSourceAgent {
                             let isAgent = issue.source == DomainContract.issueSourceAgent
                             HStack(spacing: 6) {
-                                HStack(spacing: 6) {
-                                    AppIcon(isAgent ? AppIcons.uiAgentSource : AppIcons.uiWidget, size: 11)
-                                    Text(isAgent ? "Agent" : "Feedback widget")
-                                        .font(.caption)
-                                        .lineLimit(1)
-                                }
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .glassButton()
+                                GlassPill(
+                                    isAgent ? "Agent" : "Feedback widget",
+                                    icon: isAgent ? AppIcons.uiAgentSource : AppIcons.uiWidget
+                                )
                                 Spacer()
                             }
                         }
@@ -772,27 +756,13 @@ struct IssueDetailView: View {
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             NavigationLink(value: AppRoute.issue(accountId: accountId, id: duplicateOfId)) {
-                Text(vm.duplicateOf?.identifier ?? vm.duplicateOf?.title ?? "issue")
-                    .font(.caption.monospaced().weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .glassButton(isActive: true)
+                GlassPill(vm.duplicateOf?.identifier ?? vm.duplicateOf?.title ?? "issue")
+                    .contentShape(Capsule())
             }
             .buttonStyle(.plain)
             Spacer()
             if vm.permissions.isModerator {
-                Button {
-                    Task { await vm.unmarkDuplicate() }
-                } label: {
-                    Text("Unmark")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                }
-                .glassButton()
-                .buttonStyle(.plain)
+                GlassPill("Unmark", mode: .action { Task { await vm.unmarkDuplicate() } })
             }
         }
         .padding(10)

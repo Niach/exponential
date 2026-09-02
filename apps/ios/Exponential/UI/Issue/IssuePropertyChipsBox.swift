@@ -25,67 +25,46 @@ struct IssuePropertyChipsBox: View {
     var body: some View {
         let priority = IssuePriority.from(issue.priority)
         FlowLayout(spacing: 6) {
-            chip(target: .status) {
-                AppIcon(status.iconName, size: AppIcon.Size.small)
+            chip(target: .status, label: status.name) {
+                AppIcon(status.iconName, size: GlassPillTokens.glyphSm)
                     .foregroundStyle(status.color)
-                Text(status.name)
-                    .font(.caption)
-                    .foregroundStyle(.white)
             }
-            chip(target: .priority) {
-                AppIcon(priority.iconName, size: AppIcon.Size.small)
+            chip(target: .priority, label: priority.label) {
+                AppIcon(priority.iconName, size: GlassPillTokens.glyphSm)
                     .foregroundStyle(priority.color)
-                Text(priority.label)
-                    .font(.caption)
-                    .foregroundStyle(.white)
             }
             if !singleMemberTeam {
-                chip(target: .assignee) {
-                    if let assigneeId = issue.assigneeId {
+                if let assigneeId = issue.assigneeId {
+                    chip(target: .assignee, label: memberDisplayName(assignee, id: assigneeId)) {
                         UserAvatar(user: assignee, id: assigneeId, size: 16)
-                        Text(memberDisplayName(assignee, id: assigneeId))
-                            .font(.caption)
-                            .foregroundStyle(.white)
-                    } else {
-                        AppIcon(AppIcons.uiUnassigned, size: AppIcon.Size.small)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        Text("Unassigned")
-                            .font(.caption)
+                    }
+                } else {
+                    chip(target: .assignee, label: "Unassigned") {
+                        AppIcon(AppIcons.uiUnassigned, size: GlassPillTokens.glyphSm)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
                 }
             }
             if let dueDate = issue.dueDate {
-                let tint = dueDateUrgencyColor(dueDate)
-                chip(target: .dueDate) {
-                    AppIcon(AppIcons.uiDueDate, size: AppIcon.Size.small)
-                        .foregroundStyle(tint)
-                    Text(dueDateChipLabel(dueDate))
-                        .font(.caption)
-                        .foregroundStyle(tint)
+                // The urgency color rides the GLYPH, the way the status and
+                // priority chips carry theirs — a pill's label is always the
+                // shared white.
+                chip(target: .dueDate, label: dueDateChipLabel(dueDate)) {
+                    AppIcon(AppIcons.uiDueDate, size: GlassPillTokens.glyphSm)
+                        .foregroundStyle(dueDateUrgencyColor(dueDate))
                 }
             }
             ForEach(assignedLabels, id: \.id) { label in
-                chip(target: .labels) {
-                    Circle()
-                        .fill(Color(hex: label.color) ?? .gray)
-                        .frame(width: 8, height: 8)
-                    Text(label.name)
-                        .font(.caption)
-                        .foregroundStyle(.white)
-                }
+                GlassPill(
+                    label.name,
+                    mode: .action { onTapProperty(.labels) },
+                    dot: Color(hex: label.color) ?? .gray
+                )
             }
             if isModerator {
-                Button {
-                    onOpenProperties()
-                } label: {
-                    AppIcon(AppIcons.uiAdd, size: AppIcon.Size.small, weight: .medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .glassButton()
+                GlassPill("", mode: .action { onOpenProperties() }) {
+                    AppIcon(AppIcons.uiAdd, size: GlassPillTokens.glyphSm, weight: .medium)
                 }
-                .buttonStyle(.plain)
             }
         }
         .padding(10)
@@ -103,22 +82,12 @@ struct IssuePropertyChipsBox: View {
         .disabled(!isModerator)
     }
 
-    @ViewBuilder
-    private func chip<Content: View>(
+    private func chip<Leading: View>(
         target: IssuePropertyChild,
-        @ViewBuilder content: () -> Content
+        label: String,
+        @ViewBuilder leading: () -> Leading
     ) -> some View {
-        Button {
-            onTapProperty(target)
-        } label: {
-            HStack(spacing: 5) {
-                content()
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .glassButton()
-        }
-        .buttonStyle(.plain)
+        GlassPill(label, mode: .action { onTapProperty(target) }, leading: leading)
     }
 
 }

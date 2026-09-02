@@ -91,12 +91,7 @@ struct TeamMembersSection: View {
             Spacer()
 
             // Role badge
-            Text(member.role)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .glassButton()
+            GlassPill(member.role)
 
             // Actions menu — only rendered when there is at least one action to
             // offer. Each action is a precomputed boolean, and the ellipsis is

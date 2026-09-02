@@ -132,7 +132,7 @@ struct MobileTabBar: View {
                 .accessibilityIdentifier("tab-reviews")
             }
             .animation(motion.standard, value: activeKey)
-            .padding(5)
+            .padding(4)
             // EXP-698: flat, not blurred — the pill floats over scrolling
             // content, so its fill is the OPAQUE composite (`fillCard` over
             // the card surface), never a low-alpha tint the feed shows through.
@@ -140,7 +140,6 @@ struct MobileTabBar: View {
             .overlay(
                 Capsule().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
             )
-            .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
 
             Spacer()
 
@@ -191,7 +190,8 @@ struct MobileTabBar: View {
                 // 44pt (HIG minimum) instead of the old 56pt: up to six tabs
                 // (Support present) + the compose circle must fit a 375pt
                 // screen (SE/mini) — see the spacing/padding trims in `body`.
-                .frame(width: 44, height: 42)
+                // Square, so the active shape is a true circle (EXP-698).
+                .frame(width: 44, height: 44)
                 .overlay(alignment: .topTrailing) {
                     if badge {
                         Circle()
@@ -201,15 +201,17 @@ struct MobileTabBar: View {
                     }
                 }
                 .background {
-                    // Only the ACTIVE tab renders the capsule, and it carries
+                    // Only the ACTIVE tab renders the shape, and it carries
                     // the shared geometry id — that is what makes it travel.
+                    // EXP-698: a CIRCLE in the ONE bright glass fill, not a
+                    // hand-typed white .12 capsule.
                     if active {
-                        Capsule()
-                            .fill(Color.white.opacity(0.12))
+                        Circle()
+                            .fill(GlassTokens.fillActive)
                             .matchedGeometryEffect(id: "tab-pill", in: tabPill)
                     }
                 }
-                .contentShape(Capsule())
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)

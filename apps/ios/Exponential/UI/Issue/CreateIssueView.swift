@@ -226,32 +226,23 @@ struct CreateIssueView: View {
 
                         FlowLayout(spacing: 6) {
                             ForEach(labels, id: \.id) { label in
-                                Button {
-                                    if selectedLabelIds.contains(label.id) {
-                                        selectedLabelIds.remove(label.id)
-                                    } else {
-                                        selectedLabelIds.insert(label.id)
-                                    }
-                                } label: {
-                                    HStack(spacing: 5) {
-                                        Circle()
-                                            .fill(Color(hex: label.color) ?? .gray)
-                                            .frame(width: 8, height: 8)
-                                        Text(label.name)
-                                            .font(.caption)
-                                            .foregroundStyle(.white)
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .glassButton(isActive: selectedLabelIds.contains(label.id))
-                                }
-                                .buttonStyle(.plain)
+                                GlassPill(
+                                    label.name,
+                                    mode: .select(isSelected: selectedLabelIds.contains(label.id)) {
+                                        if selectedLabelIds.contains(label.id) {
+                                            selectedLabelIds.remove(label.id)
+                                        } else {
+                                            selectedLabelIds.insert(label.id)
+                                        }
+                                    },
+                                    dot: Color(hex: label.color) ?? .gray
+                                )
                             }
                             // "+ Label" — create a new team label and
                             // pre-select it on this draft in one step.
-                            GlassPillButton("Label", icon: AppIcons.uiAdd) {
+                            GlassPill("Label", icon: AppIcons.uiAdd, mode: .action {
                                 picker = .createLabel
-                            }
+                            })
                         }
                     }
 
@@ -304,12 +295,11 @@ struct CreateIssueView: View {
                 TopBarBackButton { attemptClose() }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                GlassPillButton(
+                GlassPill(
                     loading ? "Creating…" : "Create",
+                    mode: .action { Task { await createIssue() } },
                     enabled: !title.isEmpty && !loading && !createCommitted
-                ) {
-                    Task { await createIssue() }
-                }
+                )
             }
         }
         .alert("Discard this issue?", isPresented: $confirmDiscard) {

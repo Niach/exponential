@@ -395,14 +395,11 @@ struct IssueListView: View {
                 // "Clear all" closes the pills row, mirroring the web's
                 // ActiveFilterPills — this row exists exactly when filters are
                 // active, so Clear needs no spot in the (space-tight) tab row.
-                GlassPillButton("Clear all") {
-                    vm.clearFilters()
-                }
+                GlassPill("Clear all", mode: .action { vm.clearFilters() })
             }
         }
     }
 
-    @ViewBuilder
     private func filterPill(
         icon: String? = nil,
         iconColor: Color = .white,
@@ -410,28 +407,15 @@ struct IssueListView: View {
         text: String,
         onRemove: @escaping () -> Void
     ) -> some View {
-        Button(action: onRemove) {
-            HStack(spacing: 5) {
-                if let icon {
-                    AppIcon(icon, size: 11)
-                        .foregroundStyle(iconColor)
-                }
-                if let dotColor {
-                    Circle()
-                        .fill(dotColor)
-                        .frame(width: 7, height: 7)
-                }
-                Text(text)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                AppIcon(AppIcons.uiClose, size: 8, weight: .semibold)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        GlassPill(text, mode: .action(onRemove), dot: dotColor) {
+            if let icon {
+                AppIcon(icon, size: GlassPillTokens.glyphSm)
+                    .foregroundStyle(iconColor)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+        } trailing: {
+            AppIcon(AppIcons.uiClose, size: 10, weight: .semibold)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         }
-        .glassButton()
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder

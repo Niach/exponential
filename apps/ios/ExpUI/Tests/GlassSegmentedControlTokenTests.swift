@@ -16,15 +16,26 @@ import ExpUI
 // show up as a diff on the control itself.
 final class GlassSegmentedControlTokenTests: XCTestCase {
 
-    // The container is the flat `fillRow` surface with the brightest resting
-    // hairline — the same pair Android's `GlassSegmentedControl` composes.
+    // The container is the DIMMEST rung with the stroke that pairs with it —
+    // the same pair Android's `GlassSegmentedControl` composes. Dim on
+    // purpose: the selected segment's `fillActive` has to be the brightest
+    // thing in the strip, and a `fillRow` container ate most of that contrast.
     func testContainerChromeIsTheSharedGlassTokens() {
         assertSameColor(
-            GlassSegmentedControlTokens.containerFill, GlassTokens.fillRow, "containerFill"
+            GlassSegmentedControlTokens.containerFill, GlassTokens.fillSection, "containerFill"
         )
-        assertSameColor(GlassSegmentedControlTokens.stroke, GlassTokens.strokeStrong, "stroke")
+        assertSameColor(GlassSegmentedControlTokens.stroke, GlassTokens.strokeSection, "stroke")
         XCTAssertEqual(GlassSegmentedControlTokens.hairline, GlassTokens.hairline)
         XCTAssertEqual(GlassSegmentedControlTokens.hairline, 0.5)
+    }
+
+    // The container must stay dimmer than the segment it holds — the whole
+    // point of the selected fill is that it reads as raised off the strip.
+    func testActiveSegmentIsBrighterThanItsContainer() {
+        XCTAssertLessThan(
+            alpha(of: GlassSegmentedControlTokens.containerFill),
+            alpha(of: GlassSegmentedControlTokens.activeFill)
+        )
     }
 
     // The selected segment wears the ONE bright glass fill — the same value a
@@ -37,13 +48,19 @@ final class GlassSegmentedControlTokenTests: XCTestCase {
         )
     }
 
-    // The three geometry numbers Android pins verbatim: the capsule-in-capsule
-    // inset, the gap between segments, and the vertical padding that sets the
-    // strip's height.
+    // The geometry numbers Android pins verbatim: the capsule-in-capsule
+    // inset, the gap between segments (none — they tile), the segment's own
+    // vertical padding, and the standalone strip's fixed height.
     func testGeometryMatchesTheAndroidDefaults() {
-        XCTAssertEqual(GlassSegmentedControlTokens.capsulePadding, 4)
-        XCTAssertEqual(GlassSegmentedControlTokens.segmentSpacing, 4)
-        XCTAssertEqual(GlassSegmentedControlTokens.segmentVerticalPadding, 7)
+        XCTAssertEqual(GlassSegmentedControlTokens.capsulePadding, 3)
+        XCTAssertEqual(GlassSegmentedControlTokens.segmentSpacing, 0)
+        XCTAssertEqual(GlassSegmentedControlTokens.segmentVerticalPadding, 6)
+        XCTAssertEqual(GlassSegmentedControlTokens.height, DesignTokens.Size.controlLg)
+        XCTAssertEqual(GlassSegmentedControlTokens.height, 36)
+    }
+
+    private func alpha(of color: Color) -> Double {
+        channels(of: color).alpha
     }
 
     private func assertSameColor(

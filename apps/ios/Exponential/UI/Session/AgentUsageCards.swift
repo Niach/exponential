@@ -113,7 +113,7 @@ struct AgentUsageTrack: View {
 
     private var tone: Color {
         switch severity {
-        case .normal: return .white.opacity(0.35)
+        case .normal: return GlassTokens.usageFill
         case .warning: return DesignTokens.Semantic.yellow
         case .danger: return DesignTokens.Semantic.red
         }

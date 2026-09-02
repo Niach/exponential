@@ -80,8 +80,11 @@ public struct EndedRunRow<Summary: View>: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if canResume {
-                    GlassPillButton(
-                        "Resume", icon: AppIcons.runResume, enabled: !resuming, action: onResume
+                    GlassPill(
+                        "Resume",
+                        icon: AppIcons.runResume,
+                        mode: .action(onResume),
+                        enabled: !resuming
                     )
                     .accessibilityIdentifier("resume-run")
                 }

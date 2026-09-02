@@ -135,6 +135,9 @@ struct ShareComposeView: View {
                 TextField("Issue title", text: $title)
             }
             Section("Description") {
+                // NOT a GlassTextField: the ShareExtension target links no
+                // ExpUI (Project.swift `dependencies: []`), so the shared
+                // control is out of reach here. EXP-698.
                 TextField("Description", text: $descriptionText, axis: .vertical)
                     .lineLimit(2...8)
             }

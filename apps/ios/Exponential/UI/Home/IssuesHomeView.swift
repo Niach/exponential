@@ -170,20 +170,12 @@ struct IssuesHomeView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .multilineTextAlignment(.center)
 
-                Button {
-                    showTeamSetup = true
-                } label: {
-                    HStack(spacing: 6) {
-                        AppIcon(AppIcons.uiAdd, size: AppIcon.Size.small, weight: .semibold)
-                        Text("Create or join a team")
-                            .font(.subheadline.weight(.medium))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .glassButton()
-                }
-                .buttonStyle(.plain)
+                GlassPill(
+                    "Create or join a team",
+                    icon: AppIcons.uiAdd,
+                    size: .md,
+                    mode: .action { showTeamSetup = true }
+                )
             }
             .padding(.horizontal, 40)
         } else {
@@ -198,25 +190,18 @@ struct IssuesHomeView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .multilineTextAlignment(.center)
 
-                Button {
-                    Task { await beginCreateBoard() }
-                } label: {
-                    HStack(spacing: 6) {
-                        if preparingCreate {
-                            ProgressView().controlSize(.small).tint(.white)
-                        } else {
-                            AppIcon(AppIcons.uiAdd, size: AppIcon.Size.small, weight: .semibold)
-                        }
-                        Text("Create board")
-                            .font(.subheadline.weight(.medium))
+                GlassPill(
+                    "Create board",
+                    size: .md,
+                    mode: .action { Task { await beginCreateBoard() } },
+                    enabled: !preparingCreate
+                ) {
+                    if preparingCreate {
+                        ProgressView().controlSize(.small).tint(.white)
+                    } else {
+                        AppIcon(AppIcons.uiAdd, size: GlassPillTokens.glyphMd)
                     }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .glassButton()
                 }
-                .buttonStyle(.plain)
-                .disabled(preparingCreate)
             }
             .padding(.horizontal, 40)
         }

@@ -18,9 +18,9 @@ struct TeamLabelsSection: View {
             GlassSectionHeader("Labels") {
                 // "New label" rides the header (Boards' "New board" pattern,
                 // EXP-331) — labels stay member-level, so no owner gating.
-                GlassPillButton("New label", icon: AppIcons.uiAdd) {
+                GlassPill("New label", icon: AppIcons.uiAdd, mode: .action {
                     showCreate = true
-                }
+                })
             }
 
             ForEach(labels, id: \.id) { label in

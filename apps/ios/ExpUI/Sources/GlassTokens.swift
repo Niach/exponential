@@ -43,6 +43,15 @@ public enum GlassTokens {
     /// Every glass stroke is a hairline — one physical pixel on a 2x screen.
     public static let hairline: CGFloat = 0.5
 
+    // MARK: - Meters
+
+    /// The FILLED share of a meter at its resting severity — the agent-usage
+    /// rails (EXP-698). It has to out-read `strokeStrong`, the track it sits
+    /// in, without becoming a semantic tone: a normal window is not a warning.
+    /// Deliberately NOT one of the fill rungs above, which are surface tints
+    /// and far too dim to read as a filled bar.
+    public static let usageFill: Color = Color.white.opacity(0.30)
+
     // MARK: - Radii
 
     /// A gapped list item.

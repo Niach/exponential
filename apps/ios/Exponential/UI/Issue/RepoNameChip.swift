@@ -79,26 +79,19 @@ struct RepoNameChip: View {
     }
 
     private func chip(_ repo: TeamRepo) -> some View {
-        Button {
-            if let url = URL(string: "https://github.com/\(repo.fullName)") {
-                Platform.open(url)
-            }
-        } label: {
-            // The shared metadata chip (EXP-698) — same 8/4 padding and
-            // `fillCard` this hand-rolled it with, minus the pill's hairline.
-            GlassChip {
-                HStack(spacing: 6) {
-                    AppIcon(AppIcons.uiRepository, size: 11)
-                    Text(repo.fullName)
-                        .font(.caption.monospaced())
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    AppIcon(AppIcons.uiExternalLink, size: 11)
+        // The ONE pill (EXP-698): repo glyph, name, external-link mark.
+        GlassPill(
+            repo.fullName,
+            mode: .action {
+                if let url = URL(string: "https://github.com/\(repo.fullName)") {
+                    Platform.open(url)
                 }
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
+        ) {
+            AppIcon(AppIcons.uiRepository, size: GlassPillTokens.glyphSm)
+        } trailing: {
+            AppIcon(AppIcons.uiExternalLink, size: GlassPillTokens.glyphSm)
         }
-        .buttonStyle(.plain)
     }
 
     private func resolve() async {

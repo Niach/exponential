@@ -271,7 +271,8 @@ struct IssueDetailBottomBar: View {
     }
 
     private var expandedComposer: some View {
-        VStack(spacing: 0) {
+        // EXP-698: the ONE composer card. Opaque — it floats over the feed.
+        GlassComposer(isOpaque: true) {
             MarkdownEditor(
                 model: composerEditor,
                 placeholder: "Write a comment…",
@@ -286,9 +287,10 @@ struct IssueDetailBottomBar: View {
                 imageMaxHeight: 120
             )
             .boundedEditorHeight(minHeight: 44, maxHeight: 140)
-
-            // EXP-554: queued attachments live INSIDE the card, above the action
-            // row — never inlined into the body markdown.
+        } strip: {
+            // EXP-554: queued attachments live INSIDE the card, between the
+            // editor and the action row — never inlined into the body
+            // markdown.
             if !pendingAttachments.isEmpty {
                 PendingAttachmentStrip(items: pendingAttachments) { id in
                     pendingAttachments.removeAll { $0.id == id }
@@ -306,98 +308,57 @@ struct IssueDetailBottomBar: View {
                     .padding(.horizontal, 12)
                     .padding(.bottom, 4)
             }
-
-            HStack(spacing: 2) {
-                Button {
-                    showPhotoPicker = true
-                } label: {
-                    AppIcon(AppIcons.editorImage, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .frame(width: 36, height: 36)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(attachmentsFull)
-                .opacity(attachmentsFull ? 0.4 : 1)
-                .accessibilityLabel("Add photo")
-
-                Button {
-                    showFileImporter = true
-                } label: {
-                    AppIcon(AppIcons.uiAttach, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .frame(width: 36, height: 36)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(attachmentsFull)
-                .opacity(attachmentsFull ? 0.4 : 1)
-                .accessibilityLabel("Attach a file")
-
-                if !singleMemberTeam {
-                    Button {
-                        composerEditor.insertTextAtCaret("@")
-                    } label: {
-                        AppIcon(AppIcons.editorMention, size: AppIcon.Size.medium)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .frame(width: 36, height: 36)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Mention a member")
-                }
-
-                Button {
-                    composerEditor.insertTextAtCaret("#")
-                } label: {
-                    AppIcon(AppIcons.editorIssueRef, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .frame(width: 36, height: 36)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Reference an issue")
-
-                // EXP-551 — same picker sheet as the formatting toolbar's
-                // emoji button; inserts unicode at the composer's caret.
-                Button {
-                    emojiRefocusTarget = composerEditor.insertionTargetBlockId
-                    showEmojiPicker = true
-                } label: {
-                    AppIcon(AppIcons.editorEmoji, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .frame(width: 36, height: 36)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Insert emoji")
-
-                Spacer(minLength: 0)
-
-                Button {
-                    Task { await submit() }
-                } label: {
-                    AppIcon(AppIcons.uiSubmit, size: 28)
-                        .foregroundStyle(
-                            submitting || !canSend
-                                ? Color.white.opacity(0.3)
-                                : Color.white
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(submitting || !canSend)
-                .accessibilityLabel("Send comment")
+        } tools: {
+            GlassComposerToolButton(
+                AppIcons.editorImage,
+                accessibilityLabel: "Add photo",
+                enabled: !attachmentsFull
+            ) {
+                showPhotoPicker = true
             }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 6)
+
+            GlassComposerToolButton(
+                AppIcons.uiAttach,
+                accessibilityLabel: "Attach a file",
+                enabled: !attachmentsFull
+            ) {
+                showFileImporter = true
+            }
+
+            if !singleMemberTeam {
+                GlassComposerToolButton(
+                    AppIcons.editorMention,
+                    accessibilityLabel: "Mention a member"
+                ) {
+                    composerEditor.insertTextAtCaret("@")
+                }
+            }
+
+            GlassComposerToolButton(
+                AppIcons.editorIssueRef,
+                accessibilityLabel: "Reference an issue"
+            ) {
+                composerEditor.insertTextAtCaret("#")
+            }
+
+            // EXP-551 — same picker sheet as the formatting toolbar's
+            // emoji button; inserts unicode at the composer's caret.
+            GlassComposerToolButton(
+                AppIcons.editorEmoji,
+                accessibilityLabel: "Insert emoji"
+            ) {
+                emojiRefocusTarget = composerEditor.insertionTargetBlockId
+                showEmojiPicker = true
+            }
+        } submit: {
+            GlassComposerSubmitButton(
+                AppIcons.uiSubmit,
+                accessibilityLabel: "Send comment",
+                enabled: !submitting && canSend
+            ) {
+                Task { await submit() }
+            }
         }
-        .background(GlassTokens.opaqueCardFill)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
-        )
-        .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
     }
 
     // MARK: - Expand / collapse

@@ -386,10 +386,15 @@ struct ActionsListView: View {
     /// EXP-431: creation left the list ("Create action" no longer poses as a
     /// row); EXP-615 gave it its own sheet.
     private var newActionButton: some View {
-        GlassPillButton("New action", icon: AppIcons.actionCreate, enabled: teamState.activeTeam != nil) {
-            guard teamState.activeTeam != nil else { return }
-            createTarget = CreateActionSeed(id: "new")
-        }
+        GlassPill(
+            "New action",
+            icon: AppIcons.actionCreate,
+            mode: .action {
+                guard teamState.activeTeam != nil else { return }
+                createTarget = CreateActionSeed(id: "new")
+            },
+            enabled: teamState.activeTeam != nil
+        )
         .accessibilityLabel("New action")
     }
 
@@ -497,9 +502,12 @@ struct ActionsListView: View {
     @ViewBuilder
     private func newAutomationButton(_ vm: ActionsViewModel) -> some View {
         if steerEnabled {
-            GlassPillButton("New automation", icon: AppIcons.uiAdd, enabled: teamState.activeTeam != nil) {
-                formTarget = AutomationFormTarget(id: "new", automation: nil)
-            }
+            GlassPill(
+                "New automation",
+                icon: AppIcons.uiAdd,
+                mode: .action { formTarget = AutomationFormTarget(id: "new", automation: nil) },
+                enabled: teamState.activeTeam != nil
+            )
             .accessibilityLabel("New automation")
         }
     }
@@ -648,9 +656,20 @@ struct ActionsListView: View {
             // destination the start watcher does (a NavigationLink label can't
             // hold the row's own header button).
             onOpen: { sessionTarget = .init(sessionId: session.id) },
-            summary: { AgentMarkdownText(text: $0, context: nil) }
+            summary: { AgentMarkdownText(text: $0, context: markdownContext) }
         )
         .accessibilityIdentifier("automated-run-row")
+    }
+
+    /// Everything an `AgentMarkdownText` needs to render the embedded images
+    /// a close-out summary can carry — the same context the steer screen
+    /// hands its markdown (EXP-698: passing nil here silently dropped them).
+    private var markdownContext: AgentMarkdownContext {
+        AgentMarkdownContext(
+            baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+            accountId: accountId,
+            httpClient: deps.httpClient
+        )
     }
 
     /// "ended 5m ago" once the run finished, "started 5m ago" while it is
@@ -719,12 +738,7 @@ struct ActionsListView: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     // EXP-583: what the tap will set up.
-                    Text(suggestion.automation == nil ? "Action" : "Automation")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.white.opacity(0.08), in: Capsule())
+                    GlassPill(suggestion.automation == nil ? "Action" : "Automation")
                     Text(suggestion.description)
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))

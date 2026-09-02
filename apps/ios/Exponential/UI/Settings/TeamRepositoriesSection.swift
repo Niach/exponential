@@ -88,9 +88,9 @@ struct TeamRepositoriesSection: View {
                 // GitHub App — the picker itself handles the not-yet-connected
                 // case with its inline connect hop.
                 if let github, github.configured {
-                    GlassPillButton("Add repository", icon: AppIcons.uiAdd) {
+                    GlassPill("Add repository", icon: AppIcons.uiAdd, mode: .action {
                         showAddRepo = true
-                    }
+                    })
                 }
             }
 
@@ -139,9 +139,9 @@ struct TeamRepositoriesSection: View {
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     Spacer()
-                    GlassPillButton("Retry") {
+                    GlassPill("Retry", mode: .action {
                         Task { await reload(refreshGithub: true) }
-                    }
+                    })
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -287,19 +287,12 @@ struct TeamRepositoriesSection: View {
                         .padding(.vertical, 4)
                 }
                 ForEach(repo.boards) { ref in
-                    HStack(spacing: 6) {
+                    GlassPill(ref.name) {
                         if let board = boards.first(where: { $0.id == ref.id }) {
-                            AppIcon(BoardTypeDisplay.iconName(for: board), size: 12)
+                            AppIcon(BoardTypeDisplay.iconName(for: board), size: GlassPillTokens.glyphSm)
                                 .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
                         }
-                        Text(ref.name)
-                            .font(.caption)
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .glassButton()
                 }
             }
         }
@@ -368,18 +361,18 @@ struct TeamRepositoriesSection: View {
                     // Unsuspend happens on GitHub's installation settings page.
                     if let url = URL(string: suspended[0].manageUrl) {
                         Link(destination: url) {
-                            GlassPillLabel("Manage") {
-                                AppIcon(AppIcons.uiExternalLink, size: 14)
+                            GlassPill("Manage") {
+                                AppIcon(AppIcons.uiExternalLink, size: GlassPillTokens.glyphSm)
                             }
+                            .contentShape(Capsule())
                         }
                     }
                 } else if (github.connectUrl ?? github.installUrl) != nil {
-                    GlassPillButton(
+                    GlassPill(
                         needsReauth ? "Reconnect" : (github.installations.isEmpty ? "Connect GitHub" : "Manage"),
-                        icon: needsReauth ? AppIcons.uiRefresh : AppIcons.uiGithub
-                    ) {
-                        openConnect(github)
-                    }
+                        icon: needsReauth ? AppIcons.uiRefresh : AppIcons.uiGithub,
+                        mode: .action { openConnect(github) }
+                    )
                 } else if let url = webRepositoriesURL {
                     // The server mints no connect/install URL — the web
                     // repositories page explains and handles it.
@@ -423,12 +416,9 @@ struct TeamRepositoriesSection: View {
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .lineLimit(3)
             Spacer()
-            Button {
+            GlassPill("Disconnect account", mode: .action {
                 disconnectTarget = installation
-            } label: {
-                GlassPillLabel("Disconnect account")
-            }
-            .buttonStyle(.plain)
+            })
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

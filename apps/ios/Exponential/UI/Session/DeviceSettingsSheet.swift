@@ -671,16 +671,17 @@ struct DeviceSettingsSheet: View {
 
     private func loginButton(agent: String, account: AgentAccount?) -> some View {
         let signedIn = account?.signedIn == true
-        return GlassPillButton(
+        return GlassPill(
             signedIn ? "Switch account" : "Login",
-            icon: signedIn ? AppIcons.uiSwap : AppIcons.uiSignIn
-        ) {
-            if signedIn, agent == "codex" {
-                switchConfirmAgent = agent
-            } else {
-                queueLogin(agent: agent, switchAccount: signedIn)
+            icon: signedIn ? AppIcons.uiSwap : AppIcons.uiSignIn,
+            mode: .action {
+                if signedIn, agent == "codex" {
+                    switchConfirmAgent = agent
+                } else {
+                    queueLogin(agent: agent, switchAccount: signedIn)
+                }
             }
-        }
+        )
     }
 
     /// What came back: the machine completes the command EARLY, the moment the

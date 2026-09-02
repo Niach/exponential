@@ -770,8 +770,9 @@ struct AgentsView: View {
     private func sessionTrailingControl(_ row: AgentsViewModel.Row) -> some View {
         if let issue = row.issue, let identifier = issue.identifier, !identifier.isEmpty {
             NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
-                GlassPillLabel(identifier)
+                GlassPill(identifier)
                     .monospaced()
+                    .contentShape(Capsule())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Open issue \(identifier)")
@@ -869,9 +870,9 @@ struct AgentsView: View {
             // representative issue its Merge button used — the sheet's PR
             // picker normalizes any linked issue id to its option.
             if failure.isConflict, let issue = row.issue ?? row.batchPrIssue, canFixConflicts(issue) {
-                GlassPillButton("Fix conflicts", icon: AppIcons.uiBranch) {
+                GlassPill("Fix conflicts", icon: AppIcons.uiBranch, mode: .action {
                     fixTarget = FixConflictsTarget(rowId: row.id, issueId: issue.id)
-                }
+                })
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

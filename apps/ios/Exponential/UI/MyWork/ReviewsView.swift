@@ -267,9 +267,7 @@ struct ReviewsListContent: View {
                 // second button into the caption below. One trailing action,
                 // always the one worth tapping.
                 if canFixConflicts(entry) {
-                    GlassPillLabel("Fix conflicts") {
-                        AppIcon(AppIcons.uiBranch, size: 14)
-                    }
+                    GlassPill("Fix conflicts", icon: AppIcons.uiBranch)
                     .contentShape(Capsule())
                     .onTapGesture {
                         fixTarget = entry
@@ -277,11 +275,11 @@ struct ReviewsListContent: View {
                     .accessibilityAddTraits(.isButton)
                     .accessibilityLabel("Fix merge conflicts")
                 } else {
-                    GlassPillLabel("Merge") {
+                    GlassPill("Merge") {
                         if merging.contains(entry.id) {
                             ProgressView().controlSize(.mini)
                         } else {
-                            AppIcon(AppIcons.prMerged, size: 14)
+                            AppIcon(AppIcons.prMerged, size: GlassPillTokens.glyphSm)
                         }
                     }
                     .contentShape(Capsule())
