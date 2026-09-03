@@ -146,7 +146,7 @@ export function IssueEditorMobileProperties({
 
   return (
     <div className="mx-3 my-3 flex flex-col gap-4">
-      <div className="divide-y divide-glass-stroke overflow-hidden rounded-xl border border-glass-stroke-card bg-popover/40">
+      <div className="divide-y divide-glass-stroke overflow-hidden rounded-xl border border-glass-stroke-card bg-glass-card">
         <OptionDropdownMenu
           value={status.id}
           fallbackValue={status.id}

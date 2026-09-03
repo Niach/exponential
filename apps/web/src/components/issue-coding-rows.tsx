@@ -141,6 +141,19 @@ const SESSION_STATE_BADGE: Record<
 const RUNNING_TONE = `var(--color-emerald-400)`
 const PAUSED_TONE = `var(--muted-foreground)`
 
+/** The phone bar's badge dot — the pulsing ping while a run is live, the
+ * badge's own tone once it parks, so the circle and the pill never disagree
+ * about a state's colour (iOS `sessionDot`, Android's mirror). */
+function SessionStateDot({ state }: { state: SessionDisplayState }) {
+  if (state === `running`) return <RunningPing />
+  return (
+    <span
+      className="inline-flex size-2 rounded-full"
+      style={{ backgroundColor: SESSION_STATE_BADGE[state].tone }}
+    />
+  )
+}
+
 /** Text in the tone, stroke in the tone at 40% — the readonly pill's tint. */
 function toneStyle(tone: string): CSSProperties {
   return {
@@ -422,20 +435,31 @@ function AgentRow({
     // EXP-568 phone bar: one 52px circle, no words. Own live session → tap to
     // open the dock; someone else's → a static badge circle that says "busy,
     // not yours" (EXP-312 keeps live sessions owner-only).
+    // EXP-698 r7: the circle NAMES what it opens — the Devices/monitor glyph —
+    // and the state dot rides its top-trailing corner as a badge, clear of the
+    // glyph's own bounds (iOS/Android `sessionGlyph`). A bare dot in a glass
+    // circle said nothing about where the tap went.
     if (variant === `fab`) {
+      const dot = paused ? (
+        <StateDot className="bg-muted-foreground/40" />
+      ) : (
+        <SessionStateDot state={sessionDisplayState(latest, issue.prState)} />
+      )
+      const glyph = (
+        <span className="relative flex">
+          <WatchIcon className="size-5" />
+          <span className="absolute -right-1.5 -top-1">{dot}</span>
+        </span>
+      )
       if (ownLatest && steerEnabled) {
         return (
           <button
             type="button"
             aria-label="Open coding session"
             onClick={() => dock?.openDock(ownLatest.id)}
-            className={cn(FAB_CIRCLE_CLASS, `text-emerald-400`)}
+            className={cn(FAB_CIRCLE_CLASS, `text-foreground`)}
           >
-            {paused ? (
-              <StateDot className="bg-muted-foreground/40" />
-            ) : (
-              <RunningPing />
-            )}
+            {glyph}
           </button>
         )
       }
@@ -444,11 +468,7 @@ function AgentRow({
           aria-label="Coding session running"
           className={cn(FAB_CIRCLE_CLASS, `text-muted-foreground`)}
         >
-          {paused ? (
-            <StateDot className="bg-muted-foreground/40" />
-          ) : (
-            <RunningPing />
-          )}
+          {glyph}
         </div>
       )
     }
