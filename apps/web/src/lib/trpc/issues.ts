@@ -43,7 +43,10 @@ import {
 } from "@/lib/integrations/github-app"
 import { recordConversionEvent } from "@/lib/conversion/events"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
-import { repoBranchOverride } from "@/lib/trpc/repositories"
+import {
+  boardBranchOverride,
+  repoBranchOverride,
+} from "@/lib/trpc/repositories"
 import { isNotMergeable, prMergeFailureError } from "@/lib/trpc/pr-merge-error"
 import { escapeLikePattern } from "@/lib/like-pattern"
 import { applyStatusDerivations } from "@/lib/status-derivations"
@@ -1219,7 +1222,7 @@ export const issuesRouter = router({
     .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
       // Member-gated issue write (EXP-180: membership is invite-only and
       // every member is trusted — no extra role clamp).
-      const { teamId } = await assertIssueAccess(
+      const { teamId, boardId } = await assertIssueAccess(
         ctx.session.user.id,
         input.issueId,
         `write`
@@ -1337,6 +1340,7 @@ export const issuesRouter = router({
           let diagnosis = null
           if (isNotMergeable(err)) {
             const defaultBranch =
+              (await boardBranchOverride(boardId, repoFullName)) ??
               (await repoBranchOverride(teamId, repoFullName)) ??
               (await resolveRepoDefaultBranchCached(repoFullName))
             diagnosis = defaultBranch
@@ -1639,7 +1643,7 @@ export const issuesRouter = router({
   prepareConflictFix: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const { teamId } = await assertIssueAccess(
+      const { teamId, boardId } = await assertIssueAccess(
         ctx.session.user.id,
         input.issueId,
         `write`
@@ -1702,7 +1706,9 @@ export const issuesRouter = router({
 
       // Override-first (EXP-462): a team pinned to `develop` rebases conflict
       // fixes onto `develop`, and a base classified as dead retargets there.
+      // The board's own branch (EXP-712) wins over the repo pin.
       const defaultBranch =
+        (await boardBranchOverride(boardId, repoFullName)) ??
         (await repoBranchOverride(teamId, repoFullName)) ??
         (await resolveRepoDefaultBranchCached(repoFullName))
       if (!defaultBranch) {

@@ -47,6 +47,11 @@ data class BoardEntity(
     // the existing boards shape; the repo name is resolved via the
     // `repositories` tRPC router on demand.
     @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String? = null,
+    // EXP-712: the board's OWN branch — the base its coding-session worktrees
+    // branch from and the base its PRs target. NULL = follow the backing
+    // repo's (team-pin aware) default branch, so two boards on one repo can
+    // develop on different branches. Only meaningful with a repository.
+    @ColumnInfo(name = "default_branch") @SerialName("default_branch") @JsonNames("defaultBranch") val defaultBranch: String? = null,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double,
     // Soft-delete (trash) marker — part of the boards shape contract. Always
     // NULL inside the shape (the server where-clause excludes trashed rows; a

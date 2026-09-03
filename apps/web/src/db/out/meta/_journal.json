@@ -680,6 +680,13 @@
       "when": 1788458405049,
       "tag": "0096_end_sessions_on_merge",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1788461819094,
+      "tag": "0097_board_default_branch",
+      "breakpoints": true
     }
   ]
 }

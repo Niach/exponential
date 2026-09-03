@@ -127,6 +127,8 @@ pub fn issue_launch_request(
 ) -> LaunchRequest {
     LaunchRequest {
         issue_id: issue.id.clone(),
+        // EXP-712: the issue's board decides the worktree base + PR target.
+        board_id: issue.board_id.clone(),
         issue_identifier: issue.identifier.clone(),
         issue_status: IssueStatus::from_wire(issue.status.as_deref().unwrap_or("")),
         device_label: coding::default_device_label(),
@@ -235,7 +237,12 @@ pub fn resolve_action_request(
             .clone()
             .filter(|branch| !branch.is_empty())
             .ok_or_else(|| anyhow!("That pull request has no recorded branch."))?;
-        Some((issue.identifier.clone(), branch, issue.id.clone()))
+        Some((
+            issue.identifier.clone(),
+            branch,
+            issue.id.clone(),
+            issue.board_id.clone(),
+        ))
     } else {
         None
     };
@@ -280,7 +287,7 @@ pub fn resolve_action_request(
             match repo {
                 ActionRepo::Provided(group) => group,
                 ActionRepo::Resolve => {
-                    let (_, _, issue_id) = fix_target
+                    let (_, _, issue_id, _) = fix_target
                         .as_ref()
                         .expect("fix target resolved above");
                     let repository = api::repositories::for_issue(&ctx.trpc, issue_id)
@@ -326,7 +333,7 @@ pub fn resolve_action_request(
     };
 
     let kind = match fix_target {
-        Some((identifier, branch, issue_id)) => {
+        Some((identifier, branch, issue_id, board_id)) => {
             let default_branch = repo_group
                 .as_ref()
                 .map(|group| group.default_branch.clone())
@@ -339,7 +346,10 @@ pub fn resolve_action_request(
             }
             ActionRunKind::FixConflicts {
                 branch,
+                // `repositories.forIssue` (and the relay frame) resolve this
+                // through the issue's BOARD since EXP-712.
                 default_branch,
+                board_id,
                 identifier,
                 issue_id,
             }

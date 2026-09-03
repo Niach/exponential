@@ -198,9 +198,13 @@ import androidx.room.RoomDatabase
     //      column, shape allowlist, every client's badge). A run row now shows
     //      "Running" or nothing at all. Removing a column, so the local cache
     //      has to go: destructive fallback wipes + resyncs on first launch.
+    // v44 (EXP-712): boards.default_branch — the board's own branch (worktree
+    //      base + PR target), NULL = follow the backing repo's default. New
+    //      column on the boards shape allowlist; destructive fallback wipes +
+    //      resyncs so every board row arrives carrying it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 43,
+    version = 44,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

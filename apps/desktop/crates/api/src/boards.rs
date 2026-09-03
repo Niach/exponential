@@ -3,11 +3,14 @@
 //! `apps/web/src/lib/trpc/boards.ts`:
 //!
 //! - `boards.create({teamId, name, prefix, icon?, color?,
-//!   repository?})` → `{board, txId}` — `repository` (optional) is the
-//!   `{repositoryId}` OR `{fullName, …}` union
-//!   ([`BoardRepositoryInput`]). (slug is server-derived — there is no slug
+//!   repository?, defaultBranch?})` → `{board, txId}` — `repository`
+//!   (optional) is the `{repositoryId}` OR `{fullName, …}` union
+//!   ([`BoardRepositoryInput`]); `defaultBranch` (EXP-712) is only
+//!   meaningful with one. (slug is server-derived — there is no slug
 //!   field, §4.2; prefix is uppercased server-side.)
-//! - `boards.update({boardId, name?, color?, icon?})` → `{board, txId}` (EXP-707).
+//! - `boards.update({boardId, name?, color?, icon?, defaultBranch?})` →
+//!   `{board, txId}` (EXP-707; EXP-712 added the branch, whose explicit
+//!   `null` clears the pin).
 //! - `boards.delete({boardId})` → `{ok, txId}` (owner-only).
 //! - `boards.archive({boardId})` / `boards.unarchive({boardId})` → `{ok, txId}`
 //!   and `boards.listArchived({teamId})` → `[{id, name, …, archivedAt}]`
@@ -42,6 +45,9 @@ pub struct BoardOut {
     /// v4 §3.1: the board's one repository (`boards.repositoryId`).
     #[serde(default)]
     pub repository_id: Option<String>,
+    /// EXP-712: the board's own branch pin (`null` = follow the repo).
+    #[serde(default)]
+    pub default_branch: Option<String>,
 }
 
 /// The backing repository for a new board (v4 §3.1 — `boards.repositoryId`
@@ -88,6 +94,11 @@ pub struct BoardsCreateInput {
     /// `repository_id`) — omitted for a repo-less board.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository: Option<BoardRepositoryInput>,
+    /// EXP-712: the branch this board's coding sessions start from. Only
+    /// meaningful with a `repository` (the server ignores it otherwise);
+    /// omitted = follow the repo's own default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_branch: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -111,6 +122,11 @@ pub struct BoardsUpdateInput {
     /// grid; server: `boardIconSchema.nullable().optional()`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// EXP-712's branch pin, three-state on the wire: absent = untouched,
+    /// `Some(Some(branch))` = pin it, `Some(None)` = an explicit JSON `null`
+    /// that clears the pin (follow the repo's default again).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_branch: Option<Option<String>>,
 }
 
 impl BoardsUpdateInput {
@@ -120,6 +136,7 @@ impl BoardsUpdateInput {
             name: None,
             color: None,
             icon: None,
+            default_branch: None,
         }
     }
 }
@@ -155,25 +172,38 @@ pub fn boards_update(
     trpc.mutation("boards.update", input)
 }
 
-/// `boards.setRepository({boardId, repositoryId})` → `{board, txId}`
-/// (v4 §3.2 / §5.3): retarget a board at another registry repository. The
-/// v4 replacement for the deleted `repositories.link/unlink/setPrimary` link
-/// procs — a board has exactly one repository now. Owner/manage-repos gated
-/// server-side; the repo must belong to the board's team.
+/// `boards.setRepository({boardId, repositoryId, defaultBranch?})` →
+/// `{board, txId}` (v4 §3.2 / §5.3): retarget a board at another registry
+/// repository. The v4 replacement for the deleted
+/// `repositories.link/unlink/setPrimary` link procs — a board has exactly
+/// one repository now. Owner/manage-repos gated server-side; the repo must
+/// belong to the board's team.
+///
+/// EXP-712: the board's branch pin belongs to the OLD repo, so the server
+/// RESETS it on every retarget unless `default_branch` names the new one.
 pub fn boards_set_repository(
     trpc: &TrpcClient,
     board_id: &str,
-    repository_id: &str,
+    repository_id: Option<&str>,
+    default_branch: Option<&str>,
 ) -> Result<BoardsCreateOutput, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
         board_id: &'a str,
-        repository_id: &'a str,
+        /// Nullable server-side — an explicit `null` unlinks the board, so
+        /// this is deliberately NOT skipped when `None`.
+        repository_id: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        default_branch: Option<&'a str>,
     }
     trpc.mutation(
         "boards.setRepository",
-        &Input { board_id, repository_id },
+        &Input {
+            board_id,
+            repository_id,
+            default_branch,
+        },
     )
 }
 
@@ -279,6 +309,7 @@ mod tests {
                 repository: Some(BoardRepositoryInput::Registry {
                     repository_id: "repo-1".to_string(),
                 }),
+                default_branch: None,
             },
         )
         .unwrap();
@@ -329,6 +360,82 @@ mod tests {
         input.icon = Some("rocket".to_string());
         let json = serde_json::to_string(&input).unwrap();
         assert_eq!(json, r#"{"boardId":"p-1","icon":"rocket"}"#);
+    }
+
+    /// EXP-712: the branch pin is three-state — untouched, pinned, or an
+    /// EXPLICIT `null` that clears it. A skipped `null` would silently keep
+    /// the old pin, so "follow the repo again" must reach the wire.
+    #[test]
+    fn update_sends_an_explicit_null_to_clear_the_branch_pin() {
+        let mut input = BoardsUpdateInput::new("p-1");
+        input.default_branch = Some(Some("develop".to_string()));
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"boardId":"p-1","defaultBranch":"develop"}"#
+        );
+
+        let mut input = BoardsUpdateInput::new("p-1");
+        input.default_branch = Some(None);
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"boardId":"p-1","defaultBranch":null}"#
+        );
+
+        // Untouched drops out entirely (a rename must not clear the pin).
+        let mut input = BoardsUpdateInput::new("p-1");
+        input.name = Some("Renamed".to_string());
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"boardId":"p-1","name":"Renamed"}"#
+        );
+    }
+
+    /// EXP-712: `boards.create` carries the branch beside the repository, and
+    /// a retarget only keeps a branch when one is named (the server resets it
+    /// otherwise — the pin belonged to the old repo).
+    #[test]
+    fn create_and_set_repository_carry_the_branch() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"board":{"id":"p-1","teamId":"w-1","name":"Gate","defaultBranch":"develop"},"txId":9}}}"#,
+        );
+        let out = boards_create(
+            &client(&base),
+            &BoardsCreateInput {
+                team_id: "w-1".to_string(),
+                name: "Gate".to_string(),
+                prefix: "GATE".to_string(),
+                icon: None,
+                color: None,
+                repository: Some(BoardRepositoryInput::Registry {
+                    repository_id: "repo-1".to_string(),
+                }),
+                default_branch: Some("develop".to_string()),
+            },
+        )
+        .unwrap();
+        assert_eq!(out.board.default_branch.as_deref(), Some("develop"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"teamId":"w-1","name":"Gate","prefix":"GATE","repository":{"repositoryId":"repo-1"},"defaultBranch":"develop"}"#
+        ), "{request}");
+
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"board":{"id":"p-1"},"txId":4}}}"#);
+        boards_set_repository(&client(&base), "p-1", Some("repo-2"), None).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"boardId":"p-1","repositoryId":"repo-2"}"#), "{request}");
+
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"board":{"id":"p-1"},"txId":5}}}"#);
+        boards_set_repository(&client(&base), "p-1", Some("repo-2"), Some("develop")).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(
+                r#"{"boardId":"p-1","repositoryId":"repo-2","defaultBranch":"develop"}"#
+            ),
+            "{request}"
+        );
     }
 
     #[test]

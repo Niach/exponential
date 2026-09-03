@@ -1218,6 +1218,10 @@ fn remote_batch_start(
 ) -> anyhow::Result<()> {
     let mut issues = Vec::new();
     let mut seeds = HashMap::new();
+    // EXP-712: the board the batch branch is cut from — the first resolved
+    // issue's. `steer.startSession` already refused a batch whose boards
+    // disagree on the base branch, so any of them names the same branch.
+    let mut batch_board: Option<String> = None;
     for issue_id in issue_ids {
         // Only a genuinely UNKNOWN id is skipped (desktop parity — its sync
         // store may lag too). A transport/auth error must abort the whole
@@ -1249,6 +1253,9 @@ fn remote_batch_start(
             );
         }
         let issue = fetched.issue;
+        if batch_board.is_none() {
+            batch_board = issue.board_id.clone();
+        }
         seeds.insert(issue.id.clone(), launch::issue_seed(&issue));
         issues.push(coding::BatchIssueSpec {
             issue_id: issue.id.clone(),
@@ -1264,6 +1271,7 @@ fn remote_batch_start(
     let request = coding::BatchLaunchRequest {
         batch_id: coding::new_batch_id(),
         team_id,
+        board_id: batch_board,
         repo: coding::RepoGroup {
             repository_id: repo.repository_id,
             full_name: repo.full_name,
@@ -2976,6 +2984,7 @@ mod tests {
             clone: None,
             repo: None,
             repository_id: None,
+            board_id: None,
             branch: Some("exp/EXP-42".to_string()),
             base_branch: Some("master".to_string()),
             claude_session_id: Some("claude-1".to_string()),

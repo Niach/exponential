@@ -147,6 +147,11 @@ pub struct RunRecord {
     /// The team `repositories` row id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repository_id: Option<String>,
+    /// EXP-712: the board this run's branch is based on — replayed on the
+    /// resume mint so the reinstated worktree keeps the board's base branch
+    /// instead of falling back to the repo's default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board_id: Option<String>,
     /// The run's own branch (`exp/<slug>-<id8>` / `exp/chat-<id8>`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
@@ -427,6 +432,7 @@ mod tests {
     fn sample(session_id: &str) -> RunRecord {
         RunRecord {
             session_id: session_id.to_string(),
+            board_id: None,
             account_id: "acc-1".to_string(),
             agent: CodingAgent::Claude,
             kind: RunKind::Team,

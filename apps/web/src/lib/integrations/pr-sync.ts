@@ -848,6 +848,8 @@ export async function retargetChildrenOfMergedPr(opts: {
     .select({
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
+      // EXP-712: the linked issue's board may develop on its own branch.
+      boardDefaultBranch: boards.defaultBranch,
     })
     .from(issues)
     .innerJoin(boards, eq(boards.id, issues.boardId))
@@ -861,6 +863,7 @@ export async function retargetChildrenOfMergedPr(opts: {
     .where(eq(issues.prUrl, opts.prUrl))
     .limit(1)
   const defaultBranch =
+    linkedRepoRow?.boardDefaultBranch ??
     linkedRepoRow?.defaultBranchOverride ??
     (await resolveRepoDefaultBranchCached(repo))
   if (!defaultBranch) return

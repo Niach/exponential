@@ -677,7 +677,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_create`,
     {
-      description: `Create a board in a team (member; owner/admin to connect a new repo). The repository is optional. Coding features gate on repo presence. Pass repository.repositoryId (registry repo) or repository.fullName ("owner/name") to connect one inline. icon is a curated icon name.`,
+      description: `Create a board in a team (member; owner/admin to connect a new repo). The repository is optional. Coding features gate on repo presence. Pass repository.repositoryId (registry repo) or repository.fullName ("owner/name") to connect one inline; defaultBranch pins the branch this board's coding sessions branch from and its PRs target (omit = the repo's default). icon is a curated icon name.`,
       inputSchema: strictInput({
         teamId: uuidString,
         name: z.string().min(1).max(255),
@@ -708,6 +708,7 @@ export function registerExponentialTools(
             }),
           ])
           .optional(),
+        defaultBranch: z.string().min(1).max(255).optional(),
       }),
     },
     async (input) => {
@@ -726,12 +727,13 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_update`,
     {
-      description: `Update a board's name, color, or icon.`,
+      description: `Update a board's name, color, icon, or defaultBranch (the branch its coding sessions branch from and its PRs target; null = follow the repo's default).`,
       inputSchema: strictInput({
         id: uuidString,
         icon: boardIconEnumSchema.nullable().optional(),
         name: z.string().min(1).max(255).optional(),
         color: hexColorSchema.optional(),
+        defaultBranch: z.string().min(1).max(255).nullable().optional(),
       }),
     },
     async ({ id, ...rest }) => {
@@ -1835,6 +1837,13 @@ export function registerExponentialTools(
           if (repo && repo.repositoryId !== issueRepo.repositoryId) {
             throw new Error(
               `All issues in a batch PR must share one repository (${repo.fullName} vs ${issueRepo.fullName}).`
+            )
+          }
+          // EXP-712: boards on one repo may develop on different branches —
+          // a combined PR has exactly one base.
+          if (repo && repo.defaultBranch !== issueRepo.defaultBranch) {
+            throw new Error(
+              `All issues in a batch PR must share one base branch (${repo.defaultBranch} vs ${issueRepo.defaultBranch}). Pass 'base' to pick one.`
             )
           }
           repo = issueRepo
@@ -3516,13 +3525,14 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_set_repository`,
     {
-      description: `Point a board (by its UUID) at a different registered repository (both must be in the same team), or pass repositoryId: null to detach it. Owner/admin only. Existing worktrees keep working; new coding sessions use the new repo.`,
+      description: `Point a board (by its UUID) at a different registered repository (both must be in the same team), or pass repositoryId: null to detach it. Owner/admin only. Existing worktrees keep working; new coding sessions use the new repo. The board's branch pin resets unless defaultBranch is passed.`,
       inputSchema: strictInput({
         id: uuidString,
         repositoryId: uuidString.nullable(),
+        defaultBranch: z.string().min(1).max(255).optional(),
       }),
     },
-    async ({ id, repositoryId }) => {
+    async ({ id, repositoryId, defaultBranch }) => {
       try {
         if (!access.full) {
           const board = await getBoardTeamId(id)
@@ -3536,6 +3546,7 @@ export function registerExponentialTools(
         const result = await caller(user, request).boards.setRepository({
           boardId: id,
           repositoryId,
+          defaultBranch,
         })
         return ok(result.board)
       } catch (e) {

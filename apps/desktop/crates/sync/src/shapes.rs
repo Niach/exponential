@@ -143,6 +143,10 @@ pub const SHAPES: [ShapeSpec; 19] = [
             // settings reads `boards.listArchived` over tRPC instead.
             "icon",
             "repository_id",
+            // EXP-712: the board's own branch pin (nullable) — the base every
+            // coding session on this board cuts from. `heal_missing_columns`
+            // ALTERs it onto an existing local table.
+            "default_branch",
             "sort_order",
             "created_at",
             "updated_at",

@@ -310,6 +310,12 @@ export const boards = pgTable(
     repositoryId: uuid(`repository_id`).references(() => repositories.id, {
       onDelete: `restrict`,
     }),
+    // EXP-712: the branch THIS board's coding sessions branch from and its PRs
+    // target. NULL = follow the repo (its team-pinned `default_branch_override`,
+    // else GitHub's default). Lets two boards on one repo develop on
+    // different branches (release/1.x vs main). Synced (boards shape); reset
+    // to NULL whenever the board is retargeted to another repo.
+    defaultBranch: text(`default_branch`),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     // Soft-delete (trash) marker. Non-null = trashed; the purge sweep hard-deletes
     // it (cascade) once deletedAt + BOARD_TRASH_RETENTION_MS has passed. Purge

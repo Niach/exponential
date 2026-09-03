@@ -30,6 +30,10 @@ const fullNameSchema = z
   .max(255)
   .regex(/^[^/\s]+\/[^/\s]+$/, `Expected "owner/name"`)
 
+// EXP-712: a board's own branch (worktree base + PR target). Trimmed,
+// never empty — clients send null to follow the repo again.
+const boardBranchSchema = z.string().trim().min(1).max(255)
+
 const repositoryInputSchema = z.union([
   z.object({ repositoryId: z.string().uuid() }),
   z.object({
@@ -100,6 +104,8 @@ export const boardsRouter = router({
         // target an existing registry repo or connect one inline in the same
         // transaction (onboarding/create dialogs stay a single call).
         repository: repositoryInputSchema.optional(),
+        // EXP-712: only meaningful with a repository — ignored without one.
+        defaultBranch: boardBranchSchema.nullish(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -149,6 +155,7 @@ export const boardsRouter = router({
               color: input.color ?? DEFAULT_ACCENT_COLOR,
               icon: input.icon ?? null,
               repositoryId,
+              defaultBranch: repositoryId ? (input.defaultBranch ?? null) : null,
             })
             .returning()
 
@@ -201,12 +208,14 @@ export const boardsRouter = router({
   // at an already-shared registry repo is resource wiring, consistent with
   // boards.create's registry path (EXP-557). Existing worktrees for old-repo
   // issues keep working locally (they're just git); new launches use the new
-  // repo.
+  // repo. EXP-712: the board's branch pin belongs to the OLD repo, so a
+  // retarget resets it unless the caller passes the new one.
   setRepository: authedProcedure
     .input(
       z.object({
         boardId: z.string().uuid(),
         repositoryId: z.string().uuid().nullable(),
+        defaultBranch: boardBranchSchema.nullish(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -232,7 +241,10 @@ export const boardsRouter = router({
               )
         const [board] = await tx
           .update(boards)
-          .set({ repositoryId })
+          .set({
+            repositoryId,
+            defaultBranch: repositoryId ? (input.defaultBranch ?? null) : null,
+          })
           .where(eq(boards.id, input.boardId))
           .returning()
         return { board, txId }
@@ -252,6 +264,8 @@ export const boardsRouter = router({
           name: z.string().min(1).max(255).optional(),
           color: hexColorSchema.optional(),
           icon: boardIconSchema.nullable().optional(),
+          // EXP-712: null = follow the repo's default branch again.
+          defaultBranch: boardBranchSchema.nullable().optional(),
         })
         .refine((i) => (i.boardId === undefined) !== (i.id === undefined), {
           message: `Pass boardId (or the deprecated id), not both`,

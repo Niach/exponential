@@ -1,0 +1,1 @@
+ALTER TABLE "boards" ADD COLUMN "default_branch" text;

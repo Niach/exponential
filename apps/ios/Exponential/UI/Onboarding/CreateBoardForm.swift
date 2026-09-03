@@ -15,7 +15,16 @@ final class CreateBoardDraft {
     var prefixEdited = false
     var color = DEFAULT_LABEL_COLOR
     var icon = "square-kanban"
-    var repository: BoardRepositoryChoice?
+    /// The picked registry repo (EXP-712: the field is one select, so the two
+    /// selection kinds are held apart instead of pre-folded into the wire
+    /// choice). Exactly one of these is ever set.
+    var repositoryId: String?
+    /// A repo picked in the GitHub picker but not connected yet — `create`
+    /// connects it inline by `fullName`.
+    var inlineRepo: GithubPickerRepo?
+    /// The board's own branch; nil = the repo's default. Reset with the repo —
+    /// a branch belongs to the repo it was picked in.
+    var defaultBranch: String?
     var saving = false
     var errorText: String?
     /// Plan-cap failures render as a softer nudge than hard errors.
@@ -30,6 +39,32 @@ final class CreateBoardDraft {
     }
 
     var submitLabel: String { saving ? "Creating…" : "Create board" }
+
+    /// The wire form of the repo selection (`boards.create`'s union).
+    var repository: BoardRepositoryChoice? {
+        if let inlineRepo {
+            return .fullName(
+                inlineRepo.fullName,
+                defaultBranch: inlineRepo.defaultBranch,
+                isPrivate: inlineRepo.`private`
+            )
+        }
+        return repositoryId.map { .repositoryId($0) }
+    }
+
+    /// Pick a connected repo (nil = no repository). Drops any pinned branch.
+    func selectRepository(_ repo: TeamRepo?) {
+        repositoryId = repo?.id
+        inlineRepo = nil
+        defaultBranch = nil
+    }
+
+    /// A repo picked in the GitHub picker — connected inline on create.
+    func connectRepository(_ repo: GithubPickerRepo) {
+        inlineRepo = repo
+        repositoryId = nil
+        defaultBranch = nil
+    }
 
     func onNameChange(_ value: String) {
         name = value
@@ -60,7 +95,8 @@ final class CreateBoardDraft {
                     prefix: prefix.trimmingCharacters(in: .whitespaces),
                     color: color,
                     icon: icon,
-                    repository: repository
+                    repository: repository,
+                    defaultBranch: defaultBranch
                 )
             )
         } catch {
@@ -76,9 +112,10 @@ final class CreateBoardDraft {
 }
 
 // The create-first-board form (web onboarding parity, wizard.tsx): a plain
-// form of name, prefix, color, icon, and an ALWAYS-optional repository. One
-// `boards.create` call carries `icon` (never the deprecated `type`). Reused
-// by the first-run onboarding page and the empty-state "Create board" sheets.
+// form of name, prefix, color, icon, and an ALWAYS-optional repository plus
+// the branch its coding sessions start from (EXP-712). One `boards.create`
+// call carries `icon` (never the deprecated `type`). Reused by the first-run
+// onboarding page and the empty-state "Create board" sheets.
 struct CreateBoardForm: View {
     let accountId: String
     let teamId: String
@@ -135,11 +172,17 @@ struct CreateBoardForm: View {
                 }
             }
 
-            // Repository (always optional) — the selector renders its own label.
-            RepositorySelector(
+            // Repository + branch (always optional) — the field renders its
+            // own labels and the one caption line.
+            BoardRepoField(
                 accountId: accountId,
                 teamId: teamId,
-                selection: $draft.repository
+                repositoryId: draft.repositoryId,
+                inlineRepo: draft.inlineRepo,
+                onSelectRegistry: { draft.selectRepository($0) },
+                onConnectNew: { draft.connectRepository($0) },
+                branch: draft.defaultBranch,
+                onBranchChange: { draft.defaultBranch = $0 }
             )
 
             if let errorText = draft.errorText {

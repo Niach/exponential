@@ -45,7 +45,9 @@ import XCTest
 // status + rate-limit usage on the devices shape, and the agent a run was
 // launched with on the coding-sessions shape) the twenty-second, and
 // v24_drop_coding_session_outcome (EXP-686: the self-reported run outcome is
-// gone server-side, so the local column goes too) the twenty-third.
+// gone server-side, so the local column goes too) the twenty-third, and
+// v25_board_default_branch (EXP-712: a board's own branch — what its coding
+// sessions start from — on the boards shape) the twenty-fourth.
 // These tests pin the fresh-install schema and the
 // exact migration identifiers so a new incremental migration is a conscious
 // decision, not an accident.
@@ -93,7 +95,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v17_coding_session_branch", "v18_action_automations",
              "v19_coding_session_device_id", "v20_automations",
              "v21_device_is_default", "v22_coding_session_outcome",
-             "v23_agent_status", "v24_drop_coding_session_outcome"]
+             "v23_agent_status", "v24_drop_coding_session_outcome",
+             "v25_board_default_branch"]
         )
     }
 
@@ -115,7 +118,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v17_coding_session_branch", "v18_action_automations",
              "v19_coding_session_device_id", "v20_automations",
              "v21_device_is_default", "v22_coding_session_outcome",
-             "v23_agent_status", "v24_drop_coding_session_outcome"]
+             "v23_agent_status", "v24_drop_coding_session_outcome",
+             "v25_board_default_branch"]
         )
     }
 
@@ -165,7 +169,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v17_coding_session_branch", "v18_action_automations",
              "v19_coding_session_device_id", "v20_automations",
              "v21_device_is_default", "v22_coding_session_outcome",
-             "v23_agent_status", "v24_drop_coding_session_outcome"]
+             "v23_agent_status", "v24_drop_coding_session_outcome",
+             "v25_board_default_branch"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -235,7 +240,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v17_coding_session_branch", "v18_action_automations",
              "v19_coding_session_device_id", "v20_automations",
              "v21_device_is_default", "v22_coding_session_outcome",
-             "v23_agent_status", "v24_drop_coding_session_outcome"]
+             "v23_agent_status", "v24_drop_coding_session_outcome",
+             "v25_board_default_branch"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -322,6 +328,8 @@ final class DatabaseMigrationTests: XCTestCase {
         let boardCols = try columnNames(pool, "boards")
         XCTAssertFalse(boardCols.contains("is_protected"))
         XCTAssertTrue(boardCols.contains("icon"))
+        // EXP-712: the board's own branch (nullable — nil follows the repo).
+        XCTAssertTrue(boardCols.contains("default_branch"))
         XCTAssertTrue(boardCols.contains("repository_id"))
     }
 
@@ -1003,6 +1011,45 @@ final class DatabaseMigrationTests: XCTestCase {
         for column in ["summary", "ended_by", "resumed_from_id"] {
             XCTAssertTrue(columns.contains(column), "missing \(column)")
         }
+    }
+
+    // v25 (EXP-712 board branches): a store created before
+    // `boards.default_branch` existed must gain it via the guarded ALTER and
+    // get its boards shape offset reset, so the rows already synced re-arrive
+    // carrying the branch.
+    func testBoardDefaultBranchAddedToExistingStore() throws {
+        let pool = try makePool("board-default-branch")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v24_drop_coding_session_outcome")
+        try pool.write { db in
+            // Model the pre-v25 state: today's v1 create already declares the
+            // column, which is exactly the overlap the guarded ALTER tolerates.
+            if try db.columns(in: "boards").contains(where: { $0.name == "default_branch" }) {
+                try db.alter(table: "boards") { t in
+                    t.drop(column: "default_branch")
+                }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('boards', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let column = try pool.read { db in
+            try db.columns(in: "boards").first { $0.name == "default_branch" }
+        }
+        XCTAssertNotNil(column)
+        XCTAssertFalse(column?.isNotNull ?? true)
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" WHERE \"shape\" = 'boards'"
+            )
+        }
+        XCTAssertEqual(reset, true)
     }
 
     // The `-v5` canonical file name + the legacy-file purge list are the wipe

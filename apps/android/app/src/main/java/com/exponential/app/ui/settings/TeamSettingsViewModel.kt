@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.githubConnectErrorMessage
+import com.exponential.app.data.api.BoardsApi
 import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.GithubReposResult
 import com.exponential.app.data.api.IntegrationsApi
@@ -79,6 +80,7 @@ class TeamSettingsViewModel @Inject constructor(
     private val labelsApi: LabelsApi,
     private val teamsApi: TeamsApi,
     private val repositoriesApi: RepositoriesApi,
+    private val boardsApi: BoardsApi,
     private val integrationsApi: IntegrationsApi,
     private val deepLinkBus: DeepLinkBus,
 ) : ViewModel() {
@@ -323,11 +325,48 @@ class TeamSettingsViewModel @Inject constructor(
         refreshRepos()
     }
 
-    // Member-level (EXP-557): retarget a board's backing repo (boards.setRepository).
-    fun setBoardRepository(boardId: String, repositoryId: String) = viewModelScope.launch {
+    // Member-level (EXP-557): retarget a board's backing repo
+    // (boards.setRepository). `null` detaches it. EXP-712: the server RESETS
+    // the board's branch pin on every retarget (it belonged to the old repo),
+    // which is exactly what the sheet shows afterwards.
+    fun setBoardRepository(boardId: String, repositoryId: String?) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { repositoriesApi.setRepository(accountId, boardId, repositoryId) }
             .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't change the repository") }
         refreshRepos()
+    }
+
+    // EXP-712: connect a brand-new repo (the board settings' "Connect another
+    // repository…") and point the board at it in one gesture — the registry
+    // add has no board argument, so the fresh row is resolved by full name off
+    // the refreshed list.
+    fun connectBoardRepository(
+        boardId: String,
+        fullName: String,
+        defaultBranch: String,
+        isPrivate: Boolean,
+    ) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        val teamId = selection.selectedId.value ?: return@launch
+        val added = runCatching {
+            repositoriesApi.add(accountId, teamId, fullName, defaultBranch, isPrivate)
+        }.onFailure { _transient.value = trpcErrorMessage(it, "Couldn't add the repository") }
+        if (added.isFailure) return@launch
+        val repos = runCatching { repositoriesApi.list(accountId, teamId) }
+            .onSuccess { _repos.value = it }
+            .getOrNull() ?: return@launch
+        val repo = repos.firstOrNull { it.fullName == fullName } ?: return@launch
+        runCatching { repositoriesApi.setRepository(accountId, boardId, repo.id) }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't change the repository") }
+        refreshRepos()
+    }
+
+    // EXP-712: the board's OWN branch (boards.update) — `null` clears the pin
+    // so the board follows its repo's default branch again. The updated row
+    // arrives over Electric.
+    fun setBoardBranch(boardId: String, branch: String?) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        runCatching { boardsApi.setDefaultBranch(accountId, boardId, branch) }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't change the branch") }
     }
 }

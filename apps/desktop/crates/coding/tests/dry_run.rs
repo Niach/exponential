@@ -228,6 +228,7 @@ fn main() {
     // check holds; the prompt rides argv as $7 (direct delivery).
     let req = PrepareRequest::Issue(LaunchRequest {
         issue_id: "issue-1".to_string(),
+        board_id: None,
         issue_identifier: "GATE-99".to_string(),
         // in_progress ⇒ no step-6.5 flip: the canned sequence stays exact.
         issue_status: domain::IssueStatus::InProgress,

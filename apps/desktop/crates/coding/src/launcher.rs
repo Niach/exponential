@@ -193,6 +193,12 @@ pub fn default_device_label() -> String {
 #[derive(Clone, Debug)]
 pub struct LaunchRequest {
     pub issue_id: String,
+    /// EXP-712: the issue's board — its `default_branch` (server-resolved
+    /// through the token mint) is the worktree base and PR target, so two
+    /// boards on one repository develop on different branches. `None` only
+    /// when the caller could not resolve it, which degrades to the
+    /// repo-level default.
+    pub board_id: Option<String>,
     /// e.g. `EXP-42` — becomes the branch name (`<prefix><IDENTIFIER>`).
     pub issue_identifier: String,
     /// Status snapshot at launch time — step 6.5 flips backlog issues
@@ -241,10 +247,15 @@ pub enum ActionRunKind {
     FixConflicts {
         /// The PR's head branch (e.g. `exp/EXP-42` / `exp/batch-<id8>`).
         branch: String,
-        /// The repo's server-reported default branch — the rebase-target
-        /// FALLBACK for old servers without `issues.prepareConflictFix`
-        /// (EXP-324); the live resolution in [`prepare`] wins otherwise.
+        /// The BOARD's base branch — the rebase-target FALLBACK for old
+        /// servers without `issues.prepareConflictFix` (EXP-324); the live
+        /// resolution in [`prepare`] wins otherwise. EXP-712: the board's own
+        /// pin when it has one, else the repo default.
         default_branch: String,
+        /// The representative issue's board (EXP-712) — names the board on
+        /// the token mint so the run's ambient branch resolution matches the
+        /// PR's own base.
+        board_id: Option<String>,
         /// The representative issue's identifier (prompt context + the
         /// `exponential_pr_merge` argument).
         identifier: String,
@@ -1074,6 +1085,19 @@ pub fn prepare_with_hooks(
             unreachable!("dispatched above")
         }
     };
+    // EXP-712: the BOARD this launch belongs to. The mint below answers with
+    // that board's branch (board pin → team pin → GitHub), which becomes the
+    // worktree base and the PR target — two boards on one repo therefore
+    // develop on different branches. A batch names any board of its set: one
+    // whose boards disagree on the branch was already refused (dialog blocker
+    // / `steer.startSession`), so they all resolve to the same branch.
+    let board_id = match req {
+        PrepareRequest::Issue(issue_req) => issue_req.board_id.clone(),
+        PrepareRequest::Batch(batch_req) => batch_req.board_id.clone(),
+        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
+            unreachable!("dispatched above")
+        }
+    };
 
     // Step 2 — mint the JIT installation token (session-gated, ≤1 h real
     // TTL, never persisted/logged server-side — TokenUrl + scrubbed git
@@ -1086,6 +1110,7 @@ pub fn prepare_with_hooks(
     let minted = match crate::token_cache::token_cache().get_or_mint_with_margin(
         &deps.trpc,
         &repository_id,
+        board_id.as_deref(),
         crate::token_refresh::REFRESH_LEAD,
     ) {
         Ok(minted) => minted,
@@ -1395,6 +1420,7 @@ pub fn prepare_with_hooks(
             clone: Some(clone.clone()),
             repo: Some(full_name.clone()),
             repository_id: Some(repository_id.clone()),
+            board_id: board_id.clone(),
             branch: Some(branch.clone()),
             base_branch: Some(minted.default_branch.clone()),
             claude_session_id: claude_session_id.clone(),
@@ -1578,6 +1604,12 @@ fn prepare_action(
             "the fix-conflicts run needs the pull request's repository".to_string(),
         ));
     }
+    // EXP-712: the fix-conflicts run is the only action shape that belongs to
+    // a BOARD (the PR's). Everything else works the repo's own default.
+    let fix_board_id = match &req.kind {
+        ActionRunKind::FixConflicts { board_id, .. } => board_id.clone(),
+        _ => None,
+    };
     // EXP-679: an automation's trigger or a relay `agent` reason makes this
     // run unattended — the only shape whose prompt names
     // `exponential_sessions_end` (the only shape the server registers it
@@ -1664,6 +1696,10 @@ fn prepare_action(
             let minted = match crate::token_cache::token_cache().get_or_mint_with_margin(
                 &deps.trpc,
                 &repo.repository_id,
+                // EXP-712: only the fix-conflicts run belongs to a board (the
+                // PR's own). Team/chat runs cut their branch from the REPO's
+                // default — they are not a board's work.
+                fix_board_id.as_deref(),
                 crate::token_refresh::REFRESH_LEAD,
             ) {
                 Ok(minted) => minted,
@@ -2092,6 +2128,7 @@ fn prepare_action(
             clone: trunk_clone.clone(),
             repo: repo.as_ref().map(|repo| repo.full_name.clone()),
             repository_id: repository_id.clone(),
+            board_id: fix_board_id.clone(),
             branch: run_branch.clone(),
             base_branch: base_branch.clone(),
             claude_session_id: claude_session_id.clone(),
@@ -2115,6 +2152,7 @@ fn prepare_action(
                     default_branch,
                     identifier,
                     issue_id,
+                    ..
                 } => Some(RunFix {
                     branch: branch.clone(),
                     default_branch: default_branch.clone(),
@@ -2303,6 +2341,9 @@ fn prepare_resume_run(
         let minted = match crate::token_cache::token_cache().get_or_mint_with_margin(
             &deps.trpc,
             repository_id,
+            // EXP-712: the recorded board, so a resume whose `base_branch`
+            // was never written still lands on the board's branch.
+            record.board_id.as_deref(),
             crate::token_refresh::REFRESH_LEAD,
         ) {
             Ok(minted) => minted,
@@ -2735,6 +2776,8 @@ pub fn prepare_agent_shell(
     let minted = match crate::token_cache::token_cache().get_or_mint_with_margin(
         &deps.trpc,
         &req.repository_id,
+        // A promptless shell is trunk work, not a board's — repo-level branch.
+        None,
         crate::token_refresh::REFRESH_LEAD,
     ) {
         Ok(minted) => minted,
@@ -3036,6 +3079,7 @@ mod tests {
     fn request(identifier: &str) -> LaunchRequest {
         LaunchRequest {
             issue_id: "issue-1".to_string(),
+            board_id: None,
             issue_identifier: identifier.to_string(),
             // Already in_progress ⇒ step 6.5 skips the flip, keeping the
             // canned-server sequences below one-to-one with steps 0–6.
@@ -3113,6 +3157,7 @@ mod tests {
         BatchLaunchRequest {
             batch_id: "a1b2c3d4".to_string(),
             team_id: "ws-1".to_string(),
+            board_id: None,
             repo: RepoGroup {
                 repository_id: "repo-1".to_string(),
                 full_name: "acme/web".to_string(),
@@ -3994,6 +4039,7 @@ mod tests {
         req.kind = ActionRunKind::FixConflicts {
             branch: "exp/EXP-42".to_string(),
             default_branch: "main".to_string(),
+            board_id: None,
             identifier: "EXP-42".to_string(),
             issue_id: "issue-1".to_string(),
         };
@@ -4339,6 +4385,7 @@ mod tests {
         fs::create_dir_all(&cwd).unwrap();
         crate::run_registry::RunRecord {
             session_id: session_id.to_string(),
+            board_id: None,
             account_id: "acct".to_string(),
             agent: CodingAgent::Claude,
             kind: crate::run_registry::RunKind::Team,
@@ -4585,6 +4632,7 @@ mod tests {
         req.kind = ActionRunKind::FixConflicts {
             branch: "exp/EXP-42".to_string(),
             default_branch: "main".to_string(),
+            board_id: None,
             identifier: "EXP-42".to_string(),
             issue_id: "issue-fix-1".to_string(),
         };

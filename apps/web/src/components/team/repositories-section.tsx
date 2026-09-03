@@ -2,8 +2,6 @@ import { useCallback, useEffect, useState } from "react"
 import { Link, useParams } from "@tanstack/react-router"
 import {
   TriangleAlert,
-  Check,
-  ChevronDown,
   ExternalLink,
   Github,
   LoaderCircle,
@@ -36,14 +34,6 @@ import {
 } from "@/components/ui/card"
 import { GlassGroup } from "@/components/ui/glass-rows"
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
-import {
   Dialog,
   DialogContent,
   DialogFooter,
@@ -51,16 +41,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  MobilePopover,
-  MobilePopoverContent,
-  MobilePopoverTrigger,
-} from "@/components/mobile-popover"
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { BranchCombobox } from "@/components/branch-combobox"
 import {
   GithubRepoPicker,
   openGithubPopup,
@@ -774,10 +760,9 @@ function RepoRow({
 
 // The row's branch badge as a picker (EXP-462): the shown value is the branch
 // the product treats as the repo's default (PR base, worktree base, trunk
-// sync). Branch names load from GitHub on first open; picking GitHub's own
-// default clears the pin server-side so the repo keeps following GitHub.
-// EXP-469: a searchable Command popover — repos routinely carry more branches
-// than a scrollable menu can be skimmed for.
+// sync). Picking GitHub's own default clears the pin server-side so the repo
+// keeps following GitHub. The searchable control itself is shared with the
+// board form (EXP-712).
 function DefaultBranchMenu({
   repo,
   busy,
@@ -787,111 +772,17 @@ function DefaultBranchMenu({
   busy: boolean
   onPick: (branch: string | null) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const [branches, setBranches] = useState<string[] | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    setLoadError(null)
-    try {
-      const { branches: names } = await trpc.repositories.listBranches.query({
-        repositoryId: repo.id,
-      })
-      setBranches(names)
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [repo.id])
-
-  // The effective branch always renders even when GitHub no longer has it
-  // (a pinned branch deleted upstream) — otherwise the menu couldn't show
-  // what the row is set to, let alone offer the way back to the default.
-  const names =
-    branches && !branches.includes(repo.defaultBranch)
-      ? [repo.defaultBranch, ...branches]
-      : branches
-
   return (
-    <MobilePopover
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-        if (next && branches === null && !loading) void load()
-      }}
-    >
-      <MobilePopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={busy}
-          className="h-5 shrink-0 gap-1 rounded-md px-1.5 font-mono text-xs font-normal"
-          aria-label={`Default branch for ${repo.fullName}`}
-        >
-          {repo.defaultBranch}
-          <ChevronDown className="h-3 w-3 text-muted-foreground" />
-        </Button>
-      </MobilePopoverTrigger>
-      <MobilePopoverContent
-        className="w-[16rem] p-0"
-        align="end"
-        mobileTitle="Default branch"
-      >
-        <Command>
-          <CommandInput placeholder="Search branches…" />
-          <CommandList>
-            {loading && (
-              <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
-                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                Loading branches…
-              </div>
-            )}
-            {loadError && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full justify-start rounded-none text-destructive hover:text-destructive"
-                onClick={() => void load()}
-              >
-                Couldn&rsquo;t load branches — retry
-              </Button>
-            )}
-            {names && (
-              <>
-                <CommandEmpty>No branches found.</CommandEmpty>
-                <CommandGroup>
-                  {names.map((name) => (
-                    <CommandItem
-                      key={name}
-                      value={name}
-                      onSelect={() => {
-                        setOpen(false)
-                        if (name === repo.defaultBranch) return
-                        onPick(name === repo.githubDefaultBranch ? null : name)
-                      }}
-                    >
-                      <Check
-                        className={`h-3.5 w-3.5 shrink-0 ${name === repo.defaultBranch ? `` : `invisible`}`}
-                      />
-                      <span className="min-w-0 flex-1 truncate font-mono text-xs">
-                        {name}
-                      </span>
-                      {name === repo.githubDefaultBranch && (
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          default
-                        </span>
-                      )}
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              </>
-            )}
-          </CommandList>
-        </Command>
-      </MobilePopoverContent>
-    </MobilePopover>
+    <BranchCombobox
+      repositoryId={repo.id}
+      value={repo.defaultBranch}
+      repoDefault={repo.githubDefaultBranch}
+      onPick={onPick}
+      disabled={busy}
+      size="sm"
+      align="end"
+      className="h-5 shrink-0 gap-1 rounded-md px-1.5 font-mono text-xs font-normal"
+      ariaLabel={`Default branch for ${repo.fullName}`}
+    />
   )
 }

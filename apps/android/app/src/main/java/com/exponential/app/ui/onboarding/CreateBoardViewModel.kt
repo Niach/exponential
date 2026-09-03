@@ -117,6 +117,7 @@ class CreateBoardViewModel @Inject constructor(
         color: String,
         icon: String,
         repository: BoardRepositoryChoice?,
+        defaultBranch: String?,
         onCreated: (boardId: String) -> Unit,
     ) {
         if (_state.value.submitting) return
@@ -132,6 +133,9 @@ class CreateBoardViewModel @Inject constructor(
                     color = color,
                     icon = icon,
                     repository = repository,
+                    // EXP-712: only meaningful with a repository — the server
+                    // drops it otherwise.
+                    defaultBranch = defaultBranch?.takeIf { repository != null },
                 )
             }.onSuccess { created ->
                 // Mirror the new board into Room immediately instead of waiting
