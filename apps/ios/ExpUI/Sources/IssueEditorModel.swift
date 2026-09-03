@@ -340,10 +340,25 @@ public final class IssueEditorModel {
     /// pass goes through [chipDecoration] and produces identical output.
     private func decorateChips() {
         for (idx, block) in blocks.enumerated() {
-            guard case let .text(id, content) = block else { continue }
-            let result = chipDecoration(for: content, selection: NSRange(location: 0, length: 0))
-            if result.changed {
-                blocks[idx] = .text(id: id, attributedContent: result.attributed)
+            switch block {
+            case let .text(id, content):
+                let result = chipDecoration(for: content, selection: NSRange(location: 0, length: 0))
+                if result.changed {
+                    blocks[idx] = .text(id: id, attributedContent: result.attributed)
+                }
+            case let .table(id, table):
+                // EXP-726: table cells carry the same `@email` / `#IDENT`
+                // tokens as any other run, and the chip decoration is
+                // serialization-invisible there too.
+                var mutated = table
+                let changed = mutated.transformCells { cell in
+                    let result = chipDecoration(
+                        for: cell.content, selection: NSRange(location: 0, length: 0))
+                    return result.changed ? result.attributed : nil
+                }
+                if !changed.isEmpty { blocks[idx] = .table(id: id, table: mutated) }
+            case .image:
+                continue
             }
         }
     }
@@ -360,11 +375,25 @@ public final class IssueEditorModel {
     /// `@email` mentions on a read-only comment card (EXP-322).
     private func redecorateChips() {
         for (idx, block) in blocks.enumerated() {
-            guard case let .text(id, content) = block else { continue }
-            let result = chipDecoration(for: content, selection: NSRange(location: 0, length: 0))
-            guard result.changed else { continue }
-            blocks[idx] = .text(id: id, attributedContent: result.attributed)
-            bumpRevision(id)
+            switch block {
+            case let .text(id, content):
+                let result = chipDecoration(for: content, selection: NSRange(location: 0, length: 0))
+                guard result.changed else { continue }
+                blocks[idx] = .text(id: id, attributedContent: result.attributed)
+                bumpRevision(id)
+            case let .table(id, table):
+                var mutated = table
+                let changed = mutated.transformCells { cell in
+                    let result = chipDecoration(
+                        for: cell.content, selection: NSRange(location: 0, length: 0))
+                    return result.changed ? result.attributed : nil
+                }
+                guard !changed.isEmpty else { continue }
+                blocks[idx] = .table(id: id, table: mutated)
+                for cellId in changed { bumpRevision(cellId) }
+            case .image:
+                continue
+            }
         }
     }
 
@@ -428,8 +457,15 @@ public final class IssueEditorModel {
         selection: NSRange? = nil,
         lengthDelta: Int = 0
     ) {
-        guard let idx = blocks.firstIndex(where: { $0.id == id }) else { return }
-        blocks[idx] = .text(id: id, attributedContent: content)
+        switch locate(id) {
+        case let .block(idx):
+            guard case .text = blocks[idx] else { return }
+            blocks[idx] = .text(id: id, attributedContent: content)
+        case let .cell(idx, row, col):
+            writeCell(blockIndex: idx, row: row, col: col, content: content)
+        case nil:
+            return
+        }
         if let selection { self.selection = (id, selection) }
         // The active `@`/`#`/`:` token's offset is now stale. Remapping it would
         // mean replaying every insertion, and the bar is cheap to reopen (the
@@ -481,9 +517,19 @@ public final class IssueEditorModel {
     // MARK: - Text editing
 
     public func updateText(id: UUID, content: NSAttributedString) {
-        guard let idx = blocks.firstIndex(where: { $0.id == id }) else { return }
-        // No revision bump: the originating text view already holds this content.
-        blocks[idx] = .text(id: id, attributedContent: content)
+        switch locate(id) {
+        case let .block(idx):
+            guard case .text = blocks[idx] else { return }
+            // No revision bump: the originating text view already holds this content.
+            blocks[idx] = .text(id: id, attributedContent: content)
+        case let .cell(idx, row, col):
+            // EXP-726: a table cell edit. The `@`/`#`/`:` typeaheads stay
+            // text-block-only in v1 — `recomputeAutocomplete` finds no block
+            // for a cell id and simply closes them.
+            writeCell(blockIndex: idx, row: row, col: col, content: content)
+        case nil:
+            return
+        }
         // Only a document change may OPEN an autocomplete bar. UIKit does not
         // guarantee whether the text or the selection callback lands first, so
         // arm a latch here and let whichever recompute sees the settled caret
@@ -491,6 +537,81 @@ public final class IssueEditorModel {
         armTextChange()
         recomputeAutocomplete(armed: true)
         notifyEdit()
+    }
+
+    // MARK: - Tables (EXP-726)
+
+    /// Where an id lives: a top-level block, or a cell inside a table block.
+    /// Cell ids share the block-id namespace, so every id-keyed entry point
+    /// (`updateText`, `applyDecoration`, `revision(for:)`, focus) goes through
+    /// here rather than growing a parallel routing table.
+    private enum BlockLocation {
+        case block(Int)
+        /// `row` 0 is the header row; body row `i` is row `i + 1`.
+        case cell(blockIndex: Int, row: Int, col: Int)
+    }
+
+    private func locate(_ id: UUID) -> BlockLocation? {
+        for (idx, block) in blocks.enumerated() {
+            if block.id == id { return .block(idx) }
+            if case let .table(_, table) = block, let position = table.cell(id: id) {
+                return .cell(blockIndex: idx, row: position.row, col: position.col)
+            }
+        }
+        return nil
+    }
+
+    private func writeCell(blockIndex: Int, row: Int, col: Int, content: NSAttributedString) {
+        guard blockIndex >= 0, blockIndex < blocks.count,
+              case let .table(id, table) = blocks[blockIndex] else { return }
+        var mutated = table
+        // A cell is ONE inline paragraph on every client: a pasted newline is a
+        // space, never a row split.
+        mutated.setContent(row: row, col: col, content: Self.flattenedNewlines(content))
+        blocks[blockIndex] = .table(id: id, table: mutated)
+    }
+
+    private static func flattenedNewlines(_ content: NSAttributedString) -> NSAttributedString {
+        let ns = content.string as NSString
+        guard ns.rangeOfCharacter(from: .newlines).location != NSNotFound else { return content }
+        let mutable = NSMutableAttributedString(attributedString: content)
+        var searchFrom = 0
+        while searchFrom < (mutable.string as NSString).length {
+            let found = (mutable.string as NSString).rangeOfCharacter(
+                from: .newlines,
+                range: NSRange(location: searchFrom, length: (mutable.string as NSString).length - searchFrom))
+            guard found.location != NSNotFound else { break }
+            let attrs = mutable.attributes(at: found.location, effectiveRange: nil)
+            mutable.replaceCharacters(
+                in: found, with: NSAttributedString(string: " ", attributes: attrs))
+            searchFrom = found.location + 1
+        }
+        return mutable
+    }
+
+    /// Write one table cell (the view's edit entry point).
+    public func updateTableCell(blockId: UUID, row: Int, col: Int, content: NSAttributedString) {
+        guard let idx = blocks.firstIndex(where: { $0.id == blockId }),
+              case .table = blocks[idx] else { return }
+        writeCell(blockIndex: idx, row: row, col: col, content: content)
+        notifyEdit()
+    }
+
+    /// Return inside a cell moves to the NEXT cell in row-major order (header
+    /// first), and does nothing at the last one — mobile has no row/column
+    /// manipulation UI, so Return may never grow the table.
+    public func focusCell(after id: UUID) {
+        guard case let .cell(idx, _, _)? = locate(id),
+              case let .table(_, table) = blocks[idx],
+              let next = table.cellId(after: id),
+              let position = table.cell(id: next),
+              let cell = table.cell(row: position.row, col: position.col) else { return }
+        // The bump is what makes `updateUIView` run and consume the caret
+        // request (`desiredSelection` is not observed by the view body).
+        bumpRevision(next)
+        focusedBlockId = next
+        desiredSelection = (next, cell.content.length)
+        selection = (next, NSRange(location: cell.content.length, length: 0))
     }
 
     // MARK: - Mentions / issue refs (autocomplete)
@@ -1067,6 +1188,14 @@ public final class IssueEditorModel {
         for block in blocks {
             revisionCounter += 1
             revisions[block.id] = revisionCounter
+            // Table CELLS are text views of their own, keyed by their own ids
+            // (EXP-726) — a load/remote apply has to re-apply their content too.
+            if case let .table(_, table) = block {
+                for cell in table.allCells {
+                    revisionCounter += 1
+                    revisions[cell.id] = revisionCounter
+                }
+            }
         }
     }
 

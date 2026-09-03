@@ -323,12 +323,47 @@ final class IssueRefChipTests: XCTestCase {
         XCTAssertEqual(markdown(of: content), "```\nlet x = 1\n```")
     }
 
-    func testABareObjectReplacementInsideATableIsStripped() {
-        var attrs = MarkdownStyle.baseAttributes
-        attrs[.markdownTableBlock] = true
-        let content = NSAttributedString(
-            string: "| Ticket |\n| --- |\n| #EXP-42\u{FFFC} |", attributes: attrs)
-        XCTAssertEqual(markdown(of: content), "| Ticket |\n| --- |\n| #EXP-42 |")
+    /// EXP-726: table cells are real editable runs now, so a `#EXP-42` inside
+    /// one gets the same title attachment as anywhere else — and, exactly as
+    /// anywhere else, it must not reach the markdown.
+    func testADecoratedIssueRefInsideATableCellNeverReachesTheMarkdown() {
+        let blocks = MarkdownConversion.markdownToBlocks(
+            "| Ticket |\n| --- |\n| #EXP-42 |")
+        guard let table = blocks.compactMap({ block -> TableBlock? in
+            if case let .table(_, table) = block { return table }
+            return nil
+        }).first else { return XCTFail("expected a table block") }
+
+        var decorated = table
+        _ = decorated.transformCells { cell in
+            let result = MarkdownChipDecorator.decorate(
+                cell.content,
+                issueRefResolver: resolver,
+                issueRefTitleResolver: titles
+            )
+            return result.changed ? result.attributed : nil
+        }
+        let cell = decorated.rows[0][0].content
+        XCTAssertTrue(
+            cell.string.contains("\u{FFFC}"),
+            "the chip title must be visible inside the cell")
+        XCTAssertEqual(
+            MarkdownConversion.blocksToMarkdown([.table(id: UUID(), table: decorated)]),
+            "| Ticket |\n| --- |\n| #EXP-42 |")
+    }
+
+    /// A BARE U+FFFC pasted into a cell (the attachment does not survive the
+    /// pasteboard) is stripped by the serializer's one chokepoint too.
+    func testABareObjectReplacementInsideATableCellIsStripped() {
+        let table = TableBlock(
+            header: [TableCell(content: NSAttributedString(
+                string: "Ticket", attributes: MarkdownStyle.baseAttributes))],
+            rows: [[TableCell(content: NSAttributedString(
+                string: "#EXP-42\u{FFFC}", attributes: MarkdownStyle.baseAttributes))]]
+        )
+        XCTAssertEqual(
+            MarkdownConversion.blocksToMarkdown([.table(id: UUID(), table: table)]),
+            "| Ticket |\n| --- |\n| #EXP-42 |")
     }
 
     // MARK: - Status glyph (EXP-423)

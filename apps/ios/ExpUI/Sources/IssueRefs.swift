@@ -150,11 +150,6 @@ public enum IssueRefs {
             if attrs[.markdownInlineCode] != nil || attrs[.markdownCodeBlock] != nil || attrs[.link] != nil {
                 continue
             }
-            // Skip refs inside a verbatim pipe-table run: the save path re-emits
-            // that run's SOURCE STRING line-for-line without consulting
-            // attributes, so a title attachment spliced next to the token would
-            // land in the saved markdown as a stray `￼` (EXP-322).
-            if attrs[.markdownTableBlock] != nil { continue }
             // Skip refs inside bold/italic/strikethrough spans: decorating
             // splits the attribute run, and the serializer wraps each fragment
             // separately (`**a**` + `**#X-1**` + `**b**`), which would break
@@ -230,7 +225,6 @@ public enum IssueRefs {
             if attrs[.markdownInlineCode] != nil || attrs[.markdownCodeBlock] != nil || attrs[.link] != nil {
                 continue
             }
-            if attrs[.markdownTableBlock] != nil { continue }
             let font = attrs[.font] as? PlatformFont
             if expFontHasBold(font) || expFontHasItalic(font)
                 || attrs[.markdownStrikethrough] as? Bool == true {
