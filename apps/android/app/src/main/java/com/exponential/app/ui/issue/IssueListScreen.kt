@@ -31,14 +31,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -79,7 +77,6 @@ import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
-import com.exponential.app.domain.WebLinks
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.ui.components.BoardIcon
@@ -95,7 +92,6 @@ import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.GlassSheetSearchField
-import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.LocalBottomBarSuppression
@@ -111,6 +107,7 @@ import com.exponential.app.ui.home.BoardSwitcherSheet
 import com.exponential.app.ui.home.HomeViewModel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.CreateBoardSheet
+import com.exponential.app.ui.onboarding.TeamSetupSheet
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
@@ -138,9 +135,6 @@ fun IssueListScreen(
     onOpenIssue: (String) -> Unit,
     onBack: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
-    // Root zero-team empty state's "Join team" (EXP-188): hands the extracted
-    // invite token to the existing invite/{token} route.
-    onOpenInvite: (String) -> Unit = {},
     // EXP-536: a remote start jumps straight into the live session once the
     // desktop's row syncs in, instead of parking a chip pointing at Devices.
     onOpenSteer: (codingSessionId: String) -> Unit = {},
@@ -166,8 +160,9 @@ fun IssueListScreen(
     // Which team the create-board sheet targets — the switcher names one, every
     // other entry point means "the selected team" (null).
     var createBoardTeamId by remember { mutableStateOf<String?>(null) }
-    var showCreateTeam by remember { mutableStateOf(false) }
-    var showJoinTeam by remember { mutableStateOf(false) }
+    // EXP-698: ONE create-or-join sheet, replacing the two stock Material
+    // dialogs — the same form the onboarding wizard's team step renders.
+    var showTeamSetup by remember { mutableStateOf(false) }
     // Collapse state keys on the GROUP KEY (status row id / `builtin:<key>`).
     var collapsed by remember { mutableStateOf(emptySet<String>()) }
 
@@ -383,25 +378,22 @@ fun IssueListScreen(
                     val hasTeam = homeState?.activeAccountHasTeam == true
                     if (!stillSyncing && !hasTeam) {
                         // Zero teams (EXP-188 — signups get no auto-created
-                        // team): create-or-join, mirroring the onboarding
-                        // choice. Kept visible even after an error so a failed
-                        // create can simply be retried.
+                        // team): ONE pill onto the create-or-join sheet, which
+                        // owns both paths and its own error lines. Byte-equal
+                        // copy to iOS `IssuesHomeView.emptyStateHint`.
                         EmptyState(
-                            message = homeError
-                                ?: "You're not in a team yet. Create one, or join a teammate's with an invite link.",
-                            icon = ExpIcons.uiTeam,
+                            message = "No team yet",
+                            icon = ExpIcons.settingsMembers,
+                            detail = homeError
+                                ?: "Create a team, or join one with an invite link from a teammate.",
                             action = {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    Button(onClick = { showCreateTeam = true }) {
-                                        Text("Create team")
-                                    }
-                                    OutlinedButton(onClick = { showJoinTeam = true }) {
-                                        Text("Join team")
-                                    }
-                                }
+                                GlassPill(
+                                    "Create or join a team",
+                                    icon = ExpIcons.uiAdd,
+                                    size = PillSize.Md,
+                                    mode = PillMode.Action,
+                                    onClick = { showTeamSetup = true },
+                                )
                             },
                         )
                     } else if (stillSyncing || homeError != null) {
@@ -710,7 +702,7 @@ fun IssueListScreen(
             },
             onCreateTeam = {
                 showSwitcher = false
-                showCreateTeam = true
+                showTeamSetup = true
             },
             onDismiss = { showSwitcher = false },
         )
@@ -727,96 +719,16 @@ fun IssueListScreen(
         )
     }
 
-    if (showCreateTeam && homeViewModel != null) {
-        CreateTeamDialog(
-            onCreate = { name ->
-                homeViewModel.createTeam(name)
-                showCreateTeam = false
-            },
-            onDismiss = { showCreateTeam = false },
+    if (showTeamSetup) {
+        // Both paths already point the team selection at the new team, so the
+        // empty state behind the sheet flips on its own — closing is all this
+        // has to do.
+        TeamSetupSheet(
+            onDismiss = { showTeamSetup = false },
+            onCreated = { showTeamSetup = false },
+            onJoined = { showTeamSetup = false },
         )
     }
-
-    if (showJoinTeam) {
-        JoinTeamDialog(
-            onJoin = { token ->
-                showJoinTeam = false
-                onOpenInvite(token)
-            },
-            onDismiss = { showJoinTeam = false },
-        )
-    }
-}
-
-// Zero-team "Create team" (EXP-188): a plain name dialog — the create runs in
-// HomeViewModel; success flips the empty state to create-board via the synced
-// (head-started) teams table.
-@Composable
-private fun CreateTeamDialog(
-    onCreate: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var name by remember { mutableStateOf("") }
-    AlertDialog(
-        // EXP-698 r5: the styleguide lane photographs this dialog off the
-        // switcher's "New team" row (`sg_onboarding-create-team`); a dialog
-        // window has no other stable handle to wait on.
-        modifier = Modifier.testTag("create-team-dialog"),
-        onDismissRequest = onDismiss,
-        title = { Text("Create a team") },
-        text = {
-            GlassTextField(
-                value = name,
-                onValueChange = { name = it },
-                singleLine = true,
-                placeholder = "Team name",
-                modifier = Modifier.fillMaxWidth(),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onCreate(name) }, enabled = name.isNotBlank()) {
-                Text("Create")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-// Zero-team "Join team" (EXP-188): paste an invite link (or bare token); the
-// extracted token routes into the existing invite/{token} accept screen.
-@Composable
-private fun JoinTeamDialog(
-    onJoin: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var input by remember { mutableStateOf("") }
-    val token = WebLinks.extractInviteToken(input)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Join a team") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    "Ask a teammate for an invite link and paste it here.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                )
-                GlassTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    singleLine = true,
-                    placeholder = "Invite link or code",
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { token?.let(onJoin) }, enabled = token != null) {
-                Text("Join")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)

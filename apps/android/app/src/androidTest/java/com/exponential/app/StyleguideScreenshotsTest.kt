@@ -205,19 +205,21 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_board-switcher")
 
-        // --- Create team: the switcher's own "New team" row (EXP-698 r5).
-        // The row CLOSES the sheet and opens the name dialog — two stacked
-        // bottom surfaces is a dead end on Android — so this waits on the
-        // dialog's tag rather than on the sheet going away, and it dismisses
-        // the sheet on the way for free.
+        // --- Set up a team: the switcher's own "New team" row (EXP-698 r5).
+        // The row CLOSES the switcher and opens the create-or-join sheet — two
+        // stacked bottom sheets is a dead end on Android — so this waits on the
+        // new sheet's tag rather than on the switcher going away, and it
+        // dismisses the switcher on the way for free. The extra wait on the
+        // first card's title keeps the shot off a half-drawn sheet.
         composeRule.onNode(hasTestTag("board-switcher-new-team")).performClick()
-        flow.waitFor(hasTestTag("create-team-dialog"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag("team-setup-sheet"), NAV_TIMEOUT)
+        flow.waitFor(hasText("Create a team"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_onboarding-create-team")
-        // Cancel, not back: the next shot starts from the plain board list, and
-        // an unconfirmed dialog must leave no team behind.
-        composeRule.onNode(hasText("Cancel")).performClick()
-        flow.waitForGone(hasTestTag("create-team-dialog"), NAV_TIMEOUT)
+        // EXP-687: sheets carry no Cancel pill — back (like a swipe down)
+        // dismisses, and an unsubmitted form leaves no team behind.
+        Espresso.pressBack()
+        flow.waitForGone(hasTestTag("team-setup-sheet"), NAV_TIMEOUT)
         flow.waitForGone(hasText("Switch board"), NAV_TIMEOUT)
         flow.settle(longer = true)
 

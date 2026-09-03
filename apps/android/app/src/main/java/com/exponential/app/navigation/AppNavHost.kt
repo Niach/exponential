@@ -398,11 +398,6 @@ private fun AuthenticatedNav(
                 mode = IssueListMode.Root,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenSettings = { navController.navigate("settings") },
-                // Zero-team empty state's "Join team" (EXP-188) reuses the
-                // deep-link invite accept route.
-                onOpenInvite = { token ->
-                    navController.navigate("invite/$token") { launchSingleTop = true }
-                },
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 // EXP-686: search left the bottom bar — the board header's
                 // button pushes it instead.
