@@ -17,6 +17,15 @@ struct IssueListView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.motion) private var motion
+    // EXP-698 r5: rows push through the navigator's path instead of wrapping
+    // their card in a NavigationLink (which drew the system disclosure OUTSIDE
+    // the glass), and the selection bar takes the tab bar's slot.
+    @Environment(\.pushRoute) private var pushRoute
+    @Environment(TabBarChrome.self) private var tabBarChrome: TabBarChrome?
+    // EXP-698 r5: the getting-started checklist under the empty state. Only
+    // the Issues ROOT publishes it (IssuesHomeView owns the progress model), so
+    // a pushed `.board` renders the bare empty state.
+    @Environment(\.gettingStarted) private var gettingStarted
     @State private var viewModel: IssueListViewModel?
     @State private var showFilterSheet = false
     // Multi-select mode (EXP-239): long-press a row to enter, tap toggles,
@@ -31,6 +40,8 @@ struct IssueListView: View {
     @State private var showStartSheet = false
     // Which bulk-property picker the selection bar is presenting (EXP-247).
     @State private var bulkSheet: BulkSheet?
+    /// The selection bar's Delete confirmation (EXP-698 r5).
+    @State private var showBulkDeleteConfirm = false
     // Inline status/priority editing straight from a row's icon (EXP-247) —
     // non-selection rows only, moderator-gated.
     @State private var inlineEdit: InlineEdit?
@@ -95,7 +106,24 @@ struct IssueListView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, showsTabBarClearance ? 92 : 16)
+            // EXP-698 r5: with a selection live the tab bar has stood down, so
+            // the bar drops into ITS slot (the tab pill's own 4pt inset)
+            // instead of floating a second bar above it. Without a selection
+            // the notices still clear the bar.
+            .padding(.bottom, showsTabBarClearance ? (selectionActive ? 4 : 92) : 16)
+        }
+        // The selection bar and the tab bar share one slot: entering
+        // multi-select slides the tab bar out, leaving it brings it back.
+        .onChange(of: selectionActive) { _, active in
+            tabBarChrome?.suppressed = active && showsTabBarClearance
+        }
+        // …and re-assert it on every appearance, not just the first: pushing
+        // Search or Settings with a selection live runs `onDisappear`, which
+        // hands the slot back, and `onChange` does not fire on the way back —
+        // the tab bar and the selection bar would then sit on top of each
+        // other at the same 4pt inset.
+        .onAppear {
+            tabBarChrome?.suppressed = selectionActive && showsTabBarClearance
         }
         // Haptic tick when multi-select engages (long-press confirmation).
         .sensoryFeedback(.impact(weight: .medium), trigger: selectionActive) { _, entered in entered }
@@ -172,6 +200,21 @@ struct IssueListView: View {
         .onDisappear {
             viewModel?.stopObserving()
             startWatcher.stop()
+            // Never strand the tab bar hidden behind a pushed screen.
+            tabBarChrome?.suppressed = false
+        }
+        .alert(
+            selectedIds.count == 1 ? "Delete 1 issue" : "Delete \(selectedIds.count) issues",
+            isPresented: $showBulkDeleteConfirm
+        ) {
+            Button("Delete", role: .destructive) {
+                let ids = Array(selectedIds)
+                exitSelection()
+                Task { await viewModel?.bulkDelete(issueIds: ids) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This action cannot be undone.")
         }
         // The desktop picked the start up — push the live steer screen ONCE
         // (the same destination the .agentSession route arm builds).
@@ -205,16 +248,29 @@ struct IssueListView: View {
             // plus any appended out-of-vocabulary group (see visibleGroups).
             let groups = vm.visibleGroups
             if groups.allSatisfy({ vm.issues(forGroup: $0).isEmpty }) {
-                // Android parity: an empty (or fully filtered-out) board says
-                // so instead of rendering a blank list.
-                VStack {
-                    Text("No issues yet")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .padding(.top, 64)
-                    Spacer(minLength: 0)
+                // An empty (or fully filtered-out) board says so instead of
+                // rendering a blank list — and, since EXP-698 r5, carries the
+                // getting-started checklist underneath, exactly like web and
+                // the IDE. It scrolls: on a small phone the seven cards do not
+                // fit under the empty state.
+                ScrollView {
+                    VStack(spacing: 24) {
+                        emptyBoardState
+                        if let context = gettingStarted, let teamId = vm.board?.teamId {
+                            GettingStartedCards(
+                                progress: context.progress,
+                                accountId: accountId,
+                                teamId: teamId,
+                                onCreateBoard: context.onCreateBoard
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 48)
+                    .padding(.bottom, 24)
                 }
-                .frame(maxWidth: .infinity)
+                .scrollBounceBehavior(.basedOnSize)
+                .tabBarBottomInset(showsTabBarClearance)
             } else {
                 List {
                     ForEach(groups, id: \.id) { group in
@@ -232,43 +288,16 @@ struct IssueListView: View {
                                     .listRowInsets(EdgeInsets())
                                 if !vm.collapsedStatuses.contains(group.id) {
                                     ForEach(statusIssues, id: \.id) { issue in
+                                        // EXP-698 r5: no `.swipeActions`. A
+                                        // swipe peeled the glass card off its
+                                        // background to reveal a system tray no
+                                        // other client has; status and priority
+                                        // are one tap away on the row's own
+                                        // glyphs, and a selection does the rest.
                                         issueRow(issue: issue, vm: vm)
                                             .listRowBackground(Color.clear)
                                             .listRowSeparator(.hidden)
                                             .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
-                                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                                // Swipes pause while multi-select is active — the
-                                                // bar owns bulk mutations then (EXP-239).
-                                                // Enum-only convenience writes (EXP-314): the swipes
-                                                // deliberately send the ANCHOR, which the server derives
-                                                // onto the team's builtin Done/Cancelled/Backlog row.
-                                                if !selectionActive, vm.permissions.canMutateIssue(creatorId: issue.creatorId) {
-                                                    Button {
-                                                        Task { await vm.setStatus(issueId: issue.id, status: .done) }
-                                                    } label: {
-                                                        Label("Done", appIcon: AppIcons.statusDone)
-                                                    }
-                                                    // Track done's status color (EXP-120: now blue).
-                                                    .tint(IssueStatus.done.color)
-
-                                                    Button {
-                                                        Task { await vm.setStatus(issueId: issue.id, status: .cancelled) }
-                                                    } label: {
-                                                        Label("Cancel", appIcon: AppIcons.statusCancelled)
-                                                    }
-                                                    .tint(.gray)
-                                                }
-                                            }
-                                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                                if !selectionActive, vm.permissions.canMutateIssue(creatorId: issue.creatorId) {
-                                                    Button {
-                                                        Task { await vm.setStatus(issueId: issue.id, status: .backlog) }
-                                                    } label: {
-                                                        Label("Backlog", appIcon: AppIcons.statusBacklog)
-                                                    }
-                                                    .tint(.orange)
-                                                }
-                                            }
                                     }
                                 }
                             }
@@ -306,6 +335,38 @@ struct IssueListView: View {
                 .tabBarBottomInset(showsTabBarClearance)
             }
         }
+    }
+
+    /// The shared empty-state shape (EXP-698 r5): a glyph in a 48pt washed
+    /// circle, a headline, one line of guidance and the primary action pill —
+    /// the same block web, the IDE and Android draw for an empty board.
+    private var emptyBoardState: some View {
+        VStack(spacing: 12) {
+            AppIcon(AppIcons.uiChecklist, size: AppIcon.Size.large)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .frame(width: 48, height: 48)
+                .background(GlassTokens.fillActive, in: Circle())
+
+            Text("No issues yet")
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            Text("Create an issue to start tracking work.")
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .multilineTextAlignment(.center)
+
+            GlassPill(
+                "New issue",
+                icon: AppIcons.uiAdd,
+                size: .md,
+                mode: .action {
+                    pushRoute(.createIssue(accountId: accountId, boardId: boardId))
+                },
+                primary: true
+            )
+        }
+        .frame(maxWidth: .infinity)
     }
 
     // Shown while team membership is still syncing, so a signed-in viewer
@@ -481,7 +542,15 @@ struct IssueListView: View {
                 guard vm.permissions.isMember else { return }
                 enterSelection(with: issue.id, vm: vm)
             }
-            NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
+            // A plain Button, not a NavigationLink (EXP-698 r5): a link in a
+            // List row makes the system draw its own disclosure chevron at the
+            // row's edge, outside the glass card — the selection branch above
+            // already proves a Button keeps the whole card tappable. The row
+            // draws the chevron INSIDE the card instead, like the other three
+            // clients, and pushes through the navigator's `pushRoute`.
+            Button {
+                pushRoute(.issue(accountId: accountId, id: issue.id))
+            } label: {
                 issueRowContent(
                     issue: issue,
                     vm: vm,
@@ -493,7 +562,7 @@ struct IssueListView: View {
             }
             .buttonStyle(.plain)
             // Long-press enters multi-select (EXP-239); simultaneous so the
-            // link's plain tap keeps navigating.
+            // button's plain tap keeps navigating.
             .simultaneousGesture(
                 LongPressGesture(minimumDuration: 0.35).onEnded { _ in onLongPress() }
             )
@@ -600,6 +669,15 @@ struct IssueListView: View {
                             id: assigneeId,
                             size: rowContentMinHeight
                         )
+                    }
+
+                    // EXP-698 r5: the row's own disclosure, INSIDE the card —
+                    // the mark web (`ui-chevron-right`, muted) and Android
+                    // (16dp at Tertiary) already drew. Selection mode has the
+                    // check glyph leading instead, so it stays out of there.
+                    if selected == nil {
+                        AppIcon(AppIcons.uiChevronRight, size: 14)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
                 }
                 .fixedSize(horizontal: true, vertical: false)
@@ -798,9 +876,25 @@ struct IssueListView: View {
                 .buttonStyle(.plain)
                 .padding(.leading, 4)
             }
+
+            // Delete (EXP-698 r5) — the one destructive control in the bar, and
+            // the last one, gated on `isModerator` like every other bulk write.
+            if vm.permissions.isModerator {
+                barIconButton(
+                    iconName: AppIcons.uiDelete,
+                    color: DesignTokens.Palette.destructive,
+                    accessibility: "Delete issues"
+                ) {
+                    showBulkDeleteConfirm = true
+                }
+                .padding(.leading, 4)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
+        // The tab pill's height: the bar stands in its slot, so it must be its
+        // size too (EXP-698 r5).
+        .frame(height: 52)
         .glassCard(cornerRadius: 24, isOpaque: true)
         .transition(.move(edge: .bottom).combined(with: .opacity))
         // EXP-642: the styleguide capture addresses the bar directly.

@@ -4,7 +4,7 @@ import SwiftUI
 /// The inline due-date picker of the New-issue page: a row with the current
 /// date (or "None"), tappable to unfold a graphical calendar. It carries NO
 /// card of its own — it is the last row inside the property card (EXP-167), and
-/// wears the shared `CreateIssueRow` geometry so it reads as the fourth of
+/// wears the shared `GlassMetaRowTokens` geometry so it reads as the fourth of
 /// those rows. (EXP-698 r4 dropped the `embedded` flag: the standalone,
 /// self-`glassSection()`ing variant had no call site left.)
 struct DueDatePicker: View {
@@ -27,7 +27,7 @@ struct DueDatePicker: View {
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     Spacer(minLength: 8)
-                    AppIcon(AppIcons.uiDueDate, size: CreateIssueRow.glyphSize)
+                    AppIcon(AppIcons.uiDueDate, size: GlassMetaRowTokens.glyphSize)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     if let d = date {
                         Text(formatted(d))
@@ -40,7 +40,7 @@ struct DueDatePicker: View {
                             date = nil
                             expanded = false
                         } label: {
-                            AppIcon(AppIcons.uiClear, size: CreateIssueRow.glyphSize)
+                            AppIcon(AppIcons.uiClear, size: GlassMetaRowTokens.glyphSize)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         }
                         .buttonStyle(.plain)
@@ -51,8 +51,8 @@ struct DueDatePicker: View {
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
                 }
-                .padding(.horizontal, CreateIssueRow.horizontalPadding)
-                .padding(.vertical, CreateIssueRow.verticalPadding)
+                .padding(.horizontal, GlassMetaRowTokens.horizontalPadding)
+                .padding(.vertical, GlassMetaRowTokens.verticalPadding)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

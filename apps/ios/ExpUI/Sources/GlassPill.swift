@@ -114,6 +114,13 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
     var size: GlassPillSize = .sm
     var mode: GlassPillMode = .readonly
     var dot: Color? = nil
+    /// EXP-698 r5: a TONE. Paints the label and the hairline (the stroke at
+    /// 40% of it) in one semantic colour, leaving the glass fill alone — the
+    /// readonly state badge the coding-now card wears on all four clients
+    /// (web `text-tone` + `border tone/40`, desktop
+    /// `.text_color(tone).border_color(tone.opacity(0.4))`). Only a
+    /// `.readonly` pill should need it; `primary` wins over it.
+    var tint: Color? = nil
     var isOpaque: Bool = false
     /// The loud paint (see the file header): solid `primary`, no hairline.
     var primary: Bool = false
@@ -126,6 +133,7 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
         size: GlassPillSize = .sm,
         mode: GlassPillMode = .readonly,
         dot: Color? = nil,
+        tint: Color? = nil,
         isOpaque: Bool = false,
         primary: Bool = false,
         enabled: Bool = true,
@@ -136,6 +144,7 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
         self.size = size
         self.mode = mode
         self.dot = dot
+        self.tint = tint
         self.isOpaque = isOpaque
         self.primary = primary
         self.enabled = enabled
@@ -194,20 +203,34 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
             }
             trailing
         }
-        .foregroundStyle(
-            isPrimary
-                ? DesignTokens.Palette.primaryForeground
-                : Color.white.opacity(labelOpacity)
-        )
+        .foregroundStyle(contentColor)
         .padding(.horizontal, size.horizontalPadding)
         .frame(height: size.height)
-        .modifier(Paint(isPrimary: isPrimary, isSelected: isSelected, isOpaque: isOpaque))
+        // A disabled pill drops the tone with the rest of its emphasis —
+        // label AND hairline, or it reads as a live pill with a dead label.
+        .modifier(Paint(
+            isPrimary: isPrimary,
+            tint: (isPrimary || !enabled) ? nil : tint,
+            isSelected: isSelected,
+            isOpaque: isOpaque
+        ))
+    }
+
+    /// The label/glyph colour: the loud pill's foreground, else the tone when
+    /// one is given, else the shared white ramp. A disabled pill drops the
+    /// tone with the rest of its emphasis.
+    private var contentColor: Color {
+        if isPrimary { return DesignTokens.Palette.primaryForeground }
+        if let tint, enabled { return tint }
+        return Color.white.opacity(labelOpacity)
     }
 
     /// Glass or solid — the ONE branch between the two paints, so everything
-    /// above it (geometry, font, label opacity) is shared.
+    /// above it (geometry, font, label opacity) is shared. `tint` is a third
+    /// arm of the glass one: the same fill, a hairline in the tone at 40%.
     private struct Paint: ViewModifier {
         let isPrimary: Bool
+        let tint: Color?
         let isSelected: Bool
         let isOpaque: Bool
 
@@ -215,6 +238,15 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
             if isPrimary {
                 content
                     .background(DesignTokens.Palette.primary, in: Capsule())
+            } else if let tint {
+                content
+                    .background(GlassTokens.fillCard)
+                    .background(isOpaque ? DesignTokens.Palette.card : Color.clear)
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(tint.opacity(0.4), lineWidth: GlassTokens.hairline)
+                    )
             } else {
                 content
                     .glassButton(isActive: isSelected, isOpaque: isOpaque)
@@ -254,6 +286,7 @@ extension GlassPill where Trailing == EmptyView {
         size: GlassPillSize = .sm,
         mode: GlassPillMode = .readonly,
         dot: Color? = nil,
+        tint: Color? = nil,
         isOpaque: Bool = false,
         primary: Bool = false,
         enabled: Bool = true,
@@ -264,6 +297,7 @@ extension GlassPill where Trailing == EmptyView {
             size: size,
             mode: mode,
             dot: dot,
+            tint: tint,
             isOpaque: isOpaque,
             primary: primary,
             enabled: enabled,
@@ -278,6 +312,7 @@ extension GlassPill where Leading == EmptyView, Trailing == EmptyView {
         size: GlassPillSize = .sm,
         mode: GlassPillMode = .readonly,
         dot: Color? = nil,
+        tint: Color? = nil,
         isOpaque: Bool = false,
         primary: Bool = false,
         enabled: Bool = true
@@ -287,6 +322,7 @@ extension GlassPill where Leading == EmptyView, Trailing == EmptyView {
             size: size,
             mode: mode,
             dot: dot,
+            tint: tint,
             isOpaque: isOpaque,
             primary: primary,
             enabled: enabled
@@ -302,6 +338,7 @@ extension GlassPill where Leading == AppIcon, Trailing == EmptyView {
         size: GlassPillSize = .sm,
         mode: GlassPillMode = .readonly,
         dot: Color? = nil,
+        tint: Color? = nil,
         isOpaque: Bool = false,
         primary: Bool = false,
         enabled: Bool = true
@@ -311,6 +348,7 @@ extension GlassPill where Leading == AppIcon, Trailing == EmptyView {
             size: size,
             mode: mode,
             dot: dot,
+            tint: tint,
             isOpaque: isOpaque,
             primary: primary,
             enabled: enabled

@@ -9,10 +9,12 @@ import SwiftUI
 /// `IssuePropertyChipsBox` (10pt padding + `.glassCard()`) — the two cards read
 /// as one stack of issue state.
 ///
-/// One line: the state dot + label, the "· name · device" byline taking the
-/// rest of the width, and — for the session's OWN runner when the relay is on
-/// (EXP-312: live sessions are owner-only) — a primary Watch pill. No chevron:
-/// the pill IS the affordance, and a teammate's session offers nothing to tap.
+/// One line, byte-identical to web/IDE/Android since EXP-698 r5: a readonly
+/// `.sm` pill tinted by the state's tone (a pulsing dot in its leading slot
+/// while the run is live), the "Name · Device" byline taking the rest of the
+/// width, and — for the session's OWN runner when the relay is on (EXP-312:
+/// live sessions are owner-only) — a primary `.sm` Watch pill. No chevron: the
+/// pill IS the affordance, and a teammate's session offers nothing to tap.
 struct CodingNowCard: View {
     let issue: IssueEntity
     let runningSessions: [CodingSessionEntity]
@@ -59,17 +61,20 @@ struct CodingNowCard: View {
         }
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                if state != .running {
-                    Circle()
-                        .fill(tint)
-                        .frame(width: 9, height: 9)
-                } else {
-                    PulsingLiveDot()
-                }
-                Text(label)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(tint)
+                // EXP-698 r5: the state badge is a READONLY `.sm` pill tinted
+                // by the tone — the same capsule web (`Pill size="sm"` with a
+                // 40% tone border) and the IDE draw. The pulsing dot rides its
+                // leading slot while the run is live; the parked states get
+                // the pill's own static `dot:`.
+                if state == .running {
+                    GlassPill(label, size: .sm, tint: tint) {
+                        PulsingLiveDot(size: GlassPillTokens.dotSize)
+                    }
                     .fixedSize(horizontal: true, vertical: false)
+                } else {
+                    GlassPill(label, size: .sm, dot: tint, tint: tint)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
                 Text(sessionByline(owner: owner, session: session))
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -83,7 +88,7 @@ struct CodingNowCard: View {
                     NavigationLink(value: AppRoute.agentSession(
                         accountId: accountId, sessionId: session.id
                     )) {
-                        GlassPill("Watch", icon: AppIcons.navDevices, primary: true)
+                        GlassPill("Watch", icon: AppIcons.navDevices, size: .sm, primary: true)
                             .contentShape(Capsule())
                     }
                     // Not `.plain`: the link owns the press, so it has to be
@@ -108,12 +113,15 @@ struct CodingNowCard: View {
         .accessibilityIdentifier("coding-now-row")
     }
 
+    /// "Name · Device" (EXP-698 r5). The leading "· " it used to carry was a
+    /// separator from the badge that is now the pill's own hairline — web and
+    /// the IDE never drew it.
     private func sessionByline(owner: UserEntity?, session: CodingSessionEntity) -> String {
         let name = memberDisplayName(owner, id: session.userId)
         if let device = session.deviceLabel, !device.isEmpty {
-            return "· \(name) · \(device)"
+            return "\(name) · \(device)"
         }
-        return "· \(name)"
+        return name
     }
 }
 
@@ -236,13 +244,18 @@ struct AgentPrCard: View {
 /// the "Coding now" green, animated. Static under Reduce Motion. Shared by the
 /// issue-detail card, the bottom bar's start circle, and the Agents tab.
 struct PulsingLiveDot: View {
+    /// The disc's diameter. 9 on its own; the coding-now badge passes the
+    /// pill's own `dotSize` so the live dot and the parked states' static dot
+    /// are the same mark.
+    var size: CGFloat = 9
+
     @Environment(\.motion) private var motion
     @State private var pulsing = false
 
     var body: some View {
         Circle()
             .fill(DesignTokens.Semantic.green)
-            .frame(width: 9, height: 9)
+            .frame(width: size, height: size)
             .overlay(
                 Circle()
                     .stroke(DesignTokens.Semantic.green.opacity(0.6), lineWidth: 2)

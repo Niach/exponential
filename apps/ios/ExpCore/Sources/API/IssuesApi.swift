@@ -118,6 +118,14 @@ public struct UpdateIssueInput: Encodable, Sendable {
 /// same reason `UpdateIssueInput` is: `assigneeId` must be OMITTED to leave
 /// the assignee alone but sent as JSON null to unassign, and the two cases are
 /// indistinguishable to the synthesized encoder.
+public struct BulkDeleteIssuesInput: Encodable, Sendable {
+    public let issueIds: [String]
+
+    public init(issueIds: [String]) {
+        self.issueIds = issueIds
+    }
+}
+
 public struct BulkUpdateIssuesInput: Encodable, Sendable {
     public let ids: [String]
     /// The builtin ANCHOR enum value; mutually exclusive with `statusId`.
@@ -396,6 +404,14 @@ public final class IssuesApi: Sendable {
 
     public func delete(accountId: String, id: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "issues.delete", input: DeleteIssueInput(id: id))
+    }
+
+    /// Delete a whole selection through the same `issues.bulkDelete` procedure
+    /// the web bulk bar uses (EXP-698 r5). Nothing is written locally: the rows
+    /// vanish through Electric's delete messages, exactly like the single
+    /// `delete`. Callers chunk at the server's 200-id cap.
+    public func bulkDelete(accountId: String, _ input: BulkDeleteIssuesInput) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "issues.bulkDelete", input: input)
     }
 
     /// Close the issue's open PR WITHOUT merging (EXP-100 — the reject path

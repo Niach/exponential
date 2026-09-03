@@ -10,6 +10,11 @@ struct BoardSwitcherSheet: View {
     let boardLoader: MultiAccountBoardLoader?
     let currentBoard: CurrentBoardRef?
     let onSelect: (_ accountId: String, _ boardId: String) -> Void
+    /// EXP-698 r5 (Android parity): creating a board and creating a team are
+    /// both reachable FROM the switcher — the two things a switcher with
+    /// nothing worth switching to should offer.
+    let onCreateBoard: () -> Void
+    let onCreateTeam: () -> Void
 
     var body: some View {
         GlassSheetChrome(title: "Switch board") {
@@ -21,6 +26,8 @@ struct BoardSwitcherSheet: View {
                     ForEach(groups) { group in
                         serverSection(group)
                     }
+                    // At the very bottom, under every server's teams.
+                    plainActionRow(icon: AppIcons.uiAdd, title: "New team", action: onCreateTeam)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 4)
@@ -74,15 +81,15 @@ struct BoardSwitcherSheet: View {
     @ViewBuilder
     private func teamBlock(accountId: String, block: TeamBlock) -> some View {
         VStack(alignment: .leading, spacing: 6) {
+            // Just the mark and the name (EXP-698 r5): the board COUNT was a
+            // number nobody switches on, and it is right there as the row
+            // count underneath.
             HStack(spacing: 8) {
                 TeamAvatar(team: block.team, size: 18)
                 Text(block.team.name)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.85))
                 Spacer()
-                Text("\(block.boards.count)")
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             .padding(.horizontal, 4)
 
@@ -95,6 +102,8 @@ struct BoardSwitcherSheet: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                plainActionRow(icon: AppIcons.uiAdd, title: "Create board", action: onCreateBoard)
             }
         }
     }
@@ -121,13 +130,38 @@ struct BoardSwitcherSheet: View {
                 .font(.caption.monospaced())
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 
-            if isCurrent {
-                AppIcon(AppIcons.uiCheck, size: AppIcon.Size.small, weight: .semibold)
-                    .foregroundStyle(Color.white)
-            }
+            // EXP-698 r5: a chevron, not a tick. The ACTIVE row already says
+            // so with its brighter fill (`glassRow(isActive:)`), and every row
+            // here goes somewhere — which is what a chevron means everywhere
+            // else in the app.
+            AppIcon(AppIcons.uiChevronRight, size: 16)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .glassRow()
+        .glassRow(isActive: isCurrent)
+    }
+
+    /// A plain (non-carded) muted row — the two creation entries. Deliberately
+    /// card-less: they are not boards, and a glass row here would read as one.
+    @ViewBuilder
+    private func plainActionRow(
+        icon: String,
+        title: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                AppIcon(icon, size: 16)
+                Text(title)
+                    .font(.body)
+                Spacer()
+            }
+            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

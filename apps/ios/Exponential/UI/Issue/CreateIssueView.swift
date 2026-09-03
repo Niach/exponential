@@ -46,19 +46,6 @@ private func readDraftFileBytes(from url: URL) -> Result<Data, DraftFileReadFail
     return .success(data)
 }
 
-/// The geometry of ONE property row on the New-issue page (EXP-698 r4). It
-/// lives at file scope because `DueDatePicker`'s embedded row is one of those
-/// rows and has to land on the same paddings and glyph size — a due date that
-/// sits two points off the Assignee above it is exactly the drift this issue
-/// went after.
-enum CreateIssueRow {
-    static let horizontalPadding: CGFloat = 16
-    static let verticalPadding: CGFloat = 12
-    /// The glyph leading the VALUE — smaller than the `.body` rung, because it
-    /// reads with the `.subheadline` value beside it, not on its own.
-    static let glyphSize: CGFloat = 14
-}
-
 /// The New-issue PAGE (EXP-687 — it used to be a sheet): back icon top-left,
 /// `Create` top-right, exactly like Android's `CreateIssueScreen`.
 struct CreateIssueView: View {
@@ -190,7 +177,7 @@ struct CreateIssueView: View {
                     // target instead of just the value.
                     VStack(spacing: 0) {
                         // Status
-                        metadataRow(
+                        GlassMetaRow(
                             label: "Status",
                             icon: status.iconName,
                             iconColor: status.color,
@@ -200,7 +187,7 @@ struct CreateIssueView: View {
                         GlassDivider()
 
                         // Priority
-                        metadataRow(
+                        GlassMetaRow(
                             label: "Priority",
                             icon: priority.iconName,
                             iconColor: priority.color,
@@ -220,7 +207,7 @@ struct CreateIssueView: View {
                             // blank name (name-less Apple logins); keep the
                             // "Unassigned" sentinel when there is no assignee.
                             let assignee = users.first { $0.id == assigneeId }
-                            metadataRow(
+                            GlassMetaRow(
                                 label: "Assignee",
                                 icon: assigneeId == nil ? AppIcons.uiUnassigned : AppIcons.uiAssignee,
                                 iconColor: .white.opacity(TextOpacity.secondary),
@@ -245,35 +232,21 @@ struct CreateIssueView: View {
                     // yet, so labelIds rides along on the create call. Not
                     // moderator-gated: issues.create lets any creator set
                     // title/description/labels.
-                    VStack(alignment: .leading, spacing: 8) {
-                        // EXP-698 r4: a plain heading. The leading gutter glyph
-                        // went away with the metadata rows' — a section title
-                        // above a chip cloud needs no icon to be found.
-                        Text("Labels")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-                        FlowLayout(spacing: 6) {
-                            ForEach(labels, id: \.id) { label in
-                                GlassPill(
-                                    label.name,
-                                    mode: .select(isSelected: selectedLabelIds.contains(label.id)) {
-                                        if selectedLabelIds.contains(label.id) {
-                                            selectedLabelIds.remove(label.id)
-                                        } else {
-                                            selectedLabelIds.insert(label.id)
-                                        }
-                                    },
-                                    dot: Color(hex: label.color) ?? .gray
-                                )
+                    // EXP-698 r5: the shared block — the Properties sheet
+                    // renders the very same pills. "+ Label" here creates a
+                    // new team label and pre-selects it on this draft.
+                    IssueLabelsSelector(
+                        labels: labels,
+                        selectedIds: selectedLabelIds,
+                        onToggle: { labelId in
+                            if selectedLabelIds.contains(labelId) {
+                                selectedLabelIds.remove(labelId)
+                            } else {
+                                selectedLabelIds.insert(labelId)
                             }
-                            // "+ Label" — create a new team label and
-                            // pre-select it on this draft in one step.
-                            GlassPill("Label", icon: AppIcons.uiAdd, mode: .action {
-                                picker = .createLabel
-                            })
-                        }
-                    }
+                        },
+                        onAdd: { picker = .createLabel }
+                    )
 
                     // Create more toggle
                     Toggle(isOn: $createMore) {
@@ -538,42 +511,6 @@ struct CreateIssueView: View {
         } catch {
             self.error = error.userFacingMessage
         }
-    }
-
-    /// One property row of the card: a secondary label on the left, and the
-    /// value on the right led by its own tinted glyph (EXP-698 r4, Android
-    /// parity). The whole row is the Button — a tap anywhere opens the picker,
-    /// which is why there is no chevron to advertise it.
-    private func metadataRow(
-        label: String,
-        icon: String,
-        iconColor: Color,
-        value: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            // 6pt between the glyph and its value, 16/12 paddings — Android's
-            // `MetaRow`, dp for pt.
-            HStack(spacing: 6) {
-                Text(label)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-                Spacer(minLength: 8)
-
-                AppIcon(icon, size: CreateIssueRow.glyphSize)
-                    .foregroundStyle(iconColor)
-
-                Text(value)
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, CreateIssueRow.horizontalPadding)
-            .padding(.vertical, CreateIssueRow.verticalPadding)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Draft files (EXP-327)

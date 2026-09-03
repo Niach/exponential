@@ -464,9 +464,11 @@ struct CommentThreadView: View {
 // MARK: - Gutter rail
 
 /// One timeline row: a fixed-width leading gutter holding the marker (dot or
-/// avatar) with a 1.5pt vertical rail connecting to the neighboring rows,
-/// drawn as a background so it spans the row's full height. `showTop`/
-/// `showBottom` trim the rail at the timeline's ends.
+/// avatar) with a 1pt vertical rail connecting to the neighboring rows, drawn
+/// as a background so it spans the row's full height. `showTop`/`showBottom`
+/// trim the rail at the timeline's ends. EXP-698 r5 pinned the rail to
+/// `strokeCard` at one point — web and the IDE draw the same hairline, and the
+/// hand-typed `white 0.09` at 1.5 was a third, heavier line.
 private struct TimelineRow<Marker: View, Content: View>: View {
     let showTop: Bool
     let showBottom: Bool
@@ -493,14 +495,14 @@ private struct TimelineRow<Marker: View, Content: View>: View {
         .background(alignment: .leading) {
             VStack(spacing: 0) {
                 Rectangle()
-                    .fill(Color.white.opacity(showTop ? 0.09 : 0))
-                    .frame(width: 1.5)
+                    .fill(showTop ? GlassTokens.strokeCard : Color.clear)
+                    .frame(width: 1)
                     .frame(height: max(0, topPadding - railBreathing))
                 Color.clear
                     .frame(height: markerSize + railBreathing * 2)
                 Rectangle()
-                    .fill(Color.white.opacity(showBottom ? 0.09 : 0))
-                    .frame(width: 1.5)
+                    .fill(showBottom ? GlassTokens.strokeCard : Color.clear)
+                    .frame(width: 1)
                     .frame(maxHeight: .infinity)
             }
             .frame(width: gutterWidth)
@@ -595,7 +597,14 @@ private struct RegularCommentRow: View {
                         GlassMenuItem("Edit", icon: AppIcons.uiEdit, action: onEdit)
                         GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true, action: onDelete)
                     } label: {
-                        CircleIconLabel(AppIcons.uiMore)
+                        // EXP-698 r5: a BARE vertical ellipsis — the glass ring
+                        // it wore made a comment's overflow menu louder than
+                        // the comment. Same glyph, size and tone on all four
+                        // clients; the 32pt frame keeps the tap target.
+                        AppIcon(AppIcons.uiMoreVertical, size: 16)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
                             .accessibilityLabel("Comment actions")
                     }
                 }
