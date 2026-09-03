@@ -1982,16 +1982,21 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end, except YOUR OWN session, which keeps running (it ends on its own exit or close-out). Merges run sequentially; each results[] element carries 'merged' + optional 'error', plus issueId/identifier (issue path) or repositoryId/prNumber (chore path) — one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
+      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end unless the team's "end sessions on merge" setting is off — 'endSessions' overrides that setting for this call (false keeps them running) — and YOUR OWN session always keeps running (it ends on its own exit or close-out). Merges run sequentially; each results[] element carries 'merged' + optional 'error', plus issueId/identifier (issue path) or repositoryId/prNumber (chore path) — one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
         repositoryId: uuidString.optional(),
         prNumber: z.number().int().positive().optional(),
+        endSessions: z.boolean().optional(),
       }),
     },
-    async ({ issueId, issueIds, repositoryId, prNumber }) => {
+    async ({ issueId, issueIds, repositoryId, prNumber, endSessions }) => {
+      // EXP-711: only forwarded when given, so the tRPC input stays byte-equal
+      // to the pre-override shape for every caller that never passes it.
+      const endSessionsInput =
+        endSessions !== undefined ? { endSessions } : {}
       try {
         const subjects = [
           Boolean(issueId),
@@ -2116,6 +2121,7 @@ export function registerExponentialTools(
             await caller(user, request).repositories.mergePull({
               repositoryId,
               prNumber: prNumber!,
+              ...endSessionsInput,
             })
           } catch (e) {
             if (ownChorePr) await revertMergedOwnPr()
@@ -2202,7 +2208,10 @@ export function registerExponentialTools(
         }[] = []
         for (const target of targets) {
           try {
-            await trpcCaller.issues.mergePr({ issueId: target.id })
+            await trpcCaller.issues.mergePr({
+              issueId: target.id,
+              ...endSessionsInput,
+            })
             results.push({
               issueId: target.id,
               identifier: target.identifier,

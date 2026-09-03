@@ -169,6 +169,12 @@ export const teams = pgTable(`teams`, {
     { onDelete: `set null` }
   ),
   prMergedAutomation: boolean(`pr_merged_automation`).notNull().default(true),
+  // EXP-711 — does a merged PR END the live coding sessions on its issues
+  // (EXP-498's default)? false keeps them running; the merging run's own
+  // spare (`coding_sessions.merged_own_pr`) and MCP `pr_merge`'s per-call
+  // `endSessions` override sit on top. Synced so every client renders the
+  // toggle and the desktop's batch self-close honours it.
+  endSessionsOnMerge: boolean(`end_sessions_on_merge`).notNull().default(true),
   ...timestamps,
 })
 

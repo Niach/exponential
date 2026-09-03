@@ -22,6 +22,8 @@ const TEAM_COLUMNS = [
   `pr_opened_automation`,
   `pr_merged_status_id`,
   `pr_merged_automation`,
+  // EXP-711 — merge-ends-sessions toggle (default true).
+  `end_sessions_on_merge`,
   `created_at`,
   `updated_at`,
 ]

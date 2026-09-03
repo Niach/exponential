@@ -1210,6 +1210,10 @@ export const issuesRouter = router({
     .input(
       z.object({
         issueId: z.string().uuid(),
+        // EXP-711: per-merge override of the team's end-sessions-on-merge
+        // setting — false keeps every live session on the PR's issues
+        // running, true ends them even when the team switched that off.
+        endSessions: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
@@ -1250,7 +1254,10 @@ export const issuesRouter = router({
           .select({ id: issues.id })
           .from(issues)
           .where(eq(issues.prUrl, row.prUrl))
-        await endMergedPrSessions(linked.map((issue) => issue.id))
+        await endMergedPrSessions(
+          linked.map((issue) => issue.id),
+          input.endSessions
+        )
         return { merged: true }
       }
       if (row.prState !== `open`) {
@@ -1307,6 +1314,8 @@ export const issuesRouter = router({
       claimPrMerge(repoFullName, row.prNumber, {
         userId: ctx.session.user.id,
         viaAgent: ctx.viaMcp === true,
+        // EXP-711: the webhook's sweep must honour the same override.
+        endSessions: input.endSessions,
       })
       try {
         await mergePullRequest({
@@ -1361,12 +1370,14 @@ export const issuesRouter = router({
           mergedAt: new Date(),
           actorUserId: ctx.session.user.id,
           actorViaAgent: ctx.viaMcp === true,
+          endSessions: input.endSessions,
         })
       }
-      // Merge always closes (EXP-498): applyPrMergeState's claim winner ends
-      // sessions in-tx; this unconditional sweep backstops the race where the
-      // webhook won the claim before this mutation got here.
-      await endMergedPrSessions(linkedIds)
+      // Merge closes by default (EXP-498, team-configurable since EXP-711):
+      // applyPrMergeState's claim winner ends sessions in-tx; this sweep
+      // backstops the race where the webhook won the claim before this
+      // mutation got here.
+      await endMergedPrSessions(linkedIds, input.endSessions)
 
       return { merged: true }
     }),

@@ -411,7 +411,11 @@ describe(`issues.mergePr always ends sessions (EXP-498)`, () => {
     })
     expect(h.applyPrMergeState).toHaveBeenCalledTimes(2)
     expect(h.endMergedPrSessions).toHaveBeenCalledTimes(1)
-    expect(h.endMergedPrSessions).toHaveBeenCalledWith([ISSUE_ID, OTHER_ISSUE])
+    // EXP-711: no endSessions override on a plain merge — the team decides.
+    expect(h.endMergedPrSessions).toHaveBeenCalledWith(
+      [ISSUE_ID, OTHER_ISSUE],
+      undefined
+    )
   })
 
   it(`sweeps on the already-merged idempotent path too`, async () => {
@@ -422,7 +426,7 @@ describe(`issues.mergePr always ends sessions (EXP-498)`, () => {
       merged: true,
     })
     expect(h.mergePullRequest).not.toHaveBeenCalled()
-    expect(h.endMergedPrSessions).toHaveBeenCalledWith([ISSUE_ID])
+    expect(h.endMergedPrSessions).toHaveBeenCalledWith([ISSUE_ID], undefined)
   })
 })
 

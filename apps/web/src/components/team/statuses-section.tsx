@@ -52,6 +52,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import {
   Popover,
   PopoverContent,
@@ -642,6 +643,28 @@ function PrAutomationCard({
     }
   }
 
+  // EXP-711: merge ends the PR's live coding sessions by default (EXP-498);
+  // the switch turns that off team-wide. Pre-column rows read as enabled,
+  // matching the server default.
+  const [endSessionsBusy, setEndSessionsBusy] = useState(false)
+  const persistEndSessions = async (enabled: boolean) => {
+    setEndSessionsBusy(true)
+    try {
+      const { txId } = await trpc.statuses.setEndSessionsOnMerge.mutate({
+        teamId,
+        enabled,
+      })
+      await teamCollection.utils.awaitTxId(txId)
+      setError(null)
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : `Failed to update PR automation.`
+      )
+    } finally {
+      setEndSessionsBusy(false)
+    }
+  }
+
   if (!team || pickable.length === 0) return null
 
   return (
@@ -712,6 +735,23 @@ function PrAutomationCard({
               </div>
             )
           })}
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm">
+                When a pull request merges, end its coding sessions
+              </p>
+              <p className="text-xs text-muted-foreground">
+                The session that merged its own pull request always keeps
+                running.
+              </p>
+            </div>
+            <Switch
+              checked={team.endSessionsOnMerge !== false}
+              disabled={endSessionsBusy}
+              onCheckedChange={(next) => void persistEndSessions(next)}
+              aria-label="End coding sessions when a pull request merges"
+            />
+          </div>
         </GlassGroup>
         {error && <p className="text-xs text-destructive">{error}</p>}
       </CardContent>

@@ -500,6 +500,10 @@ export async function applyPrMergeState(opts: {
   // `merged_by` — whoever pressed Merge on github.com.
   actorViaAgent?: boolean
   githubActorUserId?: string | null
+  // EXP-711: per-merge override of the team's `end_sessions_on_merge`
+  // setting (MCP `pr_merge({ endSessions })`, carried to the webhook echo by
+  // the merge claim). Unset = the team setting decides.
+  endSessions?: boolean
 }): Promise<void> {
   const result = await db.transaction(
     async (
@@ -520,9 +524,11 @@ export async function applyPrMergeState(opts: {
           branch: issues.branch,
           status: issues.status,
           teamId: boards.teamId,
+          endSessionsOnMerge: teams.endSessionsOnMerge,
         })
         .from(issues)
         .innerJoin(boards, eq(boards.id, issues.boardId))
+        .innerJoin(teams, eq(teams.id, boards.teamId))
         .where(eq(issues.id, opts.issueId))
         .limit(1)
 
@@ -595,7 +601,12 @@ export async function applyPrMergeState(opts: {
       // leaves a session running. The desktop reads the →ended edge as its
       // kill switch; the relay kill fires post-commit below. Independent of
       // the issue-status eligibility gate above.
-      const endedSessionIds = await endLiveIssueSessionsInTx(tx, opts.issueId)
+      // EXP-711: unless the team switched that off (`end_sessions_on_merge`)
+      // or this merge overrides the setting either way.
+      const endSessions = opts.endSessions ?? current.endSessionsOnMerge
+      const endedSessionIds = endSessions
+        ? await endLiveIssueSessionsInTx(tx, opts.issueId)
+        : []
 
       return {
         applied: true,
@@ -697,13 +708,40 @@ async function tearDownEndedSessions(sessionIds: string[]): Promise<void> {
   await Promise.all(sessionIds.map((id) => relayPostKill(config, id)))
 }
 
+// EXP-711: the issues among `issueIds` whose team still ends sessions on
+// merge — what the standalone sweeps fall back to when no per-merge override
+// says otherwise.
+async function issuesEndingSessionsOnMerge(
+  issueIds: string[]
+): Promise<string[]> {
+  const rows = await db
+    .select({ id: issues.id })
+    .from(issues)
+    .innerJoin(boards, eq(boards.id, issues.boardId))
+    .innerJoin(teams, eq(teams.id, boards.teamId))
+    .where(
+      and(inArray(issues.id, issueIds), eq(teams.endSessionsOnMerge, true))
+    )
+  return rows.map((row) => row.id)
+}
+
 // Idempotent belt-and-braces sweep (EXP-498): end every live session on the
 // given issues whose PR already merged. The claim winner inside
 // applyPrMergeState normally ends them in-tx; this catches the paths that
 // lose the claim (issues.mergePr racing the webhook). Safe to call
-// repeatedly — matched statuses exclude `ended`.
-export async function endMergedPrSessions(issueIds: string[]): Promise<void> {
-  if (issueIds.length === 0) return
+// repeatedly — matched statuses exclude `ended`. `endSessions` is the
+// EXP-711 per-merge override: false sweeps nothing, true sweeps regardless
+// of the team setting, unset lets each issue's team decide.
+export async function endMergedPrSessions(
+  issueIds: string[],
+  endSessions?: boolean
+): Promise<void> {
+  if (issueIds.length === 0 || endSessions === false) return
+  const targetIds =
+    endSessions === true
+      ? issueIds
+      : await issuesEndingSessionsOnMerge(issueIds)
+  if (targetIds.length === 0) return
   const endedSessionIds = await db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
     void txId
@@ -717,7 +755,7 @@ export async function endMergedPrSessions(issueIds: string[]): Promise<void> {
       })
       .where(
         and(
-          inArray(codingSessions.issueId, issueIds),
+          inArray(codingSessions.issueId, targetIds),
           inArray(codingSessions.status, [`running`, `in_review`]),
           eq(codingSessions.mergedOwnPr, false)
         )
@@ -735,16 +773,25 @@ export async function endMergedPrSessions(issueIds: string[]): Promise<void> {
 // row. When a merge webhook resolves to no issues at all, end the live
 // sessions of the teams that registered that repo and whose row sits on the
 // merged head branch. Same `merged_own_pr` spare as every other merge path:
-// the session that merged its own chore PR keeps running.
+// the session that merged its own chore PR keeps running. EXP-711: teams
+// that switched merge-ends-sessions off are skipped unless `endSessions`
+// (the merge claim's per-call override) forces it either way.
 export async function endSessionsOnMergedBranch(
   repoFullName: string,
-  headBranch: string
+  headBranch: string,
+  endSessions?: boolean
 ): Promise<void> {
-  if (!repoFullName || !headBranch) return
+  if (!repoFullName || !headBranch || endSessions === false) return
   const teamRows = await db
     .select({ teamId: repositories.teamId })
     .from(repositories)
-    .where(eq(repositories.fullName, repoFullName))
+    .innerJoin(teams, eq(teams.id, repositories.teamId))
+    .where(
+      and(
+        eq(repositories.fullName, repoFullName),
+        ...(endSessions === true ? [] : [eq(teams.endSessionsOnMerge, true)])
+      )
+    )
   const teamIds = [...new Set(teamRows.map((r) => r.teamId))]
   if (teamIds.length === 0) return
 

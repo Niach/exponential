@@ -315,8 +315,11 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       // above, so the branch on the coding_sessions row is the only handle
       // on the run that opened it. End those rows here — except the session
       // that merged its own PR, which lives on until sessions_end.
+      // EXP-711: the claim also carries the merger's per-call
+      // `endSessions` override, so the echo of an in-app merge honours it.
+      const endSessions = claim?.endSessions
       if (issueIds.length === 0 && repoFullName && headRef) {
-        await endSessionsOnMergedBranch(repoFullName, headRef)
+        await endSessionsOnMergedBranch(repoFullName, headRef, endSessions)
         return jsonResponse(200, { ok: true })
       }
       for (const issueId of issueIds) {
@@ -324,6 +327,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           githubActorUserId,
           issueId,
           prUrl: htmlUrl,
+          ...(endSessions !== undefined ? { endSessions } : {}),
           // Backfill sources for a never-linked issue (branch-parse fallback
           // whose 'opened' webhook was lost) — see applyPrMergeState (REV-26).
           ...(pr.number != null ? { prNumber: pr.number } : {}),
