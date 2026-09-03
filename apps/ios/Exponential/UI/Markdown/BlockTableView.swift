@@ -5,10 +5,11 @@ import UIKit
 /// EXP-726 — a GFM pipe table, rendered as a horizontally scrollable grid of
 /// editable cells.
 ///
-/// Mobile deliberately ships NO manipulation UI: no add/delete/move row or
-/// column, no long-press menus. Cells are editable, and that is all — row and
-/// column structure is authored on desktop web or in the IDE. Return moves to
-/// the next cell (row-major, header first) rather than growing the table.
+/// Mobile deliberately ships NO structural manipulation UI: no add/delete/move
+/// row or column. Cells are editable, and the ONE table action is "Delete
+/// table" on a cell's long-press edit menu (EXP-727) — row and column
+/// structure is authored on desktop web or in the IDE. Return moves to the
+/// next cell (row-major, header first) rather than growing the table.
 ///
 /// Read-only surfaces (comment cards, the description preview, the steer feed's
 /// `AgentMarkdownText`, actions) route through `MarkdownEditor(isReadOnly:)`
@@ -70,6 +71,7 @@ struct BlockTableView: View {
             singleLine: true,
             textAlignment: Self.alignment(table.alignment(column: col)),
             onReturn: { model.focusCell(after: cell.id) },
+            onDeleteTable: isReadOnly ? nil : { model.deleteTableBlock(id: blockId) },
             onIssueRefTap: onIssueRefTap
         )
         .frame(

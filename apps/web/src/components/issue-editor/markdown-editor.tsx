@@ -698,7 +698,8 @@ export const MarkdownEditor = forwardRef<
           <>
             <EditorInsertBar editor={editor} imageUpload={imageUpload} />
             {/* EXP-726: table +/grip chrome is desktop-editing only — a
-                read-only body or a phone gets cells and nothing else. */}
+                read-only body gets cells and nothing else, a phone gets
+                cells plus Delete table on its keyboard bar (EXP-727). */}
             <EditorTableControls editor={editor} wrapperRef={wrapperRef} />
           </>
         ) : null}

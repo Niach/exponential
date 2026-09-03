@@ -1110,6 +1110,60 @@ public final class IssueEditorModel {
         notifyEdit()
     }
 
+    // MARK: - Table deletion (EXP-727)
+
+    /// The ONE table manipulation mobile ships: remove the whole table. Its
+    /// neighbours are separate paragraphs (a table never splits one the way an
+    /// inserted image does), so they rejoin on a paragraph break rather than
+    /// concatenating like `deleteImageBlock`; an empty neighbour — the
+    /// separator `normalize` keeps around every block-level block — is dropped
+    /// instead of surviving as a blank line. The caret lands where the table
+    /// stood.
+    public func deleteTableBlock(id: UUID) {
+        guard let index = blocks.firstIndex(where: { $0.id == id }),
+              case .table(_, let table) = blocks[index] else { return }
+        let cellIds = Set(table.allCells.map(\.id))
+        for cellId in cellIds { revisions[cellId] = nil }
+        if let selected = selection?.blockId, cellIds.contains(selected) { selection = nil }
+
+        let prevIndex = index - 1
+        let nextIndex = index + 1
+        if prevIndex >= 0, nextIndex < blocks.count,
+           case .text(let prevId, let prevContent) = blocks[prevIndex],
+           case .text(_, let nextContent) = blocks[nextIndex] {
+            let (merged, caret) = Self.joinParagraphs(prevContent, nextContent)
+            blocks.replaceSubrange(prevIndex...nextIndex, with: [
+                .text(id: prevId, attributedContent: merged),
+            ])
+            bumpRevision(prevId)
+            focusedBlockId = prevId
+            desiredSelection = (prevId, caret)
+            selection = (prevId, NSRange(location: caret, length: 0))
+        } else {
+            blocks.remove(at: index)
+            ContentBlock.normalize(&blocks)
+            bumpAllRevisions()
+            if let focused = focusedBlockId, cellIds.contains(focused) { focusedBlockId = nil }
+        }
+        notifyEdit()
+    }
+
+    /// Two text blocks a table no longer separates, joined on a paragraph
+    /// break, plus the caret at the seam. An empty side is dropped (an empty
+    /// block is the normalize separator, not content).
+    private static func joinParagraphs(
+        _ first: NSAttributedString,
+        _ second: NSAttributedString
+    ) -> (NSAttributedString, Int) {
+        if first.length == 0 { return (second, 0) }
+        if second.length == 0 { return (first, first.length) }
+        let merged = NSMutableAttributedString(attributedString: first)
+        merged.append(NSAttributedString(string: "\n", attributes: MarkdownStyle.baseAttributes))
+        let caret = merged.length
+        merged.append(second)
+        return (merged, caret)
+    }
+
     // MARK: - Upload commit
 
     /// Upload all pending draft images concurrently and swap their block URLs to

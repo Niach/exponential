@@ -3,10 +3,11 @@ import UIKit
 import XCTest
 import ExpUI
 
-/// EXP-726 — cell editing is the ONLY table affordance mobile ships: no
-/// add/delete/move row or column, no long-press menus. These lock the model
-/// routing that makes a cell behave like any other block (`updateText` by id,
-/// revisions, focus) while the derived markdown stays canonical.
+/// EXP-726 — cell editing and deleting the whole table (EXP-727) are the ONLY
+/// table affordances mobile ships: no add/delete/move row or column. These
+/// lock the model routing that makes a cell behave like any other block
+/// (`updateText` by id, revisions, focus) while the derived markdown stays
+/// canonical, and the whole-table delete's paragraph rejoin.
 @MainActor
 final class TableCellEditTests: XCTestCase {
     private static let source = "| a | b |\n| --- | --- |\n| 1 | 2 |"
@@ -277,5 +278,82 @@ final class TableCellEditTests: XCTestCase {
         model.updateText(id: UUID(), content: text("nowhere"))
         model.focusCell(after: UUID())
         XCTAssertEqual(model.currentMarkdown(), Self.source)
+    }
+
+    // MARK: - Delete table (EXP-727): the one whole-table action mobile ships.
+
+    private func onlyText(_ model: IssueEditorModel) -> (id: UUID, content: NSAttributedString)? {
+        guard model.blocks.count == 1, case let .text(id, content) = model.blocks[0] else { return nil }
+        return (id, content)
+    }
+
+    func testDeleteTableBlockRejoinsTheSurroundingParagraphsOnAParagraphBreak() {
+        let model = loadedModel("a\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nb")
+        guard let found = table(model) else { return XCTFail("expected a table block") }
+        model.deleteTableBlock(id: found.id)
+        XCTAssertEqual(model.currentMarkdown(), "a\n\nb")
+        guard let text = onlyText(model) else { return XCTFail("expected one text block") }
+        XCTAssertEqual(text.content.string, "a\nb")
+        // The caret lands where the table stood: the start of "b".
+        XCTAssertEqual(model.focusedBlockId, text.id)
+        XCTAssertEqual(model.desiredSelection?.blockId, text.id)
+        XCTAssertEqual(model.desiredSelection?.location, 2)
+        XCTAssertTrue(model.isDirty)
+    }
+
+    func testDeleteTableBlockKeepsTheNeighboursFormatting() {
+        let model = loadedModel("# H\n\n| a |\n| --- |\n| 1 |\n\n**b**")
+        guard let found = table(model) else { return XCTFail("expected a table block") }
+        model.deleteTableBlock(id: found.id)
+        XCTAssertEqual(model.currentMarkdown(), "# H\n\n**b**")
+    }
+
+    func testDeleteTableBlockAtTheDocumentStartDropsTheEmptySeparator() {
+        let model = loadedModel("| a |\n| --- |\n| 1 |\n\nb")
+        guard let found = table(model) else { return XCTFail("expected a table block") }
+        model.deleteTableBlock(id: found.id)
+        XCTAssertEqual(model.currentMarkdown(), "b")
+        guard let text = onlyText(model) else { return XCTFail("expected one text block") }
+        XCTAssertEqual(text.content.string, "b")
+        XCTAssertEqual(model.desiredSelection?.location, 0)
+    }
+
+    func testDeleteTableBlockAtTheDocumentEndLandsTheCaretAtTheEndOfThePreviousParagraph() {
+        let model = loadedModel("a\n\n| a |\n| --- |\n| 1 |")
+        guard let found = table(model) else { return XCTFail("expected a table block") }
+        model.deleteTableBlock(id: found.id)
+        XCTAssertEqual(model.currentMarkdown(), "a")
+        XCTAssertNotNil(onlyText(model))
+        XCTAssertEqual(model.desiredSelection?.location, 1)
+    }
+
+    func testDeleteTableBlockOnATableOnlyDocumentLeavesOneEmptyBlock() {
+        let model = loadedModel()
+        guard let found = table(model) else { return XCTFail("expected a table block") }
+        model.deleteTableBlock(id: found.id)
+        XCTAssertEqual(model.currentMarkdown(), "")
+        guard let text = onlyText(model) else { return XCTFail("expected one text block") }
+        XCTAssertEqual(text.content.length, 0)
+        XCTAssertTrue(model.isDirty)
+    }
+
+    func testDeleteTableBlockDropsAFocusedCellAndItsRevisions() {
+        let model = loadedModel("a\n\n| a |\n| --- |\n| 1 |\n\nb")
+        guard let found = table(model) else { return XCTFail("expected a table block") }
+        let cellId = found.table.header[0].id
+        model.setFocused(cellId)
+        model.updateText(id: cellId, content: text("z"))
+        model.deleteTableBlock(id: found.id)
+        XCTAssertEqual(model.focusedBlockId, onlyText(model)?.id)
+        XCTAssertEqual(model.revision(for: cellId), 0)
+        XCTAssertNil(model.blocks.first { $0.id == cellId })
+    }
+
+    func testDeleteTableBlockIgnoresANonTableId() {
+        let model = loadedModel("a\n\n| a |\n| --- |\n| 1 |")
+        guard case let .text(textId, _)? = model.blocks.first else { return XCTFail("expected a text block") }
+        model.deleteTableBlock(id: textId)
+        XCTAssertEqual(model.currentMarkdown(), "a\n\n| a |\n| --- |\n| 1 |")
+        XCTAssertFalse(model.isDirty)
     }
 }

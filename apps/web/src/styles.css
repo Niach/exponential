@@ -1095,6 +1095,12 @@ html {
   background: var(--accent);
 }
 
+/* EXP-727: the rail's one destructive action (Delete table on a phone). */
+.formatting-rail button.is-destructive,
+.formatting-rail button.is-destructive:hover {
+  color: var(--destructive);
+}
+
 .rail-separator {
   width: 1px;
   height: 16px;

@@ -467,6 +467,9 @@ struct BlockTextEditor: UIViewRepresentable {
     var textAlignment: NSTextAlignment = .natural
     /// Return in `singleLine` mode. Nil swallows the newline.
     var onReturn: (() -> Void)?
+    /// EXP-727 — set only on an editable table cell: adds "Delete table" to
+    /// the cell's edit menu, the one a long-press already opens.
+    var onDeleteTable: (() -> Void)?
     var onPasteImage: (UIImage) -> Void = { _ in }
     var onIssueRefTap: ((String) -> Void)?
 
@@ -521,6 +524,7 @@ struct BlockTextEditor: UIViewRepresentable {
         coord.onPasteImage = onPasteImage
         coord.singleLine = singleLine
         coord.onReturn = onReturn
+        coord.onDeleteTable = onDeleteTable
         coord.appliedRevision = revision
 
         tv.onDeleteBackwardAtStart = { [weak coord] in coord?.handleDeleteBackwardAtStart() }
@@ -602,6 +606,7 @@ struct BlockTextEditor: UIViewRepresentable {
         coord.onPasteImage = onPasteImage
         coord.singleLine = singleLine
         coord.onReturn = onReturn
+        coord.onDeleteTable = onDeleteTable
         tv.onDeleteBackwardAtStart = { [weak coord] in coord?.handleDeleteBackwardAtStart() }
         tv.onPasteImage = { [weak coord] image in coord?.onPasteImage?(image) }
         tv.onIssueRefTap = onIssueRefTap
@@ -653,6 +658,8 @@ struct BlockTextEditor: UIViewRepresentable {
         /// EXP-726 — see `BlockTextEditor.singleLine`.
         var singleLine = false
         var onReturn: (() -> Void)?
+        /// EXP-727 — see `BlockTextEditor.onDeleteTable`.
+        var onDeleteTable: (() -> Void)?
         var appliedRevision = 0
 
         private var isProgrammaticChange = false
@@ -695,6 +702,25 @@ struct BlockTextEditor: UIViewRepresentable {
         }
 
         // MARK: UITextViewDelegate
+
+        /// EXP-727 — the ONE table manipulation mobile ships. The edit menu is
+        /// what a long-press on a cell already opens, so "Delete table" rides
+        /// it instead of a second long-press gesture fighting UITextView's own
+        /// (which would cost cells their selection and loupe). Nil keeps the
+        /// system menu for every other block.
+        func textView(
+            _ textView: UITextView,
+            editMenuForTextIn range: NSRange,
+            suggestedActions: [UIMenuElement]
+        ) -> UIMenu? {
+            guard let onDeleteTable else { return nil }
+            let delete = UIAction(
+                title: "Delete table",
+                image: AppIcons.uiImage(AppIcons.uiDelete, pointSize: 16),
+                attributes: .destructive
+            ) { _ in onDeleteTable() }
+            return UIMenu(children: suggestedActions + [delete])
+        }
 
         func textViewDidBeginEditing(_ tv: UITextView) {
             guard let blockId else { return }

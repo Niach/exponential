@@ -637,8 +637,9 @@ class EditorModelTest {
 
     // --- Table cells (EXP-726). A cell is a field like any other: its edits
     // arrive through updateRun keyed by the CELL id, which the model routes
-    // into the table. No manipulation UI exists on mobile, so these are the
-    // only table mutations. ---
+    // into the table. No structural manipulation UI exists on mobile: cell
+    // edits and deleting the whole table (EXP-727, below) are the only table
+    // mutations. ---
 
     private fun table(m: EditorModel) = m.rows.filterIsInstance<EditorRow.Table>().single().table
 
@@ -860,5 +861,79 @@ class EditorModelTest {
         val after = runs(m).first { it.id == last.id }
         assertEquals(listOf(1, 2), after.paragraphs.map { it.orderedIndex })
         assertEquals(listOf(1), runs(m).first { it.id == runs.first().id }.paragraphs.map { it.orderedIndex })
+    }
+
+    // --- Delete table (EXP-727): the one whole-table action mobile ships. ---
+
+    private fun tableRowId(m: EditorModel) = m.rows.filterIsInstance<EditorRow.Table>().single().id
+
+    @Test
+    fun deleteTableRowRejoinsTheSurroundingParagraphsOnAParagraphBreak() {
+        val m = model("a\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nb")
+        m.deleteTableRow(tableRowId(m))
+        assertEquals("a\n\nb", m.currentMarkdown())
+        val merged = run(m)
+        assertEquals(listOf("a", "b"), merged.lines)
+        // The caret lands where the table stood: the start of "b".
+        assertEquals(merged.id, m.focusedRowId)
+        assertEquals(merged.id to 2, m.desiredSelection)
+        assertTrue(m.isDirty)
+    }
+
+    @Test
+    fun deleteTableRowKeepsTheNeighboursParagraphAttrsAndMarks() {
+        val m = model("# H\n\n| a |\n| --- |\n| 1 |\n\n**b**")
+        m.deleteTableRow(tableRowId(m))
+        assertEquals("# H\n\n**b**", m.currentMarkdown())
+        assertEquals(
+            listOf(BlockKind.Heading, BlockKind.Paragraph),
+            run(m).paragraphs.map { it.kind },
+        )
+    }
+
+    @Test
+    fun deleteTableRowAtTheDocumentStartDropsTheEmptySeparator() {
+        val m = model("| a |\n| --- |\n| 1 |\n\nb")
+        m.deleteTableRow(tableRowId(m))
+        assertEquals("b", m.currentMarkdown())
+        assertEquals(1, m.rows.size)
+        assertEquals(run(m).id to 0, m.desiredSelection)
+    }
+
+    @Test
+    fun deleteTableRowAtTheDocumentEndLandsTheCaretAtTheEndOfThePreviousParagraph() {
+        val m = model("a\n\n| a |\n| --- |\n| 1 |")
+        m.deleteTableRow(tableRowId(m))
+        assertEquals("a", m.currentMarkdown())
+        assertEquals(1, m.rows.size)
+        assertEquals(run(m).id to 1, m.desiredSelection)
+    }
+
+    @Test
+    fun deleteTableRowOnATableOnlyDocumentLeavesOneEmptyRun() {
+        val m = model("| a |\n| --- |\n| 1 |")
+        m.deleteTableRow(tableRowId(m))
+        assertEquals("", m.currentMarkdown())
+        assertEquals(1, m.rows.size)
+        assertEquals("", run(m).text)
+        assertTrue(m.isDirty)
+    }
+
+    @Test
+    fun deleteTableRowDropsAFocusedCellAndItsRevisions() {
+        val m = model("a\n\n| a |\n| --- |\n| 1 |\n\nb")
+        val cell = table(m).header[0]
+        m.setFocused(cell.id)
+        m.deleteTableRow(tableRowId(m))
+        assertEquals(run(m).id, m.focusedRowId)
+        assertEquals(0, m.revision(cell.id))
+    }
+
+    @Test
+    fun deleteTableRowIgnoresANonTableId() {
+        val m = model("a\n\n| a |\n| --- |\n| 1 |")
+        m.deleteTableRow(runs(m).first().id)
+        assertEquals("a\n\n| a |\n| --- |\n| 1 |", m.currentMarkdown())
+        assertFalse(m.isDirty)
     }
 }

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -15,6 +16,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
@@ -29,9 +31,11 @@ import com.exponential.app.ui.markdown.model.TableData
  * laid out by the same [TableGridLayout] so a table looks identical whether you
  * are reading it or typing in it.
  *
- * There is deliberately NO manipulation UI on mobile: no add/delete/move row or
- * column, no long-press menu. Cells are editable, and that is all — inserting
- * and moving is a desktop-web / IDE affordance.
+ * There is deliberately NO structural manipulation UI on mobile: no add /
+ * delete / move row or column. Cells are editable, and the ONE table action
+ * is "Delete table" on a cell's long-press selection toolbar (EXP-727,
+ * [TableCellTextToolbar]) — inserting and moving is a desktop-web / IDE
+ * affordance.
  */
 @Composable
 internal fun TableBlockView(table: TableData, issueRefs: IssueRefHandler?) {
@@ -53,22 +57,26 @@ internal fun TableBlockView(table: TableData, issueRefs: IssueRefHandler?) {
 /**
  * The editable twin of [TableBlockView]: the same grid, with every cell a
  * [BlockTextField] keyed by its CELL id — [EditorModel.updateRun] routes those
- * straight through to the cell.
+ * straight through to the cell. Every cell's selection toolbar carries the
+ * table's one action, Delete table (EXP-727).
  */
 @Composable
 internal fun TableRowEditView(model: EditorModel, row: EditorRow.Table) {
     val table = row.table
     if (table.columnCount == 0) return
+    val toolbar = rememberTableCellTextToolbar { model.deleteTableRow(row.id) }
     TableScrollBox {
-        TableGridLayout(columnCount = table.columnCount, rowCount = table.rows.size + 1) {
-            for (col in 0 until table.columnCount) {
-                val cell = table.header.getOrNull(col) ?: continue
-                key(cell.id) { TableCellField(model, cell) }
-            }
-            for (bodyRow in table.rows) {
+        CompositionLocalProvider(LocalTextToolbar provides toolbar) {
+            TableGridLayout(columnCount = table.columnCount, rowCount = table.rows.size + 1) {
                 for (col in 0 until table.columnCount) {
-                    val cell = bodyRow.getOrNull(col) ?: continue
+                    val cell = table.header.getOrNull(col) ?: continue
                     key(cell.id) { TableCellField(model, cell) }
+                }
+                for (bodyRow in table.rows) {
+                    for (col in 0 until table.columnCount) {
+                        val cell = bodyRow.getOrNull(col) ?: continue
+                        key(cell.id) { TableCellField(model, cell) }
+                    }
                 }
             }
         }
