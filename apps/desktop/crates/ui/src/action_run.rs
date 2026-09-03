@@ -40,6 +40,12 @@ struct FixConflictsTarget {
     /// The PR issue's board repository — pins the run's repo group on LOCAL
     /// starts (remote frames carry the server-resolved group).
     repository_id: Option<String>,
+    /// The PR issue's board (EXP-712) — names the board on the token mint so
+    /// the run resolves the SAME base branch the PR targets.
+    board_id: String,
+    /// The board's own branch pin (EXP-712), when it has one. Wins over the
+    /// repo-level default as the rebase-target fallback.
+    board_branch: Option<String>,
 }
 
 /// Resolve the fix-conflicts `pr` input (a representative issue id) against
@@ -69,16 +75,19 @@ fn resolve_fix_conflicts_target(
         .ok_or_else(|| "That pull request has no recorded branch.".to_string())?;
     let identifier = issue.identifier.clone();
     let board_id = issue.board_id.clone();
-    let repository_id = collections
-        .boards
-        .read(cx)
-        .get(&board_id)
-        .and_then(|board| board.repository_id.clone());
+    let boards = collections.boards.read(cx);
+    let board = boards.get(&board_id);
+    let repository_id = board.and_then(|board| board.repository_id.clone());
+    let board_branch = board
+        .and_then(|board| board.default_branch.clone())
+        .filter(|branch| !branch.trim().is_empty());
     Ok(FixConflictsTarget {
         identifier,
         branch,
         issue_id,
         repository_id,
+        board_id,
+        board_branch,
     })
 }
 
@@ -301,9 +310,15 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
     };
     // The kind fields the post-fetch request needs (the background closure
     // owns `fix_target` for its repo resolution).
-    let fix_kind = fix_target
-        .as_ref()
-        .map(|fix| (fix.branch.clone(), fix.identifier.clone(), fix.issue_id.clone()));
+    let fix_kind = fix_target.as_ref().map(|fix| {
+        (
+            fix.branch.clone(),
+            fix.identifier.clone(),
+            fix.issue_id.clone(),
+            fix.board_id.clone(),
+            fix.board_branch.clone(),
+        )
+    });
     // EXP-615: the chat run's `repo` input, snapshotted for the background
     // resolution (`inputs` itself rides on into the launch request).
     let chat_repo_input = (action_id == BUILTIN_CHAT_ID)
@@ -461,10 +476,15 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
 
             let fix_branch = fix_kind.as_ref().map(|(branch, ..)| branch.clone());
             let kind = match fix_kind {
-                Some((branch, identifier, issue_id)) => {
-                    let default_branch = repo_group
-                        .as_ref()
-                        .map(|group| group.default_branch.clone())
+                Some((branch, identifier, issue_id, board_id, board_branch)) => {
+                    // EXP-712: the BOARD's branch is the base its PRs target —
+                    // the repo default is only the fallback for an unpinned
+                    // board (and this whole value is itself only the fallback
+                    // for `issues.prepareConflictFix`'s live resolution).
+                    let default_branch = board_branch
+                        .or_else(|| {
+                            repo_group.as_ref().map(|group| group.default_branch.clone())
+                        })
                         .unwrap_or_default();
                     if default_branch.is_empty() {
                         // L30: never fabricate `main` — without a known
@@ -485,6 +505,7 @@ team settings → Repositories.";
                     ActionRunKind::FixConflicts {
                         branch,
                         default_branch,
+                        board_id: Some(board_id),
                         identifier,
                         issue_id,
                     }

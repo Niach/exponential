@@ -279,6 +279,26 @@ pub fn statuses_set_pr_automation(
     )
 }
 
+/// `statuses.setEndSessionsOnMerge` — mutation (EXP-711, member-level like
+/// setPrAutomation). Whether a merged PR ends the live coding sessions on
+/// its issues; convergence is the teams-shape Electric echo.
+pub fn statuses_set_end_sessions_on_merge(
+    trpc: &TrpcClient,
+    team_id: &str,
+    enabled: bool,
+) -> Result<TxOutput, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        team_id: &'a str,
+        enabled: bool,
+    }
+    trpc.mutation(
+        "statuses.setEndSessionsOnMerge",
+        &Input { team_id, enabled },
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,6 +353,16 @@ mod tests {
         let _ = statuses_move(&client(&base), "t-1", "s-1", MoveDirection::Down).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"teamId":"t-1","statusId":"s-1","direction":"down"}"#));
+    }
+
+    #[test]
+    fn set_end_sessions_on_merge_posts_the_flag() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txId":13}}}"#);
+        let out = statuses_set_end_sessions_on_merge(&client(&base), "t-1", false).unwrap();
+        assert_eq!(out.tx_id, Some(13));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/statuses.setEndSessionsOnMerge HTTP/1.1"));
+        assert!(request.ends_with(r#"{"teamId":"t-1","enabled":false}"#));
     }
 
     #[test]

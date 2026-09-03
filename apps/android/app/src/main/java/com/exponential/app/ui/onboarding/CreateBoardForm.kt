@@ -17,7 +17,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -34,10 +33,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.BoardRepositoryChoice
+import com.exponential.app.ui.components.BoardRepoField
 import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.IconPicker
-import com.exponential.app.ui.components.RepositorySelector
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.LabelPalette
@@ -60,6 +59,20 @@ class CreateBoardFormState {
     var color by mutableStateOf(DEFAULT_COLOR)
     var iconName by mutableStateOf("square-kanban")
     var repository by mutableStateOf<BoardRepositoryChoice?>(null)
+        private set
+
+    /**
+     * The board's own branch (EXP-712) — null follows the repo's default.
+     * Only sent when a repository is selected; the server ignores it otherwise.
+     */
+    var branch by mutableStateOf<String?>(null)
+
+    /** A repo change RESETS the branch — a pin belongs to ONE repo. */
+    fun selectRepository(choice: BoardRepositoryChoice?) {
+        if (choice == repository) return
+        repository = choice
+        branch = null
+    }
 
     /** Repo is always optional now, so creation only needs a name + prefix. */
     val canCreate: Boolean get() = name.isNotBlank() && prefix.isNotBlank()
@@ -194,36 +207,22 @@ fun CreateBoardForm(
             }
         }
 
-        // Repository is ALWAYS optional on every board.
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Repository (optional)", style = MaterialTheme.typography.labelMedium, color = secondary)
-            // A failed registry load must not read as "no repos connected" —
-            // show the error with a retry instead of the selector's empty
-            // state (EXP-46).
-            val reposError = state.reposError
-            if (reposError != null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        reposError,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = { viewModel.loadRepos(teamId) }) {
-                        Text("Retry")
-                    }
-                }
-            } else {
-                RepositorySelector(
-                    accountId = accountId,
-                    teamId = teamId,
-                    repos = state.repos,
-                    loading = state.loadingRepos,
-                    selection = form.repository,
-                    onSelect = { form.repository = it },
-                )
-            }
-        }
+        // Repository is ALWAYS optional on every board; the branch under it is
+        // the board's own (EXP-712). A failed registry load rides the field's
+        // error slot with a retry, so it can't read as "no repos connected"
+        // (EXP-46).
+        BoardRepoField(
+            accountId = accountId,
+            teamId = teamId,
+            repos = state.repos,
+            loading = state.loadingRepos,
+            selection = form.repository,
+            onSelect = { form.selectRepository(it) },
+            branch = form.branch,
+            onBranchChange = { form.branch = it },
+            error = state.reposError,
+            onRetry = { viewModel.loadRepos(teamId) },
+        )
 
         state.error?.let { message ->
             Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
@@ -251,6 +250,7 @@ fun CreateBoardForm(
                         form.color,
                         form.iconName,
                         form.repository,
+                        form.branch,
                         onCreated,
                     )
                 },

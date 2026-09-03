@@ -13,11 +13,19 @@
 // degrades to the pre-existing sessionOwnerFallback behavior — worse
 // attribution, never a crash or a lost notification.
 
-interface PrActorClaim {
+interface PrActor {
   userId: string
   // True when the action came in over an agent's MCP credential — gates the
   // host→requester attribution swap in fireAndForgetPrNotify (EXP-432).
   viaAgent: boolean
+  // EXP-711 (merge claims only): the caller's per-merge override of the
+  // team's end-sessions-on-merge setting. The `closed` webhook reliably
+  // beats the in-app merge write, so this is how `pr_merge({ endSessions })`
+  // reaches the sweep the webhook runs. Unset = the team setting decides.
+  endSessions?: boolean
+}
+
+interface PrActorClaim extends PrActor {
   expiresAt: number
 }
 
@@ -39,7 +47,7 @@ function mergeKey(repoFullName: string, prNumber: number): string {
   return `merge:${repoFullName.toLowerCase()}#${prNumber}`
 }
 
-function put(key: string, actor: { userId: string; viaAgent: boolean }): void {
+function put(key: string, actor: PrActor): void {
   const now = Date.now()
   for (const [existingKey, claim] of claims) {
     if (claim.expiresAt <= now) claims.delete(existingKey)
@@ -59,12 +67,14 @@ function put(key: string, actor: { userId: string; viaAgent: boolean }): void {
 // consuming keeps a stale claim from misattributing a later unrelated event,
 // and redeliveries can never double-notify anyway (the applyPr* idempotent
 // guards).
-function take(key: string): { userId: string; viaAgent: boolean } | null {
+function take(key: string): PrActor | null {
   const claim = claims.get(key)
   if (!claim) return null
   claims.delete(key)
   if (claim.expiresAt <= Date.now()) return null
-  return { userId: claim.userId, viaAgent: claim.viaAgent }
+  const { expiresAt, ...actor } = claim
+  void expiresAt
+  return actor
 }
 
 export function claimPrOpen(
@@ -78,7 +88,7 @@ export function claimPrOpen(
 export function claimPrMerge(
   repoFullName: string,
   prNumber: number,
-  actor: { userId: string; viaAgent: boolean }
+  actor: PrActor
 ): void {
   put(mergeKey(repoFullName, prNumber), actor)
 }
@@ -93,7 +103,7 @@ export function takePrOpenClaim(
 export function takePrMergeClaim(
   repoFullName: string,
   prNumber: number
-): { userId: string; viaAgent: boolean } | null {
+): PrActor | null {
   return take(mergeKey(repoFullName, prNumber))
 }
 

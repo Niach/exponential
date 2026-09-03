@@ -24,6 +24,8 @@ export type CreateBoardInput = {
   // Curated icon name from the domain contract.
   icon: BoardIcon
   repository?: CreateBoardRepository
+  // EXP-712: the board's own branch; omitted = the repo's default.
+  defaultBranch?: string
 }
 
 // Discriminated failure so each surface can render its own affordance:
@@ -67,6 +69,7 @@ export function useCreateBoard() {
             color: input.color,
             icon: input.icon,
             repository: input.repository,
+            defaultBranch: input.defaultBranch,
           },
           // Failures render inline at the call site; the global mutation-error
           // toast would be redundant noise.

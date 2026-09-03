@@ -117,6 +117,11 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     // Curated glyph name (DomainContract.boardIconValues) — nil means fall
     // back to a derived icon. Rendered to an SF Symbol client-side.
     public let icon: String?
+    // EXP-712: the branch THIS board's coding sessions branch from and its PRs
+    // target. Nil = follow the repo (its team-pinned override, else GitHub's
+    // default), so two boards on one repo can develop on different branches.
+    // Reset to nil server-side whenever the board is retargeted.
+    public let defaultBranch: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -130,6 +135,7 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         sortOrder: Double?,
         repositoryId: String?,
         icon: String? = nil,
+        defaultBranch: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
@@ -142,6 +148,7 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.sortOrder = sortOrder
         self.repositoryId = repositoryId
         self.icon = icon
+        self.defaultBranch = defaultBranch
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -151,6 +158,7 @@ public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         case teamId = "team_id"
         case sortOrder = "sort_order"
         case repositoryId = "repository_id"
+        case defaultBranch = "default_branch"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -175,6 +183,9 @@ extension BoardEntity: Codable {
         sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
         repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId)
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
+        // Same permissive read as `icon`: the column landed in a shape
+        // rotation (EXP-712), so a pre-rotation snapshot simply omits it.
+        defaultBranch = try c.decodeIfPresent(String.self, forKey: .defaultBranch)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }

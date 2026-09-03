@@ -677,7 +677,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_create`,
     {
-      description: `Create a board in a team (member; owner/admin to connect a new repo). The repository is optional. Coding features gate on repo presence. Pass repository.repositoryId (registry repo) or repository.fullName ("owner/name") to connect one inline. icon is a curated icon name.`,
+      description: `Create a board in a team (member; owner/admin to connect a new repo). The repository is optional. Coding features gate on repo presence. Pass repository.repositoryId (registry repo) or repository.fullName ("owner/name") to connect one inline; defaultBranch pins the branch this board's coding sessions branch from and its PRs target (omit = the repo's default). icon is a curated icon name.`,
       inputSchema: strictInput({
         teamId: uuidString,
         name: z.string().min(1).max(255),
@@ -708,6 +708,7 @@ export function registerExponentialTools(
             }),
           ])
           .optional(),
+        defaultBranch: z.string().min(1).max(255).optional(),
       }),
     },
     async (input) => {
@@ -726,12 +727,13 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_update`,
     {
-      description: `Update a board's name, color, or icon.`,
+      description: `Update a board's name, color, icon, or defaultBranch (the branch its coding sessions branch from and its PRs target; null = follow the repo's default).`,
       inputSchema: strictInput({
         id: uuidString,
         icon: boardIconEnumSchema.nullable().optional(),
         name: z.string().min(1).max(255).optional(),
         color: hexColorSchema.optional(),
+        defaultBranch: z.string().min(1).max(255).nullable().optional(),
       }),
     },
     async ({ id, ...rest }) => {
@@ -1837,6 +1839,13 @@ export function registerExponentialTools(
               `All issues in a batch PR must share one repository (${repo.fullName} vs ${issueRepo.fullName}).`
             )
           }
+          // EXP-712: boards on one repo may develop on different branches —
+          // a combined PR has exactly one base.
+          if (repo && repo.defaultBranch !== issueRepo.defaultBranch) {
+            throw new Error(
+              `All issues in a batch PR must share one base branch (${repo.defaultBranch} vs ${issueRepo.defaultBranch}). Pass 'base' to pick one.`
+            )
+          }
           repo = issueRepo
         }
         if (!repo) throw new Error(`Issue not found`)
@@ -1982,16 +1991,21 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end, except YOUR OWN session, which keeps running (it ends on its own exit or close-out). Merges run sequentially; each results[] element carries 'merged' + optional 'error', plus issueId/identifier (issue path) or repositoryId/prNumber (chore path) — one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
+      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end unless the team's "end sessions on merge" setting is off — 'endSessions' overrides that setting for this call (false keeps them running) — and YOUR OWN session always keeps running (it ends on its own exit or close-out). Merges run sequentially; each results[] element carries 'merged' + optional 'error', plus issueId/identifier (issue path) or repositoryId/prNumber (chore path) — one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         issueId: z.string().min(1).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
         repositoryId: uuidString.optional(),
         prNumber: z.number().int().positive().optional(),
+        endSessions: z.boolean().optional(),
       }),
     },
-    async ({ issueId, issueIds, repositoryId, prNumber }) => {
+    async ({ issueId, issueIds, repositoryId, prNumber, endSessions }) => {
+      // EXP-711: only forwarded when given, so the tRPC input stays byte-equal
+      // to the pre-override shape for every caller that never passes it.
+      const endSessionsInput =
+        endSessions !== undefined ? { endSessions } : {}
       try {
         const subjects = [
           Boolean(issueId),
@@ -2116,6 +2130,7 @@ export function registerExponentialTools(
             await caller(user, request).repositories.mergePull({
               repositoryId,
               prNumber: prNumber!,
+              ...endSessionsInput,
             })
           } catch (e) {
             if (ownChorePr) await revertMergedOwnPr()
@@ -2202,7 +2217,10 @@ export function registerExponentialTools(
         }[] = []
         for (const target of targets) {
           try {
-            await trpcCaller.issues.mergePr({ issueId: target.id })
+            await trpcCaller.issues.mergePr({
+              issueId: target.id,
+              ...endSessionsInput,
+            })
             results.push({
               issueId: target.id,
               identifier: target.identifier,
@@ -3507,13 +3525,14 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_boards_set_repository`,
     {
-      description: `Point a board (by its UUID) at a different registered repository (both must be in the same team), or pass repositoryId: null to detach it. Owner/admin only. Existing worktrees keep working; new coding sessions use the new repo.`,
+      description: `Point a board (by its UUID) at a different registered repository (both must be in the same team), or pass repositoryId: null to detach it. Owner/admin only. Existing worktrees keep working; new coding sessions use the new repo. The board's branch pin resets unless defaultBranch is passed.`,
       inputSchema: strictInput({
         id: uuidString,
         repositoryId: uuidString.nullable(),
+        defaultBranch: z.string().min(1).max(255).optional(),
       }),
     },
-    async ({ id, repositoryId }) => {
+    async ({ id, repositoryId, defaultBranch }) => {
       try {
         if (!access.full) {
           const board = await getBoardTeamId(id)
@@ -3527,6 +3546,7 @@ export function registerExponentialTools(
         const result = await caller(user, request).boards.setRepository({
           boardId: id,
           repositoryId,
+          defaultBranch,
         })
         return ok(result.board)
       } catch (e) {

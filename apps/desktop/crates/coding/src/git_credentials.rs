@@ -159,7 +159,10 @@ pub fn ensure_repo_auth_with_margin(
     margin: Duration,
 ) -> Result<MintedToken, CodingError> {
     let minted = token_cache()
-        .get_or_mint_with_margin(trpc, repository_id, margin)
+        // Repo-level: these are maintenance ops on an EXISTING clone (git-bar
+        // sync, Commit & Push, the refresher) — only the token matters, and
+        // the entry's branch is nobody's base (EXP-712).
+        .get_or_mint_with_margin(trpc, repository_id, None, margin)
         .map_err(|err: ApiError| CodingError::Api(err))?;
     ensure(clone, &minted.url, minted.expires_at.as_deref())?;
     Ok(minted)

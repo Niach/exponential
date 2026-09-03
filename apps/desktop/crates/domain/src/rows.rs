@@ -55,6 +55,11 @@ pub struct Team {
     /// `Some(false)` = "do nothing" on PR merge. `None` = enabled.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub pr_merged_automation: Option<bool>,
+    /// EXP-711: does a merged PR end the live coding sessions on its
+    /// issues? `Some(false)` keeps them running. `None` (pre-column rows) =
+    /// enabled, matching the server DEFAULT true.
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub end_sessions_on_merge: Option<bool>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -76,9 +81,19 @@ impl Team {
             pr_opened_automation: None,
             pr_merged_status_id: None,
             pr_merged_automation: None,
+            end_sessions_on_merge: None,
             created_at: None,
             updated_at: None,
         }
+    }
+}
+
+impl Team {
+    /// EXP-711: whether a merged PR ends this team's live coding sessions.
+    /// A row synced before the column existed reads as enabled (the server
+    /// default), so only an explicit `false` keeps sessions running.
+    pub fn ends_sessions_on_merge(&self) -> bool {
+        self.end_sessions_on_merge != Some(false)
     }
 }
 
@@ -104,6 +119,12 @@ pub struct Board {
     /// Coding affordances gate purely on this presence.
     #[serde(default)]
     pub repository_id: Option<String>,
+    /// `boards.default_branch` (EXP-712, nullable) — the branch THIS board's
+    /// coding sessions branch from and whose PRs they target. `None` = follow
+    /// the repo's own default (team pin, else GitHub), so two boards on one
+    /// repository can develop on different branches.
+    #[serde(default)]
+    pub default_branch: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
     #[serde(default)]
@@ -129,6 +150,7 @@ impl Board {
             color: None,
             icon: None,
             repository_id: None,
+            default_branch: None,
             sort_order: None,
             created_at: None,
             updated_at: None,
@@ -1124,13 +1146,17 @@ mod tests {
             "pr_opened_status_id": "s-1",
             "pr_opened_automation": "t",
             "pr_merged_status_id": null,
-            "pr_merged_automation": "f"
+            "pr_merged_automation": "f",
+            "end_sessions_on_merge": "f"
         }))
         .unwrap();
         assert_eq!(team.pr_opened_status_id.as_deref(), Some("s-1"));
         assert_eq!(team.pr_opened_automation, Some(true));
         assert_eq!(team.pr_merged_status_id, None);
         assert_eq!(team.pr_merged_automation, Some(false));
+        // EXP-711: an explicit `f` keeps sessions running.
+        assert_eq!(team.end_sessions_on_merge, Some(false));
+        assert!(!team.ends_sessions_on_merge());
 
         // Pre-column rows degrade to None everywhere (None flag = ENABLED,
         // matching the server DEFAULT true).
@@ -1143,6 +1169,8 @@ mod tests {
         assert_eq!(team.pr_opened_automation, None);
         assert_eq!(team.pr_merged_status_id, None);
         assert_eq!(team.pr_merged_automation, None);
+        assert_eq!(team.end_sessions_on_merge, None);
+        assert!(team.ends_sessions_on_merge());
     }
 
     #[test]

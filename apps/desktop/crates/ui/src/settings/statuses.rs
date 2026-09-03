@@ -36,6 +36,7 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     popover::Popover,
+    switch::Switch,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -594,6 +595,48 @@ impl StatusesPane {
                     })),
             );
         }
+
+        // EXP-711: merge ends the PR's live coding sessions by default
+        // (EXP-498); the switch turns that off team-wide. Web parity: the
+        // third row of the same card, sub-hint included.
+        let ends_sessions = team.ends_sessions_on_merge();
+        let team_id = team.id.clone();
+        card = card.child(
+            h_flex()
+                .gap_2()
+                .items_center()
+                .justify_between()
+                .child(
+                    v_flex()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .text_sm()
+                                .child("When a pull request merges, end its coding sessions"),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(
+                                    "The session that merged its own pull request always keeps running.",
+                                ),
+                        ),
+                )
+                .child(
+                    Switch::new("pr-automation-end-sessions")
+                        .checked(ends_sessions)
+                        .on_click(move |checked: &bool, _window, cx| {
+                            let team_id = team_id.clone();
+                            let enabled = *checked;
+                            super::spawn_trpc(cx, "statuses.setEndSessionsOnMerge", move |trpc| {
+                                api::statuses::statuses_set_end_sessions_on_merge(
+                                    trpc, &team_id, enabled,
+                                )
+                            });
+                        }),
+                ),
+        );
 
         Some(card)
     }

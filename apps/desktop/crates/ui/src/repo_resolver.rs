@@ -294,6 +294,44 @@ fn fetch_repos(
     Ok(rows.into_iter().map(resolved_from_row).collect())
 }
 
+/// EXP-712: the branch a BOARD develops on — its own `default_branch` pin
+/// when it has one, else the repo's effective default (which
+/// `repositories.list` already resolved team-pin-aware). Mirror of the
+/// server's `effectiveBoardBranch`; `None` keeps L30's promise that no
+/// caller inherits a fabricated `main`.
+pub(crate) fn board_base_branch(
+    board_pin: Option<&str>,
+    repo_default: Option<&str>,
+) -> Option<String> {
+    // Each half is emptiness-checked on its own: a blank pin is NOT a pin, so
+    // it must fall through to the repo default rather than blanking the row.
+    let usable = |branch: Option<&str>| {
+        branch
+            .map(str::trim)
+            .filter(|branch| !branch.is_empty())
+            .map(str::to_string)
+    };
+    usable(board_pin).or_else(|| usable(repo_default))
+}
+
+/// EXP-712: one batch, ONE base branch — the run cuts a single
+/// `exp/batch-<id8>` branch, so issues whose boards develop on different
+/// branches cannot share it. Returns the first disagreeing pair (in
+/// selection order) for the blocker message, mirroring the server's own
+/// batch refusal. Unknown branches (`None`) never conflict: they degrade to
+/// the repo default at mint time, which is the same for one repository.
+pub(crate) fn batch_branch_conflict(branches: &[Option<String>]) -> Option<(String, String)> {
+    let mut first: Option<&str> = None;
+    for branch in branches.iter().filter_map(|branch| branch.as_deref()) {
+        match first {
+            None => first = Some(branch),
+            Some(existing) if existing == branch => {}
+            Some(existing) => return Some((existing.to_string(), branch.to_string())),
+        }
+    }
+    None
+}
+
 /// One `repositories.list` row → [`ResolvedRepo`]. Pure so the branch-handling
 /// (L30: keep the server value, never fabricate `main`) is unit-testable.
 fn resolved_from_row(row: RepoRow) -> ResolvedRepo {
@@ -373,6 +411,55 @@ mod tests {
         assert_eq!(resolved.default_branch.as_deref(), Some("master"));
         assert_eq!(resolved.repository_id, "repo-1");
         assert_eq!(resolved.board_ids, vec!["proj-1".to_string()]);
+    }
+
+    /// EXP-712: the board's own pin wins over the repo default, and an
+    /// unpinned board follows the repo — never a fabricated `main`.
+    #[test]
+    fn board_base_branch_prefers_the_board_pin() {
+        assert_eq!(
+            board_base_branch(Some("develop"), Some("master")).as_deref(),
+            Some("develop")
+        );
+        assert_eq!(
+            board_base_branch(None, Some("master")).as_deref(),
+            Some("master")
+        );
+        assert_eq!(board_base_branch(None, None), None);
+        // A blank pin is not a pin (Electric can carry an empty string).
+        assert_eq!(
+            board_base_branch(Some("  "), Some("master")).as_deref(),
+            Some("master")
+        );
+        assert_eq!(board_base_branch(Some(""), None), None);
+    }
+
+    /// EXP-712: a batch is ONE branch. Two boards on one repo developing on
+    /// different branches must be refused before the launch, exactly like the
+    /// server refuses the remote start.
+    #[test]
+    fn batch_branch_conflict_names_the_first_disagreeing_pair() {
+        let same = vec![
+            Some("develop".to_string()),
+            Some("develop".to_string()),
+            None,
+        ];
+        assert_eq!(batch_branch_conflict(&same), None);
+
+        let mixed = vec![
+            Some("develop".to_string()),
+            None,
+            Some("master".to_string()),
+            Some("release".to_string()),
+        ];
+        assert_eq!(
+            batch_branch_conflict(&mixed),
+            Some(("develop".to_string(), "master".to_string()))
+        );
+
+        // Nothing known ⇒ nothing to disagree about (all resolve to the
+        // repo's own default at mint time).
+        assert_eq!(batch_branch_conflict(&[None, None]), None);
     }
 
     #[test]

@@ -66,6 +66,7 @@ fun CreateBoardSheet(
                         form.color,
                         form.iconName,
                         form.repository,
+                        form.branch,
                     ) { boardId ->
                         viewModel.rememberCreated(boardId)
                         onCreated(boardId)

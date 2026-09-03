@@ -34,13 +34,17 @@ const h = vi.hoisted(() => ({
 
 // membership.ts's getDb() dynamically imports @/db/connection; this mock also
 // satisfies lib/trpc.ts's module-scope `db` import without a live Postgres.
-vi.mock(`@/db/connection`, () => ({
-  db: {
-    select: () => ({
-      from: () => ({ where: () => ({ limit: async () => [] }) }),
-    }),
-  },
-}))
+vi.mock(`@/db/connection`, () => {
+  // EXP-712: boardBranchOverride joins boards → repositories; no board pin.
+  const tail = { where: () => ({ limit: async () => [] }) }
+  return {
+    db: {
+      select: () => ({
+        from: () => ({ ...tail, innerJoin: () => tail }),
+      }),
+    },
+  }
+})
 
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 
@@ -411,7 +415,11 @@ describe(`issues.mergePr always ends sessions (EXP-498)`, () => {
     })
     expect(h.applyPrMergeState).toHaveBeenCalledTimes(2)
     expect(h.endMergedPrSessions).toHaveBeenCalledTimes(1)
-    expect(h.endMergedPrSessions).toHaveBeenCalledWith([ISSUE_ID, OTHER_ISSUE])
+    // EXP-711: no endSessions override on a plain merge — the team decides.
+    expect(h.endMergedPrSessions).toHaveBeenCalledWith(
+      [ISSUE_ID, OTHER_ISSUE],
+      undefined
+    )
   })
 
   it(`sweeps on the already-merged idempotent path too`, async () => {
@@ -422,7 +430,7 @@ describe(`issues.mergePr always ends sessions (EXP-498)`, () => {
       merged: true,
     })
     expect(h.mergePullRequest).not.toHaveBeenCalled()
-    expect(h.endMergedPrSessions).toHaveBeenCalledWith([ISSUE_ID])
+    expect(h.endMergedPrSessions).toHaveBeenCalledWith([ISSUE_ID], undefined)
   })
 })
 

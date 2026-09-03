@@ -66,6 +66,10 @@ pub struct BoardDetailPane {
     /// parity: the ChangeRepositoryDialog error). Cleared on the next
     /// attempt / team switch.
     link_error: Option<SharedString>,
+    /// EXP-712: `repositories.listBranches` for the board's repo, fetched
+    /// when the Branch menu first opens and keyed by repository id so a
+    /// retarget can never show the old repo's branches.
+    branches: Option<(String, crate::board_form::BranchLoad)>,
     /// Monotonic guard: a stale in-flight fetch must not clobber a newer one.
     generation: u64,
     _subscriptions: Vec<Subscription>,
@@ -104,6 +108,7 @@ impl BoardDetailPane {
             account_id: None,
             loaded_links: None,
             link_error: None,
+            branches: None,
             generation: 0,
             _subscriptions: subscriptions,
         }
@@ -317,19 +322,27 @@ impl BoardDetailPane {
     fn set_repository(
         &mut self,
         board_id: String,
-        repository_id: String,
+        repository_id: Option<String>,
         cx: &mut gpui::Context<Self>,
     ) {
         let Some(trpc) = queries::trpc_client(cx) else {
             return;
         };
         self.link_error = None;
+        // EXP-712: the server resets the board's branch pin on a retarget (it
+        // belonged to the old repo) — drop the cached branch list with it.
+        self.branches = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    api::boards::boards_set_repository(&trpc, &board_id, &repository_id)
+                    api::boards::boards_set_repository(
+                        &trpc,
+                        &board_id,
+                        repository_id.as_deref(),
+                        None,
+                    )
                 })
                 .await;
             if let Err(err) = result {
@@ -343,9 +356,12 @@ impl BoardDetailPane {
         .detach();
     }
 
-    /// The repository picker (EXP-139 — web parity: `ConnectedRepoPicker`):
-    /// a dropdown of the team's connected registry repos, labeled with the
-    /// board's CURRENT link from the synced row.
+    /// EXP-712 — the **Repository** select (web parity:
+    /// `components/board-repo-field.tsx`): "No repository", the team's
+    /// connected repos, then a trailing "Connect another repository…" that
+    /// hands off to settings → Repositories. Labeled with the board's CURRENT
+    /// link from the synced row. Picking one calls `boards.setRepository`,
+    /// which resets the board's branch pin server-side.
     fn repo_picker(
         &self,
         board: &domain::rows::Board,
@@ -360,11 +376,12 @@ impl BoardDetailPane {
                 // "No repository" for a linked board.
                 .unwrap_or_else(|| "Repository".into()),
             (Some(_), _) => "Repository".into(),
-            (None, _) => "No repository".into(),
+            (None, _) => crate::board_form::NO_REPOSITORY.into(),
         };
 
         let button = Button::new(row_id("board-detail-repo", &board.id))
-            .outline().cursor_pointer()
+            .outline()
+            .cursor_pointer()
             .web_sm()
             .max_w(px(320.))
             .icon(registry::UI_GITHUB)
@@ -384,6 +401,21 @@ impl BoardDetailPane {
                     .read(cx)
                     .get(&board_id)
                     .and_then(|board| board.repository_id.clone());
+                {
+                    let pane = pane.clone();
+                    let board_id = board_id.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(crate::board_form::NO_REPOSITORY)
+                            .checked(current.is_none())
+                            .on_click(move |_, _, cx| {
+                                let board_id = board_id.clone();
+                                pane.update(cx, |this, cx| {
+                                    this.set_repository(board_id, None, cx);
+                                });
+                            }),
+                    );
+                }
+                let mut has_repos = false;
                 match &pane.read(cx).repos {
                     RepoLoad::Idle | RepoLoad::Loading => {
                         menu = menu.label("Loading repositories\u{2026}");
@@ -393,10 +425,8 @@ impl BoardDetailPane {
                             "Couldn't load repositories: {message}"
                         )));
                     }
-                    RepoLoad::Ready(repos) if repos.is_empty() => {
-                        menu = menu.label("No repositories connected yet.");
-                    }
                     RepoLoad::Ready(repos) => {
+                        has_repos = !repos.is_empty();
                         for repo in repos {
                             let pane = pane.clone();
                             let board_id = board_id.clone();
@@ -406,31 +436,124 @@ impl BoardDetailPane {
                                     .icon(Icon::new(registry::UI_GITHUB))
                                     .checked(current.as_deref() == Some(repo.id.as_str()))
                                     .on_click(move |_, _, cx| {
+                                        let (board_id, repo_id) =
+                                            (board_id.clone(), repo_id.clone());
                                         pane.update(cx, |this, cx| {
-                                            this.set_repository(
-                                                board_id.clone(),
-                                                repo_id.clone(),
-                                                cx,
-                                            );
+                                            this.set_repository(board_id, Some(repo_id), cx);
                                         });
                                     }),
                             );
                         }
                     }
                 }
-                // The list is a cached snapshot of the team's connected
-                // repos — offer an explicit reload for repos connected on
-                // another client (doubles as the Failed state's retry).
+                // The connect flow lives in the Repositories pane (which also
+                // re-reads the server list, so this doubles as the refresh a
+                // repo connected on another client needs).
                 let pane = pane.clone();
-                // EXP-697: no dividers in menus.
-                menu.item(PopupMenuItem::new("Refresh list").on_click(move |_, _, cx| {
-                        pane.update(cx, |this, cx| {
-                            this.repos = RepoLoad::Idle;
-                            cx.notify();
-                        });
-                    }))
+                menu.item(
+                    PopupMenuItem::new(crate::board_form::connect_repository_label(has_repos))
+                        .icon(Icon::new(registry::UI_ADD))
+                        .on_click(move |_, window, cx| {
+                            pane.update(cx, |this, cx| {
+                                this.repos = RepoLoad::Idle;
+                                cx.notify();
+                            });
+                            crate::sidebar::select_settings_section(
+                                window,
+                                cx,
+                                SettingsSection::Repositories,
+                            );
+                        }),
+                )
             })
             .into_any_element()
+    }
+
+    /// EXP-712 — the **Branch** dropdown: the branch this board's coding
+    /// sessions start from. Saves through `boards.update({defaultBranch})`;
+    /// picking the repo's own default sends an explicit `null` (follow the
+    /// repo again). Rendered only for a board that HAS a repository.
+    fn branch_picker(
+        &self,
+        board: &domain::rows::Board,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let repository_id = board.repository_id.clone()?;
+        let repo_default = match &self.repos {
+            RepoLoad::Ready(repos) => repos
+                .iter()
+                .find(|repo| repo.id == repository_id)
+                .map(|repo| repo.default_branch.clone())
+                .filter(|branch| !branch.is_empty()),
+            _ => None,
+        };
+        let value = crate::repo_resolver::board_base_branch(
+            board.default_branch.as_deref(),
+            repo_default.as_deref(),
+        )?;
+        let board_id = board.id.clone();
+        let read_id = repository_id.clone();
+        let fetch_id = repository_id.clone();
+        Some(crate::board_form::branch_menu::<Self>(
+            SharedString::from(format!("board-detail-branch-{}", board.id)),
+            value,
+            repo_default,
+            false,
+            move |this: &Self, _| {
+                this.branches
+                    .as_ref()
+                    .filter(|(id, _)| id == &read_id)
+                    .map(|(_, load)| load.clone())
+            },
+            move |this: &mut Self, cx| this.ensure_branches(fetch_id.clone(), cx),
+            move |_: &mut Self, pick: Option<String>, cx| {
+                let board_id = board_id.clone();
+                spawn_trpc(cx, "boards.update(defaultBranch)", move |trpc| {
+                    let mut input = api::boards::BoardsUpdateInput::new(board_id);
+                    // `Some(None)` is the explicit JSON `null` that clears the
+                    // pin — a skipped field would keep the old one.
+                    input.default_branch = Some(pick);
+                    api::boards::boards_update(trpc, &input)
+                });
+            },
+            cx,
+        ))
+    }
+
+    /// Lazy `repositories.listBranches` for the board's repo (EXP-712),
+    /// kicked when the Branch menu opens and cached until the repo changes.
+    fn ensure_branches(&mut self, repository_id: String, cx: &mut gpui::Context<Self>) {
+        if self
+            .branches
+            .as_ref()
+            .is_some_and(|(id, _)| id == &repository_id)
+        {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        self.branches = Some((
+            repository_id.clone(),
+            crate::board_form::BranchLoad::Loading,
+        ));
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let fetch_id = repository_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::repositories::list_branches(&trpc, &fetch_id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                let load = match result {
+                    Ok(out) => crate::board_form::BranchLoad::Ready(out.branches),
+                    Err(err) => crate::board_form::BranchLoad::Failed(err.to_string().into()),
+                };
+                this.branches = Some((repository_id, load));
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn field_label(label: &'static str, cx: &gpui::App) -> impl IntoElement {
@@ -536,14 +659,22 @@ impl Render for BoardDetailPane {
                 cx,
             ));
 
-        let repo_field = v_flex()
-            .gap_1()
-            .child(Self::field_label("Repository", cx))
-            .child(self.repo_picker(&board, cx))
-            .child(Self::field_hint(
-                "New \u{201c}Start coding\u{201d} launches use the selected repository.",
-                cx,
-            ));
+        // EXP-712: repository + branch read as ONE block under ONE caption.
+        let mut repo_field = v_flex().gap_3().child(
+            v_flex()
+                .gap_1()
+                .child(Self::field_label("Repository", cx))
+                .child(self.repo_picker(&board, cx)),
+        );
+        if let Some(branch) = self.branch_picker(&board, cx) {
+            repo_field = repo_field.child(
+                v_flex()
+                    .gap_1()
+                    .child(Self::field_label("Branch", cx))
+                    .child(div().max_w(px(320.)).child(branch)),
+            );
+        }
+        let repo_field = repo_field.child(crate::board_form::board_repo_note(cx));
 
         let mut body = section(cx)
             .child(card_title("Board settings"))

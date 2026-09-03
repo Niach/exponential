@@ -62,6 +62,10 @@ const DEFAULT_ICON: &str = "square-kanban";
 struct RepoOption {
     id: String,
     full_name: String,
+    /// The repo's effective default branch (team pin folded in server-side) —
+    /// EXP-712's Branch dropdown shows it when the board pins nothing.
+    #[serde(default)]
+    default_branch: Option<String>,
 }
 
 /// Server fetch state for the registry repo picker.
@@ -178,6 +182,16 @@ pub struct CreateBoardDialogView {
     color: String,
     /// The chosen backing repository (v4 §3.1 — required to submit).
     repo_choice: Option<RepoChoice>,
+    /// EXP-712: the board's branch pin — `None` = follow the repo's default.
+    /// Reset whenever the repository selection changes (the pin belongs to
+    /// the repo it was picked on).
+    branch: Option<String>,
+    /// `repositories.listBranches` for the SELECTED registry repo, fetched
+    /// when the Branch menu first opens.
+    branches: Option<(String, crate::board_form::BranchLoad)>,
+    /// EXP-712: the select's trailing "Connect …" action expands the GitHub
+    /// picker + its connect affordances underneath.
+    connect_open: bool,
     /// Connected-repo list for the picker, fetched from `repositories.list`.
     repos: RepoLoad,
     /// Installable GitHub-App repos, fetched from `integrations.github.repos`.
@@ -284,6 +298,9 @@ impl CreateBoardDialogView {
             icon: DEFAULT_ICON,
             color: DEFAULT_COLOR.to_string(),
             repo_choice: None,
+            branch: None,
+            branches: None,
+            connect_open: false,
             repos: RepoLoad::Loading,
             github: GithubLoad::Loading,
             fetch_generation: 0,
@@ -367,6 +384,13 @@ impl CreateBoardDialogView {
         // A repository is optional on every board — send whatever was
         // picked, or nothing.
         let repository = self.repo_choice.as_ref().map(RepoChoice::to_input);
+        // EXP-712: only meaningful with a repository (the server ignores it
+        // otherwise) — and only when the board pins something OTHER than the
+        // repo's own default.
+        let default_branch = repository
+            .is_some()
+            .then(|| self.branch.clone())
+            .flatten();
         let input = api::boards::BoardsCreateInput {
             team_id: self.team_id.clone(),
             name,
@@ -374,6 +398,7 @@ impl CreateBoardDialogView {
             icon: Some(self.icon.to_string()),
             color: Some(self.color.clone()),
             repository,
+            default_branch,
         };
 
         cx.spawn_in(window, async move |this, window| {
@@ -410,6 +435,7 @@ impl CreateBoardDialogView {
                         board.prefix = output.board.prefix.clone();
                         board.color = output.board.color.clone();
                         board.repository_id = output.board.repository_id.clone();
+                        board.default_branch = output.board.default_branch.clone();
                         board
                     });
                     let boards = window
@@ -537,30 +563,18 @@ impl CreateBoardDialogView {
         )
     }
 
-    /// The "Repository" field: a dropdown offering the team's connected
-    /// registry repos AND (once the GitHub App is installed) the user's
-    /// installable GitHub repos to connect inline. When the App is configured
-    /// but not installed, a "Connect GitHub" button opens the install URL in
-    /// the browser; an explicit Refresh re-runs both fetches after the user
-    /// returns. Failures/empties fall through to a nudge.
-    fn repository_field(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let mut column = v_flex().gap_2();
-
-        // Both sources still in flight → a single disabled placeholder.
-        if matches!(self.repos, RepoLoad::Loading) && matches!(self.github, GithubLoad::Loading) {
-            return v_flex()
-                .gap_2()
-                .child(field_label(cx, "Repository"))
-                .child(
-                    Button::new("board-repo-picker")
-                        .outline().cursor_pointer()
-                        .small()
-                        .w_full()
-                        .label("Loading your GitHub repositories\u{2026}")
-                        .disabled(true),
-                );
-        }
-
+    /// EXP-712 — the board's **repository + branch** block (web parity:
+    /// `components/board-repo-field.tsx`).
+    ///
+    /// ONE select showing the current value: "No repository", the team's
+    /// connected repos, then a trailing "Connect another repository…" action
+    /// that expands the existing GitHub connect/picker flow
+    /// underneath. Directly beneath it — only once a repository is selected —
+    /// the **Branch** this board's coding sessions start from (the repo's
+    /// default unless the board pins another). ONE caption line under both.
+    fn repository_field(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let loading =
+            matches!(self.repos, RepoLoad::Loading) && matches!(self.github, GithubLoad::Loading);
         let registry: Vec<RepoOption> = match &self.repos {
             RepoLoad::Ready(repos) => repos.clone(),
             _ => Vec::new(),
@@ -569,85 +583,267 @@ impl CreateBoardDialogView {
             GithubLoad::Ready(result) => Some(result),
             _ => None,
         };
+        let has_repos = !registry.is_empty();
+
+        let label: SharedString = match (&self.repo_choice, loading) {
+            (Some(choice), _) => choice.full_name().to_string().into(),
+            (None, true) => "Loading\u{2026}".into(),
+            (None, false) => crate::board_form::NO_REPOSITORY.into(),
+        };
+        let selected_full = self
+            .repo_choice
+            .as_ref()
+            .map(|choice| choice.full_name().to_string());
+        // An inline pick has no registry row yet, so the select renders it
+        // itself — otherwise choosing it would blank the trigger.
+        let inline_choice = match &self.repo_choice {
+            Some(RepoChoice::Inline(repo)) => Some(repo.clone()),
+            _ => None,
+        };
+        let connect_label = crate::board_form::connect_repository_label(has_repos);
+        let view = cx.entity().clone();
+        let menu_repos = registry.clone();
+        let select = Button::new("board-repo-picker")
+            .outline()
+            .cursor_pointer()
+            .small()
+            .w_full()
+            .icon(registry::UI_GITHUB)
+            .label(label)
+            .dropdown_menu(move |menu, _window, _cx| {
+                let mut menu = menu.scrollable(true).max_h(px(320.));
+                {
+                    let view = view.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(crate::board_form::NO_REPOSITORY)
+                            .checked(selected_full.is_none())
+                            .on_click(move |_, _, cx| {
+                                view.update(cx, |this, cx| this.pick_repo(None, cx));
+                            }),
+                    );
+                }
+                for repo in &menu_repos {
+                    let view = view.clone();
+                    let choice = RepoChoice::Registry {
+                        id: repo.id.clone(),
+                        full_name: repo.full_name.clone(),
+                    };
+                    let checked = selected_full.as_deref() == Some(repo.full_name.as_str());
+                    menu = menu.item(
+                        PopupMenuItem::new(SharedString::from(repo.full_name.clone()))
+                            .icon(Icon::new(registry::UI_GITHUB))
+                            .checked(checked)
+                            .on_click(move |_, _, cx| {
+                                let choice = choice.clone();
+                                view.update(cx, |this, cx| this.pick_repo(Some(choice), cx));
+                            }),
+                    );
+                }
+                if let Some(repo) = &inline_choice {
+                    menu = menu.item(
+                        PopupMenuItem::new(SharedString::from(repo.full_name.clone()))
+                            .icon(Icon::new(registry::UI_GITHUB))
+                            .checked(true),
+                    );
+                }
+                let view = view.clone();
+                menu.item(
+                    PopupMenuItem::new(connect_label)
+                        .icon(Icon::new(registry::UI_ADD))
+                        .on_click(move |_, _, cx| {
+                            view.update(cx, |this, cx| {
+                                this.connect_open = true;
+                                cx.notify();
+                            });
+                        }),
+                )
+            });
+
+        let mut column = v_flex()
+            .gap_2()
+            .child(field_label(cx, "Repository"))
+            .child(select);
+        if self.connect_open {
+            column = column.child(self.connect_section(github_result, cx));
+        }
+
+        let mut block = v_flex().gap_4().child(column);
+        if let Some(branch) = self.branch_field(&registry, cx) {
+            block = block.child(branch);
+        }
+        block
+            .child(crate::board_form::board_repo_note(cx))
+            .into_any_element()
+    }
+
+    /// EXP-712's **Branch** row — only once a repository is selected. A
+    /// connected registry repo lists its branches live
+    /// (`repositories.listBranches`); a repo picked for INLINE connect has no
+    /// registry row to list against yet, so its row shows GitHub's default
+    /// and unlocks after the board is created.
+    fn branch_field(
+        &self,
+        registry: &[RepoOption],
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let (repository_id, repo_default) = match self.repo_choice.as_ref()? {
+            RepoChoice::Registry { id, .. } => (
+                Some(id.clone()),
+                registry
+                    .iter()
+                    .find(|repo| &repo.id == id)
+                    .and_then(|repo| repo.default_branch.clone()),
+            ),
+            RepoChoice::Inline(repo) => (
+                None,
+                Some(repo.default_branch.clone()).filter(|branch| !branch.is_empty()),
+            ),
+        };
+        let value = crate::repo_resolver::board_base_branch(
+            self.branch.as_deref(),
+            repo_default.as_deref(),
+        )?;
+        let repository_id = match repository_id {
+            Some(id) => id,
+            // Inline: nothing to list yet — show the repo's default, locked.
+            None => {
+                return Some(
+                    v_flex()
+                        .gap_2()
+                        .child(field_label(cx, "Branch"))
+                        .child(crate::board_form::branch_menu::<Self>(
+                            "board-branch-picker",
+                            value,
+                            repo_default,
+                            true,
+                            |_, _| None,
+                            |_, _| {},
+                            |_, _, _| {},
+                            cx,
+                        ))
+                        .into_any_element(),
+                )
+            }
+        };
+        let fetch_id = repository_id.clone();
+        let read_id = repository_id.clone();
+        Some(
+            v_flex()
+                .gap_2()
+                .child(field_label(cx, "Branch"))
+                .child(crate::board_form::branch_menu::<Self>(
+                    "board-branch-picker",
+                    value,
+                    repo_default,
+                    false,
+                    move |this: &Self, _| {
+                        this.branches
+                            .as_ref()
+                            .filter(|(id, _)| id == &read_id)
+                            .map(|(_, load)| load.clone())
+                    },
+                    move |this: &mut Self, cx| this.ensure_branches(fetch_id.clone(), cx),
+                    |this: &mut Self, pick, cx| {
+                        this.branch = pick;
+                        cx.notify();
+                    },
+                    cx,
+                ))
+                .into_any_element(),
+        )
+    }
+
+    /// Select a repository (or "No repository"). EXP-712: the branch pin
+    /// belongs to the repo it was picked on, so every change resets it — the
+    /// same rule `boards.setRepository` enforces server-side.
+    fn pick_repo(&mut self, choice: Option<RepoChoice>, cx: &mut gpui::Context<Self>) {
+        self.repo_choice = choice;
+        self.branch = None;
+        self.branches = None;
+        self.connect_open = false;
+        cx.notify();
+    }
+
+    /// Lazy `repositories.listBranches` for the selected repo (EXP-712) —
+    /// kicked when the Branch menu opens, cached until the selection changes.
+    fn ensure_branches(&mut self, repository_id: String, cx: &mut gpui::Context<Self>) {
+        if self
+            .branches
+            .as_ref()
+            .is_some_and(|(id, _)| id == &repository_id)
+        {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        self.branches = Some((
+            repository_id.clone(),
+            crate::board_form::BranchLoad::Loading,
+        ));
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let fetch_id = repository_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::repositories::list_branches(&trpc, &fetch_id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                let load = match result {
+                    Ok(out) => crate::board_form::BranchLoad::Ready(out.branches),
+                    Err(err) => crate::board_form::BranchLoad::Failed(err.to_string().into()),
+                };
+                this.branches = Some((repository_id, load));
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The connect/picker flow the select's trailing action expands: the
+    /// user's installable GitHub repos (connected inline by `boards.create`),
+    /// plus the browser hand-offs the GitHub App needs (connect, unsuspend,
+    /// reconnect) and the manual refresh.
+    fn connect_section(
+        &self,
+        github_result: Option<&GithubReposResult>,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let mut column = v_flex().gap_2();
         let github_repos: Vec<GithubRepo> = github_result
             .map(|result| result.repos.clone())
             .unwrap_or_default();
-        let has_options = !registry.is_empty() || !github_repos.is_empty();
 
-        if has_options {
-            let label: SharedString = self
-                .repo_choice
-                .as_ref()
-                .map(|choice| SharedString::from(choice.full_name().to_string()))
-                .unwrap_or_else(|| "Select a repository".into());
-            let selected_full = self
-                .repo_choice
-                .as_ref()
-                .map(|choice| choice.full_name().to_string());
+        if !github_repos.is_empty() {
             let view = cx.entity().clone();
             column = column.child(
-                Button::new("board-repo-picker")
-                    .outline().cursor_pointer()
+                Button::new("board-repo-github-picker")
+                    .outline()
+                    .cursor_pointer()
                     .small()
                     .w_full()
                     .icon(registry::UI_GITHUB)
-                    .label(label)
+                    .label("Select a GitHub repository\u{2026}")
                     .dropdown_menu(move |menu, _window, _cx| {
-                        // A team can hold many repos — cap + scroll
-                        // (EXP-46a; mirror of create_issue_dialog's pickers).
-                        // No submenus here (unsupported inside scrollable
-                        // menus at the pinned gpui-component rev).
                         let mut menu = menu.scrollable(true).max_h(px(320.));
-                        if !registry.is_empty() {
-                            menu = menu.label("Connected");
-                            for repo in &registry {
-                                let view = view.clone();
-                                let id = repo.id.clone();
-                                let full_name = repo.full_name.clone();
-                                let checked = selected_full.as_deref() == Some(repo.full_name.as_str());
-                                menu = menu.item(
-                                    PopupMenuItem::new(SharedString::from(repo.full_name.clone()))
-                                        .icon(Icon::new(registry::UI_GITHUB))
-                                        .checked(checked)
-                                        .on_click(move |_, _, cx| {
-                                            let choice = RepoChoice::Registry {
-                                                id: id.clone(),
-                                                full_name: full_name.clone(),
-                                            };
-                                            view.update(cx, |this, cx| {
-                                                this.repo_choice = Some(choice.clone());
-                                                cx.notify();
-                                            });
-                                        }),
-                                );
-                            }
-                        }
-                        if !github_repos.is_empty() {
-                            // EXP-697: no dividers in menus — the "GitHub"
-                            // label already separates the two groups.
-                            menu = menu.label("GitHub");
-                            for repo in &github_repos {
-                                let view = view.clone();
-                                let repo = repo.clone();
-                                let checked = selected_full.as_deref() == Some(repo.full_name.as_str());
-                                let title = if repo.private {
-                                    format!("{} \u{00b7} private", repo.full_name)
-                                } else {
-                                    repo.full_name.clone()
-                                };
-                                menu = menu.item(
-                                    PopupMenuItem::new(SharedString::from(title))
-                                        .icon(Icon::new(registry::UI_GITHUB))
-                                        .checked(checked)
-                                        .on_click(move |_, _, cx| {
-                                            let choice = RepoChoice::Inline(repo.clone());
-                                            view.update(cx, |this, cx| {
-                                                this.repo_choice = Some(choice.clone());
-                                                cx.notify();
-                                            });
-                                        }),
-                                );
-                            }
+                        for repo in &github_repos {
+                            let view = view.clone();
+                            let repo = repo.clone();
+                            let title = if repo.private {
+                                format!("{} \u{00b7} private", repo.full_name)
+                            } else {
+                                repo.full_name.clone()
+                            };
+                            menu = menu.item(
+                                PopupMenuItem::new(SharedString::from(title))
+                                    .icon(Icon::new(registry::UI_GITHUB))
+                                    .on_click(move |_, _, cx| {
+                                        let choice = RepoChoice::Inline(repo.clone());
+                                        view.update(cx, |this, cx| {
+                                            this.pick_repo(Some(choice), cx)
+                                        });
+                                    }),
+                            );
                         }
                         menu
                     }),
@@ -669,58 +865,31 @@ impl CreateBoardDialogView {
                     .clone()
                     .or_else(|| result.install_url.clone())
             });
-            let mut row = h_flex().flex_wrap().gap_2().items_center();
             if let Some(url) = connect_url {
-                row = row.child(
-                    Button::new("board-repo-connect-gh")
-                        .outline().cursor_pointer()
-                        .small()
-                        .icon(registry::UI_GITHUB)
-                        .label("Connect GitHub")
-                        .on_click(move |_, _, cx| open_url(cx, url.clone())),
+                column = column.child(
+                    h_flex().flex_wrap().gap_2().items_center().child(
+                        Button::new("board-repo-connect-gh")
+                            .outline()
+                            .cursor_pointer()
+                            .small()
+                            .icon(registry::UI_GITHUB)
+                            .label("Connect GitHub")
+                            .on_click(move |_, _, cx| open_url(cx, url.clone())),
+                    ),
                 );
             }
-            column = column
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(
-                            "Connect the Exponential GitHub App to pick a repository. You'll \
-                             come right back here.",
-                        ),
-                )
-                .child(row);
         }
 
         // EXP-368: the browser connect hand-off deep-linked back with an
         // error — same dashed-danger notice shape as the suspension one
-        // below. Cleared by any refetch (deep-link success or manual
-        // refresh).
+        // below. Cleared by any refetch (deep-link success or manual refresh).
         if let Some(message) = self.connect_error.clone() {
-            column = column.child(
-                h_flex()
-                    .flex_wrap()
-                    .gap_2()
-                    .items_center()
-                    .px_3()
-                    .py_2()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_dashed()
-                    .border_color(cx.theme().border)
-                    .text_sm()
-                    .text_color(cx.theme().danger)
-                    .child(Icon::new(registry::UI_WARNING).xsmall())
-                    .child(div().flex_1().min_w_0().child(message)),
-            );
+            column = column.child(notice_row(cx.theme().danger, message, cx));
         }
 
         // Suspension outranks reconnect (REV2-29, EXP-365): a suspended
         // installation lists no repos and mints no tokens, and a reconnect
-        // CANNOT fix it — only unsuspending on GitHub can. The pre-fix
-        // `installed && repos empty ⇒ reconnect` heuristic nudged exactly the
-        // wrong action here.
+        // CANNOT fix it — only unsuspending on GitHub can.
         let suspended_installs: Vec<&crate::github_connect::GithubInstallation> = github_result
             .map(|result| {
                 result
@@ -740,27 +909,19 @@ impl CreateBoardDialogView {
                 .first()
                 .map(|inst| inst.manage_url.clone())
                 .filter(|url| !url.is_empty());
-            let mut notice = h_flex()
-                .flex_wrap()
-                .gap_2()
-                .items_center()
-                .px_3()
-                .py_2()
-                .rounded(cx.theme().radius)
-                .border_1()
-                .border_dashed()
-                .border_color(cx.theme().border)
-                .text_sm()
-                .text_color(cx.theme().danger)
-                .child(Icon::new(registry::UI_WARNING).xsmall())
-                .child(div().flex_1().min_w_0().child(SharedString::from(format!(
+            let mut notice = notice_row(
+                cx.theme().danger,
+                SharedString::from(format!(
                     "GitHub suspended the Exponential app for {names}. Its repositories \
                      can't be connected until you unsuspend it on GitHub."
-                ))));
+                )),
+                cx,
+            );
             if let Some(url) = manage_url {
                 notice = notice.child(
                     Button::new("board-repo-unsuspend-gh")
-                        .outline().cursor_pointer()
+                        .outline()
+                        .cursor_pointer()
                         .xsmall()
                         .label("Manage")
                         .on_click(move |_, _, cx| open_url(cx, url.clone())),
@@ -770,16 +931,12 @@ impl CreateBoardDialogView {
         }
 
         // Grant-model reconnect: installed but the per-user grant snapshot is
-        // missing/stale — a pre-grant link comes back `installed: true` with
-        // an empty `repos[]` and `needs_reauth` on the linked installation(s).
-        // Reconnect must run the OAuth connect (it re-captures grants); the
-        // App install page does NOT (web parity: `github-repo-picker.tsx`).
-        // A suspended-only empty list is NOT a reconnect case (above).
+        // missing/stale. Reconnect must run the OAuth connect (it re-captures
+        // grants); the App install page does NOT (web parity).
         let github_repos_empty = github_result
             .map(|result| result.repos.is_empty())
             .unwrap_or(true);
-        // EXP-557: STALE links are excluded — no reconnect can refresh them;
-        // the Repositories settings pane offers Disconnect instead.
+        // EXP-557: STALE links are excluded — no reconnect can refresh them.
         let needs_reconnect = github_result
             .map(|result| {
                 result.installed
@@ -798,35 +955,18 @@ impl CreateBoardDialogView {
                     )
                 })
                 .unwrap_or_default();
-            let mut notice = h_flex()
-                .flex_wrap()
-                .gap_2()
-                .items_center()
-                .px_3()
-                .py_2()
-                .rounded(cx.theme().radius)
-                .border_1()
-                .border_dashed()
-                .border_color(cx.theme().border)
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(
-                    Icon::new(registry::UI_WARNING)
-                        .xsmall()
-                        .text_color(theme::tokens::YELLOW.to_hsla()),
-                )
-                .child(div().flex_1().min_w_0().child(SharedString::from(
-                    if github_repos_empty {
-                        format!(
-                            "Reconnect GitHub to load the repositories you can access{suffix}."
-                        )
-                    } else {
-                        format!(
-                            "Reconnect GitHub{suffix} to refresh. Repos created or shared \
-                             with you since your last connect won't appear until you do."
-                        )
-                    },
-                )));
+            let mut notice = notice_row(
+                cx.theme().muted_foreground,
+                SharedString::from(if github_repos_empty {
+                    format!("Reconnect GitHub to load the repositories you can access{suffix}.")
+                } else {
+                    format!(
+                        "Reconnect GitHub{suffix} to refresh. Repos created or shared \
+                         with you since your last connect won't appear until you do."
+                    )
+                }),
+                cx,
+            );
             let reconnect_url = github_result.and_then(|result| {
                 result
                     .connect_url
@@ -836,7 +976,8 @@ impl CreateBoardDialogView {
             if let Some(url) = reconnect_url {
                 notice = notice.child(
                     Button::new("board-repo-reconnect-gh")
-                        .outline().cursor_pointer()
+                        .outline()
+                        .cursor_pointer()
                         .xsmall()
                         .icon(registry::UI_GITHUB)
                         .label("Reconnect GitHub")
@@ -846,48 +987,28 @@ impl CreateBoardDialogView {
             column = column.child(notice);
         }
 
-        // Empty/failure messaging when there is nothing to pick (the
-        // installed-but-grantless empty case is the reconnect notice above,
-        // and a suspended account already explains itself).
-        if !has_options
-            && !configured_not_installed
-            && !needs_reconnect
-            && suspended_installs.is_empty()
-        {
-            let message: SharedString = match (&self.repos, &self.github) {
-                (RepoLoad::Failed(message), _) => message.clone(),
-                (_, GithubLoad::Failed(message)) => message.clone(),
-                (_, GithubLoad::Ready(result)) if !result.configured => {
-                    "GitHub isn't configured on this server, so repositories can't be connected."
-                        .into()
-                }
-                _ => "No repositories available yet. Connect one on GitHub.".into(),
-            };
-            column = column.child(
-                div()
-                    .px_3()
-                    .py_2()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_dashed()
-                    .border_color(cx.theme().border)
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(message),
-            );
+        // A genuine fetch failure still has to say so — it is the difference
+        // between "nothing to connect" and "we couldn't ask".
+        let failure: Option<SharedString> = match (&self.repos, &self.github) {
+            (RepoLoad::Failed(message), _) => Some(message.clone()),
+            (_, GithubLoad::Failed(message)) => Some(message.clone()),
+            (_, GithubLoad::Ready(result)) if !result.configured => Some(
+                "GitHub isn't configured on this server, so repositories can't be connected."
+                    .into(),
+            ),
+            _ => None,
+        };
+        if let Some(message) = failure {
+            column = column.child(notice_row(cx.theme().muted_foreground, message, cx));
         }
 
         // Always offer a manual Refresh (re-detect after a browser install),
-        // plus — once installed — a "Refresh from GitHub" re-auth (the repo
-        // list is a grant snapshot: repos created or shared since the last
-        // OAuth connect only appear after reconnecting) and a "manage on
-        // GitHub" link when the installed repo list was truncated (the
-        // target repo may need granting on GitHub first).
-        // In the connect state the Refresh button IS the "I came back from the
-        // browser" affordance, so it says that instead of a bare "Refresh".
+        // plus — once installed — a "Refresh from GitHub" re-auth and a
+        // "manage on GitHub" link when the installed repo list was truncated.
         let mut actions = h_flex().gap_2().items_center().child(
             Button::new("board-repo-refresh")
-                .ghost().cursor_pointer()
+                .ghost()
+                .cursor_pointer()
                 .xsmall()
                 .label(if configured_not_installed {
                     "I've connected"
@@ -930,13 +1051,26 @@ impl CreateBoardDialogView {
                     .on_click(move |_, _, cx| open_url(cx, url.clone())),
             );
         }
-        column = column.child(actions);
-
-        v_flex()
-            .gap_2()
-            .child(field_label(cx, "Repository"))
-            .child(column)
+        column.child(actions).into_any_element()
     }
+}
+
+/// The dashed inline notice shape the connect flow uses for every hand-off.
+fn notice_row(color: gpui::Hsla, message: SharedString, cx: &App) -> gpui::Div {
+    h_flex()
+        .flex_wrap()
+        .gap_2()
+        .items_center()
+        .px_3()
+        .py_2()
+        .rounded(cx.theme().radius)
+        .border_1()
+        .border_dashed()
+        .border_color(cx.theme().border)
+        .text_sm()
+        .text_color(color)
+        .child(Icon::new(registry::UI_WARNING).xsmall())
+        .child(div().flex_1().min_w_0().child(message))
 }
 
 impl Render for CreateBoardDialogView {

@@ -6,6 +6,12 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.nullable
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 // Mirrors apps/web/src/lib/trpc/repositories.ts + boards.ts. Repositories are
 // server-only (NOT an Electric shape) — read on demand over tRPC for the
@@ -69,13 +75,27 @@ private data class AddRepoInput(
 )
 
 @Serializable
-private data class SetRepositoryInput(
-    val boardId: String,
-    val repositoryId: String,
-)
+private data class BranchDiffInput(@SerialName("issueId") val issueId: String)
 
 @Serializable
-private data class BranchDiffInput(@SerialName("issueId") val issueId: String)
+private data class BranchesResult(val branches: List<String> = emptyList())
+
+/**
+ * `boards.setRepository` input (EXP-712). Hand-built because a retarget must
+ * be able to send a literal `null` repositoryId ("No repository"), which the
+ * shared Json's `explicitNulls = false` would drop off a `@Serializable`
+ * class. `defaultBranch` stays ABSENT unless pinned: the server resets the
+ * board's branch on every retarget precisely when the key is missing.
+ */
+internal fun setBoardRepositoryInput(
+    boardId: String,
+    repositoryId: String?,
+    defaultBranch: String?,
+): JsonObject = buildJsonObject {
+    put("boardId", boardId)
+    put("repositoryId", repositoryId?.let(::JsonPrimitive) ?: JsonNull)
+    defaultBranch?.takeIf { it.isNotBlank() }?.let { put("defaultBranch", it) }
+}
 
 @Singleton
 class RepositoriesApi @Inject constructor(private val trpc: TrpcClient) {
@@ -127,15 +147,36 @@ class RepositoriesApi @Inject constructor(private val trpc: TrpcClient) {
     /**
      * Member-level (EXP-557): retarget a board's backing repo (masterplan v4
      * §3.2 — `boards.setRepository`, replacing the deleted
-     * link/unlink/setPrimary).
+     * link/unlink/setPrimary). `repositoryId = null` detaches the board.
+     * EXP-712: a retarget RESETS the board's pinned branch (it belonged to the
+     * old repo) unless `defaultBranch` names the new one.
      */
-    suspend fun setRepository(accountId: String, boardId: String, repositoryId: String) =
+    suspend fun setRepository(
+        accountId: String,
+        boardId: String,
+        repositoryId: String?,
+        defaultBranch: String? = null,
+    ) =
         trpc.mutationUnit(
             accountId,
             path = "boards.setRepository",
-            input = SetRepositoryInput(boardId, repositoryId),
-            inputSerializer = SetRepositoryInput.serializer(),
+            input = setBoardRepositoryInput(boardId, repositoryId, defaultBranch),
+            inputSerializer = JsonElement.serializer(),
         )
+
+    /**
+     * Member-gated (EXP-712): the repo's branches, straight from GitHub via
+     * the server's installation token — the option list for a board's Branch
+     * picker. Throws `BAD_GATEWAY` when GitHub can't be reached.
+     */
+    suspend fun listBranches(accountId: String, repositoryId: String): List<String> =
+        trpc.query(
+            accountId,
+            path = "repositories.listBranches",
+            input = RepositoryIdInput(repositoryId),
+            inputSerializer = RepositoryIdInput.serializer(),
+            outputSerializer = BranchesResult.serializer(),
+        ).branches
 
     /**
      * Member-gated middle tier of remote Changes visibility (masterplan v4 §4.8,

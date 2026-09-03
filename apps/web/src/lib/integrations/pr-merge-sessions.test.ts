@@ -10,8 +10,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const h = vi.hoisted(() => ({
   updates: [] as { set: Record<string, unknown>; where: unknown }[],
   returning: [] as { id: string }[],
-  // EXP-637: the repo→teams lookup endSessionsOnMergedBranch does first.
-  teamRows: [] as { teamId: string }[],
+  // What the ONE db-level select of each sweep resolves to: the repo→teams
+  // lookup endSessionsOnMergedBranch does first (EXP-637), or the issues
+  // whose team still ends sessions on merge (EXP-711) for
+  // endMergedPrSessions.
+  selectRows: [] as Record<string, string>[],
   selectWheres: [] as unknown[],
   getSteerRelayConfig: vi.fn(),
   relayPostKill: vi.fn(async () => ({ delivered: true })),
@@ -38,14 +41,16 @@ function fakeTx() {
 vi.mock(`@/db/connection`, () => ({
   db: {
     transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(fakeTx()),
-    select: () => ({
-      from: () => ({
+    select: () => {
+      const chain = {
+        innerJoin: () => chain,
         where: (where: unknown) => {
           h.selectWheres.push(where)
-          return Promise.resolve(h.teamRows)
+          return Promise.resolve(h.selectRows)
         },
-      }),
-    }),
+      }
+      return { from: () => chain }
+    },
   },
 }))
 vi.mock(`@/lib/trpc`, () => ({ generateTxId: async () => `1` }))
@@ -90,7 +95,7 @@ function whereShape(cond: unknown, out: unknown[] = []): unknown[] {
 beforeEach(() => {
   h.updates.length = 0
   h.returning = []
-  h.teamRows = []
+  h.selectRows = []
   h.selectWheres.length = 0
   vi.clearAllMocks()
   h.getSteerRelayConfig.mockReturnValue({ url: `ws://relay`, secret: `s` })
@@ -130,10 +135,21 @@ describe(`endLiveIssueSessionsInTx`, () => {
 
 describe(`endMergedPrSessions`, () => {
   it(`ends every live session across the linked issues and relays one kill each`, async () => {
+    h.selectRows = [{ id: ISSUE }, { id: ISSUE_2 }]
     h.returning = [{ id: `sess-1` }, { id: `sess-2` }]
 
     await endMergedPrSessions([ISSUE, ISSUE_2])
 
+    // EXP-711: with no override, only issues whose team still ends sessions
+    // on merge are swept.
+    expect(h.selectWheres).toHaveLength(1)
+    expect(whereShape(h.selectWheres[0])).toEqual([
+      `col:id`,
+      ISSUE,
+      ISSUE_2,
+      `col:end_sessions_on_merge`,
+      true,
+    ])
     expect(h.updates).toHaveLength(1)
     expect(h.updates[0]!.set).toMatchObject({
       status: `ended`,
@@ -170,11 +186,48 @@ describe(`endMergedPrSessions`, () => {
   })
 
   it(`relays nothing when no row matched (idempotent re-run)`, async () => {
+    h.selectRows = [{ id: ISSUE }]
     await endMergedPrSessions([ISSUE])
 
     expect(h.updates).toHaveLength(1)
     expect(h.relayPostKill).not.toHaveBeenCalled()
     expect(h.notifyParentOfChildEnd).not.toHaveBeenCalled()
+  })
+
+  // EXP-711: the team switched merge-ends-sessions off.
+  it(`sweeps nothing when every issue's team keeps sessions on merge`, async () => {
+    h.selectRows = []
+    await endMergedPrSessions([ISSUE, ISSUE_2])
+
+    expect(h.selectWheres).toHaveLength(1)
+    expect(h.updates).toHaveLength(0)
+    expect(h.relayPostKill).not.toHaveBeenCalled()
+  })
+
+  it(`endSessions=false skips the sweep without even reading the team`, async () => {
+    await endMergedPrSessions([ISSUE], false)
+
+    expect(h.selectWheres).toHaveLength(0)
+    expect(h.updates).toHaveLength(0)
+  })
+
+  it(`endSessions=true sweeps every issue regardless of the team setting`, async () => {
+    h.returning = [{ id: `sess-1` }]
+    await endMergedPrSessions([ISSUE, ISSUE_2], true)
+
+    expect(h.selectWheres).toHaveLength(0)
+    expect(h.updates).toHaveLength(1)
+    expect(whereShape(h.updates[0]!.where)).toEqual([
+      `col:issue_id`,
+      ISSUE,
+      ISSUE_2,
+      `col:status`,
+      `running`,
+      `in_review`,
+      `col:merged_own_pr`,
+      false,
+    ])
+    expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), `sess-1`)
   })
 
   it(`is a no-op for an empty issue list`, async () => {
@@ -193,11 +246,18 @@ describe(`endSessionsOnMergedBranch`, () => {
   const BRANCH = `exp/refresh-screenshots-1a2b3c4d`
 
   it(`ends issue-less rows on the merged branch in the repo's teams`, async () => {
-    h.teamRows = [{ teamId: `team-1` }, { teamId: `team-2` }, { teamId: `team-1` }]
+    h.selectRows = [{ teamId: `team-1` }, { teamId: `team-2` }, { teamId: `team-1` }]
     h.returning = [{ id: `sess-1` }]
 
     await endSessionsOnMergedBranch(`org/repo`, BRANCH)
 
+    // EXP-711: the repo→teams lookup drops teams that keep sessions on merge.
+    expect(whereShape(h.selectWheres[0])).toEqual([
+      `col:full_name`,
+      `org/repo`,
+      `col:end_sessions_on_merge`,
+      true,
+    ])
     expect(h.updates).toHaveLength(1)
     expect(h.updates[0]!.set).toMatchObject({
       status: `ended`,
@@ -231,7 +291,7 @@ describe(`endSessionsOnMergedBranch`, () => {
   })
 
   it(`is a no-op when nothing registered the repo, or the inputs are blank`, async () => {
-    h.teamRows = []
+    h.selectRows = []
     await endSessionsOnMergedBranch(`org/repo`, BRANCH)
     expect(h.updates).toHaveLength(0)
 
@@ -239,5 +299,17 @@ describe(`endSessionsOnMergedBranch`, () => {
     await endSessionsOnMergedBranch(`org/repo`, ``)
     expect(h.selectWheres).toHaveLength(1)
     expect(h.updates).toHaveLength(0)
+  })
+
+  // EXP-711: the merge claim's per-call override.
+  it(`honours the endSessions override either way`, async () => {
+    await endSessionsOnMergedBranch(`org/repo`, BRANCH, false)
+    expect(h.selectWheres).toHaveLength(0)
+    expect(h.updates).toHaveLength(0)
+
+    h.selectRows = [{ teamId: `team-1` }]
+    await endSessionsOnMergedBranch(`org/repo`, BRANCH, true)
+    expect(whereShape(h.selectWheres[0])).toEqual([`col:full_name`, `org/repo`])
+    expect(h.updates).toHaveLength(1)
   })
 })

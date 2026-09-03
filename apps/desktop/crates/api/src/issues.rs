@@ -500,6 +500,11 @@ pub struct FetchedIssue {
     pub title: String,
     #[serde(default)]
     pub description: Option<String>,
+    /// The board the issue lives on — EXP-712: the headless launcher needs it
+    /// to resolve the board's branch (the sync store the desktop reads is not
+    /// available here).
+    #[serde(default)]
+    pub board_id: Option<String>,
     /// The dual-written ANCHOR enum (`backlog`/`in_progress`/…).
     #[serde(default)]
     pub status: Option<String>,

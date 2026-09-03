@@ -169,6 +169,12 @@ export const teams = pgTable(`teams`, {
     { onDelete: `set null` }
   ),
   prMergedAutomation: boolean(`pr_merged_automation`).notNull().default(true),
+  // EXP-711 — does a merged PR END the live coding sessions on its issues
+  // (EXP-498's default)? false keeps them running; the merging run's own
+  // spare (`coding_sessions.merged_own_pr`) and MCP `pr_merge`'s per-call
+  // `endSessions` override sit on top. Synced so every client renders the
+  // toggle and the desktop's batch self-close honours it.
+  endSessionsOnMerge: boolean(`end_sessions_on_merge`).notNull().default(true),
   ...timestamps,
 })
 
@@ -304,6 +310,12 @@ export const boards = pgTable(
     repositoryId: uuid(`repository_id`).references(() => repositories.id, {
       onDelete: `restrict`,
     }),
+    // EXP-712: the branch THIS board's coding sessions branch from and its PRs
+    // target. NULL = follow the repo (its team-pinned `default_branch_override`,
+    // else GitHub's default). Lets two boards on one repo develop on
+    // different branches (release/1.x vs main). Synced (boards shape); reset
+    // to NULL whenever the board is retargeted to another repo.
+    defaultBranch: text(`default_branch`),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     // Soft-delete (trash) marker. Non-null = trashed; the purge sweep hard-deletes
     // it (cascade) once deletedAt + BOARD_TRASH_RETENTION_MS has passed. Purge

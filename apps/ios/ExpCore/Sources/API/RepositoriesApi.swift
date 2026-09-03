@@ -102,6 +102,23 @@ public struct TeamRepo: Decodable, Sendable, Identifiable, Equatable {
     }
 }
 
+/// `repositories.listBranches` — the repo's branch names, straight from
+/// GitHub (EXP-462; EXP-712 reuses it for the board's branch field).
+public struct RepoBranches: Decodable, Sendable {
+    public let branches: [String]
+
+    public init(branches: [String]) {
+        self.branches = branches
+    }
+}
+
+/// `repositories.add` returns the upserted registry row; only its id matters.
+private struct AddRepoResult: Decodable {
+    let repository: AddedRepo?
+
+    struct AddedRepo: Decodable { let id: String }
+}
+
 private struct IssueIdInput: Encodable { let issueId: String }
 private struct RepositoryIdInput: Encodable { let repositoryId: String }
 private struct RepoTeamIdInput: Encodable { let teamId: String }
@@ -155,16 +172,18 @@ public final class RepositoriesApi: Sendable {
 
     /// Member-level (EXP-557 — connecting SHARES the repo with the team):
     /// register a repo reachable through the caller's own GitHub connection
-    /// (`repositories.add`, web parity — repositories-section.tsx). The
-    /// `{repository}` response is discarded; callers re-fetch the registry list.
+    /// (`repositories.add`, web parity — repositories-section.tsx). Returns the
+    /// upserted registry row's id so a caller can point a board straight at it
+    /// (EXP-712); the settings list ignores it and re-fetches instead.
+    @discardableResult
     public func add(
         accountId: String,
         teamId: String,
         fullName: String,
         defaultBranch: String,
         isPrivate: Bool
-    ) async throws {
-        try await trpc.mutationVoid(
+    ) async throws -> String? {
+        let result: AddRepoResult = try await trpc.mutation(
             accountId: accountId,
             path: "repositories.add",
             input: AddRepoInput(
@@ -174,6 +193,18 @@ public final class RepositoriesApi: Sendable {
                 private: isPrivate
             )
         )
+        return result.repository?.id
+    }
+
+    /// Member-readable: the repo's branch names from GitHub (`.query`).
+    /// Powers the board form's branch field and the repo default-branch pin.
+    public func listBranches(accountId: String, repositoryId: String) async throws -> [String] {
+        let result: RepoBranches = try await trpc.query(
+            accountId: accountId,
+            path: "repositories.listBranches",
+            input: RepositoryIdInput(repositoryId: repositoryId)
+        )
+        return result.branches
     }
 
     /// Sharer-or-owner (server-enforced, EXP-557): remove a repo. Blocked

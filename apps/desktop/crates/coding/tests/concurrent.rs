@@ -231,6 +231,7 @@ fn main() {
     let request_for = |issue_id: &str, identifier: &str| {
         PrepareRequest::Issue(LaunchRequest {
             issue_id: issue_id.to_string(),
+            board_id: None,
             issue_identifier: identifier.to_string(),
             // in_progress ⇒ no step-6.5 flip: the canned sequence stays exact.
             issue_status: domain::IssueStatus::InProgress,

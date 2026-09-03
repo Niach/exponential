@@ -16,6 +16,7 @@ export const teamColumns = {
   prOpenedAutomation: teams.prOpenedAutomation,
   prMergedStatusId: teams.prMergedStatusId,
   prMergedAutomation: teams.prMergedAutomation,
+  endSessionsOnMerge: teams.endSessionsOnMerge,
   createdAt: teams.createdAt,
   updatedAt: teams.updatedAt,
 } as const

@@ -65,8 +65,8 @@ struct TeamBoardsSection: View {
                             repositoryId: board.repositoryId
                         )
 
-                        // Member-level retarget → boards.setRepository
-                        // (mutate_resources server-side; EXP-557 web parity).
+                        // Member-level repo + branch editing → boards.setRepository
+                        // / boards.update (mutate_resources server-side).
                         Button {
                             repoTarget = board
                         } label: {
@@ -109,101 +109,110 @@ struct TeamBoardsSection: View {
     }
 }
 
-/// Retarget a board's backing repo to another already-connected registry repo
-/// (`boards.setRepository`). Connecting a brand-new repo stays a create-board
-/// / web-side flow — this picker only offers connected repos.
+/// A board's repository + branch, edited in place (EXP-712). Retargeting goes
+/// through `boards.setRepository` — which RESETS the branch server-side, a
+/// branch belonging to the repo it was picked in — and the branch itself
+/// through `boards.update`. Connecting a brand-new repo registers it first
+/// (`repositories.add`, member-level since EXP-557) and then points the board
+/// at the returned row.
 private struct ChangeRepositorySheet: View {
     let accountId: String
     let board: BoardEntity
     let boardsApi: BoardsApi
     let repositoriesApi: RepositoriesApi
 
-    @Environment(\.dismiss) private var dismiss
-    @State private var repos: [TeamRepo] = []
-    @State private var loading = true
+    @State private var repositoryId: String?
+    @State private var branch: String?
+    @State private var busy = false
     @State private var errorText: String?
-    @State private var saving = false
+
+    init(accountId: String, board: BoardEntity, boardsApi: BoardsApi, repositoriesApi: RepositoriesApi) {
+        self.accountId = accountId
+        self.board = board
+        self.boardsApi = boardsApi
+        self.repositoriesApi = repositoriesApi
+        _repositoryId = State(initialValue: board.repositoryId)
+        _branch = State(initialValue: board.defaultBranch)
+    }
 
     var body: some View {
-        GlassSheetChrome(title: "Change repository") {
+        GlassSheetChrome(title: "Repository") {
             VStack(alignment: .leading, spacing: 12) {
                 Text(board.name)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
-                if loading {
-                    HStack { Spacer(); ProgressView().tint(.white); Spacer() }
-                        .padding(.vertical, 24)
-                } else if repos.isEmpty {
-                    Text("No repositories connected. Add one in team settings → Repositories first.")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                } else {
-                    ForEach(repos) { repo in
-                        Button {
-                            Task { await setRepo(repo) }
-                        } label: {
-                            HStack(spacing: 10) {
-                                AppIcon(
-                                    repo.id == board.repositoryId
-                                        ? AppIcons.uiSelected : AppIcons.uiUnselected,
-                                    size: AppIcon.Size.small
-                                )
-                                    .foregroundStyle(repo.id == board.repositoryId
-                                        ? DesignTokens.Semantic.blue
-                                        : .white.opacity(TextOpacity.tertiary))
-                                Text(repo.fullName)
-                                    .font(.subheadline.monospaced())
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                Spacer()
-                                if repo.isPrivate {
-                                    AppIcon(AppIcons.uiPrivate, size: 11)
-                                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                }
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .glassRow()
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(saving)
-                    }
-                }
-
-                if let errorText {
-                    Text(errorText).font(.caption).foregroundStyle(.red)
-                }
+                BoardRepoField(
+                    accountId: accountId,
+                    teamId: board.teamId,
+                    repositoryId: repositoryId,
+                    onSelectRegistry: { repo in Task { await applyRepo(repo?.id) } },
+                    onConnectNew: { picked in Task { await connect(picked) } },
+                    branch: branch,
+                    onBranchChange: { next in Task { await applyBranch(next) } },
+                    disabled: busy,
+                    errorText: errorText
+                )
             }
             .padding(16)
         }
-        .task { await load() }
     }
 
-    private func load() async {
-        loading = true
-        defer { loading = false }
+    private func applyRepo(_ nextId: String?) async {
+        guard nextId != repositoryId else { return }
+        busy = true
+        errorText = nil
+        defer { busy = false }
         do {
-            repos = try await repositoriesApi.list(accountId: accountId, teamId: board.teamId)
-            errorText = nil
+            try await boardsApi.setRepository(
+                accountId: accountId,
+                boardId: board.id,
+                repositoryId: nextId
+            )
+            repositoryId = nextId
+            // The retarget dropped the pin — mirror it locally.
+            branch = nil
+            RepositoryDirectory.invalidate(accountId: accountId, teamId: board.teamId)
         } catch {
             errorText = error.trpcUserMessage
         }
     }
 
-    private func setRepo(_ repo: TeamRepo) async {
-        guard repo.id != board.repositoryId else { dismiss(); return }
-        saving = true
-        defer { saving = false }
+    private func connect(_ picked: GithubPickerRepo) async {
+        busy = true
+        errorText = nil
         do {
-            try await boardsApi.setRepository(
+            let id = try await repositoriesApi.add(
+                accountId: accountId,
+                teamId: board.teamId,
+                fullName: picked.fullName,
+                defaultBranch: picked.defaultBranch,
+                isPrivate: picked.`private`
+            )
+            busy = false
+            guard let id else {
+                errorText = "Could not connect \(picked.fullName)."
+                return
+            }
+            await applyRepo(id)
+        } catch {
+            busy = false
+            errorText = error.trpcUserMessage
+        }
+    }
+
+    private func applyBranch(_ next: String?) async {
+        guard next != branch else { return }
+        busy = true
+        errorText = nil
+        defer { busy = false }
+        do {
+            try await boardsApi.setDefaultBranch(
                 accountId: accountId,
                 boardId: board.id,
-                repositoryId: repo.id
+                defaultBranch: next
             )
-            RepositoryDirectory.invalidate(accountId: accountId, teamId: board.teamId)
-            dismiss()
+            branch = next
         } catch {
             errorText = error.trpcUserMessage
         }

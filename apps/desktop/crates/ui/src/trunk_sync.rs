@@ -1100,7 +1100,10 @@ fn run_sync_worker(
 
     // Token via the cache (re-mints only near the REAL expiry; never
     // persisted/logged; reaches disk only as the clone's credential file).
-    let minted = match coding::token_cache().get_or_mint(trpc, &repo.repository_id) {
+    // The trunk clone is ONE per repository, shared by every board that points
+    // at it, so it tracks the REPO's default branch — never a board's pin
+    // (EXP-712); board work lives in worktrees cut from the board's base.
+    let minted = match coding::token_cache().get_or_mint(trpc, &repo.repository_id, None) {
         Ok(minted) => minted,
         Err(err) => {
             send_failure(err.to_string());

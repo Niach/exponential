@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-board-branches`,
+    date: `2026-09-03`,
+    title: `A branch per board`,
+    summary: `Each board can pick the branch its coding sessions start from, and the board form's repository picker is a plain select with the branch right under it.`,
+    body: `- **A branch per board**: board settings and the create-board form gain a Branch field, so one repository can back a board working on main and another on a release branch. Coding sessions branch from it, pull requests target it, and conflict fixes rebase onto it. Unset, a board keeps following the repository's default.
+- **One repository select**: the board form's repository picker is a single dropdown with a "No repository" choice, your connected repositories and a connect action, on every client. A single connected repository no longer looks selected when it is not.
+- **Less text in the board form**: the explanatory copy is gone; one line says where coding sessions start.
+- **Agent tools**: board create, update and set-repository accept a default branch.`,
+  },
+  {
     id: `2026-09-clean-slate`,
     date: `2026-09-02`,
     title: `Clean slate`,

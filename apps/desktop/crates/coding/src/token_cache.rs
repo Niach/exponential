@@ -9,6 +9,11 @@
 //! [`TokenUrl`] (Display/Debug-redacted) plus this map, and reaches disk only
 //! as the clone's credential file ([`crate::git_credentials`], 0600). The
 //! token no longer rides `remote.origin.url` (EXP-73).
+//!
+//! EXP-712: the cached entry also carries the mint's `default_branch`, which
+//! is BOARD-scoped when the launch named a board — so the key is
+//! (repository, board), never the repository alone. Serving a repo-level
+//! branch to a board launch would cut its worktree from the wrong base.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -27,13 +32,25 @@ use crate::git_worktree::TokenUrl;
 pub struct MintedToken {
     /// The token-embedded remote URL (redacted Display/Debug).
     pub url: TokenUrl,
-    /// The repo's live default branch, as the mint resolved it.
+    /// The base branch the mint resolved: the BOARD's branch when the mint
+    /// named one (EXP-712), else the repo's live default.
     pub default_branch: String,
     /// ISO-8601 expiry from the server (`None` ⇒ treated as spent).
     pub expires_at: Option<String>,
 }
 
-/// The in-memory token cache (see the module doc).
+/// The cache key: the repository, plus the board whose branch the entry's
+/// `default_branch` answers for (EXP-712). `\u{1f}` (unit separator) can
+/// appear in neither id, so the two halves can never collide.
+fn cache_key(repository_id: &str, board_id: Option<&str>) -> String {
+    match board_id {
+        Some(board_id) => format!("{repository_id}\u{1f}{board_id}"),
+        None => repository_id.to_string(),
+    }
+}
+
+/// The in-memory token cache (see the module doc). Keyed by
+/// [`cache_key`] — one entry per (repository, board).
 #[derive(Default)]
 pub struct TokenCache(Mutex<HashMap<String, MintedToken>>);
 
@@ -46,8 +63,9 @@ impl TokenCache {
         &self,
         trpc: &TrpcClient,
         repository_id: &str,
+        board_id: Option<&str>,
     ) -> Result<MintedToken, ApiError> {
-        self.get_or_mint_with_margin(trpc, repository_id, TOKEN_REMINT_MARGIN)
+        self.get_or_mint_with_margin(trpc, repository_id, board_id, TOKEN_REMINT_MARGIN)
     }
 
     /// [`TokenCache::get_or_mint`] with an explicit freshness margin: a hit
@@ -58,13 +76,15 @@ impl TokenCache {
         &self,
         trpc: &TrpcClient,
         repository_id: &str,
+        board_id: Option<&str>,
         margin: Duration,
     ) -> Result<MintedToken, ApiError> {
+        let key = cache_key(repository_id, board_id);
         if let Some(hit) = self
             .0
             .lock()
             .expect("token cache lock")
-            .get(repository_id)
+            .get(&key)
             .filter(|entry| {
                 !token_needs_remint_with_margin(
                     entry.expires_at.as_deref(),
@@ -75,7 +95,7 @@ impl TokenCache {
         {
             return Ok(hit.clone());
         }
-        let token = api::repositories::installation_token(trpc, repository_id)?;
+        let token = api::repositories::installation_token(trpc, repository_id, board_id)?;
         let minted = MintedToken {
             url: TokenUrl::new(token.full_name, token.token),
             default_branch: token.default_branch,
@@ -84,7 +104,7 @@ impl TokenCache {
         self.0
             .lock()
             .expect("token cache lock")
-            .insert(repository_id.to_string(), minted.clone());
+            .insert(key, minted.clone());
         Ok(minted)
     }
 }
@@ -171,11 +191,11 @@ mod tests {
         let base = canned_server(vec![(200, token_json("ghs_one", "2099-01-01T00:00:00.000Z"))]);
         let cache = TokenCache::default();
 
-        let first = cache.get_or_mint(&client(&base), "repo-cache-hit").unwrap();
+        let first = cache.get_or_mint(&client(&base), "repo-cache-hit", None).unwrap();
         assert_eq!(first.default_branch, "main");
         assert_eq!(first.url.redacted(), "https://x-access-token:***@github.com/acme/web.git");
 
-        let second = cache.get_or_mint(&client(&base), "repo-cache-hit").unwrap();
+        let second = cache.get_or_mint(&client(&base), "repo-cache-hit", None).unwrap();
         assert_eq!(second.expires_at.as_deref(), Some("2099-01-01T00:00:00.000Z"));
     }
 
@@ -187,11 +207,11 @@ mod tests {
         ]);
         let cache = TokenCache::default();
 
-        let stale = cache.get_or_mint(&client(&base), "repo-expiring").unwrap();
+        let stale = cache.get_or_mint(&client(&base), "repo-expiring", None).unwrap();
         assert_eq!(stale.expires_at.as_deref(), Some("2020-01-01T00:00:00.000Z"));
 
         // The stale entry fails token_needs_remint → second call mints anew.
-        let fresh = cache.get_or_mint(&client(&base), "repo-expiring").unwrap();
+        let fresh = cache.get_or_mint(&client(&base), "repo-expiring", None).unwrap();
         assert_eq!(fresh.expires_at.as_deref(), Some("2099-01-01T00:00:00.000Z"));
     }
 
@@ -204,17 +224,67 @@ mod tests {
         let cache = TokenCache::default();
 
         // Comfortably fresh under the default per-op margin → cache hit.
-        let first = cache.get_or_mint(&client(&base), "repo-margin").unwrap();
-        let hit = cache.get_or_mint(&client(&base), "repo-margin").unwrap();
+        let first = cache.get_or_mint(&client(&base), "repo-margin", None).unwrap();
+        let hit = cache.get_or_mint(&client(&base), "repo-margin", None).unwrap();
         assert_eq!(first.expires_at, hit.expires_at);
 
         // A margin wider than the token's remaining life forces a re-mint —
         // the refresher's stricter freshness demand.
         let wide = Duration::from_secs(60 * 60 * 24 * 365 * 200); // ≫ 2099
         let fresh = cache
-            .get_or_mint_with_margin(&client(&base), "repo-margin", wide)
+            .get_or_mint_with_margin(&client(&base), "repo-margin", None, wide)
             .unwrap();
         assert_eq!(fresh.expires_at.as_deref(), Some("2099-06-01T00:00:00.000Z"));
+    }
+
+    /// EXP-712: a repo-level entry must NEVER answer a board launch — its
+    /// `default_branch` is the repo's, and cutting the board's worktree from
+    /// it is the whole bug. Same repo, different board ⇒ separate entries.
+    #[test]
+    fn a_board_launch_never_inherits_the_repo_level_branch() {
+        let base = canned_server(vec![
+            (
+                200,
+                format!(
+                    r#"{{"result":{{"data":{{"token":"ghs_repo","fullName":"acme/web","defaultBranch":"master","expiresAt":"2099-01-01T00:00:00.000Z"}}}}}}"#
+                ),
+            ),
+            (
+                200,
+                format!(
+                    r#"{{"result":{{"data":{{"token":"ghs_board","fullName":"acme/web","defaultBranch":"develop","expiresAt":"2099-01-01T00:00:00.000Z"}}}}}}"#
+                ),
+            ),
+        ]);
+        let cache = TokenCache::default();
+        let client = client(&base);
+
+        // The repo-level mint (an action/chat run) seeds the cache.
+        let repo_level = cache.get_or_mint(&client, "repo-boards", None).unwrap();
+        assert_eq!(repo_level.default_branch, "master");
+
+        // A board launch on the SAME repo misses it and mints its own.
+        let board = cache
+            .get_or_mint(&client, "repo-boards", Some("board-1"))
+            .unwrap();
+        assert_eq!(board.default_branch, "develop");
+
+        // Both entries now serve their own key without another round trip
+        // (the canned server has no third response — a mint would fail).
+        assert_eq!(
+            cache
+                .get_or_mint(&client, "repo-boards", Some("board-1"))
+                .unwrap()
+                .default_branch,
+            "develop"
+        );
+        assert_eq!(
+            cache
+                .get_or_mint(&client, "repo-boards", None)
+                .unwrap()
+                .default_branch,
+            "master"
+        );
     }
 
     #[test]
@@ -223,7 +293,7 @@ mod tests {
             (403, r#"{"error":{"message":"You are not a member of this team","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#.to_string()),
         ]);
         let cache = TokenCache::default();
-        let err = cache.get_or_mint(&client(&base), "repo-denied").unwrap_err();
+        let err = cache.get_or_mint(&client(&base), "repo-denied", None).unwrap_err();
         assert!(err.to_string().contains("not a member"), "{err}");
         assert!(cache.0.lock().unwrap().is_empty());
     }

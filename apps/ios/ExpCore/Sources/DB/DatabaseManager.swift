@@ -210,6 +210,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("repository_id", .text)
                 // Curated glyph name (nullable — nil falls back to a derived icon).
                 t.column("icon", .text)
+                // EXP-712: the board's own branch (worktree base + PR target).
+                // Nullable — nil follows the repo's default branch.
+                t.column("default_branch", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -1155,6 +1158,29 @@ public final class DatabaseManager: @unchecked Sendable {
             guard existing.contains("outcome") else { return }
             try db.alter(table: "coding_sessions") { t in
                 t.drop(column: "outcome")
+            }
+        }
+
+        // v25 (EXP-712): a board carries its OWN branch — the branch its
+        // coding sessions start from and its PRs target (NULL = follow the
+        // repo). Guarded additive ALTER so fresh installs (which get the
+        // column from the v1 create above) and older stores converge, then the
+        // boards shape offset resets so the rows already synced re-arrive
+        // carrying it (the v17…v23 precedent).
+        migrator.registerMigration("v25_board_default_branch") { db in
+            guard try db.tableExists("boards") else { return }
+            let existing = Set(try db.columns(in: "boards").map(\.name))
+            if !existing.contains("default_branch") {
+                try db.alter(table: "boards") { t in
+                    t.add(column: "default_branch", .text)
+                }
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'boards'
+                    """)
             }
         }
 

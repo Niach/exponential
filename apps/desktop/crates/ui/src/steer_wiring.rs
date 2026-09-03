@@ -995,6 +995,10 @@ fn remote_batch_start(
     // the whole batch too, mirroring the dialog's blocker: silently dropping
     // it would run a batch the requester never asked for.
     let now = chrono::Utc::now().timestamp();
+    // EXP-712: the board the batch branch is cut from — the first resolved
+    // issue's. `steer.startSession` already refused a batch whose boards
+    // disagree on the base branch, so any of them names the same branch.
+    let mut batch_board: Option<String> = None;
     let issues: Vec<BatchIssueSpec> = {
         let store = Store::global(cx);
         let issues_coll = store.collections().issues.read(cx);
@@ -1033,6 +1037,7 @@ fn remote_batch_start(
                 );
                 return;
             }
+            batch_board.get_or_insert_with(|| issue.board_id.clone());
             specs.push(BatchIssueSpec {
                 issue_id: issue.id.clone(),
                 issue_identifier: issue.identifier.clone(),
@@ -1067,6 +1072,7 @@ fn remote_batch_start(
     let request = BatchLaunchRequest {
         batch_id: batch_id.clone(),
         team_id,
+        board_id: batch_board,
         repo: RepoGroup {
             repository_id: repo.repository_id,
             full_name: repo.full_name,

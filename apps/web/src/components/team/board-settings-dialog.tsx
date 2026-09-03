@@ -7,7 +7,6 @@ import {
   Dialog,
   DialogBody,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -16,7 +15,7 @@ import {
   BoardNameField,
 } from "@/components/board-form-fields"
 import { type PickerRepo } from "@/components/github-repo-picker"
-import { ConnectedRepoPicker } from "@/components/connected-repo-picker"
+import { BoardRepoField } from "@/components/board-repo-field"
 import type { Board, Team } from "@/db/schema"
 
 // Consolidated per-board settings (EXP-159): everything the create dialog
@@ -56,7 +55,9 @@ export function BoardSettingsDialog({
     void trpc.boards.update.mutate({ boardId: target.id, name: trimmed })
   }
 
-  const applyRepo = async (repositoryId: string) => {
+  // Retargeting resets the board's branch pin server-side (EXP-712) — a
+  // branch belongs to the repo it was picked in.
+  const applyRepo = async (repositoryId: string | null) => {
     if (!board) return
     setBusyRepo(true)
     setRepoError(null)
@@ -114,11 +115,6 @@ export function BoardSettingsDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Board settings</DialogTitle>
-          <DialogDescription>
-            Same settings as board creation. Changes apply to{` `}
-            <span className="font-medium text-foreground">{board?.name}</span>
-            {` `}immediately.
-          </DialogDescription>
         </DialogHeader>
 
         {board && (
@@ -134,13 +130,11 @@ export function BoardSettingsDialog({
               color={board.color}
             />
 
+            {/* Read-only: identifiers are minted from it. */}
             <div className="space-y-2">
               <Label>Prefix</Label>
-              <div className="flex items-center gap-2">
+              <div>
                 <Pill className="font-mono">{board.prefix}</Pill>
-                <p className="text-xs text-muted-foreground">
-                  The prefix can&apos;t be changed after creation.
-                </p>
               </div>
             </div>
 
@@ -153,23 +147,21 @@ export function BoardSettingsDialog({
 
             {/* Member-level since EXP-557: retargeting uses the shared
                 registry, and connect-new operates on YOUR OWN repos. */}
-            <div className="space-y-2">
-              <Label>Repository</Label>
-              <ConnectedRepoPicker
-                teamId={team.id}
-                value={board.repositoryId}
-                disabled={busyRepo}
-                onSelectRegistry={(repo) => void applyRepo(repo.id)}
-                onConnectNew={(picked) => void handleConnect(picked)}
-              />
-              <p className="text-xs text-muted-foreground">
-                New &ldquo;Start coding&rdquo; launches use the selected repo;
-                existing worktrees keep working locally.
-              </p>
-              {repoError && (
-                <p className="text-xs text-destructive">{repoError}</p>
-              )}
-            </div>
+            <BoardRepoField
+              teamId={team.id}
+              repositoryId={board.repositoryId}
+              disabled={busyRepo}
+              onSelectRegistry={(repo) => void applyRepo(repo?.id ?? null)}
+              onConnectNew={(picked) => void handleConnect(picked)}
+              branch={board.defaultBranch}
+              onBranchChange={(defaultBranch) =>
+                void trpc.boards.update.mutate({
+                  boardId: board.id,
+                  defaultBranch,
+                })
+              }
+              error={repoError}
+            />
           </DialogBody>
         )}
       </DialogContent>

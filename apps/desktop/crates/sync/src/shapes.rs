@@ -107,6 +107,8 @@ pub const SHAPES: [ShapeSpec; 19] = [
             "pr_opened_automation",
             "pr_merged_status_id",
             "pr_merged_automation",
+            // EXP-711: the merge-ends-sessions toggle.
+            "end_sessions_on_merge",
             "created_at",
             "updated_at",
         ],
@@ -141,6 +143,10 @@ pub const SHAPES: [ShapeSpec; 19] = [
             // settings reads `boards.listArchived` over tRPC instead.
             "icon",
             "repository_id",
+            // EXP-712: the board's own branch pin (nullable) — the base every
+            // coding session on this board cuts from. `heal_missing_columns`
+            // ALTERs it onto an existing local table.
+            "default_branch",
             "sort_order",
             "created_at",
             "updated_at",
@@ -705,6 +711,9 @@ mod tests {
         assert!(spec.columns.contains(&"pr_opened_automation"));
         assert!(spec.columns.contains(&"pr_merged_status_id"));
         assert!(spec.columns.contains(&"pr_merged_automation"));
+        // EXP-711: the same card's merge-ends-sessions switch, and the
+        // batch self-close predicate in coding_flow.
+        assert!(spec.columns.contains(&"end_sessions_on_merge"));
     }
 
     #[test]

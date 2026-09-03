@@ -826,6 +826,7 @@ describe(`exponential_teams_get`, () => {
     >
     expect(Object.keys(projection).sort()).toEqual([
       `createdAt`,
+      `endSessionsOnMerge`,
       `helpdeskEnabled`,
       `iconUrl`,
       `id`,
@@ -2286,6 +2287,48 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
 
     expect(caller.issues.mergePr).toHaveBeenCalledWith({ issueId: UUID })
     expect(updates).toHaveLength(0)
+  })
+
+  // EXP-711: the per-call override of the team's end-sessions-on-merge
+  // setting rides the tRPC input on both paths, and only when given.
+  it(`forwards endSessions to the tRPC merge on both paths`, async () => {
+    captureUpdates()
+    caller.issues.mergePr.mockResolvedValue({ merged: true })
+    const restore = stageSelects([
+      [runRow({ issueId: RUN, branch: `exp/batch-1a2b3c4d` })],
+      [
+        {
+          id: UUID,
+          identifier: `MET-1`,
+          prUrl: `https://github.com/acme/app/pull/9`,
+          branch: `exp/MET-1`,
+        },
+      ],
+    ])
+    try {
+      await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({
+        issueId: UUID,
+        endSessions: false,
+      })
+    } finally {
+      restore()
+    }
+    expect(caller.issues.mergePr).toHaveBeenCalledWith({
+      issueId: UUID,
+      endSessions: false,
+    })
+
+    caller.repositories.mergePull.mockResolvedValue({ merged: true })
+    await collectTools(USER, null).get(`exponential_pr_merge`)!({
+      repositoryId: REPO,
+      prNumber: 9,
+      endSessions: true,
+    })
+    expect(caller.repositories.mergePull).toHaveBeenCalledWith({
+      repositoryId: REPO,
+      prNumber: 9,
+      endSessions: true,
+    })
   })
 
   it(`leaves the row untouched when its own merge fails`, async () => {

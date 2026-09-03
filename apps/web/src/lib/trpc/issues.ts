@@ -43,7 +43,10 @@ import {
 } from "@/lib/integrations/github-app"
 import { recordConversionEvent } from "@/lib/conversion/events"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
-import { repoBranchOverride } from "@/lib/trpc/repositories"
+import {
+  boardBranchOverride,
+  repoBranchOverride,
+} from "@/lib/trpc/repositories"
 import { isNotMergeable, prMergeFailureError } from "@/lib/trpc/pr-merge-error"
 import { escapeLikePattern } from "@/lib/like-pattern"
 import { applyStatusDerivations } from "@/lib/status-derivations"
@@ -1210,12 +1213,16 @@ export const issuesRouter = router({
     .input(
       z.object({
         issueId: z.string().uuid(),
+        // EXP-711: per-merge override of the team's end-sessions-on-merge
+        // setting — false keeps every live session on the PR's issues
+        // running, true ends them even when the team switched that off.
+        endSessions: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
       // Member-gated issue write (EXP-180: membership is invite-only and
       // every member is trusted — no extra role clamp).
-      const { teamId } = await assertIssueAccess(
+      const { teamId, boardId } = await assertIssueAccess(
         ctx.session.user.id,
         input.issueId,
         `write`
@@ -1250,7 +1257,10 @@ export const issuesRouter = router({
           .select({ id: issues.id })
           .from(issues)
           .where(eq(issues.prUrl, row.prUrl))
-        await endMergedPrSessions(linked.map((issue) => issue.id))
+        await endMergedPrSessions(
+          linked.map((issue) => issue.id),
+          input.endSessions
+        )
         return { merged: true }
       }
       if (row.prState !== `open`) {
@@ -1307,6 +1317,8 @@ export const issuesRouter = router({
       claimPrMerge(repoFullName, row.prNumber, {
         userId: ctx.session.user.id,
         viaAgent: ctx.viaMcp === true,
+        // EXP-711: the webhook's sweep must honour the same override.
+        endSessions: input.endSessions,
       })
       try {
         await mergePullRequest({
@@ -1328,6 +1340,7 @@ export const issuesRouter = router({
           let diagnosis = null
           if (isNotMergeable(err)) {
             const defaultBranch =
+              (await boardBranchOverride(boardId, repoFullName)) ??
               (await repoBranchOverride(teamId, repoFullName)) ??
               (await resolveRepoDefaultBranchCached(repoFullName))
             diagnosis = defaultBranch
@@ -1361,12 +1374,14 @@ export const issuesRouter = router({
           mergedAt: new Date(),
           actorUserId: ctx.session.user.id,
           actorViaAgent: ctx.viaMcp === true,
+          endSessions: input.endSessions,
         })
       }
-      // Merge always closes (EXP-498): applyPrMergeState's claim winner ends
-      // sessions in-tx; this unconditional sweep backstops the race where the
-      // webhook won the claim before this mutation got here.
-      await endMergedPrSessions(linkedIds)
+      // Merge closes by default (EXP-498, team-configurable since EXP-711):
+      // applyPrMergeState's claim winner ends sessions in-tx; this sweep
+      // backstops the race where the webhook won the claim before this
+      // mutation got here.
+      await endMergedPrSessions(linkedIds, input.endSessions)
 
       return { merged: true }
     }),
@@ -1628,7 +1643,7 @@ export const issuesRouter = router({
   prepareConflictFix: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const { teamId } = await assertIssueAccess(
+      const { teamId, boardId } = await assertIssueAccess(
         ctx.session.user.id,
         input.issueId,
         `write`
@@ -1691,7 +1706,9 @@ export const issuesRouter = router({
 
       // Override-first (EXP-462): a team pinned to `develop` rebases conflict
       // fixes onto `develop`, and a base classified as dead retargets there.
+      // The board's own branch (EXP-712) wins over the repo pin.
       const defaultBranch =
+        (await boardBranchOverride(boardId, repoFullName)) ??
         (await repoBranchOverride(teamId, repoFullName)) ??
         (await resolveRepoDefaultBranchCached(repoFullName))
       if (!defaultBranch) {
