@@ -219,7 +219,7 @@ diff --git a/app/src/main/java/com/exponential/app/data/sync/BoardSnapshotCache.
   },
   {
     kind: `narration`,
-    text: `Cold start is down to 740ms on the Pixel 6a, so we're under target. The markdown editor is still eagerly loaded and worth another ~90ms. Want me to lazy-load it in this same PR?`,
+    text: `Cold start is down to 740ms on the Pixel 6a, so we're under target.\n\n| Device | Before | After |\n| --- | --- | --- |\n| Pixel 6a | 1.4 s | 740 ms |\n| Galaxy A54 | 1.6 s | 790 ms |\n\nThe markdown editor is still eagerly loaded and worth another ~90ms. Want me to lazy-load it in this same PR?`,
   },
   {
     kind: `question`,

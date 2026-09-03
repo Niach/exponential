@@ -525,7 +525,7 @@ async function main() {
     },
     {
       title: `Reduce cold start below 800 ms`,
-      description: `Startup profiling shows most of the time goes into the sync bootstrap, not rendering.\n\n- [x] Profile app launch end-to-end\n- [x] Defer shape subscribe until after first frame\n- [ ] Lazy-load the markdown editor\n- [ ] Cache the last board snapshot for instant paint\n\nTarget is \`<800ms\` cold on a mid-range device.`,
+      description: `Startup profiling shows most of the time goes into the sync bootstrap, not rendering.\n\n- [x] Profile app launch end-to-end\n- [x] Defer shape subscribe until after first frame\n- [ ] Lazy-load the markdown editor\n- [ ] Cache the last board snapshot for instant paint\n\nTarget is \`<800ms\` cold on a mid-range device.\n\n| Device | Cold start | Target | Status |\n| --- | --- | --- | --- |\n| Pixel 6a | 1.4 s | 800 ms | over |\n| Galaxy A54 | 1.6 s | 800 ms | over |\n| iPhone 13 | 910 ms | 800 ms | close |\n| iPhone 15 Pro | 620 ms | 800 ms | ok |`,
       status: `in_progress`,
       priority: `urgent`,
       assigneeId: jonas,
@@ -762,7 +762,7 @@ async function main() {
       teamId: ws.id,
       boardId: showcase.boardId,
       authorId: demoId,
-      body: `Deferral PR is merged. CI numbers:\n\n- cold start: ~1.4s → **860 ms**\n- warm start: unchanged\n\nSnapshot cache should get us under target.`,
+      body: `Deferral PR is merged. CI numbers:\n\n| Run | Before | After |\n| --- | --- | --- |\n| Cold start | 1.4 s | **860 ms** |\n| Warm start | 320 ms | 320 ms |\n\nSnapshot cache should get us under target.`,
       createdAt: hoursAgo(DEMO_SHOWCASE_COMMENT_HOURS_AGO.demo),
     },
     // @mention + #issue ref so the comments screenshot shows both pill types
