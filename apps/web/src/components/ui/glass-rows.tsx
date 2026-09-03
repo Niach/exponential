@@ -173,12 +173,17 @@ function GlassInputRow({
   label,
   trailing,
   className,
+  inputClassName,
   ...inputProps
 }: Omit<React.ComponentProps<typeof Input>, `className`> & {
   id: string
   label: string
   trailing?: React.ReactNode
   className?: string
+  /** Extra classes on the field itself — a native `type="time"` widget
+   * ignores `text-right`, so such rows pass `ml-auto w-auto flex-none` to
+   * park the whole control at the trailing edge (EXP-698 r4). */
+  inputClassName?: string
 }) {
   return (
     <div
@@ -190,7 +195,10 @@ function GlassInputRow({
       </Label>
       <Input
         id={id}
-        className="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-right text-sm text-foreground/70 shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm"
+        className={cn(
+          `h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-right text-sm text-foreground/70 shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm`,
+          inputClassName
+        )}
         {...inputProps}
       />
       {trailing}

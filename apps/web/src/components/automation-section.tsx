@@ -240,6 +240,7 @@ export function AutomationTriggerFields({
             id="automation-trigger-time"
             label="Time"
             type="time"
+            inputClassName="ml-auto w-auto flex-none"
             value={draft.time}
             onChange={(e) => set({ time: e.target.value })}
           />

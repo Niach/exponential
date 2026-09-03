@@ -256,16 +256,6 @@ export function IssueEditorMobileProperties({
             </MobilePopoverContent>
           </MobilePopover>
         )}
-
-        {onCreateMoreChange && (
-          <GlassToggleRow
-            id="issue-editor-create-more"
-            label="Create more"
-            checked={createMore === true}
-            disabled={disabled}
-            onCheckedChange={onCreateMoreChange}
-          />
-        )}
       </div>
 
       {/* EXP-698 r4: labels leave the row list. Every team label is a chip
@@ -305,6 +295,19 @@ export function IssueEditorMobileProperties({
           />
         </div>
       </div>
+
+      {/* Android/iOS order: properties card, labels, then the bare
+          "Create more" row (no card of its own). */}
+      {onCreateMoreChange && (
+        <GlassToggleRow
+          id="issue-editor-create-more"
+          label="Create more"
+          checked={createMore === true}
+          disabled={disabled}
+          onCheckedChange={onCreateMoreChange}
+          className="px-4"
+        />
+      )}
     </div>
   )
 }
