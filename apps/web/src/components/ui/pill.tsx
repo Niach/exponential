@@ -15,6 +15,12 @@ import { cn } from "@/lib/utils"
 // Label at 70% foreground, 12px medium at `sm` / 14px at `md`; `leading` is a
 // glyph slot and `dot` a coloured 6px disc (issue labels). The styleguide's
 // `#pill` entry renders the same matrix from the tokens.
+//
+// The matrix is size × mode; `primary` is a PAINT flag orthogonal to both —
+// the accent fill for the one call to action in a row (Create, Start coding,
+// Watch). It is meant for `mode="action"`: only there does it take a hover,
+// because only there is it a target. Mirrored on the natives as `.primary()` /
+// `primary:` / `primary =`.
 
 const pillVariants = cva(
   `inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-glass-stroke-card bg-glass-card font-medium text-foreground/70 transition-colors duration-fast [&_svg]:pointer-events-none [&_svg]:shrink-0`,
@@ -29,10 +35,22 @@ const pillVariants = cva(
         select: `cursor-pointer outline-none hover:bg-glass-active hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 data-[selected=true]:border-glass-stroke-active data-[selected=true]:bg-glass-active data-[selected=true]:text-foreground`,
         readonly: ``,
       },
+      primary: {
+        true: `border-transparent bg-primary text-primary-foreground`,
+        false: ``,
+      },
     },
+    compoundVariants: [
+      {
+        mode: `action`,
+        primary: true,
+        class: `hover:bg-primary/90 hover:text-primary-foreground`,
+      },
+    ],
     defaultVariants: {
       size: `sm`,
       mode: `readonly`,
+      primary: false,
     },
   }
 )
@@ -56,6 +74,7 @@ function Pill({
   className,
   size = `sm`,
   mode = `readonly`,
+  primary = false,
   selected = false,
   leading,
   dot,
@@ -77,7 +96,7 @@ function Pill({
       {children}
     </>
   )
-  const pillClassName = cn(pillVariants({ size, mode }), className)
+  const pillClassName = cn(pillVariants({ size, mode, primary }), className)
 
   if (mode === `readonly`) {
     const { onClick: _onClick, disabled: _disabled, ...spanProps } =

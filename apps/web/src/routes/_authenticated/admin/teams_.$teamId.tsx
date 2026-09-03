@@ -312,7 +312,7 @@ function AdminTeamDetail() {
                 >
                   <Avatar className="h-6 w-6 shrink-0">
                     {m.image && <AvatarImage src={m.image} />}
-                    <AvatarFallback className="text-[10px]">
+                    <AvatarFallback className="text-[10px]" userId={m.userId}>
                       {getInitials(m.name || m.email)}
                     </AvatarFallback>
                   </Avatar>

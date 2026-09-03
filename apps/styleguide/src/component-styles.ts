@@ -241,6 +241,46 @@ export const componentStyles = `
 }
 /* readonly is metadata: it keeps the rest chrome and is never a target. */
 .cmp-pill[data-mode="readonly"] { cursor: default; }
+/* EXP-698 r4 — primary is a PAINT flag, orthogonal to size and mode: the
+   accent fill the ONE call to action in a row wears (Create, Start coding,
+   Watch). Every other capsule in that row stays glass. It is meant for the
+   action mode, and only there does it take a hover. */
+.cmp-pill[data-primary] {
+  background: var(--primary);
+  border-color: transparent;
+  color: var(--primary-fg);
+}
+.cmp-pill[data-mode="action"][data-primary]:hover {
+  background: color-mix(in srgb, var(--primary) 90%, transparent);
+  color: var(--primary-fg);
+}
+
+/* ---------------------------------------------------------------- avatar */
+/* Picture first. Without one the initials sit on the PERSON'S hue — the
+   avatar token list, index = fnv1a32(utf8(userId)) % 8 — as a 20% fill under
+   the glyph at full strength. No stroke: the fill is the shape, and the same
+   id lands on the same hue on all four clients. */
+.cmp-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--ctl-md);
+  height: var(--ctl-md);
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 500;
+}
+/* The picture arm: a real photo fills the circle edge to edge. */
+.cmp-avatar[data-photo] { background: var(--active); }
+.cmp-avatar[data-hue="0"] { background: color-mix(in srgb, var(--avatar-0) 20%, transparent); color: var(--avatar-0); }
+.cmp-avatar[data-hue="1"] { background: color-mix(in srgb, var(--avatar-1) 20%, transparent); color: var(--avatar-1); }
+.cmp-avatar[data-hue="2"] { background: color-mix(in srgb, var(--avatar-2) 20%, transparent); color: var(--avatar-2); }
+.cmp-avatar[data-hue="3"] { background: color-mix(in srgb, var(--avatar-3) 20%, transparent); color: var(--avatar-3); }
+.cmp-avatar[data-hue="4"] { background: color-mix(in srgb, var(--avatar-4) 20%, transparent); color: var(--avatar-4); }
+.cmp-avatar[data-hue="5"] { background: color-mix(in srgb, var(--avatar-5) 20%, transparent); color: var(--avatar-5); }
+.cmp-avatar[data-hue="6"] { background: color-mix(in srgb, var(--avatar-6) 20%, transparent); color: var(--avatar-6); }
+.cmp-avatar[data-hue="7"] { background: color-mix(in srgb, var(--avatar-7) 20%, transparent); color: var(--avatar-7); }
 
 /* ----------------------------------------------------------- text field */
 .cmp-text-field {

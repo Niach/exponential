@@ -464,7 +464,10 @@ export function TeamSidebar({
                         {session?.user?.image && (
                           <AvatarImage src={session.user.image} />
                         )}
-                        <AvatarFallback className="text-xs">
+                        <AvatarFallback
+                          className="text-xs"
+                          userId={session?.user?.id}
+                        >
                           {userInitials}
                         </AvatarFallback>
                       </Avatar>

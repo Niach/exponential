@@ -99,7 +99,7 @@ function AdminUserDetail() {
           <div className="flex items-center gap-4 min-w-0 flex-1">
             <Avatar className="h-12 w-12 shrink-0">
               {user.image && <AvatarImage src={user.image} />}
-              <AvatarFallback>
+              <AvatarFallback userId={user.id}>
                 {getInitials(user.name || user.email)}
               </AvatarFallback>
             </Avatar>

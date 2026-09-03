@@ -525,22 +525,23 @@ export function IssueDetailView({
 
   const dueDate = issue.dueDate ? parseLocalDate(issue.dueDate) : undefined
 
-  // Coding "coding now" row (EXP-184): a main-column row on desktop, one
-  // circle in the floating bar on phones (EXP-568). The component owns the
-  // repo/membership/relay gating and focuses the global dock rather than
-  // mounting the live viewer inline. Since EXP-616 the IDLE start affordance
-  // moved out of this row and into the properties card below.
-  const codingControl =
-    currentUserId && !isMobile ? (
-      <IssueCodingControl
-        issue={issue}
-        board={board}
-        teamId={teamId}
-        currentUserId={currentUserId}
-        users={users}
-        variant="row"
-      />
-    ) : null
+  // Coding "coding now" card (EXP-184): a main-column card on EVERY viewport
+  // since EXP-698 r4 — iOS and Android show it under the property chips too,
+  // and the phone's floating circle is the START affordance, not a substitute
+  // for the running run's card. The component owns the repo/membership/relay
+  // gating and focuses the global dock rather than mounting the live viewer
+  // inline. Since EXP-616 the IDLE start affordance moved out of this card and
+  // into the properties card above (desktop only — see `codingStartButton`).
+  const codingControl = currentUserId ? (
+    <IssueCodingControl
+      issue={issue}
+      board={board}
+      teamId={teamId}
+      currentUserId={currentUserId}
+      users={users}
+      variant="row"
+    />
+  ) : null
 
   const codingFab =
     currentUserId && isMobile ? (
@@ -985,6 +986,7 @@ export function IssueDetailView({
             route, so nothing else is reserved here. */}
         <div className="flex-1 overflow-y-auto pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
           {propsBand}
+          {codingControl}
           {titleField}
           {editor}
           {attachmentError}
@@ -1023,10 +1025,13 @@ export function IssueDetailView({
             </div>
             <div className="mx-auto max-w-3xl">
               {propsBand}
+              {/* EXP-698 r4: the "coding now" card sits directly under the
+                  properties band — same gutter, same glass chrome — instead of
+                  below the description. */}
+              {codingControl}
               {editor}
               {attachmentError}
               {filesSection}
-              {codingControl}
               {prRow}
               {widgetCard}
               {timeline}

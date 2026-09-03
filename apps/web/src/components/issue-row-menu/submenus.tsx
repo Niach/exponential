@@ -104,7 +104,10 @@ export function AssigneeSubmenu({
                 alt={displayUserName(selectedAssignee, selectedAssignee.id)}
               />
             )}
-            <AvatarFallback className="text-[0.5rem]">
+            <AvatarFallback
+              className="text-[0.5rem]"
+              userId={selectedAssignee.id}
+            >
               {getInitials(
                 displayUserName(selectedAssignee, selectedAssignee.id)
               )}
@@ -147,7 +150,10 @@ export function AssigneeSubmenu({
                     {user.image && (
                       <AvatarImage src={user.image} alt={name} />
                     )}
-                    <AvatarFallback className="text-[0.5625rem]">
+                    <AvatarFallback
+                      className="text-[0.5625rem]"
+                      userId={user.id}
+                    >
                       {getInitials(name)}
                     </AvatarFallback>
                   </Avatar>

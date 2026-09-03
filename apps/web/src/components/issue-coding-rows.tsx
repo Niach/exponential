@@ -7,7 +7,6 @@ import {
   GitMerge,
   GitPullRequest,
   LoaderCircle,
-  MonitorPlay,
   MonitorUp,
 } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
@@ -45,6 +44,9 @@ import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
 const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 // The phone bar's start button — the same glyph the Actions surfaces run with.
 const ActionRunIcon = conceptIcon(`action-run`)
+// EXP-698 r4: the Watch pill draws the concept the natives draw on their own
+// Watch pill, never a raw lucide glyph.
+const WatchIcon = conceptIcon(`nav-devices`)
 
 // EXP-568: the floating mobile bar's 52px circles (issue-detail-mobile-bar.tsx
 // owns the bar itself; the coding circle's gating lives here).
@@ -53,10 +55,15 @@ const FAB_CIRCLE_CLASS = `pointer-events-auto flex size-[52px] shrink-0 items-ce
 // EXP-616: the coding / PR rows are glass CARDS now, not full-bleed
 // `border-t` divider rows. Both exported pieces mount as independent siblings
 // of the issue-detail main column (issue-detail-view.tsx owns no wrapper), so
-// each one carries its own stack + gutter — the same `px-5 py-2` gutter
-// issue-files-section.tsx uses, so the cards line up down the column.
+// each one carries its own stack + gutter. EXP-698 r4 aligns that gutter with
+// the properties band's (`max-w-3xl px-4 pt-3`) — the coding card sits
+// directly under the band on both viewports, so the two must share an edge.
 function CodingRowStack({ children }: { children: ReactNode }) {
-  return <div className="flex flex-col gap-2 px-5 py-2">{children}</div>
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-4 pt-3 pb-2">
+      {children}
+    </div>
+  )
 }
 
 // The coding affordances of the issue detail (EXP-106): a compact "coding now"
@@ -217,16 +224,15 @@ function IssueMergeButton({ issue }: { issue: Issue }) {
 
   return (
     <>
-      <Button
-        variant="outline"
+      <Pill
         size="sm"
-        className="shrink-0"
+        mode="action"
         onClick={() => setConfirmOpen(true)}
         disabled={merging}
       >
         {merging ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
         {merging ? `Merging…` : `Merge PR`}
-      </Button>
+      </Pill>
       <Dialog
         open={confirmOpen}
         onOpenChange={(next) => {
@@ -447,7 +453,7 @@ function AgentRow({
     )
     const ownerLabel = (
       <span
-        className="truncate text-xs text-muted-foreground"
+        className="min-w-0 truncate text-xs text-muted-foreground"
         title={paused ? `${latestDevice.label ?? `The device`} is offline` : undefined}
       >
         {displayUserName(owner, latest.userId)}
@@ -456,31 +462,35 @@ function AgentRow({
       </span>
     )
 
+    // EXP-698 r4: the "coding now" card wears the properties band's chrome —
+    // same gutter, same 12px glass group — because it sits right underneath it.
     return (
       <CodingRowStack>
-        <GlassRow className="min-w-0 flex-wrap gap-2">
+        <div className="flex items-center gap-2 rounded-xl border border-glass-stroke-card bg-popover/40 px-3 py-2">
           {codingBadge}
           {ownerLabel}
-          {ownLatest && steerEnabled ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="ml-auto shrink-0"
-              onClick={() => dock?.openDock(ownLatest.id)}
-            >
-              <MonitorPlay />
-              Watch
-            </Button>
-          ) : ownLatest && steerEnabled === false ? (
-            <span className="ml-auto text-xs text-muted-foreground">
-              Live steering is unavailable on this instance.
-            </span>
-          ) : null}
-          {/* EXP-568: the sidebar is gone, so its Merge button lives here. */}
-          {isMember && issue.prState === `open` && (
-            <IssueMergeButton issue={issue} />
-          )}
-        </GlassRow>
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {ownLatest && steerEnabled ? (
+              <Pill
+                size="sm"
+                mode="action"
+                primary
+                onClick={() => dock?.openDock(ownLatest.id)}
+              >
+                <WatchIcon />
+                Watch
+              </Pill>
+            ) : ownLatest && steerEnabled === false ? (
+              <span className="text-xs text-muted-foreground">
+                Live steering is unavailable on this instance.
+              </span>
+            ) : null}
+            {/* EXP-568: the sidebar is gone, so its Merge button lives here. */}
+            {isMember && issue.prState === `open` && (
+              <IssueMergeButton issue={issue} />
+            )}
+          </div>
+        </div>
       </CodingRowStack>
     )
   }
@@ -607,7 +617,12 @@ function RemoteStartRow({
             Start sent to {remote.sentTo}. Waiting for the desktop…
           </span>
         )}
-        <Pill mode="action" onClick={() => setDialogOpen(true)} disabled={busy}>
+        <Pill
+          mode="action"
+          primary
+          onClick={() => setDialogOpen(true)}
+          disabled={busy}
+        >
           {busy ? <LoaderCircle className="animate-spin" /> : <MonitorUp />}
           Start coding
         </Pill>

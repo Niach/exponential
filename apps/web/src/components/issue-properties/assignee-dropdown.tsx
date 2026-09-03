@@ -48,7 +48,7 @@ export function AssigneeDropdown({
       {assignee.image && (
         <AvatarImage src={assignee.image} alt={assignee.name} />
       )}
-      <AvatarFallback className="text-[0.625rem]">
+      <AvatarFallback className="text-[0.625rem]" userId={assignee.id}>
         {getInitials(assignee.name)}
       </AvatarFallback>
     </Avatar>
@@ -81,7 +81,7 @@ export function AssigneeDropdown({
     >
       <Avatar className="size-5">
         {user.image && <AvatarImage src={user.image} alt={user.name} />}
-        <AvatarFallback className="text-[0.5625rem]">
+        <AvatarFallback className="text-[0.5625rem]" userId={user.id}>
           {getInitials(user.name)}
         </AvatarFallback>
       </Avatar>

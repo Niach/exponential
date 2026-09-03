@@ -126,7 +126,7 @@ export function TeamMembersSection({
                 <div className="flex min-w-0 items-center gap-3">
                   <Avatar className="h-8 w-8 shrink-0">
                     {user?.image && <AvatarImage src={user.image} />}
-                    <AvatarFallback className="text-xs">
+                    <AvatarFallback className="text-xs" userId={member.userId}>
                       {getInitials(displayName)}
                     </AvatarFallback>
                   </Avatar>

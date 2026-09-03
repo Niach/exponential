@@ -75,7 +75,10 @@ export function AssigneePicker({
                       alt={displayUserName(selectedUser, selectedUser.id)}
                     />
                   )}
-                  <AvatarFallback className="text-[0.5rem]">
+                  <AvatarFallback
+                    className="text-[0.5rem]"
+                    userId={selectedUser.id}
+                  >
                     {getInitials(
                       displayUserName(selectedUser, selectedUser.id)
                     )}
@@ -134,7 +137,10 @@ export function AssigneePicker({
                       {user.image && (
                         <AvatarImage src={user.image} alt={name} />
                       )}
-                      <AvatarFallback className="text-[0.5625rem]">
+                      <AvatarFallback
+                        className="text-[0.5625rem]"
+                        userId={user.id}
+                      >
                         {getInitials(name)}
                       </AvatarFallback>
                     </Avatar>

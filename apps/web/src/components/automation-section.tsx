@@ -41,20 +41,14 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { TabsTrigger } from "@/components/ui/tabs"
 import {
   GLASS_SELECT_TRIGGER,
   GlassGroup,
+  GlassInputRow,
   GlassPickerRow,
+  GlassTabsRow,
 } from "@/components/ui/glass-rows"
 import { cn } from "@/lib/utils"
 
@@ -189,117 +183,86 @@ export function AutomationTriggerFields({
     onChange({ ...draft, ...patch })
 
   return (
-    <div className="space-y-3">
-      <Label>Trigger</Label>
-      <Tabs
+    // EXP-698 r4: ONE card, no "Trigger" caption above it — the Schedule /
+    // On event strip IS the group's first row (the embedded segmented style
+    // the agent card already uses), and the when-part below it is a list of
+    // picker rows with the same geometry.
+    <GlassGroup>
+      <GlassTabsRow
         value={draft.kind}
         onValueChange={(kind) => {
           if (kind === draft.kind) return
           set({ kind: kind as AutomationDraft[`kind`] })
         }}
       >
-        <TabsList className="w-full">
-          <TabsTrigger value="schedule" className="flex-1">
-            Schedule
-          </TabsTrigger>
-          <TabsTrigger value="event" className="flex-1">
-            On event
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
+        <TabsTrigger value="schedule">Schedule</TabsTrigger>
+        <TabsTrigger value="event">On event</TabsTrigger>
+      </GlassTabsRow>
 
       {draft.kind === `schedule` && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm text-muted-foreground">Every</span>
-          <Select
+        <>
+          <GlassPickerRow
+            label="Every"
             value={draft.interval}
             onValueChange={(value) =>
               set({ interval: value as ActionScheduleInterval })
             }
-          >
-            <SelectTrigger size="sm" className="w-24">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.keys(INTERVAL_LABELS) as ActionScheduleInterval[]).map(
-                (interval) => (
-                  <SelectItem key={interval} value={interval}>
-                    {INTERVAL_LABELS[interval]}
-                  </SelectItem>
-                )
-              )}
-            </SelectContent>
-          </Select>
+            options={(
+              Object.keys(INTERVAL_LABELS) as ActionScheduleInterval[]
+            ).map((interval) => ({
+              value: interval,
+              label: INTERVAL_LABELS[interval],
+            }))}
+          />
           {draft.interval === `weekly` && (
-            <Select
+            <GlassPickerRow
+              label="Weekday"
               value={String(draft.weekday)}
               onValueChange={(value) => set({ weekday: Number(value) })}
-            >
-              <SelectTrigger size="sm" className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {WEEKDAYS.map((weekday) => (
-                  <SelectItem key={weekday} value={String(weekday)}>
-                    {weekdayName(weekday)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              options={WEEKDAYS.map((weekday) => ({
+                value: String(weekday),
+                label: weekdayName(weekday),
+              }))}
+            />
           )}
           {draft.interval === `monthly` && (
-            <Select
+            <GlassPickerRow
+              label="Day of month"
               value={String(draft.dayOfMonth)}
               onValueChange={(value) => set({ dayOfMonth: Number(value) })}
-            >
-              <SelectTrigger size="sm" className="w-24">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {MONTH_DAYS.map((day) => (
-                  <SelectItem key={day} value={String(day)}>
-                    {`Day ${day}`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              options={MONTH_DAYS.map((day) => ({
+                value: String(day),
+                label: `Day ${day}`,
+              }))}
+            />
           )}
-          <Input
+          <GlassInputRow
+            id="automation-trigger-time"
+            label="Time"
             type="time"
-            aria-label="Time of day"
             value={draft.time}
             onChange={(e) => set({ time: e.target.value })}
-            className="h-8 w-36"
           />
-        </div>
+        </>
       )}
 
       {draft.kind === `event` && (
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-muted-foreground">When</span>
-            <Select
-              value={draft.event}
-              onValueChange={(value) =>
-                set({ event: value as ActionTriggerEvent })
-              }
-            >
-              <SelectTrigger size="sm" className="w-full max-w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {actionTriggerEventValues.map((event) => (
-                  <SelectItem key={event} value={event}>
-                    {TRIGGER_EVENT_LABELS[event]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <>
+          <GlassPickerRow
+            label="When"
+            value={draft.event}
+            onValueChange={(value) => set({ event: value as ActionTriggerEvent })}
+            options={actionTriggerEventValues.map((event) => ({
+              value: event,
+              label: TRIGGER_EVENT_LABELS[event],
+            }))}
+          />
+          <div className="px-4 py-3">
+            <EventFilterPickers draft={draft} set={set} teamId={teamId} />
           </div>
-          <EventFilterPickers draft={draft} set={set} teamId={teamId} />
-        </div>
+        </>
       )}
-    </div>
+    </GlassGroup>
   )
 }
 

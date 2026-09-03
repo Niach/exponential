@@ -162,19 +162,40 @@ interface PillOptions {
   selected?: boolean
   glyph?: string
   dot?: boolean
+  /** Accent paint (EXP-698 r4) — orthogonal to size and mode. */
+  primary?: boolean
 }
 
 function pill(label: string, options: PillOptions = {}): string {
-  const { size = `sm`, mode = `action`, selected = false, glyph, dot = false } = options
+  const {
+    size = `sm`,
+    mode = `action`,
+    selected = false,
+    glyph,
+    dot = false,
+    primary = false,
+  } = options
   const tag = mode === `readonly` ? `span` : `button`
   return [
     `<${tag} class="cmp-pill${selected ? ` selected` : ``}"`,
+    primary ? ` data-primary` : ``,
     ` data-size="${size}" data-mode="${mode}"${mode === `readonly` ? `` : ` type="button"`}>`,
     dot ? `<span class="dot"></span>` : ``,
     glyph ?? ``,
     `<span class="label">${escapeHtml(label)}</span>`,
     `</${tag}>`,
   ].join(``)
+}
+
+/**
+ * No `userId` here — the demo names the hue directly, because the hash that
+ * picks it is the CLIENTS' contract (each pins the same 8-id fixture), not
+ * something a static page can re-derive. Omitting the label draws the picture
+ * arm: a filled circle, which is what a real photo occupies.
+ */
+function avatar(initials?: string, hue?: number): string {
+  const attr = initials === undefined ? ` data-photo` : ` data-hue="${hue ?? 0}"`
+  return `<span class="cmp-avatar"${attr}>${initials === undefined ? `` : escapeHtml(initials)}</span>`
 }
 
 interface RichTabOptions {
@@ -516,7 +537,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `pill`,
     title: `Pill`,
     kind: `Controls`,
-    blurb: `The ONE capsule, a 2×3 matrix: size md 32 or sm 24, mode action / select / readonly. Card fill under a card stroke, label at 70% — action and select go active on hover, a selected one also takes the active stroke, readonly is metadata and never a target. There is no chip and no header button: those WERE this, under a second name. A conversation or subagent tab is sm select; a members-list role chip is sm readonly, 12px from its neighbours in a row.`,
+    blurb: `The ONE capsule, a 2×3 matrix: size md 32 or sm 24, mode action / select / readonly, plus a primary PAINT flag that crosses all six. Card fill under a card stroke, label at 70% — action and select go active on hover, a selected one also takes the active stroke, readonly is metadata and never a target. There is no chip and no header button: those WERE this, under a second name. A conversation or subagent tab is sm select; a members-list role chip is sm readonly, 12px from its neighbours in a row.`,
     status: {
       web: ok(`Pill`, `apps/web/src/components/ui/pill.tsx`),
       desktop: ok(`surface::glass_pill`, DESKTOP_SURFACE),
@@ -540,6 +561,31 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         pill(`APP-14`, { mode: `readonly`, glyph: svgGitMerge }),
         pill(`running`, { mode: `readonly`, dot: true }),
         `</div>`,
+        `<div class="cmp-inline">`,
+        pill(`Create issue`, { size: `md`, primary: true }),
+        pill(`Watch`, { primary: true, glyph: svgPlay }),
+        `</div>`,
+        `</div>`,
+      ].join(``),
+  },
+  {
+    id: `avatar`,
+    title: `Avatar`,
+    kind: `Controls`,
+    blurb: `Picture first: a circle filled edge to edge by the person's image. Without one the initials sit on THEIR hue — one of eight token colours picked by fnv1a32(utf8(userId)) % 8 — as a 20% fill under the glyph at full strength, no stroke. The hash is byte-identical on all four clients, so one person is one colour everywhere; a subject with no id at all (a bot, an unresolved reporter) keeps the muted fallback.`,
+    status: {
+      web: ok(`AvatarFallback`, `apps/web/src/components/ui/avatar.tsx`),
+      desktop: ok(`user_avatar::avatar_element`, `apps/desktop/crates/ui/src/user_avatar.rs`),
+      ios: ok(`UserAvatar`, `apps/ios/ExpUI/Sources/UserAvatar.swift`),
+      android: ok(`UserAvatar`, `${ANDROID_COMPONENTS}/Avatars.kt`),
+    },
+    render: () =>
+      [
+        `<div class="cmp-inline">`,
+        avatar(),
+        avatar(`MK`, 1),
+        avatar(`JS`, 4),
+        avatar(`SL`, 6),
         `</div>`,
       ].join(``),
   },

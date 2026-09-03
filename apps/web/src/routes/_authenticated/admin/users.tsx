@@ -131,7 +131,7 @@ function AdminUsers() {
                 >
                   <Avatar className="h-8 w-8 shrink-0">
                     {user.image && <AvatarImage src={user.image} />}
-                    <AvatarFallback className="text-xs">
+                    <AvatarFallback className="text-xs" userId={user.id}>
                       {getInitials(user.name || user.email)}
                     </AvatarFallback>
                   </Avatar>
