@@ -526,6 +526,16 @@ impl TerminalDockPanel {
         .detach();
         let merge_state = crate::pr_merge::MergeState::global(cx);
         cx.observe(&merge_state, |_, _, cx| cx.notify()).detach();
+        // EXP-698: `build_remote_chips` returns nothing while the steer
+        // config is unanswered, and the answer lands AFTER this panel mounts
+        // (one fetch, cached app-wide) — re-project when it does, or the
+        // strip stays chip-less for the session.
+        let steer_config = crate::queries::steer_config(cx);
+        cx.observe(&steer_config, |this: &mut Self, _, cx| {
+            this.rebuild_remote_chips(cx);
+            cx.notify();
+        })
+        .detach();
 
         // EXP-369: the empty state's cards mirror the `+` menu's availability
         // (installed agents from the doctor, board-backed repos from the

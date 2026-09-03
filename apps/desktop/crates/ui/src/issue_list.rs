@@ -1415,9 +1415,16 @@ impl Render for IssueListView {
                 .child(crate::scroll_pane::v_scroll_pane(
                     "issue-list-empty-scroll",
                     &self.empty_scroll,
+                    // EXP-698 round 7: an empty board owns the whole center
+                    // now, so the column caps itself like web's
+                    // getting-started section (`mx-auto w-full max-w-4xl`)
+                    // instead of stretching cards across the window. Below
+                    // the cap (the 520px split pane) nothing visible changes.
                     v_flex()
                         .w_full()
                         .min_w_0()
+                        .max_w(px(896.))
+                        .mx_auto()
                         .px_4()
                         .pb_4()
                         .gap_4()

@@ -1648,11 +1648,70 @@ pub struct CenterPanel {
     /// default width.
     center_split: Entity<ResizableState>,
     nav: Entity<Navigation>,
-    /// EXP-525: last render's full-page mode — a structural flip (mount/
-    /// unmount of the center split) settles only on the NEXT frame, and the
-    /// app must not idle on the flip frame (the EXP-492 stray-pass class).
-    last_full_page: Option<bool>,
+    /// The window's shared rail state — the empty-board mode keys on its
+    /// active tool (EXP-698).
+    rail_shared: Entity<crate::sidebar::RailShared>,
+    /// EXP-525/698: whether last render UNMOUNTED the center split (either
+    /// full-page mode). A structural flip settles only on the NEXT frame, and
+    /// the app must not idle on the flip frame (the EXP-492 stray-pass class).
+    last_split_unmounted: Option<bool>,
     _subscriptions: Vec<gpui::Subscription>,
+}
+
+/// EXP-698 round 7: the empty-board rule as a truth table — an empty board
+/// takes the WHOLE center (no detail pane), matching web
+/// (`shots/board-empty/web.webp`). Pure so the combination is testable; the
+/// render path feeds it live facts and short-circuits before the expensive
+/// ones.
+fn board_empty_full_center(
+    screen_open: bool,
+    board_issues_tool: bool,
+    has_board: bool,
+    issues_ready: bool,
+    board_is_empty: bool,
+) -> bool {
+    !screen_open && board_issues_tool && has_board && issues_ready && board_is_empty
+}
+
+/// EXP-698 round 7: does the center drop its split and give the whole width
+/// to the board? Only for the Board Issues tool on a board whose SYNCED issue
+/// set is empty — filters are irrelevant (a board filtered to zero results
+/// still has issues and keeps the split), and §4.1's `is_ready` keeps a
+/// still-syncing collection from flashing the mode on every cold start.
+/// Shared with the sidebar, which drops its right hairline in this mode.
+pub(crate) fn board_empty_full(
+    nav: &Entity<Navigation>,
+    rail_shared: &Entity<crate::sidebar::RailShared>,
+    cx: &App,
+) -> bool {
+    let screen_open = resolved_screen(nav, cx).is_some();
+    let board_issues_tool = matches!(
+        rail_shared.read(cx).tool(),
+        crate::sidebar::ToolWindow::BoardIssues
+    );
+    // The cheap half gates the rest — this runs every frame.
+    if screen_open || !board_issues_tool {
+        return false;
+    }
+    let Some(store) = Store::try_global(cx) else {
+        return false;
+    };
+    let board = navigation::active_board_id(nav, cx);
+    let issues = store.collections().issues.read(cx);
+    let issues_ready = issues.is_ready();
+    // A membership probe, not `issues_in_board` — that clones and sorts the
+    // whole board to answer "is there one".
+    let board_is_empty = issues_ready
+        && board
+            .as_deref()
+            .is_some_and(|board_id| !issues.iter().any(|issue| issue.board_id == board_id));
+    board_empty_full_center(
+        screen_open,
+        board_issues_tool,
+        board.is_some(),
+        issues_ready,
+        board_is_empty,
+    )
 }
 
 /// Stable serialization name (§3.3) — present in dumps even though the center
@@ -1664,14 +1723,25 @@ impl CenterPanel {
         let nav = nav_for_window(window, cx);
         // The left column swaps on the ACTIVE SCREEN (EXP-282) — this panel
         // must re-render when navigation moves, not just its children.
-        let subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
+        let mut subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
+        // EXP-698: the empty-board full-width mode keys on the rail's active
+        // tool and on the board's SYNCED issue rows — the split must re-mount
+        // when the tool changes or the board's first issue arrives.
+        let rail_shared = crate::sidebar::rail_shared_for_window(window, cx);
+        subscriptions.push(cx.observe(&rail_shared, |_, _, cx| cx.notify()));
+        // `try_global`: the rehydrate test builds panels without a store.
+        if let Some(store) = Store::try_global(cx) {
+            let issues = store.collections().issues.clone();
+            subscriptions.push(cx.observe(&issues, |_, _, cx| cx.notify()));
+        }
         Self {
             focus_handle: cx.focus_handle(),
             sidebar: cx.new(|cx| SidebarPanel::new(window, cx)),
             screens: cx.new(|cx| ScreensPanel::new(window, cx)),
             center_split: cx.new(|_| ResizableState::default()),
             nav,
-            last_full_page: None,
+            rail_shared,
+            last_split_unmounted: None,
             _subscriptions: subscriptions,
         }
     }
@@ -1712,23 +1782,38 @@ impl Render for CenterPanel {
         // detail — no resizable split (the detail column caps itself), and
         // the tool column is unmounted. EXP-480: the Actions page is the
         // same tab-less full-page mode (the rail stays; any rail-tool click
-        // leaves it via `activate_tool`'s `set_screen(None)`).
+        // leaves it via `activate_tool`'s `set_screen(None)`). EXP-698 round
+        // 7: an EMPTY board is the second no-split mode — web renders it as
+        // ONE full-width area (`shots/board-empty/web.webp`), so the "Nothing
+        // open" detail pane must not sit beside a board that has nothing to
+        // open. It is the mirror image of `full_page`: there the SCREEN takes
+        // the center, here the BOARD does.
         let full_page = resolved_screen(&self.nav, cx).is_some_and(|screen| {
             matches!(screen, Screen::Settings) || screen.is_rail_full_page()
         });
+        let board_empty_full = !full_page && board_empty_full(&self.nav, &self.rail_shared, cx);
         // EXP-525: a mount/unmount of the center split settles its layout on
         // the FOLLOWING frame (gpui's stray fit-content passes, EXP-492 —
         // the screens.rs layout tests draw twice per width for the same
         // reason). Force that second frame so a static page (Actions) can't
-        // idle on the flip frame's collapsed decoration band.
-        if self.last_full_page != Some(full_page) {
-            self.last_full_page = Some(full_page);
+        // idle on the flip frame's collapsed decoration band. Both no-split
+        // modes fold into ONE bool here: what matters is the STRUCTURAL flip,
+        // not which mode caused it.
+        let split_unmounted = full_page || board_empty_full;
+        if self.last_split_unmounted != Some(split_unmounted) {
+            self.last_split_unmounted = Some(split_unmounted);
             window.request_animation_frame();
         }
         if full_page {
             return div()
                 .size_full()
                 .child(self.screens.clone())
+                .into_any_element();
+        }
+        if board_empty_full {
+            return div()
+                .size_full()
+                .child(self.sidebar.clone())
                 .into_any_element();
         }
         div()
@@ -1782,6 +1867,24 @@ mod tests {
     use super::*;
     use crate::settings::SETTINGS_NAV_WIDTH;
     use crate::sidebar::{RAIL_EXPANDED_W, RAIL_W};
+
+    /// EXP-698 round 7: only a Board Issues tool, on a real board, whose
+    /// SYNCED issue set is empty, takes the whole center. Every other fact
+    /// keeps the split — a still-syncing collection especially (§4.1).
+    #[test]
+    fn empty_board_takes_the_center_only_when_every_fact_says_so() {
+        assert!(board_empty_full_center(false, true, true, true, true));
+        // A center tab is open — the detail pane has something to show.
+        assert!(!board_empty_full_center(true, true, true, true, true));
+        // Another tool (Files / Source Control / Inbox) keeps its detail pane.
+        assert!(!board_empty_full_center(false, false, true, true, true));
+        // No board resolved yet.
+        assert!(!board_empty_full_center(false, true, false, true, true));
+        // Empty because the shape has not caught up, not because it is empty.
+        assert!(!board_empty_full_center(false, true, true, false, true));
+        // The board HAS issues (a filter hiding them all is not our business).
+        assert!(!board_empty_full_center(false, true, true, true, false));
+    }
 
     #[test]
     fn retarget_into_settings_starts_swap_and_bumps_epoch() {

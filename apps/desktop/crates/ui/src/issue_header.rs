@@ -167,6 +167,12 @@ impl IssueHeader {
         // ride the issues observer above).
         let rail_shared = crate::sidebar::rail_shared_for_window(window, cx);
         subscriptions.push(cx.observe(&rail_shared, |_, _, cx| cx.notify()));
+        // EXP-698: the coding-now card's Watch pill is gated on the steer
+        // config, which is fetched ONCE and lands after this header mounts —
+        // without an observer the header renders on the "no relay" default
+        // and never asks again, so the pill never appears.
+        let steer_config = crate::queries::steer_config(cx);
+        subscriptions.push(cx.observe(&steer_config, |_, _, cx| cx.notify()));
         let boards = rail_shared.read(cx).issue_boards().map(Clone::clone);
         for board in boards {
             subscriptions.push(cx.observe(&board, |_, _, cx| cx.notify()));

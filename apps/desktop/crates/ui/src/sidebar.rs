@@ -2842,6 +2842,9 @@ impl SidebarPanel {
 impl Render for SidebarPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let tool = self.shared.read(cx).tool;
+        // EXP-698 round 7: when the empty board IS the center there is
+        // nothing to the right to mark a boundary to.
+        let is_center = crate::shell::board_empty_full(&self.nav, &self.shared, cx);
         // Leaving the Support tool drops its fetch key — the next open
         // refetches, and the 30s poll loop dies on its next tick.
         if tool != ToolWindow::Support {
@@ -2854,8 +2857,10 @@ impl Render for SidebarPanel {
             // EXP-285: no section wash — every pane sits on the ONE page
             // gradient; only the icon rail keeps a lighter tint. A hairline
             // marks the boundary to the center.
-            .border_r_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            .when(!is_center, |this| {
+                this.border_r_1()
+                    .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            })
             .text_color(cx.theme().sidebar_foreground)
             .child(match tool {
                 ToolWindow::Inbox => self.render_inbox_tool(cx),

@@ -2116,21 +2116,22 @@ pub(crate) fn coding_now_card(issue_id: &str, cx: &mut App) -> Option<gpui::Div>
         (None, None) => None,
     };
 
-    // EXP-696: steerable when the run is the caller's own — a LOCAL one
-    // focuses its terminal tab, a remote one needs the relay (no relay, no
-    // viewer, so no Watch).
+    // EXP-696/698: steerable when the run is the caller's OWN. A LOCAL run —
+    // one this very process hosts — focuses its terminal tab; anything else
+    // of the caller's goes through the relay, INCLUDING a run stamped with
+    // this device id that this process does not host (an earlier IDE process,
+    // a second window). That is why the gate does not compare device ids:
+    // web's rule is `ownLatest && steerEnabled` (issue-coding-rows.tsx) and a
+    // device-id mismatch was hiding the pill on exactly the runs a restart
+    // orphaned. No relay, no viewer, so no Watch.
     let steer_target = {
         let me = crate::queries::active_account(cx).map(|account| account.user_id);
-        let own_device_id = crate::queries::own_device_id(cx);
         let local = crate::coding_flow::LocalSessions::global_ref(cx)
             .is_some_and(|sessions| sessions.read(cx).session_by_id(&session.id).is_some());
-        let remote = session
-            .device_id
-            .as_deref()
-            .is_some_and(|device_id| device_id != own_device_id)
-            && crate::queries::remote_start_enabled(cx);
-        (session.user_id.is_some() && session.user_id == me && (local || remote))
-            .then(|| session.id.clone())
+        (session.user_id.is_some()
+            && session.user_id == me
+            && (local || crate::queries::remote_start_enabled(cx)))
+        .then(|| session.id.clone())
     };
 
     let tone = tone.to_hsla();
