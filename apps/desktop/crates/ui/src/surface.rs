@@ -385,6 +385,20 @@ impl PillSize {
 ///   renders inline there; see its module doc.)
 /// - `Readonly` — it only LABELS something (a role, a label, an attachment,
 ///   a count badge). No hover, no pointer cursor.
+///
+/// Orthogonal to all three is the PRIMARY paint flag (EXP-698, mirrored ×4 as
+/// the web `<Pill primary>` / mobile `GlassPill(primary:)` prop): the ONE
+/// emphasised capsule of a surface — solid `theme.primary`,
+/// `primary_foreground` text, no stroke, a darker hover. It changes nothing
+/// but paint: geometry, type and glyph size stay the pill's. A surface gets at
+/// most one (the issue header's Start coding, the coding-now card's Watch);
+/// everything else beside it stays the default glass fill, which is what makes
+/// the primary one read as the action.
+///
+/// It rides [`glass_pill_button_primary`] rather than a `.primary()` chained
+/// onto [`glass_pill_button`]: the name is already taken on `Button` by
+/// gpui-component's `ButtonVariants::primary`, which every call site imports,
+/// so a same-named extension method would only make every call ambiguous.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum PillMode {
     Action,
@@ -522,6 +536,30 @@ pub(crate) fn glass_pill_button(
         .custom(variant)
         .border_1()
         .border_color(t::glass::STROKE_CARD.to_hsla());
+    match size {
+        PillSize::Sm => button.web_xs(),
+        PillSize::Md => button.web_sm(),
+    }
+}
+
+/// The PRIMARY paint of [`glass_pill_button`] (see [`PillMode`]): the same
+/// capsule geometry, filled solid with `theme.primary` under
+/// `primary_foreground` text and NO stroke.
+///
+/// The fill rides gpui-component's own `Primary` variant instead of a
+/// [`custom_variant_fill`]ed `ButtonCustomVariant`: the variant already owns
+/// the accent's hover/active pair (`button_primary_hover/_active`, a notch
+/// darker) and paints its border in the fill colour, i.e. strokeless. That is
+/// also why this is a separate recipe rather than a flag threaded through
+/// [`glass_pill_button`] — that one has to override the border to get the
+/// glass hairline, and an override cannot un-set itself.
+pub(crate) fn glass_pill_button_primary(
+    id: impl Into<ElementId>,
+    size: PillSize,
+) -> gpui_component::button::Button {
+    use crate::controls::WebControl as _;
+    use gpui_component::button::ButtonVariants as _;
+    let button = gpui_component::button::Button::new(id).primary();
     match size {
         PillSize::Sm => button.web_xs(),
         PillSize::Md => button.web_sm(),

@@ -1070,20 +1070,22 @@ impl RailView {
         let avatar_image = crate::user_avatar::cached_avatar_image(cx, image_url.as_deref());
         let make_avatar = {
             let full_name = full_name.clone();
+            // EXP-698: the hue key is the USER ID, so the rail's disc matches
+            // the one every member list draws for the same person.
+            let user_id = account
+                .as_ref()
+                .map(|account| account.user_id.clone())
+                .unwrap_or_default();
             let signed_in = account.is_some();
             move |size: gpui_component::Size, image: Option<std::sync::Arc<gpui::Image>>| {
                 // Signed out keeps the generic person placeholder instead of
                 // "NS" initials for "Not signed in".
-                let avatar = gpui_component::avatar::Avatar::new().with_size(size);
-                let avatar = if signed_in {
-                    avatar.name(full_name.clone())
-                } else {
-                    avatar
-                };
-                match image {
-                    Some(image) => avatar.src(image),
-                    None => avatar,
+                if !signed_in {
+                    return gpui_component::avatar::Avatar::new()
+                        .with_size(size)
+                        .into_any_element();
                 }
+                crate::user_avatar::avatar_element(&user_id, &full_name, image, size)
             }
         };
 

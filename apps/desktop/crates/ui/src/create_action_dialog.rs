@@ -614,12 +614,11 @@ impl Render for CreateActionDialogView {
                 .w_full()
                 .gap_3()
                 .child(self.automation_header(cx))
-                .child(self.automation.render_with_heading(
+                // EXP-698: no section label under the header — the trigger
+                // card's own first row names the choice.
+                .child(self.automation.render(
                     "ca-automation",
                     |this: &mut Self| &mut this.automation,
-                    // The back-button header says "Automation"; the section
-                    // label below it says "Trigger", exactly like web.
-                    true,
                     cx,
                 )),
         };

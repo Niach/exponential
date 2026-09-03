@@ -194,12 +194,19 @@ impl AccountPane {
             .flatten()
             .map(SharedString::from);
         let image_url = crate::queries::active_user(cx).and_then(|user| user.image);
+        // EXP-698: the hue key is the USER ID, so a picture-less account wears
+        // the same colour here as in every member list.
+        let user_id = account
+            .as_ref()
+            .map(|account| account.user_id.clone())
+            .unwrap_or_default();
 
         h_flex()
             .w_full()
             .gap_3()
             .items_center()
             .child(crate::user_avatar::user_avatar(
+                &user_id,
                 &full_name,
                 image_url.as_deref(),
                 gpui_component::Size::Medium,

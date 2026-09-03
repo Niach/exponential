@@ -340,6 +340,7 @@ pub(crate) fn comment_row(
         // EXP-547: picture + initials fallback (web `RegularCommentRow`
         // renders `AvatarImage`), so same-initials authors stay distinct.
         .child(crate::user_avatar::user_avatar(
+            props.comment.author_id.as_deref().unwrap_or_default(),
             &name,
             props.author.and_then(|user| user.image.as_deref()),
             gpui_component::Size::Small,

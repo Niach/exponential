@@ -302,6 +302,7 @@ pub(crate) fn assignee_menu(
         let on_pick = on_pick.clone();
         let user_id = user.id.clone();
         menu = menu.item(user_menu_item(
+            user.id.clone(),
             name,
             user.image.clone(),
             checked,
@@ -318,13 +319,14 @@ pub(crate) fn assignee_menu(
 /// hatch — a plain item's `icon` slot can only carry a glyph. Shared by the
 /// detail-header picker and the issue list's row/context assignee menus.
 pub(crate) fn user_menu_item(
+    user_id: String,
     name: String,
     image_url: Option<String>,
     checked: bool,
     on_select: impl Fn(&mut Window, &mut App) + 'static,
 ) -> PopupMenuItem {
     PopupMenuItem::element(move |_, cx| {
-        crate::user_avatar::user_row(&name, image_url.as_deref(), cx)
+        crate::user_avatar::user_row(&user_id, &name, image_url.as_deref(), cx)
     })
     .checked(checked)
     .on_click(move |_, window, cx| on_select(window, cx))

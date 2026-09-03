@@ -2021,25 +2021,31 @@ pub(crate) fn issue_web_url(issue: &Issue, cx: &App) -> Option<String> {
     ))
 }
 
-/// The §4.2 steer presence pill: a "coding now" badge while a
-/// `coding_sessions` row is `running` for this issue (the Watch/viewer UI is
-/// §08 — another track wires it onto this pill). The parked states render the
-/// same pill with a different tone/verb (EXP-194/EXP-214): review GREEN
-/// "ready for review" (the in_review issue-status tint), done BLUE once the
-/// PR merges, needs-input YELLOW while the agent waits on a plan-approval /
-/// question picker.
+/// The §4.2 steer presence CARD (EXP-698 — it was a lone pill until this
+/// sweep): while a `coding_sessions` row is live for this issue, the issue
+/// header grows a second [`crate::surface::glass_tray`] under the property
+/// one, carrying the run's state badge, who is running it where, and the
+/// actions on it. Same chrome as the property tray, so the header reads as
+/// two bands of one material rather than a card and a stray capsule.
+///
+/// Contents, in order: the state badge as a `Readonly` `Sm` pill tinted with
+/// the run's tone (EXP-194/EXP-214: review GREEN — the in_review status tint,
+/// done BLUE once the PR merges, needs-input YELLOW while the agent waits on
+/// a plan-approval / question picker, neutral grey while its host is offline);
+/// the ellipsizing "<Who> · <Machine>" caption; then the caller's own trailing
+/// actions (Merge PR — [`crate::issue_header::IssueHeader::merge_button`] —
+/// appended by `agent_row`, which owns the PR state).
 ///
 /// EXP-549/550: the machine name is RESOLVED against the synced `devices`
 /// rows (so a rename shows immediately, not the start-time hostname), and an
 /// in-flight session whose host went offline (lid closed) reads "paused" in
 /// neutral grey instead of claiming to be live.
 ///
-/// EXP-696: the pill is now the ENTRY POINT to steering — clicking one of the
-/// caller's own runs opens it in the bottom dock (a remote run as a steering
-/// view, a run this process hosts as its terminal tab). Look unchanged; only
-/// the cursor and the click are new, and a run that is neither (a teammate's,
-/// or a relay-less instance) stays inert.
-pub(crate) fn coding_now_pill(issue_id: &str, cx: &mut App) -> Option<impl IntoElement> {
+/// EXP-696/698: steering has its OWN control now — a primary Watch pill,
+/// rendered only for a run the caller may watch (their own, either hosted by
+/// this process or reachable over the relay). A teammate's run, or a
+/// relay-less instance, simply shows no Watch: the card stays informational.
+pub(crate) fn coding_now_card(issue_id: &str, cx: &mut App) -> Option<gpui::Div> {
     let collections = Store::global(cx).collections().clone();
     let now = chrono::Utc::now().timestamp();
     let session = collections
@@ -2083,26 +2089,18 @@ pub(crate) fn coding_now_pill(issue_id: &str, cx: &mut App) -> Option<impl IntoE
         .as_deref()
         .and_then(|id| collections.users.read(cx).get(id).cloned())
         .map(|user| comments::author_label(Some(&user)));
-    let label = match (who, presentation.label.as_deref()) {
-        (Some(who), Some(device)) => format!("{who} {verb} · {device}"),
-        (Some(who), None) => format!("{who} {verb}"),
-        (None, Some(device)) => {
-            let mut capitalized = capitalize_first(verb);
-            capitalized.push_str(&format!(" · {device}"));
-            capitalized
-        }
-        (None, None) => capitalize_first(verb),
+    // EXP-698: the verb became the BADGE, so the caption is the identity
+    // ("Danny Strähhuber · MacBook Pro") and nothing else.
+    let caption = match (who, presentation.label.as_deref()) {
+        (Some(who), Some(device)) => Some(format!("{who} · {device}")),
+        (Some(who), None) => Some(who),
+        (None, Some(device)) => Some(device.to_string()),
+        (None, None) => None,
     };
 
-    // EXP-309: the pill owns a full-width row (EXP-417 gives it its own line
-    // in the header's agent row) and its label ellipsizes. A content-sized
-    // `flex_shrink_0` pill overflowed as soon as the label carried a name AND a
-    // device ("Danny Strähhuber needs input · MacBook Pro"). Truncation needs
-    // the whole width chain definite: `w_full` + `min_w_0` on the row, then
-    // `flex_1 min_w_0 overflow_hidden` on the text div itself.
     // EXP-696: steerable when the run is the caller's own — a LOCAL one
     // focuses its terminal tab, a remote one needs the relay (no relay, no
-    // viewer, so no click).
+    // viewer, so no Watch).
     let steer_target = {
         let me = crate::queries::active_account(cx).map(|account| account.user_id);
         let own_device_id = crate::queries::own_device_id(cx);
@@ -2117,41 +2115,58 @@ pub(crate) fn coding_now_pill(issue_id: &str, cx: &mut App) -> Option<impl IntoE
             .then(|| session.id.clone())
     };
 
+    let tone = tone.to_hsla();
+    let badge = crate::surface::glass_pill(
+        "coding-now-state",
+        crate::surface::PillSize::Sm,
+        crate::surface::PillMode::Readonly,
+        cx,
+    )
+    // The tone is the STATE's, so it rides the badge's own stroke and text
+    // instead of the glass defaults — the rest of the tray stays neutral.
+    .border_color(tone.opacity(0.4))
+    .text_color(tone)
+    .child(crate::surface::pill_dot(tone))
+    .child(SharedString::from(capitalize_first(verb)));
+
+    let watch = steer_target.map(|session_id| {
+        crate::surface::glass_pill_button_primary("coding-now-watch", crate::surface::PillSize::Sm)
+            .icon(
+                // NAV_DEVICES (monitor), not UI_WATCH (eye — file preview
+                // elsewhere): the monitor IS the Watch concept on web, iOS
+                // and Android, and the glyph has to be the same on all four.
+                Icon::new(registry::NAV_DEVICES)
+                    .with_size(px(crate::surface::PillSize::Sm.glyph()))
+                    .text_color(cx.theme().primary_foreground),
+            )
+            .label("Watch")
+            .tooltip("Open this run in the bottom dock and steer it")
+            .on_click(move |_, window, cx| {
+                crate::terminal_dock::open_steer_session(&session_id, window, cx);
+            })
+    });
+
+    // EXP-309/698: the caption ellipsizes rather than pushing the actions off
+    // the tray — "Danny Strähhuber · MacBook Pro" overflows a narrow column
+    // otherwise. Truncation needs the whole width chain definite: `w_full` +
+    // `min_w_0` on the tray, then `flex_1 min_w_0 overflow_hidden` on the text.
     Some(
-        h_flex()
-            .id("coding-now-pill")
+        crate::surface::glass_tray()
             .w_full()
             .min_w_0()
-            .gap_1p5()
-            .px_2()
-            .py_0p5()
-            .rounded_full()
-            .border_1()
-            .border_color(tone.to_hsla().opacity(0.4))
-            .items_center()
-            .text_xs()
-            .when_some(steer_target, |pill, session_id| {
-                pill.cursor_pointer()
-                    .on_click(move |_, window, cx| {
-                        crate::terminal_dock::open_steer_session(&session_id, window, cx);
-                    })
-            })
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .size_1p5()
-                    .rounded_full()
-                    .bg(tone.to_hsla()),
-            )
+            .child(badge)
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
                     .whitespace_nowrap()
                     .overflow_hidden()
                     .text_ellipsis()
-                    .child(SharedString::from(label)),
-            ),
+                    .children(caption.map(SharedString::from)),
+            )
+            .children(watch),
     )
 }
 

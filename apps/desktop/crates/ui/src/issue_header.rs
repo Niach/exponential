@@ -7,8 +7,8 @@
 //! three builders called from the host's render: [`IssueHeader::top_row`]
 //! (switcher · copy-link · subscribe · `…`), [`IssueHeader::chip_row`]
 //! (Status · Priority · Assignee · Labels · Due date · Board · Origin) and
-//! [`IssueHeader::agent_row`] (coding-now pill · Start coding · Merge PR ·
-//! Fix conflicts). The host observes this entity so a builder's `cx.notify()`
+//! [`IssueHeader::agent_row`] (the coding-now card, with Merge PR and Fix
+//! conflicts). The host observes this entity so a builder's `cx.notify()`
 //! reaches it.
 //!
 //! Every control mutates immediately through tRPC (`issues.update` /
@@ -44,7 +44,6 @@ use domain::board::format_short_date;
 use domain::options::get_issue_priority_config;
 use domain::rows::{Issue, Label, Board, User};
 
-use crate::controls::WebControl as _;
 use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::{option_icon, registry, ExpIcon};
 use crate::pickers::{chip_button, PICKER_MENU_MIN_WIDTH, PICKER_SEARCH_WIDTH};
@@ -52,7 +51,7 @@ use crate::issue_detail::{is_subscribed, issue_web_url, set_duplicate_of, DETAIL
 use crate::issue_list::IssueQuery;
 use crate::navigation::{go_back, replace_screen, Screen};
 use crate::queries;
-use crate::surface::{glass_pill, PillMode, PillSize};
+use crate::surface::{glass_pill, glass_pill_button, PillMode, PillSize};
 
 /// EXP-48 switcher position: where the displayed issue sits in the active
 /// issue list's flattened visible ordering. (Moved here with the toolbar
@@ -136,7 +135,7 @@ impl IssueHeader {
                 cx.notify();
             },
         ));
-        // The Agent group's coding-now pill follows the synced sessions; its
+        // The Agent group's coding-now card follows the synced sessions; its
         // skip-while-local guard follows the local registry. The toolbar's
         // subscribe toggle follows the issue_subscribers shape (EXP-277).
         let local_sessions = LocalSessions::global(cx);
@@ -148,7 +147,7 @@ impl IssueHeader {
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
-            // EXP-549/550: the pill's machine name + paused state come from
+            // EXP-549/550: the card's machine name + paused state come from
             // the devices rows — heartbeats and renames re-render it.
             cx.observe(&collections.devices, |_, _, cx| cx.notify()),
             cx.observe(&collections.issue_subscribers, |_, _, cx| cx.notify()),
@@ -546,16 +545,20 @@ impl IssueHeader {
     }
 
     /// The agent row (EXP-256/EXP-417, web `issue-coding-rows.tsx`): the
-    /// synced coding-now pill on its OWN full-width line — its EXP-309
-    /// ellipsis chain needs one — above a wrapping row of the Merge button
-    /// while the linked PR is open (EXP-268), the merge error and the
-    /// fix-conflicts offer. The Start-coding control itself moved into the
-    /// chip row (EXP-426). The pill is skipped while a LOCAL session runs —
-    /// the control already shows the live indicator, and the synced pill
-    /// would double it as soon as the Electric echo lands.
+    /// synced coding-now CARD on its OWN full-width line — its EXP-309
+    /// ellipsis chain needs one — above a wrapping row of the merge error and
+    /// the fix-conflicts offer. The Start-coding control itself moved into the
+    /// chip row (EXP-426). The card is skipped while a LOCAL session runs —
+    /// the control already shows the live indicator, and the synced row would
+    /// double it as soon as the Electric echo lands.
+    ///
+    /// EXP-698: the Merge button (EXP-268) is now a trailing action INSIDE the
+    /// card whenever both are showing — one tray holds the run and everything
+    /// to do about it — and only falls back to its own row when the PR is open
+    /// with no live session.
     ///
     /// `None` when the board has no repository, and when there is neither a
-    /// pill nor an open PR — an empty row would only add padding.
+    /// card nor an open PR — an empty row would only add padding.
     pub(crate) fn agent_row(
         &mut self,
         issue: &Issue,
@@ -567,21 +570,27 @@ impl IssueHeader {
         let local_running = LocalSessions::global_ref(cx)
             .map(|sessions| sessions.read(cx).get(&issue.id).is_some())
             .unwrap_or(false);
-        let pill = (!local_running)
-            .then(|| crate::issue_detail::coding_now_pill(&issue.id, cx))
+        let card = (!local_running)
+            .then(|| crate::issue_detail::coding_now_card(&issue.id, cx))
             .flatten();
         let pr_open = issue.pr_state.as_deref() == Some("open");
-        if pill.is_none() && !pr_open {
+        if card.is_none() && !pr_open {
             return None;
         }
         let mut column = v_flex().w_full().gap_2().px(px(DETAIL_GUTTER)).pb_2();
-        if let Some(pill) = pill {
-            column = column.child(pill);
+        let mut merge = pr_open.then(|| self.merge_button(issue, cx));
+        if let Some(card) = card {
+            column = column.child(card.children(merge.take()));
         }
 
         let mut controls = h_flex().w_full().flex_wrap().gap_2().items_center();
+        // The row below the card exists only for what the card can't hold: the
+        // merge control when there IS no card, plus the merge error and its
+        // fix-conflicts offer. Empty, it would render as bare padding.
+        let mut has_controls = merge.is_some();
         if pr_open {
-            controls = controls.child(self.merge_button(issue, cx));
+            // Only when the card didn't already take it.
+            controls = controls.children(merge);
             let (error, failed_op, is_conflict) = {
                 let state = crate::pr_merge::MergeState::global(cx);
                 let state = state.read(cx);
@@ -615,9 +624,10 @@ impl IssueHeader {
                         .text_color(cx.theme().danger)
                         .child(error),
                 );
+                has_controls = true;
             }
         }
-        if pr_open {
+        if has_controls {
             column = column.child(controls);
         }
         Some(column.into_any_element())
@@ -636,10 +646,14 @@ impl IssueHeader {
         let board_id = issue.board_id.clone();
         // EXP-367: no agent CLI → disabled with the reason, never hidden.
         let no_agent = crate::coding_flow::no_agent_reason(cx);
-        let mut button = Button::new("header-fix-conflicts")
-            .outline().cursor_pointer()
-            .web_sm()
-            .icon(Icon::from(ExpIcon::GitBranch).text_color(cx.theme().muted_foreground))
+        // EXP-698: the ONE capsule at the `Sm` rung — it shares its row with
+        // the merge pill, so the two read as one pair of chips.
+        let mut button = glass_pill_button("header-fix-conflicts", PillSize::Sm, cx)
+            .icon(
+                Icon::from(ExpIcon::GitBranch)
+                    .with_size(px(PillSize::Sm.glyph()))
+                    .text_color(cx.theme().muted_foreground),
+            )
             .label(if fixing { "Fixing…" } else { "Fix conflicts" })
             .tooltip(
                 no_agent
@@ -680,14 +694,19 @@ impl IssueHeader {
         let armed = merge_state.read(cx).armed(&issue.id);
         let merging = merge_state.read(cx).merging(&issue.id);
         let issue_id = issue.id.clone();
-        let mut button = Button::new("header-merge-pr")
-            .outline().cursor_pointer()
-            .web_sm()
-            .icon(Icon::from(ExpIcon::GitMerge).text_color(if armed {
-                cx.theme().danger
-            } else {
-                cx.theme().muted_foreground
-            }))
+        // EXP-698: the ONE capsule at the `Sm` rung — it rides inside the
+        // coding-now tray beside the state badge, so it wears the tray's own
+        // chip scale rather than the 32px control box it had as a lone row.
+        let mut button = glass_pill_button("header-merge-pr", PillSize::Sm, cx)
+            .icon(
+                Icon::from(ExpIcon::GitMerge)
+                    .with_size(px(PillSize::Sm.glyph()))
+                    .text_color(if armed {
+                        cx.theme().danger
+                    } else {
+                        cx.theme().muted_foreground
+                    }),
+            )
             .label(if merging {
                 "Merging…"
             } else if armed {

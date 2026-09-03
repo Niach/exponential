@@ -6,8 +6,9 @@
 //! description so the agent sets it via `exponential_automations_create`).
 //!
 //! Since EXP-583 an automation is its own row, so this section owns FOUR
-//! things: the **trigger** (a segmented Schedule · On event switch over one
-//! contextual pane), the **device** that evaluates and fires it (automations
+//! things: the **trigger** (EXP-698 — ONE glass group whose first row is the
+//! embedded Schedule · On event strip, over that kind's own field rows), the
+//! **device** that evaluates and fires it (automations
 //! are local-only — no server scheduler), and the optional **agent / model /
 //! effort** pins (every unpinned field falls back to that device's launch
 //! defaults). The device picker is ALWAYS shown: an automation can target any
@@ -25,13 +26,12 @@
 //! [`render`]: AutomationEditorState::render
 
 use gpui::{
-    div, px, App, AppContext as _, ClickEvent, Context, Div, Entity, InteractiveElement as _,
+    div, App, AppContext as _, ClickEvent, Context, Div, Entity, InteractiveElement as _,
     IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
     Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex,
     input::{Input, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     v_flex, ActiveTheme as _,
@@ -43,7 +43,6 @@ use coding::automations::{
 };
 
 use crate::coding_selects::{effort_choices_for, model_choices_for};
-use crate::controls::WebControl as _;
 use crate::surface;
 // EXP-615: the agent/model/effort pins render through the ONE shared launch
 // cluster (its Automation variant leads with the "Device default" pill).
@@ -367,53 +366,48 @@ impl AutomationEditorState {
 
     // -- render ---------------------------------------------------------------
 
-    /// The whole section. `prefix` namespaces the element ids (both dialogs
-    /// can be open at once); `access` reaches the state on the host view.
+    /// The whole section (EXP-698). The trigger is ONE inset-grouped card —
+    /// the Schedule · On event strip as its FIRST ROW (the embedded,
+    /// container-less variant the agent tabs of the same dialog wear), a
+    /// hairline, then the chosen kind's fields as grouped picker rows. The old
+    /// "Trigger" heading is gone with it: a labelled column above a
+    /// free-floating capsule was the last surface in the dialog that wasn't
+    /// one of these cards, and the card's own first row already names the
+    /// choice. "Runs on" and the launch pins stay their own groups.
+    ///
+    /// `prefix` namespaces the element ids (both dialogs can be open at once);
+    /// `access` reaches the state on the host view.
     pub(crate) fn render<V: Render>(
         &self,
         prefix: &'static str,
         access: fn(&mut V) -> &mut Self,
         cx: &mut Context<V>,
     ) -> gpui::AnyElement {
-        self.render_with_heading(prefix, access, true, cx)
-    }
-
-    /// [`Self::render`] — `heading` toggles the "Trigger" section label
-    /// (web-parity wording; both the automation dialog and EXP-615's
-    /// create-action detail pane show it above the mode switch).
-    pub(crate) fn render_with_heading<V: Render>(
-        &self,
-        prefix: &'static str,
-        access: fn(&mut V) -> &mut Self,
-        heading: bool,
-        cx: &mut Context<V>,
-    ) -> gpui::AnyElement {
-        let muted = cx.theme().muted_foreground;
-        let mut section = v_flex().gap_2();
-        if heading {
-            section = section.child(div().text_sm().text_color(muted).child("Trigger"));
-        }
-        let mut section = section.child(self.render_mode_switch(prefix, access, cx));
-        section = match self.mode {
-            AutomationMode::Schedule => {
-                section.child(self.render_schedule_pane(prefix, access, cx))
-            }
-            AutomationMode::Event => section.child(self.render_event_pane(prefix, access, cx)),
-        };
-        section
+        let mut rows = vec![self.render_mode_strip(prefix, access, cx)];
+        rows.extend(match self.mode {
+            AutomationMode::Schedule => self.schedule_rows(prefix, access, cx),
+            AutomationMode::Event => self.event_rows(prefix, access, cx),
+        });
+        v_flex()
+            .gap_2()
+            .child(surface::glass_group_rows(rows))
             .child(self.render_device_picker(prefix, access, cx))
             .child(self.render_launch_pins(prefix, access, cx))
             .into_any_element()
     }
 
-    fn render_mode_switch<V: Render>(
+    /// The trigger card's first row: the Schedule · On event segments, drawn
+    /// with the SAME [`surface::glass_tabs_row`] / [`surface::glass_tab_item`]
+    /// pair as the agent strip below it — the group draws the hairline under
+    /// it, so the strip carries no capsule of its own.
+    fn render_mode_strip<V: Render>(
         &self,
         prefix: &'static str,
         access: fn(&mut V) -> &mut Self,
         cx: &mut Context<V>,
-    ) -> impl IntoElement {
+    ) -> Div {
         let segment = |label: &'static str, mode: AutomationMode, id: SharedString| {
-            crate::controls::segmented_item(self.mode == mode, cx)
+            surface::glass_tab_item(self.mode == mode, cx)
                 .id(id)
                 .child(label)
                 .on_click(cx.listener(move |view: &mut V, _: &ClickEvent, _, cx| {
@@ -424,7 +418,7 @@ impl AutomationEditorState {
                     }
                 }))
         };
-        crate::controls::segmented(cx)
+        surface::glass_tabs_row()
             .child(segment(
                 "Schedule",
                 AutomationMode::Schedule,
@@ -437,23 +431,21 @@ impl AutomationEditorState {
             ))
     }
 
-    fn render_schedule_pane<V: Render>(
+    /// The Schedule kind's rows: `Every`, the interval's own qualifier
+    /// (`Weekday` weekly / `Day of month` monthly) and `Time`.
+    fn schedule_rows<V: Render>(
         &self,
         prefix: &'static str,
         access: fn(&mut V) -> &mut Self,
         cx: &mut Context<V>,
-    ) -> impl IntoElement {
+    ) -> Vec<Div> {
         let interval_label = INTERVAL_LABELS
             .iter()
             .find(|(interval, _)| *interval == self.interval)
             .map(|(_, label)| *label)
             .unwrap_or("Day");
         let view = cx.entity().downgrade();
-        let every = Button::new(SharedString::from(format!("{prefix}-interval")))
-            .outline()
-            .cursor_pointer()
-            .web_input_sm()
-            .label(interval_label)
+        let every = picker_trigger(format!("{prefix}-interval").into(), interval_label, cx)
             .dropdown_menu(move |mut menu, _window, _cx| {
                 for (interval, label) in INTERVAL_LABELS {
                     let view = view.clone();
@@ -467,13 +459,9 @@ impl AutomationEditorState {
                     }));
                 }
                 menu
-            });
-        let mut row = h_flex()
-            .w_full()
-            .gap_2()
-            .items_center()
-            .child(field_label(cx, "Every"))
-            .child(every);
+            })
+            .into_any_element();
+        let mut rows = vec![surface::glass_picker_row("Every", None, every, cx)];
         match self.interval {
             ScheduleInterval::Daily => {}
             ScheduleInterval::Weekly => {
@@ -483,96 +471,15 @@ impl AutomationEditorState {
                     .map(|(_, label)| *label)
                     .unwrap_or("Monday");
                 let view = cx.entity().downgrade();
-                row = row.child(
-                    Button::new(SharedString::from(format!("{prefix}-weekday")))
-                        .outline()
-                        .cursor_pointer()
-                        .web_input_sm()
-                        .label(current)
-                        .dropdown_menu(move |mut menu, _window, _cx| {
-                            for (day, label) in WEEKDAY_LABELS {
-                                let view = view.clone();
-                                menu = menu.item(PopupMenuItem::new(label).on_click(
-                                    move |_, _, cx| {
-                                        if let Some(view) = view.upgrade() {
-                                            view.update(cx, |view, cx| {
-                                                access(view).weekday = day;
-                                                cx.notify();
-                                            });
-                                        }
-                                    },
-                                ));
-                            }
-                            menu
-                        }),
-                );
-            }
-            ScheduleInterval::Monthly => {
-                let current = format!("Day {}", self.day_of_month);
-                let view = cx.entity().downgrade();
-                row = row.child(
-                    Button::new(SharedString::from(format!("{prefix}-day-of-month")))
-                        .outline()
-                        .cursor_pointer()
-                        .web_input_sm()
-                        .label(SharedString::from(current))
-                        .dropdown_menu(move |mut menu, _window, _cx| {
-                            // 1..=28 only — every month has those days, so a
-                            // monthly schedule can never skip a month.
-                            for day in 1..=28u32 {
-                                let view = view.clone();
-                                menu = menu.item(
-                                    PopupMenuItem::new(SharedString::from(format!("Day {day}")))
-                                        .on_click(move |_, _, cx| {
-                                            if let Some(view) = view.upgrade() {
-                                                view.update(cx, |view, cx| {
-                                                    access(view).day_of_month = day;
-                                                    cx.notify();
-                                                });
-                                            }
-                                        }),
-                                );
-                            }
-                            menu
-                        }),
-                );
-            }
-        }
-        row.child(field_label(cx, "at"))
-            .child(div().w(px(84.)).child(Input::new(&self.time).web_input_sm()))
-    }
-
-    fn render_event_pane<V: Render>(
-        &self,
-        prefix: &'static str,
-        access: fn(&mut V) -> &mut Self,
-        cx: &mut Context<V>,
-    ) -> impl IntoElement {
-        let current = EVENT_LABELS
-            .iter()
-            .find(|(event, _)| *event == self.event)
-            .map(|(_, label)| *label)
-            .unwrap_or("An issue is created");
-        let view = cx.entity().downgrade();
-        let when = h_flex()
-            .w_full()
-            .gap_2()
-            .items_center()
-            .child(field_label(cx, "When"))
-            .child(
-                Button::new(SharedString::from(format!("{prefix}-event")))
-                    .outline()
-                    .cursor_pointer()
-                    .web_input_sm()
-                    .label(current)
+                let control = picker_trigger(format!("{prefix}-weekday").into(), current, cx)
                     .dropdown_menu(move |mut menu, _window, _cx| {
-                        for (event, label) in EVENT_LABELS {
+                        for (day, label) in WEEKDAY_LABELS {
                             let view = view.clone();
                             menu = menu.item(PopupMenuItem::new(label).on_click(
                                 move |_, _, cx| {
                                     if let Some(view) = view.upgrade() {
                                         view.update(cx, |view, cx| {
-                                            access(view).event = event;
+                                            access(view).weekday = day;
                                             cx.notify();
                                         });
                                     }
@@ -580,35 +487,109 @@ impl AutomationEditorState {
                             ));
                         }
                         menu
-                    }),
-            );
+                    })
+                    .into_any_element();
+                rows.push(surface::glass_picker_row("Weekday", None, control, cx));
+            }
+            ScheduleInterval::Monthly => {
+                let current = format!("Day {}", self.day_of_month);
+                let view = cx.entity().downgrade();
+                let control = picker_trigger(
+                    format!("{prefix}-day-of-month").into(),
+                    SharedString::from(current),
+                    cx,
+                )
+                .dropdown_menu(move |mut menu, _window, _cx| {
+                    // 1..=28 only — every month has those days, so a
+                    // monthly schedule can never skip a month.
+                    for day in 1..=28u32 {
+                        let view = view.clone();
+                        menu = menu.item(
+                            PopupMenuItem::new(SharedString::from(format!("Day {day}"))).on_click(
+                                move |_, _, cx| {
+                                    if let Some(view) = view.upgrade() {
+                                        view.update(cx, |view, cx| {
+                                            access(view).day_of_month = day;
+                                            cx.notify();
+                                        });
+                                    }
+                                },
+                            ),
+                        );
+                    }
+                    menu
+                })
+                .into_any_element();
+                rows.push(surface::glass_picker_row("Day of month", None, control, cx));
+            }
+        }
+        rows.push(surface::glass_input_row(
+            "Time",
+            surface::glass_row_input(Input::new(&self.time)).into_any_element(),
+            cx,
+        ));
+        rows
+    }
 
-        // The board filter applies to every event; the others are per-event
-        // (the server's zod rejects a filter the event doesn't read).
+    /// The On-event kind's rows: `When`, the always-applicable `Board` filter
+    /// and whatever else THIS event reads (the server's zod rejects a filter
+    /// the event ignores).
+    fn event_rows<V: Render>(
+        &self,
+        prefix: &'static str,
+        access: fn(&mut V) -> &mut Self,
+        cx: &mut Context<V>,
+    ) -> Vec<Div> {
+        let current = EVENT_LABELS
+            .iter()
+            .find(|(event, _)| *event == self.event)
+            .map(|(_, label)| *label)
+            .unwrap_or("An issue is created");
+        let view = cx.entity().downgrade();
+        let when = picker_trigger(format!("{prefix}-event").into(), current, cx)
+            .dropdown_menu(move |mut menu, _window, _cx| {
+                for (event, label) in EVENT_LABELS {
+                    let view = view.clone();
+                    menu = menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
+                        if let Some(view) = view.upgrade() {
+                            view.update(cx, |view, cx| {
+                                access(view).event = event;
+                                cx.notify();
+                            });
+                        }
+                    }));
+                }
+                menu
+            })
+            .into_any_element();
+
         let boards: Vec<(String, String)> = sync::Store::global(cx)
             .collections()
             .boards_in_team(&self.team_id, cx)
             .into_iter()
             .map(|board| (board.id, board.name))
             .collect();
-        let mut pane = v_flex().gap_2().child(when).child(self.render_filter(
-            prefix,
-            "board",
-            "Board",
-            "Any board",
-            &boards,
-            &self.board_ids,
-            |state| &mut state.board_ids,
-            access,
-            cx,
-        ));
+        let mut rows = vec![
+            surface::glass_picker_row("When", None, when, cx),
+            self.render_filter(
+                prefix,
+                "board",
+                "Board",
+                "Any board",
+                &boards,
+                &self.board_ids,
+                |state| &mut state.board_ids,
+                access,
+                cx,
+            ),
+        ];
         match self.event {
             EventKind::LabelAdded => {
                 let labels: Vec<(String, String)> = crate::queries::team_labels(cx, &self.team_id)
                     .into_iter()
                     .map(|label| (label.id, label.name))
                     .collect();
-                pane = pane.child(self.render_filter(
+                rows.push(self.render_filter(
                     prefix,
                     "label",
                     "Label",
@@ -625,7 +606,7 @@ impl AutomationEditorState {
                     .iter()
                     .map(|value| ((*value).to_string(), capitalize(value)))
                     .collect();
-                pane = pane.child(self.render_filter(
+                rows.push(self.render_filter(
                     prefix,
                     "priority",
                     "Priority",
@@ -647,7 +628,7 @@ impl AutomationEditorState {
                         .filter(|row| row.category != "duplicate")
                         .map(|row| (row.id, row.name))
                         .collect();
-                pane = pane.child(self.render_filter(
+                rows.push(self.render_filter(
                     prefix,
                     "status",
                     "To status",
@@ -661,11 +642,11 @@ impl AutomationEditorState {
             }
             EventKind::AssigneeChanged | EventKind::PrOpened | EventKind::PrMerged => {}
         }
-        pane
+        rows
     }
 
-    /// One multi-select filter row: a dropdown of toggleable options over
-    /// `selected`, writing through the `pick` field accessor.
+    /// One multi-select filter row of the trigger card: a grouped picker row
+    /// whose menu toggles `selected`, writing through the `pick` accessor.
     #[allow(clippy::too_many_arguments)] // one row, one call site per filter
     fn render_filter<V: Render>(
         &self,
@@ -678,7 +659,7 @@ impl AutomationEditorState {
         pick: fn(&mut Self) -> &mut Vec<String>,
         access: fn(&mut V) -> &mut Self,
         cx: &mut Context<V>,
-    ) -> impl IntoElement {
+    ) -> Div {
         let button_label: SharedString = match selected.len() {
             0 => empty_label.into(),
             1 => options
@@ -692,55 +673,47 @@ impl AutomationEditorState {
         let picked = selected.to_vec();
         let at_cap = selected.len() >= filter_cap();
         let view = cx.entity().downgrade();
-        h_flex()
-            .w_full()
-            .gap_2()
-            .items_center()
-            .child(field_label(cx, label))
-            .child(
-                Button::new(SharedString::from(format!("{prefix}-filter-{key}")))
-                    .outline()
-                    .cursor_pointer()
-                    .web_input_sm()
-                    .label(button_label)
-                    .dropdown_menu(move |mut menu, _window, _cx| {
-                        if options.is_empty() {
-                            return menu
-                                .item(PopupMenuItem::new("Nothing to filter on").disabled(true));
-                        }
-                        for (id, name) in &options {
-                            let on = picked.iter().any(|entry| entry == id);
-                            let view = view.clone();
-                            let id = id.clone();
-                            menu = menu.item(
-                                PopupMenuItem::new(SharedString::from(name.clone()))
-                                    .checked(on)
-                                    // At the cap only DEselection stays live —
-                                    // the server rejects a longer list.
-                                    .disabled(at_cap && !on)
-                                    .on_click(move |_, _, cx| {
-                                        if let Some(view) = view.upgrade() {
-                                            let id = id.clone();
-                                            view.update(cx, |view, cx| {
-                                                let list = pick(access(view));
-                                                match list.iter().position(|e| e == &id) {
-                                                    Some(ix) => {
-                                                        list.remove(ix);
-                                                    }
-                                                    None if list.len() < filter_cap() => {
-                                                        list.push(id)
-                                                    }
-                                                    None => {}
-                                                }
-                                                cx.notify();
-                                            });
+        let control = picker_trigger(
+            format!("{prefix}-filter-{key}").into(),
+            button_label,
+            cx,
+        )
+        .dropdown_menu(move |mut menu, _window, _cx| {
+            if options.is_empty() {
+                return menu.item(PopupMenuItem::new("Nothing to filter on").disabled(true));
+            }
+            for (id, name) in &options {
+                let on = picked.iter().any(|entry| entry == id);
+                let view = view.clone();
+                let id = id.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(SharedString::from(name.clone()))
+                        .checked(on)
+                        // At the cap only DEselection stays live —
+                        // the server rejects a longer list.
+                        .disabled(at_cap && !on)
+                        .on_click(move |_, _, cx| {
+                            if let Some(view) = view.upgrade() {
+                                let id = id.clone();
+                                view.update(cx, |view, cx| {
+                                    let list = pick(access(view));
+                                    match list.iter().position(|e| e == &id) {
+                                        Some(ix) => {
+                                            list.remove(ix);
                                         }
-                                    }),
-                            );
-                        }
-                        menu
-                    }),
-            )
+                                        None if list.len() < filter_cap() => list.push(id),
+                                        None => {}
+                                    }
+                                    cx.notify();
+                                });
+                            }
+                        }),
+                );
+            }
+            menu
+        })
+        .into_any_element();
+        surface::glass_picker_row(label, None, control, cx)
     }
 
     /// EXP-694: the runner picker is its own grouped row ("Runs on" leading,
@@ -788,50 +761,42 @@ impl AutomationEditorState {
         let view = cx.entity().downgrade();
         let menu_devices = devices.clone();
         let bound = self.device_id.clone();
-        let trigger = Button::new(SharedString::from(format!("{prefix}-device")))
-            .ghost()
-            .cursor_pointer()
-            .h_auto()
-            .px_0()
-            .py_0()
-            .text_color(foreground.opacity(0.7))
-            .dropdown_caret(true)
-            // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
-            // box, so a long device name wraps onto a second line.
-            .child(surface::picker_value_label(
-                picked.clone().unwrap_or_else(|| "Select device…".into()),
-            ))
-            .dropdown_menu(move |mut menu, _window, _cx| {
-                for device in &menu_devices {
-                    let view = view.clone();
-                    let device_id = device.device_id.clone();
-                    // EXP-615: every automation-capable machine reads the
-                    // same. Offline-but-capable is not a lesser choice — the
-                    // run fires when the machine comes back (the offline
-                    // catch-up rule) — so the picker carries no online
-                    // decoration at all; the Automations LIST shows presence.
-                    let label = device.label.clone();
-                    menu = menu.item(
-                        PopupMenuItem::new(SharedString::from(label))
-                            .checked(bound.as_deref() == Some(device_id.as_str()))
-                            .on_click(move |_, _, cx| {
-                                if let Some(view) = view.upgrade() {
-                                    let device_id = device_id.clone();
-                                    view.update(cx, |view, cx| {
-                                        let state = access(view);
-                                        state.device_id = Some(device_id);
-                                        // A pin the NEW machine cannot run
-                                        // would be refused server-side —
-                                        // re-seed to its default agent.
-                                        state.ensure_agent_seeded(cx);
-                                        cx.notify();
-                                    });
-                                }
-                            }),
-                    );
-                }
-                menu
-            });
+        let trigger = picker_trigger(
+            format!("{prefix}-device").into(),
+            picked.clone().unwrap_or_else(|| "Select device…".into()),
+            cx,
+        )
+        .dropdown_menu(move |mut menu, _window, _cx| {
+            for device in &menu_devices {
+                let view = view.clone();
+                let device_id = device.device_id.clone();
+                // EXP-615: every automation-capable machine reads the
+                // same. Offline-but-capable is not a lesser choice — the
+                // run fires when the machine comes back (the offline
+                // catch-up rule) — so the picker carries no online
+                // decoration at all; the Automations LIST shows presence.
+                let label = device.label.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(SharedString::from(label))
+                        .checked(bound.as_deref() == Some(device_id.as_str()))
+                        .on_click(move |_, _, cx| {
+                            if let Some(view) = view.upgrade() {
+                                let device_id = device_id.clone();
+                                view.update(cx, |view, cx| {
+                                    let state = access(view);
+                                    state.device_id = Some(device_id);
+                                    // A pin the NEW machine cannot run
+                                    // would be refused server-side —
+                                    // re-seed to its default agent.
+                                    state.ensure_agent_seeded(cx);
+                                    cx.notify();
+                                });
+                            }
+                        }),
+                );
+            }
+            menu
+        });
         surface::glass_group_rows(vec![surface::glass_picker_row(
             "Runs on",
             None,
@@ -952,12 +917,21 @@ impl AutomationEditorState {
     }
 }
 
-fn field_label(cx: &App, label: &'static str) -> impl IntoElement {
-    div()
-        .flex_shrink_0()
-        .text_xs()
-        .text_color(cx.theme().muted_foreground)
-        .child(label)
+/// The trailing control of a trigger-card row: a caret-ed dropdown trigger
+/// stripped of field chrome, exactly like [`crate::launch_options`]'s pins —
+/// the GROUP is the field, the row's 16/12 is the padding.
+fn picker_trigger(id: SharedString, label: impl Into<SharedString>, cx: &App) -> Button {
+    Button::new(id)
+        .ghost()
+        .cursor_pointer()
+        .h_auto()
+        .px_0()
+        .py_0()
+        .text_color(cx.theme().foreground.opacity(0.7))
+        .dropdown_caret(true)
+        // EXP-697: NOT `.label()` — upstream draws that in a `flex_none` box,
+        // so a long option wraps onto a second line.
+        .child(surface::picker_value_label(label))
 }
 
 fn capitalize(value: &str) -> String {

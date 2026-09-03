@@ -294,6 +294,7 @@ impl MembersPane {
                     // EXP-547: picture + initials fallback (web
                     // `MembersSection` renders `AvatarImage`).
                     .child(crate::user_avatar::user_avatar(
+                        &member.user_id,
                         &name,
                         row.user.as_ref().and_then(|user| user.image.as_deref()),
                         gpui_component::Size::Small,

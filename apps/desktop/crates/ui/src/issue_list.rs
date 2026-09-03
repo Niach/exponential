@@ -1508,6 +1508,7 @@ fn assignee_dropdown(issue: &Issue, cx: &mut App) -> impl IntoElement {
             .ghost().cursor_pointer()
             .xsmall()
             .child(crate::user_avatar::user_avatar(
+                id,
                 &crate::comments::user_label(id, assignee.as_ref()),
                 assignee.as_ref().and_then(|user| user.image.as_deref()),
                 gpui_component::Size::XSmall,
@@ -1573,6 +1574,7 @@ fn assignee_menu(
         // EXP-426: the real avatar replaced the generic person glyph — the
         // shared row shape.
         menu = menu.item(crate::pickers::user_menu_item(
+            user.id.clone(),
             name,
             user.image.clone(),
             checked,
