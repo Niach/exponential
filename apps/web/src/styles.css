@@ -794,7 +794,11 @@ html {
 
 .tiptap-content table {
   border-collapse: collapse;
-  table-layout: fixed;
+  /* `fixed` would divide the wrapper's width across the columns however many
+     there are, ignoring the cell min-width and squeezing a wide table into
+     unreadable slivers — the `auto` layout lets the cells claim their width
+     and the wrapper scroll instead. */
+  table-layout: auto;
   width: 100%;
   font-size: 0.875rem;
 }

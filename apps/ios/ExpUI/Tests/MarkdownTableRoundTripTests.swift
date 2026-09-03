@@ -177,6 +177,48 @@ final class MarkdownTableRoundTripTests: XCTestCase {
         )
     }
 
+    /// A BACKSLASH standing in front of a pipe is data too.
+    ///
+    /// GFM strips the backslash from every `\|` pair before the inline parse
+    /// (cmark-gfm's `unescape_pipes`), and the inline parser then folds a `\\`
+    /// pair into one literal backslash. So a cell holding `a\|b` may not be
+    /// written `a\\|b` — that unescapes to `a\` plus a cell SEPARATOR and the
+    /// pipe is gone. The backslash run in front of a pipe is doubled first:
+    /// `a\|b` → `a\\\|b`.
+    func testABackslashBeforeAPipeSurvivesTheRoundTrip() {
+        let src = "| a\\\\\\|b | c |\n| --- | --- |\n| 1 | 2 |"
+        guard let table = firstTable(src) else { return XCTFail("expected a table block") }
+        XCTAssertEqual(table.header[0].content.string, "a\\|b")
+        XCTAssertEqual(roundTrip(src), src)
+    }
+
+    /// (parse, serialize) is a FIXPOINT for every backslash/pipe shape: what a
+    /// cell holds is exactly what comes back out of its own serialization.
+    func testEveryBackslashPipeShapeIsAParseSerializeFixpoint() {
+        let cells = [
+            "a|b",        // a|b
+            "a\\|b",      // a\|b
+            "a\\\\|b",    // a\\|b
+            "|",          // |
+            "\\|\\|",     // \|\|
+            "a\\b",       // a\b  — not before a pipe, so untouched
+        ]
+        for text in cells {
+            let table = TableBlock(header: [TableCell(content: NSAttributedString(string: text))])
+            let markdown = MarkdownConversion.blocksToMarkdown([.table(id: UUID(), table: table)])
+            guard let reparsed = firstTable(markdown) else {
+                return XCTFail("expected a table block from \(markdown)")
+            }
+            XCTAssertEqual(
+                reparsed.header[0].content.string, text,
+                "cell text must survive its own serialization (\(markdown))")
+            XCTAssertEqual(
+                MarkdownConversion.blocksToMarkdown([.table(id: UUID(), table: reparsed)]),
+                markdown,
+                "a second pass must not move a byte")
+        }
+    }
+
     func testAnImageInsideACellStaysLiteralText() {
         // A cell is ONE inline paragraph on every client, so it can never host
         // an image BLOCK — the source rides through as text.

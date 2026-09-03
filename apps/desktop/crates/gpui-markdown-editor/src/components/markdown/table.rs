@@ -802,7 +802,7 @@ mod tests {
     use super::{
         TableColumnAlignment, TableColumnLayout, TableData, collect_pipeless_table_region,
         collect_root_table_candidate_region, is_root_table_candidate_line, parse_root_table_region,
-        serialize_table_markdown_lines,
+        serialize_table_cell_markdown, serialize_table_markdown_lines, split_table_cells,
     };
     use crate::components::InlineTextTree;
 
@@ -1262,11 +1262,50 @@ mod tests {
         assert_eq!(table.rows[0][1].serialize_markdown(), "c\\d");
     }
 
+    /// EXP-726: a literal backslash immediately before a pipe. On the wire it
+    /// is `a` + THREE backslashes + `|` + `b`: the leading `\\` is the escaped
+    /// backslash and the trailing `\|` the escaped pipe. The cell splitter must
+    /// hand the inline parser the raw text `a\\|b` (backslash pair kept
+    /// verbatim, pipe unescaped) so the inline parser reads it as `a\|b`; a
+    /// splitter that collapsed the pair, or a serializer that failed to
+    /// re-double it, would turn the pipe back into a CELL SEPARATOR.
+    #[test]
+    fn backslash_before_a_pipe_survives_split_and_serialize_exp726() {
+        let cells = split_table_cells("| a\\\\\\|b | c |").expect("row should split");
+        assert_eq!(cells, vec!["a\\\\|b".to_string(), "c".to_string()]);
+
+        let table = parse_root_table_region(&[
+            "| a\\\\\\|b | c |".to_string(),
+            "| --- | --- |".to_string(),
+            "| 1 | 2 |".to_string(),
+        ])
+        .expect("table should parse");
+        assert_eq!(table.header[0].serialize_markdown(), "a\\\\|b");
+        assert_eq!(serialize_table_cell_markdown(&table.header[0]), "a\\\\\\|b");
+        assert_eq!(
+            serialize_table_markdown_lines(&table),
+            vec![
+                "| a\\\\\\|b | c |".to_string(),
+                "| --- | --- |".to_string(),
+                "| 1 | 2 |".to_string(),
+            ]
+        );
+    }
+
     #[test]
     fn escaped_cells_round_trip_byte_identically_exp726() {
         for source in [
             "| a \\| b | c |",
             "| a\\*b | back\\slash |",
+            // A LITERAL backslash immediately before a pipe. `\|` is the pipe
+            // escape and `\\` the backslash escape, so the wire form of the
+            // cell text `a\|b` is `a` + THREE backslashes + `|` + `b`. Nothing
+            // here doubles backslashes at the cell level: the inline
+            // serializer already escapes a backslash that precedes ASCII
+            // punctuation (`literal_char_needs_escape`), so by the time
+            // `serialize_table_cell_markdown` runs, the run in front of a pipe
+            // is always already even and only the pipe itself needs `\|`.
+            "| a\\\\\\|b | c |",
         ] {
             let lines = vec![source.to_string(), "| --- | --- |".to_string()];
             let table = parse_root_table_region(&lines)

@@ -14,8 +14,10 @@ import Foundation
 /// One space each side of the cell text, no column-width padding, rows joined
 /// by `\n`, a blank line before/after (that falls out of the block join).
 /// Delimiter cells are `---` / `:---` / `:---:` / `---:`, an empty cell is
-/// `|  |`, `|` inside a cell is written `\|` and a newline inside a cell
-/// becomes a space. Row 0 is ALWAYS the header row; a header-only table is
+/// `|  |`, `|` inside a cell is written `\|` — with the backslash run in front
+/// of it doubled first, because GFM unescapes `\|` before the inline parse
+/// (`a\|b` is written `a\\\|b`) — and a newline inside a cell becomes a
+/// space. Row 0 is ALWAYS the header row; a header-only table is
 /// valid. Cells are ONE inline paragraph, so an image inside a cell stays
 /// literal `![alt](url)` text.
 

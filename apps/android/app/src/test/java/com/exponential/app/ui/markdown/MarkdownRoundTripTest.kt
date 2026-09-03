@@ -214,6 +214,18 @@ class MarkdownRoundTripTest {
 
     @Test fun tableEmptyCell() = assertStable("| a | b |\n| --- | --- |\n| 1 |  |")
 
+    /**
+     * A cell whose TEXT is a backslash followed by a pipe (platform-local, not
+     * part of the cross-client corpus below). The row splitter reads the
+     * backslash directly in front of a `|` as that pipe's escape, so the
+     * backslash the user typed has to be escaped too: `a\|b` ships as
+     * `a\\\|b`, of which the splitter consumes the last `\|` and the inline
+     * parser collapses the leading `\\` back to one backslash. Writing a bare
+     * `\|` there re-cut the cell in two and lost everything after the pipe.
+     */
+    @Test fun tableBackslashBeforeAPipe() =
+        assertStable("| a\\\\\\|b | c |\n| --- | --- |\n| 1 | 2 |")
+
     @Test fun tableHeaderOnly() = assertStable("| a | b |\n| --- | --- |")
 
     @Test fun tableBetweenParagraphs() =

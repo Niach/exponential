@@ -21,7 +21,11 @@ import { Markdown } from "tiptap-markdown"
 // python/rust/go — enough for plan code blocks without pulling all 200 grammars.
 const lowlight = createLowlight(common)
 import { MarkdownImage } from "@/lib/markdown-image"
-import { MarkdownTableExtensions } from "@/lib/markdown-table"
+import {
+  MarkdownTableExtensions,
+  moveSelectionAfterTable,
+  tableTrailingNodeOptions,
+} from "@/lib/markdown-table"
 import { MarkdownParagraph } from "@/components/issue-editor/markdown-paragraph"
 import { ArrowInputRules } from "@/lib/arrow-input-rules"
 import { IssueRefExtension } from "@/lib/issue-ref-extension"
@@ -259,6 +263,11 @@ export const MarkdownEditor = forwardRef<
           // Replaced below by MarkdownParagraph so intentional blank lines
           // round-trip through GFM (EXP-7).
           paragraph: false,
+          // EXP-726: TrailingNode appends its paragraph on every editor,
+          // read-only ones included. MarkdownTable's own trailing-paragraph
+          // plugin does the job for tables and skips read-only bodies, which
+          // would otherwise render a blank row under a closing table.
+          trailingNode: tableTrailingNodeOptions,
         }),
         MarkdownParagraph,
         CodeBlockLowlight.configure({
@@ -364,6 +373,10 @@ export const MarkdownEditor = forwardRef<
       },
       insertImage: ({ alt, src }) => {
         if (!editor) return
+        // A table cell holds ONE paragraph, so a block image inserted at a
+        // caret inside one would split the table around it. Park the
+        // selection after the table and let the image land below it.
+        moveSelectionAfterTable(editor)
         // A drop onto (or just before) an existing image leaves a
         // NodeSelection over it — setImage would REPLACE that node. Insert
         // after it instead, so the dropped image lands beside the existing
@@ -384,7 +397,11 @@ export const MarkdownEditor = forwardRef<
         editor.chain().focus().setImage({ alt, src }).run()
       },
       appendImage: ({ alt, src }) => {
-        editor?.chain().focus(`end`).setImage({ alt, src }).run()
+        if (!editor) return
+        // `end` lands inside the last cell when the document ends in a table.
+        editor.commands.focus(`end`)
+        moveSelectionAfterTable(editor)
+        editor.chain().focus().setImage({ alt, src }).run()
       },
     }))
 

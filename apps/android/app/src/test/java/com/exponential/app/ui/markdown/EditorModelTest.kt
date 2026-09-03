@@ -724,17 +724,129 @@ class EditorModelTest {
         assertNull(m.locateCell("not-a-cell"))
     }
 
-    /** Formatting intents address ROWS; a focused cell id is simply not one. */
+    /** BLOCK intents address ROWS; a cell has no block formatting to toggle. */
     @Test
-    fun markOpsNoOpForCellIds() {
+    fun blockOpsNoOpForCellIds() {
         val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
         val before = m.currentMarkdown()
         val cell = table(m).header[0]
-        m.toggleMark(cell.id, 0..1, InlineKind.Bold)
         m.setHeading(cell.id, 1)
         m.toggleList(cell.id, ListType.Bullet)
+        m.toggleQuote(cell.id)
+        m.toggleCodeBlock(cell.id)
         m.clearParagraphFormat(cell.id, 0)
         assertEquals(before, m.currentMarkdown())
+    }
+
+    // --- Toolbar ops inside a cell. The toolbar stays up for a focused cell,
+    // so every INLINE action has to reach it: marks over a selection, marks
+    // queued at a collapsed caret, emoji/`@`/`#` insertion, clear formatting.
+    // Only the block group above is a deliberate no-op. ---
+
+    @Test
+    fun boldOverASelectionInsideACell() {
+        val m = model("| a | b |\n| --- | --- |\n| one | 2 |")
+        val cell = table(m).rows[0][0]
+        m.toggleMark(cell.id, 0..3, InlineKind.Bold)
+        val mark = table(m).rows[0][0].marks.single()
+        assertEquals(InlineKind.Bold, mark.kind)
+        assertEquals(0, mark.start)
+        assertEquals(3, mark.end)
+        assertEquals("| a | b |\n| --- | --- |\n| **one** | 2 |", m.currentMarkdown())
+    }
+
+    /** Re-tapping Bold over the same covered range unwraps it again. */
+    @Test
+    fun boldTogglesOffAgainInsideACell() {
+        val m = model("| a | b |\n| --- | --- |\n| **one** | 2 |")
+        val cell = table(m).rows[0][0]
+        m.toggleMark(cell.id, 0..3, InlineKind.Bold)
+        assertTrue(table(m).rows[0][0].marks.isEmpty())
+        assertEquals("| a | b |\n| --- | --- |\n| one | 2 |", m.currentMarkdown())
+    }
+
+    /** Bold at a collapsed caret then typing: the queue applies to the cell. */
+    @Test
+    fun pendingBoldMarksTheNextTextTypedInACell() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val cell = table(m).rows[0][0]
+        m.setFocused(cell.id)
+        m.updateSelection(cell.id, 1..1)
+        m.togglePendingMark(cell.id, 1, InlineKind.Bold)
+        assertTrue(m.pendingMarkActive(cell.id, 1, InlineKind.Bold))
+        m.updateRun(cell.id, "1x", 2)
+        val mark = table(m).rows[0][0].marks.single()
+        assertEquals(InlineKind.Bold, mark.kind)
+        assertEquals(1, mark.start)
+        assertEquals(2, mark.end)
+        assertEquals("| a | b |\n| --- | --- |\n| 1**x** | 2 |", m.currentMarkdown())
+    }
+
+    @Test
+    fun emojiInsertLandsAtTheCaretOfTheFocusedCell() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val cell = table(m).rows[0][0]
+        m.setFocused(cell.id)
+        m.updateSelection(cell.id, 1..1)
+        m.insertPlainText("🚀")
+        assertEquals("1🚀", table(m).rows[0][0].text)
+        assertEquals("| a | b |\n| --- | --- |\n| 1🚀 | 2 |", m.currentMarkdown())
+    }
+
+    /** `@` in a cell also arms the mention menu, exactly as it does in a run. */
+    @Test
+    fun mentionInsertArmsTheAutocompleteOnACell() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val cell = table(m).rows[0][0]
+        m.setFocused(cell.id)
+        m.updateSelection(cell.id, 1..1)
+        m.insertPlainText("@")
+        assertEquals("1@", table(m).rows[0][0].text)
+        assertTrue(m.consumeAutocompleteArm(cell.id))
+    }
+
+    @Test
+    fun clearFormattingStripsMarksOverACellSelection() {
+        val m = model("| a | b |\n| --- | --- |\n| **one** | 2 |")
+        val cell = table(m).rows[0][0]
+        m.clearFormatting(cell.id, 0..3)
+        assertTrue(table(m).rows[0][0].marks.isEmpty())
+        assertEquals("| a | b |\n| --- | --- |\n| one | 2 |", m.currentMarkdown())
+    }
+
+    /**
+     * The image button with a cell focused: GFM has no block content inside a
+     * cell, so the image lands right AFTER the table — never at the end of the
+     * document past everything that followed it.
+     */
+    @Test
+    fun imageInsertedFromACellLandsAfterTheTable() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |\n\ntail")
+        val cell = table(m).header[0]
+        m.setFocused(cell.id)
+        m.insertImageUrl("/api/attachments/x", alt = "img")
+        val tableIdx = m.rows.indexOfFirst { it is EditorRow.Table }
+        val imageIdx = m.rows.indexOfFirst { it is EditorRow.Image }
+        val tailIdx = m.rows.indexOfFirst { it is EditorRow.TextRun && it.text == "tail" }
+        assertTrue(imageIdx > tableIdx)
+        assertTrue(imageIdx < tailIdx)
+        assertEquals(
+            "| a | b |\n| --- | --- |\n| 1 | 2 |\n\n![img](/api/attachments/x)\n\ntail",
+            m.currentMarkdown(),
+        )
+    }
+
+    /** A table with nothing after it still gets a caret line under the image. */
+    @Test
+    fun imageInsertedFromACellInATrailingTable() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        m.setFocused(table(m).header[0].id)
+        m.insertImageUrl("/api/attachments/x", alt = "img")
+        assertEquals(
+            "| a | b |\n| --- | --- |\n| 1 | 2 |\n\n![img](/api/attachments/x)",
+            m.currentMarkdown(),
+        )
+        assertTrue(m.rows.last() is EditorRow.TextRun)
     }
 
     /** An ordered list restarts after a table, exactly as it does after an image. */

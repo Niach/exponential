@@ -90,9 +90,43 @@ fn serialize_table_row(cells: &[RichText], columns: usize) -> String {
 /// parser already collapses in-cell breaks to spaces, so the `\n` guard is
 /// belt-and-braces for hand-built blocks).
 fn serialize_table_cell(cell: &RichText) -> String {
-    inline(&cell.text, &cell.marks, false)
-        .replace('|', "\\|")
-        .replace('\n', " ")
+    escape_cell_pipes(&inline(&cell.text, &cell.marks, false)).replace('\n', " ")
+}
+
+/// EXP-726: GFM's cell-level pipe escape. `inline` above emits this pipeline's
+/// text VERBATIM (it escapes nothing), so the cell layer is the only place a
+/// literal backslash can be protected — and it must be, because every parser
+/// (comrak `unescape_pipes`, cmark-gfm, markdown-it, commonmark-java) resolves
+/// `\|` to a pipe and `\\` to one backslash BEFORE the cell is inline-parsed.
+/// Writing `a\|b` (backslash, pipe) as `a\\|b` therefore reads back as a
+/// backslash followed by a CELL SEPARATOR — the pipe's data is gone. So double
+/// the run of backslashes immediately preceding each `|` and then escape the
+/// pipe: `a|b` -> `a\|b`, `a\|b` -> `a\\\|b`, `a\\|b` -> `a\\\\\|b`.
+/// Backslashes NOT followed by a pipe stay bare (fixture `literal_backslash`:
+/// `back\slash` is stable).
+fn escape_cell_pipes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut backslash_run = 0usize;
+    for ch in text.chars() {
+        match ch {
+            '\\' => {
+                backslash_run += 1;
+                out.push('\\');
+            }
+            '|' => {
+                for _ in 0..backslash_run {
+                    out.push('\\');
+                }
+                out.push_str("\\|");
+                backslash_run = 0;
+            }
+            _ => {
+                backslash_run = 0;
+                out.push(ch);
+            }
+        }
+    }
+    out
 }
 
 // -- Text block ----------------------------------------------------------
@@ -662,6 +696,33 @@ mod tests {
             blocks_to_markdown(&blocks),
             "| a \\| b | c |\n| --- | --- |\n| 1 | 2 |"
         );
+    }
+
+    // EXP-726: a literal backslash immediately before a pipe. `\|` is the
+    // pipe escape and `\\` the backslash escape, so the backslash run in front
+    // of a pipe has to be doubled — otherwise `a\|b` ships as `a\\|b`, which
+    // every GFM parser reads as a backslash plus a CELL SEPARATOR. Platform
+    // local (NOT a contract fixture).
+    #[test]
+    fn escape_cell_pipes_doubles_the_backslash_run_before_a_pipe_exp726() {
+        assert_eq!(escape_cell_pipes(r"a|b"), r"a\|b");
+        assert_eq!(escape_cell_pipes(r"a\|b"), r"a\\\|b");
+        assert_eq!(escape_cell_pipes(r"a\\|b"), r"a\\\\\|b");
+        // Backslashes that do NOT precede a pipe are untouched (the
+        // `literal_backslash` fixture).
+        assert_eq!(escape_cell_pipes(r"back\slash"), r"back\slash");
+        assert_eq!(escape_cell_pipes(r"trailing\"), "trailing\\");
+        assert_eq!(escape_cell_pipes("plain"), "plain");
+    }
+
+    #[test]
+    fn table_backslash_before_pipe_round_trips_byte_identically_exp726() {
+        // Wire form: `a`, three backslashes, `|`, `b` — reads back as the cell
+        // text `a\|b` on every client.
+        let md = "| a\\\\\\|b | c |\n| --- | --- |\n| 1 | 2 |";
+        assert_stable(md);
+        // And it is a fixpoint.
+        assert_eq!(round_trip(&round_trip(md)), md);
     }
 
     #[test]

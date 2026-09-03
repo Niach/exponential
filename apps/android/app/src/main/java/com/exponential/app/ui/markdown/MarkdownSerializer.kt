@@ -77,9 +77,45 @@ object MarkdownSerializer {
      * escape also covers pipes a link destination brought along.
      */
     private fun serializeCell(cell: TableCell): String =
-        inline(cell.text, cell.marks, isHeading = false)
-            .replace("\n", " ")
-            .replace("|", "\\|")
+        escapeCellPipes(inline(cell.text, cell.marks, isHeading = false).replace("\n", " "))
+
+    /**
+     * Escape every `|` for the pipe-table row syntax, backslash-aware.
+     *
+     * A GFM row is split on pipes BEFORE inline parsing, and that splitter
+     * treats a `\` immediately before a `|` as the escape — so a cell whose
+     * text really contains `\|` (backslash then pipe) must ship FOUR
+     * backslashes' worth of intent: the run of backslashes in front of the
+     * pipe is doubled (each becomes an escaped backslash the inline parser
+     * collapses back to one) and only then is the pipe escaped. Writing a bare
+     * `\|` there would have handed the splitter `...\` + `\|` and re-cut the
+     * cell in two, losing everything after the pipe (`a\|b` was written
+     * `a\\|b`). Backslashes not sitting in front of a pipe are left alone —
+     * the inline parser sees the same text either way.
+     */
+    private fun escapeCellPipes(s: String): String {
+        if (!s.contains('|')) return s
+        val sb = StringBuilder(s.length + 8)
+        var backslashes = 0
+        for (ch in s) {
+            when (ch) {
+                '\\' -> {
+                    backslashes++
+                    sb.append(ch)
+                }
+                '|' -> {
+                    repeat(backslashes) { sb.append('\\') }
+                    sb.append("\\|")
+                    backslashes = 0
+                }
+                else -> {
+                    backslashes = 0
+                    sb.append(ch)
+                }
+            }
+        }
+        return sb.toString()
+    }
 
     private fun delimiterRow(alignments: List<TableAlignment>, width: Int): String {
         val sb = StringBuilder("|")

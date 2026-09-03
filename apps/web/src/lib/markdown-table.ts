@@ -39,6 +39,26 @@ export function escapeTableCellText(text: string): string {
   return text.replace(/\n/g, ` `).replace(/\|/g, `\\|`)
 }
 
+/**
+ * An in-cell image lives in the document as the LITERAL text `![alt](src)`
+ * (see the parse hook on MarkdownTable). prosemirror-markdown's `esc()` then
+ * escapes its brackets on the way out, and `!\[alt\](src)` is neither what
+ * the other clients emit nor a match for `markdownImagePattern`
+ * (lib/storage/issue-attachments.ts) — the attachment would go unreferenced.
+ * Undo that one escape, leaving every other escape in the cell alone.
+ *
+ * Deliberately conservative: the alt run stops at the first escaped `]` and
+ * the destination must be a bare URL, so an alt that itself contains a
+ * bracket stays escaped rather than risk turning cell text that merely looks
+ * like `!\[…\]` + a later `\](…)` into a link on the next parse.
+ */
+export function restoreTableCellImages(text: string): string {
+  return text.replace(
+    /!\\\[((?:\\[^\]]|[^\\\]])*)\\\]\(([^)\s]*)\)/g,
+    `![$1]($2)`
+  )
+}
+
 /** The delimiter-row cell for a column's alignment attribute. */
 export function tableDelimiterCell(align: unknown): string {
   if (align === `left`) return `:---`
@@ -74,7 +94,7 @@ function writeCell(
   if (paragraph) state.renderInline(paragraph, false)
   internals.out =
     internals.out.slice(0, start) +
-    escapeTableCellText(internals.out.slice(start))
+    restoreTableCellImages(escapeTableCellText(internals.out.slice(start)))
   state.write(` |`)
 }
 
@@ -141,22 +161,61 @@ const trailingParagraphPluginKey = new PluginKey(
   `markdownTableTrailingParagraph`
 )
 
+/** StarterKit's `trailingNode` config — see trailingParagraphPlugin below. */
+export const tableTrailingNodeOptions = { notAfter: [`table`] }
+
 /**
  * A table as the document's LAST block leaves nowhere to put the caret —
  * there is no way to type after it. Keep an empty paragraph behind it.
  * MarkdownParagraph drops trailing empty paragraphs on serialize, so the
  * stored bytes are unaffected.
+ *
+ * A read-only editor has no caret to rescue, and markdown-editor.tsx
+ * dispatches an empty transaction on mount, so an ungated plugin would append
+ * a visible blank row under every read-only body ending in a table. The
+ * editable check must happen per transaction, not once at construction —
+ * `setEditable` flips it after the editor exists.
+ *
+ * StarterKit's own TrailingNode would append the same paragraph, ungated, so
+ * it has to stand down for tables: pass `tableTrailingNodeOptions` as its
+ * `trailingNode` config wherever these extensions are registered.
  */
-export const trailingParagraphPlugin = new Plugin({
-  key: trailingParagraphPluginKey,
-  appendTransaction: (_transactions, _oldState, newState) => {
-    const last = newState.doc.lastChild
-    if (!last || last.type.name !== `table`) return null
-    const paragraph = newState.schema.nodes.paragraph
-    if (!paragraph) return null
-    return newState.tr.insert(newState.doc.content.size, paragraph.create())
-  },
-})
+export function trailingParagraphPlugin(editor: Editor): Plugin {
+  return new Plugin({
+    key: trailingParagraphPluginKey,
+    appendTransaction: (_transactions, _oldState, newState) => {
+      if (!editor.isEditable) return null
+      const last = newState.doc.lastChild
+      if (!last || last.type.name !== `table`) return null
+      const paragraph = newState.schema.nodes.paragraph
+      if (!paragraph) return null
+      return newState.tr.insert(newState.doc.content.size, paragraph.create())
+    },
+  })
+}
+
+/**
+ * Move the selection to just after the table the caret sits in, if any, and
+ * report whether it moved.
+ *
+ * A cell holds exactly ONE paragraph, so inserting a BLOCK node (an uploaded
+ * image) at a caret inside a cell splits the table in half. Callers park the
+ * selection below the table first, and the image lands there instead.
+ */
+export function moveSelectionAfterTable(editor: Editor): boolean {
+  const { state } = editor
+  if (!isInTable(state)) return false
+  const { $from } = state.selection
+  for (let depth = $from.depth; depth > 0; depth--) {
+    if ($from.node(depth).type.name !== `table`) continue
+    const after = $from.after(depth)
+    editor.view.dispatch(
+      state.tr.setSelection(TextSelection.near(state.doc.resolve(after)))
+    )
+    return true
+  }
+  return false
+}
 
 /**
  * Enter inside a table moves to the same column of the next row (and grows
@@ -229,7 +288,7 @@ export const MarkdownTable = Table.extend({
   },
 
   addProseMirrorPlugins() {
-    return [...(this.parent?.() ?? []), trailingParagraphPlugin]
+    return [...(this.parent?.() ?? []), trailingParagraphPlugin(this.editor)]
   },
 }).configure({
   // Column widths are not representable in GFM — a resized column would be a

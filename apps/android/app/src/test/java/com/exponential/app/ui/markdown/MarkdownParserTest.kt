@@ -190,4 +190,18 @@ class MarkdownParserTest {
         assertEquals("a | b", t.header[0].text)
         assertEquals(InlineKind.InlineCode, t.header[0].marks.single().kind)
     }
+
+    /**
+     * The other half of that rule, and what the serializer's backslash-aware
+     * pipe escape targets: the splitter consumes the LAST backslash as the
+     * pipe's escape and the inline parser then collapses the remaining `\\`
+     * pair, so three source backslashes plus a pipe are the only way to carry
+     * a literal backslash-then-pipe through a cell.
+     */
+    @Test
+    fun backslashBeforeAnEscapedPipeSurvivesAsBoth() {
+        val t = table("| a\\\\\\|b | c |\n| --- | --- |\n| 1 | 2 |")
+        assertEquals("a\\|b", t.header[0].text)
+        assertEquals("c", t.header[1].text)
+    }
 }

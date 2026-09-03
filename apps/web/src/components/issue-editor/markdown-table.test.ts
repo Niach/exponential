@@ -11,23 +11,34 @@ import {
   selectedRect,
   TableMap,
 } from "@tiptap/pm/tables"
-import { MarkdownTableExtensions } from "@/lib/markdown-table"
+import {
+  MarkdownTableExtensions,
+  moveSelectionAfterTable,
+  restoreTableCellImages,
+  tableTrailingNodeOptions,
+} from "@/lib/markdown-table"
+import { extractMarkdownImageOccurrences } from "@/lib/storage/issue-attachments"
 import { tableMenuModel } from "@/components/issue-editor/table-controls"
 
 // EXP-726 — GFM tables travel through `issues.description` / `comments.body`
 // and must come back BYTE-identical on every client. These fixtures are the
 // shared cross-client corpus, mirrored in the desktop CONTRACT_FIXTURES, the
 // Android MarkdownRoundTripTest and the iOS table suite.
-function makeEditor(markdown: string) {
+function makeEditor(markdown: string, editable = true) {
   return new Editor({
     extensions: [
-      StarterKit.configure({ heading: { levels: [1, 2, 3] }, paragraph: false }),
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3] },
+        paragraph: false,
+        trailingNode: tableTrailingNodeOptions,
+      }),
       MarkdownParagraph,
       MarkdownImage,
       ...MarkdownTableExtensions,
       Markdown.configure({ html: false }),
     ],
     content: markdown,
+    editable,
   })
 }
 
@@ -87,16 +98,37 @@ describe(`markdown table round-trip`, () => {
 
   // A cell holds ONE inline paragraph, so a block image inside one cannot
   // exist in the schema. Rather than let ProseMirror drop it, the parse hook
-  // keeps its literal markdown text (the cross-client contract) — escaped on
-  // the way back out, and a fixpoint from there.
+  // keeps its literal markdown text (the cross-client contract) — UNescaped
+  // on the way back out, byte-identical to what the other clients emit and
+  // still a match for the attachment scanner.
   it(`keeps an image inside a cell as literal text`, () => {
-    const once = roundTrip(
-      `| a | b |\n| --- | --- |\n| ![alt](/api/attachments/x) | 2 |`
+    const markdown = `| ![chart](/api/attachments/abc) | notes |\n| --- | --- |\n| 1 | 2 |`
+    expect(roundTrip(markdown)).toBe(markdown)
+    expect(roundTrip(roundTrip(markdown))).toBe(markdown)
+  })
+
+  // The escaped form `!\[alt\](src)` is invisible to the attachment scanner,
+  // so the image would count as removed and its attachment be reclaimed.
+  it(`leaves an in-cell image visible to the attachment scanner`, () => {
+    const id = `3f1b9c2e-4a5d-4e6f-8a9b-0c1d2e3f4a5b`
+    const stored = roundTrip(
+      `| ![chart](/api/attachments/${id}) | notes |\n| --- | --- |\n| 1 | 2 |`
     )
-    expect(once).toBe(
-      `| a | b |\n| --- | --- |\n| !\\[alt\\](/api/attachments/x) | 2 |`
-    )
-    expect(roundTrip(once)).toBe(once)
+    expect(
+      extractMarkdownImageOccurrences(stored).map((occurrence) => [
+        occurrence.alt,
+        occurrence.url,
+      ])
+    ).toEqual([[`chart`, `/api/attachments/${id}`]])
+  })
+
+  // Kept OUT of the shared corpus (only web's serializer is verified here):
+  // a literal backslash in front of a pipe. The backslash run doubles, then
+  // the pipe takes its own escape.
+  it(`escapes a literal backslash before a pipe`, () => {
+    const markdown = `| a\\\\\\|b | c |\n| --- | --- |\n| 1 | 2 |`
+    expect(roundTrip(markdown)).toBe(markdown)
+    expect(roundTrip(roundTrip(markdown))).toBe(markdown)
   })
 
   it(`normalises a padded GitHub-style table to the canonical form`, () => {
@@ -152,6 +184,27 @@ describe(`markdown table round-trip`, () => {
     expect(header.child(0).child(0).type.name).toBe(`paragraph`)
     expect(table.child(1).child(0).type.name).toBe(`tableCell`)
     editor.destroy()
+  })
+})
+
+describe(`restoreTableCellImages`, () => {
+  it(`unescapes only the image's own brackets`, () => {
+    expect(
+      restoreTableCellImages(`a \\*b\\* !\\[chart\\](/api/attachments/x) c`)
+    ).toBe(`a \\*b\\* ![chart](/api/attachments/x) c`)
+  })
+
+  // Conservative on purpose: an alt carrying its own bracket is ambiguous
+  // against ordinary escaped text, so it keeps the escape rather than risk
+  // making a link out of it.
+  it(`leaves a bracketed alt escaped`, () => {
+    const text = `!\\[shot \\[1\\].png\\](/api/attachments/x)`
+    expect(restoreTableCellImages(text)).toBe(text)
+  })
+
+  it(`leaves escaped brackets that are not an image alone`, () => {
+    const text = `!\\[not an image\\] and \\[a\\](/b)`
+    expect(restoreTableCellImages(text)).toBe(text)
   })
 })
 
@@ -233,6 +286,42 @@ describe(`markdown table keymap`, () => {
     // ...and the trailing paragraph never reaches the wire.
     expect(kinds).toEqual([`table`, `paragraph`])
     expect(markdownOf(editor)).toBe(`| a |\n| --- |\n| 1 |`)
+    editor.destroy()
+  })
+
+  // A read-only body has no caret to rescue, and the host dispatches an empty
+  // transaction on mount — an ungated plugin would show a blank row under it.
+  it(`adds no trailing paragraph to a read-only table`, () => {
+    const editor = makeEditor(`| a |\n| --- |\n| 1 |`, false)
+    editor.view.dispatch(editor.state.tr)
+    expect(editor.state.doc.childCount).toBe(1)
+    expect(editor.state.doc.child(0).type.name).toBe(`table`)
+    // ...and it comes back the moment the editor turns editable.
+    editor.setEditable(true)
+    editor.view.dispatch(editor.state.tr)
+    expect(editor.state.doc.childCount).toBe(2)
+    editor.destroy()
+  })
+})
+
+// ── image insertion ──
+
+describe(`moveSelectionAfterTable`, () => {
+  it(`drops an image below the table instead of splitting it`, () => {
+    const editor = makeEditor(`| a | b |\n| --- | --- |\n| 1 | 2 |`)
+    selectCell(editor, 1, 0)
+    expect(moveSelectionAfterTable(editor)).toBe(true)
+    editor.commands.setImage({ alt: `alt`, src: `/api/attachments/x` })
+    expect(markdownOf(editor)).toBe(
+      `| a | b |\n| --- | --- |\n| 1 | 2 |\n\n![alt](/api/attachments/x)`
+    )
+    editor.destroy()
+  })
+
+  it(`leaves a selection outside a table alone`, () => {
+    const editor = makeEditor(`before\n\n| a |\n| --- |\n| 1 |`)
+    editor.commands.focus(`start`)
+    expect(moveSelectionAfterTable(editor)).toBe(false)
     editor.destroy()
   })
 })

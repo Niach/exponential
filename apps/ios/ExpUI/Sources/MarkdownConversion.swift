@@ -312,10 +312,44 @@ public enum MarkdownConversion {
                 .components(separatedBy: .newlines)
                 .joined(separator: " ")
         }
-        text = text.replacingOccurrences(of: "|", with: "\\|")
+        text = escapeTablePipes(text)
         // The `| ` / ` |` delimiters supply the padding; anything else would
         // drift from the canonical bytes.
         return text.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Escape every `|` so it cannot split the row — backslash-run aware.
+    ///
+    /// GFM strips the backslash from any `\|` pair BEFORE the inline parse
+    /// (cmark-gfm's `unescape_pipes`), and the inline parser then reads a `\\`
+    /// pair as ONE literal backslash. So a cell whose text is `a\|b` may not be
+    /// written `a\\|b`: that unescapes to `a\` + a cell separator and loses the
+    /// pipe. The run of backslashes standing immediately in front of a pipe has
+    /// to be DOUBLED first, and only then the pipe escaped:
+    /// `a|b` → `a\|b`, `a\|b` → `a\\\|b`, `a\\|b` → `a\\\\\|b`. Backslashes
+    /// that are not in front of a pipe are the text's own and stay untouched —
+    /// nothing else inside a cell consumes them.
+    private static func escapeTablePipes(_ text: String) -> String {
+        guard text.contains("|") else { return text }
+        var out = ""
+        out.reserveCapacity(text.count + 8)
+        var backslashes = 0
+        for character in text {
+            if character == "\\" {
+                backslashes += 1
+                continue
+            }
+            if character == "|" {
+                out += String(repeating: "\\", count: backslashes * 2)
+                out += "\\|"
+            } else {
+                out += String(repeating: "\\", count: backslashes)
+                out.append(character)
+            }
+            backslashes = 0
+        }
+        out += String(repeating: "\\", count: backslashes)
+        return out
     }
 }
 

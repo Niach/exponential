@@ -107,8 +107,12 @@ fun BlockTextField(
     placeholder: String?,
     mentionMembers: List<MentionMember> = emptyList(),
     /**
-     * A table cell (EXP-726): the field holds ONE line, so a typed or pasted
-     * newline folds to a space and the IME offers Next instead of a return key.
+     * A table cell (EXP-726): the field holds ONE PARAGRAPH, so a typed or
+     * pasted newline folds to a space and the IME offers Next instead of a
+     * return key. It still WRAPS — `BasicTextField(singleLine = true)` would
+     * clip the cell to one horizontally-scrolling line while the read view
+     * wraps at the 280dp column cap, so the row jumped height the moment you
+     * tapped into a long cell.
      */
     singleLine: Boolean = false,
     modifier: Modifier = Modifier,
@@ -392,7 +396,9 @@ fun BlockTextField(
         ),
         onTextLayout = { textLayout = it },
         cursorBrush = SolidColor(MdStyle.Link),
-        singleLine = singleLine,
+        // Never `singleLine = true`: newline folding + ImeAction.Next is the
+        // whole of the cell contract, and the flag would additionally forbid
+        // wrapping, which the read view does (see the KDoc on [singleLine]).
         keyboardOptions = if (singleLine) {
             KeyboardOptions(imeAction = ImeAction.Next)
         } else {

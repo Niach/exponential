@@ -281,16 +281,32 @@ final class IssueRefChipTests: XCTestCase {
         XCTAssertFalse(model.isDirty)
     }
 
-    func testTokensInsideATableAreNeverChipped() {
-        let blocks = MarkdownConversion.markdownToBlocks("| Ticket |\n| --- |\n| #EXP-42 |")
-        guard case let .text(_, content) = blocks[0] else { return XCTFail("expected a text block") }
-        let result = MarkdownChipDecorator.decorate(
-            content,
-            issueRefResolver: resolver,
-            issueRefTitleResolver: titles
-        )
-        XCTAssertFalse(result.changed)
-        XCTAssertEqual(attachmentCount(in: result.attributed), 0)
+    /// EXP-726: the MODEL's own decoration pass must REACH into the cells.
+    ///
+    /// Its sibling below decorates a table by hand and locks the serializer;
+    /// this one locks the pass in `IssueEditorModel.load` — the half that
+    /// decides whether a cell ever sees a chip at all. (It used to decorate
+    /// `blocks[0]`, which `normalize` makes the EMPTY leading text block of a
+    /// table-only document, so it asserted "no chip" about a string that has
+    /// no tokens in it — a vacuous pass either way.)
+    func testTheModelDecoratesTableCellsWithoutChangingTheMarkdown() {
+        let src = "| Ticket |\n| --- |\n| #EXP-42 |"
+        let model = IssueEditorModel()
+        model.issueRefResolver = resolver
+        model.issueRefTitleResolver = titles
+        model.load(markdown: src, baseURL: nil)
+
+        guard let table = model.blocks.compactMap({ block -> TableBlock? in
+            if case let .table(_, table) = block { return table }
+            return nil
+        }).first else { return XCTFail("expected a table block") }
+
+        // The visual half: the body cell carries a real chip attachment...
+        XCTAssertEqual(attachmentCount(in: table.rows[0][0].content), 1)
+        // ...and the header, which holds no token, is untouched.
+        XCTAssertEqual(attachmentCount(in: table.header[0].content), 0)
+        // The wire half: not one byte of it reaches the markdown.
+        XCTAssertEqual(model.currentMarkdown(), src)
     }
 
     // MARK: - Bare object-replacement characters (EXP-322)
@@ -325,7 +341,9 @@ final class IssueRefChipTests: XCTestCase {
 
     /// EXP-726: table cells are real editable runs now, so a `#EXP-42` inside
     /// one gets the same title attachment as anywhere else — and, exactly as
-    /// anywhere else, it must not reach the markdown.
+    /// anywhere else, it must not reach the markdown. The decorator +
+    /// SERIALIZER half, with no model in the way (the model's own pass is
+    /// `testTheModelDecoratesTableCellsWithoutChangingTheMarkdown` above).
     func testADecoratedIssueRefInsideATableCellNeverReachesTheMarkdown() {
         let blocks = MarkdownConversion.markdownToBlocks(
             "| Ticket |\n| --- |\n| #EXP-42 |")

@@ -354,9 +354,56 @@ class EditorModel {
     }
 
     /**
+     * The inline content behind a field id — a text run's or a table cell's,
+     * the two things that take a caret. Every INLINE-level op (marks, plain
+     * text insertion, clear formatting) reads through this and writes through
+     * [setInline], so a cell is edited exactly like a run; only BLOCK-level ops
+     * (heading / list / quote / code) stay run-only, a cell having no block
+     * formatting to toggle.
+     */
+    private data class Inline(val text: String, val marks: List<com.exponential.app.ui.markdown.model.InlineMark>)
+
+    private fun inlineAt(id: String): Inline? {
+        (rows.firstOrNull { it.id == id } as? EditorRow.TextRun)?.let { return Inline(it.text, it.marks) }
+        val cell = cell(id) ?: return null
+        return Inline(cell.text, cell.marks)
+    }
+
+    private fun setInline(
+        id: String,
+        text: String,
+        marks: List<com.exponential.app.ui.markdown.model.InlineMark>,
+    ) {
+        val idx = rows.indexOfFirst { it.id == id }
+        val row = rows.getOrNull(idx)
+        if (row is EditorRow.TextRun) {
+            replaceRow(idx, row.copy(text = text, marks = marks))
+            return
+        }
+        val loc = locateCell(id) ?: return
+        val tableIdx = rows.indexOfFirst { it.id == loc.tableRowId }
+        val tableRow = rows.getOrNull(tableIdx) as? EditorRow.Table ?: return
+        val cell = tableRow.table.cellAt(loc.row, loc.col) ?: return
+        replaceRow(
+            tableIdx,
+            tableRow.copy(
+                // A cell is ONE inline line, so anything an inline op carried
+                // in folds to a space here too (parity with [updateCell]).
+                table = tableRow.table.withCell(
+                    loc.row,
+                    loc.col,
+                    cell.copy(text = text.replace('\n', ' '), marks = marks),
+                ),
+            ),
+        )
+    }
+
+    /**
      * A cell field's post-edit text. A cell is ONE inline paragraph, so any
      * newline the IME or a paste brought in folds to a space before the mark
-     * remap; no revision bump, exactly like [updateRun].
+     * remap; no revision bump, exactly like [updateRun]. Marks queued at a
+     * collapsed caret ([togglePendingMark]) are applied here too — the toolbar
+     * acts on cells, so Bold-then-type must work in one.
      */
     private fun updateCell(cellId: String, newText: String, caret: Int) {
         val loc = locateCell(cellId) ?: return
@@ -367,7 +414,8 @@ class EditorModel {
         if (cell.text == text) return
         val safeCaret = caret.coerceIn(0, text.length)
         val diff = TextDiff.of(cell.text, text, safeCaret)
-        val marks = MarkRemap.remap(diff, text, cell.marks)
+        val remapped = MarkRemap.remap(diff, text, cell.marks)
+        val marks = applyPendingMarks(cellId, cell.text, text, safeCaret, remapped)
         replaceRow(
             idx,
             tableRow.copy(table = tableRow.table.withCell(loc.row, loc.col, cell.copy(text = text, marks = marks))),
@@ -389,29 +437,29 @@ class EditorModel {
     // -- Inline marks -----------------------------------------------------------
 
     fun toggleMark(rowId: String, range: IntRange, kind: InlineKind, href: String? = null) {
-        val idx = rows.indexOfFirst { it.id == rowId }
-        if (idx < 0) return
-        val row = rows[idx] as? EditorRow.TextRun ?: return
-        val start = range.first.coerceIn(0, row.text.length)
-        val end = (range.last).coerceIn(start, row.text.length)
+        // [rowId] is a run id or a table CELL id (EXP-726) — inline marks work
+        // the same on both.
+        val inline = inlineAt(rowId) ?: return
+        val start = range.first.coerceIn(0, inline.text.length)
+        val end = (range.last).coerceIn(start, inline.text.length)
         if (kind == InlineKind.Link) {
             // Link is set/replaced (never "toggled off" by range here).
-            val cleared = MarkOps.removeMark(row.marks, start, end, InlineKind.Link)
+            val cleared = MarkOps.removeMark(inline.marks, start, end, InlineKind.Link)
             val updated = if (href.isNullOrBlank()) cleared
             else MarkOps.addMark(cleared, start, end, InlineKind.Link, href)
-            replaceRow(idx, row.copy(marks = updated))
+            setInline(rowId, inline.text, updated)
             setFocused(rowId)
             notifyEdit()
             return
         }
         if (end <= start) return
-        val has = MarkOps.hasMarkOver(row.marks, start, end, kind)
+        val has = MarkOps.hasMarkOver(inline.marks, start, end, kind)
         val updated = if (has) {
-            MarkOps.removeMark(row.marks, start, end, kind)
+            MarkOps.removeMark(inline.marks, start, end, kind)
         } else {
-            MarkOps.addMark(row.marks, start, end, kind)
+            MarkOps.addMark(inline.marks, start, end, kind)
         }
-        replaceRow(idx, row.copy(marks = updated))
+        setInline(rowId, inline.text, updated)
         // Re-assert focus: tapping a toolbar button took OS focus off the field
         // (clearing focusedRowId), and without this the keyboard dismisses and the
         // selection highlight is lost, so a second format tap can't act. The
@@ -449,21 +497,26 @@ class EditorModel {
      * the rail's "Clear formatting" (web parity: `unsetAllMarks`). A COLLAPSED
      * range has no inline run to strip, so it clears the touched paragraph's
      * block formatting instead (web's `clearNodes`), which is the only thing a
-     * caret-only tap can meaningfully undo.
+     * caret-only tap can meaningfully undo — and a table cell has no block
+     * formatting, so there the collapsed tap only drops the pending marks.
      */
     fun clearFormatting(rowId: String, range: IntRange) {
-        val idx = rows.indexOfFirst { it.id == rowId }
-        if (idx < 0) return
-        val row = rows[idx] as? EditorRow.TextRun ?: return
-        val start = range.first.coerceIn(0, row.text.length)
-        val end = range.last.coerceIn(start, row.text.length)
+        val inline = inlineAt(rowId) ?: return
+        val start = range.first.coerceIn(0, inline.text.length)
+        val end = range.last.coerceIn(start, inline.text.length)
         pendingMarks = emptySet()
         pendingAnchor = null
         if (end > start) {
-            var marks = row.marks
+            var marks = inline.marks
             for (kind in InlineKind.entries) marks = MarkOps.removeMark(marks, start, end, kind)
-            replaceRow(idx, row.copy(marks = marks))
+            setInline(rowId, inline.text, marks)
         } else {
+            val idx = rows.indexOfFirst { it.id == rowId }
+            val row = rows.getOrNull(idx) as? EditorRow.TextRun
+            if (row == null) {
+                setFocused(rowId)
+                return
+            }
             val index = ParaRemap.paraIndexAt(row.text, start)
             val paras = row.paragraphs.toMutableList()
             if (index !in paras.indices) return
@@ -491,39 +544,37 @@ class EditorModel {
         val rid = activeRowId
             ?: rows.lastOrNull { it is EditorRow.TextRun }?.id
             ?: return
-        val idx = rows.indexOfFirst { it.id == rid }
-        if (idx < 0) return
-        val row = rows[idx] as? EditorRow.TextRun ?: return
-        val pos = (selection?.takeIf { it.first == rid }?.second?.first ?: row.text.length)
-            .coerceIn(0, row.text.length)
-        val newText = row.text.substring(0, pos) + text + row.text.substring(pos)
-        replaceRow(idx, row.copy(text = newText, marks = MarkRemap.remap(row.text, newText, row.marks)))
-        bump(row.id)
-        setFocused(row.id)
-        desiredSelection = row.id to (pos + text.length)
+        // The active field may be a table cell (EXP-726) — emoji, `@` and `#`
+        // land in one exactly as they do in a run.
+        val inline = inlineAt(rid) ?: return
+        val pos = (selection?.takeIf { it.first == rid }?.second?.first ?: inline.text.length)
+            .coerceIn(0, inline.text.length)
+        val newText = inline.text.substring(0, pos) + text + inline.text.substring(pos)
+        setInline(rid, newText, MarkRemap.remap(inline.text, newText, inline.marks))
+        bump(rid)
+        setFocused(rid)
+        desiredSelection = rid to (pos + text.length)
         // Only the `@`/`#` affordances may open an autocomplete menu the user
         // did not type a trigger for (EXP-322).
-        if (text == "@" || text == "#") autocompleteArmRowId = row.id
+        if (text == "@" || text == "#") autocompleteArmRowId = rid
         notifyEdit()
     }
 
     /** Insert link display text at [at] and mark it (used when there is no selection). */
     fun insertLinkText(rowId: String, at: Int, text: String, url: String) {
-        val idx = rows.indexOfFirst { it.id == rowId }
-        if (idx < 0) return
-        val row = rows[idx] as? EditorRow.TextRun ?: return
-        val pos = at.coerceIn(0, row.text.length)
-        val newText = row.text.substring(0, pos) + text + row.text.substring(pos)
-        val shifted = MarkRemap.remap(row.text, newText, row.marks)
+        val inline = inlineAt(rowId) ?: return
+        val pos = at.coerceIn(0, inline.text.length)
+        val newText = inline.text.substring(0, pos) + text + inline.text.substring(pos)
+        val shifted = MarkRemap.remap(inline.text, newText, inline.marks)
         val withLink = MarkOps.addMark(shifted, pos, pos + text.length, InlineKind.Link, url)
-        replaceRow(idx, row.copy(text = newText, marks = withLink))
-        bump(row.id)
-        desiredSelection = row.id to (pos + text.length)
+        setInline(rowId, newText, withLink)
+        bump(rowId)
+        desiredSelection = rowId to (pos + text.length)
         notifyEdit()
     }
 
     fun marksFor(rowId: String): List<com.exponential.app.ui.markdown.model.InlineMark> =
-        (rows.firstOrNull { it.id == rowId } as? EditorRow.TextRun)?.marks ?: emptyList()
+        inlineAt(rowId)?.marks ?: emptyList()
 
     /**
      * The href of a link covering the START of [range] in [rowId], if any — the
@@ -531,9 +582,9 @@ class EditorModel {
      * replaces rather than blanks it.
      */
     fun linkHrefAt(rowId: String, range: IntRange): String? {
-        val row = rows.firstOrNull { it.id == rowId } as? EditorRow.TextRun ?: return null
+        val inline = inlineAt(rowId) ?: return null
         val at = range.first
-        return row.marks
+        return inline.marks
             .firstOrNull { it.kind == InlineKind.Link && it.start <= at && it.end > at }
             ?.href
     }
@@ -547,9 +598,9 @@ class EditorModel {
      * the middle of the original.
      */
     fun linkRangeAt(rowId: String, range: IntRange): IntRange? {
-        val row = rows.firstOrNull { it.id == rowId } as? EditorRow.TextRun ?: return null
+        val inline = inlineAt(rowId) ?: return null
         val at = range.first
-        val link = row.marks
+        val link = inline.marks
             .firstOrNull { it.kind == InlineKind.Link && it.start <= at && it.end > at }
             ?: return null
         return link.start..link.end
@@ -675,6 +726,34 @@ class EditorModel {
         val imageRow = EditorRow.Image(url = url, alt = alt)
 
         val targetId = if (atEnd) null else focusedRowId ?: selection?.first
+
+        // A table cell holds the caret but can't hold an image (GFM has no
+        // block content inside a cell), so the image lands right AFTER the
+        // table it belongs to — never silently at the end of the document.
+        val cellLoc = targetId?.let { locateCell(it) }
+        if (cellLoc != null) {
+            val tableIdx = rows.indexOfFirst { it.id == cellLoc.tableRowId }
+            if (tableIdx >= 0) {
+                // Reuse the empty run [EditorRows.normalize] already keeps
+                // after a block row instead of stacking a second blank line…
+                val follow = rows.getOrNull(tableIdx + 1)
+                val at = if (follow is EditorRow.TextRun && follow.text.isEmpty()) tableIdx + 2 else tableIdx + 1
+                val next = rows.toMutableList()
+                next.add(at, imageRow)
+                // …and land the caret on whatever run already followed rather
+                // than pushing a second empty line in front of it.
+                val after = next.getOrNull(at + 1) as? EditorRow.TextRun
+                    ?: EditorRows.emptyRun().also { next.add(at + 1, it) }
+                rows = EditorRows.normalize(next)
+                uploadStates[imageRow.id] = ImageUploadState.Idle
+                bumpAll()
+                focusedRowId = after.id
+                desiredSelection = after.id to 0
+                notifyEdit()
+                return imageRow.id
+            }
+        }
+
         val targetIdx = rows.indexOfFirst { it.id == targetId }
         val targetRow = rows.getOrNull(targetIdx) as? EditorRow.TextRun
 
