@@ -172,7 +172,10 @@ fun TeamAvatar(
     Box(
         modifier = modifier
             .size(size)
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f), shape),
+            // EXP-698 r5: the FULL primary, on every client — a white square
+            // with a black initial. At 70% it read as a washed-out chip next
+            // to the round, fully saturated user avatars beside it.
+            .background(MaterialTheme.colorScheme.primary, shape),
         contentAlignment = Alignment.Center,
     ) {
         if (url != null) {

@@ -20,4 +20,20 @@ object AppConstants {
      * `android/<versionName>` and tolerates the `-staging` suffix.
      */
     val CLIENT_VERSION_HEADER_VALUE: String = "android/${BuildConfig.VERSION_NAME}"
+
+    /**
+     * The desktop app's releases page — the getting-started checklist's
+     * "Download the desktop app" target. Same value as web's
+     * `lib/desktop-download.ts` `DESKTOP_RELEASES_URL`; a phone can't pick an
+     * OS asset, so it always opens the page.
+     */
+    const val DESKTOP_RELEASES_URL: String = "https://github.com/Niach/exponential/releases/latest"
+
+    /**
+     * The headless-daemon install one-liner for [origin] (web's
+     * `buildServerInstallSnippet`). One script for cloud and self-host alike —
+     * the target instance always rides `EXP_INSTANCE` explicitly.
+     */
+    fun serverInstallSnippet(origin: String): String =
+        "curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE=$origin sh"
 }

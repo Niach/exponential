@@ -39,6 +39,8 @@ import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassPillDefaults
+import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
@@ -172,34 +174,42 @@ private fun SessionRow(
             // action two hit targets with only one of them looking tappable.
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            when (state) {
-                CodingSessionDisplayState.Running -> PulsingDot()
-                CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber)
-                CodingSessionDisplayState.Review -> StaticDot(ReviewGreen)
-                CodingSessionDisplayState.Done -> StaticDot(DoneBlue)
+            // EXP-698 r5: the state is a READONLY Sm pill tinted by its tone —
+            // the same badge web and the IDE draw. A bare dot + coloured word
+            // was the last hand-rolled status glyph on the issue screen.
+            val tone = when (state) {
+                CodingSessionDisplayState.Running -> LiveGreen
+                CodingSessionDisplayState.NeedsInput -> NeedsInputAmber
+                CodingSessionDisplayState.Review -> ReviewGreen
+                CodingSessionDisplayState.Done -> DoneBlue
             }
-            Spacer(Modifier.width(8.dp))
-            Text(
+            val running = state == CodingSessionDisplayState.Running
+            GlassPill(
                 when (state) {
                     CodingSessionDisplayState.Running -> "Coding now"
                     CodingSessionDisplayState.NeedsInput -> "Needs input"
                     CodingSessionDisplayState.Review -> "Ready for review"
                     CodingSessionDisplayState.Done -> "Done"
                 },
-                style = MaterialTheme.typography.labelLarge,
-                color = when (state) {
-                    CodingSessionDisplayState.Running -> LiveGreen
-                    CodingSessionDisplayState.NeedsInput -> NeedsInputAmber
-                    CodingSessionDisplayState.Review -> ReviewGreen
-                    CodingSessionDisplayState.Done -> DoneBlue
+                size = PillSize.Sm,
+                mode = PillMode.Readonly,
+                tint = tone,
+                // A live run keeps its PULSE — the one moving thing on the
+                // screen — in the pill's leading slot; the parked states are
+                // the pill's own static disc.
+                leading = if (running) {
+                    { PulsingDot(size = GlassPillDefaults.DotSize) }
+                } else {
+                    null
                 },
+                dot = if (running) null else tone,
             )
             Spacer(Modifier.width(8.dp))
             val who = userDisplayName(sessionOwner, session.userId)
             val device = session.deviceLabel?.takeIf { it.isNotBlank() }
             Text(
-                "· $who" + if (device != null) " · $device" else "",
-                style = MaterialTheme.typography.labelMedium,
+                who + if (device != null) " · $device" else "",
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

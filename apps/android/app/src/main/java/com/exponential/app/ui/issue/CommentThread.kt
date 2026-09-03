@@ -66,7 +66,9 @@ internal val CommentAccent = Color(red = 0.42f, green = 0.64f, blue = 1.0f)
 // Timeline gutter geometry (EXP-240): the shared leading column every timeline
 // row aligns to — event dot, collapsed-run dot, and comment avatar.
 internal val TimelineGutterWidth = 28.dp
-internal val TimelineRail = GlassTokens.CardFill
+// EXP-698 r5: the rail is the CARD hairline, unified across all four clients
+// — it used to be the card FILL, a paler line than any stroke beside it.
+internal val TimelineRail = GlassTokens.StrokeCard
 
 // The activity timeline: the synthesized "created the issue" item, regular
 // comments as glass cards, and activity events (status/assignee/label/PR

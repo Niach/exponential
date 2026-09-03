@@ -666,7 +666,10 @@ fun IssueDetailScreen(
             // description where it read as an afterthought. The PR/branch rows
             // stay down there, next to the code they link to.
             if (session != null) {
-                Spacer(Modifier.height(16.dp))
+                // The two boxes read as one stack (iOS parity, EXP-698 r5):
+                // the gap between chips and card is tighter than the gap to
+                // the description below.
+                Spacer(Modifier.height(12.dp))
                 CodingNowCard(
                     session = session,
                     prState = issue.prState,
@@ -808,6 +811,7 @@ fun IssueDetailScreen(
             priority = IssuePriority.fromWire(issue.priority),
             assignee = state.assignee,
             hideAssignee = soloMemberId != null,
+            teamLabels = state.teamLabels,
             issueLabels = state.issueLabels,
             currentBoard = state.board,
             hasMoveTargets = moveTargets.isNotEmpty(),

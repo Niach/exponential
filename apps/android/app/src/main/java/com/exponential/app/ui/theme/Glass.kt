@@ -147,8 +147,16 @@ fun Modifier.glassGroup(): Modifier {
  * tint for [GlassTokens.OpaqueCardFill] so the card can float over scrolling
  * content without the rows underneath ghosting through it (EXP-357).
  */
-fun Modifier.glassCard(opaque: Boolean = false): Modifier {
-    val shape = RoundedCornerShape(GlassTokens.CardRadius)
+fun Modifier.glassCard(
+    opaque: Boolean = false,
+    /**
+     * The ONE caller that overrides the card radius (EXP-698 r5): the floating
+     * bulk bar, whose 52dp height wants the XL3 rung so it reads as a bar
+     * rather than a slab. Everything else takes the card radius.
+     */
+    cornerRadius: Dp = GlassTokens.CardRadius,
+): Modifier {
+    val shape = RoundedCornerShape(cornerRadius)
     return this
         .clip(shape)
         .background(if (opaque) GlassTokens.OpaqueCardFill else GlassTokens.CardFill, shape)
@@ -181,6 +189,14 @@ fun Modifier.glassButton(
     primary: Boolean = false,
     /** Held down: the primary fill dips, since it has no glass to brighten. */
     pressed: Boolean = false,
+    /**
+     * A TONE the capsule borrows for its hairline (EXP-698 r5, web/IDE
+     * parity): the one readonly status badge — "Coding now" and its parked
+     * siblings — draws its stroke at 40% of the state colour so the badge
+     * reads as that state without becoming a filled chip. Text tinting is the
+     * pill's own business; this modifier only owns the edge.
+     */
+    tint: Color? = null,
 ): Modifier {
     val shape = RoundedCornerShape(percent = 50)
     if (primary) {
@@ -199,8 +215,20 @@ fun Modifier.glassButton(
         .clip(shape)
         .then(if (opaque) Modifier.background(DesignTokens.Palette.Card, shape) else Modifier)
         .background(if (active) GlassTokens.RowFillActive else GlassTokens.CardFill, shape)
-        .border(GlassTokens.Hairline, if (active) GlassTokens.StrokeActive else GlassTokens.StrokeCard, shape)
+        .border(
+            GlassTokens.Hairline,
+            when {
+                tint != null -> tint.copy(alpha = TintedStrokeAlpha)
+                active -> GlassTokens.StrokeActive
+                else -> GlassTokens.StrokeCard
+            },
+            shape,
+        )
 }
+
+/** The tone-tinted hairline of a status badge — the same 40% every other
+ *  client draws (web `color-mix(.. 40%)`, IDE `.opacity(0.4)`). */
+private const val TintedStrokeAlpha = 0.4f
 
 /** How far a pressed primary capsule dims — the glass rungs use fill/stroke
  *  swaps for this, which a solid fill has nothing to swap to. */

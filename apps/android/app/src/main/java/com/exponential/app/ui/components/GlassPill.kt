@@ -90,6 +90,14 @@ fun GlassPill(
      * on a surface. A disabled pill ignores it and keeps the dimmed glass.
      */
     primary: Boolean = false,
+    /**
+     * A TONE the capsule takes for its label and its hairline (EXP-698 r5):
+     * the text paints in [tint], the stroke at 40% of it. Added for the ONE
+     * readonly status badge on the coding-now card, whose colour IS its
+     * meaning — web and the IDE draw the same recipe. Ignored by a [primary]
+     * or disabled pill, which own their paint outright.
+     */
+    tint: Color? = null,
     icon: ImageVector? = null,
     leading: (@Composable () -> Unit)? = null,
     dot: Color? = null,
@@ -122,10 +130,13 @@ fun GlassPill(
     // The emphatic paint is for a LIVE call to action only: a disabled primary
     // capsule would read as tappable at full brightness.
     val emphatic = enabled && primary
-    val fg = contentColor ?: if (emphatic) {
-        DesignTokens.Palette.PrimaryForeground
-    } else {
-        MaterialTheme.colorScheme.onSurface.copy(
+    // A tone only paints on a live, non-emphatic capsule: a disabled or
+    // primary pill already has one answer for its content colour.
+    val toned = tint?.takeIf { enabled && !emphatic }
+    val fg = contentColor ?: when {
+        emphatic -> DesignTokens.Palette.PrimaryForeground
+        toned != null -> toned
+        else -> MaterialTheme.colorScheme.onSurface.copy(
             alpha = when {
                 !enabled -> TextEmphasis.Quaternary
                 active -> TextEmphasis.Primary
@@ -156,7 +167,13 @@ fun GlassPill(
         ),
         modifier = modifier
             .height(GlassPillDefaults.height(size))
-            .glassButton(active = active, opaque = opaque, primary = emphatic, pressed = pressed)
+            .glassButton(
+                active = active,
+                opaque = opaque,
+                primary = emphatic,
+                pressed = pressed,
+                tint = toned,
+            )
             .then(
                 if (tap != null) {
                     Modifier.clickable(

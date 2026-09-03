@@ -287,6 +287,23 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
     }
 
     /**
+     * Bulk delete for the multi-select bar (EXP-698 r5) — `issues.bulkDelete`,
+     * the same procedure web and the IDE call. The rows leave the client as
+     * Electric DELETE messages, so (like the single-issue delete) there is
+     * nothing to write locally. Callers chunk at the server's 200-id cap.
+     */
+    suspend fun bulkDelete(accountId: String, ids: List<String>) {
+        trpc.mutationUnit(
+            accountId,
+            path = "issues.bulkDelete",
+            input = buildJsonObject {
+                put("issueIds", JsonArray(ids.map { JsonPrimitive(it) }))
+            },
+            inputSerializer = JsonObject.serializer(),
+        )
+    }
+
+    /**
      * Mark/unmark an issue as a duplicate of a canonical issue — one atomic
      * `issues.update` mutation (masterplan §5e): marking sets `duplicateOfId`
      * AND flips status to the terminal `duplicate` value; unmarking clears the

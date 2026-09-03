@@ -20,10 +20,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.getCommentBodyText
 import com.exponential.app.data.db.AttachmentEntity
@@ -40,7 +44,6 @@ import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
 import com.exponential.app.domain.PendingAttachment
-import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.CommentAttachmentsStrip
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
@@ -177,18 +180,26 @@ internal fun RegularCommentRow(
                 if (isAuthor && !isEditing) {
                     Spacer(Modifier.weight(1f))
                     Box {
-                        // EXP-698: the shared 32dp glass circle — a bare
-                        // clickable glyph read as no control at all, and M3's
-                        // own IconButton pads a 48dp target that made this
-                        // header row three times the height of its text
-                        // (EXP-398).
-                        CircleIconButton(
-                            ExpIcons.uiMore,
-                            contentDescription = "Comment actions",
-                            onClick = { menuOpen = true },
-                            tint = CommentMeta,
-                            glyphSize = 16.dp,
-                        )
+                        // EXP-698 r5: a BARE vertical ⋮ on every client — a
+                        // glass ring around it made the comment's overflow
+                        // look heavier than the comment. The 32dp box is the
+                        // hit target (M3's 48dp minimum is suppressed so the
+                        // header row stays the height of its text, EXP-398).
+                        CompositionLocalProvider(
+                            LocalMinimumInteractiveComponentSize provides Dp.Unspecified,
+                        ) {
+                            IconButton(
+                                onClick = { menuOpen = true },
+                                modifier = Modifier.size(32.dp),
+                            ) {
+                                Icon(
+                                    ExpIcons.uiMoreVertical,
+                                    contentDescription = "Comment actions",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = CommentMeta,
+                                )
+                            }
+                        }
                         GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             GlassMenuItem(
                                 leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },

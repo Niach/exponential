@@ -1,13 +1,18 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
@@ -31,7 +36,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.R
+import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
@@ -66,6 +73,90 @@ internal fun OptionGroup(content: @Composable () -> Unit) {
 @Composable
 fun GroupDivider() {
     HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
+}
+
+/**
+ * One property row of a grouped glass card (iOS `GlassMetaRow`): a fixed-width
+ * label on the left and the caller's value glyph + text pushed to the right.
+ * Tappable when [enabled].
+ *
+ * EXP-698 r5 lifted it out of the create-issue screen: the issue-properties
+ * sheet edits the SAME five properties and had grown its own row idiom (a
+ * chevron per row, its own label column) that read as a different screen than
+ * the one that created the issue.
+ */
+@Composable
+fun MetaRow(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    value: @Composable RowScope.() -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            modifier = Modifier.width(84.dp),
+        )
+        Spacer(Modifier.weight(1f))
+        value()
+    }
+}
+
+/**
+ * The labels block under a properties/create form (EXP-698 r5): a text-only
+ * heading, then EVERY team label as a select pill with its colour disc, then
+ * the "+ Label" pill that opens the full picker sheet. Shared so the
+ * create-issue screen and the issue-properties sheet cannot drift — they are
+ * the same control over the same set, one writing a local draft and the other
+ * an issueLabels mutation.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun LabelsPickerBlock(
+    labels: List<LabelEntity>,
+    selectedIds: Set<String>,
+    onToggle: (labelId: String, selected: Boolean) -> Unit,
+    onOpenPicker: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            "Labels",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        )
+        Spacer(Modifier.height(8.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            labels.forEach { label ->
+                val selected = label.id in selectedIds
+                GlassPill(
+                    label.name,
+                    size = PillSize.Sm,
+                    mode = PillMode.Select,
+                    selected = selected,
+                    dot = parseColor(label.color),
+                    onClick = { onToggle(label.id, selected) },
+                )
+            }
+            GlassPill(
+                "Label",
+                size = PillSize.Sm,
+                icon = ExpIcons.uiAdd,
+                onClick = onOpenPicker,
+            )
+        }
+    }
 }
 
 // iOS-Form-style picker row: label left, selected value + chevron right; tap

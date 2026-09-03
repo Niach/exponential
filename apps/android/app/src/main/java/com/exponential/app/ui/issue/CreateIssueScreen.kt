@@ -3,15 +3,11 @@ package com.exponential.app.ui.issue
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -67,10 +63,10 @@ import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.ui.components.GlassPill
-import com.exponential.app.ui.components.PillMode
-import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
+import com.exponential.app.ui.components.LabelsPickerBlock
+import com.exponential.app.ui.components.MetaRow
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.SwitchThumb
@@ -84,7 +80,6 @@ import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
-import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.share.ShareBoardPickerSheet
 import com.exponential.app.ui.share.ShareBoardSelector
 import com.exponential.app.ui.share.SharePrefill
@@ -100,7 +95,7 @@ import kotlinx.coroutines.launch
 // title field, description editor, and one grouped card of metadata rows.
 // Reuses the same pickers, payload and createIssue path the bottom sheet used —
 // only the container and layout changed (a route screen, not a ModalBottomSheet).
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateIssueScreen(
     onBack: () -> Unit,
@@ -445,40 +440,16 @@ fun CreateIssueScreen(
                 // toggling a local selection instead of issueLabels mutations.
                 // Not moderator-gated: issues.create lets any creator set
                 // title/description/labels (web create dialog parity).
-                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
-                    Text(
-                        "Labels",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        state.labels.forEach { label ->
-                            val selected = label.id in selectedLabelIds
-                            GlassPill(
-                                label.name,
-                                size = PillSize.Sm,
-                                mode = PillMode.Select,
-                                selected = selected,
-                                dot = parseColor(label.color),
-                                onClick = {
-                                    selectedLabelIds =
-                                        if (selected) selectedLabelIds - label.id
-                                        else selectedLabelIds + label.id
-                                },
-                            )
-                        }
-                        GlassPill(
-                            "Label",
-                            size = PillSize.Sm,
-                            icon = ExpIcons.uiAdd,
-                            onClick = { labelSheetOpen = true },
-                        )
-                    }
-                }
+                LabelsPickerBlock(
+                    labels = state.labels,
+                    selectedIds = selectedLabelIds,
+                    onToggle = { labelId, selected ->
+                        selectedLabelIds =
+                            if (selected) selectedLabelIds - labelId else selectedLabelIds + labelId
+                    },
+                    onOpenPicker = { labelSheetOpen = true },
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
 
                 if (state.error != null) {
                     Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -606,33 +577,6 @@ fun CreateIssueScreen(
                 TextButton(onClick = { confirmDiscard = false }) { Text("Keep editing") }
             },
         )
-    }
-}
-
-// One row of a grouped glass card: fixed-width label + trailing value (iOS
-// metadataRow). Tappable when [enabled].
-@Composable
-private fun MetaRow(
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    value: @Composable RowScope.() -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            modifier = Modifier.width(84.dp),
-        )
-        Spacer(Modifier.weight(1f))
-        value()
     }
 }
 
