@@ -284,6 +284,7 @@ describe(`teams.update helpdesk transport gate (REV2-10)`, () => {
     const projection = updates[0]!.returning as Record<string, unknown>
     expect(Object.keys(projection).sort()).toEqual([
       `createdAt`,
+      `endSessionsOnMerge`,
       `helpdeskEnabled`,
       `iconUrl`,
       `id`,

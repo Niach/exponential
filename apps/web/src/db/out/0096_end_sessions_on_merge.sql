@@ -1,0 +1,1 @@
+ALTER TABLE "teams" ADD COLUMN "end_sessions_on_merge" boolean DEFAULT true NOT NULL;

@@ -513,3 +513,21 @@ describe(`statuses.setPrAutomation`, () => {
     expect(updates).toHaveLength(0)
   })
 })
+
+// EXP-711 — does a merged PR end the live coding sessions on its issues?
+describe(`statuses.setEndSessionsOnMerge`, () => {
+  it(`flips the team flag (member-gated)`, async () => {
+    const result = await caller.setEndSessionsOnMerge({
+      teamId: TEAM,
+      enabled: false,
+    })
+    expect(h.resolveTeamAccess).toHaveBeenCalledWith(
+      `actor`,
+      TEAM,
+      `mutate_resources`
+    )
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.set).toEqual({ endSessionsOnMerge: false })
+    expect(result.txId).toBe(77)
+  })
+})

@@ -299,9 +299,11 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
     // EXP-637/EXP-626: no issue resolved means the PR may still be an
     // issue-less chore PR an action run opened — the branch is the only
     // handle on the session that opened it.
+    // EXP-711: no claim ⇒ no endSessions override.
     expect(prSyncMock.endSessionsOnMergedBranch).toHaveBeenCalledWith(
       `org/repo`,
-      `exp/batch-a1b2c3d4`
+      `exp/batch-a1b2c3d4`,
+      undefined
     )
   })
 

@@ -525,4 +525,31 @@ export const statusesRouter = router({
         return { txId }
       })
     }),
+
+  // EXP-711 — does a merged PR end the live coding sessions on its issues?
+  // Member-gated like setPrAutomation (same card, same trust). The merging
+  // run's own spare (`merged_own_pr`) and MCP `pr_merge`'s per-call
+  // `endSessions` override are unaffected by this default.
+  setEndSessionsOnMerge: authedProcedure
+    .input(
+      z.object({
+        teamId: z.string().uuid(),
+        enabled: z.boolean(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await resolveTeamAccess(
+        ctx.session.user.id,
+        input.teamId,
+        `mutate_resources`
+      )
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        await tx
+          .update(teams)
+          .set({ endSessionsOnMerge: input.enabled })
+          .where(eq(teams.id, input.teamId))
+        return { txId }
+      })
+    }),
 })

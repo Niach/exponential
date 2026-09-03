@@ -642,15 +642,27 @@ impl LocalSessions {
                 session.session_id.clone(),
             )
         });
+        // EXP-711: NOR when the team switched merge-ends-sessions off — the
+        // server leaves issue sessions running then, and the batch tab
+        // must stay open the same way (synced `teams.end_sessions_on_merge`).
         if let Some((branch, tab, manager, session_id)) = batch_close.clone() {
             if let Some(store) = Store::try_global(cx) {
                 let issues = store.collections().issues.clone();
                 let sessions_collection = store.collections().coding_sessions.clone();
+                let teams_collection = store.collections().teams.clone();
                 watchers.push(cx.observe(&issues, move |issues, cx| {
                     if !branch_pr_merged(&branch, issues.read(cx).iter()) {
                         return;
                     }
                     if session_merged_its_own_pr(&sessions_collection, &session_id, cx) {
+                        return;
+                    }
+                    if !team_ends_sessions_on_merge(
+                        &sessions_collection,
+                        &teams_collection,
+                        &session_id,
+                        cx,
+                    ) {
                         return;
                     }
                     if let Some(manager) = manager.upgrade() {
@@ -690,6 +702,12 @@ impl LocalSessions {
                         &session_id,
                         cx,
                     )
+                    && team_ends_sessions_on_merge(
+                        &store.collections().coding_sessions,
+                        &store.collections().teams,
+                        &session_id,
+                        cx,
+                    )
             });
             if merged {
                 if let Some(manager) = manager.upgrade() {
@@ -717,6 +735,29 @@ fn session_merged_its_own_pr(
         .get(session_id)
         .and_then(|row| row.status.as_deref())
         .is_some_and(|status| status == domain::contract::CODING_SESSION_STATUS_RUNNING)
+}
+
+/// EXP-711: does the session's team still end coding sessions on merge? The
+/// synced own row names the team; a row or team that has not synced yet
+/// reads as the server default (end), so the self-close never waits on a
+/// setting it cannot see.
+fn team_ends_sessions_on_merge(
+    sessions: &Entity<sync::collections::Collection<domain::rows::CodingSession>>,
+    teams: &Entity<sync::collections::Collection<domain::rows::Team>>,
+    session_id: &str,
+    cx: &App,
+) -> bool {
+    let Some(team_id) = sessions
+        .read(cx)
+        .get(session_id)
+        .and_then(|row| row.team_id.clone())
+    else {
+        return true;
+    };
+    teams
+        .read(cx)
+        .get(&team_id)
+        .is_none_or(|team| team.ends_sessions_on_merge())
 }
 
 /// Does a session's worktree sit on `branch`? An EMPTY branch never matches

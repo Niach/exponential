@@ -561,6 +561,9 @@ export const repositoriesRouter = router({
       z.object({
         repositoryId: z.string().uuid(),
         prNumber: z.number().int().positive(),
+        // EXP-711: see issues.mergePr — rides the merge claim to the webhook's
+        // branch-keyed sweep, the only merge-driven end a chore PR has.
+        endSessions: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
@@ -590,6 +593,7 @@ export const repositoriesRouter = router({
         // (a chore PR with no issue), so the claim records agent-mediation
         // the same way issues.mergePr does.
         viaAgent: ctx.viaMcp === true,
+        endSessions: input.endSessions,
       })
       try {
         await mergePullRequest({
