@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import UIKit
 
 extension NSAttributedString.Key {
@@ -19,6 +20,38 @@ extension NSAttributedString.Key {
 }
 
 public enum MarkdownStyle {
+    /// EXP-698: per-RENDER palette deviations. The defaults (`nil`) are the
+    /// interchange look every editable surface keeps; the chat feeds (the
+    /// steering narration, bubbles and cards) tint their inline code with the
+    /// shared `Semantic.code*` tokens so a `path/like/this` reads as code the
+    /// way it does on web. Nothing here reaches serialization — the tint is
+    /// display only.
+    public struct Overrides: Equatable, Hashable, Sendable {
+        public var inlineCodeForeground: Color?
+        public var inlineCodeBackground: Color?
+
+        public init(inlineCodeForeground: Color? = nil, inlineCodeBackground: Color? = nil) {
+            self.inlineCodeForeground = inlineCodeForeground
+            self.inlineCodeBackground = inlineCodeBackground
+        }
+
+        /// No deviation — the contract look.
+        public static let none = Overrides()
+
+        /// Key material for the render caches that key on the parse inputs
+        /// (`AgentMarkdownText`). Describes BOTH colours in full: a hash would
+        /// collide eventually, and a collision there hands a cached render
+        /// back under the wrong tint — a silently wrong colour is exactly the
+        /// bug a cache key must not be able to produce.
+        public var cacheKey: String {
+            func describe(_ color: Color?) -> String {
+                guard let color else { return "-" }
+                return String(describing: color.resolve(in: EnvironmentValues()))
+            }
+            return "fg:\(describe(inlineCodeForeground))|bg:\(describe(inlineCodeBackground))"
+        }
+    }
+
     // `nonisolated(unsafe)`: these are immutable font/color constants that
     // never mutate, so opting out of strict-concurrency checking is safe.
     public nonisolated(unsafe) static let bodyFont = PlatformFont.preferredFont(forTextStyle: .body)

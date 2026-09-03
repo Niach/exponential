@@ -3,7 +3,7 @@ import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { Bell, BellOff } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { issueSubscriberCollection } from "@/lib/collections"
-import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { IconTooltip } from "@/components/icon-tooltip"
 
 // Live subscription state + the toggle mutation for one issue, extracted from
@@ -63,13 +63,7 @@ export function SubscribeToggle({
           : `Get notified about comments and updates`
       }
     >
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-6 gap-1.5 px-2 text-xs"
-        onClick={() => void toggle()}
-        disabled={busy}
-      >
+      <Pill mode="action" onClick={() => void toggle()} disabled={busy}>
         {/* Icon-only below `sm` — the label doesn't fit the mobile
             breadcrumb row (EXP-189). */}
         {subscribed ? (
@@ -83,7 +77,7 @@ export function SubscribeToggle({
             <span className="hidden sm:inline">Subscribe</span>
           </>
         )}
-      </Button>
+      </Pill>
     </IconTooltip>
   )
 }

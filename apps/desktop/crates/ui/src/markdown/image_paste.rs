@@ -118,6 +118,20 @@ pub trait AttachmentTransport: Send + Sync {
         bytes: &[u8],
     ) -> anyhow::Result<UploadedImage>;
 
+    /// EXP-702: upload one image to a CODING SESSION —
+    /// `POST /api/sessions/{id}/files`, same single-part multipart `file`
+    /// and the same response shape as [`Self::upload`], only the path
+    /// differs. Steered screenshots go here, an issue run's included, so
+    /// they never land in the issue's Files section; the server gates on
+    /// session ownership and images only.
+    fn upload_session(
+        &self,
+        session_id: &str,
+        filename: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> anyhow::Result<UploadedImage>;
+
     /// GET attachment bytes. `url` may be the canonical relative form or
     /// absolute; relative resolves against the instance base URL.
     fn fetch(&self, url: &str) -> anyhow::Result<Vec<u8>>;
@@ -244,6 +258,17 @@ impl AttachmentTransport for HttpAttachmentTransport {
         bytes: &[u8],
     ) -> anyhow::Result<UploadedImage> {
         let url = format!("{}/api/issues/{issue_id}/files", self.base_url);
+        self.post_multipart(&url, filename, content_type, bytes)
+    }
+
+    fn upload_session(
+        &self,
+        session_id: &str,
+        filename: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> anyhow::Result<UploadedImage> {
+        let url = format!("{}/api/sessions/{session_id}/files", self.base_url);
         self.post_multipart(&url, filename, content_type, bytes)
     }
 

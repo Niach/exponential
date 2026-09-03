@@ -21,7 +21,7 @@ use std::path::PathBuf;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, App, AppContext as _, Entity, Focusable as _, FontWeight, InteractiveElement as _,
+    div, px, App, AppContext as _, Entity, Focusable as _, FontWeight, InteractiveElement as _,
     IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Window,
 };
@@ -56,6 +56,106 @@ impl TimelineItem {
         };
         created.and_then(comments::parse_epoch).unwrap_or(0)
     }
+}
+
+// ---------------------------------------------------------------------------
+// The rail (EXP-698 round 5)
+// ---------------------------------------------------------------------------
+
+/// Width of the marker gutter — the iOS/Android `TimelineRow` geometry, now
+/// shared by web and the IDE.
+const TIMELINE_GUTTER: f32 = 28.;
+/// Where a marker's centre sits inside the gutter, horizontally AND
+/// vertically: the rail runs through this point.
+const TIMELINE_MARKER_CENTER: f32 = TIMELINE_GUTTER / 2.;
+/// The break the rail leaves around a marker.
+const TIMELINE_RAIL_GAP: f32 = 6.;
+/// A row is at least this tall so the rail segments have somewhere to paint
+/// (a one-line event row is otherwise shorter than its own marker band).
+const TIMELINE_ROW_MIN_H: f32 = 32.;
+
+/// EXP-698 round 5 — ONE activity row: a 28px gutter carrying the row's
+/// marker (dot / event glyph / comment avatar) with a 1px `STROKE_CARD` rail
+/// running through it, and the row's content beside it. The mobile
+/// `TimelineRow` (`CommentThreadView.swift`, `CommentThread.kt`) is the
+/// reference; web gained the same component in `comment-rows/timeline-row.tsx`.
+///
+/// `line_above` is false on the first RENDERED row, `line_below` on the last,
+/// so the rail starts and stops with the feed instead of dangling. The gutter
+/// `self_stretch()`es to the row's full height even though the row aligns its
+/// children to the TOP — that stretch is what gives the lower segment its
+/// extent.
+///
+/// `marker_top` insets the marker band from the row's top, which is what buys
+/// the break ABOVE a marker as tall as the gutter: a 24px avatar centred in a
+/// 28px band leaves 2px, so the incoming rail would touch it. Comment rows
+/// pass 4 (and pad their content to match, keeping the header level with the
+/// avatar); a 14px event glyph or a 6px dot needs none and passes 0.
+pub(crate) fn timeline_row(
+    marker: gpui::AnyElement,
+    marker_size: f32,
+    marker_top: f32,
+    line_above: bool,
+    line_below: bool,
+    content: gpui::AnyElement,
+) -> gpui::Div {
+    let rail = theme::tokens::glass::STROKE_CARD.to_hsla();
+    let half = marker_size / 2.;
+    let center = marker_top + TIMELINE_MARKER_CENTER;
+    let above_len = center - half - TIMELINE_RAIL_GAP;
+    let below_top = center + half + TIMELINE_RAIL_GAP;
+    // Half-pixel offset: a 1px bar centred on a 28px gutter.
+    let rail_left = px(TIMELINE_MARKER_CENTER - 0.5);
+    h_flex()
+        .w_full()
+        .gap_2()
+        .items_start()
+        .min_h(px(TIMELINE_ROW_MIN_H))
+        .child(
+            div()
+                .relative()
+                .flex_shrink_0()
+                .self_stretch()
+                .w(px(TIMELINE_GUTTER))
+                .when(line_above && above_len > 0., |gutter| {
+                    gutter.child(
+                        div()
+                            .absolute()
+                            .left(rail_left)
+                            .top_0()
+                            .w_px()
+                            .h(px(above_len))
+                            .bg(rail),
+                    )
+                })
+                .when(line_below, |gutter| {
+                    gutter.child(
+                        div()
+                            .absolute()
+                            .left(rail_left)
+                            .top(px(below_top))
+                            .bottom_0()
+                            .w_px()
+                            .bg(rail),
+                    )
+                })
+                .child(
+                    // The marker band: whatever the caller hands in is centred
+                    // on the rail, so one geometry serves a 6px dot, a 14px
+                    // glyph and a 24px avatar.
+                    div()
+                        .absolute()
+                        .top(px(marker_top))
+                        .left_0()
+                        .w(px(TIMELINE_GUTTER))
+                        .h(px(TIMELINE_GUTTER))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(marker),
+                ),
+        )
+        .child(div().flex_1().min_w_0().child(content))
 }
 
 /// The comment being edited (web `editingCommentId` + the draft field).
@@ -826,6 +926,7 @@ impl IssueTimeline {
         &self,
         user_map: &HashMap<String, User>,
         now_epoch: i64,
+        line_below: bool,
         cx: &App,
     ) -> Option<gpui::AnyElement> {
         let issue_id = self.issue_id.as_deref()?;
@@ -853,55 +954,50 @@ impl IssueTimeline {
             .map(|at| comments::relative_time(at, now_epoch))
             .unwrap_or_default();
 
+        // Web parity (EXP-525): the synthesized created row leads with a
+        // small plain dot, not an event glyph.
+        let marker = div()
+            .size_1p5()
+            .rounded_full()
+            .bg(cx.theme().muted_foreground)
+            .into_any_element();
+        let content = h_flex()
+            .w_full()
+            .py_1()
+            .gap_2()
+            .items_center()
+            .text_xs()
+            .text_color(cx.theme().muted_foreground)
+            .child(
+                // Same definite-width chain as `event_row` (EXP-175).
+                h_flex()
+                    .gap_1()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(cx.theme().foreground)
+                            .whitespace_nowrap()
+                            .flex_shrink_0()
+                            .child(SharedString::from(who)),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .whitespace_nowrap()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .child(SharedString::from(created_phrase(&time))),
+                    ),
+            )
+            .into_any_element();
+
+        // The feed's FIRST row — never a rail above it.
         Some(
-            h_flex()
-                .w_full()
-                .py_1()
-                .gap_2()
-                .items_center()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(
-                    // Web parity (EXP-525): the synthesized created row leads
-                    // with a small plain dot, not an event glyph.
-                    div()
-                        .size_3p5()
-                        .flex_shrink_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(
-                            div()
-                                .size_1p5()
-                                .rounded_full()
-                                .bg(cx.theme().muted_foreground),
-                        ),
-                )
-                .child(
-                    // Same definite-width chain as `event_row` (EXP-175).
-                    h_flex()
-                        .gap_1()
-                        .flex_1()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .child(
-                            div()
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(cx.theme().foreground)
-                                .whitespace_nowrap()
-                                .flex_shrink_0()
-                                .child(SharedString::from(who)),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .whitespace_nowrap()
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .child(SharedString::from(created_phrase(&time))),
-                        ),
-                )
+            timeline_row(marker, 6., 0., false, line_below, content)
                 .into_any_element(),
         )
     }
@@ -971,14 +1067,38 @@ impl Render for IssueTimeline {
                     .child(SharedString::from(header_label)),
             );
 
+        // EXP-525: status-changed rows resolve their target status against
+        // the team vocabulary (real icon + color).
+        let statuses = self
+            .team_id
+            .as_deref()
+            .map(|team_id| queries::team_statuses(cx, team_id))
+            .unwrap_or_default();
+
+        // EXP-698 round 5: the rail's first/last flags key on the RENDERED
+        // rows, so unknown event kinds — `event_phrase` returns None for them,
+        // web parity — have to be dropped BEFORE the flags are assigned; a
+        // trailing hidden event would otherwise leave a bar dangling off the
+        // last visible row (and, with every item hidden, off the creation row).
+        // The header count above stays on the merged list, unchanged.
+        let rendered: Vec<&TimelineItem> = items
+            .iter()
+            .filter(|item| match item {
+                TimelineItem::Event(event) => {
+                    event_phrase(event, &user_map, &label_map, &board_map, &statuses).is_some()
+                }
+                TimelineItem::Comment(_) => true,
+            })
+            .collect();
+
         // EXP-417: "X created the issue" goes FIRST, above every event.
-        let creation_row = self.creation_row(&user_map, now_epoch, cx);
+        let creation_row = self.creation_row(&user_map, now_epoch, !rendered.is_empty(), cx);
         let has_creation_row = creation_row.is_some();
         body = body.children(creation_row);
 
         // With the creation row present this is unreachable; it stays for the
         // race where the issue itself hasn't synced yet.
-        if items.is_empty() && !has_creation_row {
+        if rendered.is_empty() && !has_creation_row {
             body = body.child(
                 div()
                     .text_xs()
@@ -988,20 +1108,24 @@ impl Render for IssueTimeline {
             );
         }
 
-        // EXP-525: status-changed rows resolve their target status against
-        // the team vocabulary (real icon + color).
-        let statuses = self
-            .team_id
-            .as_deref()
-            .map(|team_id| queries::team_statuses(cx, team_id))
-            .unwrap_or_default();
-
-        for item in &items {
+        let last_index = rendered.len().saturating_sub(1);
+        for (index, item) in rendered.iter().enumerate() {
+            // An item's rail reaches up whenever ANYTHING precedes it (the
+            // creation row counts) and down until the last one.
+            let line_above = index > 0 || has_creation_row;
+            let line_below = index < last_index;
             match item {
                 TimelineItem::Event(event) => {
-                    if let Some(row) =
-                        event_row(event, &user_map, &label_map, &board_map, &statuses, cx)
-                    {
+                    if let Some(row) = event_row(
+                        event,
+                        &user_map,
+                        &label_map,
+                        &board_map,
+                        &statuses,
+                        line_above,
+                        line_below,
+                        cx,
+                    ) {
                         body = body.child(row);
                     }
                 }
@@ -1032,6 +1156,8 @@ impl Render for IssueTimeline {
                                 .map(|edit| edit.pending.as_slice())
                                 .unwrap_or_default(),
                             now_epoch,
+                            line_above,
+                            line_below,
                             team_id: self.team_id.as_deref(),
                             images: &self.images,
                             emoji_picker: &self.emoji_picker,
@@ -1271,12 +1397,15 @@ fn event_phrase(
 /// One compact single-line activity entry (web `EventRow`): icon + "Actor
 /// did-something" in muted text with the actor emphasized. PR events carry a
 /// link — the row opens it in the browser (EXP-33).
+#[allow(clippy::too_many_arguments)] // the rail flags ride along, web parity
 fn event_row(
     event: &IssueEvent,
     user_map: &HashMap<String, User>,
     label_map: &HashMap<String, Label>,
     board_map: &HashMap<String, Board>,
     statuses: &[domain::rows::IssueStatusRow],
+    line_above: bool,
+    line_below: bool,
     cx: &App,
 ) -> Option<gpui::AnyElement> {
     let (glyph, phrase, link) = event_phrase(event, user_map, label_map, board_map, statuses)?;
@@ -1292,17 +1421,15 @@ fn event_row(
     // it was still auto-width and the row itself relied on implicit stretch
     // (EXP-175). So: w_full row → flex_1 wrapper → flex_1 phrase, every
     // level resolvable without measuring the text.
-    // EXP-282: no extra `pl_1` — event rows start on the same left edge as
-    // the section header, the comment avatars and the description above.
-    let mut row = h_flex()
-        .id(SharedString::from(format!("issue-event-{}", event.id)))
+    // EXP-698 round 5: the glyph is the rail's MARKER now — centred in the
+    // shared 28px gutter instead of leading the text row.
+    let content = h_flex()
         .w_full()
         .py_1()
         .gap_2()
         .items_center()
         .text_xs()
         .text_color(cx.theme().muted_foreground)
-        .child(glyph.render(cx).flex_shrink_0())
         .child(
             h_flex()
                 .gap_1()
@@ -1327,7 +1454,20 @@ fn event_row(
                         .when(link.is_some(), |el| el.text_color(cx.theme().link))
                         .child(SharedString::from(phrase)),
                 ),
-        );
+        )
+        .into_any_element();
+
+    // The event glyph renders `xsmall` — 14px, the marker size the rail
+    // breaks around.
+    let mut row = timeline_row(
+        glyph.render(cx).flex_shrink_0().into_any_element(),
+        14.,
+        0.,
+        line_above,
+        line_below,
+        content,
+    )
+    .id(SharedString::from(format!("issue-event-{}", event.id)));
 
     if let Some(link) = link {
         row = row.cursor_pointer().on_click(move |_, _, _| {

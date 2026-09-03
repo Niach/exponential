@@ -38,7 +38,7 @@
     "shots:index": "bun run --filter @exp/shots index",
     "shots:affected": "bun run --filter @exp/shots affected",
     "shots:check": "bun --filter @exp/styleguide build -- --check",
-    "test:shots": "bun --filter @exp/view-catalog test && bun --filter @exp/shots test",
+    "test:shots": "bun --filter @exp/view-catalog test && bun --filter @exp/shots test && bun --filter @exp/styleguide test",
     "dev:styleguide": "bun --filter @exp/styleguide dev",
     "build:styleguide": "bun --filter @exp/styleguide build",
     "social:generate": "bun run --filter @exp/marketing social:generate",

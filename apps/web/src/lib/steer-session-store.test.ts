@@ -6,6 +6,7 @@ import {
   type SteerSessionStore,
 } from "@/lib/steer-session-store"
 import { FEED_CAP } from "@/lib/agent-feed"
+import { MAX_STEER_IMAGES } from "@/lib/steer-image-message"
 import { TRPCClientError } from "@trpc/client"
 
 // The store never reaches the real client in tests — every store gets fake
@@ -386,11 +387,15 @@ describe(`draft`, () => {
     expect(store.addDraftImages([notImage])).toEqual({
       rejected: 1,
       overflow: 0,
+      added: 0,
     })
     const many = [1, 2, 3, 4, 5].map((n) => image(`${n}.png`))
     const result = store.addDraftImages(many)
     expect(result.rejected).toBe(0)
     expect(result.overflow).toBeGreaterThan(0)
+    // `added` is what the composer numbers its `[Image #N]` markers from
+    // (EXP-698) — the over-cap extras never joined the strip.
+    expect(result.added).toBe(MAX_STEER_IMAGES)
     store.dispose()
   })
 

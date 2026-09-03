@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react"
+import { useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { ChevronDown, LoaderCircle } from "lucide-react"
@@ -15,6 +15,7 @@ import { getActionIcon } from "@/lib/board-icons"
 import { trpc } from "@/lib/trpc-client"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { SessionMergeButton } from "@/components/session-merge-button"
 import { GlassRow } from "@/components/ui/glass-rows"
@@ -30,25 +31,6 @@ const ActionAutomationIcon = conceptIcon(`action-automation`)
 // (actionName snapshot set — survives the action's deletion) shows
 // "Action" + the action name, an issueless batch run shows "Batch",
 // everything else is the linked issue.
-
-export function SectionLabel({
-  label,
-  count,
-  trailing,
-}: {
-  label: string
-  count: number
-  /** Optional right-aligned control (e.g. the Actions "New action" button). */
-  trailing?: ReactNode
-}) {
-  return (
-    <div className="flex items-center gap-1.5 rounded-t-md border-b border-border/50 bg-zinc-500/10 px-3 py-1.5">
-      <span className="text-sm font-medium">{label}</span>
-      <span className="text-xs text-muted-foreground">{count}</span>
-      {trailing && <div className="ml-auto">{trailing}</div>}
-    </div>
-  )
-}
 
 // Steady dot per parked display state (EXP-194/EXP-214): review green,
 // done blue (both matching the issue-status palette), needs-input amber;
@@ -228,7 +210,7 @@ export function SessionRow({
           />
         )}
         {issue && board ? (
-          <Button asChild variant="glass" size="xs" className="font-mono">
+          <Pill asChild size="sm" mode="action" className="font-mono">
             <Link
               to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
               params={{
@@ -242,9 +224,9 @@ export function SessionRow({
             >
               {issue.identifier}
             </Link>
-          </Button>
+          </Pill>
         ) : editsAutomation && session.automationId ? (
-          <Button asChild variant="glass" size="icon" className="size-8">
+          <Button asChild variant="glass" size="icon-sm">
             <Link
               to="/t/$teamSlug/actions"
               params={{ teamSlug }}
@@ -260,7 +242,7 @@ export function SessionRow({
             </Link>
           </Button>
         ) : session.actionId ? (
-          <Button asChild variant="glass" size="icon" className="size-8">
+          <Button asChild variant="glass" size="icon-sm">
             <Link
               to="/t/$teamSlug/actions"
               params={{ teamSlug }}
@@ -363,6 +345,8 @@ export function EndedSessionRow({
                 markdown={session.summary}
                 editable={false}
                 onChange={() => {}}
+                // EXP-698: the run summary is feed-sized markdown.
+                appearance="chat"
               />
             </div>
           ) : (

@@ -12,7 +12,7 @@ import {
 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -25,14 +25,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { GlassGroup } from "@/components/ui/glass-rows"
+  GlassGroup,
+  GlassRow,
+  GlassSectionHeader,
+} from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogContent,
@@ -237,27 +233,22 @@ export function TeamRepositoriesSection({
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            Repositories
-            <Badge variant="secondary" className="text-xs font-normal">
-              {count}
-            </Badge>
-          </CardTitle>
-          <CardDescription>
-            Connect your GitHub repos to share them with the team — everyone
-            can code on a shared repo. Point a board at one to make it the
-            clone target for &ldquo;Start coding&rdquo;.
-          </CardDescription>
-          <CardAction>
-            <Button size="sm" onClick={() => setConnectOpen(true)}>
-              <Github className="mr-1.5 h-3.5 w-3.5" />
+      <div>
+        <GlassSectionHeader
+          label="Repositories"
+          trailing={
+            <Pill mode="action" onClick={() => setConnectOpen(true)}>
+              <Github />
               Add repository
-            </Button>
-          </CardAction>
-        </CardHeader>
-        <CardContent className="space-y-3">
+            </Pill>
+          }
+        />
+        <p className="px-1 pb-2 text-xs text-foreground/50">
+          Connect your GitHub repos to share them with the team — everyone can
+          code on a shared repo. Point a board at one to make it the clone
+          target for &ldquo;Start coding&rdquo;.
+        </p>
+        <div className="space-y-3">
           <GithubStatusLine
             status={githubStatus}
             busy={busy}
@@ -293,9 +284,9 @@ export function TeamRepositoriesSection({
           )}
 
           {count === 0 ? (
-            <div className="rounded-md border border-glass-stroke bg-glass-row px-3 py-2 text-sm text-muted-foreground">
+            <GlassRow className="px-3 py-2 text-sm text-muted-foreground">
               No repositories connected yet.
-            </div>
+            </GlassRow>
           ) : (
             <GlassGroup>
               {repos!.map((repo) => (
@@ -323,8 +314,8 @@ export function TeamRepositoriesSection({
               ))}
             </GlassGroup>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       <Dialog open={connectOpen} onOpenChange={handleConnectOpenChange}>
         {/* overflow-hidden overrides the base DialogContent's own scroller so
@@ -657,18 +648,15 @@ function RepoRow({
             onPick={onSetDefaultBranch}
           />
         ) : (
-          <Badge
-            variant="outline"
-            className="h-5 shrink-0 rounded-md px-1.5 font-mono text-xs font-normal"
-          >
+          <Pill className="shrink-0 font-mono font-normal">
             {repo.defaultBranch}
-          </Badge>
+          </Pill>
         )}
         {repo.private && (
-          <Badge variant="secondary" className="shrink-0 gap-1 text-xs">
+          <Pill className="shrink-0 gap-1">
             <Lock className="h-3 w-3" />
             Private
-          </Badge>
+          </Pill>
         )}
         {!canManage ? null : inUse ? (
           <TooltipProvider>
@@ -678,13 +666,12 @@ function RepoRow({
                     events the tooltip trigger relies on. */}
                 <span className="shrink-0">
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-muted-foreground"
+                    variant="glass"
+                    size="icon-sm"
                     disabled
                     aria-label="Remove repository"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 />
                   </Button>
                 </span>
               </TooltipTrigger>
@@ -697,14 +684,14 @@ function RepoRow({
           </TooltipProvider>
         ) : (
           <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+            variant="glass"
+            size="icon-sm"
+            className="shrink-0 hover:text-destructive"
             disabled={busy}
             onClick={onRemove}
             title="Remove repository"
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            <Trash2 />
           </Button>
         )}
       </div>
@@ -718,17 +705,12 @@ function RepoRow({
               : `The GitHub App lost access to this repository. Re-grant it on GitHub.`}
           </span>
           {manageUrl && (
-            <Button
-              asChild
-              size="sm"
-              variant="outline"
-              className="h-6 px-2 text-xs"
-            >
+            <Pill asChild mode="action">
               <a href={manageUrl} target="_blank" rel="noreferrer">
                 {installationSuspended ? `Unsuspend` : `Re-grant`}
-                <ExternalLink className="ml-1 h-3 w-3" />
+                <ExternalLink />
               </a>
-            </Button>
+            </Pill>
           )}
         </div>
       )}
@@ -738,9 +720,9 @@ function RepoRow({
           <>
             <span className="text-xs text-muted-foreground">Used by</span>
             {repo.boards.map((board) => (
-              <Badge key={board.id} variant="outline" className="max-w-[12rem]">
+              <Pill key={board.id} className="max-w-[12rem]">
                 <span className="truncate">{board.name}</span>
-              </Badge>
+              </Pill>
             ))}
           </>
         ) : (

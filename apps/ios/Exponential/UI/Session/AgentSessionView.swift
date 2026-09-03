@@ -119,11 +119,19 @@ struct AgentSessionView: View {
     /// glyph. Usage opens the per-window cards; Kill (EXP-268) force-ends a
     /// live session — owner-only, like everything about one (EXP-312).
     private var hasToolbarMenu: Bool {
-        model?.agentUsage != nil || model?.canKill == true
+        headerIssue != nil || model?.agentUsage != nil || model?.canKill == true
     }
 
     @ViewBuilder
     private var toolbarMenuItems: some View {
+        // EXP-698: the run's issue is reachable from the run. The Agents list
+        // dropped its duplicate identifier pill (the title prints it), so this
+        // menu — and the list row's long press — are the two ways there.
+        if let issue = headerIssue {
+            GlassMenuItem("Open issue", icon: AppIcons.uiIssue) {
+                deps.deepLinkBus.navigateToIssue(issue.id, accountId: accountId)
+            }
+        }
         if model?.agentUsage != nil {
             GlassMenuItem("Usage", icon: AppIcons.uiUsage) {
                 showUsageSheet = true
@@ -458,7 +466,7 @@ struct AgentSessionView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 6)
             }
         }
@@ -470,25 +478,13 @@ struct AgentSessionView: View {
         selected: Bool,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Text(label)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white.opacity(
-                        selected ? TextOpacity.primary : TextOpacity.secondary
-                    ))
-                    .lineLimit(1)
-                if running {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(.white)
-                }
+        GlassPill(label, mode: .select(isSelected: selected, action: action)) {
+            if running {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(.white)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
         }
-        .glassButton(isActive: selected)
-        .buttonStyle(.plain)
     }
 
     private func centeredState(@ViewBuilder content: () -> some View) -> some View {
@@ -562,7 +558,7 @@ struct AgentSessionView: View {
                             .frame(height: 1)
                             .id(Self.bottomAnchor)
                     }
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(
@@ -585,6 +581,10 @@ struct AgentSessionView: View {
                 // already accounts for it, so the last line still comes to
                 // rest fully above the bar.
                 .safeAreaInset(edge: .bottom, spacing: 0) { changesBar() }
+                // EXP-698: the nav bar is `.ultraThinMaterial`, so a scrolled
+                // narration line used to be sliced through its letterforms at
+                // the header's edge. The fade lets it recede instead.
+                .stickyHeaderFade()
                 .coordinateSpace(name: Self.feedCoordSpace)
                 .modifier(FollowPinTracker(
                     atBottom: $atBottom,
@@ -615,32 +615,30 @@ struct AgentSessionView: View {
                 }
                 .overlay(alignment: .bottom) {
                     if !atBottom {
-                        Button {
-                            // Re-arm follow directly (Android parity: the pill
-                            // tap sets follow=true) instead of waiting for the
-                            // scroll geometry to flip atBottom — while the
-                            // agent streams, the animated scrollTo targets the
-                            // bottom as of the tap, the content keeps growing
-                            // underneath it, and the animation lands short of
-                            // the moving max offset, so the pill never
-                            // vanished (EXP-306). With atBottom set here the
-                            // pill hides at once and the growth observer keeps
-                            // chasing the bottom.
-                            atBottom = true
-                            withAnimation {
-                                proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
-                            }
-                        } label: {
-                            Text("Jump to bottom ↓")
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                        }
                         // Opaque: the feed scrolls beneath this pill
                         // (EXP-165 Android parity, EXP-242).
-                        .glassButton(isActive: true, isOpaque: true)
-                        .buttonStyle(.plain)
+                        GlassPill(
+                            "Jump to bottom ↓",
+                            size: .md,
+                            mode: .select(isSelected: true) {
+                                // Re-arm follow directly (Android parity: the
+                                // pill tap sets follow=true) instead of waiting
+                                // for the scroll geometry to flip atBottom —
+                                // while the agent streams, the animated
+                                // scrollTo targets the bottom as of the tap,
+                                // the content keeps growing underneath it, and
+                                // the animation lands short of the moving max
+                                // offset, so the pill never vanished
+                                // (EXP-306). With atBottom set here the pill
+                                // hides at once and the growth observer keeps
+                                // chasing the bottom.
+                                atBottom = true
+                                withAnimation {
+                                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                                }
+                            },
+                            isOpaque: true
+                        )
                         .padding(.bottom, 8)
                     }
                 }
@@ -874,7 +872,7 @@ struct AgentSessionView: View {
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
         .padding(.vertical, 8)
     }
 
@@ -891,7 +889,7 @@ struct AgentSessionView: View {
             // Steering is fully seamless (EXP-312) — no captions, no
             // operator state; input just sends.
             composerCard(model)
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 10)
         }
     }
@@ -929,7 +927,7 @@ struct AgentSessionView: View {
                     }
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 16)
             .padding(.bottom, 8)
             .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
                 changesBarHeight = height
@@ -961,7 +959,10 @@ struct AgentSessionView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            // EXP-698: the chip shares its row with the `.md` Merge /
+            // Fix-conflicts pills, so it takes their height rather than
+            // whatever its own padding happened to add up to.
+            .frame(height: GlassPillTokens.heightMd)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -972,20 +973,18 @@ struct AgentSessionView: View {
     /// (EXP-498), so it only shows while there IS an open PR (`model.canMerge`,
     /// which resolves a batch run's PR through EXP-535's representative issue).
     private func mergePill(_ model: AgentSessionModel) -> some View {
-        Button {
-            showMergeConfirm = true
-        } label: {
-            GlassPillLabel("Merge", enabled: !merging, verticalPadding: 10) {
-                if merging {
-                    ProgressView().controlSize(.mini).tint(.white)
-                } else {
-                    AppIcon(AppIcons.prMerged, size: 14)
-                }
+        GlassPill(
+            "Merge",
+            size: .md,
+            mode: .action { showMergeConfirm = true },
+            enabled: !merging
+        ) {
+            if merging {
+                ProgressView().controlSize(.mini).tint(.white)
+            } else {
+                AppIcon(AppIcons.prMerged, size: GlassPillTokens.glyphMd)
             }
-            .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
-        .disabled(merging)
         .accessibilityLabel("Merge pull request")
     }
 
@@ -993,15 +992,12 @@ struct AgentSessionView: View {
     /// same height, opening the shared "Fix merge conflicts" launcher seeded
     /// with THIS run's pull request.
     private func fixConflictsPill() -> some View {
-        Button {
-            fixSheetOpen = true
-        } label: {
-            GlassPillLabel("Fix conflicts", verticalPadding: 10) {
-                AppIcon(AppIcons.uiBranch, size: 14)
-            }
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
+        GlassPill(
+            "Fix conflicts",
+            icon: AppIcons.uiBranch,
+            size: .md,
+            mode: .action { fixSheetOpen = true }
+        )
         .accessibilityLabel("Fix merge conflicts")
     }
 
@@ -1117,16 +1113,16 @@ struct AgentSessionView: View {
         }
     }
 
-    /// EXP-554: the steer composer now wears the comment composer's chrome — ONE
-    /// rounded (rc20) ultraThinMaterial card holding the pending strip, a
-    /// transparent field, and the `[+]`·spacer·send row. Behavior is untouched:
-    /// four images max, the same `sendSteerImages` upload, the same frozen
+    /// EXP-554: the steer composer wears the comment composer's chrome, and
+    /// since EXP-698 that IS the same object — one `GlassComposer` holding the
+    /// transparent field, the pending strip and the `[+]`·spacer·send row. No
+    /// material, no shadow, no radius of its own. Behavior is untouched: four
+    /// images max, the same `sendSteerImages` upload, the same frozen
     /// `SteerImageMessage` wire format.
     private func composerCard(_ model: AgentSessionModel) -> some View {
         @Bindable var model = model
-        // Images attach to the session's ISSUE, so a batch or action run has
-        // nowhere to put them (EXP-511).
-        let canAttach = model.session?.issueId != nil
+        // EXP-702: images attach to the SESSION, so every run can carry them —
+        // a batch or action run no longer has "nowhere to put them".
         let attachFull = model.pendingImages.count >= SteerImageMessage.maxImages
         let canSend = !model.trimmedDraft.isEmpty || !model.pendingImages.isEmpty
         // EXP-621: only SENDING waits for the socket — the field, the picker
@@ -1134,13 +1130,29 @@ struct AgentSessionView: View {
         // reconnect lands.
         let sendDisabled = !canSend || model.steerSending || !model.canSteer
         let attachDisabled = attachFull || model.steerSending
-        return VStack(alignment: .leading, spacing: 0) {
+        return GlassComposer(isOpaque: true) {
+            GlassTextField(
+                // A pending plan approval routes free text into the plan
+                // feedback flow (the desktop Esc's the picker and types the
+                // message) — say so instead of the generic prompt (EXP-529).
+                model.awaitingPlanApproval
+                    ? "Tell Claude what to change…" : "Message the agent…",
+                text: $model.draftText,
+                lines: 1...4,
+                bordered: false
+            )
+            .font(.subheadline)
+            .focused($inputFocused)
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+        } strip: {
             if !model.pendingImages.isEmpty {
                 PendingAttachmentStrip(items: model.pendingImages) { id in
-                    model.pendingImages.removeAll { $0.id == id }
+                    removePendingImage(model, id: id)
                 }
                 .padding(.horizontal, 8)
-                .padding(.top, 8)
+                .padding(.bottom, 4)
             }
 
             if let imageError = model.steerImageError {
@@ -1149,66 +1161,25 @@ struct AgentSessionView: View {
                     .foregroundStyle(DesignTokens.Semantic.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
-                    .padding(.top, 8)
+                    .padding(.bottom, 4)
             }
-
-            TextField(
-                // A pending plan approval routes free text into the plan
-                // feedback flow (the desktop Esc's the picker and types the
-                // message) — say so instead of the generic prompt (EXP-529).
-                model.awaitingPlanApproval
-                    ? "Tell Claude what to change…" : "Message the agent…",
-                text: $model.draftText,
-                axis: .vertical
-            )
-                .textFieldStyle(.plain)
-                .lineLimit(1...4)
-                .font(.subheadline)
-                .foregroundStyle(.white)
-                .focused($inputFocused)
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-                .padding(.bottom, 4)
-
-            HStack(spacing: 2) {
-                if canAttach {
-                    Button {
-                        showPhotoPicker = true
-                    } label: {
-                        AppIcon(AppIcons.uiAdd, size: AppIcon.Size.medium)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .frame(width: 36, height: 36)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(attachDisabled)
-                    .opacity(attachDisabled ? 0.4 : 1)
-                    .accessibilityLabel("Attach image")
-                }
-
-                Spacer(minLength: 0)
-
-                Button {
-                    sendMessage(model)
-                } label: {
-                    AppIcon(AppIcons.uiSend, size: 28)
-                        .foregroundStyle(
-                            sendDisabled ? Color.white.opacity(0.3) : Color.white
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(sendDisabled)
-                .accessibilityLabel("Send")
+        } tools: {
+            GlassComposerToolButton(
+                AppIcons.uiAdd,
+                accessibilityLabel: "Attach image",
+                enabled: !attachDisabled
+            ) {
+                showPhotoPicker = true
             }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 6)
+        } submit: {
+            GlassComposerSubmitButton(
+                AppIcons.uiSend,
+                accessibilityLabel: "Send",
+                enabled: !sendDisabled
+            ) {
+                sendMessage(model)
+            }
         }
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
     }
 
     private func sendMessage(_ model: AgentSessionModel) {
@@ -1266,7 +1237,29 @@ struct AgentSessionView: View {
                 contentType: normalized.contentType,
                 uploadedId: nil
             ))
+            // EXP-698: the k-th image drops its positional `[Image #k]` into
+            // the draft, so a sentence can name the picture it means. The
+            // composer's field is a SwiftUI `TextField` bound to `draftText`
+            // with no selection API, so the marker lands at the END of the
+            // draft (spaced off whatever is there) rather than at the caret.
+            let inserted = SteerImageMessage.insertImageMarker(
+                text: model.draftText,
+                caret: (model.draftText as NSString).length,
+                index: model.pendingImages.count
+            )
+            model.draftText = inserted.text
         }
+    }
+
+    /// Dropping a pending image renumbers the draft's markers: the removed
+    /// one goes and every higher one slides down, so `[Image #N]` keeps
+    /// naming the N-th image that will actually be sent.
+    private func removePendingImage(_ model: AgentSessionModel, id: UUID) {
+        guard let position = model.pendingImages.firstIndex(where: { $0.id == id }) else { return }
+        model.pendingImages.remove(at: position)
+        model.draftText = SteerImageMessage.renumberImageMarkers(
+            model.draftText, removedIndex: position + 1
+        )
     }
 }
 
@@ -1347,23 +1340,55 @@ private struct UserMessageBubble: View {
     private static let clampChars = 600
     /// Folded height. A block render has no `lineLimit`, so the fold is a
     /// clipped height cap instead — same approach as QuestionCard's prompt.
-    private static let clampHeight: CGFloat = 220
+    private static let clampHeight: CGFloat = 160
 
-    private var clampable: Bool {
-        text.count > Self.clampChars
-            || text.filter { $0 == "\n" }.count >= Self.clampLines
+    private func isClampable(_ body: String) -> Bool {
+        body.count > Self.clampChars
+            || body.filter { $0 == "\n" }.count >= Self.clampLines
     }
 
+    /// EXP-698: a steered message with images (EXP-511) splits into its PROSE
+    /// — whose `[Image #N]` markers become chips — and the embeds themselves,
+    /// which stay below it. A message without embeds is the wire message and
+    /// keeps the full markdown block render, markers and all: a marker with no
+    /// picture behind it is prose, and chipping it would promise a preview
+    /// that does not exist (web's `MarkerText` `count` gate).
+    private var parsed: SteerImageMessage.Parsed { SteerImageMessage.parse(text) }
+
     var body: some View {
-        HStack {
+        let parsed = parsed
+        let hasImages = !parsed.attachmentIds.isEmpty
+        // Clamp the PROSE, never the wire message: four embed lines are four
+        // more "lines" of nothing, and they used to push a two-line steer into
+        // the fold — which then hid the images the fold was measuring.
+        let clampable = isClampable(hasImages ? parsed.text : text)
+        return HStack {
             Spacer(minLength: 32)
             VStack(alignment: .leading, spacing: 4) {
-                AgentMarkdownText(
-                    text: text,
-                    context: context,
-                    options: [.autolinkBareURLs, .hardLineBreaks],
-                    hugsWidth: true
-                )
+                Group {
+                    if !hasImages {
+                        AgentMarkdownText(
+                            text: text,
+                            context: context,
+                            options: [.autolinkBareURLs, .hardLineBreaks],
+                            hugsWidth: true
+                        )
+                    } else if !parsed.text.isEmpty {
+                        if parsed.markers.isEmpty {
+                            AgentMarkdownText(
+                                text: parsed.text,
+                                context: context,
+                                options: [.autolinkBareURLs, .hardLineBreaks],
+                                hugsWidth: true
+                            )
+                        } else {
+                            MarkedUpUserText(
+                                text: parsed.text,
+                                imageCount: parsed.attachmentIds.count
+                            )
+                        }
+                    }
+                }
                 .frame(maxHeight: clampable && !expanded ? Self.clampHeight : nil, alignment: .top)
                 .clipped()
                 if clampable {
@@ -1373,6 +1398,19 @@ private struct UserMessageBubble: View {
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .buttonStyle(.plain)
+                }
+                // OUTSIDE the fold: the images are the point of the message,
+                // and a long prose clamp must never be what hides them.
+                if hasImages {
+                    AgentMarkdownText(
+                        text: SteerImageMessage.build(
+                            text: "", attachmentIds: parsed.attachmentIds
+                        ),
+                        context: context,
+                        options: [.autolinkBareURLs, .hardLineBreaks],
+                        hugsWidth: true
+                    )
+                    .padding(.top, parsed.text.isEmpty ? 0 : 4)
                 }
             }
             .padding(.horizontal, 12)
@@ -1387,6 +1425,169 @@ private struct UserMessageBubble: View {
             )
         }
         .padding(.vertical, 5)
+    }
+}
+
+/// EXP-698: the PROSE of a steered message that carries `[Image #N]` markers.
+/// The words flow as plain runs and a marker becomes a readonly `GlassPill`
+/// beside them, so "crop [Image #2] tighter" reads as a sentence with a chip
+/// in it. Markdown is deliberately NOT re-parsed here — a message that names
+/// its pictures came from the composer as chat prose, and a block stack could
+/// not flow around an inline chip anyway — but the two things the plain path
+/// would otherwise lose are kept: line breaks (one flow row per line) and
+/// bare URLs (rendered as `Link`, what cmark's autolink does on the markdown
+/// path). The embeds are the caller's; this view renders text only.
+private struct MarkedUpUserText: View {
+    let text: String
+    /// How many images the message actually carries. A marker outside
+    /// `1...imageCount` — hand-typed, or left behind by an edit — is prose,
+    /// not a chip: chipping it would promise a picture that is not there.
+    let imageCount: Int
+
+    /// One flowed item. Words are split out so the flow layout can wrap
+    /// between them — a whole paragraph as one subview would simply overflow
+    /// the bubble.
+    private enum Piece: Identifiable {
+        /// `text` is the word; when `url` is set only `text` is the anchor and
+        /// `suffix` is the prose punctuation that followed it inside the same
+        /// whitespace-delimited word (`https://x.dev).` → anchor + `).`).
+        case word(id: Int, text: String, url: URL?, suffix: String)
+        case marker(id: Int, index: Int)
+
+        var id: Int {
+            switch self {
+            case .word(let id, _, _, _), .marker(let id, _): return id
+            }
+        }
+    }
+
+    /// A source line's pieces. Splitting on `\n` FIRST is what keeps a
+    /// multi-line steer multi-line — one flow row per line, instead of every
+    /// word of the message poured into a single wrapping paragraph.
+    private struct Line: Identifiable {
+        let id: Int
+        let pieces: [Piece]
+    }
+
+    private var lines: [Line] {
+        var lines: [Line] = []
+        var current: [Piece] = []
+        var nextId = 0
+
+        func take() -> Int {
+            defer { nextId += 1 }
+            return nextId
+        }
+        func breakLine() {
+            lines.append(Line(id: lines.count, pieces: current))
+            current = []
+        }
+
+        for segment in SteerImageMessage.segments(of: text) {
+            switch segment {
+            case .text(let run):
+                let runLines = run.components(separatedBy: "\n")
+                for (offset, runLine) in runLines.enumerated() {
+                    if offset > 0 { breakLine() }
+                    for word in runLine.split(whereSeparator: \.isWhitespace) {
+                        let word = String(word)
+                        let anchor = Self.link(in: word)
+                        current.append(.word(
+                            id: take(),
+                            text: anchor?.text ?? word,
+                            url: anchor?.url,
+                            suffix: anchor?.suffix ?? ""
+                        ))
+                    }
+                }
+            case .marker(let index):
+                if index >= 1 && index <= imageCount {
+                    current.append(.marker(id: take(), index: index))
+                } else {
+                    // Out of range: prose, exactly as the wire carried it.
+                    current.append(.word(
+                        id: take(),
+                        text: SteerImageMessage.imageMarker(index),
+                        url: nil,
+                        suffix: ""
+                    ))
+                }
+            }
+        }
+        breakLine()
+        return lines
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(lines) { line in
+                if line.pieces.isEmpty {
+                    // A blank line keeps its height — the paragraph break the
+                    // sender typed is part of the message.
+                    Text(verbatim: " ")
+                        .font(.body)
+                        .foregroundStyle(.clear)
+                } else {
+                    FlowLayout(spacing: 4) {
+                        ForEach(line.pieces) { piece in
+                            switch piece {
+                            case .word(_, let word, let url, let suffix):
+                                if let url {
+                                    // One subview, no flow spacing inside it:
+                                    // the punctuation belongs against the
+                                    // anchor, not a space away from it.
+                                    HStack(spacing: 0) {
+                                        Link(destination: url) {
+                                            Text(word)
+                                                .font(.body)
+                                                .underline()
+                                                .foregroundStyle(Color(MarkdownStyle.linkColor))
+                                        }
+                                        if !suffix.isEmpty {
+                                            Text(suffix)
+                                                .font(.body)
+                                                .foregroundStyle(.white.opacity(0.9))
+                                        }
+                                    }
+                                } else {
+                                    Text(word)
+                                        .font(.body)
+                                        .foregroundStyle(.white.opacity(0.9))
+                                }
+                            case .marker(_, let index):
+                                GlassPill("Image \(index)", icon: AppIcons.editorImage)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A bare `http(s)://` word, with prose punctuation trimmed off the end —
+    /// `(see https://x.dev).` must not link the `).`. Balanced closing
+    /// brackets are kept, so `https://x.dev/a(b)` stays whole. Hand-mirrored
+    /// from web's `lib/linkify.ts`, scoped to one whitespace-delimited word
+    /// because that is all this flow layout ever hands it.
+    private static func link(in word: String) -> (text: String, url: URL, suffix: String)? {
+        let lowered = word.lowercased()
+        guard lowered.hasPrefix("http://") || lowered.hasPrefix("https://") else { return nil }
+        var anchor = Substring(word)
+        while let last = anchor.last {
+            let opens: (Character) -> Int = { open in anchor.filter { $0 == open }.count }
+            if ".,;:!?".contains(last) {
+                anchor = anchor.dropLast()
+            } else if last == ")", opens("(") < opens(")") {
+                anchor = anchor.dropLast()
+            } else if last == "]", opens("[") < opens("]") {
+                anchor = anchor.dropLast()
+            } else {
+                break
+            }
+        }
+        guard !anchor.isEmpty, let url = URL(string: String(anchor)) else { return nil }
+        return (String(anchor), url, String(word.dropFirst(anchor.count)))
     }
 }
 
@@ -1440,7 +1641,7 @@ private struct QuestionCard: View {
 
     private static let clampChars = 600
     private static let clampLines = 6
-    private static let clampHeight: CGFloat = 220
+    private static let clampHeight: CGFloat = 160
     /// The relay's answer frame rejects `text` past 4000 UTF-16 units WHOLE
     /// (steer-relay protocol.ts — dropped, not truncated), so an oversize
     /// reply would silently fail at the 8s lock and retry could never
@@ -1511,7 +1712,9 @@ private struct QuestionCard: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .glassSection()
+        // A bordered card, not a group container: the ask is one free-content
+        // block that has to stand off the transcript behind it.
+        .glassCard()
         .padding(.vertical, 5)
     }
 
@@ -1660,26 +1863,24 @@ private struct QuestionCard: View {
                     .glassRow(isActive: true)
                 let disabled = freeTextValue
                     .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                Button {
-                    submitFreeText()
-                } label: {
-                    AppIcon(AppIcons.uiSend, size: 13)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
+                GlassPill(
+                    "",
+                    mode: .select(isSelected: !disabled) { submitFreeText() },
+                    enabled: !disabled
+                ) {
+                    AppIcon(AppIcons.uiSend, size: GlassPillTokens.glyphSm)
                 }
-                .glassButton(isActive: !disabled)
-                .buttonStyle(.plain)
-                .disabled(disabled)
-                .opacity(disabled ? 0.5 : 1)
+                .accessibilityLabel("Send")
             }
         }
         if answerable, needsExplicitSubmit {
             // Multi-select submits every picked key at once.
             let disabled = locked || picked.isEmpty
-            GlassPillButton(submitTitle, isActive: !disabled, enabled: !disabled) {
-                submit()
-            }
+            GlassPill(
+                submitTitle,
+                mode: .select(isSelected: !disabled) { submit() },
+                enabled: !disabled
+            )
         }
         if locked, !question.resolved {
             HStack(spacing: 6) {
@@ -1995,7 +2196,7 @@ private struct PermissionRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             AppIcon(AppIcons.uiPermission, size: 11)
-                .foregroundStyle(DesignTokens.Semantic.orange)
+                .foregroundStyle(DesignTokens.Semantic.yellow)
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Permission requested · \(tool)")
@@ -2233,7 +2434,9 @@ private struct LatestChangesSheet: View {
                                     .padding(.bottom, 8)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .glassSection()
+                            // One file among many in a gapped stack — a row,
+                            // not a borderless group.
+                            .glassRow()
                         }
                     }
                     .padding(.horizontal, 16)

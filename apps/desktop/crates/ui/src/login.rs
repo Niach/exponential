@@ -615,8 +615,7 @@ impl LoginView {
                     .child(url.clone()),
             )
             .child(
-                Button::new("login-copy-oauth-url")
-                    .outline().web_xs()
+                crate::surface::glass_pill_button("login-copy-oauth-url", crate::surface::PillSize::Sm, cx)
                     .label("Copy")
                     .on_click(cx.listener(move |_, _, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(

@@ -241,9 +241,17 @@ struct AppNavigator: View {
 
 struct MainNavigator: View {
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.motion) private var motion
     // Typed path (not NavigationPath) so the tab bar can inspect the top route.
     @State private var path: [AppRoute] = []
     @State private var teamState = TeamState()
+    /// EXP-698 r5: the bulk-selection bar takes the tab bar's slot, so the
+    /// list tells the bar to stand down while a selection is live.
+    @State private var tabBarChrome = TabBarChrome()
+    /// ONE box for the whole navigator's lifetime — its handler is wired in
+    /// `onAppear`. Rebuilding it per body pass would invalidate every reader
+    /// of `\.pushRoute` on every render.
+    @State private var pushRouteAction = PushRouteAction()
     @State private var boardLoader: MultiAccountBoardLoader?
     @State private var observationTasks: [Task<Void, Never>] = []
     @State private var syncing = false
@@ -291,8 +299,14 @@ struct MainNavigator: View {
             }
         }
         .environment(teamState)
+        .environment(tabBarChrome)
+        // EXP-698 r5: the issue list's rows are plain Buttons now (a
+        // NavigationLink in a List row draws the system disclosure OUTSIDE
+        // the glass card), so they push through this instead.
+        .environment(\.pushRoute, pushRouteAction)
         .environment(\.accountId, deps.auth.activeAccountId ?? "")
         .onAppear {
+            pushRouteAction.setHandler { path.append($0) }
             if boardLoader == nil {
                 boardLoader = MultiAccountBoardLoader(auth: deps.auth, db: deps.db)
             }
@@ -394,7 +408,7 @@ struct MainNavigator: View {
         // its own clearance via `.tabBarBottomInset()` instead — one source of
         // truth, no double-inset.
         .overlay(alignment: .bottom) {
-            if showsTabBar {
+            if showsTabBar && !tabBarChrome.suppressed {
                 MobileTabBar(
                     issuesActive: path.isEmpty,
                     devicesActive: isOnAgents,
@@ -422,8 +436,13 @@ struct MainNavigator: View {
                     onCompose: { if let route = composeRoute { path.append(route) } },
                     onChat: { chatRequest += 1 }
                 )
+                // Slides out of the way when a screen claims its slot, so the
+                // bulk bar arrives in the space the bar just left rather than
+                // popping in on top of it.
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .animation(motion.standard, value: tabBarChrome.suppressed)
         // The Support tab exists only while the flag is on — if it flips off
         // (team switch, feature disabled) while the Support surface is up,
         // land back on Issues instead of stranding a tab-less screen.

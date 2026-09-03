@@ -6,14 +6,53 @@
 //! hairlines vanish on 1x-scale displays.
 
 use gpui::{
-    div, px, AnyElement, App, Div, InteractiveElement as _, ParentElement as _, SharedString,
-    StyleRefinement, Styled,
+    div, prelude::FluentBuilder as _, px, AnyElement, App, Div, ElementId, FontWeight, Hsla,
+    InteractiveElement as _, ParentElement as _, SharedString, Stateful, StyleRefinement, Styled,
 };
 use gpui_component::input::Input;
 use gpui_component::searchable_list::{SearchableListDelegate, SearchableListItem};
 use gpui_component::select::Select;
 use gpui_component::{h_flex, text::TextViewStyle, v_flex, ActiveTheme as _};
 use theme::tokens as t;
+
+/// EXP-698 — the web `GlassSectionHeader` (`components/ui/glass-rows.tsx`,
+/// EXP-616): a PLAIN-TEXT heading over a glass list — no band, no fill, no
+/// border — `px_1 pt_1 pb_2`, the label `text_sm` MEDIUM at 70% foreground,
+/// then a spacer and the optional trailing control. No count slot: EXP-698
+/// retired header counts on every client. Labels are SENTENCE CASE, never
+/// uppercase.
+///
+/// Lived in `actions_view` until EXP-698 moved it here beside the other
+/// glass recipes; every page section (Actions, Automations, Devices,
+/// Getting started, the support rail) carries this one header design.
+///
+/// The `pb_2` IS the gap to the list below it — a section wrapper that adds
+/// its own `gap_2` doubles it (EXP-697); keep the rows in a nested
+/// `v_flex().gap_2()` instead.
+pub(crate) fn glass_section_header(
+    label: impl Into<SharedString>,
+    trailing: Option<AnyElement>,
+    cx: &App,
+) -> Div {
+    let foreground = cx.theme().foreground;
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .items_center()
+        .gap_1p5()
+        .px_1()
+        .pt_1()
+        .pb_2()
+        .child(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(foreground.opacity(0.7))
+                .child(label.into()),
+        )
+        .child(div().flex_1())
+        .children(trailing)
+}
 
 /// Card surface: radius 16, white 6% fill, white 10% hairline (mobile
 /// `GlassCard`). Layout (width/padding/gap) is the caller's job.
@@ -89,6 +128,13 @@ pub(crate) fn glass_row_shell() -> Div {
     h_flex().w_full().items_center().gap_3().px_4().py_3()
 }
 
+/// How wide a row's muted DESCRIPTION line may grow before it wraps. The
+/// settings panes are ~550px, and a hint set full-bleed across one reads as a
+/// paragraph rather than as a caption under its label — the deleted
+/// `notifications_prefs::pref_row` capped it here, so the recipe does it for
+/// every consumer.
+pub(crate) const ROW_DESCRIPTION_MAX_W: f32 = 460.;
+
 /// A picker row: the label leading at full foreground (with an optional muted
 /// second line), the value trailing at 70% with its own chevron, and NO field
 /// chrome — the group IS the field. Pass the trailing control through
@@ -111,6 +157,7 @@ pub(crate) fn glass_picker_row(
                 .child(div().child(label.into()))
                 .children(description.map(|description| {
                     div()
+                        .max_w(px(ROW_DESCRIPTION_MAX_W))
                         .text_xs()
                         .text_color(foreground.opacity(0.5))
                         .child(description)
@@ -218,6 +265,7 @@ pub(crate) fn glass_toggle_row(
                 .child(div().text_sm().text_color(foreground).child(label.into()))
                 .children(description.map(|description| {
                     div()
+                        .max_w(px(ROW_DESCRIPTION_MAX_W))
                         .text_xs()
                         .text_color(foreground.opacity(0.5))
                         .child(description)
@@ -233,7 +281,9 @@ pub(crate) fn glass_toggle_row(
 /// [`glass_tab_item`] segments, NOT with [`crate::controls::segmented`]'s
 /// capsule container.
 pub(crate) fn glass_tabs_row() -> Div {
-    h_flex().w_full().items_center().gap_1().p_2()
+    // EXP-698: no inter-segment gap — the segments abut like the web
+    // `TabsList`, and the capsule's own fill is what separates them.
+    h_flex().w_full().items_center().p_2()
 }
 
 /// One segment of a [`glass_tabs_row`]: [`crate::controls::segmented_item`]
@@ -244,35 +294,7 @@ pub(crate) fn glass_tab_item(active: bool, cx: &App) -> Div {
     // container height here, the segment's own padding sets the row height.
     crate::controls::segmented_item(active, cx)
         .h_auto()
-        .py(px(7.))
-}
-
-/// Rounded tab-chip base for the hand-rolled tab strips (EXP-277: center
-/// screens + terminal dock). gpui-component's `TabVariant`s are either square
-/// (`Tab`, plus a non-removable strip-wide bottom border) or hardwired to
-/// opaque fills (`Segmented`), so the strips draw their own chips: soft
-/// radius, transparent resting state, glass row fill on hover, glass active
-/// fill when selected. Content, id, and handlers are the caller's job.
-pub(crate) fn tab_chip(selected: bool, cx: &App) -> Div {
-    let theme = cx.theme();
-    let chip = div()
-        // EXP-525: web tab-pill metrics (`h-7 rounded-full px-3 text-xs`
-        // scale) — the old 24px/px_2 chips read too small next to the web.
-        .h(px(26.))
-        .px_2p5()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_1p5()
-        .rounded(theme.radius)
-        .cursor_pointer()
-        .text_sm();
-    if selected {
-        chip.bg(theme.tab_active).text_color(theme.tab_active_foreground)
-    } else {
-        chip.text_color(theme.tab_foreground)
-            .hover(|style| style.bg(theme.list_hover))
-    }
+        .py(px(6.))
 }
 
 /// EXP-568: a horizontal glass TRAY — the card recipe at row scale, holding a
@@ -298,22 +320,29 @@ pub(crate) fn glass_tray() -> Div {
         .bg(t::glass::FILL_SECTION.to_hsla())
 }
 
-/// A NON-interactive chip (EXP-417): the glass fill + radius the interactive
-/// `pickers::chip_button` triggers read as, sized to its content. The detail
-/// headers' read-only properties (Origin, a single-board team's Board, an
-/// action's repository/icon when it can't be changed) wear it.
-pub(crate) fn glass_chip() -> Div {
-    div()
-        .flex()
+/// EXP-698 round 5 — the ONE bulk-action bar chrome, shared with web
+/// (`bg-glass-card-opaque` + `border-glass-stroke-strong`, radius 24) and the
+/// two mobile bars: a single OPAQUE capsule that floats over the list it acts
+/// on. Opaque is the point — a translucent bar would show the rows it covers
+/// sliding underneath it (and gpui has no in-scene backdrop blur), so the fill
+/// is `theme.popover`, the shared glass-menu fill (`FILL_CARD` composited over
+/// `POPOVER`, byte-equal to Android's `GlassTokens.OpaqueCardFill`).
+///
+/// It does NOT wrap: the bar is a single fixed-height capsule, one row on
+/// every surface. When the labeled row does not fit, the CALLER collapses its
+/// buttons to icon-only with tooltips instead of flowing them onto a second
+/// line (`issue_list::render_bulk_bar` and its `BULK_BAR_LABEL_MIN_W` gate) —
+/// a two-line bar would change the host row's height under the list.
+pub(crate) fn glass_bar(cx: &App) -> Div {
+    h_flex()
         .items_center()
-        .flex_shrink_0()
-        .gap_1p5()
-        .px_2()
-        .py_1()
-        .rounded(px(t::radius::SM))
-        .bg(t::glass::FILL_CARD.to_hsla())
-        .text_xs()
-        .font_weight(gpui::FontWeight::MEDIUM)
+        .gap_1()
+        .px_2p5()
+        .py_2()
+        .rounded(px(t::radius::XL3))
+        .border_1()
+        .border_color(t::glass::STROKE_STRONG.to_hsla())
+        .bg(cx.theme().popover)
 }
 
 /// Shared markdown `TextView` style (EXP-282): code blocks get a glass
@@ -338,16 +367,461 @@ pub(crate) fn bare_code_markdown_style() -> TextViewStyle {
     TextViewStyle::default().code_block(code_block)
 }
 
-/// Capsule glass-button treatment for any element (mobile `GlassButton`):
-/// full rounding, white 6% fill / 10% stroke — 15% / 20% when active.
-pub(crate) fn glass_pill<T: Styled>(el: T, active: bool) -> T {
-    let (fill, stroke) = if active {
+
+// ---------------------------------------------------------------------------
+// The ONE pill (EXP-698)
+// ---------------------------------------------------------------------------
+
+/// The two pill rungs of the control ladder: `Md` is the 32px control box
+/// (`size::CONTROL_MD`), `Sm` the 24px one (`size::CONTROL_SM`). There is no
+/// third rung — a capsule smaller than 24 stops being a hit target.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PillSize {
+    Md,
+    Sm,
+}
+
+impl PillSize {
+    /// The capsule's height in px.
+    pub(crate) fn height(self) -> f32 {
+        match self {
+            PillSize::Md => t::size::CONTROL_MD,
+            PillSize::Sm => t::size::CONTROL_SM,
+        }
+    }
+
+    /// The size a LEADING glyph renders at inside the capsule.
+    pub(crate) fn glyph(self) -> f32 {
+        match self {
+            PillSize::Md => 16.,
+            PillSize::Sm => 12.,
+        }
+    }
+}
+
+/// What a pill DOES, which is the only thing that varies its chrome:
+///
+/// - `Action` — it runs something on click (a header button, a picker
+///   trigger, a filter pill's ✕). Hover lifts it to the active fill.
+/// - `Select { selected }` — it is one option of a set: the sidebar's tool
+///   tabs (Inbox / My issues, Open / Resolved) and the helpdesk composer's
+///   Reply / Internal note modes. The selected one wears the active fill +
+///   stroke. (The steer viewer has no tab strip to convert — subagent work
+///   renders inline there; see its module doc.)
+/// - `Readonly` — it only LABELS something (a role, a label, an attachment,
+///   a count badge). No hover, no pointer cursor.
+///
+/// Orthogonal to all three is the PRIMARY paint flag (EXP-698, mirrored ×4 as
+/// the web `<Pill primary>` / mobile `GlassPill(primary:)` prop): the ONE
+/// emphasised capsule of a surface — solid `theme.primary`,
+/// `primary_foreground` text, no stroke, a darker hover. It changes nothing
+/// but paint: geometry, type and glyph size stay the pill's. A surface gets at
+/// most one (the issue header's Start coding, the coding-now card's Watch);
+/// everything else beside it stays the default glass fill, which is what makes
+/// the primary one read as the action.
+///
+/// It rides [`glass_pill_button_primary`] rather than a `.primary()` chained
+/// onto [`glass_pill_button`]: the name is already taken on `Button` by
+/// gpui-component's `ButtonVariants::primary`, which every call site imports,
+/// so a same-named extension method would only make every call ambiguous.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PillMode {
+    Action,
+    Select { selected: bool },
+    Readonly,
+}
+
+/// EXP-698 — the ONE capsule of the desktop, the twin of the web
+/// `components/ui/pill.tsx` and the mobile `GlassPill`s. Every chip, tag,
+/// badge, filter pill, header button and picker trigger that used to be its
+/// own recipe (`glass_chip`, the old two-arg `glass_pill`, `pickers::
+/// chip_button`, `active_filter_pills::pill_base`, `issue_list::label_chip`,
+/// `settings/members::role_chip`, `filter_popover::count_badge`, the two
+/// `file_chip`s, `pending_chip`) is this function with a different
+/// [`PillSize`] / [`PillMode`].
+///
+/// Chrome: capsule, `FILL_CARD` over a 1px `STROKE_CARD` hairline, label at
+/// 70% foreground. `Sm` is `text_xs` MEDIUM with 8px of side padding and a
+/// 4px gap; `Md` is `text_sm` with 12/6. A leading glyph (sized
+/// [`PillSize::glyph`]) or a [`pill_dot`] is the CALLER's child — the pill
+/// only owns the box.
+///
+/// Returns a `Stateful<Div>` in every mode, `Readonly` included: the id is
+/// free (gpui needs one for any element that may host a tooltip or a
+/// context menu) and it keeps one return type, so a caller can flip a pill
+/// between modes without rewriting the element chain. `Readonly` simply
+/// carries no hover style and no pointer cursor.
+pub(crate) fn glass_pill(
+    id: impl Into<ElementId>,
+    size: PillSize,
+    mode: PillMode,
+    cx: &App,
+) -> Stateful<Div> {
+    let foreground = cx.theme().foreground;
+    let selected = matches!(mode, PillMode::Select { selected: true });
+    let (fill, stroke) = if selected {
         (t::glass::FILL_ACTIVE, t::glass::STROKE_ACTIVE)
     } else {
         (t::glass::FILL_CARD, t::glass::STROKE_CARD)
     };
-    el.rounded_full()
+    let (px_pad, gap) = match size {
+        PillSize::Md => (12., 6.),
+        PillSize::Sm => (8., 4.),
+    };
+    let pill = div()
+        .id(id)
+        .flex()
+        .flex_row()
+        .flex_shrink_0()
+        .items_center()
+        .h(px(size.height()))
+        .px(px(px_pad))
+        .gap(px(gap))
+        .rounded_full()
         .border_1()
         .border_color(stroke.to_hsla())
         .bg(fill.to_hsla())
+        .whitespace_nowrap()
+        .when(size == PillSize::Sm, |pill| {
+            pill.text_xs().font_weight(FontWeight::MEDIUM)
+        })
+        .when(size == PillSize::Md, |pill| pill.text_sm());
+    match mode {
+        PillMode::Readonly => pill.text_color(foreground.opacity(0.7)),
+        PillMode::Select { selected: true } => pill.cursor_pointer().text_color(foreground),
+        PillMode::Select { selected: false } => pill
+            .cursor_pointer()
+            .text_color(foreground.opacity(0.7))
+            .hover(|style| style.text_color(foreground)),
+        PillMode::Action => pill
+            .cursor_pointer()
+            .text_color(foreground.opacity(0.7))
+            .hover(|style| {
+                style
+                    .bg(t::glass::FILL_ACTIVE.to_hsla())
+                    .text_color(foreground)
+            }),
+    }
+}
+
+/// How much of a `ButtonVariant::Custom` colour actually reaches the screen.
+///
+/// gpui-component paints a custom variant's rest/`outline` background as
+/// `color.mix_oklab(transparent, 0.2)` (`button.rs`, `bg_color` /
+/// `outline_background`), and that mix weights SELF by the factor —
+/// `a = self.a * factor + other.a * (1 - factor)` — so a custom colour is
+/// painted at a FIFTH of its alpha. Handing it `FILL_CARD` (white 6%)
+/// directly paints white ~1.2%, i.e. a Button pill would be all but
+/// invisible beside the `glass_pill` `Div` next to it.
+const CUSTOM_VARIANT_ALPHA_FACTOR: f32 = 0.2;
+
+/// Pre-divide a glass fill so [`CUSTOM_VARIANT_ALPHA_FACTOR`] mixes it back
+/// to the token: a Button pill and a `Div` pill then paint the SAME surface.
+/// Only the alpha moves — `mix_oklab` premultiplies in Oklab and
+/// un-premultiplies by the result alpha, so mixing a colour with transparent
+/// leaves hue/saturation/lightness untouched.
+pub(crate) fn custom_variant_fill(fill: Hsla) -> Hsla {
+    Hsla {
+        a: (fill.a / CUSTOM_VARIANT_ALPHA_FACTOR).min(1.),
+        ..fill
+    }
+}
+
+/// The [`glass_pill`] chrome on a gpui-component `Button`.
+///
+/// Most capsules in the app are plain elements and take [`glass_pill`]. The
+/// ones that are MENU or POPOVER triggers cannot: `DropdownMenu` is
+/// implemented only for `Button` upstream (`Selectable + InteractiveElement`
+/// bounds a `Stateful<Div>` does not satisfy), and every picker chip in the
+/// issue header and the create dialog is such a trigger. So they stay
+/// `Button`s wearing the pill's paint.
+///
+/// The paint rides a `ButtonCustomVariant`, not a `ghost` base plus a caller
+/// refinement: the built-in variants paint their own hover fill from the
+/// interactivity layer, which is applied AFTER `refine_style` and would win
+/// over any glass tokens set here (and a second `.hover()` on the button
+/// trips gpui's "hover style already set" assertion). The custom variant owns
+/// bg/hover/active; only the stroke rides as a refinement. Same trick as
+/// [`crate::controls::glass_icon_button`], which is this pill's icon-only
+/// sibling.
+pub(crate) fn glass_pill_button(
+    id: impl Into<ElementId>,
+    size: PillSize,
+    cx: &App,
+) -> gpui_component::button::Button {
+    use crate::controls::WebControl as _;
+    use gpui_component::button::{ButtonCustomVariant, ButtonVariants as _};
+    let foreground = cx.theme().foreground;
+    let variant = ButtonCustomVariant::new(cx)
+        .color(custom_variant_fill(t::glass::FILL_CARD.to_hsla()))
+        .hover(custom_variant_fill(t::glass::FILL_ACTIVE.to_hsla()))
+        .active(custom_variant_fill(t::glass::FILL_ACTIVE.to_hsla()))
+        .foreground(foreground.opacity(0.7));
+    let button = gpui_component::button::Button::new(id)
+        .custom(variant)
+        .border_1()
+        .border_color(t::glass::STROKE_CARD.to_hsla());
+    match size {
+        PillSize::Sm => button.web_xs(),
+        PillSize::Md => button.web_sm(),
+    }
+}
+
+/// The PRIMARY paint of [`glass_pill_button`] (see [`PillMode`]): the same
+/// capsule geometry, filled solid with `theme.primary` under
+/// `primary_foreground` text and NO stroke.
+///
+/// The fill rides gpui-component's own `Primary` variant instead of a
+/// [`custom_variant_fill`]ed `ButtonCustomVariant`: the variant already owns
+/// the accent's hover/active pair (`button_primary_hover/_active`, a notch
+/// darker) and paints its border in the fill colour, i.e. strokeless. That is
+/// also why this is a separate recipe rather than a flag threaded through
+/// [`glass_pill_button`] — that one has to override the border to get the
+/// glass hairline, and an override cannot un-set itself.
+pub(crate) fn glass_pill_button_primary(
+    id: impl Into<ElementId>,
+    size: PillSize,
+) -> gpui_component::button::Button {
+    use crate::controls::WebControl as _;
+    use gpui_component::button::ButtonVariants as _;
+    let button = gpui_component::button::Button::new(id).primary();
+    match size {
+        PillSize::Sm => button.web_xs(),
+        PillSize::Md => button.web_sm(),
+    }
+}
+
+/// The 6px colour dot a [`glass_pill`] carries instead of a glyph when the
+/// thing it names IS a colour (an issue label, a custom status, a session's
+/// liveness tone).
+pub(crate) fn pill_dot(color: Hsla) -> Div {
+    div().flex_shrink_0().size(px(6.)).rounded_full().bg(color)
+}
+
+// ---------------------------------------------------------------------------
+// The ONE rich tab (EXP-698)
+// ---------------------------------------------------------------------------
+
+/// The leading marker of a [`rich_tab`].
+pub(crate) enum RichTabStatus {
+    /// A status/agent glyph, already coloured by the caller
+    /// (`icons::resolved_status_icon`, `ChipLead::icon`).
+    Glyph(gpui_component::Icon),
+    /// A liveness tone dot (the remote session chips).
+    Dot(Hsla),
+    None,
+}
+
+/// How wide a [`rich_tab`]'s title may grow before it truncates.
+pub(crate) const RICH_TAB_TITLE_MAX_W: f32 = 180.;
+
+/// How wide a [`rich_tab`]'s trailing caption (` · machine`) may grow.
+pub(crate) const RICH_TAB_CAPTION_MAX_W: f32 = 110.;
+
+/// The content of a [`rich_tab`]. Handlers stay the CALLER's: the three
+/// strips differ on middle-click, context menus, kill-confirms and the
+/// hover-revealed undock, and folding those in here would make the builder a
+/// switchboard.
+pub(crate) struct RichTab {
+    pub(crate) id: ElementId,
+    pub(crate) selected: bool,
+    /// A paused host's chip dims whole (EXP-696).
+    pub(crate) paused: bool,
+    pub(crate) status: RichTabStatus,
+    /// The mono shortcode ahead of the title (`EXP-698`), 50% foreground.
+    pub(crate) identifier: Option<SharedString>,
+    pub(crate) title: Option<SharedString>,
+    /// A trailing muted caption (` · machine`) after the title.
+    pub(crate) caption: Option<SharedString>,
+    /// A tinted exit-code badge.
+    pub(crate) badge: Option<(SharedString, Hsla)>,
+}
+
+impl RichTab {
+    pub(crate) fn new(id: impl Into<ElementId>, selected: bool) -> Self {
+        Self {
+            id: id.into(),
+            selected,
+            paused: false,
+            status: RichTabStatus::None,
+            identifier: None,
+            title: None,
+            caption: None,
+            badge: None,
+        }
+    }
+}
+
+/// EXP-698 — the ONE RICH tab: the only tab shape left that is not a
+/// [`glass_pill`], because it carries a whole row of content (status glyph,
+/// mono identifier, truncating title, machine caption, exit badge, close/
+/// undock buttons) rather than a word. It is worn by exactly two strips: the
+/// window's top screen tabs (`screens::render_tab_strip`) and the terminal
+/// dock's local + remote chips.
+///
+/// Chrome is the retired `tab_chip`'s, unchanged: 26px tall, radius MD,
+/// `px_2p5 gap_1p5 text_sm`, transparent at rest with the glass row fill on
+/// hover, `tab_active` (== `FILL_ACTIVE`) when selected.
+///
+/// The returned element already carries the standard children in order; the
+/// caller appends its own trailing cluster (close, undock) and every handler.
+pub(crate) fn rich_tab(tab: RichTab, cx: &App) -> Stateful<Div> {
+    let theme = cx.theme();
+    let foreground = theme.foreground;
+    let chip = div()
+        .id(tab.id)
+        .h(px(26.))
+        .px_2p5()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_1p5()
+        .rounded(theme.radius)
+        .cursor_pointer()
+        .text_sm()
+        .when(tab.paused, |chip| chip.opacity(0.6));
+    let chip = if tab.selected {
+        chip.bg(theme.tab_active)
+            .text_color(theme.tab_active_foreground)
+    } else {
+        chip.text_color(theme.tab_foreground)
+            .hover(|style| style.bg(theme.list_hover))
+    };
+    chip.map(|chip| match tab.status {
+        RichTabStatus::Glyph(icon) => {
+            chip.child(gpui_component::Sizable::xsmall(icon))
+        }
+        RichTabStatus::Dot(tone) => chip.child(
+            div()
+                .flex_shrink_0()
+                .size_1p5()
+                .rounded_full()
+                .bg(tone),
+        ),
+        RichTabStatus::None => chip,
+    })
+    .children(tab.identifier.map(|identifier| {
+        div()
+            .text_xs()
+            .text_color(foreground.opacity(0.5))
+            .font_family(theme::terminal::FONT_FAMILY)
+            .whitespace_nowrap()
+            .child(identifier)
+    }))
+    .children(tab.title.map(|title| {
+        div()
+            .max_w(px(RICH_TAB_TITLE_MAX_W))
+            .truncate()
+            .child(title)
+    }))
+    .children(tab.caption.map(|caption| {
+        div()
+            .max_w(px(RICH_TAB_CAPTION_MAX_W))
+            .truncate()
+            .text_xs()
+            .text_color(foreground.opacity(0.5))
+            .child(caption)
+    }))
+    .children(tab.badge.map(|(label, color)| {
+        div()
+            .text_xs()
+            .px_1()
+            .rounded(px(3.))
+            .bg(color.opacity(0.15))
+            .text_color(color)
+            .child(label)
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// EXP-698: the two pill rungs ARE the token ladder's control rungs — no
+    /// hand-typed 20/26/28 heights, which is how the app ended up with six
+    /// chip shapes before this sweep.
+    #[test]
+    fn pill_sizes_are_the_token_control_rungs() {
+        assert_eq!(PillSize::Md.height(), t::size::CONTROL_MD);
+        assert_eq!(PillSize::Sm.height(), t::size::CONTROL_SM);
+        assert_eq!(PillSize::Md.height(), 32.);
+        assert_eq!(PillSize::Sm.height(), 24.);
+        // A leading glyph is half the capsule's height, both rungs.
+        assert_eq!(PillSize::Md.glyph(), 16.);
+        assert_eq!(PillSize::Sm.glyph(), 12.);
+        assert!(PillSize::Sm.glyph() < PillSize::Md.glyph());
+    }
+
+    /// `Select` is the only mode whose chrome depends on state; `Action` and
+    /// `Readonly` are single-valued. (The chrome itself needs a `Window` to
+    /// render, so this pins the discriminants the builder switches on.)
+    #[test]
+    fn pill_select_mode_carries_its_selection() {
+        assert_ne!(
+            PillMode::Select { selected: true },
+            PillMode::Select { selected: false }
+        );
+        assert_ne!(PillMode::Action, PillMode::Readonly);
+        assert_ne!(PillMode::Action, PillMode::Select { selected: false });
+    }
+
+    /// The rich-tab builder starts EMPTY apart from its identity: every strip
+    /// fills only the slots it has, and an unset slot must render nothing
+    /// rather than a placeholder box (the terminal dock's plain terminal tabs
+    /// carry no identifier, the center tabs carry no caption or badge).
+    #[test]
+    fn rich_tab_builder_defaults_to_identity_only() {
+        let tab = RichTab::new("t", true);
+        assert!(tab.selected);
+        assert!(!tab.paused);
+        assert!(matches!(tab.status, RichTabStatus::None));
+        assert!(tab.identifier.is_none());
+        assert!(tab.title.is_none());
+        assert!(tab.caption.is_none());
+        assert!(tab.badge.is_none());
+    }
+
+    /// EXP-698: a Button pill and a `Div` pill must paint the SAME surface.
+    /// gpui-component runs a custom variant's colour through
+    /// `mix_oklab(transparent, 0.2)` before painting it, so the pre-division
+    /// in [`custom_variant_fill`] has to mix back to the token exactly —
+    /// asserted with the crate's OWN mix, so an upstream change to either the
+    /// factor or the mix semantics fails here instead of on screen.
+    #[test]
+    fn custom_variant_fills_mix_back_to_the_glass_tokens() {
+        use gpui_component::theme::Colorize as _;
+        let transparent = gpui::transparent_black();
+        for token in [t::glass::FILL_CARD, t::glass::FILL_ACTIVE] {
+            let want = token.to_hsla();
+            let painted = custom_variant_fill(want).mix_oklab(transparent, CUSTOM_VARIANT_ALPHA_FACTOR);
+            assert!(
+                (painted.a - want.a).abs() < 0.001,
+                "compensated fill must paint at the token alpha: painted {:?} vs token {:?}",
+                painted,
+                want,
+            );
+            assert!(
+                (painted.l - want.l).abs() < 0.01,
+                "the mix must leave lightness alone: painted {:?} vs token {:?}",
+                painted,
+                want,
+            );
+        }
+        // The naive (uncompensated) hand-off is what this guards against.
+        let naive = t::glass::FILL_CARD
+            .to_hsla()
+            .mix_oklab(transparent, CUSTOM_VARIANT_ALPHA_FACTOR);
+        assert!(
+            naive.a < t::glass::FILL_CARD.to_hsla().a * 0.5,
+            "sanity: passing the token straight through paints it far too faint ({naive:?})"
+        );
+    }
+
+    #[test]
+    fn rich_tab_title_cap_is_shared_with_the_strip_measurement() {
+        // `screens::measure_chip_width` reads this constant for its overflow
+        // computation; a divergence collapses tabs into "+N" too early.
+        assert_eq!(RICH_TAB_TITLE_MAX_W, 180.);
+        assert_eq!(RICH_TAB_CAPTION_MAX_W, 110.);
+    }
 }

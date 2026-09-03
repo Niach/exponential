@@ -127,22 +127,9 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /// Root zero-team empty state's "Create team" (EXP-188): creator becomes
-    /// owner. The upsert is the usual idempotent head-start so the empty state
-    /// flips to create-board without waiting for the teams shape; selecting it
-    /// points the settings/create-board flows at the new team.
-    fun createTeam(name: String) {
-        val trimmed = name.trim()
-        if (trimmed.isEmpty()) return
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching {
-                val team = teamsApi.create(accountId, trimmed)
-                runCatching { holder.database(forAccountId = accountId).teamDao().upsert(team) }
-                selection.select(team.id)
-            }.onFailure { _error.value = trpcErrorMessage(it, "Couldn't create the team") }
-        }
-    }
+    // The zero-team empty state's create/join both live in TeamSetupViewModel
+    // now (EXP-698) — one engine behind the wizard's team step and the sheet,
+    // with a per-card error line instead of this screen-wide one.
 
     /// Board pick from the switcher sheet. Makes the picked board's account
     /// active (a no-op for same-server picks) and records it as last-used —

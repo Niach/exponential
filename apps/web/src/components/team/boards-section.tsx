@@ -2,17 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { Archive, Github, Pencil, Plus, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { getBoardIcon } from "@/lib/board-icons"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { GlassGroup } from "@/components/ui/glass-rows"
+  GlassGroup,
+  GlassRow,
+  GlassSectionHeader,
+} from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogCancel,
@@ -103,116 +99,102 @@ export function TeamBoardsSection({
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            Boards
-            <Badge variant="secondary" className="text-xs font-normal">
-              {boards.length}
-            </Badge>
-          </CardTitle>
-          <CardDescription>
-            Manage boards in this team.
-          </CardDescription>
-          <CardAction>
-            <Button size="sm" onClick={() => setCreateOpen(true)}>
-              <Plus className="mr-1 h-3.5 w-3.5" />
+      <div>
+        <GlassSectionHeader
+          label="Boards"
+          trailing={
+            <Pill mode="action" onClick={() => setCreateOpen(true)}>
+              <Plus />
               New board
-            </Button>
-          </CardAction>
-        </CardHeader>
-        <CardContent>
-          {boards.length === 0 ? (
-            <div className="rounded-md border border-glass-stroke bg-glass-row px-3 py-2 text-sm text-muted-foreground">
-              No boards in this team yet.
-            </div>
-          ) : (
-            <GlassGroup>
-              {boards.map((board) => {
-                const repo = board.repositoryId
-                  ? repoMap.get(board.repositoryId)
-                  : undefined
-                const TypeIcon = getBoardIcon(board)
-                return (
-                  <div
-                    key={board.id}
-                    className="flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors duration-fast hover:bg-glass-active/50"
-                    onClick={() => setEditTargetId(board.id)}
+            </Pill>
+          }
+        />
+        {boards.length === 0 ? (
+          <GlassRow className="px-3 py-2 text-sm text-muted-foreground">
+            No boards in this team yet.
+          </GlassRow>
+        ) : (
+          <GlassGroup>
+            {boards.map((board) => {
+              const repo = board.repositoryId
+                ? repoMap.get(board.repositoryId)
+                : undefined
+              const TypeIcon = getBoardIcon(board)
+              return (
+                <div
+                  key={board.id}
+                  className="flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors duration-fast hover:bg-glass-active/50"
+                  onClick={() => setEditTargetId(board.id)}
+                >
+                  <TypeIcon
+                    className="h-4 w-4 shrink-0"
+                    style={{ color: board.color }}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                    {board.name}
+                  </span>
+                  {repo && (
+                    <Pill
+                      className="hidden max-w-[12rem] shrink-0 gap-1 sm:inline-flex"
+                      title={repo?.fullName ?? `No repository`}
+                    >
+                      <Github className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      <span className="truncate">
+                        {repo?.fullName ?? `No repository`}
+                      </span>
+                    </Pill>
+                  )}
+                  <Pill className="hidden shrink-0 font-mono sm:inline-flex">
+                    {board.prefix}
+                  </Pill>
+                  <Button
+                    variant="glass"
+                    size="icon-sm"
+                    className="shrink-0"
+                    title="Board settings"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setEditTargetId(board.id)
+                    }}
                   >
-                    <TypeIcon
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: board.color }}
-                    />
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                      {board.name}
-                    </span>
-                    {repo && (
-                      <Badge
-                        variant="outline"
-                        className="hidden max-w-[12rem] shrink-0 gap-1 sm:inline-flex"
-                        title={repo?.fullName ?? `No repository`}
-                      >
-                        <Github className="h-3 w-3 shrink-0 text-muted-foreground" />
-                        <span className="truncate">
-                          {repo?.fullName ?? `No repository`}
-                        </span>
-                      </Badge>
-                    )}
-                    <Badge
-                      variant="outline"
-                      className="hidden shrink-0 font-mono text-xs sm:inline-flex"
-                    >
-                      {board.prefix}
-                    </Badge>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0 text-muted-foreground"
-                      title="Board settings"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setEditTargetId(board.id)
-                      }}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0 text-muted-foreground"
-                      title="Archive board"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setArchiveTarget({
-                          id: board.id,
-                          name: board.name,
-                        })
-                      }}
-                    >
-                      <Archive className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                      title="Move to trash"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setDeleteTarget({
-                          id: board.id,
-                          name: board.name,
-                        })
-                      }}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                )
-              })}
-            </GlassGroup>
-          )}
-        </CardContent>
-      </Card>
+                    <Pencil />
+                  </Button>
+                  <Button
+                    variant="glass"
+                    size="icon-sm"
+                    className="shrink-0"
+                    title="Archive board"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setArchiveTarget({
+                        id: board.id,
+                        name: board.name,
+                      })
+                    }}
+                  >
+                    <Archive />
+                  </Button>
+                  <Button
+                    variant="glass"
+                    size="icon-sm"
+                    className="shrink-0 hover:text-destructive"
+                    title="Move to trash"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setDeleteTarget({
+                        id: board.id,
+                        name: board.name,
+                      })
+                    }}
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+              )
+            })}
+          </GlassGroup>
+        )}
+      </div>
 
       <ArchivedBoardsCard teamId={teamId} refreshKey={trashRefreshKey} />
 
@@ -368,58 +350,48 @@ function ArchivedBoardsCard({
   if (!archived || archived.length === 0) return null
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Archive className="h-4 w-4" />
-          Archived boards
-        </CardTitle>
-        <CardDescription>
-          Archived boards and their issues are hidden from everyone in the team.
-          Nothing is deleted — unarchive to bring a board back exactly as it
-          was.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <GlassGroup>
-          {archived.map((board) => {
-            const TypeIcon = getBoardIcon(board)
-            return (
-              <div
-                key={board.id}
-                className="flex items-center gap-3 px-3 py-2.5"
+    <div>
+      <GlassSectionHeader
+        leading={<Archive className="size-3.5 text-foreground/50" />}
+        label="Archived boards"
+      />
+      <p className="px-1 pb-2 text-xs text-foreground/50">
+        Archived boards and their issues are hidden from everyone in the team.
+        Nothing is deleted — unarchive to bring a board back exactly as it was.
+      </p>
+      <GlassGroup>
+        {archived.map((board) => {
+          const TypeIcon = getBoardIcon(board)
+          return (
+            <div
+              key={board.id}
+              className="flex items-center gap-3 px-3 py-2.5"
+            >
+              <TypeIcon
+                className="h-4 w-4 shrink-0"
+                style={{ color: board.color }}
+              />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                {board.name}
+              </span>
+              <Pill className="hidden shrink-0 font-mono sm:inline-flex">
+                {board.prefix}
+              </Pill>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {formatArchivedOn(board.archivedAt)}
+              </span>
+              <Pill
+                mode="action"
+                disabled={restoringId === board.id}
+                onClick={() => void handleUnarchive(board.id)}
               >
-                <TypeIcon
-                  className="h-4 w-4 shrink-0"
-                  style={{ color: board.color }}
-                />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                  {board.name}
-                </span>
-                <Badge
-                  variant="outline"
-                  className="hidden shrink-0 font-mono text-xs sm:inline-flex"
-                >
-                  {board.prefix}
-                </Badge>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {formatArchivedOn(board.archivedAt)}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 shrink-0"
-                  disabled={restoringId === board.id}
-                  onClick={() => void handleUnarchive(board.id)}
-                >
-                  {restoringId === board.id ? `Unarchiving…` : `Unarchive`}
-                </Button>
-              </div>
-            )
-          })}
-        </GlassGroup>
-      </CardContent>
-    </Card>
+                {restoringId === board.id ? `Unarchiving…` : `Unarchive`}
+              </Pill>
+            </div>
+          )
+        })}
+      </GlassGroup>
+    </div>
   )
 }
 
@@ -482,56 +454,47 @@ function PendingDeletionCard({
   if (!trashed || trashed.length === 0) return null
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Trash2 className="h-4 w-4" />
-          Trash
-        </CardTitle>
-        <CardDescription>
-          Deleted boards are kept for 48 hours, then permanently removed with
-          all their issues.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <GlassGroup>
-          {trashed.map((board) => {
-            const TypeIcon = getBoardIcon(board)
-            return (
-              <div
-                key={board.id}
-                className="flex items-center gap-3 px-3 py-2.5"
+    <div>
+      <GlassSectionHeader
+        leading={<Trash2 className="size-3.5 text-foreground/50" />}
+        label="Trash"
+      />
+      <p className="px-1 pb-2 text-xs text-foreground/50">
+        Deleted boards are kept for 48 hours, then permanently removed with all
+        their issues.
+      </p>
+      <GlassGroup>
+        {trashed.map((board) => {
+          const TypeIcon = getBoardIcon(board)
+          return (
+            <div
+              key={board.id}
+              className="flex items-center gap-3 px-3 py-2.5"
+            >
+              <TypeIcon
+                className="h-4 w-4 shrink-0"
+                style={{ color: board.color }}
+              />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                {board.name}
+              </span>
+              <Pill className="hidden shrink-0 font-mono sm:inline-flex">
+                {board.prefix}
+              </Pill>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {formatPurgeCountdown(board.purgeAt)}
+              </span>
+              <Pill
+                mode="action"
+                disabled={restoringId === board.id}
+                onClick={() => void handleRestore(board.id)}
               >
-                <TypeIcon
-                  className="h-4 w-4 shrink-0"
-                  style={{ color: board.color }}
-                />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                  {board.name}
-                </span>
-                <Badge
-                  variant="outline"
-                  className="hidden shrink-0 font-mono text-xs sm:inline-flex"
-                >
-                  {board.prefix}
-                </Badge>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {formatPurgeCountdown(board.purgeAt)}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 shrink-0"
-                  disabled={restoringId === board.id}
-                  onClick={() => void handleRestore(board.id)}
-                >
-                  {restoringId === board.id ? `Restoring…` : `Restore`}
-                </Button>
-              </div>
-            )
-          })}
-        </GlassGroup>
-      </CardContent>
-    </Card>
+                {restoringId === board.id ? `Restoring…` : `Restore`}
+              </Pill>
+            </div>
+          )
+        })}
+      </GlassGroup>
+    </div>
   )
 }

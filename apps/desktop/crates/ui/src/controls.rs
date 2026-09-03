@@ -14,15 +14,21 @@ use gpui::{
     div, px, App, Div, FontWeight, InteractiveElement as _, ParentElement as _, SharedString,
     Styled,
 };
-use gpui_component::{menu::PopupMenuItem, v_flex, ActiveTheme as _, Icon, Sizable, Size};
+use gpui_component::{
+    input::TextareaState, menu::PopupMenuItem, v_flex, ActiveTheme as _, Icon, Sizable, Size,
+};
 use theme::tokens as t;
 
-/// Web `h-9` (Button default / Input).
-pub(crate) const CTL_MD_H: f32 = 36.;
-/// Web `h-8` (Button sm / small inputs).
-pub(crate) const CTL_SM_H: f32 = 32.;
-/// Web `h-6` (Button xs).
-pub(crate) const CTL_XS_H: f32 = 24.;
+// EXP-698: the rung names match the TOKEN ladder (`size::CONTROL_*`), which
+// is the same ladder on all four clients — LG 36 / MD 32 / SM 24. They used
+// to be shifted one notch (36 was "MD"), which made every cross-file read a
+// translation step.
+/// Web `h-9` (Button default / Input) — `size::INPUT_HEIGHT`.
+pub(crate) const CTL_LG_H: f32 = t::size::CONTROL_LG;
+/// Web `h-8` (Button sm / small inputs) — `size::CONTROL_MD`.
+pub(crate) const CTL_MD_H: f32 = t::size::CONTROL_MD;
+/// Web `h-6` (Button xs) — `size::CONTROL_SM`.
+pub(crate) const CTL_SM_H: f32 = t::size::CONTROL_SM;
 
 /// One import per file: `use crate::controls::WebControl as _;`
 /// `with_size` keeps the component's own label/icon typography mapping; the
@@ -31,7 +37,7 @@ pub(crate) trait WebControl: Styled + Sizable + Sized {
     /// Web Button default: h-9 px-4, theme radius.
     fn web_md(self) -> Self {
         self.with_size(Size::Medium)
-            .h(px(CTL_MD_H))
+            .h(px(CTL_LG_H))
             .px(px(16.))
             .cursor_pointer()
     }
@@ -39,7 +45,7 @@ pub(crate) trait WebControl: Styled + Sizable + Sized {
     /// Web Button `sm`: h-8 px-3, capsule.
     fn web_sm(self) -> Self {
         self.with_size(Size::Small)
-            .h(px(CTL_SM_H))
+            .h(px(CTL_MD_H))
             .px(px(12.))
             .rounded_full()
             .cursor_pointer()
@@ -48,7 +54,7 @@ pub(crate) trait WebControl: Styled + Sizable + Sized {
     /// Web Button `xs`: h-6 px-2, capsule.
     fn web_xs(self) -> Self {
         self.with_size(Size::XSmall)
-            .h(px(CTL_XS_H))
+            .h(px(CTL_SM_H))
             .px(px(8.))
             .rounded_full()
             .cursor_pointer()
@@ -57,7 +63,7 @@ pub(crate) trait WebControl: Styled + Sizable + Sized {
     /// Web Button icon-sm: size-8 circle.
     fn web_icon_sm(self) -> Self {
         self.with_size(Size::Small)
-            .size(px(CTL_SM_H))
+            .size(px(CTL_MD_H))
             .rounded_full()
             .cursor_pointer()
     }
@@ -65,23 +71,41 @@ pub(crate) trait WebControl: Styled + Sizable + Sized {
     /// Web Button `icon-xs`: size-6 circle.
     fn web_icon_xs(self) -> Self {
         self.with_size(Size::XSmall)
-            .size(px(CTL_XS_H))
+            .size(px(CTL_SM_H))
             .rounded_full()
             .cursor_pointer()
     }
 
     /// Web Input: h-9 (radius stays the component's).
     fn web_input(self) -> Self {
-        self.h(px(CTL_MD_H))
+        self.h(px(CTL_LG_H))
     }
 
     /// Web small input/select: h-8.
     fn web_input_sm(self) -> Self {
-        self.h(px(CTL_SM_H))
+        self.h(px(CTL_MD_H))
     }
 }
 
 impl<T: Styled + Sizable> WebControl for T {}
+
+/// EXP-698 — the web's 11px caption rung (`text-[11px]`), one step below
+/// `text_xs` (12px). gpui has no rung there, and the steer feed needs two
+/// caption levels: a tool row's mono argument, a permission's detail and
+/// hint, a subagent's status line and the stepper counter all render at 11 on
+/// the web, and rendering them at 12 flattens them into the labels above them.
+///
+/// Its own trait, not a [`WebControl`] method: that one is bounded on
+/// `Sizable` (a gpui-component CONTROL), and these are plain `Div`s.
+///
+/// One import per file: `use crate::controls::WebText as _;`
+pub(crate) trait WebText: Styled + Sized {
+    fn text_2xs(self) -> Self {
+        self.text_size(gpui::rems(0.6875))
+    }
+}
+
+impl<T: Styled> WebText for T {}
 
 /// Web `EmptyState` (`components/empty-state.tsx`): centered column, a 48px
 /// primary-tinted icon disc, semibold title, muted description.
@@ -145,10 +169,13 @@ pub(crate) fn glass_icon_button(
 ) -> gpui_component::button::Button {
     use gpui_component::button::{ButtonCustomVariant, ButtonVariants as _};
     let foreground = cx.theme().foreground;
+    // Custom variants paint at a fifth of the handed-in alpha (EXP-698,
+    // `surface::custom_variant_fill`): pre-divide so the circle lands on the
+    // same card/active fills as the pills beside it.
     let variant = ButtonCustomVariant::new(cx)
-        .color(t::glass::FILL_CARD.to_hsla())
-        .hover(t::glass::FILL_ACTIVE.to_hsla())
-        .active(t::glass::FILL_ACTIVE.to_hsla())
+        .color(crate::surface::custom_variant_fill(t::glass::FILL_CARD.to_hsla()))
+        .hover(crate::surface::custom_variant_fill(t::glass::FILL_ACTIVE.to_hsla()))
+        .active(crate::surface::custom_variant_fill(t::glass::FILL_ACTIVE.to_hsla()))
         .foreground(foreground.opacity(0.7));
     gpui_component::button::Button::new(id)
         .custom(variant)
@@ -182,7 +209,7 @@ pub(crate) fn segmented(cx: &App) -> Div {
         .flex()
         .flex_row()
         .w_full()
-        .h(px(CTL_MD_H))
+        .h(px(CTL_LG_H))
         .items_center()
         .justify_center()
         .rounded_full()
@@ -204,13 +231,14 @@ pub(crate) fn segmented_item(active: bool, cx: &App) -> Div {
         .h_full()
         .items_center()
         .justify_center()
-        .gap_1p5()
+        // EXP-698: no MEDIUM weight and no 6px gap — a segment is a label,
+        // not a heading, and the glyph sits tighter to it.
+        .gap_1()
         .rounded_full()
         .border_1()
         .border_color(gpui::transparent_black())
         .px_2()
         .text_sm()
-        .font_weight(FontWeight::MEDIUM)
         .cursor_pointer();
     if active {
         item.bg(t::glass::FILL_ACTIVE.to_hsla())
@@ -219,4 +247,28 @@ pub(crate) fn segmented_item(active: bool, cx: &App) -> Div {
     } else {
         item.hover(|style| style.text_color(theme.foreground))
     }
+}
+
+/// EXP-698 — the ONE textarea state: a multi-line field GROWS with its
+/// content between `min_rows` and `max_rows` instead of standing at a
+/// hard-coded pixel height. Every dialog textarea used to pick its own
+/// `h(px(72.))` / `h(px(80.))` / `h(px(120.))` / `h(px(180.))`, which is four
+/// different fields for one control; the row range is the web/mobile
+/// contract (`min-h`/`max-h` in rows) and it is the same number on every
+/// client.
+///
+/// The row range lives on the STATE, not on the element: gpui-component
+/// carries the layout mode in `TextareaState` (`auto_grow`), so this is the
+/// constructor half. The CHROME half is the theme's — `theme.input` is the
+/// glass card stroke since EXP-698, so any `appearance(true)` field is
+/// already a glass field and needs nothing here; a field inside a
+/// [`crate::surface::glass_group`] row keeps `appearance(false)`, because
+/// there the GROUP is the field.
+pub(crate) fn web_textarea(
+    min_rows: usize,
+    max_rows: usize,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<TextareaState>,
+) -> TextareaState {
+    TextareaState::new(window, cx).auto_grow(min_rows, max_rows)
 }

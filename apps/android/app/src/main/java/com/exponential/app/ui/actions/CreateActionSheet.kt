@@ -238,6 +238,8 @@ fun CreateActionSheet(
                         modifier = Modifier.weight(1f),
                         placeholder = "Name (optional)",
                         singleLine = true,
+                        // Inside the group already — the group owns the chrome.
+                        bordered = false,
                     )
                 }
             }

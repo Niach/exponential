@@ -1,6 +1,11 @@
 package com.exponential.app.navigation
 
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -46,7 +51,9 @@ import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.data.push.WebLinkResolver
 import com.exponential.app.ui.auth.LoginScreen
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.BottomBarSuppression
 import com.exponential.app.ui.components.BottomNavBar
+import com.exponential.app.ui.components.LocalBottomBarSuppression
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.instance.InstanceScreen
 import com.exponential.app.ui.invite.InviteAcceptScreen
@@ -77,7 +84,7 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.LocalReduceMotion
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
+import com.exponential.app.ui.theme.glassRow
 import com.exponential.app.ui.update.UpdateRequiredScreen
 import dagger.hilt.android.EntryPointAccessors
 
@@ -319,6 +326,11 @@ private fun AuthenticatedNav(
         currentRoute in setOf(
             "home", "actions", "agents", "personal", "reviews", "support-inbox", "board/{boardId}",
         )
+    // EXP-698 r5 (Mechanism A): a screen may claim the tab bar's slot for a
+    // bar of its own — today the issue list's multi-select bar. The switch is
+    // provided to the whole NavHost; the chrome below reads it directly.
+    val barSuppression = remember { BottomBarSuppression() }
+    val barShown = barVisible && !barSuppression.suppressed
 
     // The Support tab exists only while the flag is on — if it flips off
     // (team switch, feature disabled) while the Support surface is up, drop
@@ -361,6 +373,7 @@ private fun AuthenticatedNav(
     val pushSpec = Motion.slow<IntOffset>(reduceMotion)
 
     Box(modifier = Modifier.fillMaxSize()) {
+    CompositionLocalProvider(LocalBottomBarSuppression provides barSuppression) {
     NavHost(
         navController = navController,
         startDestination = if (needsOnboarding) "onboarding" else "home",
@@ -385,15 +398,29 @@ private fun AuthenticatedNav(
                 mode = IssueListMode.Root,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenSettings = { navController.navigate("settings") },
-                // Zero-team empty state's "Join team" (EXP-188) reuses the
-                // deep-link invite accept route.
-                onOpenInvite = { token ->
-                    navController.navigate("invite/$token") { launchSingleTop = true }
-                },
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 // EXP-686: search left the bottom bar — the board header's
                 // button pushes it instead.
                 onOpenSearch = { navController.navigate("search") { launchSingleTop = true } },
+                // EXP-698 r5: the getting-started cards under the empty
+                // states — each step's own surface, plus the compose form the
+                // hidden FAB would have opened.
+                onOpenTeamSettings = { navController.navigate("team-settings") },
+                onOpenDevices = {
+                    navController.navigate("agents") {
+                        launchSingleTop = true
+                        popUpTo("home")
+                    }
+                },
+                onOpenActions = {
+                    navController.navigate("actions") {
+                        launchSingleTop = true
+                        popUpTo("home")
+                    }
+                },
+                onNewIssue = {
+                    currentBoardId?.let { navController.navigate("board/$it/new") }
+                },
             )
         }
         composable("search") {
@@ -542,6 +569,7 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenSearch = { navController.navigate("search") { launchSingleTop = true } },
+                onNewIssue = { navController.navigate("board/$boardId/new") },
             )
         }
         composable("board/{boardId}/new") {
@@ -605,6 +633,7 @@ private fun AuthenticatedNav(
             )
         }
     }
+    }
 
     // A background server that 426'd this build (REV2-18): only the ACTIVE
     // account's gate blocks the app, but that account's sync IS stopped, so
@@ -625,6 +654,9 @@ private fun AuthenticatedNav(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
+                // Route-level, NOT barShown: while a selection suppresses
+                // the nav bar, the screen's own 52dp bar is standing in that
+                // exact slot — dropping to 0 would land the banner on it.
                 .padding(bottom = if (barVisible) BottomBarInset else 0.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -638,7 +670,14 @@ private fun AuthenticatedNav(
         }
     }
 
-    if (barVisible) {
+    AnimatedVisibility(
+        visible = barShown,
+        enter = slideInVertically(Motion.standard(reduceMotion)) { it } +
+            fadeIn(Motion.standard(reduceMotion)),
+        exit = slideOutVertically(Motion.standard(reduceMotion)) { it } +
+            fadeOut(Motion.standard(reduceMotion)),
+        modifier = Modifier.align(Alignment.BottomCenter),
+    ) {
         BottomNavBar(
             issuesActive = currentRoute == "home",
             devicesActive = currentRoute == "agents",
@@ -701,7 +740,6 @@ private fun AuthenticatedNav(
                 composeBoardId?.let { navController.navigate("board/$it/new") }
             },
             onChat = { chatRequest++ },
-            modifier = Modifier.align(Alignment.BottomCenter),
         )
     }
     }
@@ -735,7 +773,10 @@ private fun GatedServersBanner(
         // (EXP-533) — applying it per banner would inset each one again.
         modifier = modifier
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .glassButton(opaque = true)
+            // EXP-698: the ROW rung, not the capsule one. This banner wraps to
+            // two lines and carries a dismiss button, so it is a notice
+            // surface; the capsule recipe belongs to GlassPill alone.
+            .glassRow(opaque = true)
             .padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -782,7 +823,8 @@ private fun OfflineBanner(
     Row(
         modifier = modifier
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .glassButton(opaque = true)
+            // Same notice rung as the gated-servers banner above.
+            .glassRow(opaque = true)
             .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

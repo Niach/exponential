@@ -57,7 +57,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    div, prelude::FluentBuilder as _, App, Div, Entity, FontWeight, IntoElement, ParentElement,
+    div, App, Div, Entity, FontWeight, IntoElement, ParentElement,
     Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
@@ -65,7 +65,6 @@ use gpui_component::{
     h_flex,
     menu::DropdownMenu as _,
     skeleton::Skeleton,
-    spinner::Spinner,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use std::collections::HashMap;
@@ -907,16 +906,14 @@ impl Render for LocalReposPane {
                 .justify_between()
                 .child(card_title("Worktrees"))
                 .child(
-                    Button::new("local-repos-prune-all")
-                        .ghost()
-                        .web_icon_xs()
-                        .map(|button| {
-                            if sweeping {
-                                button.child(Spinner::new().xsmall())
-                            } else {
-                                button.icon(registry::UI_CLEAN)
-                            }
-                        })
+                    // EXP-698: the one 32px glass chrome every trailing action
+                    // wears; `loading` swaps the glyph for the spinner.
+                    crate::controls::glass_icon_button(
+                        "local-repos-prune-all",
+                        Icon::new(registry::UI_CLEAN),
+                        cx,
+                    )
+                        .loading(sweeping)
                         .tooltip("Prune merged worktrees")
                         .disabled(sweeping || !has_worktrees)
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -1031,9 +1028,7 @@ impl Render for LocalReposPane {
 
         body = body.child(
             h_flex().gap_2().child(
-                Button::new("local-repos-refresh")
-                    .ghost()
-                    .web_xs()
+                crate::surface::glass_pill_button("local-repos-refresh", crate::surface::PillSize::Sm, cx)
                     .label("Refresh")
                     .loading(self.scanning)
                     .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),

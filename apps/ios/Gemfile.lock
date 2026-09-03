@@ -255,6 +255,7 @@ CHECKSUMS
   base64 (0.3.0)
   benchmark (0.5.0)
   bigdecimal (4.1.2)
+  bundler (4.0.11) sha256=5bcec0fb78302e48d02ee46f10ee6e6942be647ba5b44a6d1ddfda9a240ce785
   claide (1.1.0)
   colored (1.2)
   colored2 (3.1.2)

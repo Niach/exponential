@@ -2,13 +2,7 @@ import { useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { TeamGeneralSection } from "@/components/team/general-section"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogBody,
@@ -73,24 +67,25 @@ function SettingsGeneral() {
 
         {team && (
           <>
-            <Card className="border-destructive/50">
-              <CardHeader>
-                <CardTitle className="text-base text-destructive">
-                  Danger Zone
-                </CardTitle>
-                <CardDescription>
+            <div>
+              <GlassSectionHeader
+                label="Danger zone"
+                className="[&>span]:text-destructive"
+              />
+              <GlassRow className="justify-between gap-3">
+                <span className="min-w-0 text-sm text-muted-foreground">
                   Permanently delete this team and all its data.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
+                </span>
                 <Button
                   variant="destructive"
+                  size="xs"
+                  className="shrink-0"
                   onClick={() => setShowDeleteTeam(true)}
                 >
                   Delete team
                 </Button>
-              </CardContent>
-            </Card>
+              </GlassRow>
+            </div>
 
             <Dialog
               open={showDeleteTeam}

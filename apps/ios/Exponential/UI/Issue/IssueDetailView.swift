@@ -103,17 +103,7 @@ struct IssueDetailView: View {
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .multilineTextAlignment(.center)
-            Button {
-                vm.retryLoad()
-            } label: {
-                Text("Try again")
-                    .font(.callout)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-            }
-            .glassButton()
-            .buttonStyle(.plain)
+            GlassPill("Try again", size: .md, mode: .action { vm.retryLoad() })
         }
         .padding(24)
     }
@@ -141,16 +131,10 @@ struct IssueDetailView: View {
                             || issue.source == DomainContract.issueSourceAgent {
                             let isAgent = issue.source == DomainContract.issueSourceAgent
                             HStack(spacing: 6) {
-                                HStack(spacing: 6) {
-                                    AppIcon(isAgent ? AppIcons.uiAgentSource : AppIcons.uiWidget, size: 11)
-                                    Text(isAgent ? "Agent" : "Feedback widget")
-                                        .font(.caption)
-                                        .lineLimit(1)
-                                }
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .glassButton()
+                                GlassPill(
+                                    isAgent ? "Agent" : "Feedback widget",
+                                    icon: isAgent ? AppIcons.uiAgentSource : AppIcons.uiWidget
+                                )
                                 Spacer()
                             }
                         }
@@ -190,6 +174,18 @@ struct IssueDetailView: View {
                             isModerator: vm.permissions.isModerator,
                             onTapProperty: { directChild = $0 },
                             onOpenProperties: { activeSheet = .properties }
+                        )
+
+                        // Coding now (EXP-698 r4): a live session is the most
+                        // perishable state on the page, so it rides directly
+                        // under the chips in the same card chrome instead of
+                        // below the description. Renders nothing without one.
+                        CodingNowCard(
+                            issue: issue,
+                            runningSessions: vm.runningSessions,
+                            users: vm.users,
+                            config: vm.steerConfig,
+                            currentUserId: deps.auth.userId
                         )
 
                         // A remote edit arrived while editing locally — offer
@@ -241,18 +237,12 @@ struct IssueDetailView: View {
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("issue-description")
 
-                        // Coding + PR status card (EXP-156): "Coding now" /
-                        // GitHub-style PR + branch chips → diff page. Remote
-                        // start moved into the bottom bar (EXP-240). Renders
-                        // nothing when there's nothing to show.
-                        AgentPrCard(
-                            issue: issue,
-                            runningSessions: vm.runningSessions,
-                            permissions: vm.permissions,
-                            users: vm.users,
-                            config: vm.steerConfig,
-                            currentUserId: deps.auth.userId
-                        )
+                        // PR status rows (EXP-156): GitHub-style PR + branch
+                        // chips → diff page. Remote start moved into the bottom
+                        // bar (EXP-240), the session row into `CodingNowCard`
+                        // above (EXP-698 r4). Renders nothing when there's
+                        // nothing to show.
+                        AgentPrCard(issue: issue)
 
                         // Widget/agent submission metadata (EXP-496):
                         // expandable card, default collapsed; renders nothing
@@ -292,6 +282,10 @@ struct IssueDetailView: View {
                     }
                 }
                 .scrollDismissesKeyboard(.interactively)
+                // EXP-698: the toolbar is `.ultraThinMaterial`, so scrolled
+                // prose used to be sliced through its letterforms right at the
+                // header's edge — the same 24pt wash the steering feed wears.
+                .stickyHeaderFade()
                 // The floating bottom bar (EXP-240): reserves scroll clearance
                 // and rides the keyboard automatically. ALWAYS mounted so the
                 // composer draft (bar-owned @State) survives; the bar renders
@@ -772,31 +766,18 @@ struct IssueDetailView: View {
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             NavigationLink(value: AppRoute.issue(accountId: accountId, id: duplicateOfId)) {
-                Text(vm.duplicateOf?.identifier ?? vm.duplicateOf?.title ?? "issue")
-                    .font(.caption.monospaced().weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .glassButton(isActive: true)
+                GlassPill(vm.duplicateOf?.identifier ?? vm.duplicateOf?.title ?? "issue")
+                    .contentShape(Capsule())
             }
             .buttonStyle(.plain)
             Spacer()
             if vm.permissions.isModerator {
-                Button {
-                    Task { await vm.unmarkDuplicate() }
-                } label: {
-                    Text("Unmark")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                }
-                .glassButton()
-                .buttonStyle(.plain)
+                GlassPill("Unmark", mode: .action { Task { await vm.unmarkDuplicate() } })
             }
         }
         .padding(10)
-        .glassSection()
+        // A single banner, not a group of rows: it keeps a border of its own.
+        .glassCard()
     }
 
     private func parseDate(_ dateString: String?) -> Date? {

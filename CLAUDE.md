@@ -16,7 +16,7 @@ apps/
 ├── marketing/  # Vite + React; owns the Remotion ClosedLoop hero movie (src/movie/)
 ├── ios/        # SwiftUI (Tuist + GRDB; ExpCore/ExpUI)
 ├── android/    # Kotlin / Jetpack Compose
-├── styleguide/ # Static shot-gallery site (reads shots/ + @exp/view-catalog)
+├── styleguide/ # Shot gallery (shots/ + @exp/view-catalog) + code-rendered Components group
 └── desktop/    # Rust IDE (gpui + gpui-component + rio-vt; embedded coding sessions)
                 # + crates/cli: the headless `exponential` CLI/daemon (EXP-403), gpui-free via the
                 # default-on `gpui` cargo feature on terminal/coding; own cli-v* release train

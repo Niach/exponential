@@ -22,8 +22,10 @@ enum StartCircleUi: Equatable {
 
 /// The issue-detail floating bottom bar (EXP-240): properties circle +
 /// expanding comment pill + start-coding circle, cloning the main
-/// MobileTabBar treatment exactly (ultraThinMaterial capsule/circles,
-/// white-12% 0.5pt stroke, black-35% shadow r16 y6, 5pt inner padding).
+/// MobileTabBar treatment exactly (EXP-698: the OPAQUE card fill on the
+/// capsule and circles — they float over the scrolling issue, so a low-alpha
+/// tint would let it through — `strokeStrong` hairline, black-35% shadow
+/// r16 y6, 5pt inner padding).
 /// Tapping the pill expands it into the docked comment composer — a
 /// full-width glass card that rides the keyboard (the bar lives in a bottom
 /// `safeAreaInset`). Collapse on blur only when the draft is empty (drafts
@@ -175,9 +177,9 @@ struct IssueDetailBottomBar: View {
                 .frame(height: 42)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(5)
-                .background(.ultraThinMaterial, in: Capsule())
+                .background(GlassTokens.opaqueCardFill, in: Capsule())
                 .overlay(
-                    Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                    Capsule().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
                 )
                 .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
                 .contentShape(Capsule())
@@ -197,7 +199,7 @@ struct IssueDetailBottomBar: View {
         case let .session(state, sessionId):
             NavigationLink(value: AppRoute.agentSession(accountId: accountId, sessionId: sessionId)) {
                 circleChrome {
-                    sessionDot(state)
+                    sessionGlyph(state)
                 }
             }
             .buttonStyle(.plain)
@@ -219,6 +221,22 @@ struct IssueDetailBottomBar: View {
                     .tint(.white)
             }
         }
+    }
+
+    /// EXP-698: the circle NAMES the thing it opens — the machine glyph the
+    /// Devices tab wears — and the state dot rides it as a badge. A bare dot
+    /// in a glass circle said nothing about where the tap went, and read as a
+    /// decoration next to the two labelled controls beside it.
+    @ViewBuilder
+    private func sessionGlyph(_ state: CodingSessionDisplayState) -> some View {
+        AppIcon(AppIcons.navDevices, size: AppIcon.Size.medium, weight: .medium)
+            .foregroundStyle(.white)
+            .overlay(alignment: .topTrailing) {
+                sessionDot(state)
+                    // Clear of the glyph's own bounds, like a notification
+                    // badge — the dot is state, not part of the mark.
+                    .offset(x: 6, y: -5)
+            }
     }
 
     @ViewBuilder
@@ -250,9 +268,9 @@ struct IssueDetailBottomBar: View {
     private func circleChrome<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .frame(width: 52, height: 52)
-            .background(.ultraThinMaterial, in: Circle())
+            .background(GlassTokens.opaqueCardFill, in: Circle())
             .overlay(
-                Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                Circle().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
             )
             .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
             .contentShape(Circle())
@@ -269,7 +287,8 @@ struct IssueDetailBottomBar: View {
     }
 
     private var expandedComposer: some View {
-        VStack(spacing: 0) {
+        // EXP-698: the ONE composer card. Opaque — it floats over the feed.
+        GlassComposer(isOpaque: true) {
             MarkdownEditor(
                 model: composerEditor,
                 placeholder: "Write a comment…",
@@ -284,9 +303,10 @@ struct IssueDetailBottomBar: View {
                 imageMaxHeight: 120
             )
             .boundedEditorHeight(minHeight: 44, maxHeight: 140)
-
-            // EXP-554: queued attachments live INSIDE the card, above the action
-            // row — never inlined into the body markdown.
+        } strip: {
+            // EXP-554: queued attachments live INSIDE the card, between the
+            // editor and the action row — never inlined into the body
+            // markdown.
             if !pendingAttachments.isEmpty {
                 PendingAttachmentStrip(items: pendingAttachments) { id in
                     pendingAttachments.removeAll { $0.id == id }
@@ -304,97 +324,57 @@ struct IssueDetailBottomBar: View {
                     .padding(.horizontal, 12)
                     .padding(.bottom, 4)
             }
-
-            HStack(spacing: 2) {
-                Button {
-                    showPhotoPicker = true
-                } label: {
-                    AppIcon(AppIcons.editorImage, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .frame(width: 36, height: 36)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(attachmentsFull)
-                .opacity(attachmentsFull ? 0.4 : 1)
-                .accessibilityLabel("Add photo")
-
-                Button {
-                    showFileImporter = true
-                } label: {
-                    AppIcon(AppIcons.uiAttach, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .frame(width: 36, height: 36)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(attachmentsFull)
-                .opacity(attachmentsFull ? 0.4 : 1)
-                .accessibilityLabel("Attach a file")
-
-                if !singleMemberTeam {
-                    Button {
-                        composerEditor.insertTextAtCaret("@")
-                    } label: {
-                        AppIcon(AppIcons.editorMention, size: AppIcon.Size.medium)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .frame(width: 36, height: 36)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Mention a member")
-                }
-
-                Button {
-                    composerEditor.insertTextAtCaret("#")
-                } label: {
-                    AppIcon(AppIcons.editorIssueRef, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .frame(width: 36, height: 36)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Reference an issue")
-
-                // EXP-551 — same picker sheet as the formatting toolbar's
-                // emoji button; inserts unicode at the composer's caret.
-                Button {
-                    emojiRefocusTarget = composerEditor.insertionTargetBlockId
-                    showEmojiPicker = true
-                } label: {
-                    AppIcon(AppIcons.editorEmoji, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .frame(width: 36, height: 36)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Insert emoji")
-
-                Spacer(minLength: 0)
-
-                Button {
-                    Task { await submit() }
-                } label: {
-                    AppIcon(AppIcons.uiSubmit, size: 28)
-                        .foregroundStyle(
-                            submitting || !canSend
-                                ? Color.white.opacity(0.3)
-                                : Color.white
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(submitting || !canSend)
-                .accessibilityLabel("Send comment")
+        } tools: {
+            GlassComposerToolButton(
+                AppIcons.editorImage,
+                accessibilityLabel: "Add photo",
+                enabled: !attachmentsFull
+            ) {
+                showPhotoPicker = true
             }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 6)
+
+            GlassComposerToolButton(
+                AppIcons.uiAttach,
+                accessibilityLabel: "Attach a file",
+                enabled: !attachmentsFull
+            ) {
+                showFileImporter = true
+            }
+
+            if !singleMemberTeam {
+                GlassComposerToolButton(
+                    AppIcons.editorMention,
+                    accessibilityLabel: "Mention a member"
+                ) {
+                    composerEditor.insertTextAtCaret("@")
+                }
+            }
+
+            GlassComposerToolButton(
+                AppIcons.editorIssueRef,
+                accessibilityLabel: "Reference an issue"
+            ) {
+                composerEditor.insertTextAtCaret("#")
+            }
+
+            // EXP-551 — same picker sheet as the formatting toolbar's
+            // emoji button; inserts unicode at the composer's caret.
+            GlassComposerToolButton(
+                AppIcons.editorEmoji,
+                accessibilityLabel: "Insert emoji"
+            ) {
+                emojiRefocusTarget = composerEditor.insertionTargetBlockId
+                showEmojiPicker = true
+            }
+        } submit: {
+            GlassComposerSubmitButton(
+                AppIcons.uiSubmit,
+                accessibilityLabel: "Send comment",
+                enabled: !submitting && canSend
+            ) {
+                Task { await submit() }
+            }
         }
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
     }
 
     // MARK: - Expand / collapse

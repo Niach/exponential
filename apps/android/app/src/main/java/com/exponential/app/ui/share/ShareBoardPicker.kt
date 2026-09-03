@@ -24,7 +24,7 @@ import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassSection
+import com.exponential.app.ui.theme.glassGroup
 
 /**
  * Share-destination selector card (EXP-60): a compact glass row at the TOP of
@@ -59,7 +59,7 @@ fun ShareBoardSelector(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .glassSection()
+                        .glassGroup()
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                 )
             }
@@ -73,7 +73,7 @@ fun ShareBoardSelector(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .glassSection()
+                        .glassGroup()
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                 )
             }
@@ -85,7 +85,7 @@ fun ShareBoardSelector(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .glassSection()
+                        .glassGroup()
                         .clickable(onClick = onClick)
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 ) {

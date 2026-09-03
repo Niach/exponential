@@ -1,21 +1,27 @@
 package com.exponential.app.ui.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchColors
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,16 +30,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.R
+import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassGroup
 
 // The grouped-sheet building blocks the unified Start-coding sheet introduced
 // (EXP-208/EXP-211 — iOS Form parity), extracted for reuse by the
@@ -43,36 +53,110 @@ import com.exponential.app.ui.theme.TextEmphasis
 // over a bottom sheet lands wherever M3 can fit it; a sheet always presents
 // the same way, and matches how every other picker in the app reads).
 
-/** Aligned with the grouped cards' inner content edge (16dp card inset + 16dp row padding). */
-@Composable
-internal fun SectionLabel(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
-    )
-}
-
 // iOS-inset-grouped-section analog (EXP-208): a rounded glass container that
-// wraps a group of rows, separated inside by [GroupDivider] hairlines.
+// wraps a group of rows, separated inside by [GroupDivider] hairlines. The
+// 16dp inset is the sheet's own gutter; the surface itself is the shared
+// borderless [glassGroup] (EXP-698).
 @Composable
 internal fun OptionGroup(content: @Composable () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(GlassTokens.RowFill, RoundedCornerShape(12.dp)),
+            .glassGroup(),
     ) {
         content()
     }
 }
 
-/** Hairline between rows in an [OptionGroup] (TeamSettingsScreen's idiom). */
+/** THE hairline between rows in a group — every list card uses this one. */
 @Composable
-internal fun GroupDivider() {
-    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+fun GroupDivider() {
+    HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
+}
+
+/**
+ * One property row of a grouped glass card (iOS `GlassMetaRow`): a fixed-width
+ * label on the left and the caller's value glyph + text pushed to the right.
+ * Tappable when [enabled].
+ *
+ * EXP-698 r5 lifted it out of the create-issue screen: the issue-properties
+ * sheet edits the SAME five properties and had grown its own row idiom (a
+ * chevron per row, its own label column) that read as a different screen than
+ * the one that created the issue.
+ */
+@Composable
+fun MetaRow(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    value: @Composable RowScope.() -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            modifier = Modifier.width(84.dp),
+        )
+        Spacer(Modifier.weight(1f))
+        value()
+    }
+}
+
+/**
+ * The labels block under a properties/create form (EXP-698 r5): a text-only
+ * heading, then EVERY team label as a select pill with its colour disc, then
+ * the "+ Label" pill that opens the full picker sheet. Shared so the
+ * create-issue screen and the issue-properties sheet cannot drift — they are
+ * the same control over the same set, one writing a local draft and the other
+ * an issueLabels mutation.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun LabelsPickerBlock(
+    labels: List<LabelEntity>,
+    selectedIds: Set<String>,
+    onToggle: (labelId: String, selected: Boolean) -> Unit,
+    onOpenPicker: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            "Labels",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        )
+        Spacer(Modifier.height(8.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            labels.forEach { label ->
+                val selected = label.id in selectedIds
+                GlassPill(
+                    label.name,
+                    size = PillSize.Sm,
+                    mode = PillMode.Select,
+                    selected = selected,
+                    dot = parseColor(label.color),
+                    onClick = { onToggle(label.id, selected) },
+                )
+            }
+            GlassPill(
+                "Label",
+                size = PillSize.Sm,
+                icon = ExpIcons.uiAdd,
+                onClick = onOpenPicker,
+            )
+        }
+    }
 }
 
 // iOS-Form-style picker row: label left, selected value + chevron right; tap
@@ -164,7 +248,19 @@ internal fun SwitchRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            // EXP-698: the ROW is the tap target, exactly like [PickerRow] —
+            // which is what lets the Switch drop its own 48dp enforcement and
+            // the row keep the group's 16/12 rhythm. `onCheckedChange = null`
+            // makes the Switch a pure indicator (M3 then applies neither
+            // `toggleable` nor `minimumInteractiveComponentSize` to it), so
+            // TalkBack reads ONE switch control here, not a row plus a switch.
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            )
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -175,8 +271,49 @@ internal fun SwitchRow(
             ),
             modifier = Modifier.weight(1f),
         )
-        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+        Switch(
+            checked = checked,
+            onCheckedChange = null,
+            enabled = enabled,
+            colors = glassSwitchColors(),
+            thumbContent = SwitchThumb,
+        )
     }
+}
+
+/**
+ * THE toggle chrome (EXP-698). M3's default unchecked switch is a hollow
+ * outlined capsule with a 16dp knob rattling inside it — on the app's dark
+ * glass that reads as "broken", not as "off". Off is the shared active fill
+ * with a white knob and NO border; on is the primary track with a
+ * primary-foreground knob. Every `Switch` in the app takes these.
+ */
+@Composable
+fun glassSwitchColors(): SwitchColors = SwitchDefaults.colors(
+    checkedThumbColor = DesignTokens.Palette.PrimaryForeground,
+    checkedTrackColor = DesignTokens.Palette.Primary,
+    checkedBorderColor = Color.Transparent,
+    checkedIconColor = Color.Transparent,
+    uncheckedThumbColor = Color.White,
+    uncheckedTrackColor = GlassTokens.RowFillActive,
+    uncheckedBorderColor = Color.Transparent,
+    uncheckedIconColor = Color.Transparent,
+    disabledCheckedThumbColor = DesignTokens.Palette.PrimaryForeground.copy(alpha = TextEmphasis.Secondary),
+    disabledCheckedTrackColor = DesignTokens.Palette.Primary.copy(alpha = TextEmphasis.Tertiary),
+    disabledCheckedBorderColor = Color.Transparent,
+    disabledUncheckedThumbColor = Color.White.copy(alpha = TextEmphasis.Tertiary),
+    disabledUncheckedTrackColor = GlassTokens.RowFill,
+    disabledUncheckedBorderColor = Color.Transparent,
+)
+
+/**
+ * A blank 24dp thumb slot. M3 shrinks an unchecked thumb to 16dp unless the
+ * caller fills the icon slot, so the OFF knob came out visibly smaller than
+ * the ON one; an empty box at [SwitchDefaults.IconSize] keeps ONE knob size
+ * across both states (the icon color above is transparent, so nothing paints).
+ */
+val SwitchThumb: @Composable () -> Unit = {
+    Spacer(Modifier.size(SwitchDefaults.IconSize))
 }
 
 // ── Agent launch-option vocabulary (shared by the start + settings sheets) ──

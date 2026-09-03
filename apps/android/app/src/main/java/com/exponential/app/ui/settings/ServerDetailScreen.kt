@@ -15,7 +15,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -45,11 +44,12 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
+import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassSection
+import com.exponential.app.ui.theme.glassGroup
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -163,7 +163,7 @@ class ServerDetailViewModel @Inject constructor(
 }
 
 // iOS-parity server detail: glass-grouped sections over the shared
-// AppBackground, mirroring SettingsScreen's glassSection row pattern.
+// AppBackground, mirroring SettingsScreen's grouped-card row pattern.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ServerDetailScreen(
@@ -204,7 +204,7 @@ fun ServerDetailScreen(
             // Identity card — signed in it shows the ACCOUNT identity (avatar
             // + "Firstname Lastname" + email, EXP-311, iOS/web parity); signed
             // out the server block stays so the row remains identifiable.
-            Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
+            Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -269,7 +269,7 @@ fun ServerDetailScreen(
             }
 
             // Actions card.
-            Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
+            Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
                 if (account?.token != null) {
                     ActionRow(
                         icon = ExpIcons.navSignOut,
@@ -279,7 +279,7 @@ fun ServerDetailScreen(
                             onBack()
                         },
                     )
-                    CardDivider()
+                    GroupDivider()
                     // Store policy (Play "Delete account" / App Store
                     // 5.1.1(v)): account deletion must be initiable in-app.
                     ActionRow(
@@ -306,7 +306,7 @@ fun ServerDetailScreen(
                 // The bundled cloud can never be removed — "Remove server" is a
                 // custom-server affordance only (iOS parity, EXP-331).
                 if (account?.isCloud != true) {
-                    CardDivider()
+                    GroupDivider()
                     ActionRow(
                         icon = ExpIcons.uiDelete,
                         title = "Remove server",
@@ -408,8 +408,3 @@ private fun ActionRow(
     }
 }
 
-// Hairline divider between grouped-card rows (iOS Divider white@6%).
-@Composable
-private fun CardDivider() {
-    HorizontalDivider(thickness = 0.5.dp, color = Color.White.copy(alpha = 0.06f))
-}

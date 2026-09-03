@@ -19,7 +19,7 @@ use gpui::{
     SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant, ButtonVariants as _},
+    button::{Button, ButtonVariant},
     menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
     ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
@@ -325,10 +325,12 @@ impl MachinesSection {
             // EXP-420: offer the update only when a newer CLI version really
             // exists (or one is already in flight — keep its state visible).
             let can_update = server && device.online && (outdated || updating);
-            Button::new(("machine-menu", index))
-                .ghost().cursor_pointer()
-                .xsmall()
-                .icon(registry::UI_MORE)
+            // EXP-698: the one 32px glass chrome every row action wears.
+            crate::controls::glass_icon_button(
+                ("machine-menu", index),
+                Icon::new(registry::UI_MORE),
+                cx,
+            )
                 .dropdown_menu(move |menu, _window, cx| {
                     let edit_section = section.clone();
                     let edit_id = device_id.clone();
@@ -580,14 +582,43 @@ impl MachinesSection {
                             }),
                     ),
             )
-            .child(div().flex_shrink_0().child(start_coding))
-            .children(menu.map(|menu| div().flex_shrink_0().child(menu)))
+            // EXP-698: a FIXED trailing COLUMN — ▶ and ⋯ each own a 32px
+            // slot, so the two actions line up down the list. A row without a
+            // menu (a relay-only build, a teammate's shared machine) keeps an
+            // empty placeholder instead of sliding its ▶ under the ⋯ column.
+            .child(
+                gpui_component::h_flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap_1()
+                    .child(start_coding)
+                    .child(match menu {
+                        Some(menu) => div().flex_shrink_0().child(menu),
+                        None => div()
+                            .flex_shrink_0()
+                            .w(px(theme::tokens::size::CONTROL_MD)),
+                    }),
+            )
             .into_any_element()
     }
 }
 
 /// Where the desktop app's builds live — the "Download desktop app" target.
 const DESKTOP_RELEASES_URL: &str = "https://github.com/Niach/exponential/releases/latest";
+
+/// The instance the install one-liner points the daemon at.
+fn server_install_origin(cx: &gpui::App) -> String {
+    queries::active_account(cx)
+        .map(|account| account.instance_url.trim_end_matches('/').to_string())
+        .unwrap_or_else(|| "https://app.exponential.at".to_string())
+}
+
+/// The headless-daemon install one-liner (web `buildServerInstallSnippet`) —
+/// the Add-device dialog shows it, the Getting-started server card copies it.
+pub(crate) fn server_install_snippet(cx: &gpui::App) -> String {
+    let origin = server_install_origin(cx);
+    format!("curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE={origin} sh")
+}
 
 /// The "Add device" dialog (EXP-697, one spec with the web twin): the desktop
 /// app first — it is what actually runs coding sessions — then the install
@@ -598,13 +629,10 @@ const DESKTOP_RELEASES_URL: &str = "https://github.com/Niach/exponential/release
 /// `buildServerInstallSnippet` shape exactly. Shared (EXP-470): opened from
 /// this section's band and from the Getting-started page's server card.
 pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
-    let origin = queries::active_account(cx)
-        .map(|account| account.instance_url.trim_end_matches('/').to_string())
-        .unwrap_or_else(|| "https://app.exponential.at".to_string());
+    let origin = server_install_origin(cx);
     // The clipboard gets the ONE-LINE command; the box shows it wrapped over
     // two lines so the snippet never needs a horizontal scroll.
-    let snippet =
-        format!("curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE={origin} sh");
+    let snippet = server_install_snippet(cx);
     let line_two = SharedString::from(format!("  EXP_INSTANCE={origin} sh"));
     let spec = AlertSpec::new(
         "Add device",
@@ -654,11 +682,11 @@ pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
                     )
                     .child(
                         div().absolute().top_1().right_1().child(
-                            Button::new("add-device-copy")
-                                .ghost()
-                                .cursor_pointer()
-                                .xsmall()
-                                .icon(Icon::new(registry::UI_COPY))
+                            crate::controls::glass_icon_button(
+                                "add-device-copy",
+                                Icon::new(registry::UI_COPY),
+                                cx,
+                            )
                                 .tooltip("Copy install command")
                                 .on_click(move |_, window, cx| {
                                     cx.write_to_clipboard(ClipboardItem::new_string(
@@ -847,9 +875,7 @@ impl Render for MachinesSection {
         // EXP-642: the web `GlassSectionHeader` — a plain-text heading with
         // no count, the "Add device" control trailing (EXP-697: the dialog
         // leads with the desktop app, so the button no longer says server).
-        let add_server = Button::new("machines-add-server")
-            .outline().cursor_pointer()
-            .web_xs()
+        let add_server = crate::surface::glass_pill_button("machines-add-server", crate::surface::PillSize::Sm, cx)
             .icon(registry::UI_ADD)
             .label("Add device")
             .on_click(|_: &gpui::ClickEvent, window, cx| {
@@ -865,7 +891,7 @@ impl Render for MachinesSection {
         // parent resolve their `w_full` correctly.
         gpui_component::v_flex()
             .min_w_0()
-            .child(crate::actions_view::section_heading(
+            .child(crate::surface::glass_section_header(
                 "My machines",
                 Some(add_server),
                 cx,
@@ -901,7 +927,7 @@ impl Render for MachinesSection {
                     gpui_component::v_flex()
                         .min_w_0()
                         .pt_4()
-                        .child(crate::actions_view::section_heading(
+                        .child(crate::surface::glass_section_header(
                             "Team machines",
                             None,
                             cx,

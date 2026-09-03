@@ -42,10 +42,14 @@ public enum GlassMenuTokens {
     /// fenced off), but the rung stays: it is the app's divider value.
     public static let dividerOpacity: Double = 0.06
     /// 44pt — the minimum tap target around a menu's trigger glyph, the
-    /// cross-platform constant EXP-687 pins on both phones.
+    /// cross-platform constant EXP-687 pins on both phones. No trigger is
+    /// LAID OUT at this size (EXP-698 r4 shrank the toolbar ink to a bare 32pt
+    /// glyph so the system's own toolbar glass wraps it); it is the target the
+    /// `triggerHitInset` below grows every trigger's hit shape out to.
     public static let triggerHitSize: CGFloat = 44
-    /// Added around every `GlassMenu` label's hit shape (not its frame): a
-    /// bare 20pt glyph becomes the 44pt `triggerHitSize`.
+    /// Added around every trigger's hit shape (not its frame): as a padding on
+    /// a `GlassMenu` label, as a negative `contentShape` inset on the 32pt
+    /// toolbar glyphs. Either way the ink stays small and the target is 44pt.
     public static let triggerHitInset: CGFloat = 12
     public static let minWidth: CGFloat = 180
     public static let maxWidth: CGFloat = 280
@@ -287,10 +291,17 @@ public extension View {
     }
 }
 
-/// The 44pt trigger for a toolbar-hosted `GlassMenu` (EXP-687): it captures its
-/// own global frame into `anchor` and flips `isPresented` animation-free. The
-/// popup itself is a `.glassMenuOverlay(…, presentation: .inline)` on the
+/// The toolbar trigger for a toolbar-hosted `GlassMenu` (EXP-687): it captures
+/// its own global frame into `anchor` and flips `isPresented` animation-free.
+/// The popup itself is a `.glassMenuOverlay(…, presentation: .inline)` on the
 /// screen's root.
+///
+/// EXP-698 r4: the ink is the BARE glyph in a 32pt frame — no drawn circle. A
+/// toolbar item on iOS 26 already sits in the system's own Liquid Glass capsule,
+/// so our chrome on top read as two concentric rings ("double round"). Every
+/// toolbar-hosted control in the app is bare content for that reason (the board
+/// header's search/filter glyphs are the reference); the drawn `CircleIconLabel`
+/// chrome stays where WE own the surface — list rows, section headers.
 public struct GlassMenuBarButton: View {
     let icon: String
     let accessibilityLabel: String
@@ -315,12 +326,13 @@ public struct GlassMenuBarButton: View {
             transaction.disablesAnimations = true
             withTransaction(transaction) { isPresented.toggle() }
         } label: {
-            AppIcon(icon, size: AppIcon.Size.large)
-                .frame(
-                    width: GlassMenuTokens.triggerHitSize,
-                    height: GlassMenuTokens.triggerHitSize
-                )
-                .contentShape(Rectangle())
+            AppIcon(icon, size: AppIcon.Size.medium, weight: .medium)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .frame(width: GlassTokens.controlSize, height: GlassTokens.controlSize)
+                // 32pt of ink, a 44pt target: the `…` used to drop taps that
+                // landed beside the glyph (EXP-687), and a bare glyph is
+                // smaller than the circle that used to catch them.
+                .contentShape(Circle().inset(by: -GlassMenuTokens.triggerHitInset))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)

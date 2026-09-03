@@ -18,7 +18,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Icon,
 };
 
 use domain::rows::{Comment, User};
@@ -148,6 +148,10 @@ pub(crate) struct CommentRowProps<'a> {
     /// EXP-554, edit mode only: attachments picked during this edit.
     pub edit_pending: &'a [PendingCommentAttachment],
     pub now_epoch: i64,
+    /// EXP-698 round 5: whether the timeline rail continues above/below this
+    /// row (false on the feed's first/last row).
+    pub line_above: bool,
+    pub line_below: bool,
     /// Scopes the body's `@email`/`#IDENT` pill resolution (§4.5).
     pub team_id: Option<&'a str>,
     /// Shared attachment-image cache (auth-gated fetch).
@@ -194,13 +198,13 @@ pub(crate) fn comment_row(
             let edit_id = comment_id.clone();
             let delete_id = comment_id.clone();
             row.child(div().flex_1()).child(
+                // EXP-698 round 5: BARE ⋮ on every client — the bubble is
+                // already a card, so a glass ring around its menu glyph reads
+                // as a second surface. Gate stays author-only.
                 Button::new(SharedString::from(format!("comment-menu-{comment_id}")))
-                    .ghost().cursor_pointer()
-                    .xsmall()
-                    .icon(
-                        Icon::new(registry::UI_MORE)
-                            .text_color(cx.theme().muted_foreground),
-                    )
+                    .ghost()
+                    .web_icon_xs()
+                    .icon(Icon::new(registry::UI_MORE_VERTICAL))
                     .dropdown_menu({
                         let timeline = cx.entity();
                         move |menu, _, cx| {
@@ -231,15 +235,12 @@ pub(crate) fn comment_row(
         });
 
     let body: gpui::AnyElement = match props.editing {
-        // EXP-568: same card treatment as the create composer below.
+        // EXP-698 round 5: the row's own bubble IS the card now — the edit
+        // strip keeps its rhythm but drops the nested fill/stroke it carried
+        // since EXP-568 (a card inside a card composites to a third material).
         Some(editor) => v_flex()
             .mt_1()
             .gap_1p5()
-            .p_2()
-            .rounded_lg()
-            .border_1()
-            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-            .bg(theme::tokens::glass::FILL_CARD.to_hsla())
             .child(editor.clone())
             // EXP-554: kept attachments (with the staging ✕) + this edit's
             // picks, above the Save/Cancel row.
@@ -285,9 +286,7 @@ pub(crate) fn comment_row(
                             })),
                     )
                     .child(
-                        Button::new(SharedString::from(format!("comment-cancel-{comment_id}")))
-                            .ghost()
-                            .web_xs()
+                        crate::surface::glass_pill_button(SharedString::from(format!("comment-cancel-{comment_id}")), crate::surface::PillSize::Sm, cx)
                             .label("Cancel")
                             .on_click(cx.listener(|this, _, _, cx| this.cancel_edit(cx))),
                     ),
@@ -331,24 +330,54 @@ pub(crate) fn comment_row(
         }
     };
 
-    // `.w_full()` is load-bearing on both the row and the composer below:
-    // without an explicit width the h_flex sizes to content, so a long
+    // `.w_full()` is load-bearing on the bubble and the composer below:
+    // without an explicit width the flex sizes to content, so a long
     // unwrappable comment line blows the row past the column (clipped text)
     // while an empty thread leaves the composer tiny (EXP-67).
-    h_flex()
+    //
+    // EXP-698 round 5: the comment is a CARD on the timeline rail — the
+    // mobile shape (`RegularCommentRow`), now shared by web and the IDE.
+    // EXP-547: picture + initials fallback (web `RegularCommentRow` renders
+    // `AvatarImage`), so same-initials authors stay distinct. The 24px avatar
+    // is the marker; it centres in the 28px gutter (gpui-component's `Size`
+    // ladder has no 28 rung).
+    let avatar = crate::user_avatar::user_avatar(
+        props.comment.author_id.as_deref().unwrap_or_default(),
+        &name,
+        props.author.and_then(|user| user.image.as_deref()),
+        gpui_component::Size::Small,
+        cx,
+    )
+    .into_any_element();
+    let bubble = crate::surface::glass_card()
         .w_full()
-        .py_2()
-        .gap_2p5()
-        .items_start()
-        // EXP-547: picture + initials fallback (web `RegularCommentRow`
-        // renders `AvatarImage`), so same-initials authors stay distinct.
-        .child(crate::user_avatar::user_avatar(
-            &name,
-            props.author.and_then(|user| user.image.as_deref()),
-            gpui_component::Size::Small,
-            cx,
-        ))
-        .child(v_flex().flex_1().min_w_0().child(header).child(body))
+        .min_w_0()
+        .px_3()
+        .pt_2()
+        .pb_2p5()
+        .child(header)
+        .child(body);
+    // `pt_1` matches the row's `marker_top`, keeping the bubble's header level
+    // with the avatar; `pb_2` is the gap to the next row and rides the
+    // CONTENT, never a margin — the row's own height is what the gutter
+    // stretches over, so the rail runs through the gap instead of stopping
+    // short of it (and no margin has to survive the flex wrapper).
+    let content = v_flex()
+        .w_full()
+        .min_w_0()
+        .pt_1()
+        .pb_2()
+        .child(bubble)
+        .into_any_element();
+
+    crate::timeline::timeline_row(
+        avatar,
+        24.,
+        4.,
+        props.line_above,
+        props.line_below,
+        content,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -387,105 +416,68 @@ pub(crate) fn composer_row(
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> impl IntoElement {
     let full = pending.len() >= MAX_COMMENT_ATTACHMENTS;
-    v_flex()
-        .w_full()
-        .mt_2()
-        .gap_1p5()
-        .p_2()
-        .rounded_lg()
-        .border_1()
-        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-        .children(pending_attachments_strip(pending, PendingScope::Composer, cx))
-        // EXP-525: a flex-COLUMN slot, not a nested row — the view child's
-        // percent width resolved against unclamped avail in a row hop
-        // (EXP-436 class) and the composer collapsed to placeholder width at
-        // some window sizes; a column stretches its child to the definite slot
-        // width instead.
-        .child(v_flex().w_full().min_w_0().child(input.clone()))
-        .child(
-            h_flex()
-                .w_full()
-                .gap_1()
-                .items_center()
-                .child(composer_tool(
-                    "comment-image",
-                    registry::EDITOR_IMAGE,
-                    "Insert image",
-                    cx,
-                ).on_click(cx.listener(|this, _, window, cx| {
-                    this.pick_comment_images(PendingScope::Composer, window, cx);
-                })))
-                .child(attach_button(
-                    "comment-attach",
-                    PendingScope::Composer,
-                    full,
-                    cx,
-                ))
-                .child(composer_tool(
+    div().w_full().mt_2().child(crate::composer::glass_composer(
+        crate::composer::GlassComposer::new(input.clone().into_any_element())
+            .strip(pending_attachments_strip(pending, PendingScope::Composer, cx))
+            .tool(
+                composer_tool("comment-image", registry::EDITOR_IMAGE, "Insert image", cx)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.pick_comment_images(PendingScope::Composer, window, cx);
+                    })),
+            )
+            .tool(attach_button(
+                "comment-attach",
+                PendingScope::Composer,
+                full,
+                cx,
+            ))
+            .tool(
+                composer_tool(
                     "comment-issue-ref",
                     registry::EDITOR_ISSUE_REF,
                     "Link an issue",
                     cx,
-                ).on_click(cx.listener(|this, _, window, cx| {
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
                     this.insert_issue_ref_trigger(PendingScope::Composer, window, cx);
-                })))
-                .child(emoji_button(
+                })),
+            )
+            .tool(
+                emoji_button(
                     "comment-emoji",
                     PendingScope::Composer,
                     emoji_picker,
                     emoji_open,
                     cx,
-                ))
-                .child(div().flex_1())
-                .child(submit_button(
-                    submitting,
-                    submitting || !has_draft,
-                    cx,
-                )),
-        )
+                )
+                .into_any_element(),
+            )
+            .submit(submit_button(submitting, submitting || !has_draft, cx)),
+    ))
 }
 
-/// EXP-599: the send button, styled like the web composer's — a GHOST
-/// capsule around the `ui-submit` glyph (which IS the circled arrow, so a
-/// filled button would draw a second ring), primary-tinted, 24px inside a
-/// 32px hit box (web `size-icon rounded-full text-primary` + `!size-6`).
+/// The comment composer's send: the shared round ghost submit
+/// ([`crate::composer::composer_submit`]) on the `ui-submit` glyph, plus this
+/// surface's loading flag and handler.
 fn submit_button(
     submitting: bool,
     disabled: bool,
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> Button {
-    // Web `disabled:opacity-40` — the explicit icon tint would otherwise
-    // override the ghost variant's own disabled treatment.
-    let tint = if disabled {
-        cx.theme().primary.opacity(0.4)
-    } else {
-        cx.theme().primary
-    };
-    Button::new("comment-submit")
-        .ghost()
-        .with_size(gpui::px(32.))
-        .rounded_full()
-        .cursor_pointer()
-        .icon(Icon::new(registry::UI_SUBMIT).text_color(tint))
+    crate::composer::composer_submit("comment-submit", registry::UI_SUBMIT, disabled, cx)
         .loading(submitting)
-        .disabled(disabled)
         .on_click(cx.listener(|this, _, window, cx| this.submit_comment(window, cx)))
 }
 
-/// A composer tool button: the muted ghost treatment `attach_button` and
-/// `emoji_button` already wear, for the entries that need no extra state.
+/// A composer tool button: the shared 24px ghost glyph
+/// ([`crate::composer::composer_tool`]) plus a tooltip.
 fn composer_tool(
     id: &'static str,
     icon: crate::icons::ExpIcon,
     tooltip: &'static str,
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> Button {
-    Button::new(id)
-        .ghost()
-        .web_icon_sm()
-        .icon(Icon::new(icon).text_color(cx.theme().muted_foreground))
-        .tooltip(tooltip)
+    crate::composer::composer_tool(id, icon, cx).tooltip(tooltip)
 }
 
 /// EXP-551: the emoji trigger both comment composers grow — a smiley that
@@ -509,7 +501,7 @@ fn emoji_button(
         popover_id,
         Button::new(id)
             .ghost()
-            .web_icon_sm()
+            .web_icon_xs()
             .icon(Icon::new(registry::EDITOR_EMOJI).text_color(cx.theme().muted_foreground))
             .tooltip("Emoji"),
         picker.clone(),

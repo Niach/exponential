@@ -9,8 +9,8 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { GlassGroup } from "@/components/ui/glass-rows"
+import { Pill } from "@/components/ui/pill"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -271,21 +271,17 @@ export function PlanComparison({
           const cadence = showYearlyToggle ? null : t.cadence
 
           return (
-            <Card
+            <GlassGroup
               key={t.tier}
               className={cn(
-                `flex h-full min-w-0 flex-col gap-4 overflow-hidden py-4`,
-                isCurrent && `border-primary/40`
+                `h-full min-w-0`,
+                isCurrent && `ring-1 ring-primary/40`
               )}
             >
-              <CardHeader className="gap-1.5 px-4">
+              <div className="flex flex-col gap-1.5 px-4 py-4">
                 <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="text-sm">{t.name}</CardTitle>
-                  {isCurrent && (
-                    <Badge variant="secondary" className="text-[10px]">
-                      Current
-                    </Badge>
-                  )}
+                  <span className="text-sm font-semibold">{t.name}</span>
+                  {isCurrent && <Pill>Current</Pill>}
                 </div>
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-semibold tracking-tight">
@@ -298,12 +294,12 @@ export function PlanComparison({
                 {cadence && (
                   <p className="text-xs text-muted-foreground">{cadence}</p>
                 )}
-              </CardHeader>
+              </div>
 
-              {/* Cadence toggle right under the price, fenced by rules —
-                  the price above follows it (EXP-341). */}
+              {/* Cadence toggle right under the price, fenced by the group's
+                  own hairlines — the price above follows it (EXP-341). */}
               {showYearlyToggle && (
-                <div className="flex items-center gap-2.5 border-y px-4 py-2.5">
+                <div className="flex items-center gap-2.5 px-4 py-2.5">
                   <Switch
                     id={yearlyToggleId}
                     checked={teamYearly}
@@ -318,7 +314,7 @@ export function PlanComparison({
                 </div>
               )}
 
-              <CardContent className="flex flex-1 flex-col gap-4 px-4">
+              <div className="flex flex-1 flex-col gap-4 px-4 py-4">
                 <div className="space-y-2">
                   {t.features.map((f) => (
                     <FeatureRow key={f} label={f} />
@@ -378,8 +374,8 @@ export function PlanComparison({
                     Your current plan
                   </p>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </GlassGroup>
           )
         })}
       </div>

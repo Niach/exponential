@@ -353,9 +353,7 @@ struct ActionsListView: View {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     // EXP-574 (web parity): the "Actions" header with the
                     // "New action" entry (EXP-431) as its trailing control.
-                    HStack(spacing: 6) {
-                        sectionLabel("Actions")
-                        Spacer(minLength: 0)
+                    GlassSectionHeader("Actions") {
                         newActionButton
                     }
                     if let sentCaption = vm.startWatcher.sentCaption {
@@ -385,24 +383,18 @@ struct ActionsListView: View {
         }
     }
 
-    /// The web `SectionLabel` — "Actions", "Automations" — heading each
-    /// segment's list (EXP-574 layout parity; EXP-697 dropped the count).
-    private func sectionLabel(_ title: String) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white)
-        }
-        .padding(.horizontal, 4)
-    }
-
     /// EXP-431: creation left the list ("Create action" no longer poses as a
     /// row); EXP-615 gave it its own sheet.
     private var newActionButton: some View {
-        GlassPillButton("New action", icon: AppIcons.actionCreate, enabled: teamState.activeTeam != nil) {
-            guard teamState.activeTeam != nil else { return }
-            createTarget = CreateActionSeed(id: "new")
-        }
+        GlassPill(
+            "New action",
+            icon: AppIcons.actionCreate,
+            mode: .action {
+                guard teamState.activeTeam != nil else { return }
+                createTarget = CreateActionSeed(id: "new")
+            },
+            enabled: teamState.activeTeam != nil
+        )
         .accessibilityLabel("New action")
     }
 
@@ -418,9 +410,7 @@ struct ActionsListView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     // EXP-574 (web parity): section headers.
-                    HStack(spacing: 6) {
-                        sectionLabel("Automations")
-                        Spacer(minLength: 0)
+                    GlassSectionHeader("Automations") {
                         if vm.permissions.isOwner {
                             newAutomationButton(vm)
                         }
@@ -454,7 +444,7 @@ struct ActionsListView: View {
     @ViewBuilder
     private func recentAutomatedRuns(_ vm: ActionsViewModel) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionLabel("Recent automated runs")
+            GlassSectionHeader("Recent automated runs")
                 .padding(.top, 12)
             // EXP-637: a resume is a remote start like any other — the same
             // "waiting for the desktop" caption reports it here too.
@@ -512,9 +502,12 @@ struct ActionsListView: View {
     @ViewBuilder
     private func newAutomationButton(_ vm: ActionsViewModel) -> some View {
         if steerEnabled {
-            GlassPillButton("New automation", icon: AppIcons.uiAdd, enabled: teamState.activeTeam != nil) {
-                formTarget = AutomationFormTarget(id: "new", automation: nil)
-            }
+            GlassPill(
+                "New automation",
+                icon: AppIcons.uiAdd,
+                mode: .action { formTarget = AutomationFormTarget(id: "new", automation: nil) },
+                enabled: teamState.activeTeam != nil
+            )
             .accessibilityLabel("New automation")
         }
     }
@@ -530,54 +523,62 @@ struct ActionsListView: View {
         let trigger = automation.parsedTrigger
         let boundDevice = vm.allDevices.first { $0.deviceId == automation.deviceId }
         let busy = vm.automationBusyId == automation.id
-        return HStack(alignment: .top, spacing: 12) {
-            AppIcon(action?.icon ?? AppIcons.actionDefault, size: AppIcon.Size.medium)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        // EXP-698: the row's trailing cluster (toggle + menu) is CENTRED —
+        // an automation body runs to five lines, and a top-pinned toggle left
+        // it floating beside the first one instead of lining up with the play
+        // and "…" controls every other row in this list wears. The glyph and
+        // the body keep their own top alignment inside the leading group.
+        return HStack(spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                AppIcon(action?.icon ?? AppIcons.actionDefault, size: AppIcon.Size.medium)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(action?.name ?? "Deleted action")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                if let trigger {
-                    Text(AutomationTriggerDisplay.summary(trigger))
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                }
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(boundDevice?.isOnline == true
-                            ? DesignTokens.Semantic.green
-                            : Color.white.opacity(0.25))
-                        .frame(width: 6, height: 6)
-                    Text(deviceLabel(boundDevice, deviceId: automation.deviceId))
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(action?.name ?? "Deleted action")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
                         .lineLimit(1)
-                }
-                if let launch = launchCaption(automation) {
-                    Text(launch)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(1)
-                }
-                if case let .schedule(schedule)? = trigger, automation.enabled,
-                   let next = AutomationTriggerDisplay.nextScheduleRun(schedule, after: Date()) {
-                    Text("Next run \(next.formatted(date: .abbreviated, time: .shortened)) (device time)")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
-                if let last = vm.lastRunByAutomation[automation.id] {
-                    let time = relativeDate(last.startedAt)
-                    if !time.isEmpty {
-                        Text("Last run \(time)")
+                    if let trigger {
+                        Text(AutomationTriggerDisplay.summary(trigger))
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(boundDevice?.isOnline == true
+                                ? DesignTokens.Semantic.green
+                                : Color.white.opacity(0.25))
+                            .frame(width: 6, height: 6)
+                        Text(deviceLabel(boundDevice, deviceId: automation.deviceId))
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                    }
+                    if let launch = launchCaption(automation) {
+                        Text(launch)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                    }
+                    if case let .schedule(schedule)? = trigger, automation.enabled,
+                       let next = AutomationTriggerDisplay.nextScheduleRun(schedule, after: Date()) {
+                        Text("Next run \(next.formatted(date: .abbreviated, time: .shortened)) (device time)")
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
+                    if let last = vm.lastRunByAutomation[automation.id] {
+                        let time = relativeDate(last.startedAt)
+                        if !time.isEmpty {
+                            Text("Last run \(time)")
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        }
+                    }
                 }
-            }
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             // Owner-only (the automations router is owner-gated server-side).
             Toggle("", isOn: Binding(
@@ -600,9 +601,7 @@ struct ActionsListView: View {
                         pendingDelete = automation
                     }
                 } label: {
-                    AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .padding(6)
+                    CircleIconLabel(AppIcons.uiMore)
                 }
                 .accessibilityLabel("Automation actions")
             }
@@ -665,9 +664,20 @@ struct ActionsListView: View {
             // destination the start watcher does (a NavigationLink label can't
             // hold the row's own header button).
             onOpen: { sessionTarget = .init(sessionId: session.id) },
-            summary: { AgentMarkdownText(text: $0, context: nil) }
+            summary: { AgentMarkdownText(text: $0, context: markdownContext) }
         )
         .accessibilityIdentifier("automated-run-row")
+    }
+
+    /// Everything an `AgentMarkdownText` needs to render the embedded images
+    /// a close-out summary can carry — the same context the steer screen
+    /// hands its markdown (EXP-698: passing nil here silently dropped them).
+    private var markdownContext: AgentMarkdownContext {
+        AgentMarkdownContext(
+            baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+            accountId: accountId,
+            httpClient: deps.httpClient
+        )
     }
 
     /// "ended 5m ago" once the run finished, "started 5m ago" while it is
@@ -736,12 +746,7 @@ struct ActionsListView: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     // EXP-583: what the tap will set up.
-                    Text(suggestion.automation == nil ? "Action" : "Automation")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.white.opacity(0.08), in: Capsule())
+                    GlassPill(suggestion.automation == nil ? "Action" : "Automation")
                     Text(suggestion.description)
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -867,9 +872,7 @@ struct ActionsListView: View {
                         editTarget = action
                     }
                 } label: {
-                    AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .padding(6)
+                    CircleIconLabel(AppIcons.uiMore)
                 }
                 .accessibilityLabel("Action actions")
                 .accessibilityIdentifier("action-menu")

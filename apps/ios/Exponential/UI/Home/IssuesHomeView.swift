@@ -14,7 +14,18 @@ struct IssuesHomeView: View {
     let onSelectBoard: (_ accountId: String, _ boardId: String) -> Void
 
     @Environment(AppDependencies.self) private var deps
+    @Environment(TeamState.self) private var teamState
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showSwitcher = false
+    // EXP-698 r5: the getting-started checklist's live state. Owned HERE (the
+    // Issues root) and published into the environment, so the root board's
+    // empty state and this view's own "No boards yet" both render it while a
+    // pushed `.board` does not. ONE box for this view's lifetime: a fresh one
+    // per body pass would invalidate every reader on every render.
+    @State private var gettingStartedContext = GettingStartedContext()
+    /// What the board switcher asked for while it was still on screen — run
+    /// on its dismissal, never in the same transaction (see the sheet below).
+    @State private var pendingSwitcherAction: SwitcherAction?
     @State private var preparingCreate = false
     @State private var createTarget: CreateTarget?
     @State private var showTeamSetup = false
@@ -22,6 +33,14 @@ struct IssuesHomeView: View {
     // observation delivers) — drives the zero-team empty state (EXP-188:
     // signups get no auto-created team, so an account can be team-less).
     @State private var syncedTeams: [TeamEntity]?
+
+    /// What the switcher parked for after it closes.
+    private enum SwitcherAction {
+        case createBoard
+        case createTeam
+    }
+
+    private var gettingStarted: GettingStartedProgress { gettingStartedContext.progress }
 
     private struct CreateTarget: Identifiable {
         let accountId: String
@@ -51,6 +70,26 @@ struct IssuesHomeView: View {
                 emptyStateHint
             }
         }
+        .environment(\.gettingStarted, gettingStartedContext)
+        .onAppear {
+            gettingStartedContext.onCreateBoard = { Task { await beginCreateBoard() } }
+        }
+        // The GitHub install state is a server-only read (§refreshGithubStatus)
+        // — a transient failure at bind would otherwise leave the step
+        // "available" for the whole session, and connecting the App happens
+        // out in Safari anyway, so re-read it on every foreground.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { gettingStarted.refreshGithubStatus() }
+        }
+        // Rebind the checklist's observations whenever the account or the team
+        // in view changes; a team-less account has nothing to check off.
+        .task(id: checklistKey) {
+            guard let accountId = deps.auth.activeAccountId, let teamId = checklistTeamId else {
+                gettingStarted.stop()
+                return
+            }
+            gettingStarted.bind(accountId: accountId, teamId: teamId, deps: deps)
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .toolbar {
@@ -66,13 +105,29 @@ struct IssuesHomeView: View {
                 }
             }
         }
-        .sheet(isPresented: $showSwitcher) {
+        // The two creation entries PARK their intent and run it once the
+        // switcher has finished dismissing (the same hand-off
+        // `IssueDetailView.promoteMoveTarget` makes): closing this sheet and
+        // presenting the next one in ONE transaction makes SwiftUI drop the
+        // second presentation, since both hang off this node.
+        .sheet(isPresented: $showSwitcher, onDismiss: runPendingSwitcherAction) {
             BoardSwitcherSheet(
                 boardLoader: boardLoader,
                 currentBoard: currentBoard,
                 onSelect: { accountId, boardId in
                     showSwitcher = false
                     onSelectBoard(accountId, boardId)
+                },
+                // EXP-698 r5: the switcher is where a board or a team is
+                // created from, exactly like Android's — reaching either used
+                // to mean leaving the sheet for Settings.
+                onCreateBoard: {
+                    pendingSwitcherAction = .createBoard
+                    showSwitcher = false
+                },
+                onCreateTeam: {
+                    pendingSwitcherAction = .createTeam
+                    showSwitcher = false
                 }
             )
         }
@@ -89,6 +144,33 @@ struct IssuesHomeView: View {
         // Observe the active account's synced teams so the empty state can
         // distinguish "no boards yet" from "no team at all" (EXP-188).
         .task(id: deps.auth.activeAccountId) { await observeTeams() }
+    }
+
+    /// Runs whatever the switcher parked, now that it is gone and this node
+    /// owns no presentation.
+    private func runPendingSwitcherAction() {
+        guard let action = pendingSwitcherAction else { return }
+        pendingSwitcherAction = nil
+        switch action {
+        case .createBoard:
+            Task { await beginCreateBoard() }
+        case .createTeam:
+            showTeamSetup = true
+        }
+    }
+
+    // MARK: - Getting started (EXP-698 r5)
+
+    /// The team the checklist is scoped to: the board in view wins (it is the
+    /// one the empty state belongs to), else the active team, else the account's
+    /// only synced team.
+    private var checklistTeamId: String? {
+        if let board = currentBoardEntity { return board.teamId }
+        return teamState.activeTeam?.id ?? syncedTeams?.first?.id
+    }
+
+    private var checklistKey: String {
+        "\(deps.auth.activeAccountId ?? "")/\(checklistTeamId ?? "")"
     }
 
     // MARK: - Switcher control
@@ -113,31 +195,37 @@ struct IssuesHomeView: View {
         currentBoardEntity?.name
     }
 
-    /// One tappable control: current board name + the combobox-style
-    /// up/down chevron. Disabled until there is anything to switch to.
+    /// One tappable control: Android's `BoardSwitcherControl` chip (EXP-698
+    /// r7) — the board's own glyph + its name + the combobox-style up/down
+    /// expander in a single Md glass pill, instead of the bare headline this
+    /// used to be.
+    ///
+    /// With nowhere to switch to the pill stays ENABLED-looking: this is the
+    /// screen's TITLE as much as it is a control, and `enabled: false` would
+    /// drop the board name to quaternary, which reads as "this board is
+    /// broken". Only the expander glyph dims and the tap goes nowhere —
+    /// Android's `onClick = if (enabled) onClick else null`.
     private var switcherControl: some View {
-        Button {
-            showSwitcher = true
-        } label: {
-            HStack(spacing: 5) {
-                // Board glyph tinted with the board color — same idiom as the
-                // board switcher sheet this control opens (EXP-449).
-                if let board = currentBoardEntity {
-                    AppIcon(BoardTypeDisplay.iconName(for: board), size: 15)
-                        .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
-                }
-                Text(currentBoardName ?? "Boards")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                AppIcon(AppIcons.navTeamSwitcher, size: 11, weight: .semibold)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        GlassPill(
+            currentBoardName ?? "Issues",
+            size: .md,
+            mode: .action {
+                guard hasAnyBoards else { return }
+                showSwitcher = true
             }
-            .contentShape(Rectangle())
+        ) {
+            // Board glyph tinted with the board color — same idiom as the
+            // board switcher sheet this control opens (EXP-449).
+            if let board = currentBoardEntity {
+                AppIcon(BoardTypeDisplay.iconName(for: board), size: GlassPillTokens.glyphMd)
+                    .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
+            }
+        } trailing: {
+            AppIcon(AppIcons.navTeamSwitcher, size: GlassPillTokens.glyphMd)
+                .foregroundStyle(.white.opacity(hasAnyBoards ? TextOpacity.secondary : TextOpacity.quaternary))
         }
-        .buttonStyle(.plain)
-        .disabled(!hasAnyBoards)
-        .opacity(hasAnyBoards ? 1 : 0.5)
+        // MUST stay on the tappable element: the styleguide/screenshot suites
+        // reach the switcher via `app.buttons["Switch board"]`.
         .accessibilityLabel("Switch board")
     }
 
@@ -170,55 +258,70 @@ struct IssuesHomeView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .multilineTextAlignment(.center)
 
-                Button {
-                    showTeamSetup = true
-                } label: {
-                    HStack(spacing: 6) {
-                        AppIcon(AppIcons.uiAdd, size: AppIcon.Size.small, weight: .semibold)
-                        Text("Create or join a team")
-                            .font(.subheadline.weight(.medium))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .glassButton()
-                }
-                .buttonStyle(.plain)
+                GlassPill(
+                    "Create or join a team",
+                    icon: AppIcons.uiAdd,
+                    size: .md,
+                    mode: .action { showTeamSetup = true }
+                )
             }
             .padding(.horizontal, 40)
         } else {
-            VStack(spacing: 12) {
-                AppIcon(AppIcons.navBoards, size: 22)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                Text("No boards yet")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Text("Create your first board to get started.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .multilineTextAlignment(.center)
+            // EXP-698 r5: the shared empty-state shape (glyph in a 48pt washed
+            // circle, headline, one line, primary pill) with the
+            // getting-started checklist under it — the same block the empty
+            // BOARD renders, and the same one web and the IDE draw for a
+            // board-less team.
+            ScrollView {
+                VStack(spacing: 24) {
+                    VStack(spacing: 12) {
+                        AppIcon(AppIcons.navBoards, size: AppIcon.Size.large)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .frame(width: 48, height: 48)
+                            .background(GlassTokens.fillActive, in: Circle())
 
-                Button {
-                    Task { await beginCreateBoard() }
-                } label: {
-                    HStack(spacing: 6) {
-                        if preparingCreate {
-                            ProgressView().controlSize(.small).tint(.white)
-                        } else {
-                            AppIcon(AppIcons.uiAdd, size: AppIcon.Size.small, weight: .semibold)
+                        Text("No boards yet")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+
+                        Text("Create a board to start tracking work.")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .multilineTextAlignment(.center)
+
+                        GlassPill(
+                            "Create board",
+                            size: .md,
+                            mode: .action { Task { await beginCreateBoard() } },
+                            primary: true,
+                            enabled: !preparingCreate
+                        ) {
+                            if preparingCreate {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .tint(DesignTokens.Palette.primaryForeground)
+                            } else {
+                                AppIcon(AppIcons.uiAdd, size: GlassPillTokens.glyphMd)
+                            }
                         }
-                        Text("Create board")
-                            .font(.subheadline.weight(.medium))
                     }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .glassButton()
+                    .frame(maxWidth: .infinity)
+
+                    if let accountId = deps.auth.activeAccountId, let teamId = checklistTeamId {
+                        GettingStartedCards(
+                            progress: gettingStarted,
+                            accountId: accountId,
+                            teamId: teamId,
+                            onCreateBoard: { Task { await beginCreateBoard() } }
+                        )
+                    }
                 }
-                .buttonStyle(.plain)
-                .disabled(preparingCreate)
+                .padding(.horizontal, 16)
+                .padding(.top, 48)
+                .padding(.bottom, 24)
             }
-            .padding(.horizontal, 40)
+            .scrollBounceBehavior(.basedOnSize)
+            .tabBarBottomInset()
         }
     }
 

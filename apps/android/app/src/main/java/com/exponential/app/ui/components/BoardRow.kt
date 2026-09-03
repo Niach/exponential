@@ -31,11 +31,14 @@ fun BoardRow(
     board: BoardEntity,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** The board currently on screen, in a switcher — the shared active row
+     *  paint (EXP-698 r5), never a tick beside the name. */
+    active: Boolean = false,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .glassRow()
+            .glassRow(active = active)
             .clickable(onClick = onClick)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,

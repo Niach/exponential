@@ -113,7 +113,7 @@ struct AgentUsageTrack: View {
 
     private var tone: Color {
         switch severity {
-        case .normal: return .white.opacity(0.35)
+        case .normal: return GlassTokens.usageFill
         case .warning: return DesignTokens.Semantic.yellow
         case .danger: return DesignTokens.Semantic.red
         }
@@ -123,7 +123,7 @@ struct AgentUsageTrack: View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(Color.white.opacity(0.12))
+                    .fill(GlassTokens.strokeStrong)
                 Capsule()
                     .fill(tone)
                     .frame(width: geo.size.width * min(max((percent ?? 0) / 100, 0), 1))
@@ -160,7 +160,7 @@ struct AgentUsageSheet: View {
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 16)
             .padding(.top, 4)
             .padding(.bottom, 24)
             .frame(maxWidth: .infinity, alignment: .leading)

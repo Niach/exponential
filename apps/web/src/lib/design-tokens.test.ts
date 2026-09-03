@@ -17,6 +17,7 @@ const tokens = JSON.parse(
 ) as {
   palette: Record<string, string>
   semantic: Record<string, string>
+  avatar: Record<string, string>
   glass: Record<string, string>
   motion: { duration: Record<string, number>; ease: Record<string, number[]> }
 }
@@ -102,6 +103,30 @@ describe(`design-tokens parity with web styles.css`, () => {
         `tokens.glass.${key} should equal --${cssVar} in styles.css`
       ).toBe(value)
     }
+  })
+
+  // EXP-698 r3: the chat inline-code trio is the only semantic colour the web
+  // carries as a CSS var (status colours ride Tailwind classes).
+  it(`every semantic code* token matches the corresponding --code-* CSS variable`, () => {
+    for (const [key, value] of Object.entries(tokens.semantic)) {
+      if (!key.startsWith(`code`)) continue
+      const cssVar = kebab(key)
+      expect(darkVars[cssVar]?.toLowerCase(), `tokens.semantic.${key} should equal --${cssVar} in styles.css`).toBe(value.toLowerCase())
+      expect(rootVars[cssVar]?.toLowerCase(), `tokens.semantic.${key} should equal --${cssVar} in :root`).toBe(value.toLowerCase())
+    }
+  })
+
+  // EXP-698 r4: the avatar fallback palette is positional (the hash lands on
+  // an index), so the web mirrors it as --avatar-<index> in tokens order.
+  it(`every avatar hue matches --avatar-<index> in tokens order`, () => {
+    const hues = Object.entries(tokens.avatar).filter(([k]) => !k.startsWith(`$`))
+    expect(hues).toHaveLength(8)
+    hues.forEach(([key, value], index) => {
+      const cssVar = `avatar-${index}`
+      expect(darkVars[cssVar]?.toLowerCase(), `tokens.avatar.${key} should equal --${cssVar} in styles.css`).toBe(value.toLowerCase())
+      expect(rootVars[cssVar]?.toLowerCase(), `tokens.avatar.${key} should equal --${cssVar} in :root`).toBe(value.toLowerCase())
+    })
+    expect(darkVars[`avatar-8`]).toBeUndefined()
   })
 
   // EXP-594 retired the indigo --brand accent — the main scheme is white/glass.

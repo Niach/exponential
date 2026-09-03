@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.AttachmentEntity
+import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.icons.ExpIcons
@@ -173,13 +174,11 @@ private fun FileRow(
             )
         }
         Box {
-            IconButton(onClick = { menuOpen = true }) {
-                Icon(
-                    ExpIcons.uiMore,
-                    contentDescription = "File actions",
-                    modifier = Modifier.size(18.dp),
-                )
-            }
+            CircleIconButton(
+                ExpIcons.uiMore,
+                contentDescription = "File actions",
+                onClick = { menuOpen = true },
+            )
             GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 GlassMenuItem(
                     leadingIcon = { Icon(ExpIcons.uiWatch, contentDescription = null) },

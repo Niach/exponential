@@ -15,6 +15,7 @@ import { BoardGlyph } from "@/components/board-glyph"
 import { IssueEditorChips } from "@/components/issue-editor/chips"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Input } from "@/components/ui/input"
@@ -106,6 +107,10 @@ interface IssueEditorDialogShellProps {
   // inside the scroll region (EXP-247); callers may pass a slimmer
   // `mobileFooter`.
   mobileFooter?: ReactNode
+  // EXP-698 r4: the phone create form's "Create more" toggle. Absent = no row
+  // (the desktop dialog and the edit surfaces never show one).
+  createMore?: boolean
+  onCreateMoreChange?: (next: boolean) => void
   priority: IssuePriority
   boardColor: string
   boardPrefix: string
@@ -157,6 +162,8 @@ export function IssueEditorDialogShell({
   open,
   primaryAction,
   mobileFooter,
+  createMore,
+  onCreateMoreChange,
   priority,
   boardColor,
   boardPrefix,
@@ -222,10 +229,21 @@ export function IssueEditorDialogShell({
       placeholder="Issue title"
       autoFocus={autoFocus}
       disabled={disabled}
-      className="bg-transparent dark:bg-transparent border-none shadow-none text-lg font-medium px-5 py-1 focus-visible:ring-0 placeholder:text-muted-foreground/50"
+      className={
+        // EXP-698 r4: on a phone the title is a real FIELD — the stock text
+        // field recipe (its own radius and stroke), just taller for a thumb;
+        // the desktop dialog keeps the borderless headline that runs straight
+        // into the description.
+        isMobile
+          ? `h-11 text-lg font-medium`
+          : `bg-transparent dark:bg-transparent border-none shadow-none text-lg font-medium px-5 py-1 focus-visible:ring-0 placeholder:text-muted-foreground/50`
+      }
     />
   )
 
+  // EXP-698 r4: an empty description still reads as a writing surface — the
+  // content box keeps 120px of height on both arms rather than collapsing to
+  // a single placeholder line.
   const editor = (
     <MarkdownEditor
       ref={assignEditorRef}
@@ -236,6 +254,9 @@ export function IssueEditorDialogShell({
       placeholder="Add description..."
       imageUpload={imageUpload}
     />
+  )
+  const editorBody = (
+    <div className="[&_.tiptap-content]:min-h-[120px]">{editor}</div>
   )
 
   const chipNodes = (
@@ -276,47 +297,51 @@ export function IssueEditorDialogShell({
           {title || `Issue ${boardPrefix}`}
         </SheetTitle>
         {/* The phone editor is a PAGE, not a sheet (EXP-687): back arrow
-            top-left, the title left-aligned beside it, and the primary action
-            as a labelled pill top-right — the same header the iOS and Android
-            New-issue pages draw. Back is wired exactly like the desktop ✕
-            (onOpenChange(false)), so create-issue-dialog's discard veto at the
-            Root still runs. */}
+            top-left, the primary action as a labelled pill top-right — the
+            same header the iOS and Android New-issue pages draw. Back is wired
+            exactly like the desktop ✕ (onOpenChange(false)), so
+            create-issue-dialog's discard veto at the Root still runs.
+            EXP-698 r4: the middle is the DESKTOP breadcrumb (board pill ›
+            "New issue"), not a page title plus a floating board chip, and
+            both buttons wear the glass vocabulary. */}
         <div className="flex items-center gap-2 border-b border-border/50 px-3 pt-3 pb-2">
           <Button
             type="button"
-            variant="ghost"
-            size="icon-xs"
+            variant="glass"
+            size="icon-sm"
             aria-label="Back"
             disabled={closeBlocked}
             onClick={() => onOpenChange(false)}
-            className="shrink-0 text-muted-foreground"
+            className="shrink-0"
           >
             <UiBackIcon className="size-4" />
           </Button>
-          <span className="min-w-0 flex-1 truncate text-lg font-semibold text-foreground">
-            {headerContent}
-          </span>
-          <div className="shrink-0">{boardPill}</div>
+          <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+            {boardPill}
+            <ChevronRight className="h-3 w-3 shrink-0" />
+            <span className="min-w-0 truncate">{headerContent}</span>
+          </div>
           {primaryAction ? (
-            <Button
+            <Pill
+              size="md"
+              mode="action"
+              className="ml-auto"
               type={primaryAction.type ?? `button`}
-              size="sm"
               disabled={primaryAction.disabled}
               onClick={primaryAction.onClick}
-              className="shrink-0"
             >
               {primaryAction.loading && (
-                <LoaderCircle className="size-4 animate-spin" />
+                <LoaderCircle className="animate-spin" />
               )}
               {primaryAction.label ?? `Create`}
-            </Button>
+            </Pill>
           ) : null}
         </div>
 
-        {titleInput}
+        <div className="px-3">{titleInput}</div>
 
         <div className="editor-scroll-region flex-1 min-h-0 min-w-0 overflow-y-auto">
-          {editor}
+          {editorBody}
           <IssueEditorMobileProperties
             status={status}
             priority={priority}
@@ -334,6 +359,8 @@ export function IssueEditorDialogShell({
             onAssigneeChange={onAssigneeChange}
             onToggleLabel={onToggleLabel}
             onDueDateSelect={onDueDateSelect}
+            createMore={createMore}
+            onCreateMoreChange={onCreateMoreChange}
           />
         </div>
 
@@ -406,7 +433,7 @@ export function IssueEditorDialogShell({
 
       {titleInput}
       <div className="editor-scroll-region flex-1 min-h-0 min-w-0 overflow-y-auto">
-        {editor}
+        {editorBody}
       </div>
 
       <div className="flex items-center gap-1 px-4 py-2 border-t border-border">

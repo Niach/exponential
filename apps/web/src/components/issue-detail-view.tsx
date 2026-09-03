@@ -18,6 +18,7 @@ import {
   formatDateForMutation,
   getIssueDescriptionText,
   normalizeIssueDescriptionText,
+  type IssuePriority,
 } from "@/lib/domain"
 import {
   uploadIssueFile,
@@ -27,6 +28,7 @@ import { useSession } from "@/hooks/use-session"
 import { parseLocalDate } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { IconTooltip } from "@/components/icon-tooltip"
 import {
   DropdownMenu,
@@ -49,6 +51,7 @@ import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
 import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
 import { IssueDetailMobileBar } from "@/components/issue-detail-mobile-bar"
+import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { IssueFilesSection } from "@/components/issue-files-section"
 import { SubscribeToggle } from "@/components/subscribe-toggle"
 import { IssueDetailMobileMenu } from "@/components/issue-detail-mobile-menu"
@@ -109,25 +112,19 @@ function DuplicateOfBanner({
     <div className="flex items-center gap-2 border-b border-border bg-accent/30 px-4 py-2 text-sm min-w-0">
       <Files className="size-4 shrink-0 text-muted-foreground" />
       <span className="shrink-0 text-muted-foreground">Duplicate of</span>
-      <Button
-        variant="outline"
-        size="xs"
-        className="h-5 shrink-0 rounded-full px-2 font-mono text-xs"
+      <Pill
+        mode="action"
+        className="font-mono"
         onClick={() => issueRefs?.open(canonical.identifier)}
       >
         #{canonical.identifier}
-      </Button>
+      </Pill>
       <span className="truncate text-muted-foreground">{canonical.title}</span>
       {!readOnly && (
-        <Button
-          variant="ghost"
-          size="xs"
-          className="ml-auto shrink-0 text-muted-foreground"
-          onClick={onUnmark}
-        >
-          <UiUndoIcon className="size-3.5" />
+        <Pill mode="action" className="ml-auto" onClick={onUnmark}>
+          <UiUndoIcon className="size-3" />
           Unmark
-        </Button>
+        </Pill>
       )}
     </div>
   )
@@ -513,6 +510,36 @@ export function IssueDetailView({
     })
   }
 
+  // EXP-698 r5: ONE definition per property mutation — the desktop band and
+  // the phone sheet are two renderings of the same panel, and a closure that
+  // exists twice is a rule that can disagree with itself.
+  const handlePriorityChange = async (priority: IssuePriority) => {
+    if (readOnly) return
+    await trpc.issues.update.mutate({ id: issue.id, priority })
+  }
+
+  const handleAssigneeChange = async (assigneeId: string | null) => {
+    if (readOnly) return
+    await trpc.issues.update.mutate({ id: issue.id, assigneeId })
+  }
+
+  const handleToggleLabel = async (labelId: string) => {
+    if (readOnly) return
+    if (issueLabelIds.includes(labelId)) {
+      await trpc.issueLabels.remove.mutate({ issueId: issue.id, labelId })
+      return
+    }
+    await trpc.issueLabels.add.mutate({ issueId: issue.id, labelId })
+  }
+
+  const handleDueDateSelect = async (date: Date | undefined) => {
+    if (readOnly) return
+    await trpc.issues.update.mutate({
+      id: issue.id,
+      dueDate: formatDateForMutation(date),
+    })
+  }
+
   // Delete is a hard delete (issues.delete cleans up attachments server-side);
   // once it commits, land back on the board with the carried filters.
   const handleDeleteIssue = async () => {
@@ -530,22 +557,23 @@ export function IssueDetailView({
 
   const dueDate = issue.dueDate ? parseLocalDate(issue.dueDate) : undefined
 
-  // Coding "coding now" row (EXP-184): a main-column row on desktop, one
-  // circle in the floating bar on phones (EXP-568). The component owns the
-  // repo/membership/relay gating and focuses the global dock rather than
-  // mounting the live viewer inline. Since EXP-616 the IDLE start affordance
-  // moved out of this row and into the properties card below.
-  const codingControl =
-    currentUserId && !isMobile ? (
-      <IssueCodingControl
-        issue={issue}
-        board={board}
-        teamId={teamId}
-        currentUserId={currentUserId}
-        users={users}
-        variant="row"
-      />
-    ) : null
+  // Coding "coding now" card (EXP-184): a main-column card on EVERY viewport
+  // since EXP-698 r4 — iOS and Android show it under the property chips too,
+  // and the phone's floating circle is the START affordance, not a substitute
+  // for the running run's card. The component owns the repo/membership/relay
+  // gating and focuses the global dock rather than mounting the live viewer
+  // inline. Since EXP-616 the IDLE start affordance moved out of this card and
+  // into the properties card above (desktop only — see `codingStartButton`).
+  const codingControl = currentUserId ? (
+    <IssueCodingControl
+      issue={issue}
+      board={board}
+      teamId={teamId}
+      currentUserId={currentUserId}
+      users={users}
+      variant="row"
+    />
+  ) : null
 
   const codingFab =
     currentUserId && isMobile ? (
@@ -580,34 +608,15 @@ export function IssueDetailView({
       status={statusOption}
       onStatusChange={handleStatusChange}
       priority={issue.priority}
-      onPriorityChange={async (priority) => {
-        if (readOnly) return
-        await trpc.issues.update.mutate({ id: issue.id, priority })
-      }}
+      onPriorityChange={handlePriorityChange}
       assigneeId={issue.assigneeId}
-      onAssigneeChange={async (assigneeId) => {
-        if (readOnly) return
-        await trpc.issues.update.mutate({ id: issue.id, assigneeId })
-      }}
+      onAssigneeChange={handleAssigneeChange}
       users={users}
       teamId={teamId}
       selectedLabelIds={issueLabelIds}
-      onToggleLabel={async (labelId) => {
-        if (readOnly) return
-        if (issueLabelIds.includes(labelId)) {
-          await trpc.issueLabels.remove.mutate({ issueId: issue.id, labelId })
-          return
-        }
-        await trpc.issueLabels.add.mutate({ issueId: issue.id, labelId })
-      }}
+      onToggleLabel={handleToggleLabel}
       dueDate={dueDate}
-      onDueDateSelect={async (date) => {
-        if (readOnly) return
-        await trpc.issues.update.mutate({
-          id: issue.id,
-          dueDate: formatDateForMutation(date),
-        })
-      }}
+      onDueDateSelect={handleDueDateSelect}
       source={issue.source}
       boardColor={board.color}
       boardPrefix={board.prefix}
@@ -617,6 +626,34 @@ export function IssueDetailView({
       issueIdentifier={issue.identifier}
       onBoardChange={handleBoardChange}
       disabled={readOnly}
+    />
+  )
+
+  // EXP-698 r5 — the phone's properties SHEET is the create form's row list,
+  // not the desktop chip band: Status / Priority / Assignee / Due date /
+  // Board as full-width rows, then the label chips. Same mutations as the
+  // band above; Board rides the shared move-confirm dialog.
+  const mobilePropertiesPanel = (
+    <IssueEditorMobileProperties
+      status={statusOption}
+      priority={issue.priority}
+      assigneeId={issue.assigneeId}
+      selectedLabelIds={issueLabelIds}
+      teamId={teamId}
+      users={users}
+      dueDate={dueDate}
+      disabled={readOnly}
+      board={{
+        boardId: issue.boardId,
+        teamId,
+        issueIdentifier: issue.identifier,
+        onBoardChange: handleBoardChange,
+      }}
+      onStatusChange={handleStatusChange}
+      onPriorityChange={handlePriorityChange}
+      onAssigneeChange={handleAssigneeChange}
+      onToggleLabel={handleToggleLabel}
+      onDueDateSelect={handleDueDateSelect}
     />
   )
 
@@ -638,13 +675,16 @@ export function IssueDetailView({
 
   // Header actions shared by the desktop breadcrumb and the compact phone
   // header below — one definition each, two arrangements.
+  // EXP-698 r5: bare chevrons — no circle, no fill. The switcher is a pair of
+  // glyphs beside the "N / total" counter (IDE parity, `issue_header.rs`);
+  // the copy-link / subscribe / trash trio keeps its circles.
   const switcherButtons = position ? (
     <>
       <IconTooltip label="Previous issue" shortcut="K">
         <Button
           variant="ghost"
-          size="icon-xs"
-          className="text-muted-foreground"
+          size="icon-sm"
+          className="text-muted-foreground hover:text-foreground"
           aria-label="Previous issue (K)"
           disabled={!position.prevIdentifier}
           onClick={() => navigateToIssue(position.prevIdentifier)}
@@ -655,8 +695,8 @@ export function IssueDetailView({
       <IconTooltip label="Next issue" shortcut="J">
         <Button
           variant="ghost"
-          size="icon-xs"
-          className="text-muted-foreground"
+          size="icon-sm"
+          className="text-muted-foreground hover:text-foreground"
           aria-label="Next issue (J)"
           disabled={!position.nextIdentifier}
           onClick={() => navigateToIssue(position.nextIdentifier)}
@@ -672,9 +712,8 @@ export function IssueDetailView({
   const copyLinkButton = (
     <IconTooltip label={linkCopied ? `Link copied` : `Copy link to issue`}>
       <Button
-        variant="ghost"
-        size="icon-xs"
-        className="text-muted-foreground"
+        variant="glass"
+        size="icon-sm"
         aria-label="Copy link to issue"
         onClick={() => {
           if (typeof navigator === `undefined` || !navigator.clipboard) {
@@ -709,12 +748,11 @@ export function IssueDetailView({
         <IconTooltip label="More actions">
           <DropdownMenuTrigger asChild>
             <Button
-              variant="ghost"
-              size="icon-xs"
-              className="text-muted-foreground"
+              variant="glass"
+              size="icon-sm"
               aria-label="Issue actions"
             >
-              <UiMoreIcon className="size-4" />
+              <UiMoreIcon />
             </Button>
           </DropdownMenuTrigger>
         </IconTooltip>
@@ -741,12 +779,11 @@ export function IssueDetailView({
       <IconTooltip label="Delete issue">
         <DropdownMenuTrigger asChild>
           <Button
-            variant="ghost"
-            size="icon-xs"
-            className="text-muted-foreground"
+            variant="glass"
+            size="icon-sm"
             aria-label="Delete issue"
           >
-            <UiDeleteIcon className="size-4" />
+            <UiDeleteIcon />
           </Button>
         </DropdownMenuTrigger>
       </IconTooltip>
@@ -851,13 +888,9 @@ export function IssueDetailView({
       <ChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
       <span className="shrink-0 font-mono">{issue.identifier}</span>
       <span className="truncate text-foreground">{title}</span>
-      <div className="ml-auto flex shrink-0 items-center">
-        {switcherButtons}
-        {position && (
-          <Separator orientation="vertical" className="mx-1 !h-3.5" />
-        )}
-        {mobileMenu}
-      </div>
+      {/* EXP-698 r5: no prev/next on phones — the natives have none either,
+          and the row is too tight for a switcher nobody reaches for there. */}
+      <div className="ml-auto flex shrink-0 items-center">{mobileMenu}</div>
     </div>
   )
 
@@ -988,9 +1021,14 @@ export function IssueDetailView({
       <div className="flex flex-col h-full min-h-0">
         {mobileHeader}
         {duplicateBanner}
-        {/* pb-24 clears the floating bar so the last comment stays readable. */}
-        <div className="flex-1 overflow-y-auto pb-24">
+        {/* EXP-698: clearance for the floating IssueDetailMobileBar below, so
+            the last comment scrolls clear of it instead of ending under the
+            glass. Same recipe as the tab bar's (52px circles + the bar's own
+            safe-area padding + a gap); the tab bar itself is hidden on this
+            route, so nothing else is reserved here. */}
+        <div className="flex-1 overflow-y-auto pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
           {propsBand}
+          {codingControl}
           {titleField}
           {editor}
           {attachmentError}
@@ -1003,7 +1041,7 @@ export function IssueDetailView({
           <IssueDetailMobileBar
             issueId={issue.id}
             users={users}
-            propertiesNode={propsPanel}
+            propertiesNode={mobilePropertiesPanel}
             codingNode={codingFab}
             onSubmitComment={handleCommentSubmit}
             hidden={descriptionFocused}
@@ -1029,10 +1067,13 @@ export function IssueDetailView({
             </div>
             <div className="mx-auto max-w-3xl">
               {propsBand}
+              {/* EXP-698 r4: the "coding now" card sits directly under the
+                  properties band — same gutter, same glass chrome — instead of
+                  below the description. */}
+              {codingControl}
               {editor}
               {attachmentError}
               {filesSection}
-              {codingControl}
               {prRow}
               {widgetCard}
               {timeline}

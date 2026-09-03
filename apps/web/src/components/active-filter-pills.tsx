@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { CircleQuestionMark, X } from "lucide-react"
 import { StatusIcon } from "@/components/issue-properties/status-dropdown"
 import {
@@ -75,66 +75,54 @@ export function ActiveFilterPills({
   return (
     <div className="flex items-center gap-1.5 px-6 py-1.5 flex-wrap">
       {statusPills.map(({ tokens, option }) => (
-        <Button
+        <Pill
           key={`s-${tokens[0]}`}
-          variant="outline"
-          size="xs"
-          className="h-6 gap-1 rounded-full text-xs"
+          mode="action"
+          leading={
+            option ? (
+              <StatusIcon option={option} className="!h-3 !w-3" />
+            ) : (
+              <CircleQuestionMark className="!h-3 !w-3 text-muted-foreground" />
+            )
+          }
           onClick={() => removeStatusTokens(tokens)}
         >
-          {option ? (
-            <StatusIcon option={option} className="!h-3 !w-3" />
-          ) : (
-            <CircleQuestionMark className="!h-3 !w-3 text-muted-foreground" />
-          )}
           {option ? option.name : `Unknown status`}
-          <X className="size-2.5 ml-0.5" />
-        </Button>
+          <X className="ml-0.5 size-2.5" />
+        </Pill>
       ))}
       {priorities.map((priority) => {
         const config = getPriorityConfig(priority)
         return (
-          <Button
+          <Pill
             key={`p-${priority}`}
-            variant="outline"
-            size="xs"
-            className="h-6 gap-1 rounded-full text-xs"
+            mode="action"
+            leading={<PriorityIcon priority={priority} className="!h-3 !w-3" />}
             onClick={() => removePriority(priority)}
           >
-            <PriorityIcon priority={priority} className="!h-3 !w-3" />
             {config.label}
-            <X className="size-2.5 ml-0.5" />
-          </Button>
+            <X className="ml-0.5 size-2.5" />
+          </Pill>
         )
       })}
       {filters.labelIds.map((id) => {
         const label = labelMap.get(id)
         if (!label) return null
         return (
-          <Button
+          <Pill
             key={`l-${id}`}
-            variant="outline"
-            size="xs"
-            className="h-6 gap-1 rounded-full text-xs"
+            mode="action"
+            dot={label.color}
             onClick={() => removeLabel(id)}
           >
-            <div
-              className="h-2 w-2 rounded-full shrink-0"
-              style={{ backgroundColor: label.color }}
-            />
             {label.name}
-            <X className="size-2.5 ml-0.5" />
-          </Button>
+            <X className="ml-0.5 size-2.5" />
+          </Pill>
         )
       })}
-      <Button
-        variant="ghost"
-        size="xs"
-        className="h-6 text-xs text-muted-foreground"
-        onClick={() => onFiltersChange(emptyFilters)}
-      >
+      <Pill mode="action" onClick={() => onFiltersChange(emptyFilters)}>
         Clear all
-      </Button>
+      </Pill>
     </div>
   )
 }

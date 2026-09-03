@@ -16,6 +16,8 @@
 //! `teamInvites.accept`, gate on the joined team appearing in the
 //! synced collection (§4.1), and switch the window to it.
 
+use std::rc::Rc;
+
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, size, App, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement,
@@ -139,6 +141,11 @@ pub struct JoinTeamView {
     /// EXP-369: the scrolling form pane, so the footer can stay pinned.
     /// Unused in `embedded` mode (the wizard column scrolls instead).
     body_scroll: ScrollHandle,
+    /// EXP-698, embedded only: the wizard's Back-to-the-choice-page hook.
+    /// Present ⇒ the footer becomes the web wizard's `justify-between` row
+    /// (ghost Back leading, the primary trailing); absent ⇒ the standalone
+    /// dialog's Cancel/Join row is unchanged.
+    on_back: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -171,12 +178,20 @@ impl JoinTeamView {
             error: None,
             focused_once: false,
             body_scroll: ScrollHandle::new(),
+            on_back: None,
             _subscriptions: subscriptions,
         };
         if let Some(token) = token {
             this.start_preview(token, cx);
         }
         this
+    }
+
+    /// EXP-698 (embedded host only): give the footer a Back button that
+    /// returns the onboarding wizard to its choice page.
+    pub(crate) fn with_back(mut self, on_back: Rc<dyn Fn(&mut Window, &mut App)>) -> Self {
+        self.on_back = Some(on_back);
+        self
     }
 
     /// Enter / the footer button: preview when we have no card yet, accept
@@ -386,7 +401,8 @@ impl Render for JoinTeamView {
                 .child(
                     div()
                         .text_sm()
-                        .text_color(cx.theme().muted_foreground)
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(cx.theme().foreground)
                         .child("Invite link"),
                 )
                 .child(Input::new(&self.token_input).web_input()),
@@ -439,11 +455,30 @@ impl Render for JoinTeamView {
         }
 
         // Cancel exists only in the dialog host — the embedded wizard step has
-        // nothing to close.
+        // nothing to close; it gets a Back to the wizard's choice page instead
+        // (leading, with the primary pushed to the trailing edge).
         let footer = h_flex()
             .flex_shrink_0()
-            .justify_end()
+            .items_center()
             .gap_2()
+            .map(|row| {
+                if self.on_back.is_some() {
+                    row.justify_between()
+                } else {
+                    row.justify_end()
+                }
+            })
+            .when_some(self.on_back.clone(), |row, on_back| {
+                row.child(
+                    Button::new("onboarding-join-back")
+                        .ghost()
+                        .web_sm()
+                        .icon(registry::UI_BACK)
+                        .label("Back")
+                        .disabled(self.accepting)
+                        .on_click(move |_, window, cx| on_back(window, cx)),
+                )
+            })
             .when(!self.embedded, |row| {
                 row.child(
                     Button::new("join-team-cancel")
@@ -459,8 +494,10 @@ impl Render for JoinTeamView {
                 )
             })
             .child(
-                Button::new("join-team-primary")
-                    .primary().web_md()
+                {
+                    let primary = Button::new("join-team-primary").primary().web_md();
+                    if self.embedded { primary.rounded_full() } else { primary }
+                }
                     .label(primary_label)
                     .disabled(primary_disabled)
                     .loading(self.accepting)

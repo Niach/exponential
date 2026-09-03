@@ -27,7 +27,6 @@ use gpui_component::{
     v_flex, v_virtual_list, ActiveTheme as _, Icon, VirtualListScrollHandle,
 };
 
-use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::licenses;
 
@@ -100,10 +99,13 @@ impl AboutPane {
         }
     }
 
-    fn link_button(id: &'static str, label: &'static str, url: &'static str) -> Button {
-        Button::new(id)
-            .outline().cursor_pointer()
-            .web_xs()
+    fn link_button(
+        id: &'static str,
+        label: &'static str,
+        url: &'static str,
+        cx: &gpui::App,
+    ) -> Button {
+        crate::surface::glass_pill_button(id, crate::surface::PillSize::Sm, cx)
             .icon(Icon::new(registry::UI_EXTERNAL_LINK))
             .label(label)
             .on_click(|_, _, cx| open_url(cx, url.to_string()))
@@ -122,11 +124,17 @@ impl AboutPane {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(Self::link_button("about-source", "Source code", SOURCE_URL))
+                    .child(Self::link_button(
+                        "about-source",
+                        "Source code",
+                        SOURCE_URL,
+                        cx,
+                    ))
                     .child(Self::link_button(
                         "about-license",
                         "License (Apache-2.0)",
                         LICENSE_URL,
+                        cx,
                     )),
             )
     }
@@ -142,9 +150,7 @@ impl AboutPane {
                     .gap_2()
                     .child(card_header("Third-party licenses", LICENSES_BLURB, cx))
                     .child(
-                        Button::new("about-notices-copy")
-                            .outline().cursor_pointer()
-                            .web_xs()
+                        crate::surface::glass_pill_button("about-notices-copy", crate::surface::PillSize::Sm, cx)
                             .label("Copy")
                             .tooltip("Copy the full notice")
                             .on_click(|_, _, cx| {

@@ -23,6 +23,7 @@ import {
 import { desktopDownloadHref } from "@/lib/desktop-download"
 import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import {
   Dialog,
@@ -71,9 +72,9 @@ function CopyIconButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   return (
     <Button
-      variant="ghost"
-      size="icon"
-      className="absolute top-1.5 right-1.5 size-7 text-muted-foreground"
+      variant="glass"
+      size="icon-sm"
+      className="absolute top-1.5 right-1.5"
       aria-label="Copy install command"
       title="Copy install command"
       onClick={() => {
@@ -201,15 +202,10 @@ export function MyMachines({
       <GlassSectionHeader
         label="My machines"
         trailing={
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 gap-1 px-2 text-xs"
-            onClick={() => setAddServerOpen(true)}
-          >
-            <AddIcon className="size-3.5" />
+          <Pill mode="action" onClick={() => setAddServerOpen(true)}>
+            <AddIcon className="size-3" />
             Add device
-          </Button>
+          </Pill>
         }
       />
 
@@ -293,6 +289,10 @@ export function MyMachines({
                     lastSeenAt={device.lastSeenAt}
                   />
                 </div>
+                {/* EXP-698: the fixed trailing column — a play slot and a ⋯
+                    slot, so the controls line up down the list. A row without
+                    a menu renders the slot as an empty spacer of the same
+                    size rather than sliding its play button over. */}
                 <div className="flex shrink-0 items-center gap-1">
                   {/* EXP-420: only when a newer version really exists (or an
                       update is already in flight — keep its progress visible). */}
@@ -351,16 +351,15 @@ export function MyMachines({
                       <StartCodingIcon />
                     </Button>
                   </span>
-                  {device.registered && (
+                  {device.registered ? (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8 text-foreground/50"
+                          variant="glass"
+                          size="icon-sm"
                           aria-label={`Machine menu for ${device.deviceLabel || device.deviceId}`}
                         >
-                          <MoreIcon className="size-4" />
+                          <MoreIcon />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
@@ -381,6 +380,8 @@ export function MyMachines({
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
+                  ) : (
+                    <span aria-hidden className="size-8 shrink-0" />
                   )}
                 </div>
               </GlassRow>
@@ -424,6 +425,9 @@ export function MyMachines({
                       lastSeenAt={device.lastSeenAt}
                     />
                   </div>
+                  {/* The same fixed trailing column as "My machines": a
+                      read-only row has no ⋯ menu, so its slot is an empty
+                      spacer and the play buttons stay in one line. */}
                   <div className="flex shrink-0 items-center gap-1">
                     <Button
                       variant="glass"
@@ -435,6 +439,7 @@ export function MyMachines({
                     >
                       <StartCodingIcon />
                     </Button>
+                    <span aria-hidden className="size-8 shrink-0" />
                   </div>
                 </GlassRow>
               )

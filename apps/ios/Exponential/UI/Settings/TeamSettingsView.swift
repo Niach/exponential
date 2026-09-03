@@ -103,6 +103,10 @@ struct TeamSettingsView: View {
                                 // Full-capsule hit target — .plain hit-tests only opaque pixels.
                                 .contentShape(Rectangle())
                             }
+                            // NOT a GlassPill (EXP-698): this is a full-width
+                            // destructive action in the app's one red, and a
+                            // pill is a fixed-height capsule with a white
+                            // label. It keeps the raw capsule modifier.
                             .glassButton()
                             .buttonStyle(.plain)
 

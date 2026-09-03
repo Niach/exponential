@@ -38,7 +38,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * (`packages/view-catalog/src/views.test.ts` gates both directions AND requires
  * the two platforms' `sg_*` sets to be identical):
  *
- *   sg_sign-in · sg_board-switcher · sg_board-filters · sg_board-empty ·
+ *   sg_sign-in · sg_board-switcher · sg_onboarding-create-team ·
+ *   sg_board-filters · sg_board-empty ·
  *   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
  *   sg_start-coding-actions · sg_start-coding-chat ·
@@ -203,7 +204,22 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(TEAM_NAME), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_board-switcher")
+
+        // --- Set up a team: the switcher's own "New team" row (EXP-698 r5).
+        // The row CLOSES the switcher and opens the create-or-join sheet — two
+        // stacked bottom sheets is a dead end on Android — so this waits on the
+        // new sheet's tag rather than on the switcher going away, and it
+        // dismisses the switcher on the way for free. The extra wait on the
+        // first card's title keeps the shot off a half-drawn sheet.
+        composeRule.onNode(hasTestTag("board-switcher-new-team")).performClick()
+        flow.waitFor(hasTestTag("team-setup-sheet"), NAV_TIMEOUT)
+        flow.waitFor(hasText("Create a team"), NAV_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_onboarding-create-team")
+        // EXP-687: sheets carry no Cancel pill — back (like a swipe down)
+        // dismisses, and an unsubmitted form leaves no team behind.
         Espresso.pressBack()
+        flow.waitForGone(hasTestTag("team-setup-sheet"), NAV_TIMEOUT)
         flow.waitForGone(hasText("Switch board"), NAV_TIMEOUT)
         flow.settle(longer = true)
 
@@ -342,7 +358,14 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(SEEDED_ACTION_NAME, substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_start-coding-actions")
-        composeRule.onNode(hasTestTag("start-coding-tab-chat")).performClick()
+        // EXP-698: the Chat tap has to be PROVEN to have landed — this shot
+        // once came out byte-identical to the Actions one above, i.e. a
+        // silently swallowed tap wrote the previous screen twice. Gate on the
+        // two fields only the Chat tab renders, so a tap that does not land
+        // fails the run instead of duplicating a shot.
+        composeRule.onAllNodes(hasTestTag("start-coding-tab-chat")).onFirst().performClick()
+        flow.waitFor(hasText("Prompt"), NAV_TIMEOUT)
+        flow.waitFor(hasText("Repository"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_start-coding-chat")
         // EXP-687: sheets carry no Cancel pill — back (like a swipe down)
@@ -452,8 +475,8 @@ class StyleguideScreenshotsTest {
         flow.settle()
 
         // --- Settings root: the gear lives on the board root, not on a profile
-        // menu. SectionHeader UPPERCASES its title, so every header match here
-        // must pass ignoreCase.
+        // menu. Header matches keep ignoreCase so they hold whichever case
+        // SectionHeader renders (sentence case since EXP-698).
         composeRule.onNode(hasContentDescription("Issues")).performClick()
         flow.waitFor(hasContentDescription("Settings"), NAV_TIMEOUT)
         composeRule.onNode(hasContentDescription("Settings")).performClick()

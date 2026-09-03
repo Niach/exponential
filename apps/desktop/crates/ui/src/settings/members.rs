@@ -227,7 +227,7 @@ impl MembersPane {
         i_am_owner: bool,
         owner_count: usize,
         cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
+    ) -> gpui::Div {
         let member = &row.member;
         let is_self = member.user_id == my_user_id;
         let role = member
@@ -250,7 +250,9 @@ impl MembersPane {
 
         let mut identity = v_flex().gap_0p5().child(
             h_flex()
-                .gap_2()
+                // EXP-698: 12px from the name to the role pill, the same
+                // rhythm the row keeps to its trailing icon button.
+                .gap_3()
                 .items_center()
                 .child(
                     div()
@@ -262,7 +264,12 @@ impl MembersPane {
                             name.clone()
                         })),
                 )
-                .child(role_chip(role_icon, SharedString::from(role.clone()), cx)),
+                .child(role_chip(
+                    row_id("member-role", &member.id),
+                    role_icon,
+                    SharedString::from(role.clone()),
+                    cx,
+                )),
         );
         // Skip the email sub-line when the resolved name already IS the email
         // (the name-less Apple-ID case above), so it never shows twice.
@@ -275,14 +282,11 @@ impl MembersPane {
             );
         }
 
-        h_flex()
+        // EXP-698: one row of an inset-grouped stack (the canonical container)
+        // instead of a hand-rolled bordered box; `glass_group_rows` draws the
+        // hairlines between them.
+        crate::surface::glass_row_shell()
             .justify_between()
-            .items_center()
-            .px_3()
-            .py_2()
-            .rounded(cx.theme().radius)
-            .border_1()
-            .border_color(super::row_stroke(cx))
             .child(
                 h_flex()
                     .gap_3()
@@ -290,6 +294,7 @@ impl MembersPane {
                     // EXP-547: picture + initials fallback (web
                     // `MembersSection` renders `AvatarImage`).
                     .child(crate::user_avatar::user_avatar(
+                        &member.user_id,
                         &name,
                         row.user.as_ref().and_then(|user| user.image.as_deref()),
                         gpui_component::Size::Small,
@@ -304,6 +309,7 @@ impl MembersPane {
                     is_self,
                     is_owner_row,
                     i_am_owner,
+                    cx,
                 ))
             })
     }
@@ -317,11 +323,14 @@ fn member_actions_menu(
     is_self: bool,
     is_owner_row: bool,
     i_am_owner: bool,
+    cx: &gpui::App,
 ) -> impl IntoElement {
-    Button::new(row_id("member-actions", &member_id))
-        .ghost()
-        .web_icon_xs()
-        .icon(registry::UI_MORE)
+    // EXP-698: every trailing row action wears the one 32px glass chrome.
+    crate::controls::glass_icon_button(
+        row_id("member-actions", &member_id),
+        Icon::new(registry::UI_MORE),
+        cx,
+    )
         .dropdown_menu({
             let member_id = member_id.clone();
             let name = name.to_string();
@@ -402,11 +411,11 @@ impl Render for MembersPane {
             cx,
         ));
 
-        let mut list = v_flex().gap_2();
-        for row in &rows {
-            list = list.child(self.render_member_row(row, &my_user_id, i_am_owner, owner_count, cx));
-        }
-        body = body.child(list);
+        let list: Vec<gpui::Div> = rows
+            .iter()
+            .map(|row| self.render_member_row(row, &my_user_id, i_am_owner, owner_count, cx))
+            .collect();
+        body = body.child(crate::surface::glass_group_rows(list));
 
         // InviteControls (web: owner-only `showInvite`).
         if i_am_owner {
@@ -535,16 +544,35 @@ impl Render for MembersPane {
                     // Emailed invites show who they went to as the primary
                     // text; link-only invites keep the chip-first row.
                     let mut invite_identity = h_flex().gap_2().items_center();
-                    if let Some(email) = invite.email.clone() {
-                        invite_identity = invite_identity.child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child(SharedString::from(email)),
-                        );
+                    match invite.email.clone() {
+                        Some(email) => {
+                            invite_identity = invite_identity.child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(SharedString::from(email)),
+                            );
+                        }
+                        // EXP-698: a link-only invite went to nobody in
+                        // particular — the address slot says so (muted)
+                        // instead of collapsing, so the role chip and the
+                        // expiry stay in the same column on every row.
+                        None => {
+                            invite_identity = invite_identity.child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("Link invite"),
+                            );
+                        }
                     }
                     invite_identity = invite_identity
-                        .child(role_chip(registry::UI_MEMBER, role, cx))
+                        .child(role_chip(
+                            row_id("invite-role", &invite.id),
+                            registry::UI_MEMBER,
+                            role,
+                            cx,
+                        ))
                         .child(
                             div()
                                 .text_xs()
@@ -617,21 +645,19 @@ fn sent_notice(message: SharedString, cx: &App) -> impl IntoElement {
         .child(message)
 }
 
-/// Web role `Badge`: secondary chip with the role icon.
-fn role_chip(icon: crate::icons::ExpIcon, label: SharedString, cx: &App) -> impl IntoElement {
-    h_flex()
-        .gap_1()
-        .px_1p5()
-        .py_0p5()
-        .rounded(cx.theme().radius)
-        // EXP-282: glass row fill instead of the opaque `theme.secondary`
-        // chip — the panes are flat over the page gradient now.
-        .bg(theme::tokens::glass::FILL_ROW.to_hsla())
-        .text_xs()
-        .text_color(cx.theme().secondary_foreground)
-        .items_center()
-        .child(Icon::new(icon).xsmall())
-        .child(label)
+/// EXP-698: the role badge IS the shared small READONLY pill, with the role
+/// glyph leading. (It was a bespoke `role_chip` recipe — the last chip shape
+/// in the settings panes.)
+fn role_chip(
+    id: impl Into<ElementId>,
+    icon: crate::icons::ExpIcon,
+    label: SharedString,
+    cx: &App,
+) -> impl IntoElement {
+    use crate::surface::{PillMode, PillSize};
+    crate::surface::glass_pill(id, PillSize::Sm, PillMode::Readonly, cx)
+    .child(Icon::new(icon).with_size(gpui::px(PillSize::Sm.glyph())))
+    .child(label)
 }
 
 fn row_id(kind: &str, id: &str) -> ElementId {

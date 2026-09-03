@@ -12,7 +12,6 @@ import {
   Mail,
   MailWarning,
   RotateCcw,
-  Send,
   StickyNote,
 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
@@ -22,8 +21,12 @@ import { isReporterActivelyViewing } from "@/lib/helpdesk/presence"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { displayUserName } from "@/lib/user-display"
 import { useTeamUsers } from "@/hooks/use-team-data"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
+import {
+  Composer,
+  ComposerSubmit,
+} from "@/components/composer"
 import {
   Select,
   SelectContent,
@@ -37,12 +40,18 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { conceptIcon } from "@/lib/icons.generated"
+import { cn } from "@/lib/utils"
 
 // EXP-525: the Open/Resolved pills carry the shared registry's support glyphs,
 // so the tabs read the same here as in the desktop IDE.
+// EXP-698: the composer's send glyph is the shared concept, not a raw lucide
+// import — the natives draw the same one.
+const SendIcon = conceptIcon(`ui-send`)
+
 const TAB_ICON = {
   open: conceptIcon(`support-open`),
   resolved: conceptIcon(`support-resolved`),
@@ -215,51 +224,65 @@ export function SupportInbox({
           ) : (
             <div className="flex flex-col gap-2 p-2">
               {threads.map((thread) => (
-                <button
+                <GlassRow
                   key={thread.id}
-                  type="button"
-                  onClick={() => setSelectedId(thread.id)}
-                  className={`block w-full rounded-md border border-glass-stroke px-3 py-2.5 text-left transition-colors ${
-                    thread.id === selectedId
-                      ? `bg-glass-active`
-                      : `bg-glass-row hover:bg-glass-active/50`
-                  }`}
+                  asChild
+                  interactive={thread.id !== selectedId}
+                  className={cn(
+                    `w-full flex-col items-stretch gap-0 px-3 py-2.5 text-left`,
+                    thread.id === selectedId && `bg-glass-active`
+                  )}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                      {reporterLabel(thread)}
-                    </span>
-                    <span className="shrink-0 text-[0.65rem] text-muted-foreground">
-                      {relativeTime(thread.updatedAt)}
-                    </span>
-                    {thread.unread && (
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full bg-primary"
-                        aria-label="Awaiting reply"
-                      />
-                    )}
-                  </div>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {thread.lastMessage?.body ?? thread.title}
-                  </p>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(thread.id)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                        {reporterLabel(thread)}
+                      </span>
+                      {/* EXP-698: fixed trailing columns — the stamp is
+                          right-aligned in its own slot and the unread dot
+                          keeps its 8px slot whether or not it is lit, so read
+                          and unread rows line up exactly. 6rem, not the
+                          inbox's 4: helpdesk prints the long form
+                          ("2 minutes ago"), which a 4rem slot truncates. */}
+                      <span className="w-24 shrink-0 truncate text-right text-[0.65rem] text-muted-foreground">
+                        {relativeTime(thread.updatedAt)}
+                      </span>
+                      <span className="w-2 shrink-0">
+                        {thread.unread && (
+                          <span
+                            className="block h-2 w-2 rounded-full bg-primary"
+                            aria-label="Awaiting reply"
+                          />
+                        )}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {thread.lastMessage?.body ?? thread.title}
+                    </p>
+                  </button>
+                </GlassRow>
               ))}
             </div>
           )}
           {threads !== null && threads.length > 0 && hasMore && (
             <div className="px-2 pb-2">
-              <Button
-                variant="ghost"
+              <Pill
                 size="sm"
-                className="h-7 w-full text-xs text-muted-foreground"
+                mode="action"
+                className="w-full"
+                leading={
+                  loadingMore ? (
+                    <LoaderCircle className="size-3 animate-spin" />
+                  ) : undefined
+                }
                 disabled={loadingMore}
                 onClick={() => void loadMore()}
               >
-                {loadingMore ? (
-                  <LoaderCircle className="size-3 animate-spin" />
-                ) : null}
                 Load older conversations
-              </Button>
+              </Pill>
             </div>
           )}
         </div>
@@ -395,30 +418,32 @@ function ConversationPane({
               {thread.title}
             </p>
           </div>
-          <Button
-            variant="outline"
+          <Pill
             size="sm"
-            className="h-7 shrink-0"
+            mode="action"
+            className="shrink-0"
+            leading={
+              statusBusy ? (
+                <LoaderCircle className="size-3 animate-spin" />
+              ) : isResolved ? (
+                <RotateCcw className="size-3" />
+              ) : (
+                <Check className="size-3" />
+              )
+            }
             disabled={statusBusy || detail === null}
             onClick={() => void toggleClosed()}
           >
-            {statusBusy ? (
-              <LoaderCircle className="size-3 animate-spin" />
-            ) : isResolved ? (
-              <RotateCcw className="size-3" />
-            ) : (
-              <Check className="size-3" />
-            )}
             {isResolved ? `Reopen ticket` : `Close ticket`}
-          </Button>
+          </Pill>
           <Button
-            variant="ghost"
-            size="icon-xs"
-            className="shrink-0 text-muted-foreground lg:hidden"
+            variant="glass"
+            size="icon-sm"
+            className="shrink-0 lg:hidden"
             onClick={() => setDetailsOpen(true)}
             aria-label="Ticket details"
           >
-            <Info className="size-4" />
+            <Info />
           </Button>
         </div>
 
@@ -464,22 +489,26 @@ function ConversationPane({
                   }`}
                 >
                   {isInternal && (
-                    <Badge
-                      variant="outline"
-                      className="mb-1 gap-1 border-amber-500/50 text-[0.6rem] text-amber-500"
+                    <Pill
+                      mode="readonly"
+                      size="sm"
+                      className="mb-1 border-amber-500/50 bg-transparent text-amber-500"
+                      leading={<StickyNote className="size-2.5" />}
                     >
-                      <StickyNote className="h-2.5 w-2.5" />
                       Internal
-                    </Badge>
+                    </Pill>
                   )}
                   <p className="whitespace-pre-wrap break-words">
                     {message.body}
                   </p>
+                  {/* EXP-698: the outgoing bubble is filled with `primary`,
+                      which is near-WHITE — `text-white/70` on it was invisible.
+                      The meta line reads on the fill it actually sits on. */}
                   <p
                     className={`mt-1 text-[0.65rem] ${
                       isInbound || isInternal
                         ? `text-muted-foreground`
-                        : `text-white/70`
+                        : `text-black/60`
                     }`}
                   >
                     {author} · {relativeTime(message.createdAt)}
@@ -499,35 +528,50 @@ function ConversationPane({
         </div>
 
         <div className="border-t px-3 py-2.5">
-          <div className="mb-1.5 flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setMode(`reply`)}
-              className={`h-6 rounded-full px-2.5 text-xs ${
-                mode === `reply`
-                  ? `bg-accent font-medium text-foreground`
-                  : `text-muted-foreground`
-              }`}
-            >
-              <Mail className="size-3" />
-              Reply
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setMode(`note`)}
-              className={`h-6 rounded-full px-2.5 text-xs ${
-                mode === `note`
-                  ? `bg-amber-500/15 font-medium text-amber-500`
-                  : `text-muted-foreground`
-              }`}
-            >
-              <StickyNote className="size-3" />
-              Internal note
-            </Button>
-          </div>
-          <div className="flex items-end gap-2">
+          {/* EXP-698: the ONE composer card, with the Reply/Note toggle as its
+              leading row. Note mode tints only the card's hairline. */}
+          <Composer
+            className={cn(mode === `note` && `border-amber-500/40`)}
+            leading={
+              <>
+                <Pill
+                  size="sm"
+                  mode="select"
+                  selected={mode === `reply`}
+                  leading={<Mail className="size-3" />}
+                  onClick={() => setMode(`reply`)}
+                >
+                  Reply
+                </Pill>
+                <Pill
+                  size="sm"
+                  mode="select"
+                  selected={mode === `note`}
+                  leading={<StickyNote className="size-3" />}
+                  className={cn(
+                    mode === `note` &&
+                      `border-amber-500/40 bg-amber-500/15 text-amber-500`
+                  )}
+                  onClick={() => setMode(`note`)}
+                >
+                  Internal note
+                </Pill>
+              </>
+            }
+            submit={
+              <ComposerSubmit
+                disabled={sending || draft.trim().length === 0}
+                onClick={() => void send()}
+                aria-label={mode === `reply` ? `Send reply` : `Save note`}
+              >
+                {sending ? (
+                  <LoaderCircle className="size-5 animate-spin" />
+                ) : (
+                  <SendIcon className="!size-6" />
+                )}
+              </ComposerSubmit>
+            }
+          >
             <Textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
@@ -543,24 +587,9 @@ function ConversationPane({
                   : `Add an internal note… (never sent to the reporter)`
               }
               rows={2}
-              className={`min-h-9 flex-1 resize-none ${
-                mode === `note` ? `border-amber-500/40` : ``
-              }`}
+              className="min-h-16 border-none bg-transparent text-sm shadow-none focus-visible:border-transparent dark:bg-transparent"
             />
-            <Button
-              size="icon"
-              className="h-9 w-9 shrink-0"
-              disabled={sending || draft.trim().length === 0}
-              onClick={() => void send()}
-              aria-label={mode === `reply` ? `Send reply` : `Save note`}
-            >
-              {sending ? (
-                <LoaderCircle className="h-4 w-4 animate-spin" />
-              ) : (
-                <Send className="h-4 w-4" />
-              )}
-            </Button>
-          </div>
+          </Composer>
         </div>
       </div>
 
@@ -691,9 +720,7 @@ function ThreadDetails({
   return (
     <>
       <section>
-        <h2 className="mb-1.5 text-sm font-medium text-foreground/70">
-          Reporter
-        </h2>
+        <GlassSectionHeader label="Reporter" className="px-0 pt-0" />
         <p className="text-sm font-medium">{reporterLabel(thread)}</p>
         <p className="truncate text-xs text-muted-foreground">
           {thread.reporterEmail}
@@ -715,9 +742,7 @@ function ThreadDetails({
 
       {submission && (
         <section>
-          <h2 className="mb-1.5 text-sm font-medium text-foreground/70">
-            Context
-          </h2>
+          <GlassSectionHeader label="Context" className="px-0 pt-0" />
           {submission.pageUrl && (
             <p
               className="truncate text-xs text-muted-foreground"
@@ -746,9 +771,7 @@ function ThreadDetails({
         issue &&
         board && (
           <section>
-            <h2 className="mb-1.5 text-sm font-medium text-foreground/70">
-              Linked issue
-            </h2>
+            <GlassSectionHeader label="Linked issue" className="px-0 pt-0" />
             <Link
               to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
               params={{
@@ -768,9 +791,7 @@ function ThreadDetails({
         )
       ) : (
         <section>
-          <h2 className="mb-1.5 text-sm font-medium text-foreground/70">
-            Escalate
-          </h2>
+          <GlassSectionHeader label="Escalate" className="px-0 pt-0" />
           <p className="mb-2 text-xs text-muted-foreground">
             Create an issue from this ticket on one of the team&apos;s boards.
           </p>

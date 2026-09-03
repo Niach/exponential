@@ -36,6 +36,7 @@ import com.exponential.app.domain.AgentUsageSeverity
 import com.exponential.app.domain.UsageCard
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.DesignTokens
+import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.delay
@@ -167,13 +168,17 @@ internal fun UsageTrack(percent: Double, severity: AgentUsageSeverity, height: D
             .fillMaxWidth()
             .height(height)
             .clip(RoundedCornerShape(height / 2))
-            .background(Color.White.copy(alpha = 0.10f)),
+            .background(GlassTokens.StrokeStrong),
     ) {
         if (fraction > 0f) {
+            // The fill takes the track's own capsule (EXP-698) — a square-ended
+            // bar inside a rounded track left two corner slivers of track
+            // showing at 100%.
             Box(
                 modifier = Modifier
                     .fillMaxWidth(fraction)
                     .fillMaxHeight()
+                    .clip(RoundedCornerShape(height / 2))
                     .background(severityColor(severity)),
             )
         }
@@ -184,7 +189,7 @@ internal fun UsageTrack(percent: Double, severity: AgentUsageSeverity, height: D
 private fun severityColor(severity: AgentUsageSeverity): Color = when (severity) {
     AgentUsageSeverity.Danger -> DesignTokens.Semantic.Red
     AgentUsageSeverity.Warning -> DesignTokens.Semantic.Yellow
-    AgentUsageSeverity.Normal -> Color.White.copy(alpha = 0.35f)
+    AgentUsageSeverity.Normal -> GlassTokens.UsageFill
 }
 
 /**

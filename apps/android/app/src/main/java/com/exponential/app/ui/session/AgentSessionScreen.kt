@@ -16,6 +16,9 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -37,16 +40,17 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -70,16 +74,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -94,6 +102,12 @@ import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MAX_STEER_IMAGES
+import com.exponential.app.domain.insertImageMarker
+import com.exponential.app.domain.SteerMessageSegment
+import com.exponential.app.domain.imageMarker
+import com.exponential.app.domain.parseSteerMessage
+import com.exponential.app.domain.steerMessageSegments
+import com.exponential.app.domain.renumberImageMarkers
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.activeQuestionIds
@@ -104,14 +118,19 @@ import com.exponential.app.domain.groupFeedRows
 import com.exponential.app.domain.localAnswerSummary
 import com.exponential.app.domain.locksCard
 import com.exponential.app.domain.visibleSubagentTabs
-import com.exponential.app.ui.components.BottomBarPillFill
+import com.exponential.app.ui.components.ComposerSubmitButton
+import com.exponential.app.ui.components.ComposerToolButton
+import com.exponential.app.ui.components.GlassComposer
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
-import com.exponential.app.ui.components.GlassPillButton
-import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassPillDefaults
+import com.exponential.app.ui.components.PillMode
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.GlassSheet
-import com.exponential.app.ui.components.SheetHeight
+import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.PendingAttachmentStrip
+import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.TopBarActionButton
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
@@ -124,7 +143,13 @@ import com.exponential.app.ui.issue.StartCodingSheet
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.issue.splitUnifiedDiff
 import com.exponential.app.ui.issue.unifiedDiffStats
+import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.LocalAttachmentDims
+import com.exponential.app.ui.markdown.LocalIssueRefs
+import com.exponential.app.ui.markdown.LocalMentions
+import com.exponential.app.ui.markdown.MentionResolver
+import com.exponential.app.ui.markdown.annotate
+import com.exponential.app.ui.markdown.LocalInlineCodeStyle
 import com.exponential.app.ui.markdown.LocalMarkdownAutolink
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.MarkdownView
@@ -133,9 +158,9 @@ import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
+import com.exponential.app.ui.theme.glassCard
+import com.exponential.app.ui.theme.glassGroup
 import com.exponential.app.ui.theme.glassRow
-import com.exponential.app.ui.theme.glassSection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -155,8 +180,6 @@ private val ConnectingYellow = Color(0xFFFBBF24)
 internal val LostGray = Color(0xFF71717A)
 /** Accent for the "Plan ready" card + header cue (EXP-97). */
 private val PlanAccent = DesignTokens.Semantic.Blue
-/** Hairline around the steer composer card — the comment composer's stroke. */
-private val ComposerStroke = Color.White.copy(alpha = 0.12f)
 
 /** EXP-550: the one explanation of a paused (offline-machine) session. */
 private const val DEVICE_OFFLINE_DETAIL =
@@ -243,7 +266,8 @@ fun AgentSessionScreen(
     val issue by viewModel.issue.collectAsStateWithLifecycle()
 
     // Steer image attach (EXP-511) — the system photo picker feeds the VM's
-    // pending list; batch and action runs have no issue to upload to.
+    // pending list; the upload rides the SESSION route (EXP-698), so every
+    // kind of run accepts one.
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val imagePicker = rememberLauncherForActivityResult(
@@ -495,6 +519,11 @@ fun AgentSessionScreen(
                     else -> CompositionLocalProvider(
                         LocalMarkdownAutolink provides true,
                         LocalAttachmentDims provides attachmentDims,
+                        // EXP-698: inline `code` is TINTED in a chat feed —
+                        // narration, the user's own bubbles, plan and ask
+                        // cards, everything under this provider. Issue
+                        // descriptions and comments keep the flat wash.
+                        LocalInlineCodeStyle provides MdStyle.Chat,
                     ) {
                         ActivityFeed(
                             feed = feed,
@@ -570,8 +599,13 @@ fun AgentSessionScreen(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
-                            .padding(bottom = 8.dp)
+                            // EXP-698: MEASURED OUTSIDE its own bottom padding
+                            // — the feed's inset is what keeps the last card
+                            // clear of this bar, and reading the inner size
+                            // left the bottom 8dp of the tail underneath it
+                            // (an ask card's last option came out sliced).
                             .onSizeChanged { barHeightPx = it.height }
+                            .padding(bottom = 8.dp)
                             // Both children measure to the taller one's height,
                             // so the pill lines up with the chip whatever it
                             // says.
@@ -589,7 +623,13 @@ fun AgentSessionScreen(
                                     // (EXP-165, the Jump-to-bottom pill's rule).
                                     .glassRow(opaque = true)
                                     .clickable { diffSheetOpen = true }
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    // EXP-698: 8dp, not 10 — 8 + its tallest
+                                    // child (the 16dp chevron) + 8 == 32, the
+                                    // rung the Merge pill beside it sits on.
+                                    // At 10 the chip measured 36 and
+                                    // IntrinsicSize.Min stretched the pill up
+                                    // to match it.
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
@@ -633,7 +673,7 @@ fun AgentSessionScreen(
                             Spacer(Modifier.weight(1f))
                         }
                         if (canMerge) {
-                            GlassPillButton(
+                            GlassPill(
                                 if (canFixConflicts) "Fix conflicts" else "Merge",
                                 onClick = {
                                     if (canFixConflicts) {
@@ -647,11 +687,6 @@ fun AgentSessionScreen(
                                 loading = merging,
                                 // Floats over the feed like the chip beside it.
                                 opaque = true,
-                                // Matches the chip's 10dp — same label style,
-                                // same 14dp glyph, so both measure the same
-                                // height.
-                                verticalPadding = 10.dp,
-                                modifier = Modifier.fillMaxHeight(),
                             )
                         }
                     }
@@ -791,7 +826,10 @@ fun AgentSessionScreen(
                     value = draft,
                     onValueChange = viewModel::setDraft,
                     pendingImages = pendingImages,
-                    canAttach = session?.issueId != null,
+                    // EXP-698: every run can be shown an image — the upload
+                    // goes to the SESSION route, so a batch, action or chat
+                    // run no longer hides the attach button.
+                    canAttach = true,
                     sending = steerSending,
                     // Phase alone lies here: the silent 4008 redial holds Live
                     // while the socket is briefly gone, and a send over it was
@@ -845,7 +883,8 @@ fun AgentSessionScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp),
+                    // EXP-698: 16dp — the group inset every other sheet uses.
+                    .padding(horizontal = 16.dp),
             ) {
                 // Whose limits these are — the machine's sign-in for this
                 // agent, without the agent prefix (the sheet is already about
@@ -1187,22 +1226,42 @@ private fun ActivityFeed(
             }
         }
         if (!follow) {
-            Text(
+            GlassPill(
                 "Jump to bottom ↓",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface,
+                size = PillSize.Sm,
+                mode = PillMode.Select,
+                selected = true,
+                // opaque: the feed scrolls beneath this pill (EXP-165).
+                opaque = true,
+                onClick = { onFollowChange(true) },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 8.dp + bottomInset)
-                    // opaque: the feed scrolls beneath this pill (EXP-165).
-                    .glassButton(active = true, opaque = true)
-                    .clickable { onFollowChange(true) }
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(bottom = 8.dp + bottomInset),
             )
         }
+        // EXP-698: a short fade at the scroller's top edge, so the feed's head
+        // dissolves out from under the transparent top bar instead of being
+        // sliced mid-glyph through the session title. Same idiom as the
+        // floating Latest-changes bar at the other end: the content keeps
+        // scrolling, the edge softens. Drawn LAST so it sits over the list —
+        // and inside the scroller, so the subagent tab strip above stays clear.
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(FeedTopFadeHeight)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(GlassTokens.BackgroundTop, Color.Transparent),
+                    ),
+                ),
+        )
         }
     }
 }
+
+/** The scroller's top fade (EXP-698) — enough to dissolve one line of text. */
+private val FeedTopFadeHeight = 24.dp
 
 /** Visually-at-the-bottom, with slack: the last item's bottom edge sits within
  *  [slackPx] of the viewport end (an empty list counts as bottom). A last item
@@ -1254,30 +1313,25 @@ private fun AgentTabChip(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .glassButton(active = selected)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
-            color = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (selected) TextEmphasis.Primary else TextEmphasis.Secondary,
-            ),
-            maxLines = 1,
-        )
-        if (running) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(10.dp),
-                strokeWidth = 1.5.dp,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-    }
+    GlassPill(
+        label,
+        size = PillSize.Sm,
+        mode = PillMode.Select,
+        selected = selected,
+        maxLines = 1,
+        onClick = onClick,
+        leading = if (running) {
+            {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(10.dp),
+                    strokeWidth = 1.5.dp,
+                    color = LocalContentColor.current,
+                )
+            }
+        } else {
+            null
+        },
+    )
 }
 
 // Assistant prose — a small glyph + plain full-width selectable text. EXP-274
@@ -1346,6 +1400,12 @@ private fun WorkingIndicatorRow() {
 
 /** Fold threshold for user/question text — the initial prompt can be 16 KiB. */
 private const val CLAMP_LINES = 6
+
+/** EXP-698: the fold is ONE height on every card, not six lines of whatever
+ *  text style happened to be in scope — web's `max-h-40`, iOS's `maxHeight:
+ *  160`. Six body lines came out a different height per card and made the feed
+ *  look ragged. */
+private val FOLD_HEIGHT = 160.dp
 private const val CLAMP_CHARS = 600
 
 private fun clampable(text: String): Boolean =
@@ -1364,8 +1424,8 @@ private fun ShowMoreToggle(expanded: Boolean, onToggle: () -> Unit) {
 }
 
 /** Markdown body folded behind Show more (EXP-440): maxLines can't clamp a block
- *  Column, so the fold is a height clamp + clip sized to CLAMP_LINES body lines;
- *  the fold decision stays the source-text heuristic. */
+ *  Column, so the fold is a height clamp + clip at [FOLD_HEIGHT]; the fold
+ *  decision stays the source-text heuristic. */
 @Composable
 private fun FoldableMarkdown(
     text: String,
@@ -1374,12 +1434,11 @@ private fun FoldableMarkdown(
     onToggle: () -> Unit,
 ) {
     val folds = remember(text) { clampable(text) }
-    val clampHeight = with(LocalDensity.current) { (MdStyle.lineHeight * CLAMP_LINES).toDp() }
     // MarkdownView brings its own SelectionContainer (EXP-534).
     MarkdownView(
         text,
         modifier = if (folds && !expanded) {
-            Modifier.foldedTo(clampHeight)
+            Modifier.foldedTo(FOLD_HEIGHT)
         } else {
             Modifier
         },
@@ -1407,9 +1466,22 @@ private fun Modifier.foldedTo(clampHeight: Dp): Modifier =
 
 // A human turn (EXP-78): the initial prompt or a steered message — rendered
 // end-aligned like the sender's own chat bubble, long text folded.
+//
+// EXP-698: a steered message WITH images (EXP-511) splits into its prose —
+// whose `[Image #N]` references render as pills inline with the words — and
+// the embeds, which sit below it. The fold then clamps the PROSE only: four
+// embed lines are four more "lines" of nothing, and clamping the wire message
+// pushed a two-line steer into a fold that then hid the very images it was
+// measuring. The embeds render OUTSIDE the fold for the same reason — they
+// are the point of the message, and a long prose clamp must never be what
+// hides them.
 @Composable
 private fun UserMessageBubble(text: String) {
     var expanded by remember { mutableStateOf(false) }
+    val parsed = remember(text) { parseSteerMessage(text) }
+    val hasImages = parsed.attachmentIds.isNotEmpty()
+    val prose = if (hasImages) parsed.text else text
+    val folds = remember(prose) { clampable(prose) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1424,9 +1496,119 @@ private fun UserMessageBubble(text: String) {
                 .background(GlassTokens.RowFillActive, RoundedCornerShape(12.dp))
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            FoldableMarkdown(text, expanded, softBreaks = true) { expanded = !expanded }
+            Column(
+                modifier = if (folds && !expanded) Modifier.foldedTo(FOLD_HEIGHT) else Modifier,
+            ) {
+                when {
+                    // Markers are only meaningful against embeds that exist —
+                    // an `[Image #2]` typed into an image-less message is
+                    // prose, and rendering it as a pill would promise a
+                    // preview there is nothing to preview.
+                    hasImages && parsed.markers.isNotEmpty() ->
+                        MarkerProse(parsed.text, count = parsed.attachmentIds.size)
+                    prose.isNotEmpty() ->
+                        MarkdownView(prose, softBreaksAsNewlines = true)
+                }
+            }
+            if (folds) {
+                ShowMoreToggle(expanded) { expanded = !expanded }
+            }
+            if (hasImages) {
+                MarkdownView(
+                    parsed.attachmentIds.joinToString("\n") {
+                        "![image](/api/attachments/$it)"
+                    },
+                    softBreaksAsNewlines = true,
+                )
+            }
         }
     }
+}
+
+/**
+ * A user message's prose with its `[Image #N]` markers drawn as pills
+ * (EXP-698). One FlowRow per LINE (so hard breaks survive), each contract
+ * segment one child, so a pill wraps with the sentence around it instead of
+ * forcing its own line.
+ *
+ * Text segments go through [annotate] with autolink on — the same linkifying
+ * the feed gives every other message — but NOT through the block markdown
+ * renderer: a document is a stack of blocks and blocks cannot flow around an
+ * inline pill. Web's marker renderer makes the identical trade (it linkifies
+ * the segments and no more), so `**bold**` stays literal in a message that
+ * names its images, on both clients. A `#IDENT` here renders as its styled
+ * span rather than a painted chip — the chip painter needs MarkdownView's own
+ * per-line layout callback.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MarkerProse(text: String, count: Int) {
+    val issueRefs = LocalIssueRefs.current
+    val mentions = LocalMentions.current
+    val inlineCode = LocalInlineCodeStyle.current
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        text.split("\n").forEach { line ->
+            if (line.isBlank()) {
+                Spacer(Modifier.height(4.dp))
+                return@forEach
+            }
+            FlowRow(
+                // NO horizontal gap: a segment carries its own spaces (the
+                // composer always inserts a marker space-separated), so an
+                // arrangement gap on top of them doubled the air around every
+                // pill. Web renders the same split as one `pre-wrap` flow.
+                horizontalArrangement = Arrangement.Start,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                // TalkBack reads the line as ONE sentence; without the merge
+                // it announces every segment and pill as a separate node.
+                modifier = Modifier.semantics(mergeDescendants = true) {},
+            ) {
+                steerMessageSegments(line).forEach { segment ->
+                    when (segment) {
+                        // A marker outside 1..count — hand-typed, or left
+                        // behind by an edit — is PROSE, not a pill.
+                        is SteerMessageSegment.Marker ->
+                            if (segment.index in 1L..count.toLong()) {
+                                GlassPill(
+                                    "Image ${segment.index}",
+                                    size = PillSize.Sm,
+                                    mode = PillMode.Readonly,
+                                    icon = ExpIcons.editorImage,
+                                    modifier = Modifier.align(Alignment.CenterVertically),
+                                )
+                            } else {
+                                ProseText(
+                                    imageMarker(segment.index),
+                                    issueRefs,
+                                    mentions,
+                                    inlineCode,
+                                )
+                            }
+                        is SteerMessageSegment.Text ->
+                            ProseText(segment.text, issueRefs, mentions, inlineCode)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One text run of a [MarkerProse] line — a single [Text], linkified. */
+@Composable
+private fun FlowRowScope.ProseText(
+    text: String,
+    issueRefs: IssueRefHandler?,
+    mentions: MentionResolver?,
+    inlineCode: MdStyle.InlineCodeStyle,
+) {
+    if (text.isEmpty()) return
+    Text(
+        remember(text, issueRefs, mentions, inlineCode) {
+            annotate(text, emptyList(), issueRefs, mentions, autolink = true, inlineCode = inlineCode)
+        },
+        style = MdStyle.body,
+        modifier = Modifier.align(Alignment.CenterVertically),
+    )
 }
 
 // One multi-question ask (EXP-249): a claude-style stepper that shows ONE step
@@ -1534,7 +1716,7 @@ private fun AnsweredAskCard(
         Column(
             modifier = Modifier
                 .weight(1f)
-                .glassSection()
+                .glassCard()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -1632,7 +1814,7 @@ private fun QuestionCard(
         Column(
             modifier = Modifier
                 .weight(1f)
-                .glassSection()
+                .glassCard()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -1727,6 +1909,20 @@ private fun QuestionCard(
                         QuestionOptionLabel(
                             option = option,
                             checked = if (item.multiSelect) selected else null,
+                            // EXP-698: the "1" / "2" chips web and iOS draw, so
+                            // a card's options read as ONE keyed list instead
+                            // of a stack of unrelated rows. It is the option's
+                            // own WIRE KEY, never its position: the desktop
+                            // rewrites option lists, so `index + 1` can name a
+                            // different row than the digit the agent's TUI
+                            // maps. A multi-select card keeps its checkboxes
+                            // (the leading slot says how the row answers), a
+                            // plan card has none, and a non-alphanumeric key is
+                            // an internal token no one should be asked to type.
+                            ordinal = option.key.takeIf {
+                                !item.multiSelect && !item.planMode &&
+                                    it.isNotEmpty() && it.all(Char::isLetterOrDigit)
+                            },
                         )
                     }
                 }
@@ -1774,15 +1970,13 @@ private fun QuestionCard(
                 if (item.multiSelect && (answerable || locked)) {
                     // One frame carrying every picked key.
                     val enabled = answerable && picked.isNotEmpty()
-                    Text(
+                    GlassPill(
                         "Submit",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .alpha(if (enabled) 1f else 0.5f)
-                            .glassButton(active = true)
-                            .clickable(enabled = enabled) { onAnswer(picked.toList(), null) }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        size = PillSize.Sm,
+                        mode = PillMode.Select,
+                        selected = true,
+                        enabled = enabled,
+                        onClick = { onAnswer(picked.toList(), null) },
                     )
                 }
             }
@@ -1876,7 +2070,23 @@ private fun RowScope.QuestionOptionLabel(
     option: QuestionOption,
     /** Non-null on a multi-select option — renders its checkbox state. */
     checked: Boolean? = null,
+    /** EXP-698: the option's WIRE KEY — the character the agent's TUI maps
+     *  this row to — drawn as the leading chip on a single-select card (web /
+     *  iOS parity). Null on a multi-select row, whose leading slot belongs to
+     *  the checkbox, and on anything whose key is not worth showing. */
+    ordinal: String? = null,
 ) {
+    if (ordinal != null) {
+        GlassPill(
+            ordinal,
+            size = PillSize.Sm,
+            mode = PillMode.Readonly,
+            // Keys are what the viewer would TYPE into the TUI — monospace,
+            // like every other key/identifier in the app (web `font-mono`).
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.padding(top = 1.dp),
+        )
+    }
     if (checked != null) {
         Icon(
             if (checked) ExpIcons.uiSelected else ExpIcons.uiUnselected,
@@ -2165,84 +2375,106 @@ private fun SteerComposer(
     onSend: () -> Unit,
 ) {
     val canSend = (value.isNotBlank() || pendingImages.isNotEmpty()) && !sending && live
-    val shape = RoundedCornerShape(24.dp)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(BottomBarPillFill)
-            .border(GlassTokens.Hairline, ComposerStroke, shape)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-    ) {
-        PendingAttachmentStrip(
-            items = pendingImages,
-            enabled = !sending,
-            onRemove = onRemoveImage,
-        )
-        TextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = {
-                Text(
-                    when {
-                        planPending -> "Tell Claude what to change…"
-                        // Typing is always allowed; the message just waits for
-                        // the stream to come back (EXP-621).
-                        !live -> "Message the agent (reconnecting…)"
-                        else -> "Message the agent…"
-                    },
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                )
-            },
-            maxLines = 4,
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
-                disabledContainerColor = Color.Transparent,
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-                disabledIndicatorColor = Color.Transparent,
-            ),
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (canAttach) {
-                IconButton(onClick = onPickImages, enabled = !sending) {
-                    Icon(
-                        ExpIcons.uiAdd,
-                        contentDescription = "Attach image",
-                        modifier = Modifier.size(20.dp),
-                        tint = Color.White.copy(alpha = TextEmphasis.Secondary),
-                    )
-                }
+    // EXP-698: the field tracks its SELECTION, because picking an image drops
+    // an `[Image #k]` marker at the caret. The draft itself still lives in the
+    // connection as a plain string (it has to survive a reconnect), so the
+    // two are reconciled whenever the outside changes it — a send clearing it,
+    // a restored draft on reopen.
+    var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+    // Reconciled in an EFFECT, and only when the text ACTUALLY differs: the
+    // draft round-trips through a StateFlow, so a lagging collector re-delivers
+    // text this field has already moved past. Doing it in composition reset the
+    // caret to the end mid-typing and dropped the IME's in-flight composing
+    // word. The existing selection is CLAMPED into the new text rather than
+    // jumped to its end, and a fresh value drops `composition` on purpose —
+    // it indexes characters that are gone.
+    LaunchedEffect(value) {
+        if (field.text != value) {
+            val start = field.selection.start.coerceIn(0, value.length)
+            val end = field.selection.end.coerceIn(0, value.length)
+            field = TextFieldValue(value, TextRange(start, end))
+        }
+    }
+    fun setField(next: TextFieldValue) {
+        field = next
+        onValueChange(next.text)
+    }
+    // Each newly picked image inserts its own marker, so the writer can say
+    // "crop [Image #2]" without typing the token. Removing one renumbers the
+    // draft (below), so the markers always name images the composer still has.
+    var markedImages by remember { mutableIntStateOf(pendingImages.size) }
+    LaunchedEffect(pendingImages.size) {
+        if (pendingImages.size > markedImages) {
+            var next = field
+            for (k in (markedImages + 1)..pendingImages.size) {
+                val (text, caret) = insertImageMarker(next.text, next.selection.end, k)
+                next = TextFieldValue(text, TextRange(caret))
             }
-            Spacer(Modifier.weight(1f))
-            IconButton(
+            setField(next)
+        }
+        markedImages = pendingImages.size
+    }
+    GlassComposer(
+        // The composer floats over the scrolling activity feed.
+        opaque = true,
+        strip = {
+            PendingAttachmentStrip(
+                items = pendingImages,
+                enabled = !sending,
+                onRemove = { index ->
+                    // Renumber BEFORE the list shrinks: `[Image #k]` goes, and
+                    // every higher marker comes down one.
+                    val renumbered = renumberImageMarkers(field.text, index + 1)
+                    if (renumbered != field.text) {
+                        setField(
+                            TextFieldValue(
+                                renumbered,
+                                TextRange(field.selection.end.coerceAtMost(renumbered.length)),
+                            ),
+                        )
+                    }
+                    onRemoveImage(index)
+                },
+            )
+        },
+        tools = {
+            if (canAttach) {
+                ComposerToolButton(
+                    ExpIcons.uiAdd,
+                    contentDescription = "Attach image",
+                    onClick = onPickImages,
+                    enabled = !sending,
+                )
+            }
+        },
+        submit = {
+            ComposerSubmitButton(
+                ExpIcons.uiSend,
+                contentDescription = "Send",
                 // The draft is cleared by the send itself, and only once the
                 // message is out (EXP-621) — a failed image upload leaves the
                 // whole composition intact to retry.
                 onClick = { if (canSend) onSend() },
                 enabled = canSend,
-            ) {
-                if (sending) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = Color.White,
-                    )
-                } else {
-                    Icon(
-                        ExpIcons.uiSend,
-                        contentDescription = "Send",
-                        modifier = Modifier.size(24.dp),
-                        tint = if (canSend) Color.White else Color.White.copy(alpha = 0.3f),
-                    )
-                }
-            }
-        }
+                sending = sending,
+            )
+        },
+    ) {
+        GlassTextField(
+            value = field,
+            onValueChange = ::setField,
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = when {
+                planPending -> "Tell Claude what to change…"
+                // Typing is always allowed; the message just waits for
+                // the stream to come back (EXP-621).
+                !live -> "Message the agent (reconnecting…)"
+                else -> "Message the agent…"
+            },
+            maxLines = 4,
+            // The composer card owns the chrome; the field is just its text.
+            bordered = false,
+        )
     }
 }
 
@@ -2313,7 +2545,7 @@ private fun UnifiedDiffPanel(diff: String, onDismiss: () -> Unit) {
             ) {
                 items(sections.size, key = { it }) { index ->
                     val section = sections[index]
-                    Column(modifier = Modifier.fillMaxWidth().glassSection()) {
+                    Column(modifier = Modifier.fillMaxWidth().glassGroup()) {
                         if (section.filename.isNotBlank()) {
                             Text(
                                 section.filename,

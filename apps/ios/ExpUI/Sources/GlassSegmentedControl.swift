@@ -1,19 +1,48 @@
-import ExpUI
 import SwiftUI
 
+/// The chrome constants of the segmented strip, pinned so a drift breaks a
+/// build instead of shipping two different-looking strips. Android's mirror is
+/// `app/src/test/java/com/exponential/app/ui/components/GlassSegmentedControlDefaultsTest.kt`.
+public enum GlassSegmentedControlTokens {
+    /// The capsule container's own fill — the dimmest rung, so the SELECTED
+    /// segment's `fillActive` is what the eye lands on (EXP-698 round 2).
+    public static let containerFill: Color = GlassTokens.fillSection
+    /// The capsule container's hairline — the section rung that pairs with it.
+    public static let stroke: Color = GlassTokens.strokeSection
+    public static let hairline: CGFloat = GlassTokens.hairline
+    /// The selected segment's fill — the one bright glass fill.
+    public static let activeFill: Color = GlassTokens.fillActive
+    /// Inset between the container capsule and the segments.
+    public static let capsulePadding: CGFloat = 3
+    /// Gap between two segments — none: the segments tile the strip, and the
+    /// active capsule is what separates them.
+    public static let segmentSpacing: CGFloat = 0
+    /// A segment's own vertical padding.
+    public static let segmentVerticalPadding: CGFloat = 6
+    /// The standalone strip's height — the large control rung, so it lines up
+    /// with every other full-width control on the page. A MINIMUM, not a fixed
+    /// frame: at larger Dynamic Type the labels have to grow the strip rather
+    /// than be squeezed inside it. The `.embedded` style has no height of its
+    /// own: the row's insets set it.
+    public static let height: CGFloat = DesignTokens.Size.controlLg
+}
+
 /// Full-width glass-pill segmented control — the My Work Inbox/My Issues tab
-/// language (EXP-192): one `.ultraThinMaterial` capsule container holding
-/// equal-width segments, the active one filled white-0.12. Optional
-/// per-segment count badge (indigo capsule, the Inbox unread count — the
-/// text-bearing `indigoStrong` fill, not the raw accent).
-struct GlassSegmentedControl<Option: Hashable>: View {
+/// language (EXP-192): one flat capsule container holding equal-width
+/// segments, the active one filled `fillActive`. Optional per-segment count
+/// badge (the text-bearing `primary` fill, not the raw accent).
+///
+/// EXP-698 moved it out of the app target into ExpUI (the app's `Exponential/**`
+/// glob no longer sees it, ExpUI's `ExpUI/Sources/**` does) and off its
+/// hand-typed material/white literals onto `GlassSegmentedControlTokens`.
+public struct GlassSegmentedControl<Option: Hashable>: View {
     /// EXP-694 (S3): where the strip sits.
     /// `.capsule` is the free-standing control — its own material capsule and
     /// hairline. `.embedded` is the strip as the FIRST ROW of a grouped card:
     /// no fill, no border, no container padding of its own (the row's insets
     /// carry the 8pt), so the card behind it is the only surface. The segments
     /// themselves are identical in both.
-    enum Style {
+    public enum Style {
         case capsule
         case embedded
     }
@@ -35,7 +64,7 @@ struct GlassSegmentedControl<Option: Hashable>: View {
     let style: Style
     let onSelect: (Option) -> Void
 
-    init(
+    public init(
         options: [Option],
         selection: Option,
         label: @escaping (Option) -> String,
@@ -58,7 +87,7 @@ struct GlassSegmentedControl<Option: Hashable>: View {
 
     /// The icon-bearing variant (EXP-615): same geometry, a leading mark on
     /// the segments that have one.
-    init(
+    public init(
         options: [Option],
         selection: Option,
         label: @escaping (Option) -> String,
@@ -79,14 +108,18 @@ struct GlassSegmentedControl<Option: Hashable>: View {
     }
 
     @ViewBuilder
-    var body: some View {
+    public var body: some View {
         switch style {
         case .capsule:
             segments
-                .padding(4)
-                .background(.ultraThinMaterial, in: Capsule())
+                .padding(GlassSegmentedControlTokens.capsulePadding)
+                .frame(minHeight: GlassSegmentedControlTokens.height)
+                .background(GlassSegmentedControlTokens.containerFill, in: Capsule())
                 .overlay(
-                    Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                    Capsule().stroke(
+                        GlassSegmentedControlTokens.stroke,
+                        lineWidth: GlassSegmentedControlTokens.hairline
+                    )
                 )
         case .embedded:
             segments
@@ -94,7 +127,7 @@ struct GlassSegmentedControl<Option: Hashable>: View {
     }
 
     private var segments: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: GlassSegmentedControlTokens.segmentSpacing) {
             ForEach(options, id: \.self) { option in
                 segmentButton(option)
             }
@@ -114,7 +147,10 @@ struct GlassSegmentedControl<Option: Hashable>: View {
                         .frame(width: 14, height: 14)
                 }
                 Text(label(option))
-                    .font(.subheadline.weight(active ? .semibold : .regular))
+                    // EXP-698: the weight is CONSTANT — only the opacity moves.
+                    // A semibold/regular swap re-flowed the strip on every tap
+                    // and made two adjacent segments look like two type scales.
+                    .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -129,8 +165,11 @@ struct GlassSegmentedControl<Option: Hashable>: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 7)
-            .background(active ? Color.white.opacity(0.12) : .clear, in: Capsule())
+            .padding(.vertical, GlassSegmentedControlTokens.segmentVerticalPadding)
+            .background(
+                active ? GlassSegmentedControlTokens.activeFill : .clear,
+                in: Capsule()
+            )
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

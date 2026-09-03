@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/command"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { Input } from "@/components/ui/input"
 import { Tag, Plus, ArrowLeft } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
@@ -114,12 +115,7 @@ export function LabelPicker({
         {renderTrigger ? (
           renderTrigger(selectedLabels)
         ) : (
-          <Button
-            variant="ghost"
-            size="xs"
-            className="text-muted-foreground"
-            disabled={disabled}
-          >
+          <Pill mode="action" disabled={disabled}>
             <Tag className="size-3" />
             {selectedLabels.length > 0 ? (
               <>
@@ -139,7 +135,7 @@ export function LabelPicker({
             ) : (
               `Label`
             )}
-          </Button>
+          </Pill>
         )}
       </MobilePopoverTrigger>
       <MobilePopoverContent

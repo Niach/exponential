@@ -107,11 +107,13 @@ impl ActionEditorDialogView {
             state.set_value(action.name.clone(), window, cx);
         });
         let description =
-            cx.new(|cx| TextareaState::new(window, cx).placeholder("Description"));
+            cx.new(|cx| crate::controls::web_textarea(2, 8, window, cx).placeholder("Description"));
         description.update(cx, |state, cx| {
             state.set_value(action.description.clone().unwrap_or_default(), window, cx);
         });
         // Swapped for "Prompt" the moment `actions.get` lands (web parity).
+        // The prompt FILLS its column (h_full below) rather than auto-growing:
+        // it is the scrollable field of this dialog, not a form row.
         let body = cx.new(|cx| TextareaState::new(window, cx).placeholder("Loading prompt…"));
 
         // Enter submits from the one-line fields; in the prompt it inserts a
@@ -332,7 +334,6 @@ impl Render for ActionEditorDialogView {
         let description_row = div().w_full().child(
             Textarea::new(&self.description)
                 .appearance(false)
-                .h(px(72.))
                 .w_full()
                 .px_4()
                 .py_3(),

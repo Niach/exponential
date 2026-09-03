@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import {
   Dialog,
   DialogCancel,
@@ -130,6 +131,10 @@ export function CreateIssueDialog({
   // once the issue exists — they never enter the description markdown.
   const [draftFiles, setDraftFiles] = useState<DraftFile[]>([])
   const [submitPhase, setSubmitPhase] = useState<CreateIssueSubmitPhase>(`idle`)
+  // EXP-698 r4 (phone form): keep the page open after a create and clear only
+  // the text — status/priority/assignee/labels/due date carry over, which is
+  // the whole point of filing a run of related issues in one sitting.
+  const [createMore, setCreateMore] = useState(false)
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false)
   const editorRef = useRef<MarkdownEditorRef>(null)
   const titleRef = useRef<HTMLInputElement>(null)
@@ -215,6 +220,27 @@ export function CreateIssueDialog({
     setAssigneeId(soleMemberId)
     setSelectedLabelIds([])
     setDueDate(undefined)
+    // The toggle lives on the phone form only — a run left switched on must
+    // not survive into a desktop open, where nothing can switch it back off.
+    setCreateMore(false)
+  }
+
+  // "Create more": everything the NEXT issue must not inherit, and nothing
+  // else — resetFields() also clears the properties, so it can't be reused.
+  const resetForNextIssue = () => {
+    clearDraftImages()
+    setDraftFiles([])
+    setTitle(``)
+    setDescriptionValue(``)
+    setAttachmentStatus(null)
+    setSubmitPhase(`idle`)
+    editorRef.current?.setMarkdown(``)
+    titleRef.current?.focus()
+    // The next issue starts at the top of the form, not wherever the previous
+    // description had scrolled to.
+    document
+      .querySelector(`[data-testid="issue-editor-create"] .editor-scroll-region`)
+      ?.scrollTo({ top: 0 })
   }
 
   const handleToggleLabel = (labelId: string) => {
@@ -449,6 +475,11 @@ export function CreateIssueDialog({
         return
       }
 
+      if (createMore) {
+        resetForNextIssue()
+        return
+      }
+
       handleClose()
     } catch (error) {
       setAttachmentStatus(
@@ -467,20 +498,19 @@ export function CreateIssueDialog({
     boards.length > 1 ? (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
+          <Pill
+            mode="action"
             disabled={dialogDisabled}
-            className="h-auto gap-1.5 rounded-md bg-accent/50 px-2 py-0.5 text-xs font-medium text-foreground transition-colors hover:bg-accent has-[>svg]:px-2"
+            leading={
+              <BoardGlyph
+                board={selectedBoard ?? { color: boardColor }}
+                className="size-3"
+              />
+            }
           >
-            <BoardGlyph
-              board={selectedBoard ?? { color: boardColor }}
-              className="size-3.5"
-            />
             {displayPrefix}
             <ChevronDown className="size-3 text-muted-foreground" />
-          </Button>
+          </Pill>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-56">
           {boards.map((board) => (
@@ -518,6 +548,8 @@ export function CreateIssueDialog({
           loading: submitPhase === `creating` || submitPhase === `uploading`,
           label: `Create`,
         }}
+        createMore={createMore}
+        onCreateMoreChange={setCreateMore}
         headerContent="New issue"
         title={title}
         titleRef={titleRef}
@@ -548,17 +580,19 @@ export function CreateIssueDialog({
         dueDate={dueDate}
         onDueDateSelect={setDueDate}
         chipRowAction={
-          <Button
+          <Pill
+            size="md"
+            mode="action"
+            primary
             type="submit"
             disabled={!title.trim() || closeDisabled}
-            className="inline-flex items-center justify-center rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 h-7"
           >
             {submitPhase === `uploading`
               ? `Uploading images...`
               : submitPhase === `creating`
                 ? `Creating...`
                 : `Create issue`}
-          </Button>
+          </Pill>
         }
         footer={
           submitPhase === `created_with_image_errors` ? (
@@ -566,14 +600,9 @@ export function CreateIssueDialog({
               <span className="text-xs text-destructive">
                 {attachmentStatus}
               </span>
-              <Button
-                type="button"
-                variant="outline"
-                size="xs"
-                onClick={handleClose}
-              >
+              <Pill mode="action" onClick={handleClose}>
                 Close
-              </Button>
+              </Pill>
             </div>
           ) : draftFiles.length > 0 || attachmentStatus ? (
             // EXP-586: images live inline in the description only; the footer

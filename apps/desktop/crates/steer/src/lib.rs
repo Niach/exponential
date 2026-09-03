@@ -104,7 +104,10 @@ pub use frames::{
     SteerRole, SubagentStatus, ViewerFrame, ACTIVITY_CHANNEL, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
     CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED,
 };
-pub use image_message::{build_steer_image_message, MAX_STEER_IMAGES};
+pub use image_message::{
+    build_steer_image_message, image_marker, insert_image_marker, parse_steer_message,
+    renumber_image_markers, ParsedSteerMessage, MAX_STEER_IMAGES,
+};
 pub use hooks::{
     hook_settings_json, write_hook_curl_config, HookContext, HookEvent, HookEventKind,
     HookQuestion, HookQuestionOption, HookServer, HOOK_CONFIG_ENV, HOOK_PORT_ENV,

@@ -30,6 +30,7 @@ import {
 } from "@/components/automation-dialog"
 import { AGENT_LABELS } from "@/components/launch-dialog/launch-options-pane"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import {
   Dialog,
   DialogCancel,
@@ -94,12 +95,11 @@ function AutomationMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-muted-foreground"
+          variant="glass"
+          size="icon-sm"
           aria-label={`Automation menu for ${name}`}
         >
-          <Ellipsis className="h-4 w-4" />
+          <Ellipsis />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -196,9 +196,16 @@ function AutomationRow({
             </span>
           </span>
           {launch && <span className="truncate">{launch}</span>}
-          {next && <span>{`Next ${formatNextRun(next)} (device time)`}</span>}
+          {/* `min-w-0` lets these wrap INSIDE themselves — a flex item's
+              auto min-width would otherwise keep the whole "Next … (device
+              time)" caption at max-content and push it past the row. */}
+          {next && (
+            <span className="min-w-0">
+              {`Next ${formatNextRun(next)} (device time)`}
+            </span>
+          )}
           {lastRun && (
-            <span>
+            <span className="min-w-0">
               {`Last run ${sessionStatusLabel(lastRun.status)} · ${relativeTime(lastRun.createdAt)}`}
             </span>
           )}
@@ -207,20 +214,28 @@ function AutomationRow({
           <p className="text-xs text-muted-foreground">{REQUIRED_INPUTS_HINT}</p>
         )}
       </div>
-      <Switch
-        checked={automation.enabled}
-        disabled={!isOwner || flipping || locked}
-        onCheckedChange={(enabled) => void flipEnabled(enabled)}
-        aria-label={`Automation enabled for ${action?.name ?? `action`}`}
-        title={locked ? REQUIRED_INPUTS_HINT : undefined}
-      />
-      {isOwner && (
-        <AutomationMenu
-          name={action?.name ?? `action`}
-          onEdit={onEdit}
-          onDelete={onDelete}
+      {/* EXP-698: the fixed trailing column — toggle then ⋯, centred on the
+          row however many lines the meta above wraps to. A non-owner has no
+          menu, so the slot stays as an empty spacer and the toggles still
+          line up down the list. */}
+      <div className="flex shrink-0 items-center gap-1 self-center">
+        <Switch
+          checked={automation.enabled}
+          disabled={!isOwner || flipping || locked}
+          onCheckedChange={(enabled) => void flipEnabled(enabled)}
+          aria-label={`Automation enabled for ${action?.name ?? `action`}`}
+          title={locked ? REQUIRED_INPUTS_HINT : undefined}
         />
-      )}
+        {isOwner ? (
+          <AutomationMenu
+            name={action?.name ?? `action`}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
+        ) : (
+          <span aria-hidden className="size-8 shrink-0" />
+        )}
+      </div>
     </GlassRow>
   )
 }
@@ -365,18 +380,16 @@ export function AutomationsTab({
     <>
       {showSuggestions && <SuggestionsButton />}
       {canCreate && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-6 gap-1 px-2 text-xs"
+        <Pill
+          mode="action"
           onClick={() => {
             setEditing(null)
             setDialogOpen(true)
           }}
         >
-          <AutomationCreateIcon className="size-3.5" />
+          <AutomationCreateIcon className="size-3" />
           New automation
-        </Button>
+        </Pill>
       )}
     </>
   )

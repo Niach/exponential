@@ -1,128 +1,22 @@
 import SwiftUI
 
 // Shared glass controls (EXP-604) — the iOS twins of Android's
-// ui/components/GlassPillButton.kt, CircleIconButton.kt and GlassTextField.kt,
-// which were themselves 1:1 ports of the ad-hoc styling these extract.
+// ui/components/CircleIconButton.kt and GlassTextField.kt, which were
+// themselves 1:1 ports of the ad-hoc styling these extract.
 // Geometry (paddings, icon sizes, radii, hairlines) is byte-matched across the
-// platforms; fills/strokes stay in each platform's glass vocabulary
-// (`.glassButton()` / `TextOpacity` here, GlassTokens there). Fonts
-// approximate: Android labelMedium ≈ `.caption.weight(.medium)`,
-// bodyLarge ≈ `.body.weight(.medium)`.
+// platforms, and since EXP-698 so are the fills and strokes: both sides read
+// `GlassTokens`, which is nothing but `DesignTokens` reads. Fonts approximate:
+// Android labelMedium ≈ `.caption.weight(.medium)`, bodyLarge ≈
+// `.body.weight(.medium)`.
+//
+// The pill vocabulary moved OUT of this file in EXP-698 round 2: the three
+// types that used to live here (`GlassPillLabel`, `GlassPillButton`,
+// `GlassChip`) collapsed into the one `GlassPill` in GlassPill.swift, and the
+// three hand-rolled composer cards into `GlassComposer`.
 //
 // Absent twins, deliberately: sheets have no close control at all since
 // EXP-687 (swipe down, both platforms), and the 52pt `.ultraThinMaterial`
 // floating-bar circles are a different chrome class.
-
-// MARK: - Pill
-
-/// The styled content of a glass pill — for the rare hosts that are not a
-/// `Button` (NavigationLink labels, tap-gesture rows). Everything else uses
-/// `GlassPillButton`.
-public struct GlassPillLabel<Leading: View>: View {
-    let label: String
-    var isActive: Bool = false
-    var isOpaque: Bool = false
-    var enabled: Bool = true
-    /// EXP-678: the ONE geometry knob — a pill sitting beside a taller row
-    /// (the steer screen's "Latest changes" chip) matches its height instead
-    /// of drawing a short pill against it. Default = the shared 6pt.
-    var verticalPadding: CGFloat = 6
-    let leading: Leading
-
-    public init(
-        _ label: String,
-        isActive: Bool = false,
-        isOpaque: Bool = false,
-        enabled: Bool = true,
-        verticalPadding: CGFloat = 6,
-        @ViewBuilder leading: () -> Leading
-    ) {
-        self.label = label
-        self.isActive = isActive
-        self.isOpaque = isOpaque
-        self.enabled = enabled
-        self.verticalPadding = verticalPadding
-        self.leading = leading()
-    }
-
-    public var body: some View {
-        HStack(spacing: 6) {
-            leading
-            Text(label)
-                .font(.caption.weight(.medium))
-        }
-        .foregroundStyle(.white.opacity(enabled ? TextOpacity.primary : TextOpacity.quaternary))
-        .padding(.horizontal, 12)
-        .padding(.vertical, verticalPadding)
-        .glassButton(isActive: isActive, isOpaque: isOpaque)
-    }
-}
-
-extension GlassPillLabel where Leading == EmptyView {
-    public init(
-        _ label: String,
-        isActive: Bool = false,
-        isOpaque: Bool = false,
-        enabled: Bool = true,
-        verticalPadding: CGFloat = 6
-    ) {
-        self.init(
-            label,
-            isActive: isActive,
-            isOpaque: isOpaque,
-            enabled: enabled,
-            verticalPadding: verticalPadding
-        ) { EmptyView() }
-    }
-}
-
-/// The capsule action pill: optional 14pt leading icon, caption/medium label.
-public struct GlassPillButton: View {
-    let label: String
-    var icon: String? = nil
-    var isActive: Bool = false
-    var isOpaque: Bool = false
-    var enabled: Bool = true
-    var verticalPadding: CGFloat = 6
-    let action: () -> Void
-
-    public init(
-        _ label: String,
-        icon: String? = nil,
-        isActive: Bool = false,
-        isOpaque: Bool = false,
-        enabled: Bool = true,
-        verticalPadding: CGFloat = 6,
-        action: @escaping () -> Void
-    ) {
-        self.label = label
-        self.icon = icon
-        self.isActive = isActive
-        self.isOpaque = isOpaque
-        self.enabled = enabled
-        self.verticalPadding = verticalPadding
-        self.action = action
-    }
-
-    public var body: some View {
-        Button(action: action) {
-            GlassPillLabel(
-                label,
-                isActive: isActive,
-                isOpaque: isOpaque,
-                enabled: enabled,
-                verticalPadding: verticalPadding
-            ) {
-                if let icon {
-                    AppIcon(icon, size: 14)
-                }
-            }
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-    }
-}
 
 // MARK: - Submit
 
@@ -171,12 +65,15 @@ public struct GlassSubmitLabel<Icon: View>: View {
         )
         .frame(maxWidth: .infinity)
         .padding(.vertical, 14)
-        .background(enabled ? DesignTokens.Palette.primary : Color.white.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(enabled ? DesignTokens.Palette.primary : GlassTokens.fillCard)
+        .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
         // A filled button needs no hairline — only the disabled glass does.
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(enabled ? Color.clear : Color.white.opacity(0.1), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+                .stroke(
+                    enabled ? Color.clear : GlassTokens.strokeCard,
+                    lineWidth: GlassTokens.hairline
+                )
         )
     }
 }
@@ -235,11 +132,11 @@ public struct GlassOAuthButton<Icon: View>: View {
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
-            .background(Color.white.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .background(GlassTokens.fillCard)
+            .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+                    .stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
             )
             .contentShape(Rectangle())
         }
@@ -284,14 +181,21 @@ public struct GlassToggleStyle: ToggleStyle {
 
     private func track(isOn: Bool) -> some View {
         Capsule()
-            .fill(isOn ? DesignTokens.Palette.primary : Color.white.opacity(0.08))
+            .fill(isOn ? DesignTokens.Palette.primary : GlassTokens.fillCard)
             .overlay(
                 Capsule()
-                    .stroke(Color.white.opacity(isOn ? 0 : 0.15), lineWidth: 0.5)
+                    .stroke(
+                        isOn ? Color.clear : GlassTokens.strokeCard,
+                        lineWidth: GlassTokens.hairline
+                    )
             )
             .overlay(alignment: isOn ? .trailing : .leading) {
                 Circle()
-                    .fill(isOn ? DesignTokens.Palette.primaryForeground : Zinc._400)
+                    .fill(
+                        isOn
+                            ? DesignTokens.Palette.primaryForeground
+                            : DesignTokens.Palette.mutedForeground
+                    )
                     .frame(width: 27, height: 27)
                     .padding(2)
             }
@@ -305,13 +209,22 @@ extension ToggleStyle where Self == GlassToggleStyle {
 
 // MARK: - Circle icon button
 
-/// A drawn glass circle around a single glyph (Android CircleIconButton:
-/// 38pt circle, 20pt glyph).
+/// A drawn glass circle around a single glyph — the ONE chrome for a trailing
+/// action on a surface WE paint: a list row, a section header, the Login page's
+/// header (EXP-698). `controlMd` (32pt) with a 17pt glyph at 70 % white is the
+/// default on both mobile clients (Android matches 17dp); web and desktop use a
+/// 16px glyph in the same 32px circle. The explicit sizes that survive here are
+/// the deliberately smaller in-row ones.
+///
+/// NOT for a `ToolbarItem` (EXP-698 r4): iOS 26 paints its own Liquid Glass
+/// capsule behind every toolbar item, so a drawn circle on top reads as two
+/// concentric rings. A toolbar button is BARE content — the glyph (or a plain
+/// text `Button`) in a 32pt frame, no fill, no stroke.
 public struct CircleIconButton: View {
     let icon: String
     let accessibilityLabel: String
-    var size: CGFloat = 38
-    var glyphSize: CGFloat = 20
+    var size: CGFloat = GlassTokens.controlSize
+    var glyphSize: CGFloat = AppIcon.Size.medium
     var tint: Color? = nil
     var enabled: Bool = true
     let action: () -> Void
@@ -319,8 +232,8 @@ public struct CircleIconButton: View {
     public init(
         _ icon: String,
         accessibilityLabel: String,
-        size: CGFloat = 38,
-        glyphSize: CGFloat = 20,
+        size: CGFloat = GlassTokens.controlSize,
+        glyphSize: CGFloat = AppIcon.Size.medium,
         tint: Color? = nil,
         enabled: Bool = true,
         action: @escaping () -> Void
@@ -336,17 +249,13 @@ public struct CircleIconButton: View {
 
     public var body: some View {
         Button(action: action) {
-            AppIcon(icon, size: glyphSize, weight: .medium)
-                .foregroundStyle(
-                    tint ?? .white.opacity(enabled ? TextOpacity.secondary : TextOpacity.quaternary)
-                )
-                .frame(width: size, height: size)
-                .background(Color.white.opacity(0.06), in: Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-                )
-                .contentShape(Circle())
+            CircleIconLabel(
+                icon,
+                size: size,
+                glyphSize: glyphSize,
+                tint: tint,
+                enabled: enabled
+            )
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
@@ -354,50 +263,75 @@ public struct CircleIconButton: View {
     }
 }
 
-/// The one back button for a `topBarLeading` slot on a page that hides the
-/// system chevron (EXP-687 made New issue a page) — Android's
-/// `TopBarBackButton`, the same circle around the `ui-back` glyph.
-public struct TopBarBackButton: View {
-    var accessibilityLabel: String = "Back"
+/// The styled content of a `CircleIconButton` — for the hosts that are not a
+/// `Button` (a `GlassMenu` label, which owns its own tap handling). Everything
+/// else uses `CircleIconButton`.
+public struct CircleIconLabel: View {
+    let icon: String
+    var size: CGFloat = GlassTokens.controlSize
+    var glyphSize: CGFloat = AppIcon.Size.medium
+    var tint: Color? = nil
     var enabled: Bool = true
-    let action: () -> Void
 
     public init(
-        accessibilityLabel: String = "Back",
-        enabled: Bool = true,
-        action: @escaping () -> Void
+        _ icon: String,
+        size: CGFloat = GlassTokens.controlSize,
+        glyphSize: CGFloat = AppIcon.Size.medium,
+        tint: Color? = nil,
+        enabled: Bool = true
     ) {
-        self.accessibilityLabel = accessibilityLabel
+        self.icon = icon
+        self.size = size
+        self.glyphSize = glyphSize
+        self.tint = tint
         self.enabled = enabled
-        self.action = action
     }
 
     public var body: some View {
-        CircleIconButton(
-            AppIcons.uiBack,
-            accessibilityLabel: accessibilityLabel,
-            size: 32,
-            glyphSize: 17,
-            enabled: enabled,
-            action: action
-        )
+        AppIcon(icon, size: glyphSize, weight: .medium)
+            .foregroundStyle(
+                tint ?? .white.opacity(enabled ? TextOpacity.secondary : TextOpacity.quaternary)
+            )
+            .frame(width: size, height: size)
+            .background(GlassTokens.fillCard, in: Circle())
+            .overlay(
+                Circle()
+                    .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
+            )
+            .contentShape(Circle())
     }
 }
 
+// `TopBarBackButton` is gone (EXP-698 r4): its one call site (New issue, the
+// page that hides the system chevron to run its discard confirmation) is a
+// plain toolbar `Button` around the `ui-back` glyph now, because the system's
+// own toolbar glass already draws the circle this type used to.
+
 // MARK: - Text field
 
-/// The ONE glass text input (Android GlassTextField parity): 12pt corners,
-/// white .06 fill, hairline that brightens while focused. Behavior modifiers
+/// The ONE glass text input (Android GlassTextField parity): `fieldRadius`
+/// corners, `fillCard`, a hairline that brightens to `strokeActive` while
+/// focused. Behavior modifiers
 /// (`.keyboardType`, `.submitLabel`, `.font`, autocapitalization/correction,
 /// `.focused`, `.onSubmit`) are applied by the CALLER — they propagate to the
-/// inner field. `showsBackground: false` drops the chrome and padding for
-/// fields living inside already-chromed rows (Form).
+/// inner field, which is why there is no `font:` parameter: a prompt box keeps
+/// its `.footnote.monospaced()` with a plain modifier.
+///
+/// `bordered: false` drops the chrome and padding for fields living inside an
+/// already-chromed row (a `GlassSection` row, a `Form`, a `GlassComposer`).
+///
+/// `lines:` makes it a TEXT AREA (EXP-698 round 2): the field grows on the
+/// vertical axis within that many lines. It replaces the nine hand-rolled
+/// `TextField(axis: .vertical)` boxes that each drew their own fill, radius and
+/// padding — the multi-line input is the same control as the single-line one.
 public struct GlassTextField<Leading: View, Trailing: View>: View {
     let placeholder: String
     @Binding var text: String
     var isSecure: Bool = false
-    var showsBackground: Bool = true
-    var horizontalPadding: CGFloat = 14
+    /// The growth range of a multi-line field; nil = a single-line field.
+    var lines: ClosedRange<Int>? = nil
+    var bordered: Bool = true
+    var horizontalPadding: CGFloat = 12
     var verticalPadding: CGFloat = 12
     /// Applied directly to the field so XCUITest `textFields[id]` queries keep
     /// resolving (an identifier on the container lands on the wrong element).
@@ -411,8 +345,9 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
         _ placeholder: String,
         text: Binding<String>,
         isSecure: Bool = false,
-        showsBackground: Bool = true,
-        horizontalPadding: CGFloat = 14,
+        lines: ClosedRange<Int>? = nil,
+        bordered: Bool = true,
+        horizontalPadding: CGFloat = 12,
         verticalPadding: CGFloat = 12,
         accessibilityIdentifier: String = "",
         @ViewBuilder leading: () -> Leading,
@@ -421,7 +356,8 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
         self.placeholder = placeholder
         self._text = text
         self.isSecure = isSecure
-        self.showsBackground = showsBackground
+        self.lines = lines
+        self.bordered = bordered
         self.horizontalPadding = horizontalPadding
         self.verticalPadding = verticalPadding
         self.accessibilityIdentifier = accessibilityIdentifier
@@ -430,7 +366,7 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
     }
 
     public var body: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: lines == nil ? .center : .top, spacing: 8) {
             leading
             field
                 .accessibilityIdentifier(accessibilityIdentifier)
@@ -440,7 +376,7 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
             trailing
         }
         .modifier(Chrome(
-            shows: showsBackground,
+            shows: bordered,
             horizontalPadding: horizontalPadding,
             verticalPadding: verticalPadding,
             focused: focused
@@ -461,6 +397,9 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
             } else {
                 SecureField(placeholder, text: $text)
             }
+        } else if let lines {
+            TextField(placeholder, text: $text, axis: .vertical)
+                .lineLimit(lines)
         } else {
             TextField(placeholder, text: $text)
         }
@@ -477,10 +416,16 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
                 content
                     .padding(.horizontal, horizontalPadding)
                     .padding(.vertical, verticalPadding)
-                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+                    .background(
+                        GlassTokens.fillCard,
+                        in: RoundedRectangle(cornerRadius: GlassTokens.fieldRadius)
+                    )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.white.opacity(focused ? 0.2 : 0.1), lineWidth: 0.5)
+                        RoundedRectangle(cornerRadius: GlassTokens.fieldRadius)
+                            .stroke(
+                                focused ? GlassTokens.strokeActive : GlassTokens.strokeCard,
+                                lineWidth: GlassTokens.hairline
+                            )
                     )
             } else {
                 content
@@ -494,8 +439,9 @@ extension GlassTextField where Leading == EmptyView, Trailing == EmptyView {
         _ placeholder: String,
         text: Binding<String>,
         isSecure: Bool = false,
-        showsBackground: Bool = true,
-        horizontalPadding: CGFloat = 14,
+        lines: ClosedRange<Int>? = nil,
+        bordered: Bool = true,
+        horizontalPadding: CGFloat = 12,
         verticalPadding: CGFloat = 12,
         accessibilityIdentifier: String = ""
     ) {
@@ -503,7 +449,8 @@ extension GlassTextField where Leading == EmptyView, Trailing == EmptyView {
             placeholder,
             text: text,
             isSecure: isSecure,
-            showsBackground: showsBackground,
+            lines: lines,
+            bordered: bordered,
             horizontalPadding: horizontalPadding,
             verticalPadding: verticalPadding,
             accessibilityIdentifier: accessibilityIdentifier
@@ -516,22 +463,22 @@ extension GlassTextField where Leading == EmptyView, Trailing == EmptyView {
 /// Inline search field for the searchable sheets — deliberately NOT system
 /// `.searchable` (iOS 26 renders that as a bottom-edge glass bar; see
 /// DuplicatePickerSheet, whose styling this extracts). Layout margins are the
-/// caller's. `showsBackground: false` for bare Form rows (StartCodingSheet).
+/// caller's. `bordered: false` for bare Form rows (StartCodingSheet).
 public struct GlassSheetSearchField: View {
     let placeholder: String
     @Binding var text: String
-    var showsBackground: Bool = true
+    var bordered: Bool = true
     var accessibilityIdentifier: String = ""
 
     public init(
         placeholder: String,
         text: Binding<String>,
-        showsBackground: Bool = true,
+        bordered: Bool = true,
         accessibilityIdentifier: String = ""
     ) {
         self.placeholder = placeholder
         self._text = text
-        self.showsBackground = showsBackground
+        self.bordered = bordered
         self.accessibilityIdentifier = accessibilityIdentifier
     }
 
@@ -539,7 +486,7 @@ public struct GlassSheetSearchField: View {
         GlassTextField(
             placeholder,
             text: $text,
-            showsBackground: showsBackground,
+            bordered: bordered,
             horizontalPadding: 12,
             verticalPadding: 9,
             accessibilityIdentifier: accessibilityIdentifier

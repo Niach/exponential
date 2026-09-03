@@ -3,13 +3,7 @@ import { Link } from "@tanstack/react-router"
 import { BookOpen, CircleCheck, Download, Lock } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { GlassGroup } from "@/components/ui/glass-rows"
 import { Progress } from "@/components/ui/progress"
 import {
   DESKTOP_RELEASES_URL,
@@ -23,6 +17,7 @@ import type {
   EntryKey,
   EntryState,
 } from "@/components/getting-started/getting-started-model"
+import { GETTING_STARTED_COPY } from "@/components/getting-started/getting-started-copy"
 import {
   CopySnippetButton,
   McpSetupTabs,
@@ -37,9 +32,9 @@ import type { Team } from "@/db/schema"
 // entries with live completion state, lock/prereq hints, and per-client MCP
 // setup tabs. Signals come from the layout-level
 // GettingStartedProgressProvider; the pure state rules live in
-// getting-started-model.ts. The desktop IDE renders the SAME entries with
-// the same titles/descriptions/order (`crates/ui/src/getting_started.rs`) —
-// keep the copy in lockstep.
+// getting-started-model.ts, and every string in `getting-started-copy.ts` —
+// all four clients render the same titles/descriptions/order, gated by
+// `getting-started-copy.test.ts`.
 
 export interface GettingStartedCardsProps {
   team: Team
@@ -68,32 +63,6 @@ const ENTRY_ICONS: Record<EntryKey, LucideIcon> = {
   mcp: conceptIcon(`ui-mcp`),
 }
 
-const ENTRY_TITLES: Record<EntryKey, string> = {
-  desktop: `Get the desktop app`,
-  github: `Connect a GitHub repo`,
-  invite: `Invite your team`,
-  board: `Create a board`,
-  coding: `Start coding with an agent`,
-  action: `Create an action`,
-  server: `Set up a server`,
-  widget: `Set up the feedback widget`,
-  helpdesk: `Enable the helpdesk`,
-  mcp: `Connect your tools via MCP`,
-}
-
-const ENTRY_DESCRIPTIONS: Record<EntryKey, string> = {
-  desktop: `The desktop app is a full git IDE and the client that runs coding sessions on your machine. Signing in registers it as one of your machines.`,
-  github: `Link a GitHub account to your team so boards can attach repositories. Pull requests and coding sessions flow back into their issues.`,
-  invite: `Teammates share boards, reviews, and the support inbox. Send an invite by email or hand out an invite link.`,
-  board: `Boards hold your issues. Connect a repository to code on a board; without one it works as a plain board.`,
-  coding: `"Start coding" on any issue hands it to your coding agent on your machine. It plans first, implements, then commits, pushes, and opens the pull request linked back to the issue. You just need git and your agent CLI (claude, codex or pi) on your PATH.`,
-  action: `Actions are reusable agent runs for your team — describe one and your agent writes it. Run them from Agents on any device, or wire them to automations.`,
-  server: `Run the headless agent daemon on an always-on machine. One command installs it; the server then shows up under My machines and can take remote "Start coding" requests.`,
-  widget: `Embed a feedback button on any website. Visitors report bugs with an annotated screenshot, and each lands here as an issue with reporter email and page context.`,
-  helpdesk: `Flip the switch in Settings → Feedback widget and every member shares the Support inbox. Support tickets from the widget land there, with replies emailed to the reporter.`,
-  mcp: `This instance exposes an MCP server at /api/mcp. Connect Claude, ChatGPT, Cursor, or any MCP client to work with issues, boards, and comments from your tools.`,
-}
-
 // One-line hints for locked entries, keyed by entry + the step that unlocks
 // it (lockedBy from the model).
 function lockedHint(entry: EntryKey, lockedBy: EntryKey): string {
@@ -112,7 +81,7 @@ function lockedHint(entry: EntryKey, lockedBy: EntryKey): string {
   if (entry === `widget`) {
     return `Create a board first. Widget feedback lands there as issues.`
   }
-  return `Complete "${ENTRY_TITLES[lockedBy]}" first.`
+  return `Complete "${GETTING_STARTED_COPY[lockedBy].title}" first.`
 }
 
 function GettingStartedCard({
@@ -135,9 +104,9 @@ function GettingStartedCard({
 }) {
   const locked = state === `locked`
   return (
-    <Card className={cn(`flex flex-col`, locked && `opacity-60`)}>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
+    <GlassGroup className={cn(locked && `opacity-60`)}>
+      <div className="flex flex-col gap-1.5 p-4">
+        <div className="flex items-center gap-2 text-base font-semibold">
           {state === `done` ? (
             <CircleCheck className="size-5 shrink-0 text-green-500" />
           ) : locked ? (
@@ -149,13 +118,15 @@ function GettingStartedCard({
           )}
           <Icon className="size-4 shrink-0" />
           <span>{title}</span>
-        </CardTitle>
-        <CardDescription>{locked && hint ? hint : description}</CardDescription>
-      </CardHeader>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {locked && hint ? hint : description}
+        </p>
+      </div>
       {!locked && children && (
-        <CardContent className="mt-auto space-y-3">{children}</CardContent>
+        <div className="mt-auto space-y-3 p-4">{children}</div>
       )}
-    </Card>
+    </GlassGroup>
   )
 }
 
@@ -189,7 +160,7 @@ export function GettingStartedCards({
         <Button size="sm" asChild>
           <a href={downloadHref} target="_blank" rel="noreferrer">
             <Download className="mr-1.5 size-4" />
-            Download the desktop app
+            {GETTING_STARTED_COPY.desktop.action}
           </a>
         </Button>
         <Button size="sm" variant="ghost" asChild>
@@ -209,7 +180,7 @@ export function GettingStartedCards({
             params={{ teamSlug }}
           >
             <GithubIcon className="mr-1.5 size-4" />
-            Connect GitHub
+            {GETTING_STARTED_COPY.github.action}
           </Link>
         </Button>
       </div>
@@ -218,7 +189,7 @@ export function GettingStartedCards({
     board: (
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={() => setCreateOpen(true)}>
-          Create a board
+          {GETTING_STARTED_COPY.board.action}
         </Button>
       </div>
     ),
@@ -228,7 +199,7 @@ export function GettingStartedCards({
         <Button size="sm" asChild>
           <Link to="/t/$teamSlug/devices" params={{ teamSlug }}>
             <TerminalIcon className="mr-1.5 size-4" />
-            Open Devices
+            {GETTING_STARTED_COPY.coding.action}
           </Link>
         </Button>
         <p className="text-xs text-muted-foreground">
@@ -242,7 +213,7 @@ export function GettingStartedCards({
         <Button size="sm" asChild>
           <Link to="/t/$teamSlug/actions" params={{ teamSlug }}>
             <ActionCreateIcon className="mr-1.5 size-4" />
-            New action
+            {GETTING_STARTED_COPY.action.action}
           </Link>
         </Button>
         <p className="text-xs text-muted-foreground">
@@ -257,7 +228,10 @@ export function GettingStartedCards({
           {serverSnippet}
         </pre>
         <div className="flex flex-wrap items-center gap-2">
-          <CopySnippetButton label="Copy install command" text={serverSnippet} />
+          <CopySnippetButton
+            label={GETTING_STARTED_COPY.server.action}
+            text={serverSnippet}
+          />
         </div>
       </>
     ),
@@ -266,7 +240,7 @@ export function GettingStartedCards({
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" asChild>
           <Link to="/t/$teamSlug/settings/members" params={{ teamSlug }}>
-            Invite in team settings
+            {GETTING_STARTED_COPY.invite.action}
           </Link>
         </Button>
       </div>
@@ -286,7 +260,7 @@ export function GettingStartedCards({
               to="/t/$teamSlug/settings/widget"
               params={{ teamSlug }}
             >
-              Set up in team settings
+              {GETTING_STARTED_COPY.widget.action}
             </Link>
           </Button>
         </div>
@@ -301,7 +275,7 @@ export function GettingStartedCards({
             params={{ teamSlug }}
           >
             <HelpdeskIcon className="mr-1.5 size-4" />
-            Enable in team settings
+            {GETTING_STARTED_COPY.helpdesk.action}
           </Link>
         </Button>
       </div>
@@ -345,8 +319,8 @@ export function GettingStartedCards({
           <GettingStartedCard
             key={entry.key}
             icon={ENTRY_ICONS[entry.key]}
-            title={ENTRY_TITLES[entry.key]}
-            description={ENTRY_DESCRIPTIONS[entry.key]}
+            title={GETTING_STARTED_COPY[entry.key].title}
+            description={GETTING_STARTED_COPY[entry.key].description}
             state={loading ? `neutral` : entry.state}
             stepNumber={index + 1}
             hint={

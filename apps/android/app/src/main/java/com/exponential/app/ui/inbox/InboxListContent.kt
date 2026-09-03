@@ -26,7 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -206,7 +205,7 @@ private fun TypeIconBadge(icon: ImageVector) {
         Modifier
             .size(28.dp)
             .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.08f)),
+            .background(GlassTokens.CardFill),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -218,25 +217,39 @@ private fun TypeIconBadge(icon: ImageVector) {
     }
 }
 
-/** Relative time over the unread dot (shared row trailing). */
+/**
+ * Relative time + the unread dot (shared row trailing).
+ *
+ * EXP-698: ONE line. Stacked, the dot dropped below the timestamp and made the
+ * unread row taller than its read neighbours; inline, it sits in a FIXED 8dp
+ * slot that is simply empty on a read row, so the timestamps stay on one x
+ * across the list either way.
+ */
 @Composable
 private fun TrailingTimeAndDot(time: String, unread: Int) {
-    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         Text(
             time,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
-        if (unread > 0) {
-            Box(
-                Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
-            )
+        Box(Modifier.size(UnreadDotSize), contentAlignment = Alignment.Center) {
+            if (unread > 0) {
+                Box(
+                    Modifier
+                        .size(UnreadDotSize)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+            }
         }
     }
 }
+
+private val UnreadDotSize = 8.dp
 
 // Locked type → icon mapping, straight off the shared icon registry (EXP-273).
 private fun notificationTypeIcon(type: String): ImageVector = when (type) {

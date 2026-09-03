@@ -47,7 +47,7 @@ import com.exponential.app.ui.theme.TextEmphasis
  */
 object GlassMenuDefaults {
     /** 12dp — iOS `UIMenu` is ~13pt; M3's 4dp `extraSmall` reads as a different product. */
-    val Shape: Shape = RoundedCornerShape(GlassTokens.SectionRadius)
+    val Shape: Shape = RoundedCornerShape(GlassTokens.GroupRadius)
 
     /** White .06 over #171717 == opaque #252525 — the shared opaque glass fill (EXP-357). */
     val ContainerColor: Color = GlassTokens.OpaqueCardFill

@@ -42,12 +42,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use gpui::{
-    div, App, AppContext as _, Entity, IntoElement, ParentElement, Render,
+    div, px, App, AppContext as _, Entity, IntoElement, ParentElement, Render,
     SharedString, Styled, Subscription, WeakEntity, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, ActiveTheme as _, Disableable as _, Icon,
+    h_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use gpui_component::dock::DockItem;
 use sync::Store;
@@ -1804,19 +1804,27 @@ impl Render for StartCodingControl {
         // EXP-417: the primary action of the header's agent row — a solid
         // content-sized button; the repo-less retry sits beside it as a
         // compact icon.
+        // EXP-698: it sits INSIDE the property tray now, so it wears the ONE
+        // capsule at the tray's own `Sm` rung (24px, same as the chips beside
+        // it) in the primary paint — the single emphasised pill of the header.
         let disabled = self.disabled_reason(cx);
         let mut row = h_flex().gap_1().items_center();
-        let button = Button::new("start-coding")
-            .primary()
-            .web_sm()
-            // The solid variant carries the emphasis now — a green glyph on
-            // the primary fill only muddies it.
-            .icon(Icon::new(registry::ACTION_RUN).text_color(if disabled.is_some() {
-                cx.theme().muted_foreground
-            } else {
-                cx.theme().primary_foreground
-            }))
-            .label("Start coding");
+        let button = crate::surface::glass_pill_button_primary(
+            "start-coding",
+            crate::surface::PillSize::Sm,
+        )
+        // The solid variant carries the emphasis now — a green glyph on
+        // the primary fill only muddies it.
+        .icon(
+            Icon::new(registry::ACTION_RUN)
+                .with_size(px(crate::surface::PillSize::Sm.glyph()))
+                .text_color(if disabled.is_some() {
+                    cx.theme().muted_foreground
+                } else {
+                    cx.theme().primary_foreground
+                }),
+        )
+        .label("Start coding");
         match disabled {
             Some(reason) => {
                 // The disabled state ALWAYS explains itself — the

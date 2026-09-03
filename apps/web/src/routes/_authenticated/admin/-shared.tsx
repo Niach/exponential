@@ -1,4 +1,4 @@
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import {
   Card,
   CardContent,
@@ -139,33 +139,21 @@ export function PlanBadge({
   compApplied?: boolean
 }) {
   return (
-    <Badge variant="outline" className="text-xs capitalize whitespace-nowrap">
+    <Pill className="capitalize whitespace-nowrap">
       {plan}
       {compApplied ? ` (comp)` : ``}
-    </Badge>
+    </Pill>
   )
 }
 
-const EMAIL_STATUS_VARIANT: Record<
-  string,
-  `default` | `secondary` | `destructive` | `outline`
-> = {
-  sent: `secondary`,
-  queued: `outline`,
-  failed: `destructive`,
-  bounced: `destructive`,
-  complained: `destructive`,
+const EMAIL_STATUS_CLASS: Record<string, string | undefined> = {
+  failed: `text-destructive`,
+  bounced: `text-destructive`,
+  complained: `text-destructive`,
 }
 
 export function EmailStatusBadge({ status }: { status: string }) {
-  return (
-    <Badge
-      variant={EMAIL_STATUS_VARIANT[status] ?? `outline`}
-      className="text-xs"
-    >
-      {status}
-    </Badge>
-  )
+  return <Pill className={EMAIL_STATUS_CLASS[status]}>{status}</Pill>
 }
 
 export interface EmailDeliveryRow {

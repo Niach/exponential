@@ -17,7 +17,12 @@ import {
   getAttachmentIcon,
   isInlineImageAttachment,
 } from "@/lib/attachment-files"
-import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
+import {
+  Composer,
+  ComposerSubmit,
+  ComposerTool,
+} from "@/components/composer"
 import {
   MentionTextarea,
   type MentionTextareaHandle,
@@ -201,9 +206,157 @@ export function CommentComposer({
     }
   }
 
+  const strip = pending.length > 0 && (
+    <div className="flex flex-wrap items-center gap-2 px-2 pt-2">
+      {pending.map((item) => {
+        const contentType = item.existing?.contentType ?? item.file?.type ?? ``
+        const filename = item.existing?.filename ?? item.file?.name ?? ``
+        const imageSrc = item.existing
+          ? isInlineImageAttachment(contentType)
+            ? item.existing.url
+            : undefined
+          : item.previewUrl
+        const removeButton = (
+          <button
+            type="button"
+            aria-label={`Remove ${filename}`}
+            disabled={submitting}
+            onClick={() => removeItem(item.key)}
+            className="absolute -right-1.5 -top-1.5 rounded-full border border-glass-stroke-card bg-popover p-0.5 text-muted-foreground hover:text-foreground"
+          >
+            <CloseIcon className="size-3" />
+          </button>
+        )
+        if (imageSrc) {
+          return (
+            <div key={item.key} className="relative">
+              <img
+                src={imageSrc}
+                alt={filename}
+                className="size-16 rounded-md border border-glass-stroke-card object-cover"
+              />
+              {removeButton}
+            </div>
+          )
+        }
+        const Icon = getAttachmentIcon(contentType)
+        return (
+          <div
+            key={item.key}
+            className="relative flex max-w-48 items-center gap-1.5 rounded-md border border-glass-stroke-card bg-glass-row px-2 py-1.5"
+          >
+            <Icon className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 truncate text-xs">{filename}</span>
+            {removeButton}
+          </div>
+        )
+      })}
+    </div>
+  )
+
+  const tools = (
+    <>
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept={acceptedImageContentTypes.join(`,`)}
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          filePickerOpenRef.current = false
+          if (event.target.files) addFiles(Array.from(event.target.files))
+          event.target.value = ``
+        }}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          filePickerOpenRef.current = false
+          if (event.target.files) addFiles(Array.from(event.target.files))
+          event.target.value = ``
+        }}
+      />
+      <ComposerTool
+        aria-label="Add image"
+        title="Add image"
+        disabled={submitting}
+        onClick={() => {
+          filePickerOpenRef.current = true
+          imageInputRef.current?.click()
+        }}
+      >
+        <ImageIcon />
+      </ComposerTool>
+      <ComposerTool
+        aria-label="Attach files"
+        title="Attach files"
+        disabled={submitting}
+        onClick={() => {
+          filePickerOpenRef.current = true
+          fileInputRef.current?.click()
+        }}
+      >
+        <AttachIcon />
+      </ComposerTool>
+      {/* The `#` picker only opens at a TOKEN start, so a `#` typed right
+          after a word needs a leading space (shared helper, EXP-568). */}
+      <ComposerTool
+        aria-label="Insert issue reference"
+        title="Insert issue reference"
+        disabled={submitting}
+        onClick={() =>
+          textareaRef.current?.insertText(
+            issueRefInsertionText(textareaRef.current.charBeforeCaret())
+          )
+        }
+      >
+        <IssueRefIcon />
+      </ComposerTool>
+      {/* EXP-551: the picker inserts at the textarea's caret; the popover
+          keeps focus off its trigger on close and insertText re-focuses. */}
+      <EmojiPickerPopover
+        side="top"
+        onPick={(unicode) => textareaRef.current?.insertText(unicode)}
+      >
+        <ComposerTool
+          aria-label="Insert emoji"
+          title="Insert emoji"
+          disabled={submitting}
+        >
+          <EmojiIcon />
+        </ComposerTool>
+      </EmojiPickerPopover>
+    </>
+  )
+
   return (
-    <div
-      className="rounded-2xl border border-border bg-muted/40"
+    <Composer
+      strip={strip}
+      tools={tools}
+      submit={
+        <>
+          {onCancel && (
+            <Pill
+              mode="action"
+              size="sm"
+              onClick={onCancel}
+              disabled={submitting}
+            >
+              Cancel
+            </Pill>
+          )}
+          <ComposerSubmit
+            aria-label="Send comment"
+            disabled={submitting || !canSubmit}
+            onClick={() => void submit()}
+          >
+            <SubmitIcon className="!size-6" />
+          </ComposerSubmit>
+        </>
+      }
       onBlur={(event) => {
         if (!onEmptyBlur) return
         // focusout bubbles; ignore focus moves WITHIN the card.
@@ -222,53 +375,6 @@ export function CommentComposer({
         if (event.dataTransfer.types.includes(`Files`)) event.preventDefault()
       }}
     >
-      {pending.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 px-2 pt-2">
-          {pending.map((item) => {
-            const contentType = item.existing?.contentType ?? item.file?.type ?? ``
-            const filename = item.existing?.filename ?? item.file?.name ?? ``
-            const imageSrc = item.existing
-              ? isInlineImageAttachment(contentType)
-                ? item.existing.url
-                : undefined
-              : item.previewUrl
-            const removeButton = (
-              <button
-                type="button"
-                aria-label={`Remove ${filename}`}
-                disabled={submitting}
-                onClick={() => removeItem(item.key)}
-                className="absolute -right-1.5 -top-1.5 rounded-full border border-border bg-background p-0.5 text-muted-foreground hover:text-foreground"
-              >
-                <CloseIcon className="size-3" />
-              </button>
-            )
-            if (imageSrc) {
-              return (
-                <div key={item.key} className="relative">
-                  <img
-                    src={imageSrc}
-                    alt={filename}
-                    className="size-16 rounded-md border border-border/60 object-cover"
-                  />
-                  {removeButton}
-                </div>
-              )
-            }
-            const Icon = getAttachmentIcon(contentType)
-            return (
-              <div
-                key={item.key}
-                className="relative flex max-w-48 items-center gap-1.5 rounded-md border border-border/60 bg-background px-2 py-1.5"
-              >
-                <Icon className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate text-xs">{filename}</span>
-                {removeButton}
-              </div>
-            )
-          })}
-        </div>
-      )}
       <MentionTextarea
         ref={textareaRef}
         autoFocus={autoFocus}
@@ -277,10 +383,9 @@ export function CommentComposer({
         onValueChange={setText}
         users={users}
         disabled={submitting}
-        // `resize-none`: the textarea auto-grows (`field-sizing-content`), so
-        // the native resize grip — which would float mid-card above the tool
-        // row — earns nothing (EXP-599).
-        className="min-h-16 resize-none border-none bg-transparent text-sm shadow-none focus-visible:ring-0 dark:bg-transparent"
+        // The card IS the field chrome — the textarea drops its own fill,
+        // hairline and focus stroke (`resize-none` is stock since EXP-698).
+        className="min-h-16 border-none bg-transparent text-sm shadow-none focus-visible:border-transparent dark:bg-transparent"
         onKeyDown={(event) => {
           if (
             event.key === `Enter` &&
@@ -297,123 +402,6 @@ export function CommentComposer({
           addFiles(Array.from(event.clipboardData.files))
         }}
       />
-      <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
-        <input
-          ref={imageInputRef}
-          type="file"
-          accept={acceptedImageContentTypes.join(`,`)}
-          multiple
-          className="hidden"
-          onChange={(event) => {
-            filePickerOpenRef.current = false
-            if (event.target.files) addFiles(Array.from(event.target.files))
-            event.target.value = ``
-          }}
-        />
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(event) => {
-            filePickerOpenRef.current = false
-            if (event.target.files) addFiles(Array.from(event.target.files))
-            event.target.value = ``
-          }}
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="text-muted-foreground"
-          aria-label="Add image"
-          title="Add image"
-          disabled={submitting}
-          onClick={() => {
-            filePickerOpenRef.current = true
-            imageInputRef.current?.click()
-          }}
-        >
-          <ImageIcon />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="text-muted-foreground"
-          aria-label="Attach files"
-          title="Attach files"
-          disabled={submitting}
-          onClick={() => {
-            filePickerOpenRef.current = true
-            fileInputRef.current?.click()
-          }}
-        >
-          <AttachIcon />
-        </Button>
-        {/* The `#` picker only opens at a TOKEN start, so a `#` typed right
-            after a word needs a leading space (shared helper, EXP-568). */}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="text-muted-foreground"
-          aria-label="Insert issue reference"
-          title="Insert issue reference"
-          disabled={submitting}
-          onClick={() =>
-            textareaRef.current?.insertText(
-              issueRefInsertionText(textareaRef.current.charBeforeCaret())
-            )
-          }
-        >
-          <IssueRefIcon />
-        </Button>
-        {/* EXP-551: the picker inserts at the textarea's caret; the popover
-            keeps focus off its trigger on close and insertText re-focuses. */}
-        <EmojiPickerPopover
-          side="top"
-          onPick={(unicode) => textareaRef.current?.insertText(unicode)}
-        >
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground"
-            aria-label="Insert emoji"
-            title="Insert emoji"
-            disabled={submitting}
-          >
-            <EmojiIcon />
-          </Button>
-        </EmojiPickerPopover>
-        <div className="ml-auto flex items-center gap-1">
-          {onCancel && (
-            <Button
-              type="button"
-              size="xs"
-              variant="ghost"
-              onClick={onCancel}
-              disabled={submitting}
-            >
-              Cancel
-            </Button>
-          )}
-          {/* `ui-submit` IS the circled arrow — a filled button around it
-              would draw a second ring. */}
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="shrink-0 rounded-full text-primary hover:text-primary disabled:opacity-40"
-            aria-label="Send comment"
-            disabled={submitting || !canSubmit}
-            onClick={() => void submit()}
-          >
-            <SubmitIcon className="!size-6" />
-          </Button>
-        </div>
-      </div>
-    </div>
+    </Composer>
   )
 }

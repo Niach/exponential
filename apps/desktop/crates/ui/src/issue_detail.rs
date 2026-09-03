@@ -39,7 +39,7 @@ use gpui::{
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant, ButtonVariants as _},
+    button::ButtonVariant,
     h_flex,
     input::{self, Input, InputEvent, InputState, Textarea, TextareaState},
     notification::Notification,
@@ -681,9 +681,7 @@ impl IssueDetailView {
                         .child("Duplicate of"),
                 )
                 .child(
-                    Button::new("duplicate-of-link")
-                        .outline()
-                        .web_xs()
+                    crate::surface::glass_pill_button("duplicate-of-link", crate::surface::PillSize::Sm, cx)
                         .label(SharedString::from(format!("#{}", canonical.identifier)))
                         .on_click(cx.listener(move |_, _, window, cx| {
                             navigate(
@@ -706,9 +704,7 @@ impl IssueDetailView {
                         .child(SharedString::from(canonical.title)),
                 )
                 .child(
-                    Button::new("duplicate-unmark")
-                        .ghost()
-                        .web_xs()
+                    crate::surface::glass_pill_button("duplicate-unmark", crate::surface::PillSize::Sm, cx)
                         .icon(Icon::new(registry::UI_UNDO).text_color(cx.theme().muted_foreground))
                         .label("Unmark")
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -920,10 +916,12 @@ impl IssueDetailView {
 
         let issue_id = issue.id.clone();
         // EXP-316: icon-only attach button (tooltip carries the wording).
-        let attach_button = Button::new("issue-files-attach")
-            .ghost()
-            .web_icon_xs()
-            .icon(Icon::from(ExpIcon::Paperclip).xsmall())
+        // EXP-698: the one 32px glass chrome every trailing action wears.
+        let attach_button = crate::controls::glass_icon_button(
+            "issue-files-attach",
+            Icon::from(ExpIcon::Paperclip),
+            cx,
+        )
             .tooltip("Attach file")
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.pick_files(issue_id.clone(), window, cx);
@@ -1149,11 +1147,12 @@ impl IssueDetailView {
             )
             .child({
                 let (id, label) = (id.clone(), label.clone());
-                Button::new(SharedString::from(format!("issue-file-open-{id}")))
-                    .ghost()
-                    .web_icon_xs()
+                crate::controls::glass_icon_button(
+                    SharedString::from(format!("issue-file-open-{id}")),
+                    Icon::from(ExpIcon::ExternalLink),
+                    cx,
+                )
                     .disabled(busy)
-                    .icon(Icon::from(ExpIcon::ExternalLink).xsmall())
                     .tooltip("Open")
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.open_file(id.clone(), label.clone(), window, cx);
@@ -1161,11 +1160,12 @@ impl IssueDetailView {
             })
             .child({
                 let (id, label) = (id.clone(), label.clone());
-                Button::new(SharedString::from(format!("issue-file-save-{id}")))
-                    .ghost()
-                    .web_icon_xs()
+                crate::controls::glass_icon_button(
+                    SharedString::from(format!("issue-file-save-{id}")),
+                    Icon::from(ExpIcon::Download),
+                    cx,
+                )
                     .disabled(busy)
-                    .icon(Icon::from(ExpIcon::Download).xsmall())
                     .tooltip("Save as…")
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.save_file_as(id.clone(), label.clone(), window, cx);
@@ -1173,15 +1173,12 @@ impl IssueDetailView {
             })
             .child({
                 let (id, label) = (id.clone(), label.clone());
-                Button::new(SharedString::from(format!("issue-file-delete-{id}")))
-                    .ghost()
-                    .web_icon_xs()
+                crate::controls::glass_icon_button(
+                    SharedString::from(format!("issue-file-delete-{id}")),
+                    Icon::from(ExpIcon::Trash2),
+                    cx,
+                )
                     .disabled(busy)
-                    .icon(
-                        Icon::from(ExpIcon::Trash2)
-                            .xsmall()
-                            .text_color(cx.theme().muted_foreground),
-                    )
                     .tooltip("Delete")
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.confirm_delete_file(id.clone(), label.clone(), window, cx);
@@ -1239,10 +1236,11 @@ impl IssueDetailView {
             )
             .when(failed, |row| {
                 row.child(
-                    Button::new(SharedString::from(format!("issue-file-dismiss-{key}")))
-                        .ghost()
-                        .web_icon_xs()
-                        .icon(Icon::new(registry::UI_CLOSE).xsmall())
+                    crate::controls::glass_icon_button(
+                        SharedString::from(format!("issue-file-dismiss-{key}")),
+                        Icon::new(registry::UI_CLOSE),
+                        cx,
+                    )
                         .tooltip("Dismiss")
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.pending_files.retain(|pending| pending.key != key);
@@ -2023,25 +2021,49 @@ pub(crate) fn issue_web_url(issue: &Issue, cx: &App) -> Option<String> {
     ))
 }
 
-/// The §4.2 steer presence pill: a "coding now" badge while a
-/// `coding_sessions` row is `running` for this issue (the Watch/viewer UI is
-/// §08 — another track wires it onto this pill). The parked states render the
-/// same pill with a different tone/verb (EXP-194/EXP-214): review GREEN
-/// "ready for review" (the in_review issue-status tint), done BLUE once the
-/// PR merges, needs-input YELLOW while the agent waits on a plan-approval /
-/// question picker.
+/// Is a coding session LIVE on this issue right now? The exact predicate
+/// [`coding_now_card`] picks its session with — the header gates the
+/// Start-coding pill on it (EXP-698 round 5: the card already says the run is
+/// going, so a second "Start coding" beside it is noise; web hides it the same
+/// way in `issue-coding-rows.tsx`).
+pub(crate) fn has_live_coding_session(issue_id: &str, cx: &App) -> bool {
+    let now = chrono::Utc::now().timestamp();
+    Store::global(cx)
+        .collections()
+        .coding_sessions
+        .read(cx)
+        .iter()
+        .any(|session| {
+            session.issue_id.as_deref() == Some(issue_id)
+                && crate::queries::coding_session_is_live(session, now)
+        })
+}
+
+/// The §4.2 steer presence CARD (EXP-698 — it was a lone pill until this
+/// sweep): while a `coding_sessions` row is live for this issue, the issue
+/// header grows a second [`crate::surface::glass_tray`] under the property
+/// one, carrying the run's state badge, who is running it where, and the
+/// actions on it. Same chrome as the property tray, so the header reads as
+/// two bands of one material rather than a card and a stray capsule.
+///
+/// Contents, in order: the state badge as a `Readonly` `Sm` pill tinted with
+/// the run's tone (EXP-194/EXP-214: review GREEN — the in_review status tint,
+/// done BLUE once the PR merges, needs-input YELLOW while the agent waits on
+/// a plan-approval / question picker, neutral grey while its host is offline);
+/// the ellipsizing "<Who> · <Machine>" caption; then the caller's own trailing
+/// actions (Merge PR — [`crate::issue_header::IssueHeader::merge_button`] —
+/// appended by `agent_row`, which owns the PR state).
 ///
 /// EXP-549/550: the machine name is RESOLVED against the synced `devices`
 /// rows (so a rename shows immediately, not the start-time hostname), and an
 /// in-flight session whose host went offline (lid closed) reads "paused" in
 /// neutral grey instead of claiming to be live.
 ///
-/// EXP-696: the pill is now the ENTRY POINT to steering — clicking one of the
-/// caller's own runs opens it in the bottom dock (a remote run as a steering
-/// view, a run this process hosts as its terminal tab). Look unchanged; only
-/// the cursor and the click are new, and a run that is neither (a teammate's,
-/// or a relay-less instance) stays inert.
-pub(crate) fn coding_now_pill(issue_id: &str, cx: &mut App) -> Option<impl IntoElement> {
+/// EXP-696/698: steering has its OWN control now — a primary Watch pill,
+/// rendered only for a run the caller may watch (their own, either hosted by
+/// this process or reachable over the relay). A teammate's run, or a
+/// relay-less instance, simply shows no Watch: the card stays informational.
+pub(crate) fn coding_now_card(issue_id: &str, cx: &mut App) -> Option<gpui::Div> {
     let collections = Store::global(cx).collections().clone();
     let now = chrono::Utc::now().timestamp();
     let session = collections
@@ -2085,75 +2107,85 @@ pub(crate) fn coding_now_pill(issue_id: &str, cx: &mut App) -> Option<impl IntoE
         .as_deref()
         .and_then(|id| collections.users.read(cx).get(id).cloned())
         .map(|user| comments::author_label(Some(&user)));
-    let label = match (who, presentation.label.as_deref()) {
-        (Some(who), Some(device)) => format!("{who} {verb} · {device}"),
-        (Some(who), None) => format!("{who} {verb}"),
-        (None, Some(device)) => {
-            let mut capitalized = capitalize_first(verb);
-            capitalized.push_str(&format!(" · {device}"));
-            capitalized
-        }
-        (None, None) => capitalize_first(verb),
+    // EXP-698: the verb became the BADGE, so the caption is the identity
+    // ("Danny Strähhuber · MacBook Pro") and nothing else.
+    let caption = match (who, presentation.label.as_deref()) {
+        (Some(who), Some(device)) => Some(format!("{who} · {device}")),
+        (Some(who), None) => Some(who),
+        (None, Some(device)) => Some(device.to_string()),
+        (None, None) => None,
     };
 
-    // EXP-309: the pill owns a full-width row (EXP-417 gives it its own line
-    // in the header's agent row) and its label ellipsizes. A content-sized
-    // `flex_shrink_0` pill overflowed as soon as the label carried a name AND a
-    // device ("Danny Strähhuber needs input · MacBook Pro"). Truncation needs
-    // the whole width chain definite: `w_full` + `min_w_0` on the row, then
-    // `flex_1 min_w_0 overflow_hidden` on the text div itself.
-    // EXP-696: steerable when the run is the caller's own — a LOCAL one
-    // focuses its terminal tab, a remote one needs the relay (no relay, no
-    // viewer, so no click).
+    // EXP-696/698: steerable when the run is the caller's OWN. A LOCAL run —
+    // one this very process hosts — focuses its terminal tab; anything else
+    // of the caller's goes through the relay, INCLUDING a run stamped with
+    // this device id that this process does not host (an earlier IDE process,
+    // a second window). That is why the gate does not compare device ids:
+    // web's rule is `ownLatest && steerEnabled` (issue-coding-rows.tsx) and a
+    // device-id mismatch was hiding the pill on exactly the runs a restart
+    // orphaned. No relay, no viewer, so no Watch.
     let steer_target = {
         let me = crate::queries::active_account(cx).map(|account| account.user_id);
-        let own_device_id = crate::queries::own_device_id(cx);
         let local = crate::coding_flow::LocalSessions::global_ref(cx)
             .is_some_and(|sessions| sessions.read(cx).session_by_id(&session.id).is_some());
-        let remote = session
-            .device_id
-            .as_deref()
-            .is_some_and(|device_id| device_id != own_device_id)
-            && crate::queries::remote_start_enabled(cx);
-        (session.user_id.is_some() && session.user_id == me && (local || remote))
-            .then(|| session.id.clone())
+        (session.user_id.is_some()
+            && session.user_id == me
+            && (local || crate::queries::remote_start_enabled(cx)))
+        .then(|| session.id.clone())
     };
 
+    let tone = tone.to_hsla();
+    let badge = crate::surface::glass_pill(
+        "coding-now-state",
+        crate::surface::PillSize::Sm,
+        crate::surface::PillMode::Readonly,
+        cx,
+    )
+    // The tone is the STATE's, so it rides the badge's own stroke and text
+    // instead of the glass defaults — the rest of the tray stays neutral.
+    .border_color(tone.opacity(0.4))
+    .text_color(tone)
+    .child(crate::surface::pill_dot(tone))
+    .child(SharedString::from(capitalize_first(verb)));
+
+    let watch = steer_target.map(|session_id| {
+        crate::surface::glass_pill_button_primary("coding-now-watch", crate::surface::PillSize::Sm)
+            .icon(
+                // NAV_DEVICES (monitor), not UI_WATCH (eye — file preview
+                // elsewhere): the monitor IS the Watch concept on web, iOS
+                // and Android, and the glyph has to be the same on all four.
+                Icon::new(registry::NAV_DEVICES)
+                    .with_size(px(crate::surface::PillSize::Sm.glyph()))
+                    .text_color(cx.theme().primary_foreground),
+            )
+            .label("Watch")
+            .tooltip("Open this run in the bottom dock and steer it")
+            .on_click(move |_, window, cx| {
+                crate::terminal_dock::open_steer_session(&session_id, window, cx);
+            })
+    });
+
+    // EXP-309/698: the caption ellipsizes rather than pushing the actions off
+    // the tray — "Danny Strähhuber · MacBook Pro" overflows a narrow column
+    // otherwise. Truncation needs the whole width chain definite: `w_full` +
+    // `min_w_0` on the tray, then `flex_1 min_w_0 overflow_hidden` on the text.
     Some(
-        h_flex()
-            .id("coding-now-pill")
+        crate::surface::glass_tray()
             .w_full()
             .min_w_0()
-            .gap_1p5()
-            .px_2()
-            .py_0p5()
-            .rounded_full()
-            .border_1()
-            .border_color(tone.to_hsla().opacity(0.4))
-            .items_center()
-            .text_xs()
-            .when_some(steer_target, |pill, session_id| {
-                pill.cursor_pointer()
-                    .on_click(move |_, window, cx| {
-                        crate::terminal_dock::open_steer_session(&session_id, window, cx);
-                    })
-            })
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .size_1p5()
-                    .rounded_full()
-                    .bg(tone.to_hsla()),
-            )
+            .child(badge)
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
                     .whitespace_nowrap()
                     .overflow_hidden()
                     .text_ellipsis()
-                    .child(SharedString::from(label)),
-            ),
+                    .children(caption.map(SharedString::from)),
+            )
+            .children(watch),
     )
 }
 

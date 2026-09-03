@@ -14,7 +14,7 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import { BoardGlyph } from "@/components/board-glyph"
 import {
@@ -26,6 +26,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  GlassRow,
+  GlassSectionHeader,
+} from "@/components/ui/glass-rows"
 
 // Cross-board review queue: every issue in the team with an open PR,
 // grouped by board, with a one-click (confirmed) squash-merge that goes
@@ -236,18 +240,12 @@ function ReviewsPage() {
           <>
             {groups.map((group) => (
               <div key={group.board.id} className="mb-6">
-                {/* Plain-text section header (EXP-616) — GlassSectionHeader's
-                    recipe, inlined because the label area carries the board
-                    glyph as well as its name. */}
-                <div className="flex items-center gap-1.5 px-1 pt-1 pb-2">
-                  <BoardGlyph board={group.board} className="size-3.5" />
-                  <span className="text-sm font-medium text-foreground/70">
-                    {group.board.name}
-                  </span>
-                  <span className="text-xs text-foreground/50">
-                    {group.entries.length}
-                  </span>
-                </div>
+                <GlassSectionHeader
+                  leading={
+                    <BoardGlyph board={group.board} className="size-3.5" />
+                  }
+                  label={group.board.name}
+                />
 
                 <div className="flex flex-col gap-2">
                   {group.entries.map((entry) => {
@@ -265,9 +263,10 @@ function ReviewsPage() {
                       mergeError?.conflict && issue.branch && steerEnabled
                     )
                     return (
-                      <div
+                      <GlassRow
                         key={entry.key}
-                        className="group/row grid cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center rounded-md border border-glass-stroke bg-glass-row p-3 transition-colors duration-fast hover:bg-glass-active/50"
+                        interactive
+                        className="group/row grid grid-cols-[1.5rem_4.5rem_1fr_auto] gap-0"
                         onClick={() => openReview(issue.identifier)}
                         data-testid={`review-row-${issue.identifier}`}
                       >
@@ -277,7 +276,10 @@ function ReviewsPage() {
                             ? `#${issue.prNumber}`
                             : issue.identifier}
                         </span>
-                        <div className="min-w-0 pr-2">
+                        {/* EXP-698: pr-3 IS the gap to the trailing Merge
+                            control — on a phone the two used to sit 8px
+                            apart, which read as one blob. */}
+                        <div className="min-w-0 pr-3">
                           <div className="truncate text-sm">
                             {isBatch ? (
                               <>
@@ -300,11 +302,14 @@ function ReviewsPage() {
                         </div>
                         {/* EXP-706: the recovery run takes the Merge button's
                             OWN slot on a real conflict — one trailing action
-                            per row, never two. */}
+                            per row, never two.
+                            EXP-698: the row's Merge and the review detail's
+                            header Merge are ONE control at ONE weight —
+                            `Pill size="md" mode="action"`. */}
                         {canFixConflicts ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
+                          <Pill
+                            size="md"
+                            mode="action"
                             onClick={(e) => {
                               e.stopPropagation()
                               setFixTarget(entry)
@@ -312,11 +317,11 @@ function ReviewsPage() {
                           >
                             <GitBranch className="h-3.5 w-3.5" />
                             Fix conflicts
-                          </Button>
+                          </Pill>
                         ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
+                          <Pill
+                            size="md"
+                            mode="action"
                             disabled={merging}
                             onClick={(e) => {
                               e.stopPropagation()
@@ -334,7 +339,7 @@ function ReviewsPage() {
                                 Merge
                               </>
                             )}
-                          </Button>
+                          </Pill>
                         )}
                         {/* The refusal captions its own row (EXP-323) —
                             spanning the grid so the full GitHub message stays
@@ -349,23 +354,21 @@ function ReviewsPage() {
                               {mergeError.message}
                             </span>
                             {canFixConflicts && (
-                              <Button
-                                size="xs"
-                                variant="ghost"
-                                className="text-muted-foreground"
+                              <Pill
+                                mode="action"
                                 disabled={merging}
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   setMergeTarget(entry)
                                 }}
                               >
-                                <GitMerge className="h-3.5 w-3.5" />
+                                <GitMerge className="size-3" />
                                 Retry merge
-                              </Button>
+                              </Pill>
                             )}
                           </div>
                         )}
-                      </div>
+                      </GlassRow>
                     )
                   })}
                 </div>
@@ -374,24 +377,25 @@ function ReviewsPage() {
 
             {externalGroups.map((group) => (
               <div key={group.repositoryId} className="mb-6">
-                <div className="flex items-center gap-1.5 px-1 pt-1 pb-2">
-                  <GitPullRequest className="h-2.5 w-2.5 shrink-0 text-foreground/50" />
-                  <span className="text-sm font-medium text-foreground/70">
-                    {group.fullName}
-                  </span>
-                  <span className="text-xs text-foreground/50">
-                    not linked to an issue · {group.pulls.length}
-                  </span>
-                </div>
+                <GlassSectionHeader
+                  leading={
+                    <GitPullRequest className="h-2.5 w-2.5 shrink-0 text-foreground/50" />
+                  }
+                  label={group.fullName}
+                  trailing={
+                    <span className="text-xs text-foreground/50">not linked to an issue</span>
+                  }
+                />
 
                 <div className="flex flex-col gap-2">
                   {group.pulls.map((pull) => {
                     const key = externalPullKey(group.repositoryId, pull.number)
                     const merging = mergingIds.has(key)
                     return (
-                      <div
+                      <GlassRow
                         key={pull.number}
-                        className="group/row grid cursor-pointer grid-cols-[1.5rem_4.5rem_1fr_auto] items-center rounded-md border border-glass-stroke bg-glass-row p-3 transition-colors duration-fast hover:bg-glass-active/50"
+                        interactive
+                        className="group/row grid grid-cols-[1.5rem_4.5rem_1fr_auto] gap-0"
                         onClick={() =>
                           window.open(pull.url, `_blank`, `noopener,noreferrer`)
                         }
@@ -401,14 +405,12 @@ function ReviewsPage() {
                         <span className="truncate font-mono text-xs text-muted-foreground">
                           #{pull.number}
                         </span>
-                        <div className="min-w-0 pr-2">
+                        <div className="min-w-0 pr-3">
                           <div className="flex min-w-0 items-center gap-2">
                             <span className="min-w-0 truncate text-sm">
                               {pull.title}
                             </span>
-                            {pull.draft && (
-                              <Badge variant="secondary">Draft</Badge>
-                            )}
+                            {pull.draft && <Pill>Draft</Pill>}
                           </div>
                           {pull.branch && (
                             <div className="truncate font-mono text-xs text-muted-foreground">
@@ -416,9 +418,9 @@ function ReviewsPage() {
                             </div>
                           )}
                         </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
+                        <Pill
+                          size="md"
+                          mode="action"
                           disabled={merging || pull.draft}
                           onClick={(e) => {
                             e.stopPropagation()
@@ -440,8 +442,8 @@ function ReviewsPage() {
                               Merge
                             </>
                           )}
-                        </Button>
-                      </div>
+                        </Pill>
+                      </GlassRow>
                     )
                   })}
                 </div>

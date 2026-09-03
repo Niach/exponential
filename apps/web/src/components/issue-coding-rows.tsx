@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { Link } from "@tanstack/react-router"
 import {
@@ -7,7 +13,6 @@ import {
   GitMerge,
   GitPullRequest,
   LoaderCircle,
-  MonitorPlay,
   MonitorUp,
 } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
@@ -23,7 +28,7 @@ import {
 import { trpc } from "@/lib/trpc-client"
 import { displayUserName } from "@/lib/user-display"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -45,6 +50,9 @@ import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
 const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 // The phone bar's start button — the same glyph the Actions surfaces run with.
 const ActionRunIcon = conceptIcon(`action-run`)
+// EXP-698 r4: the Watch pill draws the concept the natives draw on their own
+// Watch pill, never a raw lucide glyph.
+const WatchIcon = conceptIcon(`nav-devices`)
 
 // EXP-568: the floating mobile bar's 52px circles (issue-detail-mobile-bar.tsx
 // owns the bar itself; the coding circle's gating lives here).
@@ -53,15 +61,16 @@ const FAB_CIRCLE_CLASS = `pointer-events-auto flex size-[52px] shrink-0 items-ce
 // EXP-616: the coding / PR rows are glass CARDS now, not full-bleed
 // `border-t` divider rows. Both exported pieces mount as independent siblings
 // of the issue-detail main column (issue-detail-view.tsx owns no wrapper), so
-// each one carries its own stack + gutter — the same `px-5 py-2` gutter
-// issue-files-section.tsx uses, so the cards line up down the column.
+// each one carries its own stack + gutter. EXP-698 r4 aligns that gutter with
+// the properties band's (`max-w-3xl px-4 pt-3`) — the coding card sits
+// directly under the band on both viewports, so the two must share an edge.
 function CodingRowStack({ children }: { children: ReactNode }) {
-  return <div className="flex flex-col gap-2 px-5 py-2">{children}</div>
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-4 pt-3 pb-2">
+      {children}
+    </div>
+  )
 }
-
-// The PR row is a <Link>, so it can't reuse the <GlassRow> div — same recipe,
-// interactive arm included.
-const PR_ROW_CLASS = `flex min-w-0 items-center gap-2 rounded-md border border-glass-stroke bg-glass-row p-3 text-sm transition-colors duration-fast hover:bg-glass-active/50`
 
 // The coding affordances of the issue detail (EXP-106): a compact "coding now"
 // / remote-start control that FOCUSES the global dock (never mounts the live
@@ -75,31 +84,18 @@ const PR_ROW_CLASS = `flex min-w-0 items-center gap-2 rounded-md border border-g
 // detail hangs off its properties card, which the 'row' variant therefore no
 // longer draws.
 
-/** PR-state pill — open emerald / merged purple / closed rose / draft secondary. */
+/** PR-state pill — open emerald / merged purple / closed rose / draft plain. */
 export function PrStateBadge({ state }: { state: string | null | undefined }) {
   if (!state) return null
-  if (state === `draft`) {
-    return (
-      <Badge variant="secondary" className="h-5 px-1.5 text-[0.625rem]">
-        Draft
-      </Badge>
-    )
-  }
+  if (state === `draft`) return <Pill>Draft</Pill>
   const styles: Record<string, string> = {
-    open: `border-emerald-500/40 text-emerald-400`,
-    merged: `border-purple-500/40 text-purple-400`,
-    closed: `border-rose-500/40 text-rose-400`,
+    open: `text-emerald-400`,
+    merged: `text-purple-400`,
+    closed: `text-rose-400`,
   }
   const cls = styles[state]
   if (!cls) return null
-  return (
-    <Badge
-      variant="outline"
-      className={cn(`h-5 px-1.5 text-[0.625rem] capitalize`, cls)}
-    >
-      {state}
-    </Badge>
-  )
+  return <Pill className={cn(`capitalize`, cls)}>{state}</Pill>
 }
 
 function RunningPing() {
@@ -128,25 +124,42 @@ function StateDot({ className }: { className: string }) {
   return <span className={cn(`inline-flex size-2 rounded-full`, className)} />
 }
 
+// EXP-698 r5: the coding-now badge is the readonly `sm` pill on every client —
+// a tone dot, the tone as the text colour, and the tone at 40% as the stroke
+// (IDE `.border_color(tone.opacity(0.4))`, iOS/Android `GlassPill(tint:)`).
+// The tones are the Tailwind palette vars so the inline mix and the dot draw
+// the SAME colour the class-based rows draw.
 const SESSION_STATE_BADGE: Record<
   Exclude<SessionDisplayState, `running`>,
-  { label: string; badge: string; dot: string }
+  { label: string; tone: string }
 > = {
-  needs_input: {
-    label: `Needs input`,
-    badge: `border-amber-500/40 text-amber-400`,
-    dot: `bg-amber-500`,
-  },
-  review: {
-    label: `Ready for review`,
-    badge: `border-emerald-500/40 text-emerald-400`,
-    dot: `bg-emerald-500`,
-  },
-  done: {
-    label: `Done`,
-    badge: `border-sky-500/40 text-sky-400`,
-    dot: `bg-sky-500`,
-  },
+  needs_input: { label: `Needs input`, tone: `var(--color-amber-400)` },
+  review: { label: `Ready for review`, tone: `var(--color-emerald-400)` },
+  done: { label: `Done`, tone: `var(--color-sky-400)` },
+}
+
+const RUNNING_TONE = `var(--color-emerald-400)`
+const PAUSED_TONE = `var(--muted-foreground)`
+
+/** The phone bar's badge dot — the pulsing ping while a run is live, the
+ * badge's own tone once it parks, so the circle and the pill never disagree
+ * about a state's colour (iOS `sessionDot`, Android's mirror). */
+function SessionStateDot({ state }: { state: SessionDisplayState }) {
+  if (state === `running`) return <RunningPing />
+  return (
+    <span
+      className="inline-flex size-2 rounded-full"
+      style={{ backgroundColor: SESSION_STATE_BADGE[state].tone }}
+    />
+  )
+}
+
+/** Text in the tone, stroke in the tone at 40% — the readonly pill's tint. */
+function toneStyle(tone: string): CSSProperties {
+  return {
+    color: tone,
+    borderColor: `color-mix(in srgb, ${tone} 40%, transparent)`,
+  }
 }
 
 /** Live-session badge — "Coding now" / "Needs input" / "Ready for review" /
@@ -167,35 +180,32 @@ export function SessionStatusBadge({
   const state = sessionDisplayState(session, prState)
   if (paused) {
     return (
-      <Badge
-        variant="outline"
-        className="gap-1.5 border-border text-muted-foreground"
+      <Pill
+        size="sm"
+        style={toneStyle(PAUSED_TONE)}
+        dot={`color-mix(in srgb, ${PAUSED_TONE} 40%, transparent)`}
       >
-        <StateDot className="bg-muted-foreground/40" />
         Paused
         {count > 1 ? ` (·${count})` : ``}
-      </Badge>
+      </Pill>
     )
   }
   if (state === `running`) {
+    // The pulsing ping IS the dot while a run is live — it rides the `leading`
+    // slot so the ripple has room the 6px disc would clip.
     return (
-      <Badge
-        variant="outline"
-        className="gap-1.5 border-emerald-500/40 text-emerald-400"
-      >
-        <RunningPing />
+      <Pill size="sm" style={toneStyle(RUNNING_TONE)} leading={<RunningPing />}>
         Coding now
         {count > 1 ? ` (·${count})` : ``}
-      </Badge>
+      </Pill>
     )
   }
   const style = SESSION_STATE_BADGE[state]
   return (
-    <Badge variant="outline" className={cn(`gap-1.5`, style.badge)}>
-      <StateDot className={style.dot} />
+    <Pill size="sm" style={toneStyle(style.tone)} dot={style.tone}>
       {style.label}
       {count > 1 ? ` (·${count})` : ``}
-    </Badge>
+    </Pill>
   )
 }
 
@@ -237,16 +247,15 @@ function IssueMergeButton({ issue }: { issue: Issue }) {
 
   return (
     <>
-      <Button
-        variant="outline"
+      <Pill
         size="sm"
-        className="shrink-0"
+        mode="action"
         onClick={() => setConfirmOpen(true)}
         disabled={merging}
       >
         {merging ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
         {merging ? `Merging…` : `Merge PR`}
-      </Button>
+      </Pill>
       <Dialog
         open={confirmOpen}
         onOpenChange={(next) => {
@@ -426,20 +435,31 @@ function AgentRow({
     // EXP-568 phone bar: one 52px circle, no words. Own live session → tap to
     // open the dock; someone else's → a static badge circle that says "busy,
     // not yours" (EXP-312 keeps live sessions owner-only).
+    // EXP-698 r7: the circle NAMES what it opens — the Devices/monitor glyph —
+    // and the state dot rides its top-trailing corner as a badge, clear of the
+    // glyph's own bounds (iOS/Android `sessionGlyph`). A bare dot in a glass
+    // circle said nothing about where the tap went.
     if (variant === `fab`) {
+      const dot = paused ? (
+        <StateDot className="bg-muted-foreground/40" />
+      ) : (
+        <SessionStateDot state={sessionDisplayState(latest, issue.prState)} />
+      )
+      const glyph = (
+        <span className="relative flex">
+          <WatchIcon className="size-5" />
+          <span className="absolute -right-1.5 -top-1">{dot}</span>
+        </span>
+      )
       if (ownLatest && steerEnabled) {
         return (
           <button
             type="button"
             aria-label="Open coding session"
             onClick={() => dock?.openDock(ownLatest.id)}
-            className={cn(FAB_CIRCLE_CLASS, `text-emerald-400`)}
+            className={cn(FAB_CIRCLE_CLASS, `text-foreground`)}
           >
-            {paused ? (
-              <StateDot className="bg-muted-foreground/40" />
-            ) : (
-              <RunningPing />
-            )}
+            {glyph}
           </button>
         )
       }
@@ -448,11 +468,7 @@ function AgentRow({
           aria-label="Coding session running"
           className={cn(FAB_CIRCLE_CLASS, `text-muted-foreground`)}
         >
-          {paused ? (
-            <StateDot className="bg-muted-foreground/40" />
-          ) : (
-            <RunningPing />
-          )}
+          {glyph}
         </div>
       )
     }
@@ -467,7 +483,7 @@ function AgentRow({
     )
     const ownerLabel = (
       <span
-        className="truncate text-xs text-muted-foreground"
+        className="min-w-0 truncate text-xs text-muted-foreground"
         title={paused ? `${latestDevice.label ?? `The device`} is offline` : undefined}
       >
         {displayUserName(owner, latest.userId)}
@@ -476,31 +492,35 @@ function AgentRow({
       </span>
     )
 
+    // EXP-698 r4: the "coding now" card wears the properties band's chrome —
+    // same gutter, same 12px glass group — because it sits right underneath it.
     return (
       <CodingRowStack>
-        <GlassRow className="min-w-0 flex-wrap gap-2">
+        <div className="flex items-center gap-2 rounded-xl border border-glass-stroke-card bg-popover/40 px-3 py-2">
           {codingBadge}
           {ownerLabel}
-          {ownLatest && steerEnabled ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="ml-auto shrink-0"
-              onClick={() => dock?.openDock(ownLatest.id)}
-            >
-              <MonitorPlay />
-              Watch
-            </Button>
-          ) : ownLatest && steerEnabled === false ? (
-            <span className="ml-auto text-xs text-muted-foreground">
-              Live steering is unavailable on this instance.
-            </span>
-          ) : null}
-          {/* EXP-568: the sidebar is gone, so its Merge button lives here. */}
-          {isMember && issue.prState === `open` && (
-            <IssueMergeButton issue={issue} />
-          )}
-        </GlassRow>
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {ownLatest && steerEnabled ? (
+              <Pill
+                size="sm"
+                mode="action"
+                primary
+                onClick={() => dock?.openDock(ownLatest.id)}
+              >
+                <WatchIcon />
+                Watch
+              </Pill>
+            ) : ownLatest && steerEnabled === false ? (
+              <span className="text-xs text-muted-foreground">
+                Live steering is unavailable on this instance.
+              </span>
+            ) : null}
+            {/* EXP-568: the sidebar is gone, so its Merge button lives here. */}
+            {isMember && issue.prState === `open` && (
+              <IssueMergeButton issue={issue} />
+            )}
+          </div>
+        </div>
       </CodingRowStack>
     )
   }
@@ -627,15 +647,15 @@ function RemoteStartRow({
             Start sent to {remote.sentTo}. Waiting for the desktop…
           </span>
         )}
-        <Button
-          variant="glass"
-          size="xs"
+        <Pill
+          mode="action"
+          primary
           onClick={() => setDialogOpen(true)}
           disabled={busy}
         >
           {busy ? <LoaderCircle className="animate-spin" /> : <MonitorUp />}
           Start coding
-        </Button>
+        </Pill>
         {dialog}
       </div>
     )
@@ -698,21 +718,22 @@ function PrRow({
   if (hasPr) {
     return (
       <CodingRowStack>
-        <Link
-          to="/t/$teamSlug/reviews/$issueIdentifier"
-          params={{ teamSlug, issueIdentifier: issue.identifier }}
-          className={PR_ROW_CLASS}
-        >
-          <GitPullRequest className="size-4 shrink-0 text-muted-foreground" />
-          <PrStateBadge state={issue.prState} />
-          <span className="shrink-0 font-mono">PR #{issue.prNumber}</span>
-          {issue.branch && (
-            <span className="hidden truncate font-mono text-xs text-muted-foreground md:inline">
-              {issue.branch}
-            </span>
-          )}
-          <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
-        </Link>
+        <GlassRow asChild interactive className="min-w-0 gap-2 text-sm">
+          <Link
+            to="/t/$teamSlug/reviews/$issueIdentifier"
+            params={{ teamSlug, issueIdentifier: issue.identifier }}
+          >
+            <GitPullRequest className="size-4 shrink-0 text-muted-foreground" />
+            <PrStateBadge state={issue.prState} />
+            <span className="shrink-0 font-mono">PR #{issue.prNumber}</span>
+            {issue.branch && (
+              <span className="hidden truncate font-mono text-xs text-muted-foreground md:inline">
+                {issue.branch}
+              </span>
+            )}
+            <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
+          </Link>
+        </GlassRow>
       </CodingRowStack>
     )
   }
@@ -720,18 +741,19 @@ function PrRow({
   if (canProbe && branchFileCount != null && branchFileCount > 0) {
     return (
       <CodingRowStack>
-        <Link
-          to="/t/$teamSlug/reviews/$issueIdentifier"
-          params={{ teamSlug, issueIdentifier: issue.identifier }}
-          className={PR_ROW_CLASS}
-        >
-          <GitBranch className="size-4 shrink-0 text-muted-foreground" />
-          <span className="truncate">
-            Branch <span className="font-mono">exp/{issue.identifier}</span>
-            {` · no PR yet`}
-          </span>
-          <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
-        </Link>
+        <GlassRow asChild interactive className="min-w-0 gap-2 text-sm">
+          <Link
+            to="/t/$teamSlug/reviews/$issueIdentifier"
+            params={{ teamSlug, issueIdentifier: issue.identifier }}
+          >
+            <GitBranch className="size-4 shrink-0 text-muted-foreground" />
+            <span className="truncate">
+              Branch <span className="font-mono">exp/{issue.identifier}</span>
+              {` · no PR yet`}
+            </span>
+            <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
+          </Link>
+        </GlassRow>
       </CodingRowStack>
     )
   }

@@ -21,7 +21,7 @@ use std::time::Duration;
 use gpui::{
     div, prelude::FluentBuilder as _, px, relative, App, AppContext as _, ClickEvent, Entity,
     FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
-    Styled, Subscription, Window,
+    StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -30,7 +30,7 @@ use gpui_component::{
     menu::{DropdownMenu as _, PopupMenuItem},
     scroll::ScrollableElement as _,
     skeleton::Skeleton,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Selectable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 
 use crate::controls::WebControl as _;
@@ -38,7 +38,8 @@ use sync::Store;
 
 use crate::actions::OpenIssue;
 use crate::comments;
-use crate::icons::ExpIcon;
+use crate::icons::{registry, ExpIcon};
+use crate::surface::{PillMode, PillSize};
 use crate::navigation::{active_team_id, nav_for_window, resolved_screen, Navigation, Screen};
 use crate::queries;
 
@@ -118,8 +119,7 @@ impl SupportThreadView {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
         let composer = cx.new(|cx| {
-            TextareaState::new(window, cx)
-                .auto_grow(1, 8)
+            crate::controls::web_textarea(1, 8, window, cx)
                 .placeholder(reply_placeholder("the reporter"))
         });
         let mut subscriptions = Vec::new();
@@ -675,15 +675,11 @@ impl Render for SupportThreadView {
             });
 
         // ---- details rail (web `ThreadDetails`, EXP-525 brings it back) ----
-        let section_heading = |label: &'static str| {
-            div()
-                .text_xs()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(muted)
-                .mb_1p5()
-                .child(label)
-        };
-        let mut reporter_section = v_flex().child(section_heading("REPORTER")).child(
+        // EXP-698: the shared glass section header, sentence case — the rail's
+        // headings used to be a bespoke uppercase caption.
+        let mut reporter_section = v_flex()
+            .child(crate::surface::glass_section_header("Reporter", None, cx))
+            .child(
             div()
                 .text_sm()
                 .font_weight(FontWeight::MEDIUM)
@@ -718,7 +714,8 @@ impl Render for SupportThreadView {
         }
 
         let context_section = self.submission.as_ref().and_then(|submission| {
-            let mut section = v_flex().child(section_heading("CONTEXT"));
+            let mut section = v_flex()
+                .child(crate::surface::glass_section_header("Context", None, cx));
             let mut any = false;
             if let Some(url) = submission.page_url.clone().filter(|url| !url.is_empty()) {
                 any = true;
@@ -764,11 +761,9 @@ impl Render for SupportThreadView {
                 };
                 let issue_id = issue.id.clone();
                 v_flex()
-                    .child(section_heading("LINKED ISSUE"))
+                    .child(crate::surface::glass_section_header("Linked issue", None, cx))
                     .child(
-                        Button::new("support-linked-issue")
-                            .outline().cursor_pointer()
-                            .web_xs()
+                        crate::surface::glass_pill_button("support-linked-issue", crate::surface::PillSize::Sm, cx)
                             .icon(Icon::from(ExpIcon::CircleDot))
                             .label(SharedString::from(label.trim().to_string()))
                             .on_click(move |_: &ClickEvent, window, cx| {
@@ -793,54 +788,64 @@ impl Render for SupportThreadView {
                 let view = cx.entity().clone();
                 let menu_boards = boards.clone();
                 let picked_id = picked.as_ref().map(|(id, _)| id.clone());
+                // NO `gap_2` on the section (EXP-697): the header's own `pb_2`
+                // IS the gap to the body, so the rows carry the gap instead.
                 v_flex()
-                    .gap_2()
-                    .child(section_heading("ESCALATE"))
+                    .child(crate::surface::glass_section_header("Escalate", None, cx))
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(muted)
-                            .child("Create an issue from this ticket on one of the team's boards."),
-                    )
-                    .child(
-                        Button::new("support-escalate-board")
-                            .outline().cursor_pointer()
-                            .web_input_sm()
-                            .w_full()
-                            .cursor_pointer()
-                            .label(dropdown_label)
-                            .disabled(boards.is_empty())
-                            .dropdown_menu(move |mut menu, _window, _cx| {
-                                for (id, name) in &menu_boards {
-                                    let view = view.clone();
-                                    let choice = (id.clone(), name.clone());
-                                    let checked = picked_id.as_deref() == Some(id.as_str());
-                                    menu = menu.item(
-                                        PopupMenuItem::new(SharedString::from(name.clone()))
-                                            .checked(checked)
-                                            .on_click(move |_, _, cx| {
-                                                let choice = choice.clone();
-                                                view.update(cx, |this, cx| {
-                                                    this.escalate_board = Some(choice);
-                                                    cx.notify();
-                                                });
-                                            }),
-                                    );
-                                }
-                                menu
-                            }),
-                    )
-                    .child(
-                        Button::new("support-escalate")
-                            .primary().cursor_pointer()
-                            .web_sm()
-                            .w_full()
-                            .label("Create issue")
-                            .loading(self.escalating)
-                            .disabled(self.escalating || picked.is_none())
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.escalate(cx);
-                            })),
+                        v_flex()
+                            .gap_2()
+                            .child(
+                                div().text_xs().text_color(muted).child(
+                                    "Create an issue from this ticket on one of the team's boards.",
+                                ),
+                            )
+                            .child(
+                                // EXP-698: the board picker is the glass pill,
+                                // never a filled/outline field — "Create
+                                // issue" below it is the ONE primary of this
+                                // section, and two solid boxes stacked read
+                                // as two equal calls to action.
+                                crate::surface::glass_pill_button(
+                                    "support-escalate-board",
+                                    crate::surface::PillSize::Md,
+                                    cx,
+                                )
+                                    .w_full()
+                                    .label(dropdown_label)
+                                    .disabled(boards.is_empty())
+                                    .dropdown_menu(move |mut menu, _window, _cx| {
+                                        for (id, name) in &menu_boards {
+                                            let view = view.clone();
+                                            let choice = (id.clone(), name.clone());
+                                            let checked = picked_id.as_deref() == Some(id.as_str());
+                                            menu = menu.item(
+                                                PopupMenuItem::new(SharedString::from(name.clone()))
+                                                    .checked(checked)
+                                                    .on_click(move |_, _, cx| {
+                                                        let choice = choice.clone();
+                                                        view.update(cx, |this, cx| {
+                                                            this.escalate_board = Some(choice);
+                                                            cx.notify();
+                                                        });
+                                                    }),
+                                            );
+                                        }
+                                        menu
+                                    }),
+                            )
+                            .child(
+                                Button::new("support-escalate")
+                                    .primary().cursor_pointer()
+                                    .web_sm()
+                                    .w_full()
+                                    .label("Create issue")
+                                    .loading(self.escalating)
+                                    .disabled(self.escalating || picked.is_none())
+                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                        this.escalate(cx);
+                                    })),
+                            ),
                     )
                     .into_any_element()
             }
@@ -971,61 +976,84 @@ impl Render for SupportThreadView {
         let has_draft = !self.composer.read(cx).value().trim().is_empty();
         // EXP-277: the composer keeps ONE faint separator (the note-mode tint
         // needs an edge) — the glass row stroke, not the chrome border.
-        let composer = v_flex()
+        let composer = div()
             .w_full()
             .flex_shrink_0()
             .px_4()
             .py_3()
-            .gap_2()
             .border_t_1()
             .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            // EXP-277/EXP-698: the note tint layers UNDER the composer card.
+            // On the card itself it would REPLACE `FILL_CARD` (a `bg` is one
+            // value, not a stack) and the compose surface would stop being
+            // glass the moment you switched to Internal note.
             .when(self.note_mode, |this| this.bg(warning.opacity(0.06)))
             .child(
-                h_flex()
-                    .gap_1()
-                    .items_center()
-                    .child(
-                        // Web mode pills: icon + label, `h-6 rounded-full`.
-                        Button::new("support-mode-reply")
-                            .ghost().cursor_pointer()
-                            .web_xs()
-                            .icon(Icon::from(ExpIcon::Mail).size_3())
-                            .label("Reply")
-                            .selected(!self.note_mode)
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                this.set_note_mode(false, window, cx);
-                            })),
+                crate::composer::glass_composer(
+                    crate::composer::GlassComposer::new(
+                        v_flex()
+                            .w_full()
+                            .min_w_0()
+                            .child(Textarea::new(&self.composer).w_full().appearance(false))
+                            .into_any_element(),
                     )
-                    .child(
-                        Button::new("support-mode-note")
-                            .ghost().cursor_pointer()
-                            .web_xs()
-                            .icon(Icon::from(ExpIcon::FileText).size_3())
-                            .label("Internal note")
-                            .selected(self.note_mode)
-                            .when(self.note_mode, |button| button.text_color(warning))
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                this.set_note_mode(true, window, cx);
-                            })),
+                    // EXP-698: the two modes are Select pills INSIDE the card,
+                    // not a strip above it — the note tint then colours the
+                    // whole compose surface instead of a floating row.
+                    .leading(
+                        h_flex()
+                            .gap_1()
+                            .items_center()
+                            .child(
+                                crate::surface::glass_pill(
+                                    "support-mode-reply",
+                                    PillSize::Sm,
+                                    PillMode::Select {
+                                        selected: !self.note_mode,
+                                    },
+                                    cx,
+                                )
+                                .child(Icon::from(ExpIcon::Mail).size_3())
+                                .child("Reply")
+                                .on_click(cx.listener(
+                                    |this, _: &ClickEvent, window, cx| {
+                                        this.set_note_mode(false, window, cx);
+                                    },
+                                )),
+                            )
+                            .child(
+                                crate::surface::glass_pill(
+                                    "support-mode-note",
+                                    PillSize::Sm,
+                                    PillMode::Select {
+                                        selected: self.note_mode,
+                                    },
+                                    cx,
+                                )
+                                .when(self.note_mode, |pill| pill.text_color(warning))
+                                .child(Icon::from(ExpIcon::FileText).size_3())
+                                .child("Internal note")
+                                .on_click(cx.listener(
+                                    |this, _: &ClickEvent, window, cx| {
+                                        this.set_note_mode(true, window, cx);
+                                    },
+                                )),
+                            )
+                            .into_any_element(),
+                    )
+                    .submit(
+                        crate::composer::composer_submit(
+                            "support-send",
+                            registry::UI_SEND,
+                            self.sending || !has_draft,
+                            cx,
+                        )
+                        .loading(self.sending)
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                            this.submit(window, cx);
+                        })),
                     ),
-            )
-            .child(
-                h_flex()
-                    .w_full()
-                    .gap_2()
-                    .items_end()
-                    .child(v_flex().flex_1().min_w_0().child(Textarea::new(&self.composer).w_full()))
-                    .child(
-                        Button::new("support-send")
-                            .primary().cursor_pointer()
-                            .web_icon_sm()
-                            .icon(Icon::from(ExpIcon::Send))
-                            .loading(self.sending)
-                            .disabled(self.sending || !has_draft)
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                this.submit(window, cx);
-                            })),
-                    ),
+                ),
             );
 
         // EXP-525: conversation column + the details rail (web 3-pane's

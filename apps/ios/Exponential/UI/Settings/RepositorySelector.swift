@@ -395,9 +395,9 @@ private struct BranchPickerSheet: View {
 
                 if let errorText {
                     Text(errorText).font(.caption).foregroundStyle(.red.opacity(0.8))
-                    GlassPillButton("Retry", icon: AppIcons.uiRefresh) {
+                    GlassPill("Retry", icon: AppIcons.uiRefresh, mode: .action {
                         Task { await load() }
-                    }
+                    })
                 }
 
                 if branches != nil {

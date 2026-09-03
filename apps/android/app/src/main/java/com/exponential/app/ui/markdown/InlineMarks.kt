@@ -1,5 +1,6 @@
 package com.exponential.app.ui.markdown
 
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -22,13 +23,17 @@ object InlineMarks {
 
     const val LINK_TAG = "link"
 
-    fun annotate(text: String, marks: List<InlineMark>): AnnotatedString {
+    fun annotate(
+        text: String,
+        marks: List<InlineMark>,
+        inlineCode: MdStyle.InlineCodeStyle = MdStyle.Default,
+    ): AnnotatedString {
         if (text.isEmpty()) return AnnotatedString("")
         if (marks.isEmpty()) return AnnotatedString(text)
 
         return buildAnnotatedString {
             append(text)
-            addStyles(this, text.length, marks)
+            addStyles(this, text.length, marks, inlineCode)
         }
     }
 
@@ -37,7 +42,13 @@ object InlineMarks {
      * is already appended — lets the editor's visual transformation stack line
      * styles, mark styles and chip styles in one build (EXP-534).
      */
-    fun addStyles(builder: AnnotatedString.Builder, textLength: Int, marks: List<InlineMark>) {
+    fun addStyles(
+        builder: AnnotatedString.Builder,
+        textLength: Int,
+        marks: List<InlineMark>,
+        /** EXP-698: the chat feeds tint `code`; documents keep the flat wash. */
+        inlineCode: MdStyle.InlineCodeStyle = MdStyle.Default,
+    ) {
         for (m in marks) {
             val start = m.start.coerceIn(0, textLength)
             val end = m.end.coerceIn(start, textLength)
@@ -48,7 +59,11 @@ object InlineMarks {
                 InlineKind.Strikethrough ->
                     builder.addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), start, end)
                 InlineKind.InlineCode -> builder.addStyle(
-                    SpanStyle(fontFamily = FontFamily.Monospace, background = MdStyle.InlineCodeBg),
+                    SpanStyle(
+                        fontFamily = FontFamily.Monospace,
+                        color = inlineCode.inlineCodeColor ?: Color.Unspecified,
+                        background = inlineCode.inlineCodeBg,
+                    ),
                     start, end,
                 )
                 InlineKind.Link -> {
@@ -60,8 +75,13 @@ object InlineMarks {
     }
 
     /** Convenience for an [AnnotatedString] over a whole line with no extra base style. */
-    fun withStyleOf(base: SpanStyle, text: String, marks: List<InlineMark>): AnnotatedString =
+    fun withStyleOf(
+        base: SpanStyle,
+        text: String,
+        marks: List<InlineMark>,
+        inlineCode: MdStyle.InlineCodeStyle = MdStyle.Default,
+    ): AnnotatedString =
         buildAnnotatedString {
-            withStyle(base) { append(annotate(text, marks)) }
+            withStyle(base) { append(annotate(text, marks, inlineCode)) }
         }
 }

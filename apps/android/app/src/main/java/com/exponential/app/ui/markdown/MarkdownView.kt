@@ -171,6 +171,7 @@ private fun QuoteBlockView(
 ) {
     val mentions = LocalMentions.current
     val autolink = LocalMarkdownAutolink.current
+    val inlineCode = LocalInlineCodeStyle.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -188,7 +189,7 @@ private fun QuoteBlockView(
             texts.forEachIndexed { index, text ->
                 key(index) {
                     ChipText(
-                        line = annotateLine(text, marks[index], issueRefs, mentions, autolink),
+                        line = annotateLine(text, marks[index], issueRefs, mentions, autolink, inlineCode),
                         style = MdStyle.body.copy(color = MdStyle.Blockquote),
                         modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
                     )
@@ -221,9 +222,10 @@ private fun LineView(
 ) {
     val mentions = LocalMentions.current
     val autolink = LocalMarkdownAutolink.current
+    val inlineCode = LocalInlineCodeStyle.current
     when (a.kind) {
         BlockKind.Heading -> ChipText(
-            line = annotateLine(text, marks, issueRefs, mentions, autolink),
+            line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode),
             style = MdStyle.heading(a.headingLevel),
             modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         )
@@ -245,7 +247,7 @@ private fun LineView(
                 Spacer(Modifier.padding(vertical = 2.dp))
             } else {
                 ChipText(
-                    line = annotateLine(text, marks, issueRefs, mentions, autolink),
+                    line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode),
                     style = MdStyle.body,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 )
@@ -263,6 +265,7 @@ private fun ListItemView(
 ) {
     val mentions = LocalMentions.current
     val autolink = LocalMarkdownAutolink.current
+    val inlineCode = LocalInlineCodeStyle.current
     val indent = MdStyle.listIndentBase + MdStyle.listIndentPerDepth * a.listDepth
     Row(
         modifier = Modifier
@@ -288,7 +291,7 @@ private fun ListItemView(
             )
         }
         ChipText(
-            line = annotateLine(text, marks, issueRefs, mentions, autolink),
+            line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode),
             style = MdStyle.body,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -323,6 +326,15 @@ private fun ChipText(line: AnnotatedLine, style: TextStyle, modifier: Modifier =
 val LocalMarkdownAutolink = compositionLocalOf { false }
 
 /**
+ * The inline-`code` chrome this subtree renders with (EXP-698). Default is
+ * [MdStyle.Default] — the flat white wash every DOCUMENT surface (issue
+ * descriptions, comments, the editor) has always drawn. The agent steering
+ * feed provides [MdStyle.Chat] so a `--flag` or a `Foo.kt` in a wall of
+ * narration reads as code, exactly like web and the desktop tint theirs.
+ */
+val LocalInlineCodeStyle = compositionLocalOf { MdStyle.Default }
+
+/**
  * One rendered line: its styled text plus the chip geometry the painter needs
  * (EXP-423 — a rounded fill, a hairline and a status glyph are not expressible
  * as spans).
@@ -339,7 +351,8 @@ internal fun annotate(
     issueRefs: IssueRefHandler?,
     mentions: MentionResolver? = null,
     autolink: Boolean = false,
-): AnnotatedString = annotateLine(text, marks, issueRefs, mentions, autolink).text
+    inlineCode: MdStyle.InlineCodeStyle = MdStyle.Default,
+): AnnotatedString = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode).text
 
 internal fun annotateLine(
     text: String,
@@ -347,6 +360,8 @@ internal fun annotateLine(
     issueRefs: IssueRefHandler?,
     mentions: MentionResolver? = null,
     autolink: Boolean = false,
+    /** EXP-698: chat feeds tint inline `code`; documents keep the flat wash. */
+    inlineCode: MdStyle.InlineCodeStyle = MdStyle.Default,
 ): AnnotatedLine {
     if (text.isEmpty()) return AnnotatedLine(AnnotatedString(""))
     val refPills = if (issueRefs != null) resolvedRefPills(text, marks, issueRefs) else emptyList()
@@ -396,7 +411,11 @@ internal fun annotateLine(
                 InlineKind.Strikethrough ->
                     addStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), start, end)
                 InlineKind.InlineCode -> addStyle(
-                    SpanStyle(fontFamily = FontFamily.Monospace, background = MdStyle.InlineCodeBg),
+                    SpanStyle(
+                        fontFamily = FontFamily.Monospace,
+                        color = inlineCode.inlineCodeColor ?: Color.Unspecified,
+                        background = inlineCode.inlineCodeBg,
+                    ),
                     start, end,
                 )
                 InlineKind.Link -> {

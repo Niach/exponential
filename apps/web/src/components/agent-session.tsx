@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import {
   Fragment,
   memo,
@@ -12,10 +13,11 @@ import { toast } from "sonner"
 import { linkSegments } from "@/lib/linkify"
 import { ArrowDown, Check, ChevronDown, ChevronRight, X } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
-import type { CodingSession, Issue } from "@/db/schema"
+import type { CodingSession, Issue, User } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import { SessionMergeButton } from "@/components/session-merge-button"
 import { useSessionDevice } from "@/hooks/use-session-device"
+import { useTeamUsers } from "@/hooks/use-team-data"
 import { useNow } from "@/hooks/use-now"
 import { useSessionAgentUsage } from "@/hooks/use-session-agent-usage"
 import { useKillSession } from "@/hooks/use-kill-session"
@@ -50,13 +52,25 @@ import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
 import { uploadSessionImageFile } from "@/lib/storage/issue-image-upload"
 import {
   buildSteerImageMessage,
+  insertImageMarker,
   MAX_STEER_IMAGES,
+  parseSteerMessage,
+  renumberImageMarkers,
 } from "@/lib/steer-image-message"
 import { splitUnifiedDiff } from "@/lib/unified-diff"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+import {
+  Composer,
+  ComposerSubmit,
+  ComposerTool,
+} from "@/components/composer"
+import {
+  MentionTextarea,
+  type MentionTextareaHandle,
+} from "@/components/mention-textarea"
 import {
   Collapsible,
   CollapsibleContent,
@@ -75,6 +89,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { FileDiffList } from "@/components/diff-view"
+import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 
 // EXP-317: the session glyphs the native clients also draw resolve through
 // the shared registry (packages/icons/icons.json).
@@ -83,6 +98,7 @@ const CodingPlanIcon = conceptIcon(`coding-plan`)
 const CodingStopIcon = conceptIcon(`coding-stop`)
 const CodingSubagentIcon = conceptIcon(`coding-subagent`)
 const CodingToolIcon = conceptIcon(`coding-tool`)
+const EditorImageIcon = conceptIcon(`editor-image`)
 const UiAddIcon = conceptIcon(`ui-add`)
 const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 const UiFullscreenIcon = conceptIcon(`ui-fullscreen`)
@@ -203,6 +219,9 @@ export function AgentSessionView({
   // phase, answers) and dials only when nothing is connected yet, so
   // reopening a session renders instantly with no reconnect phase.
   const store = useMemo(() => acquireSteerSession(session.id), [session.id])
+  // EXP-698: the steer composer is the mention field, so it needs the run's
+  // team roster for `@` autocomplete.
+  const { users: teamUsers } = useTeamUsers(session.teamId)
   const { phase, feed, latestDiff, answerStates, connected } =
     useSyncExternalStore(store.subscribe, store.getSnapshot)
   useEffect(() => store.connect(), [store])
@@ -612,7 +631,7 @@ export function AgentSessionView({
           {/* EXP-356: conversation tabs — Main plus one per RUNNING subagent
               (ended tabs are dropped, EXP-387). */}
           {visibleTabs.length > 0 && (
-            <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/60 px-2 py-1">
+            <div className="flex shrink-0 items-center gap-1 overflow-x-auto px-2 py-1">
               <AgentTab
                 label="Main"
                 active={activeAgent === null}
@@ -637,7 +656,10 @@ export function AgentSessionView({
               // EXP-619: the feed rides its own bottom edge, so without
               // containment every downward wheel tick over the terminal
               // scrolled the page behind the dock instead.
-              className="h-full overflow-y-auto overscroll-contain"
+              // `agent-feed`: the hook the inline-code tint keys on
+              // (EXP-698, styles.css) — chat-sized markdown alone is not it,
+              // comment bodies render that way too.
+              className="agent-feed h-full overflow-y-auto overscroll-contain"
             >
               {feed.length === 0 && paused ? (
                 <CenteredState>
@@ -836,6 +858,7 @@ export function AgentSessionView({
                 live={live && connected}
                 onSend={sendMessage}
                 sessionId={session.id}
+                users={teamUsers}
                 placeholder={
                   planPending ? `Tell Claude what to change…` : undefined
                 }
@@ -1074,14 +1097,86 @@ function ShowMoreButton({
   )
 }
 
+/** Splits the prose around its `[Image #N]` markers (EXP-698) and draws each
+ *  one as a chip that opens that image. A message carrying markers came from
+ *  the composer as chat prose, so the inline linkified rendering is the right
+ *  one — markdown blocks could not flow around an inline chip anyway. */
+function MarkerText({
+  text,
+  count,
+  onOpen,
+}: {
+  text: string
+  /** How many images the message actually carries. A marker outside
+   *  `1..count` — hand-typed, or left behind by an edit — is prose, not a
+   *  chip: chipping it would promise a preview there is no image for. */
+  count: number
+  onOpen: (index: number) => void
+}) {
+  // A capture group keeps the delimiters, and a literal keeps `lastIndex`
+  // out of it (the exported pattern is global).
+  const parts = text.split(/(\[Image #\d+\])/)
+  return (
+    <div className="whitespace-pre-wrap break-words">
+      {parts.map((part, i) => {
+        const marker = /^\[Image #(\d+)\]$/.exec(part)
+        if (marker && Number(marker[1]) >= 1 && Number(marker[1]) <= count) {
+          const index = Number(marker[1])
+          return (
+            <button
+              key={i}
+              type="button"
+              className="align-middle"
+              onClick={() => onOpen(index)}
+            >
+              <Pill size="sm" mode="readonly" leading={<EditorImageIcon />}>
+                {`Image ${index}`}
+              </Pill>
+            </button>
+          )
+        }
+        return linkSegments(part).map((segment, j) =>
+          segment.href ? (
+            <a
+              key={`${i}-${j}`}
+              href={segment.href}
+              target="_blank"
+              rel="noreferrer"
+              className="break-all text-primary underline underline-offset-2 hover:opacity-80"
+            >
+              {segment.text}
+            </a>
+          ) : (
+            <Fragment key={`${i}-${j}`}>{segment.text}</Fragment>
+          ),
+        )
+      })}
+    </div>
+  )
+}
+
 /** A human turn (EXP-78): the initial prompt or a steered message — rendered
- *  right-aligned like the sender's own chat bubble, long text folded. */
+ *  right-aligned like the sender's own chat bubble, long text folded. A
+ *  steered message with images (EXP-511) splits into its prose — whose
+ *  `[Image #N]` markers become chips — and the embeds themselves, which stay
+ *  below it. */
 const UserMessageBubble = memo(function UserMessageBubble({
   text,
 }: {
   text: string
 }) {
-  const { expanded, setExpanded, clampable } = useClampToggle(text)
+  const { text: body, attachmentIds, markers } = parseSteerMessage(text)
+  const hasImages = attachmentIds.length > 0
+  // Clamp the PROSE, never the wire message: four embed lines are four more
+  // "lines" of nothing, and they used to push a two-line steer into the fold
+  // — which then hid the images the fold was measuring.
+  const { expanded, setExpanded, clampable } = useClampToggle(
+    hasImages ? body : text
+  )
+  const [preview, setPreview] = useState<number | null>(null)
+  const openMarker = (index: number) => {
+    if (index >= 1 && index <= attachmentIds.length) setPreview(index - 1)
+  }
   return (
     <div className="flex justify-end py-1 pl-8">
       {/* EXP-696: the natives' neutral glass bubble, not a primary tint —
@@ -1093,7 +1188,20 @@ const UserMessageBubble = memo(function UserMessageBubble({
         <div
           className={cn(clampable && !expanded && `max-h-40 overflow-hidden`)}
         >
-          <FeedText text={text} ariaLabel="Your message" hardBreaks />
+          {!hasImages ? (
+            <FeedText text={text} ariaLabel="Your message" hardBreaks />
+          ) : (
+            body &&
+            (markers.length > 0 ? (
+              <MarkerText
+                text={body}
+                count={attachmentIds.length}
+                onOpen={openMarker}
+              />
+            ) : (
+              <FeedText text={body} ariaLabel="Your message" hardBreaks />
+            ))
+          )}
         </div>
         {clampable && (
           <ShowMoreButton
@@ -1101,7 +1209,37 @@ const UserMessageBubble = memo(function UserMessageBubble({
             onToggle={() => setExpanded((v) => !v)}
           />
         )}
+        {/* OUTSIDE the fold: the images are the point of the message, and a
+            long prose clamp must never be what hides them. */}
+        {hasImages && (
+          <div className={cn(`flex flex-col gap-2`, body && `mt-2`)}>
+            {attachmentIds.map((id, i) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setPreview(i)}
+                className="block"
+              >
+                <img
+                  src={`/api/attachments/${id}`}
+                  alt={`Image ${i + 1}`}
+                  className="max-h-64 w-auto max-w-full rounded-md border border-glass-stroke-card"
+                />
+              </button>
+            ))}
+          </div>
+        )}
       </div>
+      {preview !== null && attachmentIds[preview] && (
+        <ImagePreviewDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setPreview(null)
+          }}
+          src={`/api/attachments/${attachmentIds[preview]}`}
+          label={`Image ${preview + 1}`}
+        />
+      )}
     </div>
   )
 })
@@ -1269,7 +1407,7 @@ function QuestionPrompt({
             value={freeTextValue}
             maxLength={4000}
             placeholder="Type your answer…"
-            className="h-7 flex-1 text-xs"
+            className="h-6 flex-1 text-xs"
             onChange={(e) => setFreeTextValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === `Enter`) {
@@ -1281,27 +1419,26 @@ function QuestionPrompt({
               }
             }}
           />
-          <Button
-            variant="secondary"
+          <Pill
             size="sm"
-            className="h-7 text-xs"
+            mode="action"
             disabled={freeTextValue.trim().length === 0}
             onClick={submitFreeText}
           >
             Answer
-          </Button>
+          </Pill>
         </div>
       )}
       {answerable && item.multiSelect && (
-        <Button
-          variant="secondary"
+        <Pill
           size="sm"
-          className="mt-2 h-7 text-xs"
+          mode="action"
+          className="mt-2"
           disabled={picked.length === 0}
           onClick={submitPicked}
         >
           Answer
-        </Button>
+        </Pill>
       )}
       {answerState?.status === `error` && (
         <div className="mt-1.5 text-[0.6875rem] text-amber-400">
@@ -1346,6 +1483,55 @@ function AnsweredLine({
   )
 }
 
+/** The chrome BOTH ask cards wear (EXP-698): a NEUTRAL glass card. The accent
+ *  — primary for a plan, amber for a question — lives on the glyph and the
+ *  label only; a tinted border or fill made the feed read as an alert stack.
+ *  The two cards below stay separate components (a single-question card and a
+ *  multi-step stepper have almost no body in common) but cannot drift apart on
+ *  chrome. */
+function AskCard({
+  plan,
+  label,
+  meta,
+  children,
+}: {
+  plan?: boolean
+  label?: ReactNode
+  /** A trailing note beside the label — the stepper's "k of n". */
+  meta?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div className="my-1 rounded-xl border border-glass-stroke-card bg-glass-card p-3">
+      <div className="flex items-start gap-2">
+        {plan ? (
+          <CodingPlanIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
+        ) : (
+          <UiHelpIcon className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
+        )}
+        <div className="min-w-0 flex-1">
+          {(label !== undefined || meta !== undefined) && (
+            <div className="mb-1 flex items-center gap-2">
+              {label !== undefined && (
+                <span
+                  className={cn(
+                    `truncate text-xs font-medium`,
+                    plan ? `text-primary` : `text-amber-400`
+                  )}
+                >
+                  {label}
+                </span>
+              )}
+              {meta}
+            </div>
+          )}
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /** A standalone question (EXP-78): a plan approval, or an AskUserQuestion from
  *  a desktop that publishes no ask grouping. `planMode` cards (EXP-97) get a
  *  "Plan ready" presentation with the first option as the primary approve
@@ -1368,39 +1554,15 @@ function QuestionCard({
   const { expanded, setExpanded, clampable } = useClampToggle(item.text)
   const plan = item.planMode
   return (
-    <div
-      className={cn(
-        `my-1 rounded-md border px-3 py-2`,
-        plan
-          ? `border-primary/40 bg-primary/5`
-          : `border-amber-500/40 bg-amber-500/5`
-      )}
-    >
-      <div className="flex items-start gap-2">
-        {plan ? (
-          <CodingPlanIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
-        ) : (
-          <UiHelpIcon className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
-        )}
-        <div className="min-w-0 flex-1">
-          {plan ? (
-            <div className="mb-1 text-xs font-medium text-primary">
-              Plan ready
-            </div>
-          ) : (
-            item.header && (
-              <div className="mb-1 text-xs font-medium text-amber-400">
-                {item.header}
-              </div>
-            )
-          )}
+    <AskCard plan={plan} label={plan ? `Plan ready` : item.header}>
+      <>
           {plan ? (
             // The plan is GFM markdown — always rendered as markdown; a long
             // plan folds behind a height clamp instead of dropping to raw text.
             <div
               className={cn(
                 `text-sm`,
-                clampable && !expanded && `max-h-56 overflow-hidden`
+                clampable && !expanded && `max-h-40 overflow-hidden`
               )}
             >
               <MarkdownEditor
@@ -1414,7 +1576,7 @@ function QuestionCard({
             <div
               className={cn(
                 `text-sm text-foreground/90`,
-                clampable && !expanded && `max-h-56 overflow-hidden`
+                clampable && !expanded && `max-h-40 overflow-hidden`
               )}
             >
               <FeedText text={item.text} ariaLabel="Question" />
@@ -1434,9 +1596,8 @@ function QuestionCard({
             onAnswer={onAnswer}
             variant={plan ? `plan` : `default`}
           />
-        </div>
-      </div>
-    </div>
+      </>
+    </AskCard>
   )
 }
 
@@ -1467,22 +1628,19 @@ function AskStepperCard({
   const submitStep = current !== null && current.item.index === undefined
 
   return (
-    <div className="my-1 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2">
-      <div className="flex items-start gap-2">
-        <UiHelpIcon className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
-        <div className="min-w-0 flex-1">
-          <div className="mb-1 flex items-center gap-2">
-            <span className="truncate text-xs font-medium text-amber-400">
-              {header ?? (submitStep ? `Review answers` : `Question`)}
-            </span>
-            {view.total > 1 && (
-              <span className="shrink-0 text-[0.6875rem] text-muted-foreground">
-                {current && !submitStep
-                  ? `${view.position} of ${view.total}`
-                  : `${view.total} questions`}
-              </span>
-            )}
-          </div>
+    <AskCard
+      label={header ?? (submitStep ? `Review answers` : `Question`)}
+      meta={
+        view.total > 1 ? (
+          <span className="shrink-0 text-[0.6875rem] text-muted-foreground">
+            {current && !submitStep
+              ? `${view.position} of ${view.total}`
+              : `${view.total} questions`}
+          </span>
+        ) : undefined
+      }
+    >
+      <>
           {answered.map((step) => (
             <AnsweredStepRow
               key={step.item.id}
@@ -1516,9 +1674,8 @@ function AskStepperCard({
               </div>
             )
           )}
-        </div>
-      </div>
-    </div>
+      </>
+    </AskCard>
   )
 }
 
@@ -1662,15 +1819,19 @@ function AgentTab({
   onClick: () => void
 }) {
   return (
-    <Button
-      variant={active ? `secondary` : `ghost`}
+    <Pill
       size="sm"
-      className="h-6 shrink-0 gap-1.5 px-2 text-xs"
+      mode="select"
+      selected={active}
+      leading={
+        running ? (
+          <UiLoadingIcon className="size-3 shrink-0 animate-spin" />
+        ) : undefined
+      }
       onClick={onClick}
     >
       {label}
-      {running && <UiLoadingIcon className="size-3 shrink-0 animate-spin" />}
-    </Button>
+    </Pill>
   )
 }
 
@@ -1792,6 +1953,7 @@ function MessageComposer({
   onSend,
   sessionId,
   placeholder,
+  users,
 }: {
   store: SteerSessionStore
   /** Sending is possible — the composer itself stays mounted regardless
@@ -1805,6 +1967,9 @@ function MessageComposer({
   /** Context-aware hint (e.g. the plan-approval "Tell Claude what to
    *  change…"); the default stays the generic prompt. */
   placeholder?: string
+  /** EXP-698: the run's team, for the field's `@` autocomplete — `#` issue
+   *  refs and `:` emoji work without it. */
+  users: User[]
 }) {
   // EXP-621: the draft lives in the per-session store, so it survives
   // reconnects, dock collapse/reopen and navigation. Blob URLs are the
@@ -1815,6 +1980,7 @@ function MessageComposer({
   )
   const [sending, setSending] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const fieldRef = useRef<MentionTextareaHandle>(null)
   // A file chooser steals focus without moving it anywhere in the document
   // AND can stall the tab long enough for the relay to evict the viewer —
   // latched on the click that opens one, released when it resolves either
@@ -1830,13 +1996,36 @@ function MessageComposer({
   }, [])
 
   const addFiles = (files: File[]) => {
-    const { rejected, overflow } = store.addDraftImages(files)
+    // EXP-698: an attached image also drops its POSITIONAL reference at the
+    // caret, so "crop [Image #2]" names one of several embeds. The strip
+    // length before the add IS the numbering base.
+    const base = pending.length
+    const { rejected, overflow, added } = store.addDraftImages(files)
+    if (added > 0) {
+      let next = text
+      let caret = fieldRef.current?.caret() ?? text.length
+      for (let i = 0; i < added; i++) {
+        const inserted = insertImageMarker(next, caret, base + i + 1)
+        next = inserted.text
+        caret = inserted.caret
+      }
+      store.setDraftText(next)
+      fieldRef.current?.setCaret(caret)
+    }
     if (rejected > 0) {
       toast.error(`Only images up to 10 MB can be attached`)
     }
     if (overflow > 0) {
       toast.error(`Up to ${MAX_STEER_IMAGES} images per message`)
     }
+  }
+
+  /** Dropping a pending image takes its markers with it and slides the
+   *  higher ones down, so the numbers keep matching the strip. */
+  const removeImage = (url: string) => {
+    const index = pending.findIndex((image) => image.url === url)
+    if (index >= 0) store.setDraftText(renumberImageMarkers(text, index + 1))
+    store.removeDraftImage(url)
   }
 
   const send = async () => {
@@ -1874,12 +2063,73 @@ function MessageComposer({
     }
   }
 
-  // EXP-696: ONE rounded card laid out as a COLUMN — the pending strip, a
-  // borderless full-width field, then the `[+]`·spacer·send row (the natives'
-  // composerCard). Behavior and wire format are unchanged.
+  // EXP-696/EXP-698: ONE rounded card laid out as a COLUMN — the pending
+  // strip, a borderless full-width field, then the `[+]`·spacer·send row (the
+  // natives' composerCard), now the shared `Composer`. Behavior and wire
+  // format are unchanged.
   return (
-    <div
-      className="rounded-2xl border border-border bg-muted/40"
+    <Composer
+      strip={
+        pending.length > 0 && (
+          <div className="flex flex-wrap gap-2 px-3 pt-3">
+            {pending.map((image) => (
+              <div key={image.url} className="relative">
+                <img
+                  src={image.url}
+                  alt=""
+                  className="size-16 rounded-md border border-glass-stroke-card object-cover"
+                />
+                <button
+                  type="button"
+                  aria-label="Remove image"
+                  disabled={sending}
+                  onClick={() => removeImage(image.url)}
+                  className="absolute -right-1.5 -top-1.5 rounded-full border border-glass-stroke-card bg-popover p-0.5 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )
+      }
+      tools={
+        <>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={acceptedImageContentTypes.join(`,`)}
+            className="hidden"
+            onChange={(e) => {
+              filePickerOpenRef.current = false
+              if (e.target.files) addFiles(Array.from(e.target.files))
+              e.target.value = ``
+            }}
+          />
+          <ComposerTool
+            aria-label="Attach image"
+            title="Attach image"
+            disabled={sending}
+            onClick={() => {
+              filePickerOpenRef.current = true
+              fileInputRef.current?.click()
+            }}
+          >
+            <UiAddIcon />
+          </ComposerTool>
+        </>
+      }
+      submit={
+        <ComposerSubmit
+          aria-label="Send"
+          title="Send"
+          disabled={sending || !live || (!text.trim() && pending.length === 0)}
+          onClick={() => void send()}
+        >
+          <UiSendIcon className="!size-6" />
+        </ComposerSubmit>
+      }
       onDrop={(event) => {
         if (event.dataTransfer.files.length === 0) return
         event.preventDefault()
@@ -1889,31 +2139,13 @@ function MessageComposer({
         if (event.dataTransfer.types.includes(`Files`)) event.preventDefault()
       }}
     >
-      {pending.length > 0 && (
-        <div className="flex flex-wrap gap-2 px-3 pt-3">
-          {pending.map((image) => (
-            <div key={image.url} className="relative">
-              <img
-                src={image.url}
-                alt=""
-                className="size-16 rounded-md border border-border/60 object-cover"
-              />
-              <button
-                type="button"
-                aria-label="Remove image"
-                disabled={sending}
-                onClick={() => store.removeDraftImage(image.url)}
-                className="absolute -right-1.5 -top-1.5 rounded-full border border-border bg-background p-0.5 text-muted-foreground hover:text-foreground"
-              >
-                <X className="size-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      <Textarea
+      {/* EXP-698: the steer field is the mention field — `@` members, `#`
+          issue refs and `:` emoji all work while steering. */}
+      <MentionTextarea
+        ref={fieldRef}
         value={text}
-        onChange={(e) => store.setDraftText(e.target.value)}
+        onValueChange={(next) => store.setDraftText(next)}
+        users={users}
         onKeyDown={(e) => {
           if (e.key === `Enter` && !e.shiftKey) {
             e.preventDefault()
@@ -1928,52 +2160,12 @@ function MessageComposer({
         placeholder={placeholder ?? `Message the agent…`}
         rows={1}
         className={cn(
-          `max-h-32 min-h-9 w-full resize-none border-none px-3 pb-1 pt-3 shadow-none focus-visible:ring-0`,
-          // The composer sits on the session's own surface, so it drops the
-          // stock Textarea's glass fill (EXP-616).
+          `max-h-32 min-h-9 w-full border-none px-3 pb-1 pt-3 shadow-none focus-visible:border-transparent`,
+          // The card IS the field chrome, so the field drops the stock
+          // Textarea's glass fill (EXP-616).
           `bg-transparent`
         )}
       />
-      <div className="flex items-center gap-1 px-2 pb-2">
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept={acceptedImageContentTypes.join(`,`)}
-          className="hidden"
-          onChange={(e) => {
-            filePickerOpenRef.current = false
-            if (e.target.files) addFiles(Array.from(e.target.files))
-            e.target.value = ``
-          }}
-        />
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0 text-muted-foreground"
-          aria-label="Attach image"
-          title="Attach image"
-          disabled={sending}
-          onClick={() => {
-            filePickerOpenRef.current = true
-            fileInputRef.current?.click()
-          }}
-        >
-          <UiAddIcon />
-        </Button>
-        <div className="flex-1" />
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0 text-foreground"
-          aria-label="Send"
-          title="Send"
-          disabled={sending || !live || (!text.trim() && pending.length === 0)}
-          onClick={() => void send()}
-        >
-          <UiSendIcon />
-        </Button>
-      </div>
-    </div>
+    </Composer>
   )
 }

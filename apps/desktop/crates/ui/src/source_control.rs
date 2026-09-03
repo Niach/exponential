@@ -1556,9 +1556,7 @@ impl HistoryList {
             .items_center()
             .child(gutter)
             .child(
-                Button::new("hist-more")
-                    .ghost()
-                    .web_xs()
+                crate::surface::glass_pill_button("hist-more", crate::surface::PillSize::Sm, cx)
                     .label(if self.history_loading {
                         "Loading…"
                     } else {

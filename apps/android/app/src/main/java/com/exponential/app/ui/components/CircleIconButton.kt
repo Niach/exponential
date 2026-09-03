@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,9 +34,23 @@ import com.exponential.app.ui.theme.TextEmphasis
  * [tint] overrides the secondary-emphasis glyph color (the red kill switch);
  * [enabled] dims the glyph to quaternary and drops the tap.
  *
- * EXP-694: [size]/[glyphSize] make the circle scalable — 38/20 is the nav-bar
- * default, 28/15 the in-list size (iOS `CircleIconButton(28, 15)` parity: the
- * worktrees prune sweep, the session-row action buttons).
+ * EXP-698: ONE rung everywhere — [GlassTokens.ControlSize] (32dp) circle,
+ * 17dp glyph — nav bars, list rows and sheet headers alike, and the card
+ * fill/stroke rung a control sits on, so it reads as a button against the rows
+ * around it. 17 is iOS's `AppIcon.Size.medium`, the glyph its nav circles draw;
+ * web and desktop put a 16 glyph in the same circle. No call site overrides
+ * [size]; a handful of slim list rows still drop [glyphSize] to 16. [active] is the
+ * pressed/on look (`glassButton(active = true)`'s twin) — no call site takes
+ * it today; it is kept so a toggling circle need not re-type the recipe.
+ *
+ * The 32dp circle is the VISUAL, not the target: the inner box takes
+ * [minimumInteractiveComponentSize] so the tap area is the platform's 48dp
+ * minimum, while the outer box keeps reporting [size] — the extra 8dp on each
+ * edge OVERFLOWS into the row's own padding instead of padding the row taller
+ * (M3's `IconButton` grows its parent, which is exactly what made the comment
+ * header three times the height of its text in EXP-398). A caller that has
+ * waived the minimum via `LocalMinimumInteractiveComponentSize` gets no
+ * enforcement, which is the modifier's own contract.
  */
 @Composable
 fun CircleIconButton(
@@ -45,27 +60,38 @@ fun CircleIconButton(
     modifier: Modifier = Modifier,
     tint: Color? = null,
     enabled: Boolean = true,
-    size: Dp = 38.dp,
-    glyphSize: Dp = 20.dp,
+    active: Boolean = false,
+    size: Dp = GlassTokens.ControlSize,
+    glyphSize: Dp = 17.dp,
 ) {
     val glyph = tint ?: MaterialTheme.colorScheme.onSurface.copy(
         alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
     )
     Box(
-        modifier = modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(GlassTokens.RowFill, CircleShape)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeRow, CircleShape)
-            .clickable(enabled = enabled, onClick = onClick),
+        modifier = modifier.size(size),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            icon,
-            contentDescription = contentDescription,
-            modifier = Modifier.size(glyphSize),
-            tint = glyph,
-        )
+        Box(
+            modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .size(size)
+                .clip(CircleShape)
+                .background(if (active) GlassTokens.RowFillActive else GlassTokens.CardFill, CircleShape)
+                .border(
+                    GlassTokens.Hairline,
+                    if (active) GlassTokens.StrokeActive else GlassTokens.StrokeCard,
+                    CircleShape,
+                )
+                .clickable(enabled = enabled, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = contentDescription,
+                modifier = Modifier.size(glyphSize),
+                tint = glyph,
+            )
+        }
     }
 }
 

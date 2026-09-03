@@ -673,6 +673,17 @@ class IssueListViewModel @Inject constructor(
     }
 
     /**
+     * Bulk delete from the selection bar (EXP-698 r5). Confirmed on screen
+     * first — the server has no undo and the rows vanish from every client at
+     * once.
+     */
+    fun bulkDelete(issueIds: Collection<String>) {
+        runBulk(issueIds, "Failed to delete issues") { accountId, ids ->
+            issuesApi.bulkDelete(accountId, ids)
+        }
+    }
+
+    /**
      * Shared driver for the selection-bar writes: chunks the selection at the
      * server's 200-id input cap (same BULK_CHUNK_SIZE as the web bar) and runs
      * the chunks sequentially, surfacing the first failure. Electric replays

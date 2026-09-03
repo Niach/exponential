@@ -20,10 +20,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.getCommentBodyText
 import com.exponential.app.data.db.AttachmentEntity
@@ -44,6 +48,7 @@ import com.exponential.app.ui.components.CommentAttachmentsStrip
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.PendingAttachmentStrip
+import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.emoji.EmojiPickerSheet
 import com.exponential.app.ui.icons.ExpIcons
@@ -129,19 +134,18 @@ internal fun RegularCommentRow(
                     .width(1.dp)
                     .background(if (lineAbove) TimelineRail else Color.Transparent),
             )
-            Box(
-                modifier = Modifier
-                    .size(26.dp)
-                    .clip(RoundedCornerShape(percent = 50))
-                    .background(CommentAvatarBg),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    initials(userDisplayName(author, comment.authorId)),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = CommentAvatarText,
-                )
-            }
+            // EXP-698 r4: the author's PICTURE when they have one, else their
+            // initials on their own hashed hue — the same avatar every other
+            // surface draws, not a comment-only glass chip.
+            UserAvatar(
+                user = author,
+                nameOrEmail = userDisplayName(author, comment.authorId),
+                size = 26.dp,
+                // The author row may not have synced (or may have left the
+                // team); the comment still carries the id web/iOS hash, so the
+                // hue stays the same person's everywhere.
+                userId = comment.authorId,
+            )
             Box(
                 Modifier
                     .weight(1f)
@@ -176,20 +180,26 @@ internal fun RegularCommentRow(
                 if (isAuthor && !isEditing) {
                     Spacer(Modifier.weight(1f))
                     Box {
-                        // A plain clickable icon, not an IconButton: M3's 48dp
-                        // minimum touch target made the header row three times
-                        // the height of its text and read as stray padding at
-                        // the top of the card (EXP-398).
-                        Icon(
-                            ExpIcons.uiMore,
-                            contentDescription = "Comment actions",
-                            tint = CommentMeta,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(percent = 50))
-                                .clickable { menuOpen = true }
-                                .padding(4.dp)
-                                .size(16.dp),
-                        )
+                        // EXP-698 r5: a BARE vertical ⋮ on every client — a
+                        // glass ring around it made the comment's overflow
+                        // look heavier than the comment. The 32dp box is the
+                        // hit target (M3's 48dp minimum is suppressed so the
+                        // header row stays the height of its text, EXP-398).
+                        CompositionLocalProvider(
+                            LocalMinimumInteractiveComponentSize provides Dp.Unspecified,
+                        ) {
+                            IconButton(
+                                onClick = { menuOpen = true },
+                                modifier = Modifier.size(32.dp),
+                            ) {
+                                Icon(
+                                    ExpIcons.uiMoreVertical,
+                                    contentDescription = "Comment actions",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = CommentMeta,
+                                )
+                            }
+                        }
                         GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             GlassMenuItem(
                                 leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
@@ -301,6 +311,3 @@ internal fun RegularCommentRow(
         }
     }
 }
-
-private fun initials(name: String): String =
-    name.split(" ", limit = 2).mapNotNull { it.firstOrNull()?.toString() }.joinToString("").uppercase()

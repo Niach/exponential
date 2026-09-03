@@ -132,12 +132,14 @@ struct MobileTabBar: View {
                 .accessibilityIdentifier("tab-reviews")
             }
             .animation(motion.standard, value: activeKey)
-            .padding(5)
-            .background(.ultraThinMaterial, in: Capsule())
+            .padding(4)
+            // EXP-698: flat, not blurred — the pill floats over scrolling
+            // content, so its fill is the OPAQUE composite (`fillCard` over
+            // the card surface), never a low-alpha tint the feed shows through.
+            .background(GlassTokens.opaqueCardFill, in: Capsule())
             .overlay(
-                Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                Capsule().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
             )
-            .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
 
             Spacer()
 
@@ -163,9 +165,11 @@ struct MobileTabBar: View {
             AppIcon(glyph, size: AppIcon.Size.large, weight: .semibold)
                 .foregroundStyle(.white)
                 .frame(width: 52, height: 52)
-                .background(.ultraThinMaterial, in: Circle())
+                // EXP-698: the same opaque chrome as the pill beside it — a
+                // circle floating over the feed, so no material, no tint.
+                .background(GlassTokens.opaqueCardFill, in: Circle())
                 .overlay(
-                    Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                    Circle().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
                 )
                 .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
         }
@@ -186,7 +190,8 @@ struct MobileTabBar: View {
                 // 44pt (HIG minimum) instead of the old 56pt: up to six tabs
                 // (Support present) + the compose circle must fit a 375pt
                 // screen (SE/mini) — see the spacing/padding trims in `body`.
-                .frame(width: 44, height: 42)
+                // Square, so the active shape is a true circle (EXP-698).
+                .frame(width: 44, height: 44)
                 .overlay(alignment: .topTrailing) {
                     if badge {
                         Circle()
@@ -196,15 +201,17 @@ struct MobileTabBar: View {
                     }
                 }
                 .background {
-                    // Only the ACTIVE tab renders the capsule, and it carries
+                    // Only the ACTIVE tab renders the shape, and it carries
                     // the shared geometry id — that is what makes it travel.
+                    // EXP-698: a CIRCLE in the ONE bright glass fill, not a
+                    // hand-typed white .12 capsule.
                     if active {
-                        Capsule()
-                            .fill(Color.white.opacity(0.12))
+                        Circle()
+                            .fill(GlassTokens.fillActive)
                             .matchedGeometryEffect(id: "tab-pill", in: tabPill)
                     }
                 }
-                .contentShape(Capsule())
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)

@@ -344,12 +344,18 @@ impl ReviewsView {
         crate::surface::glass_row_card()
             .id(SharedString::from(format!("review-{}", issue.id)))
             .flex()
-            .flex_col()
+            .flex_row()
+            // EXP-698: the trailing Merge cluster is CENTRED against the whole
+            // card, not pinned to its first line — a two-line row (branch
+            // sub-line, error caption) otherwise reads with the pill floating
+            // at the top edge. The text column stacks; the action sits beside
+            // it in its own vertically centered slot.
+            .items_center()
             .w_full()
             .min_w_0()
             .px_3()
             .py_2p5()
-            .gap_0p5()
+            .gap_2()
             .when(selected, |this| this.bg(row_active))
             .hover(move |this| this.bg(row_hover))
             .cursor_pointer()
@@ -368,68 +374,74 @@ impl ReviewsView {
                 );
             }))
             .child(
-                h_flex()
-                    .w_full()
+                v_flex()
+                    .flex_1()
                     .min_w_0()
-                    .items_center()
-                    .gap_1p5()
+                    .gap_0p5()
                     .child(
-                        Icon::from(ExpIcon::GitPullRequest)
-                            .xsmall()
-                            .flex_shrink_0()
-                            .text_color(pr_green),
-                    )
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .text_xs()
-                            .text_color(muted)
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .child(SharedString::from(identifier_text)),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
+                        h_flex()
+                            .w_full()
                             .min_w_0()
-                            .text_xs()
-                            .truncate()
-                            .text_color(fg)
-                            .child(SharedString::from(title_text)),
+                            .items_center()
+                            .gap_1p5()
+                            .child(
+                                Icon::from(ExpIcon::GitPullRequest)
+                                    .xsmall()
+                                    .flex_shrink_0()
+                                    .text_color(pr_green),
+                            )
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .font_family(theme::terminal::FONT_FAMILY)
+                                    .child(SharedString::from(identifier_text)),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_xs()
+                                    .truncate()
+                                    .text_color(fg)
+                                    .child(SharedString::from(title_text)),
+                            )
+                            .when_some(batch_count, |this, count| {
+                                this.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .text_xs()
+                                        .text_color(muted)
+                                        .child(SharedString::from(count)),
+                                )
+                            }),
                     )
-                    .when_some(batch_count, |this, count| {
+                    .when_some(sub, |this, branch| {
                         this.child(
                             div()
-                                .flex_shrink_0()
+                                .pl_5()
                                 .text_xs()
+                                .truncate()
+                                .font_family(theme::terminal::FONT_FAMILY)
                                 .text_color(muted)
-                                .child(SharedString::from(count)),
+                                .child(SharedString::from(branch)),
                         )
                     })
-                    .child(trailing),
+                    .when_some(error, |this, message| {
+                        // EXP-706: message only — the recovery button moved
+                        // into the Merge slot beside the column.
+                        this.child(
+                            div()
+                                .pl_5()
+                                .text_xs()
+                                .truncate()
+                                .text_color(danger)
+                                .child(SharedString::from(message)),
+                        )
+                    }),
             )
-            .when_some(sub, |this, branch| {
-                this.child(
-                    div()
-                        .pl_5()
-                        .text_xs()
-                        .truncate()
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .text_color(muted)
-                        .child(SharedString::from(branch)),
-                )
-            })
-            .when_some(error, |this, message| {
-                // EXP-706: message only — the recovery button moved into the
-                // Merge slot above.
-                this.child(
-                    div()
-                        .pl_5()
-                        .text_xs()
-                        .truncate()
-                        .text_color(danger)
-                        .child(SharedString::from(message)),
-                )
-            })
+            .child(trailing)
             .into_any_element()
     }
 
@@ -508,12 +520,14 @@ impl ReviewsView {
         crate::surface::glass_row_card()
             .id(SharedString::from(format!("pull-{key}")))
             .flex()
-            .flex_col()
+            .flex_row()
+            // EXP-698: same centred trailing slot as the linked-PR row above.
+            .items_center()
             .w_full()
             .min_w_0()
             .px_3()
             .py_2p5()
-            .gap_0p5()
+            .gap_2()
             .hover(move |this| this.bg(row_hover))
             .cursor_pointer()
             .on_click(cx.listener(move |_, _, _, cx| {
@@ -522,67 +536,73 @@ impl ReviewsView {
                 crate::settings::open_url(cx, url.clone());
             }))
             .child(
-                h_flex()
-                    .w_full()
+                v_flex()
+                    .flex_1()
                     .min_w_0()
-                    .items_center()
-                    .gap_1p5()
+                    .gap_0p5()
                     .child(
-                        Icon::from(ExpIcon::GitPullRequest)
-                            .xsmall()
-                            .flex_shrink_0()
-                            .text_color(pr_green),
-                    )
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .text_xs()
-                            .text_color(muted)
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .child(SharedString::from(format!("#{}", pull.number))),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
+                        h_flex()
+                            .w_full()
                             .min_w_0()
+                            .items_center()
+                            .gap_1p5()
+                            .child(
+                                Icon::from(ExpIcon::GitPullRequest)
+                                    .xsmall()
+                                    .flex_shrink_0()
+                                    .text_color(pr_green),
+                            )
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .font_family(theme::terminal::FONT_FAMILY)
+                                    .child(SharedString::from(format!("#{}", pull.number))),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_xs()
+                                    .truncate()
+                                    .text_color(fg)
+                                    .child(SharedString::from(pull.title.clone())),
+                            )
+                            .when(pull.draft, |this| {
+                                this.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .px_1()
+                                        .rounded(radius)
+                                        .bg(muted.opacity(0.15))
+                                        .text_xs()
+                                        .text_color(muted)
+                                        .child("Draft"),
+                                )
+                            }),
+                    )
+                    .child(
+                        div()
+                            .pl_5()
                             .text_xs()
                             .truncate()
-                            .text_color(fg)
-                            .child(SharedString::from(pull.title.clone())),
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .text_color(muted)
+                            .child(SharedString::from(sub)),
                     )
-                    .when(pull.draft, |this| {
+                    .when_some(error, |this, message| {
                         this.child(
                             div()
-                                .flex_shrink_0()
-                                .px_1()
-                                .rounded(radius)
-                                .bg(muted.opacity(0.15))
+                                .pl_5()
                                 .text_xs()
-                                .text_color(muted)
-                                .child("Draft"),
+                                .truncate()
+                                .text_color(danger)
+                                .child(SharedString::from(message)),
                         )
-                    })
-                    .child(merge_button),
+                    }),
             )
-            .child(
-                div()
-                    .pl_5()
-                    .text_xs()
-                    .truncate()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .text_color(muted)
-                    .child(SharedString::from(sub)),
-            )
-            .when_some(error, |this, message| {
-                this.child(
-                    div()
-                        .pl_5()
-                        .text_xs()
-                        .truncate()
-                        .text_color(danger)
-                        .child(SharedString::from(message)),
-                )
-            })
+            .child(merge_button)
             .into_any_element()
     }
 }

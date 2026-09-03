@@ -17,7 +17,7 @@ import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import type { ActionRepoOption } from "@/components/action-editor-dialog"
 import { CreateActionDialog } from "@/components/launch-dialog/create-action-dialog"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import { BOARD_ICON_COMPONENTS } from "@/lib/board-icons"
 
@@ -63,12 +63,12 @@ function SuggestionRow({
           <span className="truncate font-medium">{suggestion.title}</span>
           {/* EXP-583: a seed either just authors an action, or authors it and
               sets up the automation that runs it. */}
-          <Badge variant="outline" className="shrink-0 gap-1 text-[0.625rem]">
+          <Pill className="shrink-0 gap-1">
             {suggestion.automation && (
               <ActionAutomationIcon className="h-3 w-3" />
             )}
             {suggestion.automation ? `Automation` : `Action`}
-          </Badge>
+          </Pill>
         </div>
         <div className="line-clamp-3 text-xs text-muted-foreground">
           {suggestion.description}

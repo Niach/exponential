@@ -4,7 +4,7 @@ import { ArrowLeft, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { useSession } from "@/hooks/use-session"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -99,7 +99,7 @@ function AdminUserDetail() {
           <div className="flex items-center gap-4 min-w-0 flex-1">
             <Avatar className="h-12 w-12 shrink-0">
               {user.image && <AvatarImage src={user.image} />}
-              <AvatarFallback>
+              <AvatarFallback userId={user.id}>
                 {getInitials(user.name || user.email)}
               </AvatarFallback>
             </Avatar>
@@ -121,14 +121,10 @@ function AdminUserDetail() {
               )}
               <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                 {user.providers.length === 0 ? (
-                  <Badge variant="secondary" className="text-xs">
-                    password
-                  </Badge>
+                  <Pill>password</Pill>
                 ) : (
                   user.providers.map((p) => (
-                    <Badge key={p} variant="secondary" className="text-xs">
-                      {p}
-                    </Badge>
+                    <Pill key={p}>{p}</Pill>
                   ))
                 )}
                 <span>joined {formatDate(user.createdAt)}</span>
@@ -199,9 +195,7 @@ function AdminUserDetail() {
                     </span>
                   </Link>
                   <div>
-                    <Badge variant="secondary" className="text-xs capitalize">
-                      {ws.role}
-                    </Badge>
+                    <Pill className="capitalize">{ws.role}</Pill>
                   </div>
                   <div>
                     <PlanBadge plan={ws.plan} compApplied={ws.compApplied} />

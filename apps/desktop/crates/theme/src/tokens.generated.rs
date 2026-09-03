@@ -33,6 +33,24 @@ pub const GREEN: Srgb8 = Srgb8 { r: 34, g: 197, b: 94, a: 255 };
 pub const RED: Srgb8 = Srgb8 { r: 239, g: 68, b: 68, a: 255 };
 pub const ORANGE: Srgb8 = Srgb8 { r: 249, g: 115, b: 22, a: 255 };
 pub const BLUE: Srgb8 = Srgb8 { r: 59, g: 130, b: 246, a: 255 };
+pub const CODE_TEXT: Srgb8 = Srgb8 { r: 138, g: 180, b: 248, a: 255 };
+pub const CODE_FILL: Srgb8 = Srgb8 { r: 138, g: 180, b: 248, a: 31 };
+pub const CODE_STROKE: Srgb8 = Srgb8 { r: 138, g: 180, b: 248, a: 51 };
+
+// Avatar fallback hues (EXP-698 r4) — index = fnv1a32(user_id) % HUES.len(),
+// see crates/ui/src/user_avatar.rs. Order is the contract; never reorder.
+pub mod avatar {
+    use crate::Srgb8;
+    pub const RED: Srgb8 = Srgb8 { r: 248, g: 113, b: 113, a: 255 };
+    pub const ORANGE: Srgb8 = Srgb8 { r: 251, g: 146, b: 60, a: 255 };
+    pub const YELLOW: Srgb8 = Srgb8 { r: 250, g: 204, b: 21, a: 255 };
+    pub const GREEN: Srgb8 = Srgb8 { r: 74, g: 222, b: 128, a: 255 };
+    pub const TEAL: Srgb8 = Srgb8 { r: 45, g: 212, b: 191, a: 255 };
+    pub const BLUE: Srgb8 = Srgb8 { r: 96, g: 165, b: 250, a: 255 };
+    pub const VIOLET: Srgb8 = Srgb8 { r: 167, g: 139, b: 250, a: 255 };
+    pub const PINK: Srgb8 = Srgb8 { r: 244, g: 114, b: 182, a: 255 };
+    pub const HUES: [Srgb8; 8] = [RED, ORANGE, YELLOW, GREEN, TEAL, BLUE, VIOLET, PINK];
+}
 
 // Glass surfaces (EXP-269) — the mobile GlassTheme transcription. The nested
 // module keeps the short fill/stroke keys from colliding with palette names.

@@ -13,9 +13,9 @@ import SwiftUI
 // look these sheets copied FROM iOS.
 
 /// The fill a `Form` row wears once `.scrollContentBackground(.hidden)` has
-/// taken the system grouped-list gray away (EXP-603) — the same white .05 the
+/// taken the system grouped-list gray away (EXP-603) — the same `fillRow` the
 /// glass rows elsewhere sit on, applied per `Section` via `.listRowBackground`.
-public let glassFormRowFill = Color.white.opacity(0.05)
+public let glassFormRowFill = GlassTokens.fillRow
 
 /// One `Form` row that picks a value from a list. `label` renders both the
 /// trailing summary and each sheet row, so a call site names its vocabulary

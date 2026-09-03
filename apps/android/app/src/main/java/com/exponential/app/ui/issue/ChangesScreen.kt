@@ -74,7 +74,9 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.ui.components.BottomBarInset
-import com.exponential.app.ui.components.BottomBarPillFill
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillMode
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.steer.ActionRunState
@@ -84,8 +86,8 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
-import com.exponential.app.ui.theme.glassSection
+import com.exponential.app.ui.theme.glassCard
+import com.exponential.app.ui.theme.glassGroup
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -637,12 +639,12 @@ private fun ChangesRefusalNotice(
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(GlassTokens.CardRadius)
-    val stroke = Color.White.copy(alpha = 0.12f)
+    val stroke = GlassTokens.StrokeStrong
     Row(
         modifier = modifier
             .widthIn(max = 480.dp)
             .clip(shape)
-            .background(BottomBarPillFill, shape)
+            .background(GlassTokens.OpaqueCardFill, shape)
             .border(GlassTokens.Hairline, stroke, shape)
             .padding(start = 14.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -671,8 +673,8 @@ private fun ChangesBarCircle(
         modifier = Modifier
             .size(52.dp)
             .clip(CircleShape)
-            .background(BottomBarPillFill)
-            .border(GlassTokens.Hairline, Color.White.copy(alpha = 0.12f), CircleShape)
+            .background(GlassTokens.OpaqueCardFill)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, CircleShape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -690,7 +692,7 @@ private fun ChangesSummaryHeader(
     files: List<PullFile>?,
 ) {
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    Column(modifier = Modifier.fillMaxWidth().glassSection().padding(12.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().glassCard().padding(12.dp)) {
         val branch = issue?.branch
         if (!branch.isNullOrBlank()) {
             Text(
@@ -708,13 +710,10 @@ private fun ChangesSummaryHeader(
         ) {
             val prState = issue?.prState
             if (!prState.isNullOrBlank()) {
-                Text(
+                GlassPill(
                     prState.replaceFirstChar { it.uppercase() },
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier
-                        .glassButton()
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                    size = PillSize.Sm,
+                    mode = PillMode.Readonly,
                 )
             }
             if (files != null) {
@@ -746,7 +745,7 @@ private fun ChangesSummaryHeader(
 @Composable
 private fun FileSection(file: PullFile, expanded: Boolean, onToggle: () -> Unit) {
     val contextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    Column(modifier = Modifier.fillMaxWidth().glassSection()) {
+    Column(modifier = Modifier.fillMaxWidth().glassGroup()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()

@@ -37,22 +37,24 @@ export function ChatPane({
       {/* EXP-616: the prompt is its OWN glass card — caption-sized label,
           borderless field. The desktop column's stretch lives on the CARD now,
           the textarea just fills it. */}
-      <div className="flex min-h-0 flex-col gap-1 rounded-lg bg-glass-row p-3 sm:flex-1">
-        <Label htmlFor="chat-prompt" className="text-xs text-foreground/50">
-          Prompt
-        </Label>
-        <Textarea
-          id="chat-prompt"
-          autoFocus
-          value={prompt}
-          onChange={(e) => onPromptChange(e.target.value)}
-          placeholder={promptDef?.placeholder}
-          className="min-h-28 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 sm:h-full sm:min-h-0 sm:flex-1"
-          // Client parity with the server's per-value cap, so a long paste is
-          // refused at the field instead of at submit.
-          maxLength={MAX_ACTION_INPUT_TEXT}
-        />
-      </div>
+      <GlassGroup className="min-h-0 sm:flex-1">
+        <div className="flex min-h-0 flex-1 flex-col gap-1 p-3">
+          <Label htmlFor="chat-prompt" className="text-xs text-foreground/50">
+            Prompt
+          </Label>
+          <Textarea
+            id="chat-prompt"
+            autoFocus
+            value={prompt}
+            onChange={(e) => onPromptChange(e.target.value)}
+            placeholder={promptDef?.placeholder}
+            className="min-h-28 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 sm:h-full sm:min-h-0 sm:flex-1"
+            // Client parity with the server's per-value cap, so a long paste
+            // is refused at the field instead of at submit.
+            maxLength={MAX_ACTION_INPUT_TEXT}
+          />
+        </div>
+      </GlassGroup>
       {repos.length === 0 ? (
         <div className="space-y-2">
           <Label>Repository</Label>

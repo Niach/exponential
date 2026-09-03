@@ -36,14 +36,14 @@ use std::time::Duration;
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, size, App, AppContext as _, Div, Entity, IntoElement,
-    ParentElement, Render, SharedString, Styled, Subscription, Task, Window,
+    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
+    Task, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
     select::Select,
-    spinner::Spinner,
     switch::Switch,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -250,6 +250,9 @@ pub(crate) fn own_agent_status(
     coding::agent_accounts::AgentAccounts,
     coding::agent_usage::AgentUsageMap,
 ) {
+    if let Some(demo) = dev_agent_status() {
+        return demo;
+    }
     let hub = CodingHub::global(cx);
     let hub = hub.read(cx);
     let status = hub.agent_status.clone().unwrap_or_default();
@@ -260,6 +263,79 @@ pub(crate) fn own_agent_status(
         }
     }
     (accounts, status.usage)
+}
+
+/// DEV-ONLY `EXP_DEV_AGENT_ACCOUNT` (EXP-698) — stand a DEMO claude account
+/// and demo usage windows in place of whatever this machine actually probed.
+///
+/// Settings → Agents renders the LOCAL install's own account row, so the
+/// shots pipeline (`packages/view-catalog`) was baking the operator's real
+/// address and real rate-limit numbers into a committed screenshot. With the
+/// variable set the pane never consults the hub at all: no keychain read, no
+/// usage fetch, nothing personal to leak. Unset (every real build) this is a
+/// no-op.
+fn dev_agent_status() -> Option<(
+    coding::agent_accounts::AgentAccounts,
+    coding::agent_usage::AgentUsageMap,
+)> {
+    use coding::agent_accounts::{AgentAccount, AgentAccounts};
+    use coding::agent_usage::{AgentUsage, AgentUsageMap, UsageWindow};
+
+    let email = std::env::var("EXP_DEV_AGENT_ACCOUNT")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())?;
+    let now = chrono::Utc::now();
+    let stamp = now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let resets_in = |seconds: i64| {
+        Some(
+            (now + chrono::Duration::seconds(seconds))
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        )
+    };
+
+    let mut accounts = AgentAccounts::new();
+    accounts.insert(
+        CodingAgent::Claude.id().to_string(),
+        AgentAccount {
+            signed_in: true,
+            email: Some(email),
+            plan: Some("max".to_string()),
+            checked_at: stamp.clone(),
+        },
+    );
+
+    // The three windows the pane groups: the 5h session, the weekly
+    // all-models bucket and one per-model bucket under it.
+    let mut usage = AgentUsageMap::new();
+    usage.insert(
+        CodingAgent::Claude.id().to_string(),
+        AgentUsage {
+            fetched_at: stamp,
+            stale: false,
+            windows: vec![
+                UsageWindow {
+                    key: "session".to_string(),
+                    label: "5h".to_string(),
+                    percent: 73,
+                    resets_at: resets_in(3 * 3_600 + 32 * 60),
+                },
+                UsageWindow {
+                    key: "weekly".to_string(),
+                    label: "7d".to_string(),
+                    percent: 24,
+                    resets_at: resets_in(30 * 3_600),
+                },
+                UsageWindow {
+                    key: "model:fable".to_string(),
+                    label: "Fable".to_string(),
+                    percent: 38,
+                    resets_at: resets_in(30 * 3_600),
+                },
+            ],
+        },
+    );
+    Some((accounts, usage))
 }
 
 /// EXP-694: the account + usage ROWS of one agent's grouped defaults stack —
@@ -296,22 +372,35 @@ pub(crate) fn agent_account_rows<V: Render>(
             .child(SharedString::from(account_line(account))),
     );
     if let Some(affordance) = affordance {
-        account_row = account_row.child(surface::glass_pill(
-            Button::new(SharedString::from(format!("agent-login-{}", agent.id())))
-                .ghost()
-                .web_xs()
-                .icon(if affordance.switch {
-                    registry::UI_SWAP
+        // EXP-698: ONE pill, not a ghost button inside a pill wrapper.
+        let icon = if affordance.switch {
+            registry::UI_SWAP
+        } else {
+            registry::UI_SIGN_IN
+        };
+        account_row = account_row.child(
+            surface::glass_pill(
+                SharedString::from(format!("agent-login-{}", agent.id())),
+                surface::PillSize::Sm,
+                // A pending login has nothing to click: READONLY is what
+                // takes the pointer cursor and the hover lift away, so the
+                // dimmed pill does not keep advertising a target.
+                if pending {
+                    surface::PillMode::Readonly
                 } else {
-                    registry::UI_SIGN_IN
-                })
-                .label(affordance.label)
-                .disabled(pending)
-                .on_click(cx.listener(move |view: &mut V, _, _, cx| {
+                    surface::PillMode::Action
+                },
+                cx,
+            )
+            .when(pending, |pill| pill.opacity(0.5))
+            .child(Icon::new(icon).with_size(px(surface::PillSize::Sm.glyph())))
+            .child(SharedString::from(affordance.label))
+            .on_click(cx.listener(move |view: &mut V, _, _, cx| {
+                if !pending {
                     on_login(view, affordance.switch, cx);
-                })),
-            false,
-        ));
+                }
+            })),
+        );
     }
     let mut rows = vec![account_row];
 
@@ -1681,9 +1770,11 @@ impl DeviceSettingsView {
             );
         }
         line = line.child(
-            Button::new(SharedString::from(format!("device-login-copy-{}", agent.id())))
-                .ghost()
-                .web_xs()
+            surface::glass_pill_button(
+                SharedString::from(format!("device-login-copy-{}", agent.id())),
+                surface::PillSize::Sm,
+                cx,
+            )
                 .icon(registry::UI_COPY)
                 .label("Copy link")
                 .on_click(move |_, _, cx| {
@@ -1729,16 +1820,14 @@ impl DeviceSettingsView {
             .child(
                 // EXP-688: icon-only — the label was the widest thing in the
                 // section header and said what the broom already says.
-                Button::new("device-worktrees-prune")
-                    .ghost()
-                    .web_icon_xs()
-                    .map(|button| {
-                        if prune_pending {
-                            button.child(Spinner::new().xsmall())
-                        } else {
-                            button.icon(registry::UI_CLEAN)
-                        }
-                    })
+                // EXP-698: the one 32px glass chrome every trailing action wears;
+                // `loading` swaps the glyph for the spinner.
+                crate::controls::glass_icon_button(
+                    "device-worktrees-prune",
+                    Icon::new(registry::UI_CLEAN),
+                    cx,
+                )
+                    .loading(prune_pending)
                     .tooltip("Prune merged worktrees")
                     .disabled(prune_pending || worktrees.is_empty())
                     .on_click(cx.listener(|this, _, _, cx| {

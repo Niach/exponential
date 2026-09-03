@@ -157,5 +157,12 @@ struct TeamSetupSheet: View {
             )
             .padding(16)
         }
+        // The styleguide lane's `sg_onboarding-create-team` anchor. It waits on
+        // THIS rather than on a delay: the board switcher presents this sheet
+        // from its own `onDismiss`, so there is a dismissal animation between
+        // the tap and the sheet appearing. `contain` keeps the two forms'
+        // fields and submits queryable inside it.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("team-setup-sheet")
     }
 }

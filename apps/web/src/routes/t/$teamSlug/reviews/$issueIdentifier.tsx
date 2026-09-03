@@ -21,6 +21,7 @@ import {
   useTeamBySlug,
   useTeamBoards,
 } from "@/hooks/use-team-data"
+import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -28,6 +29,7 @@ import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import {
   Dialog,
   DialogCancel,
@@ -115,6 +117,10 @@ function ReviewDetailPage() {
   const navigate = useNavigate()
   const team = useTeamBySlug(teamSlug)
   const boards = useTeamBoards(team?.id)
+  // EXP-698: the docked mobile action bar measures itself, so the diff pane's
+  // bottom clearance follows it — including the extra line a merge failure
+  // adds. 0 when the bar isn't rendered, and on md+ where it is `display:none`.
+  const publishReviewBarHeight = useChromeHeightVar(`--reviewbar-h`)
 
   const boardIds = useMemo(() => {
     const ids = boards.map((p) => p.id)
@@ -304,14 +310,18 @@ function ReviewDetailPage() {
   const prStateLabel =
     issue.prNumber == null ? `No pull request` : (issue.prState ?? `open`)
 
+  // EXP-698: the diff header's Merge and the Reviews list's Merge are the SAME
+  // control at the SAME weight — one `Pill size="md" mode="action"`, never a
+  // filled Button here and an outline Button there.
   const mergeControl = canFixConflicts ? (
-    <Button className="rounded-full" onClick={() => setFixOpen(true)}>
+    <Pill size="md" mode="action" onClick={() => setFixOpen(true)}>
       <GitBranch className="size-3.5" />
       Fix conflicts
-    </Button>
+    </Pill>
   ) : (
-    <Button
-      className="rounded-full"
+    <Pill
+      size="md"
+      mode="action"
       disabled={merging || closing}
       onClick={() => setConfirmMergeOpen(true)}
     >
@@ -326,7 +336,7 @@ function ReviewDetailPage() {
           Merge
         </>
       )}
-    </Button>
+    </Pill>
   )
 
   return (
@@ -400,9 +410,8 @@ function ReviewDetailPage() {
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {isOpen && (
             <Button
-              variant="ghost"
-              size="icon"
-              className="size-9 rounded-full border border-glass-stroke-card bg-popover/85 text-muted-foreground backdrop-blur-xl hover:bg-muted/85 hover:text-foreground"
+              variant="glass"
+              size="icon-sm"
               aria-label="Close pull request without merging"
               title="Close PR without merging"
               disabled={merging || closing}
@@ -418,9 +427,8 @@ function ReviewDetailPage() {
           {isOpen && mergeControl}
           {issue.prUrl && (
             <Button
-              variant="ghost"
-              size="icon"
-              className="size-9 rounded-full border border-glass-stroke-card bg-popover/85 text-muted-foreground backdrop-blur-xl hover:bg-muted/85 hover:text-foreground"
+              variant="glass"
+              size="icon-sm"
               aria-label="Open pull request on GitHub"
               title="Open PR on GitHub"
               onClick={() =>
@@ -442,16 +450,14 @@ function ReviewDetailPage() {
         <div className="hidden flex-wrap items-center gap-2 border-b border-border px-4 py-2 md:flex">
           <span className="text-destructive text-xs">{actionError.message}</span>
           {canFixConflicts && (
-            <Button
-              variant="ghost"
-              size="xs"
-              className="text-muted-foreground"
+            <Pill
+              mode="action"
               disabled={merging || closing}
               onClick={() => setConfirmMergeOpen(true)}
             >
-              <GitMerge className="size-3.5" />
+              <GitMerge className="size-3" />
               Retry merge
-            </Button>
+            </Pill>
           )}
         </div>
       )}
@@ -463,21 +469,25 @@ function ReviewDetailPage() {
             {linked.length} linked issues
           </span>
           {linked.map((linkedIssue) => (
-            <Button
+            <Pill
               key={linkedIssue.id}
-              variant="outline"
-              size="xs"
-              className="h-5 rounded-full px-2 font-mono text-xs"
+              mode="action"
+              className="font-mono"
               onClick={() => openIssue(linkedIssue)}
             >
               #{linkedIssue.identifier}
-            </Button>
+            </Pill>
           ))}
         </div>
       )}
 
-      {/* Diff body — bottom padding clears the mobile floating action bar */}
-      <div className="mx-auto w-full max-w-5xl flex-1 overflow-y-auto pb-24 md:pb-4">
+      {/* Diff body — bottom padding clears the mobile action bar. EXP-698:
+          scrolls on BOTH axes, so an over-wide patch line is a scroll rather
+          than a hard clip at the pane's edge. */}
+      {/* EXP-698: the clearance is MEASURED (`--reviewbar-h`), not guessed —
+          a merge failure grows the bar by a whole error line, which a fixed
+          `pb-24` no longer cleared. */}
+      <div className="mx-auto w-full max-w-5xl flex-1 overflow-x-auto overflow-y-auto pb-[calc(var(--reviewbar-h,0px)+1rem)] md:pb-4">
         {filesState.kind === `loading` ? (
           <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
             <LoaderCircle className="size-3.5 animate-spin" /> Loading changes…
@@ -485,15 +495,10 @@ function ReviewDetailPage() {
         ) : filesState.kind === `error` ? (
           <div className="flex flex-wrap items-center gap-2 px-4 py-3 text-xs text-rose-300">
             {`Couldn’t load changes: ${filesState.message}`}
-            <Button
-              variant="ghost"
-              size="xs"
-              className="text-muted-foreground"
-              onClick={() => reloadReview()}
-            >
-              <RotateCw className="size-3.5" />
+            <Pill mode="action" onClick={() => reloadReview()}>
+              <RotateCw className="size-3" />
               Retry
-            </Button>
+            </Pill>
           </div>
         ) : filesState.kind === `files` && filesState.files.length > 0 ? (
           <FileDiffList
@@ -508,14 +513,20 @@ function ReviewDetailPage() {
         )}
       </div>
 
-      {/* Floating action bar (EXP-248) — dismiss · Merge · GitHub, matching the
-          mobile clients' review-detail bar and the app's glass-pill chrome.
-          Mobile-only since EXP-333 — desktop gets the inline header actions
-          above, like the IDE. */}
+      {/* Mobile action bar (EXP-248) — dismiss · Merge · GitHub, matching the
+          mobile clients' review-detail bar. Mobile-only since EXP-333 —
+          desktop gets the inline header actions above, like the IDE.
+          EXP-698: DOCKED and OPAQUE, not floating. Three glass circles hovering
+          over a scrolling diff read as debris; the bar is now the bottom edge
+          of the page — the issue-detail bar's safe-area idiom, an opaque card
+          fill and one top hairline. */}
       {(isOpen || issue.prUrl) && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex flex-col items-center gap-2 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:hidden">
+        <div
+          ref={publishReviewBarHeight}
+          className="fixed inset-x-0 bottom-0 z-40 flex flex-col items-center gap-2 border-t border-glass-stroke-strong bg-glass-card-opaque px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden"
+        >
           {actionError && (
-            <div className="pointer-events-auto flex max-w-lg flex-wrap items-center justify-center gap-2 rounded-lg border border-glass-stroke-card bg-popover/85 px-3 py-2 shadow-lg shadow-black/40 backdrop-blur-xl">
+            <div className="flex max-w-lg flex-wrap items-center justify-center gap-2 px-1">
               {/* EXP-706: message only — the recovery run (merge failures
                   only, and only REAL conflicts: EXP-533) has replaced the
                   Merge pill below instead of doubling up here. Merge is still
@@ -525,25 +536,23 @@ function ReviewDetailPage() {
                 {actionError.message}
               </span>
               {canFixConflicts && (
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  className="text-muted-foreground"
+                <Pill
+                  mode="action"
                   disabled={merging || closing}
                   onClick={() => setConfirmMergeOpen(true)}
                 >
-                  <GitMerge className="size-3.5" />
+                  <GitMerge className="size-3" />
                   Retry merge
-                </Button>
+                </Pill>
               )}
             </div>
           )}
-          <div className="flex items-center justify-center gap-3">
+          <div className="flex w-full items-center justify-center gap-3">
             {isOpen && (
               <Button
                 variant="ghost"
                 size="icon"
-                className="pointer-events-auto size-11 rounded-full border border-glass-stroke-card bg-popover/85 text-muted-foreground shadow-lg shadow-black/40 backdrop-blur-xl hover:bg-muted/85 hover:text-foreground"
+                className="size-11 rounded-full border border-glass-stroke-card bg-glass-card text-muted-foreground hover:bg-muted/85 hover:text-foreground"
                 aria-label="Close pull request without merging"
                 title="Close PR without merging"
                 disabled={merging || closing}
@@ -561,7 +570,7 @@ function ReviewDetailPage() {
             {isOpen &&
               (canFixConflicts ? (
                 <Button
-                  className="pointer-events-auto h-12 rounded-full px-6 shadow-lg shadow-black/40"
+                  className="h-11 flex-1 rounded-full px-6"
                   onClick={() => setFixOpen(true)}
                 >
                   <GitBranch className="size-4" />
@@ -569,7 +578,7 @@ function ReviewDetailPage() {
                 </Button>
               ) : (
                 <Button
-                  className="pointer-events-auto h-12 rounded-full px-6 shadow-lg shadow-black/40"
+                  className="h-11 flex-1 rounded-full px-6"
                   disabled={merging || closing}
                   onClick={() => setConfirmMergeOpen(true)}
                 >
@@ -590,7 +599,7 @@ function ReviewDetailPage() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="pointer-events-auto size-11 rounded-full border border-glass-stroke-card bg-popover/85 text-muted-foreground shadow-lg shadow-black/40 backdrop-blur-xl hover:bg-muted/85 hover:text-foreground"
+                className="size-11 rounded-full border border-glass-stroke-card bg-glass-card text-muted-foreground hover:bg-muted/85 hover:text-foreground"
                 aria-label="Open pull request on GitHub"
                 title="Open PR on GitHub"
                 onClick={() =>

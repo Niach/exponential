@@ -123,13 +123,10 @@ export function MyIssuesView({
       </div>
 
       <div
-        className={`flex-1 overflow-auto ${
-          selectedIssues.length > 0
-            ? // Taller mobile clearance while the selection pill floats above
-              // the tab bar: TAB_BAR_CLEARANCE + pill height + gap.
-              `max-md:pb-[calc(9.25rem+env(safe-area-inset-bottom))]`
-            : TAB_BAR_CLEARANCE
-        }`}
+        // EXP-698 r5: one clearance for both states — the bulk bar REPLACES
+        // the tab bar on phones, so TAB_BAR_CLEARANCE's `max()` of the two
+        // measured heights already covers a live selection.
+        className={`flex-1 overflow-auto ${TAB_BAR_CLEARANCE}`}
       >
         {issuesReady && totalIssueCount === 0 ? (
           <EmptyState

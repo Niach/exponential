@@ -8,14 +8,8 @@ import {
   Users,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { GlassSectionHeader } from "@/components/ui/glass-rows"
+import { Pill } from "@/components/ui/pill"
 import { Progress } from "@/components/ui/progress"
 import { useBillingPlan, invalidateBillingCache } from "@/hooks/use-billing"
 import type { PlanTier } from "@/lib/billing"
@@ -30,13 +24,10 @@ const PLAN_LABELS: Record<PlanTier, string> = {
   unlimited: `Unlimited`,
 }
 
-const PLAN_BADGE_VARIANT: Record<
-  PlanTier,
-  `default` | `secondary` | `outline`
-> = {
-  free: `secondary`,
-  team: `default`,
-  unlimited: `outline`,
+const PLAN_PILL_CLASS: Record<PlanTier, string | undefined> = {
+  free: undefined,
+  team: `text-foreground`,
+  unlimited: undefined,
 }
 
 // Exported for the Storage settings section (EXP-297) — one storage-usage
@@ -161,57 +152,43 @@ export function TeamBillingSection({
     // `billing` anchors the upgrade-nudge deep links (e.g. from the
     // repositories section when a plan cap is hit).
     <div id="billing" className="scroll-mt-6 space-y-4">
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <CardTitle className="text-base">Plan & Billing</CardTitle>
-              <CardDescription>
-                Manage your team subscription
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant={PLAN_BADGE_VARIANT[plan]}>
+      <div>
+        <GlassSectionHeader
+          label="Plan & Billing"
+          trailing={
+            <>
+              <Pill className={PLAN_PILL_CLASS[plan]}>
                 {PLAN_LABELS[plan]}
-              </Badge>
+              </Pill>
               {canAdjustSeats && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowSeatDialog(true)}
-                >
-                  <Users className="mr-1.5 size-3.5" />
+                <Pill mode="action" onClick={() => setShowSeatDialog(true)}>
+                  <Users />
                   Adjust seats
-                </Button>
+                </Pill>
               )}
               {/* Gate on the subscription, not the plan tier: a comped team
                   is `team` with nothing to manage, while a pending-cancel
                   team still needs its invoices until the period ends. */}
               {subscription && (
-                <Button
-                  variant="outline"
-                  size="sm"
+                <Pill
+                  mode="action"
                   onClick={handlePortal}
                   disabled={portalLoading}
                 >
-                  <ExternalLink className="mr-1.5 size-3.5" />
+                  <ExternalLink />
                   {portalLoading ? `Loading...` : `Invoices & billing`}
-                </Button>
+                </Pill>
               )}
               {subscription && !pendingCancel && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground"
-                  onClick={() => setShowCancelDialog(true)}
-                >
+                <Pill mode="action" onClick={() => setShowCancelDialog(true)}>
                   Cancel plan
-                </Button>
+                </Pill>
               )}
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
+            </>
+          }
+          className="flex-wrap"
+        />
+        <div className="space-y-3">
           {pendingCancel && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
               <p className="text-muted-foreground">
@@ -283,8 +260,8 @@ export function TeamBillingSection({
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* `plans` anchors the upgrade nudges (the seats-full button above and
           the repositories section's plan-cap nudge). Only one branch renders,

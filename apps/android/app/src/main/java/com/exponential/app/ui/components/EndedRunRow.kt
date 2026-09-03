@@ -180,8 +180,8 @@ fun EndedRunRow(
                         )
                     }
                 } else {
-                    GlassPillButton(
-                        label = "Resume",
+                    GlassPill(
+                        "Resume",
                         icon = ExpIcons.runResume,
                         onClick = { confirmResume = true },
                         modifier = Modifier.testTag("resume-run"),

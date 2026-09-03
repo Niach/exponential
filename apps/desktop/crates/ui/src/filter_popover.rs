@@ -59,17 +59,13 @@ type OnToggleValue<V> = Rc<dyn Fn(V, &mut Window, &mut App)>;
 /// Toggle a fixed row (label rows capture their own id).
 type OnToggleRow = Rc<dyn Fn(&mut Window, &mut App)>;
 
-/// The rounded count pill (web `rounded-full bg-glass-active text-foreground
-/// px-1.5 text-[0.625rem] font-medium` — EXP-594: the indigo badge went
-/// white/glass).
-pub(crate) fn count_badge(count: usize) -> impl IntoElement {
-    div()
-        .rounded_full()
-        .bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
-        .text_color(theme::tokens::FOREGROUND.to_hsla())
-        .px_1p5()
-        .text_size(px(10.))
-        .font_weight(FontWeight::MEDIUM)
+/// EXP-698: the count badge IS the shared small READONLY pill. It used to be
+/// a bespoke 10px capsule on the ACTIVE fill; one capsule recipe, one size
+/// rung, and the count now reads at the same weight as every other pill's
+/// label.
+pub(crate) fn count_badge(id: impl Into<gpui::ElementId>, count: usize, cx: &App) -> impl IntoElement {
+    use crate::surface::{PillMode, PillSize};
+    crate::surface::glass_pill(id, PillSize::Sm, PillMode::Readonly, cx)
         .child(SharedString::from(count.to_string()))
 }
 
@@ -112,19 +108,20 @@ impl RenderOnce for IssueFilterPopover {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let count = active_filter_count(&self.filters);
 
-        // Web trigger: ghost xs `text-muted-foreground` — ListFilter icon +
-        // "Filter" + count badge.
-        let trigger = Button::new("issue-filter-trigger")
-            .ghost()
-            .web_xs()
-            .text_color(cx.theme().muted_foreground)
-            .icon(
-                Icon::from(ExpIcon::ListFilter)
-                    .size_3p5()
-                    .text_color(cx.theme().muted_foreground),
-            )
-            .label("Filter")
-            .when(count > 0, |button| button.child(count_badge(count)));
+        // EXP-698: the trigger is a pill like every other header action —
+        // the MEDIUM rung, because it HOSTS the small count pill and a
+        // capsule can only nest one rung below itself without touching its
+        // own edges.
+        let trigger = crate::surface::glass_pill_button(
+            "issue-filter-trigger",
+            crate::surface::PillSize::Md,
+            cx,
+        )
+        .icon(Icon::from(ExpIcon::ListFilter))
+        .label("Filter")
+        .when(count > 0, |button| {
+            button.child(count_badge("filter-trigger-count", count, cx))
+        });
 
         let content = match self.view {
             FilterView::Categories => categories_view(
@@ -256,7 +253,9 @@ fn categories_view(
                     h_flex()
                         .gap_1()
                         .items_center()
-                        .when(count > 0, |row| row.child(count_badge(count)))
+                        .when(count > 0, |row| {
+                            row.child(count_badge(("filter-category-count", ix), count, cx))
+                        })
                         .child(
                             Icon::new(registry::UI_CHEVRON_RIGHT)
                                 .size_3p5()

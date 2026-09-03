@@ -28,15 +28,19 @@
 //!   [`ViewerHandle::kick`]; see the "Wakeups" section below. Without them a
 //!   woken laptop waits out the transport's staleness window and backoff.
 //!
+//! EXP-698 closed the two biggest gaps: the pinned **Latest changes** strip
+//! and the in-session **Merge** pill now render for a steered session too.
+//! The old rationale ("a remote run's diff is not on this machine") was
+//! wrong — the host publishes its worktree diff on the activity channel and
+//! [`SteerFeed::latest_diff`] holds it; the dock parses it with the same
+//! unified-diff reader the local arm uses and resolves the merge target off
+//! the synced `coding_sessions` row. The bar itself lives in
+//! [`crate::terminal_dock`], which owns the dock's content area.
+//!
 //! ## Deliberate parity gaps vs the web view (EXP-696)
 //!
-//! * no pinned "Latest changes" diff strip and no in-session **Merge** pill —
-//!   the dock already carries both for LOCAL session tabs, and a remote run's
-//!   diff is not on this machine to read;
 //! * no subagent conversation TAB strip — subagent work renders inline as
 //!   expandable group rows, which is the part of parity that matters;
-//! * pending composer images render as filename chips, not thumbnails (the
-//!   bytes are only ever in flight to the upload route);
 //! * no fullscreen toggle — the dock's own resize/undock chrome is the
 //!   desktop's answer to that.
 
@@ -47,8 +51,8 @@ use std::time::Duration;
 use gpui::{
     div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, ClickEvent, Entity,
     FocusHandle, Focusable, InteractiveElement as _, IntoElement, ParentElement as _, Render,
-    ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Task,
-    Window,
+    ScrollHandle, SharedString, StatefulInteractiveElement as _, StyledImage as _, Styled as _,
+    Subscription, Task, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
@@ -58,11 +62,13 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _,
 };
 use steer::{
-    answer_key, build_steer_image_message, summarize_subagent_row, AnswerStatus, FeedItem,
-    FeedItemId, FeedKind, FeedRow, QuestionOption, SteerFeed, SubagentStatus, ViewerEvent,
-    ViewerHandle, ViewerPhase, ANSWER_ACK_TIMEOUT, MAX_STEER_IMAGES, REPLAY_MAX, REPLAY_QUIET,
+    answer_key, build_steer_image_message, insert_image_marker, parse_steer_message,
+    renumber_image_markers, summarize_subagent_row, AnswerStatus, FeedItem, FeedItemId, FeedKind, FeedRow, QuestionOption,
+    SteerFeed, SubagentStatus, ViewerEvent, ViewerHandle, ViewerPhase, ANSWER_ACK_TIMEOUT,
+    MAX_STEER_IMAGES, REPLAY_MAX, REPLAY_QUIET,
 };
 
+use crate::controls::WebText as _;
 use crate::icons::registry;
 use crate::markdown::image_paste::{
     self, max_upload_bytes_for, pasted_image_parts, read_image_file, validate_image,
@@ -80,12 +86,20 @@ const FREE_TEXT_MAX: usize = 4000;
 /// How often the staged-replay fallback re-checks its quiet window.
 const STAGING_TICK: Duration = Duration::from_millis(100);
 
+/// The pending strip's thumbnail edge (web/iOS parity).
+const PENDING_THUMB: f32 = 48.;
+
 /// One image staged in the composer, uploaded on send.
 struct PendingImage {
     key: u64,
     filename: String,
     content_type: String,
-    bytes: Arc<Vec<u8>>,
+    /// EXP-698: the staged bytes, wrapped for `img()` — the thumbnail's
+    /// source AND the upload's. `gpui::Image` owns a public `bytes: Vec<u8>`,
+    /// so the ONE buffer serves both: a separate `Arc<Vec<u8>>` beside it
+    /// would hold a second copy of every pasted screenshot for as long as the
+    /// draft lives. Built once here, never per repaint.
+    preview: Arc<gpui::Image>,
     /// Set once the attachment landed — a retry after a mid-batch failure
     /// never re-uploads what already succeeded.
     uploaded_id: Option<String>,
@@ -142,8 +156,7 @@ impl SteerSessionView {
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let input = cx.new(|cx| {
-            TextareaState::new(window, cx)
-                .auto_grow(1, 6)
+            crate::controls::web_textarea(1, 6, window, cx)
                 // Enter sends, Shift+Enter inserts a newline (web parity).
                 .submit_on_enter(true)
                 .placeholder("Message the agent…")
@@ -265,6 +278,27 @@ impl SteerSessionView {
             self.focus_handle.clone()
         };
         window.focus(&handle, cx);
+    }
+
+    /// EXP-698 — the relay-delivered worktree diff behind the dock's
+    /// "Latest changes" bar. The host publishes it with every activity
+    /// frame, so a REMOTE run's diff is on this machine after all: the bar
+    /// used to be local-tabs-only on the stale rationale that it was not.
+    pub(crate) fn latest_diff(&self) -> Option<&str> {
+        self.feed.latest_diff()
+    }
+
+    /// The synced `coding_sessions` row behind this viewer — what the dock
+    /// resolves the Merge target from ([`crate::terminal_dock`]'s
+    /// `merge_meta_for_session`).
+    pub(crate) fn session_row(&self) -> Option<&domain::rows::CodingSession> {
+        self.row.as_ref()
+    }
+
+    /// Whether the run is over — a merged/ended session offers no Merge
+    /// (web/iOS `canMerge` gate their pill on the same liveness).
+    pub(crate) fn session_over(&self) -> bool {
+        self.row_ended() || matches!(self.phase, ViewerPhase::Ended { .. })
     }
 
     /// The dock calls this when the chip goes away (the row ended, the user
@@ -584,14 +618,11 @@ impl SteerSessionView {
             cx.notify();
             return;
         }
-        let Some(issue_id) = self.row.as_ref().and_then(|row| row.issue_id.clone()) else {
-            // No issue to attach to — send the text alone rather than nothing.
-            if self.deliver(&text) {
-                self.clear_draft(window, cx);
-            }
-            cx.notify();
-            return;
-        };
+        // EXP-702: steer images upload to the SESSION route, not the issue's
+        // — a screenshot pasted into a steering conversation is not part of
+        // the issue's Files, and a batch/action run has no issue at all. That
+        // is what retires the old "no issue = no attachment" gate.
+        let session_id = self.session_id.clone();
         let Some(transport) = crate::queries::attachment_transport(cx) else {
             self.notice = Some(SharedString::from("Couldn't upload image"));
             cx.notify();
@@ -599,7 +630,7 @@ impl SteerSessionView {
         };
         // Sequential + idempotent per image: a mid-batch failure keeps the
         // composer intact and a retry only uploads the rest (web parity).
-        let jobs: Vec<(u64, Option<String>, String, String, Arc<Vec<u8>>)> = self
+        let jobs: Vec<(u64, Option<String>, String, String, Arc<gpui::Image>)> = self
             .pending
             .iter()
             .map(|image| {
@@ -608,7 +639,8 @@ impl SteerSessionView {
                     image.uploaded_id.clone(),
                     image.filename.clone(),
                     image.content_type.clone(),
-                    image.bytes.clone(),
+                    // An Arc clone — the bytes themselves are never copied.
+                    image.preview.clone(),
                 )
             })
             .collect();
@@ -619,12 +651,17 @@ impl SteerSessionView {
                 .background_executor()
                 .spawn(async move {
                     let mut resolved: Vec<(u64, String)> = Vec::with_capacity(jobs.len());
-                    for (key, uploaded, filename, content_type, bytes) in jobs {
+                    for (key, uploaded, filename, content_type, staged) in jobs {
                         match uploaded {
                             Some(id) => resolved.push((key, id)),
                             None => {
                                 let image = transport
-                                    .upload(&issue_id, &filename, &content_type, &bytes)
+                                    .upload_session(
+                                        &session_id,
+                                        &filename,
+                                        &content_type,
+                                        &staged.bytes,
+                                    )
                                     .map_err(|err| (resolved.clone(), err.to_string()))?;
                                 resolved.push((key, image.id));
                             }
@@ -686,7 +723,18 @@ impl SteerSessionView {
 
     /// Add clipboard / picked images to the draft, applying the same caps as
     /// the web composer (type + 10 MB + at most [`MAX_STEER_IMAGES`]).
-    fn stage_images(&mut self, images: Vec<(String, String, Vec<u8>)>, cx: &mut gpui::Context<Self>) {
+    ///
+    /// EXP-698: staging the k-th image also drops `[Image #k]` at the caret,
+    /// so a sentence can NAME the picture it means ("crop [Image #2]") and
+    /// the agent's numbered manifest lines up with it. The insertion is the
+    /// contract's ([`insert_image_marker`]) — only the caret handling is the
+    /// component's, so a marker never splits a word.
+    fn stage_images(
+        &mut self,
+        images: Vec<(String, String, Vec<u8>)>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
         let mut rejected = false;
         let mut overflow = false;
         for (filename, content_type, bytes) in images {
@@ -700,14 +748,16 @@ impl SteerSessionView {
                 overflow = true;
                 continue;
             }
+            let preview = pending_preview(&content_type, bytes);
             self.pending.push(PendingImage {
                 key: self.next_pending_key,
                 filename,
                 content_type,
-                bytes: Arc::new(bytes),
+                preview,
                 uploaded_id: None,
             });
             self.next_pending_key += 1;
+            self.insert_marker(self.pending.len() as u32, window, cx);
         }
         self.notice = if overflow {
             Some(SharedString::from(format!(
@@ -723,11 +773,54 @@ impl SteerSessionView {
         cx.notify();
     }
 
-    fn on_paste(&mut self, _: &input::Paste, _window: &mut Window, cx: &mut gpui::Context<Self>) {
-        // No issue = no attachment route; let the plain text paste run.
-        if self.row.as_ref().and_then(|row| row.issue_id.as_ref()).is_none() {
+    /// Insert `[Image #index]` at the composer's caret, padded exactly as the
+    /// shared contract pads it. The component does the actual insert so it
+    /// owns the caret and the undo entry; the SLICE it inserts is the one
+    /// [`insert_image_marker`] would have produced.
+    fn insert_marker(&mut self, index: u32, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let (text, caret) = {
+            let state = self.input.read(cx);
+            (state.value().to_string(), state.cursor())
+        };
+        let (next, after) = insert_image_marker(&text, caret, index);
+        let Some(inserted) = next.get(caret..after) else {
             return;
-        }
+        };
+        let inserted = inserted.to_string();
+        self.input
+            .update(cx, |state, cx| state.insert(inserted, window, cx));
+    }
+
+    /// Drop a staged image and renumber the draft's markers behind it: the
+    /// removed image's own `[Image #k]` goes and every higher one slides
+    /// down, so the markers keep naming the right pictures.
+    fn remove_pending(&mut self, key: u64, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(position) = self.pending.iter().position(|image| image.key == key) else {
+            return;
+        };
+        self.pending.remove(position);
+        self.input.update(cx, |state, cx| {
+            let text = state.value().to_string();
+            let next = renumber_image_markers(&text, position as u32 + 1);
+            if next == text {
+                return;
+            }
+            // `set_value` parks the caret at the start of a multi-line field
+            // (upstream `InputState::set_value`), which would throw the
+            // writer back to the top of their draft for removing a
+            // thumbnail. Carry the caret over, clamped into the shortened
+            // text and snapped to a char boundary — the same restore the
+            // markdown toolbar's transforms do. It focuses the field, which
+            // is where the writer was anyway: they are mid-draft.
+            let caret = clamp_to_char_boundary(&next, state.cursor());
+            let caret = crate::markdown::byte_offset_to_position(&next, caret);
+            state.set_value(next, window, cx);
+            state.set_cursor_position(caret, window, cx);
+        });
+        cx.notify();
+    }
+
+    fn on_paste(&mut self, _: &input::Paste, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(item) = cx.read_from_clipboard() else {
             return;
         };
@@ -752,7 +845,7 @@ impl SteerSessionView {
             return;
         }
         cx.stop_propagation();
-        self.stage_images(images, cx);
+        self.stage_images(images, window, cx);
     }
 
     fn pick_images(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -774,7 +867,7 @@ impl SteerSessionView {
             if read.is_empty() {
                 return;
             }
-            let _ = this.update(cx, |this, cx| this.stage_images(read, cx));
+            let _ = this.update_in(cx, |this, window, cx| this.stage_images(read, window, cx));
         })
         .detach();
     }
@@ -1164,6 +1257,9 @@ impl SteerSessionView {
                             SharedString::from(format!("steer-narration-{}", item.id)),
                             text.clone(),
                         )
+                        // EXP-698: the feed reads at the chat rhythm, and its
+                        // inline code takes the semantic tint.
+                        .chat(true)
                         .selectable(true),
                     ),
                 )
@@ -1184,7 +1280,7 @@ impl SteerSessionView {
                         .px_3()
                         .py_2()
                         .text_sm()
-                        .child(self.render_body(item.id, text, cx)),
+                        .child(self.render_user_message(item.id, text, cx)),
                 )
                 .into_any_element(),
             FeedKind::Tool {
@@ -1220,7 +1316,10 @@ impl SteerSessionView {
                                     div()
                                         .min_w_0()
                                         .truncate()
-                                        .text_xs()
+                                        // EXP-698: the web's 11px caption
+                                        // rung — a secondary detail must read
+                                        // BELOW the label it hangs off.
+                                        .text_2xs()
                                         .text_color(muted)
                                         .font_family(theme::terminal::FONT_FAMILY)
                                         .child(SharedString::from(detail)),
@@ -1231,7 +1330,7 @@ impl SteerSessionView {
                         this.child(
                             div()
                                 .pl_5()
-                                .text_xs()
+                                .text_2xs()
                                 .text_color(muted)
                                 .child("Approve on the desktop, or reply below to continue."),
                         )
@@ -1243,13 +1342,133 @@ impl SteerSessionView {
         }
     }
 
+    /// EXP-698 — a sent message, with its `[Image #N]` markers rendered as
+    /// PILLS instead of literal bracket text. The prose is split on the
+    /// markers and flowed with them, the embed block still renders its images
+    /// underneath, and clicking a pill opens THAT image (the N-th in embed
+    /// order) in the lightbox.
+    ///
+    /// The web rule, exactly: a marker only means anything when the message
+    /// actually CARRIES embeds, and only when its number names one of them.
+    /// A message with no embeds, or whose every marker is out of range, takes
+    /// the plain [`Self::render_body`] path — which is every message the
+    /// older clients send and every one that carries no images at all — and
+    /// an out-of-range marker inside a marker message stays literal prose.
+    ///
+    /// The runs are rendered as PLAIN TEXT, one flex-wrap row per source
+    /// line, not as markdown: a marker can land inside a fenced block or a
+    /// list item, and splitting markdown at that seam would render two broken
+    /// halves. The web renders these messages as pre-wrap text for the same
+    /// reason. (It also autolinks bare URLs; this port does not, because
+    /// nothing in `crate::markdown` autolinks — `markdown/parse.rs` documents
+    /// that bare URLs stay bare for tiptap parity — and inventing an autolink
+    /// here would make the marker path diverge from every other body.)
+    fn render_user_message(
+        &self,
+        id: FeedItemId,
+        text: &str,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let parsed = parse_steer_message(text);
+        let count = parsed.attachment_ids.len();
+        let chips = count > 0
+            && parsed
+                .markers
+                .iter()
+                .any(|number| image_marker_in_range(*number, count));
+        if !chips {
+            return self.render_body(id, text, cx);
+        }
+        // One row per SOURCE LINE, so a message's own line breaks survive;
+        // the row wraps, so a pill sits with the words around it until the
+        // line runs out.
+        let mut column = v_flex()
+            .w_full()
+            .min_w_0()
+            .line_height(gpui::relative(1.625));
+        for (line_number, line) in parsed.text.split('\n').enumerate() {
+            let runs = split_image_markers(line, count);
+            if runs.is_empty() {
+                // A blank line is a paragraph break — keep it as the chat
+                // rhythm's 8px gap rather than collapsing it away.
+                column = column.child(div().h_2());
+                continue;
+            }
+            let mut row = h_flex().w_full().min_w_0().flex_wrap().items_center().gap_1();
+            for (index, run) in runs.into_iter().enumerate() {
+                row = match run {
+                    MarkerSegment::Text(body) => {
+                        row.child(div().min_w_0().child(SharedString::from(body)))
+                    }
+                    MarkerSegment::Marker(number) => {
+                        // In range by construction — `split_image_markers`
+                        // folded every other number back into the prose.
+                        let attachment = parsed.attachment_ids[number as usize - 1].clone();
+                        let label = SharedString::from(format!("Image {number}"));
+                        row.child(
+                            crate::surface::glass_pill(
+                                // A per-(row, run) id: an arithmetic id
+                                // (`id * 16 + index`) collides as soon as one
+                                // message has 16 runs.
+                                SharedString::from(format!(
+                                    "steer-msg-image-{id}-{line_number}-{index}"
+                                )),
+                                crate::surface::PillSize::Sm,
+                                crate::surface::PillMode::Action,
+                                cx,
+                            )
+                            .child(
+                                Icon::new(registry::EDITOR_IMAGE)
+                                    .with_size(px(crate::surface::PillSize::Sm.glyph())),
+                            )
+                            .child(label.clone())
+                            .on_click(move |_: &ClickEvent, window, cx| {
+                                crate::image_preview::open_image_preview(
+                                    format!("/api/attachments/{attachment}"),
+                                    label.to_string(),
+                                    None,
+                                    None,
+                                    window,
+                                    cx,
+                                );
+                            }),
+                        )
+                    }
+                };
+            }
+            column = column.child(row);
+        }
+        // The embeds still render underneath — the pills REFERENCE the
+        // images, they do not replace them.
+        let embeds = build_steer_image_message("", &parsed.attachment_ids);
+        v_flex()
+            .w_full()
+            .min_w_0()
+            .gap_1()
+            .child(column)
+            .when(!embeds.is_empty(), |this| {
+                this.child(
+                    crate::markdown::MarkdownView::new(
+                        SharedString::from(format!("steer-msg-images-{id}")),
+                        embeds,
+                    )
+                    .selectable(true),
+                )
+            })
+            .into_any_element()
+    }
+
     /// A body that folds behind "Show more" once it runs long.
     fn render_body(&self, id: FeedItemId, text: &str, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
+        // EXP-698: every body this renders is a CHAT body — the user bubble,
+        // the plan card, the ask card, a stepper step — so the rhythm and the
+        // code tint are set once, here.
         let view = crate::markdown::MarkdownView::new(
             SharedString::from(format!("steer-body-{id}")),
             text.to_string(),
         )
+        .chat(true)
         .selectable(true);
         if !clampable(text) {
             return div().w_full().min_w_0().child(view).into_any_element();
@@ -1385,9 +1604,11 @@ impl SteerSessionView {
             )
             .when(running, |this| this.child(Spinner::new().xsmall()))
             .child(
+                // EXP-698: 11px — the agent TYPE is the row's 12px line, its
+                // status and detail the captions beside it.
                 div()
                     .flex_shrink_0()
-                    .text_xs()
+                    .text_2xs()
                     .child(SharedString::from(subagent_caption(
                         summary.done,
                         summary.tool_count,
@@ -1398,7 +1619,7 @@ impl SteerSessionView {
                     div()
                         .min_w_0()
                         .truncate()
-                        .text_xs()
+                        .text_2xs()
                         .child(SharedString::from(detail)),
                 )
             });
@@ -1473,17 +1694,16 @@ impl SteerSessionView {
             total,
         );
 
-        let mut card = v_flex()
+        // EXP-698: the stepper wears the SAME neutral glass card chrome as
+        // `render_question` — a tinted border plus a tinted fill made the two
+        // question surfaces read as two different materials in one feed. Only
+        // the glyph and the heading carry the amber accent.
+        let mut card = crate::surface::glass_card()
             .w_full()
             .min_w_0()
             .my_1()
             .gap_1()
-            .rounded(px(theme::tokens::radius::MD))
-            .border_1()
-            .border_color(amber.opacity(0.4))
-            .bg(amber.opacity(0.05))
-            .px_3()
-            .py_2()
+            .p_3()
             .child(
                 h_flex()
                     .w_full()
@@ -1502,9 +1722,11 @@ impl SteerSessionView {
                     )
                     .when_some(counter, |this, counter| {
                         this.child(
+                            // EXP-698: 11px — "2 of 3" is a caption beside the
+                            // heading, never a peer of it.
                             div()
                                 .flex_shrink_0()
-                                .text_xs()
+                                .text_2xs()
                                 .text_color(muted)
                                 .child(SharedString::from(counter)),
                         )
@@ -1618,17 +1840,16 @@ impl SteerSessionView {
         } else {
             card.header.clone().map(SharedString::from)
         };
-        v_flex()
+        // EXP-698: NEUTRAL card chrome — the shared glass card, radius XL.
+        // Only the glyph and the heading carry the accent (primary for a
+        // ready plan, yellow for a question); a tinted border + tinted fill
+        // made these read as two more materials in the feed.
+        crate::surface::glass_card()
             .w_full()
             .min_w_0()
             .my_1()
             .gap_1()
-            .rounded(px(theme::tokens::radius::MD))
-            .border_1()
-            .border_color(accent.opacity(0.4))
-            .bg(accent.opacity(0.05))
-            .px_3()
-            .py_2()
+            .p_3()
             .child(
                 h_flex()
                     .gap_1p5()
@@ -1977,18 +2198,38 @@ impl SteerSessionView {
     }
 
     fn render_composer(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
         let can_send = self.can_send(cx);
-        let has_issue = self
-            .row
-            .as_ref()
-            .and_then(|row| row.issue_id.as_ref())
-            .is_some();
-        let tint = if can_send {
-            cx.theme().primary
-        } else {
-            cx.theme().primary.opacity(0.4)
-        };
+        let composer = crate::composer::GlassComposer::new(
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .child(Textarea::new(&self.input).w_full().appearance(false))
+                .into_any_element(),
+        )
+        .strip((!self.pending.is_empty()).then(|| self.render_pending_strip(cx)))
+        // EXP-698: the attach tool is ALWAYS offered — steer images upload to
+        // the session route, so a batch/action run (no issue at all) attaches
+        // exactly like an issue run. Its glyph is `ui-add`, the `+` web, iOS
+        // and Android all wear on this control.
+        .tool(
+            crate::composer::composer_tool("steer-attach", registry::UI_ADD, cx)
+                .tooltip("Attach image")
+                .disabled(self.sending)
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    this.pick_images(window, cx);
+                })),
+        );
+        // The steer composer's send is `ui-send` on web/iOS/Android
+        // (`ui-submit` is the COMMENT composer's) — same surface, same
+        // concept. EXP-698: no tooltip — a floating "Send" label beside a
+        // circled arrow reads as a second button.
+        let composer = composer.submit(
+            crate::composer::composer_submit("steer-send", registry::UI_SEND, !can_send, cx)
+                .loading(self.sending)
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                    this.send(window, cx);
+                })),
+        );
         div()
             .w_full()
             .flex_shrink_0()
@@ -1996,101 +2237,68 @@ impl SteerSessionView {
             .border_t_1()
             .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .child(
-                v_flex()
-                    .w_full()
-                    .min_w_0()
-                    .gap_1p5()
-                    .p_2()
-                    .rounded(px(theme::tokens::radius::XL))
-                    .border_1()
-                    .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                    .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-                    .capture_action(cx.listener(Self::on_paste))
-                    .when(!self.pending.is_empty(), |this| {
-                        this.child(self.render_pending_strip(cx))
-                    })
-                    .child(
-                        v_flex()
-                            .w_full()
-                            .min_w_0()
-                            .child(Textarea::new(&self.input).w_full().appearance(false)),
-                    )
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .gap_1()
-                            .items_center()
-                            .when(has_issue, |this| {
-                                this.child(
-                                    Button::new("steer-attach")
-                                        .ghost()
-                                        .cursor_pointer()
-                                        .xsmall()
-                                        .icon(Icon::new(registry::EDITOR_IMAGE).text_color(muted))
-                                        .tooltip("Attach image")
-                                        .disabled(self.sending)
-                                        .on_click(cx.listener(
-                                            |this, _: &ClickEvent, window, cx| {
-                                                this.pick_images(window, cx);
-                                            },
-                                        )),
-                                )
-                            })
-                            .child(div().flex_1())
-                            .child(
-                                Button::new("steer-send")
-                                    .ghost()
-                                    .cursor_pointer()
-                                    .rounded_full()
-                                    // The steer composer's send is `ui-send` on
-                                    // web/iOS/Android (`ui-submit` is the
-                                    // COMMENT composer's) — same surface, same
-                                    // concept.
-                                    .icon(Icon::new(registry::UI_SEND).text_color(tint))
-                                    .tooltip("Send")
-                                    .loading(self.sending)
-                                    .disabled(!can_send)
-                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                        this.send(window, cx);
-                                    })),
-                            ),
-                    ),
+                crate::composer::glass_composer(composer)
+                    .capture_action(cx.listener(Self::on_paste)),
             )
             .into_any_element()
     }
 
-    /// Pending images render as filename chips — the bytes only ever exist in
-    /// flight to the upload route, so there is nothing to draw a thumbnail
-    /// from without staging a temp file.
+    /// EXP-698: pending images render as 48px THUMBNAILS with a corner ✕ —
+    /// the web/iOS/Android strip. The bytes are already in hand (they are
+    /// what the send uploads), so the old filename chip was showing the
+    /// least useful thing about a picture; a chip survives only as the
+    /// fallback for bytes nothing can decode.
     fn render_pending_strip(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let mut strip = h_flex().w_full().flex_wrap().gap_1p5();
         for image in &self.pending {
             let key = image.key;
+            // EXP-698: a 24px hit target (`size::CONTROL_SM`) overlaid on the
+            // 48px tile — `xsmall()` alone sized the glyph, not the box, and
+            // left a corner ✕ that was hard to actually hit.
+            let remove = Button::new(("steer-pending-remove", key as usize))
+                .ghost()
+                .cursor_pointer()
+                .with_size(px(theme::tokens::size::CONTROL_SM))
+                .rounded_full()
+                .icon(registry::UI_CLOSE)
+                .tooltip("Remove image")
+                .disabled(self.sending)
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.remove_pending(key, window, cx);
+                }));
+            let preview = image.preview.clone();
+            let filename = SharedString::from(image.filename.clone());
             strip = strip.child(
-                crate::surface::glass_chip()
-                    .py_0p5()
-                    .child(Icon::new(registry::EDITOR_IMAGE).xsmall().text_color(muted))
+                div()
+                    .relative()
+                    .flex_shrink_0()
+                    .size(px(PENDING_THUMB))
+                    .rounded(px(theme::tokens::radius::SM))
+                    .border_1()
+                    .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                    .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+                    .overflow_hidden()
                     .child(
-                        div()
-                            .max_w(px(140.))
-                            .truncate()
-                            .text_xs()
-                            .child(SharedString::from(image.filename.clone())),
+                        gpui::img(preview)
+                            .size_full()
+                            .object_fit(gpui::ObjectFit::Cover)
+                            // Bytes gpui cannot decode fall back to the
+                            // filename, so a tile is never a silent blank
+                            // square — that is the old chip's whole job.
+                            .with_fallback(move || {
+                                div()
+                                    .size_full()
+                                    .p_1()
+                                    .text_xs()
+                                    .truncate()
+                                    .text_color(muted)
+                                    .child(filename.clone())
+                                    .into_any_element()
+                            }),
                     )
-                    .child(
-                        Button::new(("steer-pending-remove", key as usize))
-                            .ghost()
-                            .cursor_pointer()
-                            .xsmall()
-                            .icon(registry::UI_CLOSE)
-                            .tooltip("Remove image")
-                            .disabled(self.sending)
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                                this.pending.retain(|image| image.key != key);
-                                cx.notify();
-                            })),
-                    ),
+                    // The ✕ rides the tile's top-right corner (web/iOS).
+                    .child(div().absolute().top_0().right_0().child(remove)),
             );
         }
         strip.into_any_element()
@@ -2117,6 +2325,103 @@ fn centered(children: Vec<AnyElement>) -> AnyElement {
         .text_center()
         .children(children)
         .into_any_element()
+}
+
+/// One run of a marker-carrying message: prose, or one `[Image #N]`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum MarkerSegment {
+    Text(String),
+    Marker(u32),
+}
+
+/// The largest char boundary at or before `at` (and never past the end) —
+/// gpui carries the caret as a BYTE offset, and a renumbered draft is shorter
+/// than the one the offset was taken from.
+fn clamp_to_char_boundary(text: &str, at: usize) -> usize {
+    let mut at = at.min(text.len());
+    while at > 0 && !text.is_char_boundary(at) {
+        at -= 1;
+    }
+    at
+}
+
+/// Whether `number` names one of a message's `count` embeds — the web rule:
+/// markers are 1-based and a number outside the range references nothing, so
+/// it is not a chip, it is the text the sender typed.
+pub(crate) fn image_marker_in_range(number: u32, count: usize) -> bool {
+    number >= 1 && (number as usize) <= count
+}
+
+/// Split ONE LINE of a message's prose on its `[Image #N]` markers, keeping
+/// order. `count` is how many embeds the message carries: a marker outside
+/// `1..=count` is not a marker at all and folds back into the surrounding
+/// prose run verbatim.
+///
+/// Seam trimming takes SPACES AND TABS only, never newlines — the flow that
+/// renders these puts a 4px gap between the runs, so a preserved seam space
+/// would double it, but a swallowed line break would silently reflow the
+/// message. (Callers split on `\n` first, so a newline should not reach here
+/// at all; the rule is explicit so it stays true if one ever does.)
+///
+/// The token is the shared contract's ([`steer::image_marker`]); anything
+/// that is not exactly `[Image #<digits>]` stays prose.
+pub(crate) fn split_image_markers(text: &str, count: usize) -> Vec<MarkerSegment> {
+    const OPEN: &str = "[Image #";
+    let mut runs: Vec<MarkerSegment> = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find(OPEN) {
+        let after = &rest[start + OPEN.len()..];
+        let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let closed = !digits.is_empty() && after[digits.len()..].starts_with(']');
+        let number = closed
+            .then(|| digits.parse::<u32>().ok())
+            .flatten()
+            .filter(|number| image_marker_in_range(*number, count));
+        let Some(number) = number else {
+            // `[Image #]`, `[Image #x]`, an unterminated token, or a number
+            // with no embed behind it: prose. Keep the opener with the run
+            // and carry on past it — the digits and `]` fuse back on through
+            // the next `push_text`.
+            let (head, tail) = rest.split_at(start + OPEN.len());
+            push_text(&mut runs, head);
+            rest = tail;
+            continue;
+        };
+        push_text(&mut runs, &rest[..start]);
+        runs.push(MarkerSegment::Marker(number));
+        rest = &after[digits.len() + 1..];
+    }
+    push_text(&mut runs, rest);
+    runs.into_iter()
+        .filter_map(|run| match run {
+            MarkerSegment::Text(body) => {
+                let trimmed = body.trim_matches([' ', '\t']);
+                (!trimmed.is_empty()).then(|| MarkerSegment::Text(trimmed.to_string()))
+            }
+            marker => Some(marker),
+        })
+        .collect()
+}
+
+/// Append a prose run, FUSING it onto the previous one — a token that turned
+/// out not to be a marker leaves two halves that are really one run.
+fn push_text(runs: &mut Vec<MarkerSegment>, body: &str) {
+    if body.is_empty() {
+        return;
+    }
+    if let Some(MarkerSegment::Text(previous)) = runs.last_mut() {
+        previous.push_str(body);
+        return;
+    }
+    runs.push(MarkerSegment::Text(body.to_string()));
+}
+
+/// EXP-698: wrap staged bytes for `img()`, using the same magic-byte sniff
+/// the editor's image slots use. Bytes gpui cannot decode simply paint the
+/// element's `with_fallback` (the filename), so this never has to guess right.
+fn pending_preview(content_type: &str, bytes: Vec<u8>) -> Arc<gpui::Image> {
+    let format = crate::markdown::sniff_format(content_type, &bytes);
+    Arc::new(gpui::Image::from_bytes(format, bytes))
 }
 
 fn status_dot(color: gpui::Hsla) -> impl IntoElement {
@@ -2151,7 +2456,9 @@ fn tool_row(name: &str, detail: Option<&str>, cx: &App) -> impl IntoElement {
                 div()
                     .min_w_0()
                     .truncate()
-                    .text_xs()
+                    // EXP-698: 11px, the web's caption rung — the tool NAME
+                    // is the 12px line, its argument the quieter one under it.
+                    .text_2xs()
                     .text_color(muted)
                     .font_family(theme::terminal::FONT_FAMILY)
                     .child(SharedString::from(detail.to_string())),
@@ -2195,6 +2502,137 @@ impl Drop for SteerSessionView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── EXP-698: `[Image #N]` pills in a sent message ──────────────────────
+
+    fn text(body: &str) -> MarkerSegment {
+        MarkerSegment::Text(body.to_string())
+    }
+
+    #[test]
+    fn a_message_splits_into_prose_and_marker_runs() {
+        assert_eq!(
+            split_image_markers("crop [Image #2] please", 2),
+            vec![text("crop"), MarkerSegment::Marker(2), text("please")]
+        );
+    }
+
+    #[test]
+    fn a_marker_may_stand_alone_or_bookend_the_prose() {
+        assert_eq!(
+            split_image_markers("[Image #1]", 1),
+            vec![MarkerSegment::Marker(1)]
+        );
+        assert_eq!(
+            split_image_markers("[Image #1] fix this", 1),
+            vec![MarkerSegment::Marker(1), text("fix this")]
+        );
+        assert_eq!(
+            split_image_markers("fix this [Image #1]", 1),
+            vec![text("fix this"), MarkerSegment::Marker(1)]
+        );
+    }
+
+    #[test]
+    fn adjacent_markers_keep_their_order_and_numbers() {
+        assert_eq!(
+            split_image_markers("[Image #2][Image #1]", 2),
+            vec![MarkerSegment::Marker(2), MarkerSegment::Marker(1)]
+        );
+    }
+
+    #[test]
+    fn a_message_with_no_markers_is_one_run() {
+        assert_eq!(
+            split_image_markers("just words", 1),
+            vec![text("just words")]
+        );
+        assert!(split_image_markers("   ", 1).is_empty());
+    }
+
+    #[test]
+    fn a_near_miss_token_stays_prose() {
+        // Only the exact contract token is a marker — anything else must
+        // survive as the words the sender typed.
+        for near_miss in ["[Image #]", "[Image #x]", "[Image #1", "[image #1]"] {
+            assert_eq!(
+                split_image_markers(near_miss, 4),
+                vec![text(near_miss)],
+                "{near_miss} is not a marker"
+            );
+        }
+    }
+
+    /// The web rule: a marker references one of the message's embeds or it is
+    /// not a marker. Out of range it folds back into the prose VERBATIM —
+    /// the sender's words are never silently eaten.
+    #[test]
+    fn an_out_of_range_marker_folds_back_into_the_prose() {
+        assert_eq!(
+            split_image_markers("crop [Image #3] please", 2),
+            vec![text("crop [Image #3] please")]
+        );
+        // Zero is out of range too — the numbering is 1-based.
+        assert_eq!(
+            split_image_markers("[Image #0]", 2),
+            vec![text("[Image #0]")]
+        );
+        // With NO embeds nothing is ever a chip.
+        assert_eq!(
+            split_image_markers("crop [Image #1]", 0),
+            vec![text("crop [Image #1]")]
+        );
+    }
+
+    #[test]
+    fn an_out_of_range_marker_beside_a_valid_one_keeps_both_intact() {
+        assert_eq!(
+            split_image_markers("[Image #1] and [Image #9] too", 1),
+            vec![
+                MarkerSegment::Marker(1),
+                text("and [Image #9] too"),
+            ]
+        );
+    }
+
+    /// Seams lose spaces and tabs (the flow's gap replaces them) but NEVER a
+    /// line break — callers split per line, and a swallowed `\n` would
+    /// silently reflow the sender's message.
+    #[test]
+    fn seam_trimming_takes_spaces_but_not_newlines() {
+        assert_eq!(
+            split_image_markers("crop \t[Image #1]\t please", 1),
+            vec![text("crop"), MarkerSegment::Marker(1), text("please")]
+        );
+        assert_eq!(
+            split_image_markers("a\n[Image #1]\nb", 1),
+            vec![text("a\n"), MarkerSegment::Marker(1), text("\nb")]
+        );
+    }
+
+    #[test]
+    fn the_split_agrees_with_the_shared_parser() {
+        // The pill numbers the view renders and the markers the contract
+        // reports are the same list, in the same order.
+        let message = "crop [Image #2] then [Image #1]";
+        let from_split: Vec<u32> = split_image_markers(message, 2)
+            .into_iter()
+            .filter_map(|run| match run {
+                MarkerSegment::Marker(number) => Some(number),
+                MarkerSegment::Text(_) => None,
+            })
+            .collect();
+        assert_eq!(from_split, parse_steer_message(message).markers);
+    }
+
+    #[test]
+    fn the_marker_range_is_one_based_and_inclusive() {
+        assert!(!image_marker_in_range(0, 2));
+        assert!(image_marker_in_range(1, 2));
+        assert!(image_marker_in_range(2, 2));
+        assert!(!image_marker_in_range(3, 2));
+        assert!(!image_marker_in_range(1, 0));
+    }
 
     #[test]
     fn the_phase_caption_mirrors_the_web_labels() {

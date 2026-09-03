@@ -199,14 +199,14 @@ struct CommentThreadView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         ) {
-            GlassPillButton("Show \(events.count) activity items") {
+            GlassPill("Show \(events.count) activity items", mode: .action {
                 // EXP-523: `motion.standard` is nil under Reduce Motion and
                 // `withAnimation(nil)` applies the change instantly, so the
                 // explicit branch this used to carry is gone.
                 withAnimation(motion.standard) {
                     _ = expandedRuns.insert(key)
                 }
-            }
+            })
         }
     }
 
@@ -464,9 +464,11 @@ struct CommentThreadView: View {
 // MARK: - Gutter rail
 
 /// One timeline row: a fixed-width leading gutter holding the marker (dot or
-/// avatar) with a 1.5pt vertical rail connecting to the neighboring rows,
-/// drawn as a background so it spans the row's full height. `showTop`/
-/// `showBottom` trim the rail at the timeline's ends.
+/// avatar) with a 1pt vertical rail connecting to the neighboring rows, drawn
+/// as a background so it spans the row's full height. `showTop`/`showBottom`
+/// trim the rail at the timeline's ends. EXP-698 r5 pinned the rail to
+/// `strokeCard` at one point — web and the IDE draw the same hairline, and the
+/// hand-typed `white 0.09` at 1.5 was a third, heavier line.
 private struct TimelineRow<Marker: View, Content: View>: View {
     let showTop: Bool
     let showBottom: Bool
@@ -493,14 +495,14 @@ private struct TimelineRow<Marker: View, Content: View>: View {
         .background(alignment: .leading) {
             VStack(spacing: 0) {
                 Rectangle()
-                    .fill(Color.white.opacity(showTop ? 0.09 : 0))
-                    .frame(width: 1.5)
+                    .fill(showTop ? GlassTokens.strokeCard : Color.clear)
+                    .frame(width: 1)
                     .frame(height: max(0, topPadding - railBreathing))
                 Color.clear
                     .frame(height: markerSize + railBreathing * 2)
                 Rectangle()
-                    .fill(Color.white.opacity(showBottom ? 0.09 : 0))
-                    .frame(width: 1.5)
+                    .fill(showBottom ? GlassTokens.strokeCard : Color.clear)
+                    .frame(width: 1)
                     .frame(maxHeight: .infinity)
             }
             .frame(width: gutterWidth)
@@ -595,10 +597,15 @@ private struct RegularCommentRow: View {
                         GlassMenuItem("Edit", icon: AppIcons.uiEdit, action: onEdit)
                         GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true, action: onDelete)
                     } label: {
-                        AppIcon(AppIcons.uiMore, size: AppIcon.Size.small)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        // EXP-698 r5: a BARE vertical ellipsis — the glass ring
+                        // it wore made a comment's overflow menu louder than
+                        // the comment. Same glyph, size and tone on all four
+                        // clients; the 32pt frame keeps the tap target.
+                        AppIcon(AppIcons.uiMoreVertical, size: 16)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             .frame(width: 32, height: 32)
                             .contentShape(Rectangle())
+                            .accessibilityLabel("Comment actions")
                     }
                 }
             }
@@ -748,7 +755,7 @@ private struct RegularCommentRow: View {
         .padding(.top, 8)
         .padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassSection()
+        .glassCard()
         .photosPicker(
             isPresented: $showPhotoPicker,
             selection: $photoItems,
@@ -852,25 +859,15 @@ private struct RegularCommentRow: View {
 
 // MARK: - Shared helpers
 
+// EXP-698 r4: the shared `UserAvatar` — a commenter's PICTURE when there is
+// one, and otherwise the hashed-hue initials chip every client paints. The 28pt
+// diameter is the timeline's marker size and stays.
 private func avatar(author: UserEntity?, id: String?) -> some View {
-    Circle()
-        .fill(Color.white.opacity(0.08))
-        .frame(width: 28, height: 28)
-        .overlay(
-            Text(initials(for: author, id: id))
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-        )
+    UserAvatar(user: author, id: id, size: 28)
 }
 
 private func displayName(for author: UserEntity?, id: String?, fallback: String = "Someone") -> String {
     memberDisplayName(author, id: id, generic: fallback)
-}
-
-private func initials(for author: UserEntity?, id: String?) -> String {
-    let source = displayName(for: author, id: id)
-    let parts = source.split(separator: " ").prefix(2)
-    return parts.map { $0.first.map(String.init) ?? "" }.joined().uppercased()
 }
 
 private func relativeDate(_ s: String) -> String {

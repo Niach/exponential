@@ -93,7 +93,15 @@ fun EmojiPickerSheet(
             if (query.isNotBlank()) {
                 if (results.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        SectionHeader("No emoji match \"${query.trim()}\"")
+                        // A message, not a category header — it stays
+                        // sentence-case (iOS draws "No emoji found" the same
+                        // way, outside its uppercase header helper).
+                        Text(
+                            "No emoji match \"${query.trim()}\"",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White.copy(alpha = TextEmphasis.Tertiary),
+                            modifier = Modifier.padding(start = 8.dp, top = 12.dp, bottom = 4.dp),
+                        )
                     }
                 }
                 items(results) { emoji ->
@@ -127,11 +135,17 @@ fun EmojiPickerSheet(
     }
 }
 
+/**
+ * The one place the app draws an UPPERCASE section label instead of the shared
+ * sentence-case [com.exponential.app.ui.components.SectionHeader]: emoji
+ * category headers are a cross-client convention (iOS `EmojiPickerSheet`, web
+ * `emoji-picker.tsx`), not this app's section language.
+ */
 @Composable
 private fun SectionHeader(label: String) {
     Text(
-        label,
-        style = MaterialTheme.typography.labelMedium,
+        label.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
         color = Color.White.copy(alpha = TextEmphasis.Tertiary),
         modifier = Modifier.padding(start = 8.dp, top = 12.dp, bottom = 4.dp),
     )

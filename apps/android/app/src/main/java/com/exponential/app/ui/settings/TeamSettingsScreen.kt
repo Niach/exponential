@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -40,13 +39,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -58,14 +54,19 @@ import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.BoardIcon
+import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.BoardRepoField
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
-import com.exponential.app.ui.components.GlassPillButton
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassPillDefaults
+import com.exponential.app.ui.components.PillMode
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.GlassSheet
-import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.components.userDisplayName
@@ -76,9 +77,8 @@ import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.LabelPalette
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
+import com.exponential.app.ui.theme.glassGroup
 import com.exponential.app.ui.theme.glassRow
-import com.exponential.app.ui.theme.glassSection
 
 // One confirm target per destructive/consequential settings action. Each tab
 // holds a nullable [SettingsConfirm] and renders a single [SettingsConfirmDialog]
@@ -271,23 +271,15 @@ private fun BoardsSection(
 ) {
     var showCreateBoard by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // Header row: title + board count + a compact "New board" pill —
-        // byte-for-byte the iOS Boards header (EXP-331). "New board" is
-        // owner-only in team settings (web parity); the empty-state and
-        // switcher create entries elsewhere stay open (they target the
-        // user's default team via getDefault).
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            SectionHeader("Boards")
-            Spacer(Modifier.width(8.dp))
-            Text(
-                state.boards.size.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-            Spacer(Modifier.weight(1f))
+        // Header row: title + board count + a compact "New board" pill — the
+        // iOS Boards header's shape (EXP-331), now the shared [SectionHeader]
+        // with its own count slot. "New board" is owner-only in team settings
+        // (web parity); the empty-state and switcher create entries elsewhere
+        // stay open (they target the user's default team via getDefault).
+        SectionHeader("Boards") {
             if (isOwner) {
-                GlassPillButton(
-                    label = "New board",
+                GlassPill(
+                    "New board",
                     icon = ExpIcons.uiAdd,
                     onClick = { showCreateBoard = true },
                 )
@@ -311,30 +303,40 @@ private fun BoardsSection(
                 modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 BoardIcon(board)
-                Text(board.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                // Backing repo (one board = one repo): a chip resolving the
-                // synced repositoryId against the tRPC registry — iOS
-                // RepoNameChip parity (EXP-577).
-                val repo = state.repos.firstOrNull { it.id == board.repositoryId }
-                if (repo != null) {
-                    RepoNameChip(repo)
+                // EXP-698: the NAME owns the first line and the repo chip sits
+                // under it. Side by side, a `owner/repo` chip is wide enough
+                // that the board it belongs to was ellipsized to "Mobile …" —
+                // the chip pushed out the one string the row exists to show.
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(board.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // Backing repo (one board = one repo): a chip resolving the
+                    // synced repositoryId against the tRPC registry — iOS
+                    // RepoNameChip parity (EXP-577).
+                    val repo = state.repos.firstOrNull { it.id == board.repositoryId }
+                    if (repo != null) {
+                        RepoNameChip(repo)
+                    }
                 }
                 // Member-level retarget → boards.setRepository (iOS parity:
                 // the swap glyph opens the connected-repos picker).
-                RowGlyphButton(
-                    icon = ExpIcons.uiSwap,
+                CircleIconButton(
+                    ExpIcons.uiSwap,
                     contentDescription = "Change repository",
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                     onClick = { repoTarget = board },
+                    glyphSize = 16.dp,
                 )
                 // Deleting a board is owner-only (the server enforces it too);
                 // the tap opens the destructive confirm dialog.
                 if (isOwner) {
-                    RowGlyphButton(
-                        icon = ExpIcons.uiDelete,
+                    CircleIconButton(
+                        ExpIcons.uiDelete,
                         contentDescription = "Delete board",
-                        tint = DesignTokens.Semantic.Red.copy(alpha = 0.5f),
                         onClick = { onConfirm(SettingsConfirm.DeleteBoard(board)) },
+                        tint = DesignTokens.Semantic.Red.copy(alpha = 0.5f),
+                        glyphSize = 16.dp,
                     )
                 }
             }
@@ -385,27 +387,13 @@ private fun DangerZone(
                 style = MaterialTheme.typography.titleSmall,
                 color = DesignTokens.Semantic.Red.copy(alpha = 0.8f),
             )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .glassButton()
-                    .clickable { confirmDelete = true }
-                    .padding(vertical = 10.dp),
-            ) {
-                Icon(
-                    ExpIcons.uiDelete,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = DesignTokens.Semantic.Red,
-                )
-                Text(
-                    "Delete team",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = DesignTokens.Semantic.Red,
-                )
-            }
+            GlassPill(
+                "Delete team",
+                icon = ExpIcons.uiDelete,
+                onClick = { confirmDelete = true },
+                contentColor = DesignTokens.Semantic.Red,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 
@@ -461,7 +449,6 @@ private fun RepositoriesSection(
     val reauthInstalls = installations.filter { it.needsReauth && !it.stale && !it.suspended }
     val needsReauth = suspended.isEmpty() && reauthInstalls.isNotEmpty()
     val configured = github != null && github.configured
-    val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
 
     // Resume-refresh fallback (EXP-365): if the exponential://github-connected
     // deep link never arrives (older server, swallowed handoff, user closed the
@@ -478,29 +465,21 @@ private fun RepositoriesSection(
         // Header row: title + repo count + a compact "Add repository" button
         // (owner + ≥1 linked installation), mirroring the Labels header's
         // inline action and the iOS Repositories header.
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            SectionHeader("Repositories")
-            Spacer(Modifier.width(8.dp))
-            Text(
-                state.repos.size.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = tertiary,
-            )
-            Spacer(Modifier.weight(1f))
+        SectionHeader("Repositories") {
             // Member-level since EXP-557 (repositories.add operates on the
             // viewer's OWN GitHub connection; connecting shares the repo).
             // Only meaningful once the server has a GitHub App — the picker
             // itself handles the not-yet-connected case with its inline
             // connect hop.
             if (configured) {
-                GlassPillButton(
-                    label = "Add repository",
+                GlassPill(
+                    "Add repository",
                     icon = ExpIcons.uiAdd,
                     onClick = { showAddRepo = true },
                 )
             }
         }
-        Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
+        Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
             if (state.repos.isEmpty()) {
                 Text(
                     "No repositories connected.",
@@ -510,7 +489,7 @@ private fun RepositoriesSection(
                 )
             }
             state.repos.forEachIndexed { i, repo ->
-                if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                if (i > 0) GroupDivider()
                 RepositoryRow(
                     repo = repo,
                     boards = state.boards,
@@ -555,7 +534,7 @@ private fun RepositoriesSection(
                         ExpIcons.uiWarning,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
-                        tint = Color(0xFFEF4444),
+                        tint = DesignTokens.Semantic.Red,
                     )
                     Spacer(Modifier.width(8.dp))
                 } else if (configured && needsReauth) {
@@ -563,11 +542,11 @@ private fun RepositoriesSection(
                         ExpIcons.uiWarning,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
-                        tint = Color(0xFFEAB308),
+                        tint = DesignTokens.Semantic.Yellow,
                     )
                     Spacer(Modifier.width(8.dp))
                 } else if (configured && installations.isNotEmpty()) {
-                    Box(Modifier.size(8.dp).background(Color(0xFF22C55E), CircleShape))
+                    Box(Modifier.size(8.dp).background(DesignTokens.Semantic.Green, CircleShape))
                     Spacer(Modifier.width(8.dp))
                 }
                 Text(
@@ -596,8 +575,8 @@ private fun RepositoriesSection(
                     if (suspended.isNotEmpty()) {
                         // Unsuspend happens on GitHub's installation settings
                         // page — never offer the (useless) reconnect here.
-                        GlassPillButton(
-                            label = "Manage",
+                        GlassPill(
+                            "Manage",
                             icon = ExpIcons.uiExternalLink,
                             onClick = {
                                 CustomTabsIntent.Builder().build()
@@ -605,8 +584,8 @@ private fun RepositoriesSection(
                             },
                         )
                     } else if (connectUrl != null) {
-                        GlassPillButton(
-                            label = when {
+                        GlassPill(
+                            when {
                                 needsReauth -> "Reconnect"
                                 installations.isEmpty() -> "Connect GitHub"
                                 else -> "Manage"
@@ -656,8 +635,8 @@ private fun RepositoriesSection(
                         modifier = Modifier.weight(1f),
                     )
                     Spacer(Modifier.width(8.dp))
-                    GlassPillButton(
-                        label = "Disconnect account",
+                    GlassPill(
+                        "Disconnect account",
                         onClick = { onConfirm(SettingsConfirm.UnlinkGithub(inst)) },
                     )
                 }
@@ -725,11 +704,12 @@ private fun RepositoryRow(
             }
             if (canManage) {
                 Spacer(Modifier.width(8.dp))
-                RowGlyphButton(
-                    icon = ExpIcons.uiDelete,
+                CircleIconButton(
+                    ExpIcons.uiDelete,
                     contentDescription = "Remove repository",
-                    tint = DesignTokens.Semantic.Red.copy(alpha = 0.5f),
                     onClick = { onConfirm(SettingsConfirm.RemoveRepo(repo)) },
+                    tint = DesignTokens.Semantic.Red.copy(alpha = 0.5f),
+                    glyphSize = 16.dp,
                 )
             }
         }
@@ -818,20 +798,12 @@ private fun MembersSection(
     onConfirm: (SettingsConfirm) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            SectionHeader("Members")
-            Spacer(Modifier.width(8.dp))
-            Text(
-                state.members.size.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-        }
+        SectionHeader("Members")
         // A team must always keep at least one owner.
         val ownerCount = state.members.count { it.member.role == DomainContract.teamRoleOwner }
-        Column(Modifier.fillMaxWidth().glassSection().padding(vertical = 4.dp)) {
+        Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
             state.members.forEachIndexed { i, row ->
-                if (i > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                if (i > 0) GroupDivider()
                 val isYou = row.member.userId == state.currentUserId
                 val isLastOwner = row.member.role == DomainContract.teamRoleOwner && ownerCount <= 1
                 // Each menu item gates on an explicit capability; the trigger is
@@ -845,10 +817,13 @@ private fun MembersSection(
                 val displayName = userDisplayName(row.user, row.member.userId)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
+                    // EXP-698: 12dp between the avatar, the name column, the
+                    // role pill and the overflow circle — the pill used to sit
+                    // flush against both of its neighbours.
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                 ) {
                     UserAvatar(user = row.user, nameOrEmail = displayName, size = 32.dp)
-                    Spacer(Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             buildString {
@@ -873,24 +848,15 @@ private fun MembersSection(
                         }
                     }
                     // Role badge pill (iOS parity).
-                    Text(
-                        row.member.role,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        modifier = Modifier
-                            .glassButton()
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                    )
+                    GlassPill(row.member.role, size = PillSize.Sm, mode = PillMode.Readonly)
                     if (hasActions) {
                         var rowMenu by remember { mutableStateOf(false) }
                         Box {
                             // Horizontal `⋯` at tertiary emphasis — iOS
                             // TeamMembersSection parity (EXP-577).
-                            RowGlyphButton(
-                                icon = ExpIcons.uiMore,
+                            CircleIconButton(
+                                ExpIcons.uiMore,
                                 contentDescription = "Member actions",
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                                size = 18.dp,
                                 onClick = { rowMenu = true },
                             )
                             GlassDropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
@@ -960,17 +926,9 @@ private fun LabelsSection(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Header row: title + label count + a compact "New label" pill — the
         // same recipe as the Boards/Repositories headers and iOS (EXP-331).
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            SectionHeader("Labels")
-            Spacer(Modifier.width(8.dp))
-            Text(
-                state.labels.size.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-            Spacer(Modifier.weight(1f))
-            GlassPillButton(
-                label = "New label",
+        SectionHeader("Labels") {
+            GlassPill(
+                "New label",
                 icon = ExpIcons.uiAdd,
                 onClick = { showCreate = true },
             )
@@ -1022,17 +980,18 @@ private fun LabelRow(
     ) {
         Box(Modifier.size(12.dp).background(parseColor(label.color), CircleShape))
         Text(label.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        RowGlyphButton(
-            icon = ExpIcons.uiMoreVertical,
+        // The pencil, not an overflow glyph: the tap opens the editor sheet
+        // directly, there is no menu behind it (iOS twin does the same).
+        CircleIconButton(
+            ExpIcons.uiEdit,
             contentDescription = "Edit label",
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             onClick = { editing = true },
         )
-        RowGlyphButton(
-            icon = ExpIcons.uiDelete,
+        CircleIconButton(
+            ExpIcons.uiDelete,
             contentDescription = "Delete label",
-            tint = DesignTokens.Semantic.Red.copy(alpha = 0.5f),
             onClick = { onDelete(label) },
+            tint = DesignTokens.Palette.Destructive.copy(alpha = 0.7f),
         )
     }
 
@@ -1123,65 +1082,35 @@ private fun LabelEditorDialog(
 }
 
 /**
- * A bare tappable glyph at row scale (iOS `Button(.plain)` + `AppIcon(size:
- * .small)` parity): no Material ripple box, 4dp touch inset around a
- * [size]dp icon.
- */
-@Composable
-private fun RowGlyphButton(
-    icon: ImageVector,
-    contentDescription: String,
-    tint: Color,
-    onClick: () -> Unit,
-    size: Dp = 16.dp,
-) {
-    Icon(
-        icon,
-        contentDescription = contentDescription,
-        tint = tint,
-        modifier = Modifier
-            .clip(CircleShape)
-            .clickable(onClick = onClick)
-            .padding(4.dp)
-            .size(size),
-    )
-}
-
-/**
  * `owner/name` glass chip for a board's backing repo — iOS `RepoNameChip`:
  * repository glyph, monospaced name, external-link glyph; tap opens GitHub.
  */
 @Composable
 private fun RepoNameChip(repo: TeamRepo) {
     val context = LocalContext.current
-    val fg = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier
-            .glassButton()
-            .clickable {
-                runCatching {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/${repo.fullName}"))
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                    )
-                }
+    GlassPill(
+        repo.fullName,
+        size = PillSize.Sm,
+        icon = ExpIcons.uiRepository,
+        fontFamily = FontFamily.Monospace,
+        maxLines = 1,
+        modifier = Modifier.widthIn(max = 180.dp),
+        trailing = {
+            Icon(
+                ExpIcons.uiExternalLink,
+                contentDescription = "Open on GitHub",
+                modifier = Modifier.size(GlassPillDefaults.SmGlyphSize),
+            )
+        },
+        onClick = {
+            runCatching {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/${repo.fullName}"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
             }
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-    ) {
-        Icon(ExpIcons.uiRepository, contentDescription = null, modifier = Modifier.size(11.dp), tint = fg)
-        Text(
-            repo.fullName,
-            style = MaterialTheme.typography.labelSmall,
-            fontFamily = FontFamily.Monospace,
-            color = fg,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 140.dp),
-        )
-        Icon(ExpIcons.uiExternalLink, contentDescription = "Open on GitHub", modifier = Modifier.size(11.dp), tint = fg)
-    }
+        },
+    )
 }
 
 /**

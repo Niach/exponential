@@ -254,7 +254,7 @@ struct DeviceSettingsSheet: View {
     // MARK: - Name
 
     private func nameSection(_ device: SteerDevice) -> some View {
-        Section("Name") {
+        Section {
             HStack(spacing: 8) {
                 TextField("Name", text: $name)
                     .focused($nameFocused)
@@ -276,6 +276,8 @@ struct DeviceSettingsSheet: View {
                     name = device.deviceLabel
                 }
             }
+        } header: {
+            GlassSectionHeader("Name")
         }
         .listRowBackground(glassFormRowFill)
     }
@@ -392,7 +394,7 @@ struct DeviceSettingsSheet: View {
                 saveShare(teamId: newValue == Self.notShared ? nil : newValue)
             }
         } header: {
-            Text("Sharing")
+            GlassSectionHeader("Sharing")
         } footer: {
             Text("Teammates of the shared team can start coding sessions on this server. Moving or clearing the share ends their running sessions.")
         }
@@ -669,16 +671,17 @@ struct DeviceSettingsSheet: View {
 
     private func loginButton(agent: String, account: AgentAccount?) -> some View {
         let signedIn = account?.signedIn == true
-        return GlassPillButton(
+        return GlassPill(
             signedIn ? "Switch account" : "Login",
-            icon: signedIn ? AppIcons.uiSwap : AppIcons.uiSignIn
-        ) {
-            if signedIn, agent == "codex" {
-                switchConfirmAgent = agent
-            } else {
-                queueLogin(agent: agent, switchAccount: signedIn)
+            icon: signedIn ? AppIcons.uiSwap : AppIcons.uiSignIn,
+            mode: .action {
+                if signedIn, agent == "codex" {
+                    switchConfirmAgent = agent
+                } else {
+                    queueLogin(agent: agent, switchAccount: signedIn)
+                }
             }
-        }
+        )
     }
 
     /// What came back: the machine completes the command EARLY, the moment the
@@ -779,18 +782,14 @@ struct DeviceSettingsSheet: View {
         } header: {
             // EXP-688: Prune is an icon at the trailing edge of the header —
             // it was a full-width labelled row among the worktrees it acts on.
-            HStack(spacing: 8) {
-                Text("Worktrees")
-                Spacer(minLength: 0)
+            GlassSectionHeader("Worktrees") {
                 if !worktrees.isEmpty {
                     if pendingCommands["prune"] != nil {
                         ProgressView().controlSize(.small)
                     } else {
                         CircleIconButton(
                             AppIcons.uiClean,
-                            accessibilityLabel: "Prune merged worktrees",
-                            size: 28,
-                            glyphSize: 15
+                            accessibilityLabel: "Prune merged worktrees"
                         ) {
                             prune()
                         }
@@ -848,8 +847,6 @@ struct DeviceSettingsSheet: View {
                     CircleIconButton(
                         AppIcons.uiDelete,
                         accessibilityLabel: "Remove worktree",
-                        size: 28,
-                        glyphSize: 15,
                         enabled: !worktree.busy
                     ) {
                         removeTarget = worktree

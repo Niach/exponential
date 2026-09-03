@@ -3,6 +3,7 @@ import {
   GettingStartedCards,
   type GettingStartedCardsProps,
 } from "@/components/getting-started/getting-started-cards"
+import { GlassSectionHeader } from "@/components/ui/glass-rows"
 
 // The "Getting started" block under the board's "No issues yet" empty state
 // (EXP-88). EXP-548: no dismissal — the block (like the sidebar entry and the
@@ -17,11 +18,7 @@ export function GettingStartedSection({
 
   return (
     <div className="mx-auto w-full max-w-4xl px-6 pb-12">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-medium text-muted-foreground">
-          Getting started
-        </h3>
-      </div>
+      <GlassSectionHeader label="Getting started" />
       <GettingStartedCards
         team={team}
         teamSlug={teamSlug}

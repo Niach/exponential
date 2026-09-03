@@ -31,11 +31,15 @@ public struct TeamAvatar: View {
         .clipShape(RoundedRectangle(cornerRadius: size / 4))
     }
 
+    /// EXP-698 r5: the WHITE chip, black initial — the same team mark web,
+    /// iOS and Android draw (`bg-primary text-primary-foreground`). It used to
+    /// be a `fillActive` wash, which vanished against the glass rows it sits
+    /// on and read as a different avatar to the web sidebar's.
     private var initialsChip: some View {
         Text(team.name.prefix(1).uppercased())
             .font(.caption.weight(.bold))
-            .foregroundStyle(.white)
+            .foregroundStyle(DesignTokens.Palette.primaryForeground)
             .frame(width: size, height: size)
-            .background(Color.white.opacity(0.15))
+            .background(DesignTokens.Palette.primary)
     }
 }

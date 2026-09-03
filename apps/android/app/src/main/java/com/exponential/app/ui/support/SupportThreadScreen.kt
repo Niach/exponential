@@ -52,11 +52,16 @@ import com.exponential.app.data.api.SupportLinkedIssue
 import com.exponential.app.data.api.SupportMessage
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.ComposerSubmitButton
+import com.exponential.app.ui.components.GlassComposer
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
+import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.components.PillMode
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.TopBarActionButton
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
@@ -64,7 +69,6 @@ import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.delay
 
@@ -390,48 +394,48 @@ private fun Composer(
     sending: Boolean,
     onSend: () -> Unit,
 ) {
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ModePill("Reply", active = !internalMode) { onModeChange(false) }
-            ModePill("Internal note", active = internalMode) { onModeChange(true) }
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.Bottom) {
-            GlassTextField(
-                value = draft,
-                onValueChange = onDraftChange,
-                modifier = Modifier.weight(1f),
-                placeholder = if (internalMode) "Add an internal note…" else "Reply to the reporter…",
-                maxLines = 4,
-                containerColor = if (internalMode) InternalAmber.copy(alpha = 0.10f) else GlassTokens.CardFill,
-            )
-            IconButton(
-                onClick = onSend,
-                enabled = draft.isNotBlank() && !sending,
+    GlassComposer(
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        leading = {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(bottom = 8.dp),
             ) {
-                Icon(
-                    ExpIcons.uiSend,
-                    contentDescription = if (internalMode) "Add note" else "Send reply",
-                    tint = MaterialTheme.colorScheme.onSurface.copy(
-                        alpha = if (draft.isNotBlank() && !sending) 1f else TextEmphasis.Quaternary,
-                    ),
+                GlassPill(
+                    "Reply",
+                    size = PillSize.Sm,
+                    mode = PillMode.Select,
+                    selected = !internalMode,
+                    onClick = { onModeChange(false) },
+                )
+                GlassPill(
+                    "Internal note",
+                    size = PillSize.Sm,
+                    mode = PillMode.Select,
+                    selected = internalMode,
+                    onClick = { onModeChange(true) },
                 )
             }
-        }
+        },
+        submit = {
+            ComposerSubmitButton(
+                ExpIcons.uiSend,
+                contentDescription = if (internalMode) "Add note" else "Send reply",
+                onClick = onSend,
+                enabled = draft.isNotBlank() && !sending,
+            )
+        },
+    ) {
+        GlassTextField(
+            value = draft,
+            onValueChange = onDraftChange,
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = if (internalMode) "Add an internal note…" else "Reply to the reporter…",
+            maxLines = 4,
+            // An internal note tints the FIELD amber inside the neutral
+            // composer card, so the mode is visible while typing.
+            containerColor = if (internalMode) InternalAmber.copy(alpha = 0.10f) else Color.Transparent,
+            bordered = internalMode,
+        )
     }
-}
-
-@Composable
-private fun ModePill(label: String, active: Boolean, onClick: () -> Unit) {
-    Text(
-        label,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurface.copy(
-            alpha = if (active) 1f else TextEmphasis.Secondary,
-        ),
-        modifier = Modifier
-            .glassButton(active = active)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    )
 }

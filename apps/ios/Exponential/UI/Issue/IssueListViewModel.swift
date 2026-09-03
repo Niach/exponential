@@ -437,6 +437,19 @@ final class IssueListViewModel {
         }
     }
 
+    /// Delete the whole selection (EXP-698 r5 — the bulk bar's trash, gated on
+    /// `isModerator` and confirmed by the caller). The rows leave the local
+    /// store through Electric's delete messages, so there is nothing to write
+    /// here.
+    func bulkDelete(issueIds: [String]) async {
+        await runBulk(issueIds) { ids in
+            try await self.issuesApi.bulkDelete(
+                accountId: self.accountId,
+                BulkDeleteIssuesInput(issueIds: ids)
+            )
+        }
+    }
+
     /// The bulk label procedures record a timeline event only for the rows
     /// they really inserted/deleted, so the caller can hand over the whole
     /// selection — issues that already carry the label are skipped silently

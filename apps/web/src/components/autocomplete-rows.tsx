@@ -40,7 +40,7 @@ export function UserCandidateRow({
     >
       <Avatar className="size-5">
         {user.image && <AvatarImage src={user.image} alt={name} />}
-        <AvatarFallback className="text-[0.5625rem]">
+        <AvatarFallback className="text-[0.5625rem]" userId={user.id}>
           {getInitials(name)}
         </AvatarFallback>
       </Avatar>

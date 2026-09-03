@@ -90,7 +90,12 @@ struct WidgetSubmissionCard: View {
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(8)
-                                .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                                // A code block, not a chip: it keeps the
+                                // roomier 8pt padding, on the token fill.
+                                .background(
+                                    GlassTokens.fillSection,
+                                    in: RoundedRectangle(cornerRadius: 8)
+                                )
                         }
                     }
                 }

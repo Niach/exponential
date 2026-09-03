@@ -172,11 +172,20 @@ pub(crate) fn measure_text(window: &Window, text: &str, font: gpui::Font, size: 
     f32::from(layout.width)
 }
 
-/// Gap between chips in the strip — the `gap_1()` on the strip's `h_flex`,
+/// Gap BETWEEN chips in the strip — the `gap_1()` on the strip's `h_flex`,
 /// which like every gpui spacing helper resolves against the rem size.
 /// Shared with the terminal dock's strip (EXP-497), which uses the same gap.
 pub(crate) fn chip_gap(window: &Window) -> f32 {
     0.25 * f32::from(window.rem_size())
+}
+
+/// Gap between a chip's own CHILDREN — `surface::rich_tab`'s `gap_1p5`.
+/// EXP-698: this used to be measured with [`chip_gap`], which is the gap
+/// between chips, not inside one; the two are different helpers on different
+/// elements (`gap_1` on the strip, `gap_1p5` on the chip) and reading one for
+/// the other under-measured every chip by a third of a gap per child.
+pub(crate) fn rich_tab_child_gap(window: &Window) -> f32 {
+    0.375 * f32::from(window.rem_size())
 }
 
 /// Width of the trailing "+N" button: an xsmall `Button` (`px_1` a side)
@@ -360,6 +369,9 @@ pub struct ScreensPanel {
     /// One frame stale during a live resize; 0.0 before the first paint
     /// falls back to stretch.
     slot_width: std::rc::Rc<std::cell::Cell<f32>>,
+    /// EXP-698 round 5: the "No boards yet" state scrolls — it carries the
+    /// Getting-started cards under it.
+    empty_scroll: gpui::ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -426,6 +438,11 @@ impl ScreensPanel {
             },
         ));
         subscriptions.push(cx.observe(&collections.boards, |_, _, cx| cx.notify()));
+        // EXP-698 round 5: the "No boards yet" center renders the
+        // Getting-started cards — same reason the issue list observes it
+        // (tRPC one-shot signals no collection echo covers).
+        let gs_progress = crate::getting_started::GettingStartedProgress::global(cx);
+        subscriptions.push(cx.observe(&gs_progress, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe_in(
             &Store::global(cx).state(),
             window,
@@ -449,6 +466,7 @@ impl ScreensPanel {
 
         let mut this = Self {
             focus_handle: cx.focus_handle(),
+            empty_scroll: gpui::ScrollHandle::new(),
             nav,
             issue_detail,
             settings,
@@ -850,8 +868,8 @@ impl ScreensPanel {
     /// — reading them as their 16px-rem pixel values inflated every chip by
     /// ~23%. The one genuine pixel constant is the title's `max_w`.
     fn measure_chip_width(&self, entry: &TabEntry, window: &Window, cx: &App) -> f32 {
-        /// `tab_chip`'s `px_2`, both sides.
-        const CHIP_PADDING_REMS: f32 = 0.5 * 2.;
+        /// `surface::rich_tab`'s `px_2p5`, both sides.
+        const CHIP_PADDING_REMS: f32 = 0.625 * 2.;
         /// `Icon::xsmall()` — `size_3` (status AND action leads render
         /// xsmall, so one constant covers both — EXP-426).
         const LEAD_ICON_REMS: f32 = 0.75;
@@ -859,9 +877,9 @@ impl ScreensPanel {
         const XSMALL_BUTTON_REMS: f32 = 1.25;
         /// The trailing button cluster's own `gap_0p5`.
         const CLUSTER_GAP_REMS: f32 = 0.125;
-        /// `.max_w(px(180.)).truncate()` on the title child — a real pixel
+        /// `surface::RICH_TAB_TITLE_MAX_W` on the title child — a real pixel
         /// value, so it does NOT scale with the rem.
-        const TITLE_MAX_W: f32 = 180.;
+        const TITLE_MAX_W: f32 = crate::surface::RICH_TAB_TITLE_MAX_W;
 
         let rem = f32::from(window.rem_size());
         let content = chip_content(&entry.screen, cx);
@@ -888,7 +906,7 @@ impl ScreensPanel {
             XSMALL_BUTTON_REMS * rem
         });
 
-        let gaps = chip_gap(window) * children.len().saturating_sub(1) as f32;
+        let gaps = rich_tab_child_gap(window) * children.len().saturating_sub(1) as f32;
         CHIP_PADDING_REMS * rem + gaps + children.into_iter().sum::<f32>()
     }
 
@@ -944,8 +962,15 @@ impl ScreensPanel {
             .children(chips.into_iter().map(|(ix, screen)| {
                 let screen = &screen;
                 let content = chip_content(screen, cx);
-                crate::surface::tab_chip(Some(ix) == active_ix, cx)
-                    .id(("center-tab", ix))
+                let mut tab =
+                    crate::surface::RichTab::new(("center-tab", ix), Some(ix) == active_ix);
+                tab.status = match content.lead.icon(cx) {
+                    Some(icon) => crate::surface::RichTabStatus::Glyph(icon),
+                    None => crate::surface::RichTabStatus::None,
+                };
+                tab.identifier = content.identifier;
+                tab.title = content.title;
+                crate::surface::rich_tab(tab, cx)
                     .group(TAB_GROUP)
                     // Tab activation re-selects the tab's origin sidebar
                     // entry, then shows the screen (EXP-288) — never a
@@ -997,25 +1022,9 @@ impl ScreensPanel {
                             ))
                         }
                     })
-                    // EXP-310: lead glyph (status icon / action glyph) +
-                    // identifier shortcode ahead of the title, mirroring the
-                    // issue list row's glyph/mono-identifier treatment.
-                    .when_some(content.lead.icon(cx), |chip, icon| {
-                        chip.child(icon.xsmall())
-                    })
-                    .when_some(content.identifier, |chip, identifier| {
-                        chip.child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .font_family(theme::terminal::FONT_FAMILY)
-                                .whitespace_nowrap()
-                                .child(identifier),
-                        )
-                    })
-                    .when_some(content.title, |chip, title| {
-                        chip.child(div().max_w(px(180.)).truncate().child(title))
-                    })
+                    // EXP-698: the lead glyph, the mono shortcode and the
+                    // truncating title are `rich_tab`'s standard children;
+                    // only the strip-specific trailing cluster is built here.
                     .child(
                         h_flex()
                             .gap_0p5()
@@ -1262,28 +1271,24 @@ impl ScreensPanel {
                 )
                 .into_any_element();
         }
+        // EXP-698 round 5: the shared empty-state shape (`controls::empty_state`)
+        // with the Getting-started checklist under it — the same block the
+        // empty board shows, and the web's `/t/$teamSlug` empty page.
+        // The 60% band keeps the state optically centred when no cards
+        // follow it (a complete checklist, or a team still answering).
         let mut column = v_flex()
-            .size_full()
+            .w_full()
+            .min_w_0()
+            .min_h(gpui::relative(0.6))
             .items_center()
             .justify_center()
-            .gap_2()
-            .child(
-                Icon::new(registry::NAV_BOARDS)
-                    .size_6()
-                    .text_color(cx.theme().muted_foreground),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child("No boards yet"),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("Create a board to start tracking issues. Connect a repository to code on it."),
-            );
+            .gap_3()
+            .child(crate::controls::empty_state(
+                Icon::new(registry::NAV_BOARDS),
+                "No boards yet",
+                "Create a board to start tracking work.",
+                cx,
+            ));
         // No team resolves (e.g. mid team-switch churn): the create
         // action would silently no-op, so don't offer a dead button. (The
         // fully-teamless account is handled by the zero-team branch above.)
@@ -1298,7 +1303,25 @@ impl ScreensPanel {
                     }),
             );
         }
-        column.into_any_element()
+        let cards = active_team
+            .as_deref()
+            .and_then(|team_id| crate::getting_started::inline_cards(team_id, cx));
+        v_flex()
+            .size_full()
+            .min_h_0()
+            .child(crate::scroll_pane::v_scroll_pane(
+                "screens-empty-scroll",
+                &self.empty_scroll,
+                v_flex()
+                    .w_full()
+                    .min_w_0()
+                    .px_4()
+                    .pb_4()
+                    .gap_4()
+                    .child(column)
+                    .children(cards),
+            ))
+            .into_any_element()
     }
 }
 

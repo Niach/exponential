@@ -48,7 +48,7 @@ use domain::statuses::{
     ResolvedStatus,
 };
 
-use crate::controls::{WebControl as _, CTL_XS_H};
+use crate::controls::{WebControl as _, CTL_SM_H};
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 
@@ -657,14 +657,17 @@ impl StatusesPane {
         let tint = crate::icons::status_tint_color(&resolved.tint, cx);
         let glyph = crate::icons::glyph_icon(resolved.glyph).text_color(tint);
 
-        let mut line = h_flex()
+        // EXP-698: the shared glass ROW CARD — the surrounding category column
+        // is a gapped list, so each status is its own object, not a fused
+        // group row.
+        let mut line = crate::surface::glass_row_card()
+            .flex()
+            .w_full()
+            .min_w_0()
             .gap_3()
             .items_center()
             .px_3()
-            .py_1p5()
-            .rounded(cx.theme().radius)
-            .border_1()
-            .border_color(super::row_stroke(cx));
+            .py_1p5();
 
         // Leading glyph. A CUSTOM status' glyph doubles as its color swatch
         // trigger (the labels pane's dot popover, one control lighter). A
@@ -673,7 +676,7 @@ impl StatusesPane {
         line = if builtin.is_some() {
             line.child(
                 div()
-                    .size(gpui::px(CTL_XS_H))
+                    .size(gpui::px(CTL_SM_H))
                     .flex_shrink_0()
                     .flex()
                     .items_center()
@@ -737,16 +740,15 @@ impl StatusesPane {
 
         // The backlog builtin is where new issues land — web parity badge.
         if builtin.as_deref() == Some("backlog") {
-            line = line.child(
-                div()
-                    .px_1p5()
-                    .rounded(cx.theme().radius)
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .border_1()
-                    .border_color(super::row_stroke(cx))
-                    .child("Default"),
-            );
+            // EXP-698: the shared non-interactive glass chip, not a bespoke
+            // bordered-but-unfilled badge.
+            line = line.child(crate::surface::glass_pill(
+                gpui::SharedString::from(format!("status-default-{}", row.id)),
+                crate::surface::PillSize::Sm,
+                crate::surface::PillMode::Readonly,
+                cx,
+            )
+            .child("Default"));
         }
 
         line = line.child(
@@ -766,10 +768,12 @@ impl StatusesPane {
         let down_row = row.clone();
         line = line
             .child(
-                Button::new(row_id("status-up", &status_id))
-                    .ghost()
-                    .web_icon_xs()
-                    .icon(registry::UI_CHEVRON_UP)
+                // EXP-698: the one 32px glass chrome every row action wears.
+                crate::controls::glass_icon_button(
+                    row_id("status-up", &status_id),
+                    Icon::new(registry::UI_CHEVRON_UP),
+                    cx,
+                )
                     .tooltip("Move up")
                     .disabled(first_in_category)
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -777,10 +781,11 @@ impl StatusesPane {
                     })),
             )
             .child(
-                Button::new(row_id("status-down", &status_id))
-                    .ghost()
-                    .web_icon_xs()
-                    .icon(registry::UI_CHEVRON_DOWN)
+                crate::controls::glass_icon_button(
+                    row_id("status-down", &status_id),
+                    Icon::new(registry::UI_CHEVRON_DOWN),
+                    cx,
+                )
                     .tooltip("Move down")
                     .disabled(last_in_category)
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -807,10 +812,11 @@ impl StatusesPane {
             let del_id = status_id.clone();
             let del_name = row.name.clone();
             line = line.child(
-                Button::new(row_id("status-delete", &status_id))
-                    .ghost()
-                    .web_icon_xs()
-                    .icon(registry::UI_DELETE)
+                crate::controls::glass_icon_button(
+                    row_id("status-delete", &status_id),
+                    Icon::new(registry::UI_DELETE),
+                    cx,
+                )
                     .tooltip("Delete status")
                     .on_click(cx.listener(move |this, _, window, cx| {
                         let Some(preselected) = preselected.clone() else {
@@ -830,7 +836,11 @@ impl StatusesPane {
         } else {
             // Builtins cannot be deleted — reserve the button's width so the
             // counts and badges stay column-aligned with the custom rows.
-            line = line.child(div().size(gpui::px(CTL_XS_H)).flex_shrink_0());
+            line = line.child(
+                div()
+                    .size(gpui::px(crate::controls::CTL_MD_H))
+                    .flex_shrink_0(),
+            );
         }
 
         let error = self
@@ -867,12 +877,13 @@ impl StatusesPane {
             self.create_error.clone()
         };
         let entity = cx.entity();
-        v_flex()
+        // EXP-698: the inline form is one more object in the category's gapped
+        // list, so it wears the glass row card.
+        crate::surface::glass_row_card()
+            .flex()
+            .flex_col()
             .gap_3()
             .p_3()
-            .rounded(cx.theme().radius)
-            .border_1()
-            .border_color(super::row_stroke(cx))
             .child(Input::new(&self.new_name).web_input_sm())
             .when_some(form_error, |col, message| {
                 col.child(
@@ -922,9 +933,7 @@ impl StatusesPane {
                             .on_click(cx.listener(|this, _, _, cx| this.create(cx))),
                     )
                     .child(
-                        Button::new(category_id("status-create-cancel", category))
-                            .ghost()
-                            .web_xs()
+                        crate::surface::glass_pill_button(category_id("status-create-cancel", category), crate::surface::PillSize::Sm, cx)
                             .label("Cancel")
                             .disabled(self.submitting)
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -1017,9 +1026,7 @@ impl Render for StatusesPane {
                             .gap_2()
                             .items_center()
                             .child(
-                                Button::new(category_id("status-new", category))
-                                    .outline()
-                                    .web_xs()
+                                crate::surface::glass_pill_button(category_id("status-new", category), crate::surface::PillSize::Sm, cx)
                                     .icon(registry::UI_ADD)
                                     .label("Add status")
                                     .disabled(capped)

@@ -47,7 +47,7 @@ private func readDraftFileBytes(from url: URL) -> Result<Data, DraftFileReadFail
 }
 
 /// The New-issue PAGE (EXP-687 — it used to be a sheet): back icon top-left,
-/// `Create` pill top-right, exactly like Android's `CreateIssueScreen`.
+/// `Create` top-right, exactly like Android's `CreateIssueScreen`.
 struct CreateIssueView: View {
     let boardId: String
     /// The page is done: the created issue's id so the host can land on it
@@ -96,9 +96,22 @@ struct CreateIssueView: View {
     @State private var confirmDiscard = false
     @FocusState private var titleFocused: Bool
 
+    /// The title as it would be filed: a run of spaces is not a title, and
+    /// leading/trailing whitespace never belongs in one.
+    private var trimmedTitle: String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Create is live only with a title, nothing in flight, and no issue
+    /// already committed from this draft (an attachment failed and the page
+    /// stayed up — a second Create would file a duplicate).
+    private var canSubmit: Bool {
+        !trimmedTitle.isEmpty && !loading && !createCommitted
+    }
+
     /// True while there is unsaved work worth a confirmation.
     private var hasDraftContent: Bool {
-        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !trimmedTitle.isEmpty
             || !editor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !editor.pendingImages.isEmpty
             || !draftFiles.isEmpty
@@ -110,21 +123,19 @@ struct CreateIssueView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    // Title
-                    TextField("Issue title", text: $title)
-                        .font(.title3.weight(.medium))
-                        .textFieldStyle(.plain)
-                        .foregroundStyle(.white)
-                        .focused($titleFocused)
-                        .accessibilityIdentifier("issue-title-field")
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(Color.white.opacity(0.04))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
-                        )
+                    // Title — the shared input (EXP-698 r4). It used to draw its
+                    // own .04 fill and .08 hairline at radius 10, i.e. a
+                    // near-miss of `GlassTextField`'s tokens; the recipe brings
+                    // the focus-brightened stroke with it. The font and the
+                    // focus binding stay the caller's, as every GlassTextField
+                    // behaviour modifier does.
+                    GlassTextField(
+                        "Issue title",
+                        text: $title,
+                        accessibilityIdentifier: "issue-title-field"
+                    )
+                    .font(.title3.weight(.medium))
+                    .focused($titleFocused)
 
                     // Description (block-based markdown editor with images)
                     MarkdownEditor(
@@ -136,13 +147,13 @@ struct CreateIssueView: View {
                         // EXP-327: the same attach menu as issue detail —
                         // images go into the description, other files
                         // become drafts uploaded once the issue exists.
-                        // No `minHeight` here (EXP-659): the editor hugs its
-                        // content. Issue detail keeps the 200pt focus-end
-                        // band (EXP-655); on this sheet the title is
-                        // auto-focused, so the keyboard is up from the first
-                        // frame and a 200pt band pushed the properties card,
-                        // Labels and "Create more" under it on an iPhone. A
-                        // short or empty description is its own tap target.
+                        // 120pt, matching Android's CreateIssueScreen
+                        // (EXP-659 rewritten in EXP-698 r4): enough of a band
+                        // to read as the description field, and short enough
+                        // that the auto-focused title's keyboard still leaves
+                        // the properties card, Labels and "Create more" on
+                        // screen — which the 200pt issue-detail band did not.
+                        minHeight: 120,
                         onAttachFile: { url in ingestDraftFile(url) }
                     )
 
@@ -153,60 +164,62 @@ struct CreateIssueView: View {
                     }
 
                     // Metadata + due date, one card (EXP-247): the due-date
-                    // row (and, when set, the time rows) attach directly to
-                    // the Status/Priority/Assignee card instead of floating
-                    // as standalone sections.
+                    // row (and, when set, the calendar) attach directly to the
+                    // Status/Priority/Assignee card instead of floating as
+                    // standalone sections.
+                    //
+                    // EXP-698 r4 (Android CreateIssueScreen parity): the rows
+                    // are hairline-separated FULL rows — label left, glyph +
+                    // value right — not a 12pt stack of label/chevron lines.
+                    // No leading gutter glyph and no trailing chevron: the
+                    // property's own icon rides beside its value, which is
+                    // where the eye reads it, and the whole row is the tap
+                    // target instead of just the value.
                     VStack(spacing: 0) {
-                        VStack(spacing: 12) {
-                            // Status
-                            metadataRow(label: "Status", icon: status.iconName, iconColor: status.color) {
-                                Button {
-                                    picker = .status
-                                } label: {
-                                    Text(status.name)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                }
-                                .buttonStyle(.plain)
-                            }
+                        // Status
+                        GlassMetaRow(
+                            label: "Status",
+                            icon: status.iconName,
+                            iconColor: status.color,
+                            value: status.name
+                        ) { picker = .status }
 
-                            // Priority
-                            metadataRow(label: "Priority", icon: priority.iconName, iconColor: priority.color) {
-                                Button {
-                                    picker = .priority
-                                } label: {
-                                    Text(priority.label)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                }
-                                .buttonStyle(.plain)
-                            }
+                        GlassDivider()
 
-                            // Assignee — hidden on solo teams, where the
-                            // sole member is pre-assigned (EXP-50).
-                            if !singleMemberTeam {
-                                metadataRow(label: "Assignee", icon: "person.circle", iconColor: .white.opacity(0.6)) {
-                                    Button {
-                                        picker = .assignee
-                                    } label: {
-                                        let assignee = users.first { $0.id == assigneeId }
-                                        // memberDisplayName falls back to the email for a
-                                        // blank name (name-less Apple logins); keep the
-                                        // "Unassigned" sentinel when there is no assignee.
-                                        Text(assignee.map { memberDisplayName($0, id: $0.id) } ?? "Unassigned")
-                                            .font(.subheadline)
-                                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
+                        // Priority
+                        GlassMetaRow(
+                            label: "Priority",
+                            icon: priority.iconName,
+                            iconColor: priority.color,
+                            value: priority.label
+                        ) { picker = .priority }
+
+                        // Assignee — hidden on solo teams, where the
+                        // sole member is pre-assigned (EXP-50).
+                        if !singleMemberTeam {
+                            GlassDivider()
+
+                            // EXP-698: the registry's assignee concept —
+                            // the raw `person.circle` SF Symbol here was
+                            // not an `AppIcons` name, so the row simply
+                            // rendered no glyph at all.
+                            // memberDisplayName falls back to the email for a
+                            // blank name (name-less Apple logins); keep the
+                            // "Unassigned" sentinel when there is no assignee.
+                            let assignee = users.first { $0.id == assigneeId }
+                            GlassMetaRow(
+                                label: "Assignee",
+                                icon: assigneeId == nil ? AppIcons.uiUnassigned : AppIcons.uiAssignee,
+                                iconColor: .white.opacity(TextOpacity.secondary),
+                                value: assignee.map { memberDisplayName($0, id: $0.id) } ?? "Unassigned"
+                            ) { picker = .assignee }
                         }
-                        .padding(16)
 
-                        Divider().background(Color.white.opacity(0.06))
+                        GlassDivider()
 
-                        // Due date — embedded so it carries no card of its own.
-                        DueDatePicker(date: $dueDate, embedded: true)
+                        // Due date — no card of its own, the same row
+                        // geometry as the three above.
+                        DueDatePicker(date: $dueDate)
                     }
                     .glassSection()
                     .opacity(permissions.isModerator ? 1 : 0.55)
@@ -219,41 +232,21 @@ struct CreateIssueView: View {
                     // yet, so labelIds rides along on the create call. Not
                     // moderator-gated: issues.create lets any creator set
                     // title/description/labels.
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Labels")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-                        FlowLayout(spacing: 6) {
-                            ForEach(labels, id: \.id) { label in
-                                Button {
-                                    if selectedLabelIds.contains(label.id) {
-                                        selectedLabelIds.remove(label.id)
-                                    } else {
-                                        selectedLabelIds.insert(label.id)
-                                    }
-                                } label: {
-                                    HStack(spacing: 5) {
-                                        Circle()
-                                            .fill(Color(hex: label.color) ?? .gray)
-                                            .frame(width: 8, height: 8)
-                                        Text(label.name)
-                                            .font(.caption)
-                                            .foregroundStyle(.white)
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .glassButton(isActive: selectedLabelIds.contains(label.id))
-                                }
-                                .buttonStyle(.plain)
+                    // EXP-698 r5: the shared block — the Properties sheet
+                    // renders the very same pills. "+ Label" here creates a
+                    // new team label and pre-selects it on this draft.
+                    IssueLabelsSelector(
+                        labels: labels,
+                        selectedIds: selectedLabelIds,
+                        onToggle: { labelId in
+                            if selectedLabelIds.contains(labelId) {
+                                selectedLabelIds.remove(labelId)
+                            } else {
+                                selectedLabelIds.insert(labelId)
                             }
-                            // "+ Label" — create a new team label and
-                            // pre-select it on this draft in one step.
-                            GlassPillButton("Label", icon: AppIcons.uiAdd) {
-                                picker = .createLabel
-                            }
-                        }
-                    }
+                        },
+                        onAdd: { picker = .createLabel }
+                    )
 
                     // Create more toggle
                     Toggle(isOn: $createMore) {
@@ -299,17 +292,33 @@ struct CreateIssueView: View {
         // The page owns its own Back (Android parity): it has to run the
         // discard confirmation, which the system chevron cannot.
         .navigationBarBackButtonHidden(true)
+        // EXP-698 r4: BARE toolbar content, both slots. iOS 26 paints its own
+        // Liquid Glass capsule behind every toolbar item, so the drawn circle
+        // (`TopBarBackButton`) and the drawn pill (`GlassPill`) sat inside a
+        // second one — the "double round". A back glyph and a text button are
+        // what the system chrome expects to wrap.
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                TopBarBackButton { attemptClose() }
+                Button {
+                    attemptClose()
+                } label: {
+                    // The board header's search/filter glyphs, exactly: 32pt of
+                    // ink at secondary white, and the hit shape grown to the
+                    // 44pt target the ink no longer fills on its own.
+                    AppIcon(AppIcons.uiBack, size: AppIcon.Size.medium, weight: .medium)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Circle().inset(by: -GlassMenuTokens.triggerHitInset))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back")
             }
             ToolbarItem(placement: .topBarTrailing) {
-                GlassPillButton(
-                    loading ? "Creating…" : "Create",
-                    enabled: !title.isEmpty && !loading && !createCommitted
-                ) {
+                Button(loading ? "Creating…" : "Create") {
                     Task { await createIssue() }
                 }
+                .fontWeight(.semibold)
+                .disabled(!canSubmit)
             }
         }
         .alert("Discard this issue?", isPresented: $confirmDiscard) {
@@ -504,23 +513,6 @@ struct CreateIssueView: View {
         }
     }
 
-    @ViewBuilder
-    private func metadataRow<Content: View>(label: String, icon: String, iconColor: Color, @ViewBuilder content: () -> Content) -> some View {
-        HStack {
-            AppIcon(icon, size: AppIcon.Size.small)
-                .foregroundStyle(iconColor)
-                .frame(width: 20)
-
-            Text(label)
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-            Spacer()
-
-            content()
-        }
-    }
-
     // MARK: - Draft files (EXP-327)
 
     private var draftFilesSection: some View {
@@ -664,7 +656,7 @@ struct CreateIssueView: View {
 
         let input = CreateIssueInput(
             boardId: boardId,
-            title: title,
+            title: trimmedTitle,
             // A CONSTRUCTED default (statuses shape not synced) has no row id,
             // so it falls back to the anchor enum (EXP-314).
             status: status.rowId == nil ? status.anchor.rawValue : nil,

@@ -27,6 +27,7 @@ import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import {
   Dialog,
   DialogCancel,
@@ -89,12 +90,11 @@ function ActionMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-muted-foreground"
+          variant="glass"
+          size="icon-sm"
           aria-label={`Action menu for ${action.name}`}
         >
-          <Ellipsis className="h-4 w-4" />
+          <Ellipsis />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -377,16 +377,14 @@ export function TeamActionsPanel({
             <>
               {showSuggestions && <SuggestionsButton />}
               {canCreateAction && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 gap-1 px-2 text-xs"
+                <Pill
+                  mode="action"
                   disabled={runBusy}
                   onClick={() => setCreateActionOpen(true)}
                 >
-                  <ActionCreateIcon className="size-3.5" />
+                  <ActionCreateIcon className="size-3" />
                   New action
-                </Button>
+                </Pill>
               )}
             </>
           )

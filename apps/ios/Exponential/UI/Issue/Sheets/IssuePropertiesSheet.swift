@@ -3,13 +3,14 @@ import ExpCore
 import SwiftUI
 
 /// The combined Properties sheet (EXP-240): one glass sheet listing every
-/// editable property — Status / Priority / Assignee / Due date rows show the
-/// current value + chevron and STACK their per-property picker over this sheet
-/// (EXP-687 retired the dismiss-and-re-present hand-off; dismissing the child
-/// returns here, exactly like Android); the Labels section toggles assigned
-/// labels inline (stays open) with an add chip opening the searchable Labels
-/// sheet; the Board row (last, after Labels) opens the move-board picker and
-/// hides when there is nowhere to move.
+/// editable property. EXP-698 r5 made it the New-issue page's own rows —
+/// `GlassMetaRow`s in one `.glassSection()` group (Status / Priority /
+/// Assignee / Due date / Board), each STACKING its per-property picker over
+/// this sheet (EXP-687 retired the dismiss-and-re-present hand-off; dismissing
+/// the child returns here, exactly like Android) — followed by the shared
+/// `IssueLabelsSelector`, whose pills toggle inline and whose add chip opens
+/// the searchable Labels sheet. The Board row hides when there is nowhere to
+/// move.
 struct IssuePropertiesSheet<Child: View>: View {
     let issue: IssueEntity
     /// EXP-314: the issue's status resolved against its team's status rows.
@@ -35,101 +36,79 @@ struct IssuePropertiesSheet<Child: View>: View {
     var body: some View {
         let priority = IssuePriority.from(issue.priority)
         GlassSheetChrome(title: "Properties") {
-            VStack(alignment: .leading, spacing: 2) {
-                propertyRow(
-                    label: "Status",
-                    value: status.name,
-                    target: .status
-                ) {
-                    AppIcon(status.iconName, size: AppIcon.Size.medium)
-                        .foregroundStyle(status.color)
-                }
-                propertyRow(
-                    label: "Priority",
-                    value: priority.label,
-                    target: .priority
-                ) {
-                    AppIcon(priority.iconName, size: AppIcon.Size.medium)
-                        .foregroundStyle(priority.color)
-                }
-                // Solo team: no one else to reassign to (EXP-50).
-                if !singleMemberTeam {
-                    propertyRow(
-                        label: "Assignee",
-                        value: issue.assigneeId.map { memberDisplayName(assignee, id: $0) } ?? "Unassigned",
-                        target: .assignee
-                    ) {
-                        if let assigneeId = issue.assigneeId {
-                            UserAvatar(user: assignee, id: assigneeId, size: 22)
-                        } else {
-                            AppIcon(AppIcons.uiUnassigned, size: AppIcon.Size.medium)
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        }
-                    }
-                }
-                propertyRow(
-                    label: "Due date",
-                    value: issue.dueDate.map(dueDateChipLabel) ?? "None",
-                    target: .dueDate
-                ) {
-                    AppIcon(AppIcons.uiDueDate, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                }
+            VStack(alignment: .leading, spacing: 16) {
+                // EXP-698 r5: the New-issue page's rows, verbatim — one
+                // `.glassSection()` group of `GlassMetaRow`s separated by
+                // hairlines, value-led glyphs, no chevrons. The sheet used to
+                // draw its own row (leading gutter glyph + trailing chevron),
+                // so the same five properties looked like two different lists
+                // depending on whether the issue existed yet.
+                VStack(spacing: 0) {
+                    GlassMetaRow(
+                        label: "Status",
+                        icon: status.iconName,
+                        iconColor: status.color,
+                        value: status.name
+                    ) { activeChild = .status }
 
-                // Labels: assigned chips toggle inline (removal), the add
-                // chip hands off to the searchable sheet.
-                Text("Labels")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .padding(.horizontal, 14)
-                    .padding(.top, 14)
-                    .padding(.bottom, 6)
+                    GlassDivider()
 
-                FlowLayout(spacing: 6) {
-                    ForEach(labels.filter { assignedIds.contains($0.id) }, id: \.id) { label in
-                        Button {
-                            onToggleLabel(label.id)
-                        } label: {
-                            HStack(spacing: 5) {
-                                Circle()
-                                    .fill(Color(hex: label.color) ?? .gray)
-                                    .frame(width: 8, height: 8)
-                                Text(label.name)
-                                    .font(.caption)
-                                    .foregroundStyle(.white)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .glassButton(isActive: true)
-                        }
-                        .buttonStyle(.plain)
+                    GlassMetaRow(
+                        label: "Priority",
+                        icon: priority.iconName,
+                        iconColor: priority.color,
+                        value: priority.label
+                    ) { activeChild = .priority }
+
+                    // Solo team: no one else to reassign to (EXP-50).
+                    if !singleMemberTeam {
+                        GlassDivider()
+
+                        GlassMetaRow(
+                            label: "Assignee",
+                            icon: issue.assigneeId == nil ? AppIcons.uiUnassigned : AppIcons.uiAssignee,
+                            iconColor: .white.opacity(TextOpacity.secondary),
+                            value: issue.assigneeId.map { memberDisplayName(assignee, id: $0) } ?? "Unassigned"
+                        ) { activeChild = .assignee }
                     }
-                    GlassPillButton("Label", icon: AppIcons.uiAdd) {
-                        activeChild = .labels
+
+                    GlassDivider()
+
+                    GlassMetaRow(
+                        label: "Due date",
+                        icon: AppIcons.uiDueDate,
+                        iconColor: .white.opacity(TextOpacity.secondary),
+                        value: issue.dueDate.map(dueDateChipLabel) ?? "None"
+                    ) { activeChild = .dueDate }
+
+                    // The move picker hides when there is nowhere to move to.
+                    if hasMoveTargets {
+                        GlassDivider()
+
+                        GlassMetaRow(
+                            label: "Board",
+                            // The board's own glyph + color, not a generic
+                            // boards nav icon (EXP-449).
+                            icon: board.map { BoardTypeDisplay.iconName(for: $0) } ?? AppIcons.navBoards,
+                            iconColor: board.flatMap { Color(hex: $0.color ?? "#888888") }
+                                ?? .white.opacity(TextOpacity.secondary),
+                            value: board?.name ?? ""
+                        ) { activeChild = .moveBoard }
                     }
                 }
-                .padding(.horizontal, 14)
+                .glassSection()
 
-                if hasMoveTargets {
-                    propertyRow(
-                        label: "Board",
-                        value: board?.name ?? "",
-                        target: .moveBoard
-                    ) {
-                        // The board's own glyph + color, not a generic
-                        // boards nav icon (EXP-449).
-                        if let board = board {
-                            AppIcon(BoardTypeDisplay.iconName(for: board), size: AppIcon.Size.medium)
-                                .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
-                        } else {
-                            AppIcon(AppIcons.navBoards, size: AppIcon.Size.medium)
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        }
-                    }
-                    .padding(.top, 8)
-                }
+                // Labels: every team label as a select pill (assigned ones
+                // read selected), the add chip hands off to the searchable
+                // sheet — the same block the New-issue page renders.
+                IssueLabelsSelector(
+                    labels: labels,
+                    selectedIds: assignedIds,
+                    onToggle: onToggleLabel,
+                    onAdd: { activeChild = .labels }
+                )
             }
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 16)
             .padding(.bottom, 24)
             // The child rides the INNER node — the chrome root carries the
             // move confirm, and no node may own two presentations (EXP-240).
@@ -137,36 +116,5 @@ struct IssuePropertiesSheet<Child: View>: View {
                 child(target)
             }
         }
-    }
-
-    @ViewBuilder
-    private func propertyRow<Leading: View>(
-        label: String,
-        value: String,
-        target: IssuePropertyChild,
-        @ViewBuilder leading: () -> Leading
-    ) -> some View {
-        Button {
-            activeChild = target
-        } label: {
-            HStack(spacing: 10) {
-                leading()
-                    .frame(width: 24)
-                Text(label)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Spacer(minLength: 0)
-                Text(value)
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                AppIcon(AppIcons.uiChevronRight, size: 11)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-            .padding(.horizontal, 14)
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }

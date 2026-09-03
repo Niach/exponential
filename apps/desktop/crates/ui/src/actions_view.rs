@@ -7,7 +7,7 @@
 //! like the web's edit dialog, and the rail's Actions entry navigates here.
 //! EXP-480: the page is a tab-less FULL-PAGE mode (no tool column, no tab
 //! chip — `CenterPanel` unmounts the sidebar split while it is up), leading
-//! with the web's plain-text `GlassSectionHeader` ([`section_heading`]) over
+//! with the web's plain-text [`crate::surface::glass_section_header`] over
 //! a GAPPED list of [`crate::surface::glass_row_card`] rows (EXP-642).
 //!
 //! EXP-686 split the old three-tab page apart: machines moved to
@@ -28,12 +28,11 @@ use gpui::{
     Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant, ButtonVariants as _},
+    button::ButtonVariant,
     menu::{DropdownMenu as _, PopupMenuItem},
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
-use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::navigation::{
     active_team_id, nav_for_window, navigate, GettingStartedTab, Navigation, Screen,
@@ -43,43 +42,6 @@ use crate::queries;
 
 /// The page column's width cap — the web page's `md:max-w-5xl`.
 const PAGE_COLUMN_W: f32 = 1024.;
-
-/// The web `GlassSectionHeader` (`components/ui/glass-rows.tsx`, EXP-616): a
-/// PLAIN-TEXT heading — no band, no fill, no border — `px_1 pt_1 pb_2`, label
-/// `text_sm` MEDIUM at 70% foreground, then a spacer and the optional trailing
-/// control. EXP-697 dropped the row count that used to trail the label.
-/// Shared with [`crate::machines::MachinesSection`] and
-/// [`crate::automations_view`] so every page section carries the identical
-/// header design (EXP-642 replaced the old fused band).
-///
-/// The `pb_2` IS the gap to the list below it — a section wrapper that adds
-/// its own `gap_2` doubles it (EXP-697); keep the rows in a nested
-/// `v_flex().gap_2()` instead.
-pub(crate) fn section_heading(
-    label: &'static str,
-    trailing: Option<gpui::AnyElement>,
-    cx: &App,
-) -> gpui::AnyElement {
-    let foreground = cx.theme().foreground;
-    gpui_component::h_flex()
-        .w_full()
-        .min_w_0()
-        .items_center()
-        .gap_1p5()
-        .px_1()
-        .pt_1()
-        .pb_2()
-        .child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(foreground.opacity(0.7))
-                .child(SharedString::from(label)),
-        )
-        .child(div().flex_1())
-        .children(trailing)
-        .into_any_element()
-}
 
 /// The shared full-page scaffold every rail-navigated page uses (EXP-686 —
 /// Devices, Actions, Automations): ONE scroll pane holding one centered
@@ -351,10 +313,12 @@ impl ActionsView {
             let delete_name = action.name.clone();
             row = row.child(
                 div().flex_shrink_0().child(
-                    Button::new(("action-menu", index))
-                        .ghost().cursor_pointer()
-                        .xsmall()
-                        .icon(Icon::from(registry::UI_MORE))
+                    // EXP-698: the one 32px glass chrome every row action wears.
+                    crate::controls::glass_icon_button(
+                        ("action-menu", index),
+                        Icon::from(registry::UI_MORE),
+                        cx,
+                    )
                         .dropdown_menu(move |menu, _window, cx| {
                             let edit_id = edit_id.clone();
                             let delete_view = delete_view.clone();
@@ -482,9 +446,7 @@ impl Render for ActionsView {
             .then(|| team_id.clone())
             .flatten()
             .map(|new_team| {
-                Button::new("actions-new")
-                    .outline().cursor_pointer()
-                    .web_xs()
+                crate::surface::glass_pill_button("actions-new", crate::surface::PillSize::Sm, cx)
                     .icon(Icon::from(registry::ACTION_CREATE))
                     .label("New action")
                     .tooltip(no_agent.clone().unwrap_or_else(|| "New action".into()))
@@ -502,7 +464,8 @@ impl Render for ActionsView {
             .child(suggestions_button("actions-suggestions", cx))
             .children(new_action)
             .into_any_element();
-        let header = section_heading("Actions", Some(trailing), cx);
+        let header =
+            crate::surface::glass_section_header("Actions", Some(trailing), cx);
 
         let rows: Vec<gpui::AnyElement> = actions
             .iter()

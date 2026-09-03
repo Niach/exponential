@@ -27,10 +27,23 @@ use domain::{has_active_filters, IssueFilters};
 use crate::active_filter_pills::ActiveFilterPills;
 use crate::filter_popover::{FilterView, IssueFilterPopover, OnFiltersChange, OnViewChange};
 
-/// Minimum height of the control row: `py_2` + the tallest control (44px
-/// since EXP-289 bumped the two controls one step). Fixed so swapping the
-/// Filter trigger for the bulk bar never moves the list rows.
-const CONTROL_ROW_MIN_H: f32 = 44.;
+/// Height of the control row, and the EXP-289 no-jump invariant: swapping the
+/// Filter trigger for the bulk bar must not move the list rows, so BOTH
+/// branches have to measure the same. This is a floor, not a cap — the taller
+/// branch wins if it disagrees, which is exactly the jump it is meant to
+/// prevent.
+///
+/// - trigger branch: 16 (the row's own `py_2`) + 32 (`web_sm` control) = 48
+/// - bulk branch:     0 (no row padding — the bar carries its own) + 50
+///   (`surface::glass_bar`: `py_2` 16 + a 32px control + 2 border) = 50
+///
+/// So the floor is the bulk branch's 50, and the trigger branch's 48 grows
+/// into it. EXP-698 round 5: it was 44 while the bulk cluster was a bare
+/// tray; the opaque capsule is 6px taller. The capsule never wraps — a narrow
+/// panel collapses its buttons to icon-only instead
+/// (`issue_list::BULK_BAR_LABEL_MIN_W`) — so 50 is the bulk branch's height
+/// at EVERY width, and the swap stays jump-free.
+const CONTROL_ROW_MIN_H: f32 = 50.;
 
 #[derive(IntoElement)]
 pub struct IssueFilterBar {
@@ -95,7 +108,9 @@ impl RenderOnce for IssueFilterBar {
             // trigger, in which case the tray is the whole row.
             Some(bulk) => Some(
                 h_flex()
-                    .py_2()
+                    // No `py_2` here: the bar is a padded capsule of its own
+                    // (see [`CONTROL_ROW_MIN_H`]) and the row's padding on top
+                    // of it would out-grow the trigger branch.
                     .min_h(px(CONTROL_ROW_MIN_H))
                     .items_center()
                     .justify_between()

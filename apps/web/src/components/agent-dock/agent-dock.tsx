@@ -10,8 +10,7 @@ import {
 } from "@/components/agent-session"
 import { sessionDisplayState } from "@/components/issue-coding-rows"
 import { cn } from "@/lib/utils"
-import { conceptIcon } from "@/lib/icons.generated"
-import { Button } from "@/components/ui/button"
+import { RichTab } from "@/components/rich-tab"
 import { useAgentDock } from "@/components/agent-dock/agent-dock-provider"
 import { retainSteerSessions } from "@/lib/steer-session-store"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -23,6 +22,7 @@ import {
 } from "@/lib/agent-dock-height"
 import { MOTION_DURATION_MS } from "@/lib/motion"
 import { useExitPresence } from "@/hooks/use-exit-presence"
+import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useWheelContainment } from "@/hooks/use-wheel-containment"
 
 // The global agent-coding dock (EXP-106) — an IDE-style bottom strip of the
@@ -41,8 +41,6 @@ import { useWheelContainment } from "@/hooks/use-wheel-containment"
 // duration while the height animates back to 0 (mobile: while the takeover
 // slides off the bottom), and the enter runs from the closed state on the
 // frame after mount.
-
-const CloseIcon = conceptIcon(`ui-close`)
 
 function RunningDot() {
   return (
@@ -76,6 +74,16 @@ export function AgentDock({
   useEffect(() => {
     if (!expandedId) setFullscreen(false)
   }, [expandedId])
+
+  // EXP-698: the docked strip floats over the page (it is `sticky`, and the
+  // page keeps scrolling underneath it), so the team layout has to reserve its
+  // height at the bottom of the content region — `--dock-h`, measured off the
+  // real element rather than the persisted resting height in
+  // lib/agent-dock-height.ts, so the drag and the open/close slide stay in
+  // step with the padding. Fullscreen covers the page outright: nothing below
+  // it is worth reserving, and its `inset-0` box would reserve a whole
+  // viewport.
+  const publishDockHeight = useChromeHeightVar(`--dock-h`, !fullscreen)
 
   // EXP-619: the expanded panel floats over the page, which keeps scrolling
   // underneath it — a wheel gesture the terminal cannot use must die here
@@ -278,6 +286,7 @@ export function AgentDock({
 
   return (
     <div
+      ref={publishDockHeight}
       className={cn(
         // z-40 covers the layout while staying under every z-50 overlay
         // (dialogs, dropdowns) so kill-confirm etc. still stack above.
@@ -351,7 +360,7 @@ export function AgentDock({
           </div>
         </div>
       )}
-      <div className="flex h-9 items-center overflow-x-auto">
+      <div role="tablist" className="flex h-9 items-center gap-1 overflow-x-auto px-2">
         {tabs.map((row) => (
           <DockTab
             key={row.session.id}
@@ -420,7 +429,7 @@ function DockTab({
   /** What the X does for anything but a live own run: put the dock away. */
   onCollapse: () => void
 }) {
-  const { session, issue, device, paused } = row
+  const { session, device, paused } = row
   const identity = sessionIdentity(row)
   // EXP-688: the X ends a live run of your own (with the same confirmation
   // the mobile "…" menu shows); on a finished or paused one it just puts the
@@ -432,74 +441,54 @@ function DockTab({
     paused
   )
   return (
-    <div
-      className={cn(
-        `flex h-9 shrink-0 items-center border-r border-border pr-1`,
-        expanded && `bg-muted`,
+    <>
+      <RichTab
+        active={expanded}
         // EXP-550: the host machine is offline — the agent is parked, the
         // tab greys out instead of pinging "live".
-        paused && `opacity-60`
-      )}
-    >
-      <Button
-        variant="ghost"
-        onClick={onClick}
-        className="h-9 shrink-0 gap-1.5 rounded-none px-3 text-xs font-normal"
-        title={tabPhaseLabel(row)}
-      >
-        {paused ? (
-          <span className="size-2 shrink-0 rounded-full bg-muted-foreground/40" />
-        ) : session.status === `running` || session.status === `in_review` ? (
-          (() => {
-            // EXP-214 display split: needs-input amber beats everything, a
-            // merged PR renders blue, review stays green.
-            const state = sessionDisplayState(session, issue?.prState)
-            if (state === `running`) return <RunningDot />
-            const dot =
-              state === `needs_input`
-                ? `bg-amber-500`
-                : state === `done`
-                  ? `bg-sky-500`
-                  : `bg-emerald-500`
-            return <span className={`size-2 shrink-0 rounded-full ${dot}`} />
-          })()
-        ) : (
-          <span className="size-2 shrink-0 rounded-full bg-muted-foreground/40" />
-        )}
-        {identity.identifier ? (
-          <>
-            <span className="shrink-0 font-mono">{identity.identifier}</span>
-            <span className="max-w-[180px] truncate">{identity.subject}</span>
-          </>
-        ) : (
-          // No identifier to lead with: the action's name (or "Batch") takes
-          // the mono slot on its own, as it always has.
-          <span className="max-w-[180px] truncate font-mono">
-            {session.actionName ??
-              (session.issueId ? identity.subject : `Batch`)}
-          </span>
-        )}
-        {device.label && (
-          <span className="max-w-[8rem] truncate text-muted-foreground">
-            {` · ${device.label}`}
-          </span>
-        )}
-      </Button>
-      <Button
-        variant="ghost"
-        className="h-5 w-5 p-0 text-muted-foreground"
-        aria-label={canKill ? `Kill session` : `Close session tab`}
-        title={canKill ? `Kill session` : `Close session tab`}
-        onClick={(event) => {
-          // The tab beside it toggles the panel; the X must not.
-          event.stopPropagation()
+        paused={paused}
+        status={tabStatus(row)}
+        identifier={identity.identifier}
+        title={
+          identity.identifier
+            ? identity.subject
+            : // No identifier to lead with: the action's name (or "Batch")
+              // takes the mono slot on its own, as it always has.
+              (session.actionName ??
+              (session.issueId ? identity.subject : `Batch`))
+        }
+        badge={
+          device.label && (
+            <span className="max-w-[8rem] shrink-0 truncate text-foreground/50">
+              {` · ${device.label}`}
+            </span>
+          )
+        }
+        tooltip={tabPhaseLabel(row)}
+        onSelect={onClick}
+        onClose={() => {
           if (canKill) requestKill()
           else onCollapse()
         }}
-      >
-        <CloseIcon className="size-3" />
-      </Button>
+        closeLabel={canKill ? `Kill session` : `Close session tab`}
+      />
       {dialog}
-    </div>
+    </>
   )
+}
+
+/** The tab's 6px state dot — a live ping while the agent runs, otherwise the
+ * EXP-214 display split: needs-input amber beats everything, a merged PR
+ * renders blue, review stays green, anything parked greys out. */
+function tabStatus(row: AgentSessionRow) {
+  const { session, issue, paused } = row
+  if (paused) return `bg-muted-foreground/40`
+  if (session.status !== `running` && session.status !== `in_review`) {
+    return `bg-muted-foreground/40`
+  }
+  const state = sessionDisplayState(session, issue?.prState)
+  if (state === `running`) return <RunningDot />
+  if (state === `needs_input`) return `bg-amber-500`
+  if (state === `done`) return `bg-sky-500`
+  return `bg-emerald-500`
 }

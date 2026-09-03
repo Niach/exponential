@@ -7,6 +7,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import com.exponential.app.ui.theme.DesignTokens
 
 /**
  * Visual tokens for the block markdown editor / viewer — a Compose port of iOS
@@ -26,6 +27,36 @@ object MdStyle {
     val QuoteBar = Color.White.copy(alpha = 0.2f) // blockquote left rule (EXP-246)
     val Placeholder = Color.White.copy(alpha = 0.3f)
     val Dim = Color.White.copy(alpha = 0.3f) // thematic break
+
+    /**
+     * Inline-code chrome, the one thing a rendering surface may re-tint
+     * (EXP-698). The document renderers — issue descriptions, comments, the
+     * editor's own transformation — keep [Default]: monospace on a flat white
+     * wash, byte-identical to what they have always drawn. A CHAT feed takes
+     * [Chat], the tinted `code` treatment web and the desktop give agent
+     * output, so a `--flag` or a `Foo.kt` reads as code at a glance in a wall
+     * of narration.
+     *
+     * There is deliberately no stroke: a Compose [SpanStyle] can paint a
+     * background but not a border, so a hairline round an inline run means
+     * measuring the run and drawing behind the text (what `#IDENTIFIER` chips
+     * do, and they cost a `TextLayoutResult` per line). The tinted fill plus
+     * the tinted glyph carries it; `DesignTokens.Semantic.CodeStroke` stays
+     * for the clients whose text stacks can express it.
+     */
+    data class InlineCodeStyle(
+        val inlineCodeColor: Color? = null,
+        val inlineCodeBg: Color = InlineCodeBg,
+    )
+
+    /** Document surfaces: no tint, the flat white wash. */
+    val Default = InlineCodeStyle()
+
+    /** Chat surfaces (the agent steering feed): the shared code accent. */
+    val Chat = InlineCodeStyle(
+        inlineCodeColor = DesignTokens.Semantic.CodeText,
+        inlineCodeBg = DesignTokens.Semantic.CodeFill,
+    )
 
     val bodySize = 17.sp
     val lineHeight = 25.sp

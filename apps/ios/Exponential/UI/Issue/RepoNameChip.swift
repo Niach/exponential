@@ -69,7 +69,7 @@ struct RepoNameChip: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .background(Color.white.opacity(0.04))
+                    .background(GlassTokens.fillSection)
                 } else {
                     chip(repo)
                 }
@@ -79,25 +79,19 @@ struct RepoNameChip: View {
     }
 
     private func chip(_ repo: TeamRepo) -> some View {
-        Button {
-            if let url = URL(string: "https://github.com/\(repo.fullName)") {
-                Platform.open(url)
+        // The ONE pill (EXP-698): repo glyph, name, external-link mark.
+        GlassPill(
+            repo.fullName,
+            mode: .action {
+                if let url = URL(string: "https://github.com/\(repo.fullName)") {
+                    Platform.open(url)
+                }
             }
-        } label: {
-            HStack(spacing: 6) {
-                AppIcon(AppIcons.uiRepository, size: 11)
-                Text(repo.fullName)
-                    .font(.caption.monospaced())
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                AppIcon(AppIcons.uiExternalLink, size: 11)
-            }
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .glassButton()
+        ) {
+            AppIcon(AppIcons.uiRepository, size: GlassPillTokens.glyphSm)
+        } trailing: {
+            AppIcon(AppIcons.uiExternalLink, size: GlassPillTokens.glyphSm)
         }
-        .buttonStyle(.plain)
     }
 
     private func resolve() async {

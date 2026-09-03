@@ -29,14 +29,7 @@ struct TeamMembersSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Members")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                Text("\(members.count)")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
+            GlassSectionHeader("Members")
 
             ForEach(members, id: \.id) { member in
                 memberRow(member)
@@ -98,12 +91,7 @@ struct TeamMembersSection: View {
             Spacer()
 
             // Role badge
-            Text(member.role)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .glassButton()
+            GlassPill(member.role)
 
             // Actions menu — only rendered when there is at least one action to
             // offer. Each action is a precomputed boolean, and the ellipsis is
@@ -137,9 +125,8 @@ struct TeamMembersSection: View {
                         }
                     }
                 } label: {
-                    AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .padding(6)
+                    CircleIconLabel(AppIcons.uiMore)
+                        .accessibilityLabel("Member actions")
                 }
             }
         }

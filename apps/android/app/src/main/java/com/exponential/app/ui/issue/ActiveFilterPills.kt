@@ -1,20 +1,16 @@
 package com.exponential.app.ui.issue
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.domain.IssueFilters
@@ -22,13 +18,13 @@ import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.isStatusSelected
 import com.exponential.app.domain.issuePriorityOrder
-import com.exponential.app.ui.components.LabelDot
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassPillDefaults
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
-import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
 
 // Web-parity active filter pills (apps/web/.../active-filter-pills.tsx): one
 // removable capsule per active status / priority / label, shown below the tab
@@ -57,61 +53,51 @@ fun ActiveFilterPills(
         // A stale id (its row was deleted) renders nothing and clears itself on
         // the next toggle.
         statuses.filter { filters.isStatusSelected(it) }.forEach { status ->
-            FilterPill(onRemove = { onToggleStatus(status) }) {
-                StatusIcon(status, size = 13.dp)
-                PillLabel(status.name)
-            }
+            FilterPill(
+                label = status.name,
+                onRemove = { onToggleStatus(status) },
+                leading = { StatusIcon(status, size = GlassPillDefaults.SmGlyphSize) },
+            )
         }
         issuePriorityOrder.filter { it in filters.priorities }.forEach { priority ->
-            FilterPill(onRemove = { onTogglePriority(priority) }) {
-                PriorityIcon(priority, size = 13.dp)
-                PillLabel(priority.label)
-            }
+            FilterPill(
+                label = priority.label,
+                onRemove = { onTogglePriority(priority) },
+                leading = { PriorityIcon(priority, size = GlassPillDefaults.SmGlyphSize) },
+            )
         }
         filters.labelIds.forEach { labelId ->
             val label = labelsById[labelId] ?: return@forEach
-            FilterPill(onRemove = { onToggleLabel(labelId) }) {
-                LabelDot(remember(label.color) { parseColor(label.color) }, size = 8.dp)
-                PillLabel(label.name)
-            }
+            FilterPill(
+                label = label.name,
+                onRemove = { onToggleLabel(labelId) },
+                dot = remember(label.color) { parseColor(label.color) },
+            )
         }
-        Text(
-            "Clear all",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            modifier = Modifier
-                .glassButton()
-                .clickable(onClick = onClear)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-        )
+        GlassPill("Clear all", size = PillSize.Sm, onClick = onClear)
     }
 }
 
+/** One removable filter value: the shared small pill with a dismiss `x`. */
 @Composable
-private fun FilterPill(onRemove: () -> Unit, content: @Composable () -> Unit) {
-    Row(
-        modifier = Modifier
-            .glassButton()
-            .clickable(onClick = onRemove)
-            .padding(start = 10.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-    ) {
-        content()
-        Icon(
-            ExpIcons.uiClose,
-            contentDescription = "Remove filter",
-            modifier = Modifier.size(13.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-    }
-}
-
-@Composable
-private fun PillLabel(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Primary),
+private fun FilterPill(
+    label: String,
+    onRemove: () -> Unit,
+    leading: (@Composable () -> Unit)? = null,
+    dot: Color? = null,
+) {
+    GlassPill(
+        label,
+        size = PillSize.Sm,
+        onClick = onRemove,
+        leading = leading,
+        dot = dot,
+        trailing = {
+            Icon(
+                ExpIcons.uiClose,
+                contentDescription = "Remove filter",
+                modifier = Modifier.size(GlassPillDefaults.SmGlyphSize),
+            )
+        },
     )
 }

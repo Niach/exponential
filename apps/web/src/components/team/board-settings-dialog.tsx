@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { trpc } from "@/lib/trpc-client"
 import { getBoardIconName } from "@/lib/board-icons"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Label } from "@/components/ui/label"
 import {
   Dialog,
@@ -134,9 +134,7 @@ export function BoardSettingsDialog({
             <div className="space-y-2">
               <Label>Prefix</Label>
               <div>
-                <Badge variant="outline" className="font-mono text-xs">
-                  {board.prefix}
-                </Badge>
+                <Pill className="font-mono">{board.prefix}</Pill>
               </div>
             </div>
 

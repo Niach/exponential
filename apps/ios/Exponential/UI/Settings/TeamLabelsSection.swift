@@ -15,19 +15,12 @@ struct TeamLabelsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Labels")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                Text("\(labels.count)")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                Spacer()
+            GlassSectionHeader("Labels") {
                 // "New label" rides the header (Boards' "New board" pattern,
                 // EXP-331) — labels stay member-level, so no owner gating.
-                GlassPillButton("New label", icon: AppIcons.uiAdd) {
+                GlassPill("New label", icon: AppIcons.uiAdd, mode: .action {
                     showCreate = true
-                }
+                })
             }
 
             ForEach(labels, id: \.id) { label in
@@ -44,25 +37,22 @@ struct TeamLabelsSection: View {
 
                     // Explicit edit entry (EXP-331 — Android parity; replaces
                     // the undiscoverable tap-to-rename / swatch-menu recolor).
-                    Button {
+                    // EXP-698: the shared chromed circle, but the `ui-edit`
+                    // pencil — this opens the editor straight away, so the
+                    // overflow glyph would promise a menu that never appears.
+                    CircleIconButton(AppIcons.uiEdit, accessibilityLabel: "Edit label") {
                         editingLabel = label
-                    } label: {
-                        AppIcon(AppIcons.uiMoreVertical, size: AppIcon.Size.small)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Edit label")
 
                     // Delete (confirmed — labels stay member-level, so no owner
                     // gating, only a confirmation).
-                    Button {
+                    CircleIconButton(
+                        AppIcons.uiDelete,
+                        accessibilityLabel: "Delete label",
+                        tint: DesignTokens.Palette.destructive.opacity(0.7)
+                    ) {
                         deleteTarget = label
-                    } label: {
-                        AppIcon(AppIcons.uiDelete, size: AppIcon.Size.small)
-                            .foregroundStyle(.red.opacity(0.5))
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Delete label")
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)

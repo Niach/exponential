@@ -6,7 +6,7 @@ import {
 } from "@tanstack/react-router"
 import { useCallback, useEffect, useState } from "react"
 import { trpc } from "@/lib/trpc-client"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -380,12 +380,13 @@ function ServerSection({
                     </div>
                     <div>
                       {run ? (
-                        <Badge
-                          variant={run.lastOk ? `secondary` : `destructive`}
-                          className="text-xs"
+                        <Pill
+                          className={
+                            run.lastOk ? undefined : `text-destructive`
+                          }
                         >
                           {run.lastOk ? `ok` : `failed`}
-                        </Badge>
+                        </Pill>
                       ) : (
                         `—`
                       )}
@@ -680,9 +681,9 @@ function RelayStatusBadge({
   latencyMs?: number
 }) {
   return (
-    <Badge variant={ok ? `secondary` : `destructive`} className="text-xs">
+    <Pill className={ok ? undefined : `text-destructive`}>
       {ok ? `online${latencyMs !== undefined ? ` · ${latencyMs} ms` : ``}` : `unreachable`}
-    </Badge>
+    </Pill>
   )
 }
 

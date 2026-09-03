@@ -217,7 +217,7 @@
       "id": "onboarding-create-team",
       "group": "auth",
       "title": "Onboarding · Create a team",
-      "blurb": "The wizard’s create branch: name the team you will own.",
+      "blurb": "Name the team you will own: the wizard’s create branch on web and desktop, the sheet behind the board switcher’s New team row on the phones.",
       "order": 3,
       "web": {
         "route": "/onboarding",
@@ -230,9 +230,13 @@
         "settleMs": 600
       },
       "webMobile": "inherit",
-      "notes": {
-        "ios": "The mobile wizard puts the Create and Join cards on ONE step (TeamSetupView / OnboardingScreen), so this branch is not a screen of its own there — see `onboarding`.",
-        "android": "The mobile wizard puts the Create and Join cards on ONE step (TeamSetupView / OnboardingScreen), so this branch is not a screen of its own there — see `onboarding`."
+      "ios": {
+        "shot": "sg_onboarding-create-team",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_onboarding-create-team",
+        "lane": "styleguide"
       },
       "desktop": {
         "drive": {
@@ -524,7 +528,7 @@
       "id": "board-empty",
       "group": "issues",
       "title": "Empty board",
-      "blurb": "A board with nothing on it yet: the empty state, and the only place the getting-started cards render inline.",
+      "blurb": "A board with nothing on it yet: the empty state, with the getting-started cards inline underneath on every client.",
       "order": 7,
       "web": {
         "route": "/t/$teamSlug/boards/launch-marketing",
@@ -562,7 +566,7 @@
       "web": {
         "route": "/t/$teamSlug/boards/$boardSlug",
         "anchor": {
-          "text": "selected",
+          "testId": "bulk-action-bar",
           "timeoutMs": 30000
         },
         "recipe": "openBoardBulkEdit",
@@ -604,7 +608,7 @@
       "webMobile": {
         "route": "/t/$teamSlug/boards/$boardSlug",
         "anchor": {
-          "text": "Boards",
+          "text": "Switch board",
           "timeoutMs": 30000
         },
         "recipe": "openBoardSwitcher",
@@ -1697,6 +1701,9 @@
         "drive": {
           "kind": "settings",
           "value": "agents"
+        },
+        "env": {
+          "EXP_DEV_AGENT_ACCOUNT": "demo@exponential.at"
         }
       },
       "notes": {
@@ -1848,10 +1855,10 @@
         }
       },
       "notes": {
-        "web": "Not a route: it is a sidebar-footer sheet (EXP-88), and the button hides once every checklist entry is done (EXP-548). The seed must leave at least one entry incomplete or the recipe has nothing to click. The same cards also render inline under an EMPTY board's empty state.",
-        "web-mobile": "The phone layout replaces the sidebar with the tab bar, and the footer entry with it — there is no mobile entry point for the sheet.",
-        "ios": "Mobile has no checklist surface yet.",
-        "android": "Mobile has no checklist surface yet."
+        "web": "Not a route: it is a sidebar-footer sheet (EXP-88), and the button hides once every checklist entry is done (EXP-548). The seed must leave at least one entry incomplete or the recipe has nothing to click. The same cards also render inline under an EMPTY board's and an empty team's empty state.",
+        "web-mobile": "No sheet on phones: the cards render inline under an empty board / empty team.",
+        "ios": "Inline under an empty board / empty team.",
+        "android": "Inline under an empty board / empty team."
       }
     }
   ]

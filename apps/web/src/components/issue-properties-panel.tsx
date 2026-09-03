@@ -8,7 +8,7 @@ import {
 } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { StatusRowOption } from "@/lib/team-statuses"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { cn, formatDate } from "@/lib/utils"
 import { OptionDropdownMenu } from "@/components/option-dropdown-menu"
 import {
@@ -20,7 +20,6 @@ import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import { BoardPicker } from "@/components/issue-properties/board-picker"
 import { BoardGlyph } from "@/components/board-glyph"
-import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import {
   Popover,
@@ -77,15 +76,10 @@ function DueDateControl({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="xs"
-          className="text-muted-foreground shrink-0"
-          disabled={disabled}
-        >
+        <Pill mode="action" disabled={disabled}>
           <CalendarDays className="size-3" />
           {triggerLabel}
-        </Button>
+        </Pill>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
         <Calendar
@@ -130,13 +124,12 @@ const AgentSourceIcon = conceptIcon(`ui-agent-source`)
 function SourceChip({ source }: { source: string }) {
   const Icon = source === `agent` ? AgentSourceIcon : Megaphone
   return (
-    <Badge
-      variant="secondary"
-      className="gap-1 font-normal text-muted-foreground"
+    <Pill
+      className="font-normal text-muted-foreground"
+      leading={<Icon className="size-3" />}
     >
-      <Icon className="size-3" />
       {source === `agent` ? `Agent` : `Feedback widget`}
-    </Badge>
+    </Pill>
   )
 }
 
@@ -177,12 +170,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       renderTrigger={(selected) => {
         const Icon = selected.icon
         return (
-          <Button
-            variant="ghost"
-            size="xs"
-            className="text-muted-foreground shrink-0"
-            disabled={disabled}
-          >
+          <Pill mode="action" disabled={disabled}>
             <Icon
               className={`!h-3 !w-3 ${selected.color}`}
               style={
@@ -190,7 +178,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
               }
             />
             {selected.label}
-          </Button>
+          </Pill>
         )
       }}
     />
@@ -205,15 +193,10 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       onSelect={onPriorityChange}
       mobileTitle="Priority"
       renderTrigger={(selected) => (
-        <Button
-          variant="ghost"
-          size="xs"
-          className="text-muted-foreground shrink-0"
-          disabled={disabled}
-        >
+        <Pill mode="action" disabled={disabled}>
           <PriorityIcon priority={selected.value} className="!h-3 !w-3" />
           {selected.label}
-        </Button>
+        </Pill>
       )}
     />
   )

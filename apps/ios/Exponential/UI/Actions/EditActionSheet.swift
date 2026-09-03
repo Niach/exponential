@@ -137,10 +137,14 @@ struct EditActionSheet: View {
     /// Inline placeholder title (S7) — no label above the field.
     private var descriptionSection: some View {
         Section {
-            TextField("Description", text: $descriptionText, axis: .vertical)
-                .lineLimit(4...10)
-                .disabled(!canEdit)
-                .accessibilityIdentifier("edit-action-description")
+            GlassTextField(
+                "Description",
+                text: $descriptionText,
+                lines: 4...10,
+                bordered: false,
+                accessibilityIdentifier: "edit-action-description"
+            )
+            .disabled(!canEdit)
         }
         .listRowBackground(glassFormRowFill)
     }
@@ -175,11 +179,15 @@ struct EditActionSheet: View {
                     Spacer(minLength: 0)
                 }
             } else {
-                TextField("Prompt", text: $prompt, axis: .vertical)
-                    .font(.system(.footnote, design: .monospaced))
-                    .lineLimit(8...24)
-                    .disabled(!canEdit)
-                    .accessibilityIdentifier("edit-action-prompt")
+                GlassTextField(
+                    "Prompt",
+                    text: $prompt,
+                    lines: 8...24,
+                    bordered: false,
+                    accessibilityIdentifier: "edit-action-prompt"
+                )
+                .font(.system(.footnote, design: .monospaced))
+                .disabled(!canEdit)
             }
         }
         .listRowBackground(glassFormRowFill)

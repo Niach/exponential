@@ -332,7 +332,7 @@ struct AgentsView: View {
     private func agentsContent(_ vm: AgentsViewModel) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 8) {
-                sectionHeader("My machines")
+                GlassSectionHeader("My machines")
                 if let myDevices {
                     if myDevices.isEmpty {
                         deviceHintRow
@@ -346,7 +346,7 @@ struct AgentsView: View {
                 // EXP-432: teammates' shared servers, grouped below the
                 // caller's own. Absent entirely when nothing is shared.
                 if !teamDevices.isEmpty {
-                    sectionHeader("Team machines")
+                    GlassSectionHeader("Team machines")
                     ForEach(teamDevices) { deviceRow($0) }
                 }
                 if let deviceError {
@@ -371,7 +371,7 @@ struct AgentsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                sectionHeader("Running")
+                GlassSectionHeader("Running")
                 if vm.rows.isEmpty {
                     noAgentsRow
                 } else {
@@ -432,16 +432,6 @@ struct AgentsView: View {
         } message: { device in
             Text("Remove “\(deviceName(device))” from your machines? A machine with the daemon still running re-registers itself on its next heartbeat.")
         }
-    }
-
-    private func sectionHeader(_ title: String) -> some View {
-        HStack {
-            Text(title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Spacer()
-        }
-        .padding(.top, 4)
     }
 
     /// One machine: kind glyph, label + version, live/last-seen state, the
@@ -514,9 +504,7 @@ struct AgentsView: View {
                 GlassMenu {
                     deviceMenu(device)
                 } label: {
-                    AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .padding(6)
+                    CircleIconLabel(AppIcons.uiMore)
                 }
                 .accessibilityLabel("Machine actions")
                 .accessibilityIdentifier("machine-menu")
@@ -720,6 +708,17 @@ struct AgentsView: View {
         .padding(.vertical, 12)
         .glassRow()
         .accessibilityIdentifier("agent-session-row")
+        // EXP-698: the row's tap goes to the LIVE session when steering is on,
+        // and the identifier pill that used to be the way to the issue is gone
+        // (the title already prints the identifier). The issue keeps a route:
+        // press and hold. The steering screen's "…" menu carries the twin.
+        .contextMenu {
+            if let issue = row.issue, !(issue.identifier ?? "").isEmpty {
+                NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
+                    Label("Open issue", appIcon: AppIcons.uiIssue)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -755,56 +754,54 @@ struct AgentsView: View {
             if let prIssue = row.issue ?? row.batchPrIssue,
                 prIssue.prState == DomainContract.prStateOpen
             {
-                Button {
-                    mergeTarget = MergeTarget(rowId: row.id, issueId: prIssue.id)
-                } label: {
-                    Group {
-                        if merging.contains(row.id) {
-                            ProgressView().controlSize(.mini).tint(.white)
-                        } else {
-                            AppIcon(AppIcons.prMerged, size: AppIcon.Size.medium)
-                        }
+                if merging.contains(row.id) {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.white)
+                        .frame(width: GlassTokens.controlSize, height: GlassTokens.controlSize)
+                        .accessibilityLabel("Merging")
+                } else {
+                    CircleIconButton(AppIcons.prMerged, accessibilityLabel: "Merge") {
+                        mergeTarget = MergeTarget(rowId: row.id, issueId: prIssue.id)
                     }
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .frame(width: 32, height: 32)
-                    .contentShape(Circle())
                 }
-                .buttonStyle(.plain)
-                .disabled(merging.contains(row.id))
-                .accessibilityLabel("Merge")
             }
 
             sessionTrailingControl(row)
         }
+        .frame(minHeight: sessionTrailingColumnHeight)
     }
 
     /// EXP-694 (S6): the row's trailing affordance names WHAT the run is
     /// about, instead of the old `ui-info` glyph that only ever appeared on
-    /// issue runs. An issue run wears its identifier as a pill straight to the
-    /// issue; an action or automation run wears that action's own glyph and
-    /// opens its editor. A chat or batch run points at nothing, so it gets
+    /// issue runs. An action or automation run wears that action's own glyph
+    /// and opens its editor. A chat or batch run points at nothing, so it gets
     /// nothing.
+    ///
+    /// EXP-698: an ISSUE run gets nothing here either — `SessionRowTitle`
+    /// already prints the identifier as the title's prefix, so the trailing
+    /// pill printed it a second time and stole the width the (truncating)
+    /// title needed.
     @ViewBuilder
     private func sessionTrailingControl(_ row: AgentsViewModel.Row) -> some View {
-        if let issue = row.issue, let identifier = issue.identifier, !identifier.isEmpty {
-            NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
-                GlassPillLabel(identifier)
-                    .monospaced()
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open issue \(identifier)")
+        if !(row.issue?.identifier ?? "").isEmpty {
+            // The title carries the identifier; nothing to repeat here.
+            EmptyView()
         } else if let action = sessionAction(row) {
             let target = editTarget(for: row, action: action)
             CircleIconButton(
                 action.icon ?? AppIcons.actionDefault,
-                accessibilityLabel: target.accessibilityLabel,
-                size: 28,
-                glyphSize: 15
+                accessibilityLabel: target.accessibilityLabel
             ) {
                 sessionEditTarget = target
             }
         }
     }
+
+    /// The row's trailing column: `controlMd` tall whatever it holds, so the
+    /// merge circle, the action button and the "…" of the machine rows above
+    /// all sit on one centre line (EXP-698).
+    private var sessionTrailingColumnHeight: CGFloat { GlassTokens.controlSize }
 
     /// The action a run came from, off the synced store (`action_id` nulls
     /// when the action is deleted — the row keeps its name snapshot, but there
@@ -889,9 +886,9 @@ struct AgentsView: View {
             // representative issue its Merge button used — the sheet's PR
             // picker normalizes any linked issue id to its option.
             if failure.isConflict, let issue = row.issue ?? row.batchPrIssue, canFixConflicts(issue) {
-                GlassPillButton("Fix conflicts", icon: AppIcons.uiBranch) {
+                GlassPill("Fix conflicts", icon: AppIcons.uiBranch, mode: .action {
                     fixTarget = FixConflictsTarget(rowId: row.id, issueId: issue.id)
-                }
+                })
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

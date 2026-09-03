@@ -42,13 +42,14 @@ import com.exponential.app.data.db.CommentKind
 import com.exponential.app.data.db.commentKindOf
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.userDisplayName
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.fullBleed
-import com.exponential.app.ui.theme.glassButton
 import kotlinx.coroutines.launch
 
 // iOS comment palette (CommentRow.swift / CommentComposer.swift) — explicit white
@@ -56,16 +57,18 @@ import kotlinx.coroutines.launch
 // Surface), so any Text without an explicit color would inherit LocalContentColor's
 // black default. Mirrors the glass theme exactly. Internal so the extracted
 // EventRow / RegularCommentRow / IssueDetailBottomBar share the exact values.
+// (EXP-698 r4 retired the comment-only avatar chip: a comment draws the SAME
+// `UserAvatar` as every other surface, picture and hashed hue included.)
 internal val CommentAuthor = Color.White.copy(alpha = 0.9f)
 internal val CommentMeta = Color.White.copy(alpha = 0.5f)
-internal val CommentAvatarBg = Color.White.copy(alpha = 0.08f)
-internal val CommentAvatarText = Color.White.copy(alpha = 0.7f)
 internal val CommentAccent = Color(red = 0.42f, green = 0.64f, blue = 1.0f)
 
 // Timeline gutter geometry (EXP-240): the shared leading column every timeline
 // row aligns to — event dot, collapsed-run dot, and comment avatar.
 internal val TimelineGutterWidth = 28.dp
-internal val TimelineRail = Color.White.copy(alpha = 0.08f)
+// EXP-698 r5: the rail is the CARD hairline, unified across all four clients
+// — it used to be the card FILL, a paler line than any stroke beside it.
+internal val TimelineRail = GlassTokens.StrokeCard
 
 // The activity timeline: the synthesized "created the issue" item, regular
 // comments as glass cards, and activity events (status/assignee/label/PR
@@ -294,15 +297,11 @@ private fun CollapsedRunRow(
                 )
             },
         )
-        Text(
+        GlassPill(
             "Show $count activity items",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            modifier = Modifier
-                .padding(vertical = 4.dp)
-                .glassButton()
-                .clickable(onClick = onExpand)
-                .padding(horizontal = 10.dp, vertical = 5.dp),
+            size = PillSize.Sm,
+            onClick = onExpand,
+            modifier = Modifier.padding(vertical = 4.dp),
         )
     }
 }

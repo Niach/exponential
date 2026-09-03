@@ -69,8 +69,13 @@ class OnboardingViewModel @Inject constructor(
     private val _teamSubmitting = MutableStateFlow(false)
     val teamSubmitting: StateFlow<Boolean> = _teamSubmitting.asStateFlow()
 
-    private val _teamError = MutableStateFlow<String?>(null)
-    val teamError: StateFlow<String?> = _teamError.asStateFlow()
+    // EXP-698: one error line PER CARD (iOS parity) — a failed create used to
+    // print under the join card too, since the step shared a single message.
+    private val _teamCreateError = MutableStateFlow<String?>(null)
+    val teamCreateError: StateFlow<String?> = _teamCreateError.asStateFlow()
+
+    private val _teamJoinError = MutableStateFlow<String?>(null)
+    val teamJoinError: StateFlow<String?> = _teamJoinError.asStateFlow()
 
     private var reconciled = false
 
@@ -122,7 +127,7 @@ class OnboardingViewModel @Inject constructor(
         val accountId = auth.activeAccountId.value ?: return
         viewModelScope.launch {
             _teamSubmitting.value = true
-            _teamError.value = null
+            _teamCreateError.value = null
             runCatching {
                 val team = teamsApi.create(accountId, trimmed)
                 // Local head-start (idempotent REPLACE — Electric re-delivers
@@ -131,7 +136,7 @@ class OnboardingViewModel @Inject constructor(
                 selection.select(team.id)
                 team.id
             }.onSuccess { _teamId.value = it }
-                .onFailure { _teamError.value = trpcErrorMessage(it, "Couldn't create the team") }
+                .onFailure { _teamCreateError.value = trpcErrorMessage(it, "Couldn't create the team") }
             _teamSubmitting.value = false
         }
     }
@@ -145,13 +150,13 @@ class OnboardingViewModel @Inject constructor(
         if (_teamSubmitting.value) return
         val token = WebLinks.extractInviteToken(input)
         if (token == null) {
-            _teamError.value = "Paste an invite link or code."
+            _teamJoinError.value = "That doesn't look like an invite link or token."
             return
         }
         val accountId = auth.activeAccountId.value ?: return
         viewModelScope.launch {
             _teamSubmitting.value = true
-            _teamError.value = null
+            _teamJoinError.value = null
             runCatching {
                 val result = invitesApi.accept(accountId, token)
                 runCatching {
@@ -161,7 +166,7 @@ class OnboardingViewModel @Inject constructor(
             }.onSuccess {
                 auth.markOnboardingCompleted(java.time.Instant.now().toString())
                 _done.value = true
-            }.onFailure { _teamError.value = trpcErrorMessage(it, "Couldn't join the team") }
+            }.onFailure { _teamJoinError.value = trpcErrorMessage(it, "Couldn't join the team") }
             _teamSubmitting.value = false
         }
     }

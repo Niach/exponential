@@ -20,8 +20,9 @@
 //! half, mirroring the `timeline.rs` / `comments.rs` split.
 
 use gpui::{
-    div, img, px, App, ElementId, Entity, InteractiveElement as _, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement as _, Styled, StyledImage as _, Window,
+    div, img, prelude::FluentBuilder as _, px, App, ElementId, Entity, InteractiveElement as _,
+    IntoElement, ParentElement, SharedString, StatefulInteractiveElement as _, Styled,
+    StyledImage as _, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -233,16 +234,20 @@ fn image_tile(
             .flex_shrink_0()
             .child(tile)
             .child(
-                Button::new(SharedString::from(format!(
-                    "comment-attachment-remove-{}",
-                    attachment.id
-                )))
-                .ghost()
+                // EXP-698: the glass chrome every trailing action wears, at
+                // the 24px size — a 32px badge covers half a 64px thumbnail.
+                crate::controls::glass_icon_button(
+                    SharedString::from(format!(
+                        "comment-attachment-remove-{}",
+                        attachment.id
+                    )),
+                    Icon::new(registry::UI_CLOSE),
+                    cx,
+                )
                 .web_icon_xs()
-                .icon(Icon::new(registry::UI_CLOSE).xsmall())
                 .absolute()
-                .top(px(-4.))
-                .right(px(-4.))
+                .top(px(-6.))
+                .right(px(-6.))
                 .on_click(move |event, window, cx| {
                     cx.stop_propagation();
                     on_remove(event, window, cx);
@@ -262,31 +267,24 @@ fn file_chip(
     remove: Option<impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static>,
     cx: &App,
 ) -> gpui::AnyElement {
+    use crate::surface::{PillMode, PillSize};
     let label = attachment_label(attachment);
     let attachment_id = attachment.id.clone();
-    let mut chip = h_flex()
-        .id(SharedString::from(format!(
-            "comment-attachment-file-{}",
-            attachment.id
-        )))
-        .flex_shrink_0()
-        .gap_1p5()
-        .px_2()
-        .py_1()
-        .rounded_md()
-        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-        .items_center()
-        .cursor_pointer()
-        .hover(|el| el.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
+    // EXP-698: the ONE small pill. ACTION, not readonly — clicking it opens
+    // the file, which is exactly what `PillMode::Action` names.
+    let mut chip = crate::surface::glass_pill(
+        SharedString::from(format!("comment-attachment-file-{}", attachment.id)),
+        PillSize::Sm,
+        PillMode::Action,
+        cx,
+    )
         .child(
             Icon::from(icon_for_content_type(attachment.content_type.as_deref()))
-                .xsmall()
-                .text_color(cx.theme().muted_foreground),
+                .with_size(px(PillSize::Sm.glyph())),
         )
         .child(
             div()
                 .max_w(px(160.))
-                .text_xs()
                 .whitespace_nowrap()
                 .overflow_hidden()
                 .text_ellipsis()
@@ -294,8 +292,7 @@ fn file_chip(
         )
         .child(
             div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
+                .text_color(cx.theme().foreground.opacity(0.5))
                 .child(SharedString::from(format_bytes(
                     attachment.size_bytes.unwrap_or_default(),
                 ))),
@@ -308,18 +305,20 @@ fn file_chip(
         });
 
     if let Some(on_remove) = remove {
-        chip = chip.child(
+        // `pr_1`: the ✕ owns that side's padding (the steer pending chip's
+        // inset), instead of the capsule's full 8px.
+        chip = chip.pr_1().child(
+            // A 16px BARE glyph: inside a 24px pill a circle of the pill's
+            // own height fills it edge to edge.
             Button::new(SharedString::from(format!(
                 "comment-attachment-remove-{}",
                 attachment.id
             )))
             .ghost()
-            .web_icon_xs()
-            .icon(
-                Icon::new(registry::UI_CLOSE)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
-            )
+            .with_size(px(16.))
+            .rounded_full()
+            .cursor_pointer()
+            .icon(Icon::new(registry::UI_CLOSE))
             .on_click(move |event, window, cx| {
                 cx.stop_propagation();
                 on_remove(event, window, cx);
@@ -404,6 +403,7 @@ fn pending_chip(
         icon_for_content_type(Some(item.content_type.as_str()))
     };
     let key = item.key;
+    let has_error = item.error.is_some();
     let mut body = v_flex().gap_0p5().child(
         div()
             .max_w(px(160.))
@@ -426,36 +426,33 @@ fn pending_chip(
         );
     }
 
-    h_flex()
-        .id(SharedString::from(format!(
+    // EXP-698: the ONE small readonly pill. The height yields to `h_auto`
+    // only while an upload ERROR is showing — that chip carries a second
+    // line, and clipping the reason to 24px would hide the only explanation
+    // the user gets.
+    crate::surface::glass_pill(
+        SharedString::from(format!(
             "comment-pending-attachment-{}-{key}",
             scope.id_prefix()
-        )))
-        .flex_shrink_0()
-        .gap_1p5()
-        .px_2()
-        .py_1()
-        .rounded_md()
-        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-        .items_center()
-        .child(
-            Icon::from(glyph)
-                .xsmall()
-                .text_color(cx.theme().muted_foreground),
-        )
+        )),
+        crate::surface::PillSize::Sm,
+        crate::surface::PillMode::Readonly,
+        cx,
+    )
+        .when(has_error, |chip| chip.h_auto().py_1())
+        .child(Icon::from(glyph).with_size(px(crate::surface::PillSize::Sm.glyph())))
         .child(body)
+        .pr_1()
         .child(
             Button::new(SharedString::from(format!(
                 "comment-pending-remove-{}-{key}",
                 scope.id_prefix()
             )))
             .ghost()
-            .web_icon_xs()
-            .icon(
-                Icon::new(registry::UI_CLOSE)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
-            )
+            .with_size(px(16.))
+            .rounded_full()
+            .cursor_pointer()
+            .icon(Icon::new(registry::UI_CLOSE))
             .on_click(cx.listener(
                 move |this: &mut IssueTimeline, _: &gpui::ClickEvent, _window: &mut Window, cx| {
                     this.remove_pending_attachment(scope, key, cx);
@@ -475,7 +472,7 @@ pub(crate) fn attach_button(
 ) -> Button {
     Button::new(id)
         .ghost()
-        .web_icon_sm()
+        .web_icon_xs()
         .icon(Icon::new(registry::UI_ATTACH).text_color(cx.theme().muted_foreground))
         .tooltip("Attach files")
         .disabled(disabled)

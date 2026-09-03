@@ -161,9 +161,13 @@ struct CreateActionSheet: View {
 
     private var descriptionSection: some View {
         Section {
-            TextField("What should this action do?", text: $descriptionText, axis: .vertical)
-                .lineLimit(4...10)
-                .accessibilityIdentifier("create-action-description")
+            GlassTextField(
+                "What should this action do?",
+                text: $descriptionText,
+                lines: 4...10,
+                bordered: false,
+                accessibilityIdentifier: "create-action-description"
+            )
         }
         .listRowBackground(glassFormRowFill)
     }
@@ -213,7 +217,7 @@ struct CreateActionSheet: View {
                 }
             }
         } header: {
-            Text("Automation")
+            GlassSectionHeader("Automation")
         } footer: {
             if hasAutomation {
                 Text("The agent sets this up after writing the action.")

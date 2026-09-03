@@ -111,9 +111,7 @@ struct IssueFilesSection: View {
                     }
                 }
             } label: {
-                AppIcon(AppIcons.uiMore, size: AppIcon.Size.small)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .padding(6)
+                CircleIconLabel(AppIcons.uiMore)
             }
             .accessibilityLabel("File actions")
         }

@@ -10,15 +10,9 @@ import { useBillingPlan, invalidateBillingCache } from "@/hooks/use-billing"
 import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
 import { formatAttachmentSize, getAttachmentIcon } from "@/lib/attachment-files"
 import { formatStorage, UsageBar } from "@/components/team/billing-section"
-import { Badge } from "@/components/ui/badge"
+import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 import {
   AlertDialog,
@@ -163,31 +157,26 @@ export function TeamStorageSection({
 
   return (
     <div className="space-y-4">
-      {/* EXP-449: no CardAction — its unconditional two-column header grid
-          crushed the description next to the wide sweep button on phones.
-          A wrapping flex row keeps the button beside the title on desktop
-          and drops it below on narrow screens. */}
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle className="text-base">Storage</CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
+      <div>
+        <GlassSectionHeader
+          label="Storage"
+          trailing={
+            <Pill
+              mode="action"
               disabled={sweepCandidateCount === 0 || sweeping}
               onClick={() => setSweepConfirmOpen(true)}
             >
-              <Eraser className="mr-1.5 size-3.5" />
+              <Eraser />
               Sweep unreferenced images
               {sweepCandidateCount > 0 ? ` (${sweepCandidateCount})` : ``}
-            </Button>
-          </div>
-          <CardDescription>
-            Files and images attached to this team&apos;s issues. Deleting an
-            attachment is permanent.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
+            </Pill>
+          }
+        />
+        <p className="px-1 pb-2 text-xs text-foreground/50">
+          Files and images attached to this team&apos;s issues. Deleting an
+          attachment is permanent.
+        </p>
+        <div className="space-y-3">
           {billingPlan && billingPlan.plan !== `unlimited` && (
             <UsageBar
               label="Attachment storage"
@@ -202,39 +191,40 @@ export function TeamStorageSection({
               {formatAttachmentSize(list.totalBytes)}
             </p>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      <Card>
-        <CardContent>
-          {loadError ? (
-            <p className="text-sm text-destructive">{loadError}</p>
-          ) : !list ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <LoaderCircle className="size-3.5 animate-spin" />
-              Loading attachments...
-            </p>
-          ) : rows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No attachments yet.</p>
-          ) : (
-            // IDE-parity flex rows (EXP-316) — the old fixed table overflowed
-            // the settings column and clipped the status + delete controls.
-            <ul className="flex flex-col gap-2">
-              {rows.map((row) => {
-                const Icon = getAttachmentIcon(row.contentType)
-                const issue = issuesById.get(row.issueId)
-                const boardSlug = issue
-                  ? boardSlugById.get(issue.boardId)
-                  : undefined
-                const uploader = row.uploaderId
-                  ? userMap.get(row.uploaderId)
-                  : undefined
+      <div>
+        {loadError ? (
+          <p className="text-sm text-destructive">{loadError}</p>
+        ) : !list ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <LoaderCircle className="size-3.5 animate-spin" />
+            Loading attachments...
+          </p>
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No attachments yet.</p>
+        ) : (
+          // IDE-parity flex rows (EXP-316) — the old fixed table overflowed
+          // the settings column and clipped the status + delete controls.
+          <ul className="flex flex-col gap-2">
+            {rows.map((row) => {
+              const Icon = getAttachmentIcon(row.contentType)
+              const issue = issuesById.get(row.issueId)
+              const boardSlug = issue
+                ? boardSlugById.get(issue.boardId)
+                : undefined
+              const uploader = row.uploaderId
+                ? userMap.get(row.uploaderId)
+                : undefined
 
-                return (
-                  <li
-                    key={row.id}
-                    className="flex min-w-0 items-center gap-2 rounded-md border border-glass-stroke bg-glass-row px-2 py-1.5"
-                  >
+              return (
+                <GlassRow
+                  key={row.id}
+                  asChild
+                  className="min-w-0 gap-2 px-2 py-1.5"
+                >
+                  <li>
                     <Icon className="size-4 shrink-0 text-muted-foreground" />
                     {row.isImage ? (
                       <button
@@ -257,18 +247,19 @@ export function TeamStorageSection({
                       {formatAttachmentSize(row.sizeBytes)}
                     </span>
                     {issue && boardSlug && (
-                      <Link
-                        to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
-                        params={{
-                          teamSlug,
-                          boardSlug,
-                          issueIdentifier: issue.identifier,
-                        }}
-                        title={issue.title}
-                        className="shrink-0 whitespace-nowrap rounded-full border bg-accent px-1.5 py-px font-mono text-xs text-accent-foreground hover:border-ring"
-                      >
-                        #{issue.identifier}
-                      </Link>
+                      <Pill mode="action" asChild className="font-mono">
+                        <Link
+                          to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+                          params={{
+                            teamSlug,
+                            boardSlug,
+                            issueIdentifier: issue.identifier,
+                          }}
+                          title={issue.title}
+                        >
+                          #{issue.identifier}
+                        </Link>
+                      </Pill>
                     )}
                     <span className="hidden w-28 shrink-0 truncate text-xs text-muted-foreground sm:inline">
                       {uploader?.name || uploader?.email || `—`}
@@ -278,29 +269,29 @@ export function TeamStorageSection({
                     </span>
                     <span className="shrink-0">
                       {!row.isImage ? (
-                        <Badge variant="outline">File</Badge>
+                        <Pill>File</Pill>
                       ) : row.referenced ? (
-                        <Badge variant="secondary">In use</Badge>
+                        <Pill>In use</Pill>
                       ) : (
-                        <Badge variant="outline">Unreferenced</Badge>
+                        <Pill>Unreferenced</Pill>
                       )}
                     </span>
                     <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      className="shrink-0 text-muted-foreground hover:text-destructive"
+                      variant="glass"
+                      size="icon-sm"
+                      className="shrink-0 hover:text-destructive"
                       aria-label={`Delete ${row.filename}`}
                       onClick={() => setPendingDelete(row)}
                     >
                       <Trash2 />
                     </Button>
                   </li>
-                )
-              })}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+                </GlassRow>
+              )
+            })}
+          </ul>
+        )}
+      </div>
 
       {previewRow && (
         <ImagePreviewDialog

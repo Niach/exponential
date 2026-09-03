@@ -27,22 +27,35 @@ struct AgentMarkdownText: View {
     let imageMaxHeight: CGFloat?
     /// Chat bubbles hug their text; full-width prose does not.
     let hugsWidth: Bool
+    /// EXP-698: display-only palette deviations. The chat feed is the ONE
+    /// surface that tints inline code (`Semantic.codeText` on `codeFill`) —
+    /// comment and issue renders keep the neutral interchange look.
+    let overrides: MarkdownStyle.Overrides
 
     @State private var displayModel: IssueEditorModel
     @State private var displayedText: String?
+
+    /// The steer feed's inline-code palette, generated straight off the shared
+    /// design tokens (web `--code-*`, desktop and Android mirror it).
+    static let chatCodePalette = MarkdownStyle.Overrides(
+        inlineCodeForeground: DesignTokens.Semantic.codeText,
+        inlineCodeBackground: DesignTokens.Semantic.codeFill
+    )
 
     init(
         text: String,
         context: AgentMarkdownContext? = nil,
         options: MarkdownParseOptions = [],
         imageMaxHeight: CGFloat? = 280,
-        hugsWidth: Bool = false
+        hugsWidth: Bool = false,
+        overrides: MarkdownStyle.Overrides = AgentMarkdownText.chatCodePalette
     ) {
         self.text = text
         self.context = context
         self.options = options
         self.imageMaxHeight = imageMaxHeight
         self.hugsWidth = hugsWidth
+        self.overrides = overrides
         // EXP-582: a LazyVStack drops a row's @State the moment it scrolls
         // off, so every re-realized bubble used to start EMPTY, re-run cmark
         // in `.task` and then grow to its real height — the layout churn
@@ -51,7 +64,9 @@ struct AgentMarkdownText: View {
         // the EXP-70 failure mode again) and cache the result, so a
         // re-realized row renders at full height on the first pass and a
         // cache hit parses nothing.
-        _displayModel = State(initialValue: Self.model(text, context: context, options: options))
+        _displayModel = State(initialValue: Self.model(
+            text, context: context, options: options, overrides: overrides
+        ))
         _displayedText = State(initialValue: text)
     }
 
@@ -65,18 +80,31 @@ struct AgentMarkdownText: View {
         return cache
     }()
 
-    private static func cacheKey(text: String, baseURL: URL?, options: MarkdownParseOptions) -> NSString {
-        "\(options.rawValue)|\(baseURL?.absoluteString ?? "")|\(text)" as NSString
+    private static func cacheKey(
+        text: String,
+        baseURL: URL?,
+        options: MarkdownParseOptions,
+        overrides: MarkdownStyle.Overrides
+    ) -> NSString {
+        "\(options.rawValue)|\(overrides.cacheKey)|\(baseURL?.absoluteString ?? "")|\(text)"
+            as NSString
     }
 
     /// Cache hit or a synchronous parse that populates the cache.
     private static func model(
-        _ text: String, context: AgentMarkdownContext?, options: MarkdownParseOptions
+        _ text: String,
+        context: AgentMarkdownContext?,
+        options: MarkdownParseOptions,
+        overrides: MarkdownStyle.Overrides
     ) -> IssueEditorModel {
-        let key = cacheKey(text: text, baseURL: context?.baseURL, options: options)
+        let key = cacheKey(
+            text: text, baseURL: context?.baseURL, options: options, overrides: overrides
+        )
         if let cached = cache.object(forKey: key) { return cached }
         let model = IssueEditorModel()
-        model.load(markdown: text, baseURL: context?.baseURL, options: options)
+        model.load(
+            markdown: text, baseURL: context?.baseURL, options: options, overrides: overrides
+        )
         cache.setObject(model, forKey: key)
         return model
     }
@@ -96,7 +124,9 @@ struct AgentMarkdownText: View {
         .onChange(of: text) { _, newText in
             guard displayedText != newText else { return }
             displayedText = newText
-            displayModel = Self.model(newText, context: context, options: options)
+            displayModel = Self.model(
+                newText, context: context, options: options, overrides: overrides
+            )
         }
     }
 }

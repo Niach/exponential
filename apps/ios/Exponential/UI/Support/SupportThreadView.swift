@@ -153,21 +153,15 @@ struct SupportThreadView: View {
 
             if let issue = vm.linkedIssue {
                 NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
-                    HStack(spacing: 6) {
-                        AppIcon(AppIcons.uiExternalLink, size: AppIcon.Size.small)
+                    GlassPill(issue.title) {
+                        AppIcon(AppIcons.uiExternalLink, size: GlassPillTokens.glyphSm)
                         if let identifier = issue.identifier {
                             Text(identifier)
                                 .font(.caption.monospaced())
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         }
-                        Text(issue.title)
-                            .font(.caption)
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .glassButton()
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
             }
@@ -221,83 +215,64 @@ struct SupportThreadView: View {
 
     // MARK: - Composer
 
+    /// EXP-698: the ONE composer card, with the Reply / Internal note choice
+    /// as two `.select` pills in its leading slot. No material, no shadow, no
+    /// second radius — `isOpaque` because it floats over the message list.
     @ViewBuilder
     private func composer(_ vm: SupportThreadViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if let error = vm.error, vm.thread != nil {
-                Text(error)
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-                    .lineLimit(2)
-            }
-
-            HStack(spacing: 4) {
-                composerModeButton(label: "Reply", isInternal: false)
-                composerModeButton(label: "Internal note", isInternal: true)
-                Spacer()
-            }
-
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField(
-                    internalNote ? "Write an internal note…" : "Reply to the reporter…",
-                    text: $composerText,
-                    axis: .vertical
-                )
-                .lineLimit(1...5)
-                .font(.subheadline)
-                .foregroundStyle(.white)
-                .focused($composerFocused)
-
-                Button {
-                    Task {
-                        if await vm.send(body: composerText, internalNote: internalNote) {
-                            composerText = ""
-                        }
-                    }
-                } label: {
-                    AppIcon(AppIcons.uiSend, size: 26)
-                        .foregroundStyle(
-                            sendDisabled(vm)
-                                ? Color.white.opacity(0.3)
-                                : (internalNote ? Color.orange : Color.white)
-                        )
+        GlassComposer(isOpaque: true) {
+            VStack(alignment: .leading, spacing: 6) {
+                if let error = vm.error, vm.thread != nil {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
                 }
-                .buttonStyle(.plain)
-                .disabled(sendDisabled(vm))
-                .accessibilityLabel(internalNote ? "Send internal note" : "Send reply")
+
+                HStack(spacing: 4) {
+                    composerModePill(label: "Reply", isInternal: false)
+                    composerModePill(label: "Internal note", isInternal: true)
+                    Spacer(minLength: 0)
+                }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color.white.opacity(0.06))
-            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+        } field: {
+            GlassTextField(
+                internalNote ? "Write an internal note…" : "Reply to the reporter…",
+                text: $composerText,
+                lines: 1...5,
+                bordered: false
+            )
+            .font(.subheadline)
+            .focused($composerFocused)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 4)
+        } submit: {
+            GlassComposerSubmitButton(
+                AppIcons.uiSend,
+                accessibilityLabel: internalNote ? "Send internal note" : "Send reply",
+                enabled: !sendDisabled(vm),
+                tint: internalNote ? Color.orange : Color.white
+            ) {
+                Task {
+                    if await vm.send(body: composerText, internalNote: internalNote) {
+                        composerText = ""
+                    }
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .padding(.bottom, 10)
-        .background(.ultraThinMaterial)
     }
 
-    private func composerModeButton(label: String, isInternal: Bool) -> some View {
-        let active = internalNote == isInternal
-        return Button {
-            internalNote = isInternal
-        } label: {
-            Text(label)
-                .font(.caption.weight(active ? .semibold : .regular))
-                .foregroundStyle(
-                    active
-                        ? (isInternal ? Color.orange : .white)
-                        : .white.opacity(TextOpacity.secondary)
-                )
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    active ? Color.white.opacity(0.12) : .clear,
-                    in: Capsule()
-                )
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
+    private func composerModePill(label: String, isInternal: Bool) -> some View {
+        GlassPill(
+            label,
+            mode: .select(isSelected: internalNote == isInternal) { internalNote = isInternal }
+        )
         .accessibilityLabel(label)
     }
 

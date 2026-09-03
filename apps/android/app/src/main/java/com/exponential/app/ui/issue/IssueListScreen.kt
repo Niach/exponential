@@ -1,5 +1,6 @@
 package com.exponential.app.ui.issue
 
+import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -30,20 +31,19 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,13 +55,19 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.AppConstants
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
@@ -71,33 +77,43 @@ import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
-import com.exponential.app.domain.WebLinks
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.ui.components.BoardIcon
+import com.exponential.app.ui.components.GlassNotice
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassPillDefaults
+import com.exponential.app.ui.components.PillMode
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.BottomNavDefaults
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.GlassSheetSearchField
-import com.exponential.app.ui.components.GlassTextField
-import com.exponential.app.ui.components.InitialsAvatar
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.components.LocalBottomBarSuppression
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.formatDueDate
+import com.exponential.app.ui.gettingstarted.GettingStartedCards
+import com.exponential.app.ui.gettingstarted.GettingStartedEntryKey
+import com.exponential.app.ui.gettingstarted.GettingStartedState
+import com.exponential.app.ui.gettingstarted.GettingStartedViewModel
 import com.exponential.app.ui.home.BoardSwitcherSheet
 import com.exponential.app.ui.home.HomeViewModel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.CreateBoardSheet
+import com.exponential.app.ui.onboarding.TeamSetupSheet
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
-import com.exponential.app.ui.theme.glassButton
+import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.delay
 
@@ -119,15 +135,19 @@ fun IssueListScreen(
     onOpenIssue: (String) -> Unit,
     onBack: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
-    // Root zero-team empty state's "Join team" (EXP-188): hands the extracted
-    // invite token to the existing invite/{token} route.
-    onOpenInvite: (String) -> Unit = {},
     // EXP-536: a remote start jumps straight into the live session once the
     // desktop's row syncs in, instead of parking a chip pointing at Devices.
     onOpenSteer: (codingSessionId: String) -> Unit = {},
     // EXP-686: search left the bottom bar and rides the board header instead,
     // next to the filter trigger.
     onOpenSearch: () -> Unit = {},
+    // EXP-698 r5: the getting-started cards under the two empty states send
+    // the user to the surface each step lives on, plus the empty board's own
+    // "New issue" pill (the compose FAB is hidden behind the empty state).
+    onOpenTeamSettings: () -> Unit = {},
+    onOpenDevices: () -> Unit = {},
+    onOpenActions: () -> Unit = {},
+    onNewIssue: () -> Unit = {},
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -137,8 +157,12 @@ fun IssueListScreen(
     var showFilters by remember { mutableStateOf(false) }
     var showSwitcher by remember { mutableStateOf(false) }
     var showCreateBoard by remember { mutableStateOf(false) }
-    var showCreateTeam by remember { mutableStateOf(false) }
-    var showJoinTeam by remember { mutableStateOf(false) }
+    // Which team the create-board sheet targets — the switcher names one, every
+    // other entry point means "the selected team" (null).
+    var createBoardTeamId by remember { mutableStateOf<String?>(null) }
+    // EXP-698: ONE create-or-join sheet, replacing the two stock Material
+    // dialogs — the same form the onboarding wizard's team step renders.
+    var showTeamSetup by remember { mutableStateOf(false) }
     // Collapse state keys on the GROUP KEY (status row id / `builtin:<key>`).
     var collapsed by remember { mutableStateOf(emptySet<String>()) }
 
@@ -153,6 +177,17 @@ fun IssueListScreen(
     // Inline single-issue status/priority edit fired from a list-row icon tap.
     var inlineEdit by remember { mutableStateOf<InlineEdit?>(null) }
     val selectionActive = selectedIds.isNotEmpty()
+    // Delete confirmation for the selection bar (EXP-698 r5).
+    var confirmBulkDelete by remember { mutableStateOf(false) }
+    // EXP-698 r5 (Mechanism A): the selection bar takes the tab bar's slot, so
+    // the tab bar + its FAB slide out while a selection is up. Covers both
+    // mounts — the Issues root and a pushed board — and restores on dispose,
+    // so a back-out mid-selection never strands a hidden bar.
+    val barSuppression = LocalBottomBarSuppression.current
+    DisposableEffect(selectionActive) {
+        barSuppression?.suppressed = selectionActive
+        onDispose { barSuppression?.suppressed = false }
+    }
     val haptics = LocalHapticFeedback.current
     val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
@@ -208,6 +243,38 @@ fun IssueListScreen(
     // only the Root mount needs them. The mode of a mounted screen never
     // changes, so the conditional composable calls are stable.
     val homeViewModel: HomeViewModel? = if (mode == IssueListMode.Root) hiltViewModel() else null
+    // The checklist is a ROOT affordance (EXP-698 r5): a pushed board is
+    // somewhere you navigated to, not the app's front door.
+    val gettingStartedViewModel: GettingStartedViewModel? =
+        if (mode == IssueListMode.Root) hiltViewModel() else null
+    val gettingStarted = gettingStartedViewModel?.state?.collectAsStateWithLifecycle()?.value
+    val gettingStartedTeamId =
+        gettingStartedViewModel?.selectedTeamId?.collectAsStateWithLifecycle()?.value
+    val instanceOrigin =
+        gettingStartedViewModel?.instanceOrigin?.collectAsStateWithLifecycle()?.value
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val onGettingStartedAction: (GettingStartedEntryKey) -> Unit = { key ->
+        when (key) {
+            GettingStartedEntryKey.Desktop -> context.startActivity(
+                Intent(Intent.ACTION_VIEW, AppConstants.DESKTOP_RELEASES_URL.toUri()),
+            )
+            // Both the repo connect and the invite link live in team settings;
+            // mobile has no account-level Integrations menu (EXP-180).
+            GettingStartedEntryKey.Github, GettingStartedEntryKey.Invite -> onOpenTeamSettings()
+            GettingStartedEntryKey.Board -> {
+                createBoardTeamId = gettingStartedTeamId
+                showCreateBoard = true
+            }
+            GettingStartedEntryKey.Coding -> onOpenDevices()
+            GettingStartedEntryKey.Action -> onOpenActions()
+            // No resolved origin means no instance to point the daemon at —
+            // copying `EXP_INSTANCE= sh` would hand over a broken command.
+            GettingStartedEntryKey.Server -> instanceOrigin?.let { origin ->
+                clipboard.setText(AnnotatedString(AppConstants.serverInstallSnippet(origin)))
+            }
+        }
+    }
     val homeState = homeViewModel?.state?.collectAsStateWithLifecycle()?.value
     val homeError = homeViewModel?.error?.collectAsStateWithLifecycle()?.value
     if (homeViewModel != null) {
@@ -311,44 +378,66 @@ fun IssueListScreen(
                     val hasTeam = homeState?.activeAccountHasTeam == true
                     if (!stillSyncing && !hasTeam) {
                         // Zero teams (EXP-188 — signups get no auto-created
-                        // team): create-or-join, mirroring the onboarding
-                        // choice. Kept visible even after an error so a failed
-                        // create can simply be retried.
+                        // team): ONE pill onto the create-or-join sheet, which
+                        // owns both paths and its own error lines. Byte-equal
+                        // copy to iOS `IssuesHomeView.emptyStateHint`.
                         EmptyState(
-                            message = homeError
-                                ?: "You're not in a team yet. Create one, or join a teammate's with an invite link.",
-                            icon = ExpIcons.uiTeam,
+                            message = "No team yet",
+                            icon = ExpIcons.settingsMembers,
+                            detail = homeError
+                                ?: "Create a team, or join one with an invite link from a teammate.",
                             action = {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    Button(onClick = { showCreateTeam = true }) {
-                                        Text("Create team")
-                                    }
-                                    OutlinedButton(onClick = { showJoinTeam = true }) {
-                                        Text("Join team")
-                                    }
-                                }
+                                GlassPill(
+                                    "Create or join a team",
+                                    icon = ExpIcons.uiAdd,
+                                    size = PillSize.Md,
+                                    mode = PillMode.Action,
+                                    onClick = { showTeamSetup = true },
+                                )
                             },
+                        )
+                    } else if (stillSyncing || homeError != null) {
+                        EmptyState(
+                            message = homeError ?: "Syncing…",
+                            icon = ExpIcons.navBoards,
                         )
                     } else {
-                        val syncingOrError = stillSyncing || homeError != null
-                        EmptyState(
-                            message = when {
-                                homeError != null -> homeError
-                                stillSyncing -> "Syncing…"
-                                else -> "No boards yet. Create your first board to get started."
-                            },
-                            icon = ExpIcons.navBoards,
-                            action = if (syncingOrError) null else {
-                                {
-                                    Button(onClick = { showCreateBoard = true }) {
-                                        Text("Create board")
-                                    }
-                                }
-                            },
-                        )
+                        // EXP-698 r5: the boardless team is the other place
+                        // the getting-started checklist belongs — same empty
+                        // state as the IDE and web, cards under it, the whole
+                        // thing scrollable because the cards outgrow a phone.
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = ListGutter)
+                                .padding(bottom = BottomBarInset),
+                        ) {
+                            EmptyState(
+                                message = "No boards yet",
+                                icon = ExpIcons.navBoards,
+                                detail = "Create a board to start tracking work.",
+                                modifier = Modifier.padding(top = 32.dp),
+                                action = {
+                                    GlassPill(
+                                        "Create board",
+                                        icon = ExpIcons.uiAdd,
+                                        primary = true,
+                                        onClick = {
+                                            createBoardTeamId = null
+                                            showCreateBoard = true
+                                        },
+                                    )
+                                },
+                            )
+                            Spacer(Modifier.height(24.dp))
+                            if (gettingStarted != null) {
+                                GettingStartedCards(
+                                    state = gettingStarted,
+                                    onAction = onGettingStartedAction,
+                                )
+                            }
+                        }
                     }
                 }
             } else {
@@ -376,6 +465,9 @@ fun IssueListScreen(
                         // still picking, so Start coding is ready when tapped.
                         if (state.board?.repositoryId != null) viewModel.ensureSteerLoaded()
                     },
+                    gettingStarted = gettingStarted,
+                    onGettingStartedAction = onGettingStartedAction,
+                    onNewIssue = onNewIssue,
                 )
             }
         }
@@ -389,8 +481,14 @@ fun IssueListScreen(
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = BottomBarInset),
+                    // The nav bar's OWN gutter — the selection bar stands in
+                    // its slot, so it has to start on the same x.
+                    .padding(horizontal = BottomNavDefaults.HorizontalInset)
+                    // While the selection bar is up it IS the bottom chrome:
+                    // it sits where the nav bar's pill did (the Scaffold has
+                    // already applied the system inset), so the stack only
+                    // clears the nav bar when the nav bar is still there.
+                    .padding(bottom = if (selectionActive) 8.dp else BottomBarInset),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -429,6 +527,9 @@ fun IssueListScreen(
                         // Only repo-backed boards can code, and only while the
                         // relay isn't known-off.
                         showStartCoding = state.board?.repositoryId != null && steerEnabled != false,
+                        // Same gate as the single-issue delete: any member
+                        // moderates (permissions are membership-only).
+                        showDelete = permissions.isModerator,
                         devicesLoading = steerDevices == null,
                         onClear = { selectedIds = emptySet() },
                         onStatus = { bulkSheet = BulkSheet.Status },
@@ -443,12 +544,34 @@ fun IssueListScreen(
                                 else -> showStartSheet = true
                             }
                         },
+                        onDelete = { confirmBulkDelete = true },
                     )
                 }
             }
         }
 
         }
+    }
+
+    if (confirmBulkDelete) {
+        val count = selectedIds.size
+        AlertDialog(
+            onDismissRequest = { confirmBulkDelete = false },
+            title = { Text(if (count == 1) "Delete 1 issue" else "Delete $count issues") },
+            text = { Text("This action cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmBulkDelete = false
+                    viewModel.bulkDelete(selectedIds)
+                    selectedIds = emptySet()
+                }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmBulkDelete = false }) { Text("Cancel") }
+            },
+        )
     }
 
     if (showStartSheet) {
@@ -564,9 +687,22 @@ fun IssueListScreen(
     if (showSwitcher && homeViewModel != null) {
         BoardSwitcherSheet(
             groups = homeState?.boardTree ?: emptyList(),
+            currentBoardId = state.board?.id,
             onSelect = { accountId, pickedBoardId ->
                 homeViewModel.selectBoard(accountId, pickedBoardId)
                 showSwitcher = false
+            },
+            // The switcher's own make-rows (EXP-698 r5). Both close the sheet
+            // first — they open a sheet of their own, and two stacked bottom
+            // sheets is a dead end on Android.
+            onCreateBoard = { teamId ->
+                showSwitcher = false
+                createBoardTeamId = teamId
+                showCreateBoard = true
+            },
+            onCreateTeam = {
+                showSwitcher = false
+                showTeamSetup = true
             },
             onDismiss = { showSwitcher = false },
         )
@@ -574,100 +710,25 @@ fun IssueListScreen(
 
     if (showCreateBoard) {
         // The new board's last-used pointer swaps the root list in place, so
-        // dismissing is all this needs to do on success.
+        // dismissing is all this needs to do on success. A null team is the
+        // selected one; the switcher names the block's team explicitly.
         CreateBoardSheet(
-            teamId = null,
-            onCreated = { showCreateBoard = false },
-            onDismiss = { showCreateBoard = false },
+            teamId = createBoardTeamId,
+            onCreated = { showCreateBoard = false; createBoardTeamId = null },
+            onDismiss = { showCreateBoard = false; createBoardTeamId = null },
         )
     }
 
-    if (showCreateTeam && homeViewModel != null) {
-        CreateTeamDialog(
-            onCreate = { name ->
-                homeViewModel.createTeam(name)
-                showCreateTeam = false
-            },
-            onDismiss = { showCreateTeam = false },
+    if (showTeamSetup) {
+        // Both paths already point the team selection at the new team, so the
+        // empty state behind the sheet flips on its own — closing is all this
+        // has to do.
+        TeamSetupSheet(
+            onDismiss = { showTeamSetup = false },
+            onCreated = { showTeamSetup = false },
+            onJoined = { showTeamSetup = false },
         )
     }
-
-    if (showJoinTeam) {
-        JoinTeamDialog(
-            onJoin = { token ->
-                showJoinTeam = false
-                onOpenInvite(token)
-            },
-            onDismiss = { showJoinTeam = false },
-        )
-    }
-}
-
-// Zero-team "Create team" (EXP-188): a plain name dialog — the create runs in
-// HomeViewModel; success flips the empty state to create-board via the synced
-// (head-started) teams table.
-@Composable
-private fun CreateTeamDialog(
-    onCreate: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var name by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Create a team") },
-        text = {
-            GlassTextField(
-                value = name,
-                onValueChange = { name = it },
-                singleLine = true,
-                placeholder = "Team name",
-                modifier = Modifier.fillMaxWidth(),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onCreate(name) }, enabled = name.isNotBlank()) {
-                Text("Create")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-// Zero-team "Join team" (EXP-188): paste an invite link (or bare token); the
-// extracted token routes into the existing invite/{token} accept screen.
-@Composable
-private fun JoinTeamDialog(
-    onJoin: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var input by remember { mutableStateOf("") }
-    val token = WebLinks.extractInviteToken(input)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Join a team") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    "Ask a teammate for an invite link and paste it here.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                )
-                GlassTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    singleLine = true,
-                    placeholder = "Invite link or code",
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { token?.let(onJoin) }, enabled = token != null) {
-                Text("Join")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -685,6 +746,11 @@ private fun IssueListContent(
     selectedIds: Set<String>,
     onToggleSelect: (String) -> Unit,
     onEnterSelection: (String) -> Unit,
+    // EXP-698 r5: the empty board's own affordances — null on a pushed board,
+    // whose empty state is just an empty state.
+    gettingStarted: GettingStartedState?,
+    onGettingStartedAction: (GettingStartedEntryKey) -> Unit,
+    onNewIssue: () -> Unit,
 ) {
     val usersById = remember(state.users) { state.users.associateBy { it.id } }
 
@@ -724,17 +790,59 @@ private fun IssueListContent(
             }
 
             if (state.groups.isEmpty()) {
+                // EXP-698 r5: the shared empty-board shape on every client —
+                // a circled glyph, a title, one line of guidance and the one
+                // primary action (the compose FAB is behind this state).
                 item(key = "empty") {
-                    Box(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = ListGutter)
-                            .padding(top = 64.dp),
-                        contentAlignment = Alignment.Center,
+                            .padding(top = 48.dp, bottom = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(GlassTokens.RowFillActive),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                ExpIcons.uiChecklist,
+                                contentDescription = null,
+                                modifier = Modifier.size(22.dp),
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            )
+                        }
                         Text(
                             "No issues yet",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            "Create an issue to start tracking work.",
+                            style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        )
+                        GlassPill(
+                            "New issue",
+                            icon = ExpIcons.uiAdd,
+                            size = PillSize.Md,
+                            primary = true,
+                            onClick = onNewIssue,
+                        )
+                    }
+                }
+                if (gettingStarted != null) {
+                    item(key = "getting-started") {
+                        GettingStartedCards(
+                            state = gettingStarted,
+                            onAction = onGettingStartedAction,
+                            modifier = Modifier
+                                .padding(horizontal = ListGutter)
+                                .padding(top = 20.dp),
                         )
                     }
                 }
@@ -837,33 +945,27 @@ private fun BoardSwitcherControl(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .glassButton()
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        if (board != null) {
-            BoardIcon(board)
-        }
-        Text(
-            board?.name ?: "Issues",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Icon(
-            ExpIcons.uiSelector,
-            contentDescription = "Switch board",
-            modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
-            ),
-        )
-    }
+    // EXP-698: the control stays ENABLED-looking with nowhere to switch to —
+    // this is the screen's TITLE as much as it is a control, and dimming the
+    // board name to quaternary read as "this board is broken". Only the
+    // expander glyph (and the tap) reflect that there is no second board.
+    GlassPill(
+        board?.name ?: "Issues",
+        onClick = if (enabled) onClick else null,
+        mode = PillMode.Action,
+        maxLines = 1,
+        leading = board?.let { { BoardIcon(it) } },
+        trailing = {
+            Icon(
+                ExpIcons.uiSelector,
+                contentDescription = "Switch board",
+                modifier = Modifier.size(GlassPillDefaults.MdGlyphSize),
+                tint = MaterialTheme.colorScheme.onSurface.copy(
+                    alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+                ),
+            )
+        },
+    )
 }
 
 // Nav-row filter trigger: the circular glass filter button with its
@@ -1054,7 +1156,11 @@ internal fun IssueRow(
         }
         if (assignee != null) {
             Spacer(Modifier.width(8.dp))
-            InitialsAvatar(nameOrEmail = assignee.name ?: assignee.email, size = 22.dp)
+            UserAvatar(
+                user = assignee,
+                nameOrEmail = assignee.name ?: assignee.email,
+                size = 22.dp,
+            )
         }
         Spacer(Modifier.width(6.dp))
         Icon(
@@ -1143,6 +1249,7 @@ private fun SelectionBar(
     sharedPriority: IssuePriority?,
     showAssignee: Boolean,
     showStartCoding: Boolean,
+    showDelete: Boolean,
     devicesLoading: Boolean,
     onClear: () -> Unit,
     onStatus: () -> Unit,
@@ -1150,26 +1257,29 @@ private fun SelectionBar(
     onAssignee: () -> Unit,
     onLabels: () -> Unit,
     onStartCoding: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val shape = RoundedCornerShape(percent = 50)
     val neutral = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    // Suppress the 48dp minimum interactive inflation so the 34dp icon buttons
-    // keep the bar at ~46dp instead of ballooning it.
+    // Suppress the 48dp minimum interactive inflation so the 32dp icon buttons
+    // keep the bar at its own height instead of ballooning it.
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
         Row(
             modifier = Modifier
                 // EXP-642: the styleguide capture addresses the bar directly
                 // (iOS parity — `bulk-selection-bar`).
                 .testTag("bulk-selection-bar")
-                .clip(shape)
-                .background(DesignTokens.Palette.Card, shape)
-                .background(GlassTokens.RowFillActive, shape)
-                .border(GlassTokens.Hairline, GlassTokens.StrokeActive, shape)
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                // EXP-698 r5: the ONE bulk-bar chrome on every client — the
+                // opaque glass card at radius 24, not a hand-mixed capsule.
+                // The bar takes the tab bar's slot and its height (52), so the
+                // two never read as two different floating things.
+                .height(SelectionBarHeight)
+                .glassCard(opaque = true, cornerRadius = DesignTokens.Radius.Xl3)
+                .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            IconButton(onClick = onClear, modifier = Modifier.size(34.dp)) {
+            IconButton(onClick = onClear, modifier = Modifier.size(32.dp)) {
                 Icon(
                     ExpIcons.uiClose,
                     contentDescription = "Clear selection",
@@ -1179,12 +1289,12 @@ private fun SelectionBar(
             }
             Text(
                 count.toString(),
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 modifier = Modifier.padding(horizontal = 4.dp),
             )
-            IconButton(onClick = onStatus, modifier = Modifier.size(34.dp)) {
+            IconButton(onClick = onStatus, modifier = Modifier.size(32.dp)) {
                 if (sharedStatus != null) {
                     StatusIcon(sharedStatus, size = 18.dp)
                 } else {
@@ -1196,7 +1306,7 @@ private fun SelectionBar(
                     )
                 }
             }
-            IconButton(onClick = onPriority, modifier = Modifier.size(34.dp)) {
+            IconButton(onClick = onPriority, modifier = Modifier.size(32.dp)) {
                 if (sharedPriority != null) {
                     PriorityIcon(sharedPriority, size = 18.dp)
                 } else {
@@ -1209,7 +1319,7 @@ private fun SelectionBar(
                 }
             }
             if (showAssignee) {
-                IconButton(onClick = onAssignee, modifier = Modifier.size(34.dp)) {
+                IconButton(onClick = onAssignee, modifier = Modifier.size(32.dp)) {
                     Icon(
                         ExpIcons.uiAssignee,
                         contentDescription = "Assignee",
@@ -1218,7 +1328,7 @@ private fun SelectionBar(
                     )
                 }
             }
-            IconButton(onClick = onLabels, modifier = Modifier.size(34.dp)) {
+            IconButton(onClick = onLabels, modifier = Modifier.size(32.dp)) {
                 Icon(
                     ExpIcons.settingsLabels,
                     contentDescription = "Labels",
@@ -1230,13 +1340,18 @@ private fun SelectionBar(
                 Spacer(Modifier.width(4.dp))
                 Row(
                     modifier = Modifier
-                        .height(34.dp)
+                        .height(32.dp)
                         .clip(shape)
                         .background(MaterialTheme.colorScheme.primary)
                         .clickable(onClick = onStartCoding)
                         .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // EXP-698: the LABEL always renders — only the GLYPH slot
+                    // swaps for the spinner while the devices load (the
+                    // [GlassPill] `loading` contract). Dropping the text left
+                    // the bar's one primary action as a blank white capsule
+                    // with a dot in it.
                     if (devicesLoading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(14.dp),
@@ -1250,19 +1365,35 @@ private fun SelectionBar(
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.onPrimary,
                         )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "Start coding",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            maxLines = 1,
-                        )
                     }
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Start coding",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        maxLines = 1,
+                    )
+                }
+            }
+            // Destructive, so it sits LAST and alone on the far side of the
+            // one primary action (EXP-698 r5, ×4). Members only — the same
+            // gate the single-issue delete takes.
+            if (showDelete) {
+                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        ExpIcons.uiDelete,
+                        contentDescription = "Delete issues",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
         }
     }
 }
+
+/** The bar's height IS the nav bar's pill height — it takes that slot. */
+private val SelectionBarHeight = 52.dp
 
 /**
  * The selection bar's bulk-label sheet (EXP-247): tri-state rows — a check when
@@ -1357,21 +1488,12 @@ private fun NoticeChip(
     isError: Boolean,
     onClick: (() -> Unit)?,
 ) {
-    val shape = RoundedCornerShape(12.dp)
-    Text(
+    // A NOTICE, not a pill: these are server-written sentences ("No desktop
+    // online to start this on…") that run to two lines on a phone, and a
+    // fixed-height capsule can only clip them (EXP-698).
+    GlassNotice(
         text,
-        style = MaterialTheme.typography.labelSmall,
-        color = if (isError) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-        },
-        modifier = Modifier
-            .clip(shape)
-            .background(DesignTokens.Palette.Card, shape)
-            .background(GlassTokens.RowFill, shape)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeRow, shape)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+        onClick = onClick,
+        contentColor = if (isError) MaterialTheme.colorScheme.error else null,
     )
 }

@@ -5,13 +5,8 @@ import { labelCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import type { Label as LabelType } from "@/db/schema"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Pill } from "@/components/ui/pill"
+import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import { Input } from "@/components/ui/input"
 import {
   Popover,
@@ -92,7 +87,7 @@ function LabelRow({
   }
 
   return (
-    <div className="rounded-md border border-glass-stroke bg-glass-row px-3 py-2">
+    <GlassRow className="flex-col items-stretch gap-0 px-3 py-2">
       <div className="flex items-center gap-3">
         <Popover>
           <PopoverTrigger asChild>
@@ -135,41 +130,40 @@ function LabelRow({
           <div className="flex items-center gap-1">
             <span className="text-xs text-muted-foreground">Delete?</span>
             <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-destructive"
+              variant="glass"
+              size="icon-sm"
+              className="text-destructive"
               onClick={handleDelete}
               disabled={busy}
               aria-label="Confirm delete"
             >
-              <Check className="h-4 w-4" />
+              <Check />
             </Button>
             <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
+              variant="glass"
+              size="icon-sm"
               onClick={() => setConfirmingDelete(false)}
               disabled={busy}
               aria-label="Cancel delete"
             >
-              <X className="h-4 w-4" />
+              <X />
             </Button>
           </div>
         ) : (
           <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+            variant="glass"
+            size="icon-sm"
+            className="hover:text-destructive"
             onClick={() => setConfirmingDelete(true)}
             disabled={busy}
             aria-label={`Delete label ${label.name}`}
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2 />
           </Button>
         )}
       </div>
       {error && <p className="text-xs text-destructive mt-1 px-1">{error}</p>}
-    </div>
+    </GlassRow>
   )
 }
 
@@ -230,98 +224,92 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Labels</CardTitle>
-        <CardDescription>
-          {labelList.length} label{labelList.length !== 1 ? `s` : ``} in this
-          team. Deleting a label removes it from all issues.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-2">
-          {labelList.map((label) => (
-            <LabelRow
-              key={label.id}
-              label={label}
-              teamId={teamId}
-              isDuplicateName={(name) => isDuplicateName(name, label.id)}
-            />
-          ))}
-          {labelList.length === 0 && !creating && (
-            <p className="text-sm text-muted-foreground py-2">No labels yet.</p>
-          )}
-        </div>
-
-        {creating ? (
-          <div className="mt-3 space-y-3 rounded-md border border-glass-stroke bg-glass-row p-3">
-            <Input
-              value={newName}
-              onChange={(e) => {
-                setNewName(e.target.value)
-                setCreateError(null)
-              }}
-              placeholder="Label name"
-              autoFocus
-              className="h-8 text-sm"
-              onKeyDown={(e) => {
-                if (e.key === `Enter`) {
-                  e.preventDefault()
-                  handleCreate()
-                }
-                if (e.key === `Escape`) {
-                  setCreating(false)
-                  resetForm()
-                }
-              }}
-            />
-            {(newNameIsDuplicate || createError) && (
-              <p className="text-xs text-destructive">
-                {newNameIsDuplicate
-                  ? `A label with this name already exists.`
-                  : createError}
-              </p>
-            )}
-            <div>
-              <span className="text-xs text-muted-foreground mb-1.5 block">
-                Color
-              </span>
-              <ColorSwatchGrid value={newColor} onChange={setNewColor} />
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                size="xs"
-                variant="default"
-                disabled={!newName.trim() || submitting || newNameIsDuplicate}
-                onClick={handleCreate}
-              >
-                {submitting ? `Creating...` : `Create label`}
-              </Button>
-              <Button
-                size="xs"
-                variant="ghost"
-                disabled={submitting}
-                onClick={() => {
-                  setCreating(false)
-                  resetForm()
-                }}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-3"
-            onClick={() => setCreating(true)}
-          >
-            <Plus className="h-4 w-4 mr-1" />
-            New label
-          </Button>
+    <div>
+      <GlassSectionHeader
+        label="Labels"
+        trailing={
+          !creating && (
+            <Pill mode="action" onClick={() => setCreating(true)}>
+              <Plus />
+              New label
+            </Pill>
+          )
+        }
+      />
+      <p className="px-1 pb-2 text-xs text-foreground/50">
+        Deleting a label removes it from all issues.
+      </p>
+      <div className="space-y-2">
+        {labelList.map((label) => (
+          <LabelRow
+            key={label.id}
+            label={label}
+            teamId={teamId}
+            isDuplicateName={(name) => isDuplicateName(name, label.id)}
+          />
+        ))}
+        {labelList.length === 0 && !creating && (
+          <p className="text-sm text-muted-foreground py-2">No labels yet.</p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+
+      {creating && (
+        <GlassRow className="mt-3 flex-col items-stretch gap-3">
+          <Input
+            value={newName}
+            onChange={(e) => {
+              setNewName(e.target.value)
+              setCreateError(null)
+            }}
+            placeholder="Label name"
+            autoFocus
+            className="h-8 text-sm"
+            onKeyDown={(e) => {
+              if (e.key === `Enter`) {
+                e.preventDefault()
+                handleCreate()
+              }
+              if (e.key === `Escape`) {
+                setCreating(false)
+                resetForm()
+              }
+            }}
+          />
+          {(newNameIsDuplicate || createError) && (
+            <p className="text-xs text-destructive">
+              {newNameIsDuplicate
+                ? `A label with this name already exists.`
+                : createError}
+            </p>
+          )}
+          <div>
+            <span className="text-xs text-muted-foreground mb-1.5 block">
+              Color
+            </span>
+            <ColorSwatchGrid value={newColor} onChange={setNewColor} />
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="xs"
+              variant="default"
+              disabled={!newName.trim() || submitting || newNameIsDuplicate}
+              onClick={handleCreate}
+            >
+              {submitting ? `Creating...` : `Create label`}
+            </Button>
+            <Pill
+              mode="action"
+              disabled={submitting}
+              onClick={() => {
+                setCreating(false)
+                resetForm()
+              }}
+            >
+              Cancel
+            </Pill>
+          </div>
+        </GlassRow>
+      )}
+    </div>
   )
 }

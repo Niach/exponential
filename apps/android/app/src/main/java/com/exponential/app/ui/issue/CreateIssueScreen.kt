@@ -3,15 +3,11 @@ package com.exponential.app.ui.issue
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,7 +24,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -67,11 +62,16 @@ import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.priorityIcon
-import com.exponential.app.ui.components.GlassPillButton
+import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.components.GroupDivider
+import com.exponential.app.ui.components.LabelsPickerBlock
+import com.exponential.app.ui.components.MetaRow
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.components.SwitchThumb
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.glassSwitchColors
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.IssueRefHandler
@@ -80,24 +80,22 @@ import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
-import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.share.ShareBoardPickerSheet
 import com.exponential.app.ui.share.ShareBoardSelector
 import com.exponential.app.ui.share.SharePrefill
 import com.exponential.app.ui.share.TeamBoards
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
-import com.exponential.app.ui.theme.glassButton
-import com.exponential.app.ui.theme.glassSection
+import com.exponential.app.ui.theme.glassGroup
 import java.util.UUID
 import kotlinx.coroutines.launch
 
 // Full-screen issue creation (iOS CreateIssueSheet parity): a "New Issue" nav
 // title with Cancel/Create actions over the shared AppBackground, then the
-// title field, description editor, and stacked glassSection metadata rows.
+// title field, description editor, and one grouped card of metadata rows.
 // Reuses the same pickers, payload and createIssue path the bottom sheet used —
 // only the container and layout changed (a route screen, not a ModalBottomSheet).
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateIssueScreen(
     onBack: () -> Unit,
@@ -292,8 +290,8 @@ fun CreateIssueScreen(
                     actions = {
                         // iOS 26 renders the confirmation item as a glass
                         // capsule — same pill as every inline action (EXP-577).
-                        GlassPillButton(
-                            label = if (isCreating) "Creating…" else "Create",
+                        GlassPill(
+                            if (isCreating) "Creating…" else "Create",
                             onClick = ::submit,
                             enabled = canSubmit,
                             modifier = Modifier.padding(end = 8.dp),
@@ -388,7 +386,7 @@ fun CreateIssueScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .glassSection()
+                        .glassGroup()
                         .padding(vertical = 4.dp)
                         .alpha(if (isModerator) 1f else 0.55f),
                 ) {
@@ -397,7 +395,7 @@ fun CreateIssueScreen(
                         Spacer(Modifier.width(6.dp))
                         Text(status.name, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                     }
-                    MetaDivider()
+                    GroupDivider()
                     MetaRow(label = "Priority", enabled = isModerator, onClick = { priorityMenuOpen = true }) {
                         PriorityIcon(priority, size = 14.dp)
                         Spacer(Modifier.width(6.dp))
@@ -405,7 +403,7 @@ fun CreateIssueScreen(
                     }
                     // EXP-50: hidden in a solo team (no one else to assign to).
                     if (!isSoloTeam) {
-                        MetaDivider()
+                        GroupDivider()
                         MetaRow(label = "Assignee", enabled = isModerator, onClick = { assigneeMenuOpen = true }) {
                             Icon(ExpIcons.uiAssignee, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary))
                             Spacer(Modifier.width(6.dp))
@@ -419,12 +417,16 @@ fun CreateIssueScreen(
                         }
                     }
                     // Due date — same grouped card (EXP-247).
-                    MetaDivider()
+                    GroupDivider()
                     MetaRow(label = "Due date", enabled = isModerator, onClick = { datePickerOpen = true }) {
                         Icon(ExpIcons.uiDueDate, null, modifier = Modifier.size(14.dp), tint = dueDate?.let { dueDateColor(it) } ?: MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary))
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            dueDate?.let { formatDueDate(it) } ?: "—",
+                            // EXP-698: an EMPTY value says so in words, like
+                            // "Unassigned" / "No priority" two rows up — a bare
+                            // em-dash read as a second glyph beside the
+                            // calendar rather than as "nothing picked".
+                            dueDate?.let { formatDueDate(it) } ?: "No date",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (dueDate != null) TextEmphasis.Primary else TextEmphasis.Tertiary),
                         )
@@ -438,57 +440,16 @@ fun CreateIssueScreen(
                 // toggling a local selection instead of issueLabels mutations.
                 // Not moderator-gated: issues.create lets any creator set
                 // title/description/labels (web create dialog parity).
-                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
-                    Text(
-                        "Labels",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        state.labels.forEach { label ->
-                            val selected = label.id in selectedLabelIds
-                            Row(
-                                modifier = Modifier
-                                    .glassButton(active = selected)
-                                    .clickable {
-                                        selectedLabelIds =
-                                            if (selected) selectedLabelIds - label.id
-                                            else selectedLabelIds + label.id
-                                    }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Box(modifier = Modifier.size(8.dp).background(parseColor(label.color), CircleShape))
-                                Spacer(Modifier.width(5.dp))
-                                Text(label.name, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface)
-                            }
-                        }
-                        Row(
-                            modifier = Modifier
-                                .glassButton()
-                                .clickable { labelSheetOpen = true }
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                ExpIcons.uiAdd,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                "Label",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            )
-                        }
-                    }
-                }
+                LabelsPickerBlock(
+                    labels = state.labels,
+                    selectedIds = selectedLabelIds,
+                    onToggle = { labelId, selected ->
+                        selectedLabelIds =
+                            if (selected) selectedLabelIds - labelId else selectedLabelIds + labelId
+                    },
+                    onOpenPicker = { labelSheetOpen = true },
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
 
                 if (state.error != null) {
                     Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -502,7 +463,12 @@ fun CreateIssueScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text("Create more", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                        Switch(checked = createMore, onCheckedChange = { createMore = it })
+                        Switch(
+                            checked = createMore,
+                            onCheckedChange = { createMore = it },
+                            colors = glassSwitchColors(),
+                            thumbContent = SwitchThumb,
+                        )
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -614,37 +580,6 @@ fun CreateIssueScreen(
     }
 }
 
-// One row of a grouped glass card: fixed-width label + trailing value (iOS
-// metadataRow). Tappable when [enabled].
-@Composable
-private fun MetaRow(
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    value: @Composable RowScope.() -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            modifier = Modifier.width(84.dp),
-        )
-        Spacer(Modifier.weight(1f))
-        value()
-    }
-}
-
-@Composable
-private fun MetaDivider() {
-    HorizontalDivider(thickness = 0.5.dp, color = Color.White.copy(alpha = 0.06f))
-}
 
 /**
  * Draft file attachments on the create screen (EXP-327). The issue has no id

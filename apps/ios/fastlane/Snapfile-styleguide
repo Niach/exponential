@@ -5,7 +5,7 @@
 # additionally pins the three settings that differ, so the run is correct even
 # if that selection ever stops working.
 #
-# Captures the 24 `sg_*` shots from ExponentialUITests/StyleguideScreenshots.swift
+# Captures the 25 `sg_*` shots from ExponentialUITests/StyleguideScreenshots.swift
 # (`sg_sign-in` … `sg_onboarding`)
 # — the cross-platform surface set a design review compares against the web,
 # desktop and Android captures of the same screens. The names are a contract;

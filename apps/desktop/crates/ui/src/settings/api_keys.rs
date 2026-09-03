@@ -360,18 +360,14 @@ impl ApiKeysPane {
                             .child(SharedString::from(key.clone())),
                     )
                     .child(
-                        Button::new("api-key-copy")
-                            .outline().cursor_pointer()
-                            .web_xs()
+                        crate::surface::glass_pill_button("api-key-copy", crate::surface::PillSize::Sm, cx)
                             .label("Copy")
                             .on_click(move |_, _, cx| {
                                 cx.write_to_clipboard(ClipboardItem::new_string(key.clone()));
                             }),
                     )
                     .child(
-                        Button::new("api-key-dismiss")
-                            .ghost().cursor_pointer()
-                            .web_xs()
+                        crate::surface::glass_pill_button("api-key-dismiss", crate::surface::PillSize::Sm, cx)
                             .label("Dismiss")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.minted = None;
@@ -385,11 +381,10 @@ impl ApiKeysPane {
     /// last used, revoke.
     fn render_row(
         &self,
-        index: usize,
         row: &PersonalKeyMeta,
         this_device: bool,
         cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
+    ) -> gpui::Div {
         let muted = cx.theme().muted_foreground;
         let row_for_revoke = row.clone();
         let start: SharedString = row
@@ -408,14 +403,9 @@ impl ApiKeysPane {
             .map(format_created_date)
             .unwrap_or_else(|| "Never".to_string());
 
-        h_flex()
-            .w_full()
-            .items_center()
-            .gap_3()
-            .py_1p5()
-            .when(index > 0, |this| {
-                this.border_t_1().border_color(super::row_stroke(cx))
-            })
+        // EXP-698: one row of an inset-grouped stack — the caller fuses them
+        // through `glass_group_rows`, which draws the hairlines.
+        crate::surface::glass_row_shell()
             .child(
                 h_flex()
                     .flex_1()
@@ -472,9 +462,7 @@ impl ApiKeysPane {
                     .child(SharedString::from(last_used)),
             )
             .child(
-                Button::new(SharedString::from(format!("api-key-revoke-{}", row.id)))
-                    .outline().cursor_pointer()
-                    .web_xs()
+                crate::surface::glass_pill_button(SharedString::from(format!("api-key-revoke-{}", row.id)), crate::surface::PillSize::Sm, cx)
                     .label("Revoke")
                     .disabled(self.busy)
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -584,12 +572,14 @@ impl Render for ApiKeysPane {
                             .child("No API keys yet."),
                     );
                 } else {
-                    let mut list = v_flex().w_full();
-                    for (index, row) in rows.iter().enumerate() {
-                        let this_device = device_key_id.as_deref() == Some(row.id.as_str());
-                        list = list.child(self.render_row(index, row, this_device, cx));
-                    }
-                    body = body.child(list);
+                    let list: Vec<gpui::Div> = rows
+                        .iter()
+                        .map(|row| {
+                            let this_device = device_key_id.as_deref() == Some(row.id.as_str());
+                            self.render_row(row, this_device, cx)
+                        })
+                        .collect();
+                    body = body.child(crate::surface::glass_group_rows(list));
                 }
             }
         }

@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -34,7 +33,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,7 +57,7 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
-import com.exponential.app.ui.components.GlassPillButton
+import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -72,9 +70,8 @@ import com.exponential.app.ui.issue.SubjectTab
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
+import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassRow
-import com.exponential.app.ui.theme.glassSection
 
 /**
  * The Devices tab (EXP-686, the renamed Agents surface): "My machines" — the
@@ -476,16 +473,6 @@ fun AgentsScreen(
     }
 }
 
-@Composable
-private fun SectionHeader(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
-    )
-}
-
 /** Never render a bare blank row: a label-less machine falls back to its id. */
 private val SteerDevice.displayLabel: String get() = deviceLabel.ifBlank { deviceId }
 
@@ -676,14 +663,12 @@ private fun MachineRow(
         if (device.registered && device.isMine) {
             var rowMenu by remember { mutableStateOf(false) }
             Box {
-                IconButton(onClick = { rowMenu = true }) {
-                    Icon(
-                        ExpIcons.uiMore,
-                        contentDescription = "Machine actions",
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                }
+                CircleIconButton(
+                    ExpIcons.uiMore,
+                    contentDescription = "Machine actions",
+                    onClick = { rowMenu = true },
+                    modifier = Modifier.padding(start = 8.dp),
+                )
                 GlassDropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
                     // EXP-481: Rename and the share toggle moved INTO the
                     // device-settings sheet — the menu carries one Edit entry.
@@ -881,43 +866,40 @@ private fun AgentSessionRow(
             // conflict-refused merge REPLACES this control with the recovery
             // run instead of stacking a second button under the message.
             if (canMerge) {
-                IconButton(
-                    onClick = if (canFixConflicts) onFixConflicts else onMerge,
-                    enabled = !merging,
-                ) {
-                    if (merging) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                    } else {
-                        Icon(
-                            if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
-                            contentDescription = if (canFixConflicts) "Fix conflicts" else "Merge",
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        )
-                    }
+                if (merging) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                } else {
+                    // EXP-698: the one 32dp glass circle every trailing row
+                    // action draws on.
+                    CircleIconButton(
+                        if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
+                        contentDescription = if (canFixConflicts) "Fix conflicts" else "Merge",
+                        onClick = if (canFixConflicts) onFixConflicts else onMerge,
+                    )
                 }
             }
             when {
-                issueIdentifier != null -> GlassPillButton(
-                    label = issueIdentifier,
+                // EXP-698: the identity line above already prints the
+                // identifier, so a trailing pill repeating it said "APP-5"
+                // twice in one row — and at [PillSize.Sm] it also sat a rung
+                // below the 32dp merge circle beside it. The trailing control
+                // is now the same 32dp circle in BOTH cases: open the issue,
+                // or open the action.
+                issueIdentifier != null -> CircleIconButton(
+                    ExpIcons.uiIssue,
+                    contentDescription = "Open $issueIdentifier",
                     onClick = onOpenIssue,
                     modifier = Modifier.padding(start = 8.dp),
-                    // Identifiers are monospaced everywhere (web `font-mono`,
-                    // iOS `.monospaced()`, and this app's own inbox/run rows).
-                    fontFamily = FontFamily.Monospace,
                 )
                 actionIcon != null -> CircleIconButton(
                     actionIcon,
                     contentDescription = actionLabel,
                     onClick = onOpenAction,
                     modifier = Modifier.padding(start = 8.dp),
-                    // The in-list circle (iOS CircleIconButton(28, 15) parity).
-                    size = 28.dp,
-                    glyphSize = 15.dp,
                 )
             }
         }
@@ -932,7 +914,7 @@ private fun AgentSessionRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 3.dp)
-                    .glassSection()
+                    .glassCard()
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 Text(

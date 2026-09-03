@@ -311,14 +311,16 @@ impl LabelsPane {
         let label_id = label.id.clone();
         let team_id = label.team_id.clone();
 
-        let mut row = h_flex()
+        // EXP-698: the shared glass ROW CARD — the list around it is gapped,
+        // so each label is its own object.
+        let mut row = crate::surface::glass_row_card()
+            .flex()
+            .w_full()
+            .min_w_0()
             .gap_3()
             .items_center()
             .px_3()
             .py_1p5()
-            .rounded(cx.theme().radius)
-            .border_1()
-            .border_color(super::row_stroke(cx))
             // Color swatch popover (web `Popover` + `ColorSwatchGrid`).
             .child(
                 Popover::new(row_id("label-color", &label.id))
@@ -397,10 +399,11 @@ impl LabelsPane {
                             .child("Delete?"),
                     )
                     .child(
-                        Button::new(row_id("label-delete-confirm", &label.id))
-                            .ghost().cursor_pointer()
-                            .xsmall()
-                            .icon(Icon::new(registry::UI_CHECK).text_color(cx.theme().danger))
+                        crate::controls::glass_icon_button(
+                            row_id("label-delete-confirm", &label.id),
+                            Icon::new(registry::UI_CHECK).text_color(cx.theme().danger),
+                            cx,
+                        )
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 let team_id = del_team.clone();
                                 let label_id = del_label.clone();
@@ -412,10 +415,11 @@ impl LabelsPane {
                             })),
                     )
                     .child(
-                        Button::new(row_id("label-delete-cancel", &label.id))
-                            .ghost().cursor_pointer()
-                            .xsmall()
-                            .icon(registry::UI_CLOSE)
+                        crate::controls::glass_icon_button(
+                            row_id("label-delete-cancel", &label.id),
+                            Icon::new(registry::UI_CLOSE),
+                            cx,
+                        )
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.confirming_delete = None;
                                 cx.notify();
@@ -425,10 +429,11 @@ impl LabelsPane {
         } else {
             let confirm_id = label_id.clone();
             row = row.child(
-                Button::new(row_id("label-delete", &label.id))
-                    .ghost().cursor_pointer()
-                    .xsmall()
-                    .icon(registry::UI_DELETE)
+                crate::controls::glass_icon_button(
+                    row_id("label-delete", &label.id),
+                    Icon::new(registry::UI_DELETE),
+                    cx,
+                )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.confirming_delete = Some(confirm_id.clone());
                         cx.notify();
@@ -495,13 +500,14 @@ impl Render for LabelsPane {
                 self.create_error.clone()
             };
             let entity = cx.entity();
+            // EXP-698: the inline create form is one more object in the gapped
+            // list, so it wears the glass row card.
             body = body.child(
-                v_flex()
+                crate::surface::glass_row_card()
+                    .flex()
+                    .flex_col()
                     .gap_3()
                     .p_3()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_color(super::row_stroke(cx))
                     .child(Input::new(&self.new_name).web_input_sm())
                     .when_some(form_error, |col, message| {
                         col.child(
@@ -551,9 +557,7 @@ impl Render for LabelsPane {
                                     .on_click(cx.listener(|this, _, _, cx| this.create(cx))),
                             )
                             .child(
-                                Button::new("label-create-cancel")
-                                    .ghost().cursor_pointer()
-                                    .web_xs()
+                                crate::surface::glass_pill_button("label-create-cancel", crate::surface::PillSize::Sm, cx)
                                     .label("Cancel")
                                     .disabled(self.submitting)
                                     .on_click(cx.listener(|this, _, window, cx| {

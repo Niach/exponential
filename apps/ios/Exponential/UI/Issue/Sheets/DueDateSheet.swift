@@ -45,7 +45,9 @@ struct DueDateSheet: View {
                         .foregroundStyle(DesignTokens.Semantic.red)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
-                        .glassSection()
+                        // A tappable row, not a group container: it keeps the
+                        // row hairline `.glassSection()` no longer draws.
+                        .glassRow()
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)

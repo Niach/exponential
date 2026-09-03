@@ -2,7 +2,6 @@ package com.exponential.app.ui.reviews
 
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -18,7 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -46,6 +44,7 @@ import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.LoadingState
@@ -55,9 +54,8 @@ import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
+import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassRow
-import com.exponential.app.ui.theme.glassSection
 
 /**
  * "Reviews" (EXP-131): the open pull requests in the current team, grouped
@@ -305,38 +303,15 @@ private fun ReviewRow(
             // rather than stacking a second button under the message — the
             // one thing that can move this PR forward sits where the user
             // just tapped.
-            Row(
-                modifier = Modifier
-                    .glassButton()
-                    .clickable(
-                        enabled = !merging,
-                        onClick = if (canFixConflicts) onFixConflicts else onMerge,
-                    )
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (merging) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                } else {
-                    Icon(
-                        if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    if (canFixConflicts) "Fix conflicts" else "Merge",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                )
-            }
+            // EXP-698: the shared pill, not a second hand-rolled copy of it
+            // (the steer screen's Merge control is the same component).
+            GlassPill(
+                if (canFixConflicts) "Fix conflicts" else "Merge",
+                onClick = if (canFixConflicts) onFixConflicts else onMerge,
+                icon = if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
+                enabled = !merging,
+                loading = merging,
+            )
         }
 
         // A refused merge (conflicts, branch protection, GitHub App errors, an
@@ -349,7 +324,7 @@ private fun ReviewRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 3.dp)
-                    .glassSection()
+                    .glassCard()
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 Text(

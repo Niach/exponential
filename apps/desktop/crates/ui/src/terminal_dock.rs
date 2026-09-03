@@ -352,6 +352,14 @@ pub struct TerminalDockPanel {
     /// The expanded bar's side-by-side view (built off [`ChangesState`],
     /// never fetched — the files are already in hand).
     changes_diff: Entity<crate::diff::DiffView>,
+    /// EXP-698: the STEER arm's Latest-changes state — the relay-delivered
+    /// diff of the active steer chip, parsed once per delivered string.
+    steer_changes: Option<SteerChangesState>,
+    /// Its own expanded view. Deliberately NOT shared with
+    /// [`Self::changes_diff`]: the local poll keeps running while a steer
+    /// chip is showing, and a rebuild off the local snapshot would silently
+    /// swap the remote run's diff for a local tab's.
+    steer_changes_diff: Entity<crate::diff::DiffView>,
     /// The 3s poll behind [`Self::changes`]. Lives as long as the panel; it
     /// only shells out to git while the dock is OPEN on a session tab.
     _changes_poll: Task<()>,
@@ -518,6 +526,16 @@ impl TerminalDockPanel {
         .detach();
         let merge_state = crate::pr_merge::MergeState::global(cx);
         cx.observe(&merge_state, |_, _, cx| cx.notify()).detach();
+        // EXP-698: `build_remote_chips` returns nothing while the steer
+        // config is unanswered, and the answer lands AFTER this panel mounts
+        // (one fetch, cached app-wide) — re-project when it does, or the
+        // strip stays chip-less for the session.
+        let steer_config = crate::queries::steer_config(cx);
+        cx.observe(&steer_config, |this: &mut Self, _, cx| {
+            this.rebuild_remote_chips(cx);
+            cx.notify();
+        })
+        .detach();
 
         // EXP-369: the empty state's cards mirror the `+` menu's availability
         // (installed agents from the doctor, board-backed repos from the
@@ -586,6 +604,8 @@ impl TerminalDockPanel {
             pending_launch: None,
             changes: None,
             changes_diff: cx.new(|cx| crate::diff::DiffView::new(window, cx)),
+            steer_changes: None,
+            steer_changes_diff: cx.new(|cx| crate::diff::DiffView::new(window, cx)),
             _changes_poll: changes_poll,
             steer_views: HashMap::new(),
             remote_chips: std::rc::Rc::new(Vec::new()),
@@ -1283,7 +1303,7 @@ impl TerminalDockPanel {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        // EXP-277: hand-rolled rounded chips (crate::surface::tab_chip), same
+        // EXP-277: hand-rolled rounded chips (crate::surface::rich_tab), same
         // treatment as the center tab strip — gpui-component's TabBar is
         // square with a strip-wide bottom border.
         //
@@ -1588,8 +1608,30 @@ impl TerminalDockPanel {
     ) -> AnyElement {
         let id = meta.id;
         let manager_ix = meta.manager_ix;
-        let chip = crate::surface::tab_chip(ix == selected_ix, cx)
-            .id(("terminal-tab", ix))
+        let mut tab = crate::surface::RichTab::new(("terminal-tab", ix), ix == selected_ix);
+        // EXP-325: an issue-session tab renders the center issue-tab
+        // treatment (status glyph + mono identifier + synced title,
+        // mirroring `screens::render_tab_strip`); everything else keeps
+        // the plain terminal title.
+        match &meta.issue {
+            Some(issue) => {
+                tab.status = crate::surface::RichTabStatus::Glyph(
+                    crate::icons::resolved_status_icon(&issue.status, cx),
+                );
+                tab.identifier = Some(issue.identifier.clone());
+                tab.title = issue.title.clone();
+            }
+            None => tab.title = Some(meta.title.clone()),
+        }
+        tab.badge = meta.exit_code.map(|code| {
+            let color = if code == 0 {
+                cx.theme().success
+            } else {
+                cx.theme().danger
+            };
+            (SharedString::from(code.to_string()), color)
+        });
+        let chip = crate::surface::rich_tab(tab, cx)
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 cx.stop_propagation();
                 // EXP-688: from the collapsed strip a chip click is also
@@ -1614,46 +1656,10 @@ impl TerminalDockPanel {
                         .update(cx, |manager, cx| manager.close_tab(id, cx));
                 }),
             );
-        // EXP-325: an issue-session tab renders the center issue-tab
-        // treatment (status glyph + mono identifier + synced title,
-        // mirroring `screens::render_tab_strip`); everything else keeps
-        // the plain terminal title.
-        let chip = match &meta.issue {
-            Some(issue) => chip
-                .child(crate::icons::resolved_status_icon(&issue.status, cx).xsmall())
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .whitespace_nowrap()
-                        .child(issue.identifier.clone()),
-                )
-                .when_some(issue.title.clone(), |chip, title| {
-                    chip.child(div().max_w(px(180.)).truncate().child(title))
-                }),
-            None => chip.child(div().max_w(px(180.)).truncate().child(meta.title.clone())),
-        };
         chip.child(
             h_flex()
                 .gap_0p5()
                 .items_center()
-                .when_some(meta.exit_code, |this, code| {
-                    let color = if code == 0 {
-                        cx.theme().success
-                    } else {
-                        cx.theme().danger
-                    };
-                    this.child(
-                        div()
-                            .text_xs()
-                            .px_1()
-                            .rounded(px(3.))
-                            .bg(color.opacity(0.15))
-                            .text_color(color)
-                            .child(SharedString::from(code.to_string())),
-                    )
-                })
                 .child(
                     Button::new(("close-terminal-tab", ix))
                         .ghost()
@@ -1684,40 +1690,24 @@ impl TerminalDockPanel {
         selected_ix: usize,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
         let tone = remote_chip_tone(chip.display, chip.paused, cx);
         let session_id = chip.session_id.clone();
         let kill_id = chip.session_id.clone();
         let kill_label = chip.device.clone();
-        crate::surface::tab_chip(ix == selected_ix, cx)
-            .id(("steer-tab", ix))
-            .when(chip.paused, |this| this.opacity(0.6))
+        let mut tab = crate::surface::RichTab::new(("steer-tab", ix), ix == selected_ix);
+        tab.paused = chip.paused;
+        tab.status = crate::surface::RichTabStatus::Dot(tone);
+        tab.identifier = chip.identifier.clone();
+        tab.title = Some(chip.title.clone());
+        tab.caption = chip
+            .device
+            .clone()
+            .map(|device| SharedString::from(format!(" · {device}")));
+        crate::surface::rich_tab(tab, cx)
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 cx.stop_propagation();
                 this.activate_steer(&session_id, window, cx);
             }))
-            .child(div().flex_shrink_0().size_1p5().rounded_full().bg(tone))
-            .when_some(chip.identifier.clone(), |this, identifier| {
-                this.child(
-                    div()
-                        .text_xs()
-                        .text_color(muted)
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .whitespace_nowrap()
-                        .child(identifier),
-                )
-            })
-            .child(div().max_w(px(180.)).truncate().child(chip.title.clone()))
-            .when_some(chip.device.clone(), |this, device| {
-                this.child(
-                    div()
-                        .max_w(px(110.))
-                        .truncate()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(SharedString::from(format!(" · {device}"))),
-                )
-            })
             .when(chip.killable, |this| {
                 this.child(
                     Button::new(("kill-steer-tab", ix))
@@ -2260,6 +2250,10 @@ impl TerminalDockPanel {
     /// row directly above the bottom strip. Mirrors the web session view's
     /// row; it renders when there IS a diff or an open PR to merge, so the
     /// Merge pill never stands alone.
+    ///
+    /// EXP-698 split the CHROME out into [`Self::changes_bar_chrome`] — the
+    /// steer arm renders the same row off the relay-delivered diff, and two
+    /// hand-built copies of one bar is how they drift.
     fn render_changes_bar(
         &self,
         tab: TabId,
@@ -2273,22 +2267,57 @@ impl TerminalDockPanel {
         if !changes_bar_visible(changes.is_some(), merge.is_some()) {
             return None;
         }
-        let muted = cx.theme().muted_foreground;
         let expanded = changes.is_some_and(|changes| changes.expanded);
+        let totals = changes.map(|changes| (changes.additions, changes.deletions));
+        let merge_button = merge.as_ref().map(|merge| {
+            let merge_state = crate::pr_merge::MergeState::global(cx);
+            self.tab_merge_button(tab, merge, &merge_state, cx)
+        });
+        Some(self.changes_bar_chrome(
+            "terminal-changes-toggle",
+            totals,
+            expanded,
+            merge_button,
+            self.changes_diff.clone(),
+            |this, cx| this.toggle_changes_expanded(cx),
+            cx,
+        ))
+    }
 
+    /// EXP-698 — the ONE Latest-changes row: the collapsible `+N −M` summary
+    /// on the left, the Merge capsule on the right, and (expanded) the
+    /// side-by-side diff underneath. Both arms of the dock's content — a
+    /// LOCAL terminal tab and a STEER viewer — render through this, so the
+    /// bar is one design with one set of metrics.
+    ///
+    /// `totals` is `None` when there is no diff at all (an open PR whose
+    /// branch no longer differs): the row still draws, carrying only the
+    /// Merge pill, and nothing is clickable on the left.
+    #[allow(clippy::too_many_arguments)] // two call sites, one row
+    fn changes_bar_chrome(
+        &self,
+        toggle_id: &'static str,
+        totals: Option<(u32, u32)>,
+        expanded: bool,
+        merge_button: Option<gpui::AnyElement>,
+        diff_view: Entity<crate::diff::DiffView>,
+        on_toggle: impl Fn(&mut Self, &mut gpui::Context<Self>) + 'static,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let muted = cx.theme().muted_foreground;
         let mut left = h_flex()
-            .id("terminal-changes-toggle")
+            .id(toggle_id)
             .min_w_0()
             .flex_1()
             .gap_1p5()
             .items_center()
             .text_xs()
             .text_color(muted);
-        if let Some(changes) = changes {
+        if let Some((additions, deletions)) = totals {
             left = left
                 .cursor_pointer()
-                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                    this.toggle_changes_expanded(cx);
+                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                    on_toggle(this, cx);
                 }))
                 .child(
                     Icon::new(if expanded {
@@ -2304,13 +2333,13 @@ impl TerminalDockPanel {
                     div()
                         .font_family(theme::terminal::FONT_FAMILY)
                         .text_color(theme::tokens::GREEN.to_hsla())
-                        .child(SharedString::from(format!("+{}", changes.additions))),
+                        .child(SharedString::from(format!("+{additions}"))),
                 )
                 .child(
                     div()
                         .font_family(theme::terminal::FONT_FAMILY)
                         .text_color(cx.theme().danger)
-                        .child(SharedString::from(format!("-{}", changes.deletions))),
+                        .child(SharedString::from(format!("-{deletions}"))),
                 );
         }
 
@@ -2325,29 +2354,200 @@ impl TerminalDockPanel {
             .border_color(theme::tokens::glass::STROKE_SECTION.to_hsla())
             .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
             .child(left);
-        if let Some(merge) = merge.as_ref() {
-            let merge_state = crate::pr_merge::MergeState::global(cx);
-            row = row.child(crate::surface::glass_pill(
-                h_flex()
-                    .flex_shrink_0()
-                    .items_center()
-                    .child(self.tab_merge_button(tab, merge, &merge_state, cx)),
-                false,
-            ));
+        if let Some(merge_button) = merge_button {
+            row = row.child(
+                // READONLY: the shell is only the capsule around the merge
+                // button — the button owns the cursor and the hover, and a
+                // second hover lift on the wrapper would light up on the
+                // capsule's own padding, which does nothing.
+                crate::surface::glass_pill(
+                    "changes-bar-merge",
+                    crate::surface::PillSize::Sm,
+                    crate::surface::PillMode::Readonly,
+                    cx,
+                )
+                .px_0()
+                .child(merge_button),
+            );
         }
 
         let bar = v_flex().w_full().flex_shrink_0().child(row);
-        Some(if expanded {
-            bar.child(
-                div()
-                    .w_full()
-                    .h(px(CHANGES_DIFF_H))
-                    .child(self.changes_diff.clone()),
-            )
-            .into_any_element()
+        if expanded {
+            bar.child(div().w_full().h(px(CHANGES_DIFF_H)).child(diff_view))
+                .into_any_element()
         } else {
             bar.into_any_element()
-        })
+        }
+    }
+
+    /// EXP-698 — the steer arm's Latest-changes bar. The relay hands the
+    /// viewer the host's worktree diff as a unified-diff STRING
+    /// ([`crate::steer_viewer::SteerSessionView::latest_diff`]), so the same
+    /// summary and the same Merge affordance a local tab gets are available
+    /// for a run on another machine; only the SOURCE of the diff differs (a
+    /// string off the wire instead of a `git` shell-out here).
+    fn render_steer_changes_bar(
+        &mut self,
+        session_id: &str,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let view = self.steer_views.get(session_id)?.clone();
+        let (raw, merge, over) = {
+            let view = view.read(cx);
+            (
+                view.latest_diff().map(str::to_string),
+                view.session_row()
+                    .and_then(|row| merge_meta_for_session(row, cx)),
+                view.session_over(),
+            )
+        };
+        // A finished run offers no Merge (iOS/web `canMerge` gate the same
+        // way) — the PR merges from Reviews once the session is over.
+        let merge = merge.filter(|_| !over);
+        if !changes_bar_visible(raw.is_some(), merge.is_some()) {
+            return None;
+        }
+        self.sync_steer_changes(session_id, raw.as_deref(), cx);
+        let state = self
+            .steer_changes
+            .as_ref()
+            .filter(|state| state.session_id == session_id);
+        let expanded = state.is_some_and(|state| state.expanded);
+        let totals = state.map(|state| (state.additions, state.deletions));
+        let merge_button = merge.as_ref().map(|merge| {
+            let merge_state = crate::pr_merge::MergeState::global(cx);
+            self.steer_merge_button(merge, &merge_state, cx)
+        });
+        Some(self.changes_bar_chrome(
+            "steer-changes-toggle",
+            totals,
+            expanded,
+            merge_button,
+            self.steer_changes_diff.clone(),
+            |this, cx| this.toggle_steer_changes_expanded(cx),
+            cx,
+        ))
+    }
+
+    /// Re-parse the steer diff only when the relay actually delivered a new
+    /// one (the raw string is the cache key): a unified-diff parse per
+    /// repaint of a live feed is real work for no new information.
+    fn sync_steer_changes(
+        &mut self,
+        session_id: &str,
+        raw: Option<&str>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let same = self
+            .steer_changes
+            .as_ref()
+            .is_some_and(|state| state.session_id == session_id && state.raw.as_deref() == raw);
+        if same {
+            return;
+        }
+        let Some(raw) = raw else {
+            self.steer_changes = None;
+            return;
+        };
+        let expanded = self
+            .steer_changes
+            .as_ref()
+            .filter(|state| state.session_id == session_id)
+            .is_some_and(|state| state.expanded);
+        let files = coding::scm::parse_unified_diff(raw);
+        let (additions, deletions) = changes_totals(&files);
+        self.steer_changes = Some(SteerChangesState {
+            session_id: session_id.to_string(),
+            raw: Some(raw.to_string()),
+            files,
+            additions,
+            deletions,
+            expanded,
+        });
+        if expanded {
+            self.rebuild_steer_changes_diff(cx);
+        }
+    }
+
+    fn rebuild_steer_changes_diff(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(state) = self.steer_changes.as_ref() else {
+            return;
+        };
+        let prepared = crate::diff::build_scm_diff(&state.files, &cx.theme().highlight_theme);
+        self.steer_changes_diff
+            .update(cx, |diff, cx| diff.set_prepared(prepared, cx));
+    }
+
+    fn toggle_steer_changes_expanded(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(state) = self.steer_changes.as_mut() else {
+            return;
+        };
+        state.expanded = !state.expanded;
+        if state.expanded {
+            self.rebuild_steer_changes_diff(cx);
+        }
+        cx.notify();
+    }
+
+    /// The steer arm's Merge — the same two-click arm/confirm machinery every
+    /// other Merge surface drives ([`crate::pr_merge`]), minus the local
+    /// tab close: a remote run has no terminal tab here, and the server ends
+    /// the session on merge anyway (EXP-498).
+    fn steer_merge_button(
+        &self,
+        merge: &MergeTabMeta,
+        merge_state: &Entity<crate::pr_merge::MergeState>,
+        cx: &gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let (armed, merging) = {
+            let state = merge_state.read(cx);
+            (state.armed(&merge.issue_id), state.merging(&merge.issue_id))
+        };
+        let mut button = Button::new("merge-steer-session-changes").xsmall();
+        if merging {
+            button = button
+                .outline()
+                .cursor_pointer()
+                .label("Merging…")
+                .loading(true)
+                .disabled(true);
+        } else if armed {
+            button = button
+                .outline()
+                .cursor_pointer()
+                .label("Confirm merge")
+                .danger();
+        } else {
+            button = button
+                .ghost()
+                .cursor_pointer()
+                .icon(ExpIcon::GitMerge)
+                .label("Merge")
+                .tooltip("Merge: completes every linked issue and closes this coding session");
+        }
+        let issue_id = merge.issue_id.clone();
+        button
+            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                let handle = window.window_handle();
+                crate::pr_merge::two_click(
+                    crate::pr_merge::MergeOp::MergeIssuePr {
+                        issue_id: issue_id.clone(),
+                    },
+                    Some(Box::new(move |cx: &mut App| {
+                        let _ = handle.update(cx, |_, window, cx| {
+                            crate::navigation::navigate(
+                                window,
+                                cx,
+                                crate::navigation::Screen::Reviews,
+                            );
+                        });
+                    })),
+                    None,
+                    cx,
+                );
+            }))
+            .into_any_element()
     }
 
     /// Flip the Latest-changes bar open/shut, building the diff rows the
@@ -2627,6 +2827,22 @@ struct ChangesState {
     generation: u64,
 }
 
+/// EXP-698: the STEER arm's Latest-changes snapshot. Unlike [`ChangesState`]
+/// nothing is polled here — the host publishes the worktree diff on the
+/// activity channel and the viewer's feed keeps the latest one, so this is
+/// only the PARSE of that string plus the bar's expanded flag.
+struct SteerChangesState {
+    /// Which steer chip the snapshot belongs to.
+    session_id: String,
+    /// The raw unified diff it was parsed from — the cache key, so a repaint
+    /// of an unchanged feed re-parses nothing.
+    raw: Option<String>,
+    files: Vec<coding::scm::DiffFile>,
+    additions: u32,
+    deletions: u32,
+    expanded: bool,
+}
+
 /// What one Latest-changes tick has to do.
 enum ChangesJob {
     /// Nothing to show (collapsed dock / no session tab) — no git, no bar.
@@ -2677,8 +2893,8 @@ struct MergeTabMeta {
 /// helpers resolve against the rem size and labels are SHAPED with the
 /// window's text system, so "fits" means fits).
 fn measure_tab_chip_width(meta: &TabMeta, window: &Window) -> f32 {
-    /// `tab_chip`'s `px_2`, both sides.
-    const CHIP_PADDING_REMS: f32 = 0.5 * 2.;
+    /// `surface::rich_tab`'s `px_2p5`, both sides.
+    const CHIP_PADDING_REMS: f32 = 0.625 * 2.;
     /// `Icon::xsmall()` — `size_3` (the issue chip's status glyph).
     const LEAD_ICON_REMS: f32 = 0.75;
     /// An icon-only xsmall `Button` — `size_5` (the chip's close).
@@ -2687,9 +2903,9 @@ fn measure_tab_chip_width(meta: &TabMeta, window: &Window) -> f32 {
     const CLUSTER_GAP_REMS: f32 = 0.125;
     /// The exit badge's `px_1`, both sides.
     const BADGE_PADDING_REMS: f32 = 0.25 * 2.;
-    /// `.max_w(px(180.)).truncate()` on the title child — a real pixel
+    /// `surface::RICH_TAB_TITLE_MAX_W` on the title child — a real pixel
     /// value, so it does NOT scale with the rem.
-    const TITLE_MAX_W: f32 = 180.;
+    const TITLE_MAX_W: f32 = crate::surface::RICH_TAB_TITLE_MAX_W;
 
     let rem = f32::from(window.rem_size());
     let base_font = window.text_style().font();
@@ -2725,13 +2941,11 @@ fn measure_tab_chip_width(meta: &TabMeta, window: &Window) -> f32 {
         ),
     }
 
-    // The trailing cluster: exit badge and close. EXP-484 removed the merge
-    // button from the chip and EXP-688 the hover-undock slot (the strip's
-    // right cluster undocks the active tab), so nothing here reserves a
-    // variable-width labeled button or a second icon button any more.
-    let mut cluster: Vec<f32> = Vec::with_capacity(2);
+    // EXP-698: the exit badge is a `rich_tab` CHILD now (the builder renders
+    // it), not a member of the trailing cluster — so it costs a chip gap
+    // (`gap_1p5`), not the cluster's `gap_0p5`.
     if let Some(code) = meta.exit_code {
-        cluster.push(
+        children.push(
             BADGE_PADDING_REMS * rem
                 + crate::screens::measure_text(
                     window,
@@ -2741,12 +2955,16 @@ fn measure_tab_chip_width(meta: &TabMeta, window: &Window) -> f32 {
                 ),
         );
     }
-    cluster.push(XSMALL_BUTTON_REMS * rem);
-    let cluster_width = cluster.iter().sum::<f32>()
-        + CLUSTER_GAP_REMS * rem * cluster.len().saturating_sub(1) as f32;
-    children.push(cluster_width);
+    // The trailing cluster is the close button alone. EXP-484 removed the
+    // merge button from the chip and EXP-688 the hover-undock slot (the
+    // strip's right cluster undocks the active tab), so nothing here reserves
+    // a variable-width labeled button or a second icon button any more — the
+    // cluster's own `gap_0p5` has nothing left to separate.
+    let _ = CLUSTER_GAP_REMS;
+    children.push(XSMALL_BUTTON_REMS * rem);
 
-    let gaps = crate::screens::chip_gap(window) * children.len().saturating_sub(1) as f32;
+    let gaps =
+        crate::screens::rich_tab_child_gap(window) * children.len().saturating_sub(1) as f32;
     CHIP_PADDING_REMS * rem + gaps + children.into_iter().sum::<f32>()
 }
 
@@ -2791,6 +3009,34 @@ fn merge_tab_meta(tab_id: TabId, cx: &App) -> Option<MergeTabMeta> {
                 .clone()
         }
         crate::coding_flow::SessionSubject::Action(_) => return None,
+    };
+    Some(MergeTabMeta { issue_id })
+}
+
+/// EXP-698 — [`merge_tab_meta`]'s twin for a REMOTE run: the merge target of
+/// a synced `coding_sessions` row, with no local session to consult. The two
+/// rules are the same ones every client applies (iOS `AgentSessionModel.
+/// mergeIssue`, web `use-agents-data`): an issue-linked run merges its OWN
+/// issue, a BATCH run resolves the representative open-PR issue through the
+/// head branch `pr_open` stamped on the row (EXP-545), and an action run
+/// merges nothing.
+fn merge_meta_for_session(
+    session: &domain::rows::CodingSession,
+    cx: &App,
+) -> Option<MergeTabMeta> {
+    if session.action_id.is_some() {
+        return None;
+    }
+    let store = sync::Store::try_global(cx)?;
+    let issues = store.collections().issues.read(cx);
+    let issue_id = match session.issue_id.as_deref() {
+        Some(issue_id) => {
+            let issue = issues.get(issue_id)?;
+            issue_has_open_pr(issue).then(|| issue.id.clone())?
+        }
+        None => open_pr_issue_on_branch(session.branch.as_deref().unwrap_or_default(), issues.iter())?
+            .id
+            .clone(),
     };
     Some(MergeTabMeta { issue_id })
 }
@@ -3005,14 +3251,14 @@ fn measure_remote_chip_width(chip: &RemoteChip, window: &Window) -> f32 {
 /// The measurement itself (see [`measure_remote_chip_width`], which memoizes
 /// it).
 fn shape_remote_chip_width(chip: &RemoteChip, window: &Window) -> f32 {
-    /// `tab_chip`'s `px_2`, both sides.
-    const CHIP_PADDING_REMS: f32 = 0.5 * 2.;
+    /// `surface::rich_tab`'s `px_2p5`, both sides.
+    const CHIP_PADDING_REMS: f32 = 0.625 * 2.;
     /// The `size_1p5` status dot.
     const DOT_REMS: f32 = 0.375;
     /// An icon-only xsmall `Button` — `size_5` (the chip's kill button).
     const XSMALL_BUTTON_REMS: f32 = 1.25;
-    const TITLE_MAX_W: f32 = 180.;
-    const DEVICE_MAX_W: f32 = 110.;
+    const TITLE_MAX_W: f32 = crate::surface::RICH_TAB_TITLE_MAX_W;
+    const DEVICE_MAX_W: f32 = crate::surface::RICH_TAB_CAPTION_MAX_W;
 
     let rem = f32::from(window.rem_size());
     let base_font = window.text_style().font();
@@ -3045,7 +3291,8 @@ fn shape_remote_chip_width(chip: &RemoteChip, window: &Window) -> f32 {
     if chip.killable {
         children.push(XSMALL_BUTTON_REMS * rem);
     }
-    let gaps = crate::screens::chip_gap(window) * children.len().saturating_sub(1) as f32;
+    let gaps =
+        crate::screens::rich_tab_child_gap(window) * children.len().saturating_sub(1) as f32;
     CHIP_PADDING_REMS * rem + gaps + children.into_iter().sum::<f32>()
 }
 
@@ -3186,10 +3433,22 @@ impl Render for TerminalDockPanel {
             let body = v_flex().w_full().overflow_hidden();
             Some(match (active_steer, active_view) {
                 // EXP-696: a steered session owns the whole content area —
-                // no Latest-changes bar (the diff is on the other machine)
-                // and no exit strip (there is no local child to exit).
+                // no exit strip (there is no local child to exit).
+                //
+                // EXP-698: it DOES get the Latest-changes bar and the Merge
+                // pill. The old rationale ("the diff is on the other
+                // machine") was stale: the host publishes its worktree diff
+                // on the activity channel, so the viewer has it — and the
+                // merge target resolves off the synced row exactly as the
+                // web and iOS session views resolve theirs.
                 (Some(view), _) => {
-                    self.pin_content(body.child(div().flex_1().min_h_0().child(view)))
+                    let session_id = self.active_steer.clone();
+                    let bar = session_id
+                        .as_deref()
+                        .and_then(|id| self.render_steer_changes_bar(id, cx));
+                    self.pin_content(
+                        body.child(div().flex_1().min_h_0().child(view)).children(bar),
+                    )
                 }
                 (None, Some(active_view)) => self.pin_content(
                     body

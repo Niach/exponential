@@ -427,9 +427,7 @@ fn suspended_notice(
              be connected until you unsuspend it on GitHub."
         ))))
         .children(manage_url.map(|url| {
-            Button::new("add-repo-unsuspend")
-                .outline().cursor_pointer()
-                .web_xs()
+            crate::surface::glass_pill_button("add-repo-unsuspend", crate::surface::PillSize::Sm, cx)
                 .label("Manage")
                 .on_click(move |_, _, cx| open_url(cx, url.clone()))
         }))

@@ -58,7 +58,9 @@ pub(crate) fn severity(percent: u8) -> Severity {
 /// for warning (the web's `bg-amber-500`), the theme's danger for danger.
 pub(crate) fn severity_color(severity: Severity, cx: &App) -> Hsla {
     match severity {
-        Severity::Normal => cx.theme().muted_foreground,
+        // EXP-698: a NORMAL bar is not a "muted" thing, it is the glass
+        // foreground at 30% over the track — the web/mobile meter fill.
+        Severity::Normal => cx.theme().foreground.opacity(0.30),
         Severity::Warning => theme::tokens::YELLOW.to_hsla(),
         Severity::Danger => cx.theme().danger,
     }
@@ -346,7 +348,9 @@ fn render_usage_card(card: &UsageCard, compact: bool, cx: &App) -> gpui::Div {
                 .w_full()
                 .h(px(TRACK_H))
                 .rounded_full()
-                .bg(cx.theme().border.opacity(0.6))
+                // EXP-698: the track is the glass strong stroke, not a
+                // dimmed chrome border.
+                .bg(theme::tokens::glass::STROKE_STRONG.to_hsla())
                 .child(
                     div()
                         .h_full()

@@ -47,7 +47,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -56,6 +55,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -71,7 +71,10 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
+import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.components.PillMode
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
@@ -90,9 +93,8 @@ import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.markdown.stripDraftImages
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
+import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassRow
-import com.exponential.app.ui.theme.glassSection
 import kotlinx.coroutines.launch
 
 // The per-property/combined sheets the detail screen can present (EXP-240).
@@ -464,7 +466,7 @@ fun IssueDetailScreen(
         val session = runningSession
         // EXP-312: the start circle deep-links into the live viewer, which is
         // owner-only — only the caller's OWN session flips it to the state
-        // dot; a teammate's run shows in the AgentPrCard badge and the circle
+        // dot; a teammate's run shows in the Coding-now card and the circle
         // falls through to Start coding.
         val ownSession = session?.takeIf { it.userId == currentUserId }
         val devices = steerDevices
@@ -564,7 +566,7 @@ fun IssueDetailScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .glassSection()
+                        .glassCard()
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -583,15 +585,11 @@ fun IssueDetailScreen(
                     Spacer(Modifier.width(6.dp))
                     val canonical = duplicateOf
                     if (canonical != null) {
-                        Text(
+                        GlassPill(
                             canonical.identifier,
-                            style = MaterialTheme.typography.labelMedium,
+                            size = PillSize.Sm,
                             fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier
-                                .glassButton()
-                                .clickable { onOpenIssue(canonical.id) }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            onClick = { onOpenIssue(canonical.id) },
                         )
                     } else {
                         Text(
@@ -602,14 +600,10 @@ fun IssueDetailScreen(
                     }
                     Spacer(Modifier.weight(1f))
                     if (isModerator) {
-                        Text(
+                        GlassPill(
                             "Unmark",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            modifier = Modifier
-                                .glassButton()
-                                .clickable { viewModel.unmarkDuplicate() }
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                            size = PillSize.Sm,
+                            onClick = { viewModel.unmarkDuplicate() },
                         )
                     }
                 }
@@ -667,6 +661,25 @@ fun IssueDetailScreen(
                 onOpenProperties = { propertiesOpen = true },
             )
 
+            // EXP-698 r4: the live run sits in its OWN box directly under the
+            // property chips — same chrome, same width — instead of below the
+            // description where it read as an afterthought. The PR/branch rows
+            // stay down there, next to the code they link to.
+            if (session != null) {
+                // The two boxes read as one stack (iOS parity, EXP-698 r5):
+                // the gap between chips and card is tighter than the gap to
+                // the description below.
+                Spacer(Modifier.height(12.dp))
+                CodingNowCard(
+                    session = session,
+                    prState = issue.prState,
+                    sessionOwner = state.users.firstOrNull { it.id == session.userId },
+                    steerEnabled = steerEnabled,
+                    currentUserId = currentUserId,
+                    onWatch = onOpenSteer,
+                )
+            }
+
             Spacer(Modifier.height(16.dp))
             MarkdownEditor(
                 model = descriptionModel,
@@ -691,13 +704,11 @@ fun IssueDetailScreen(
                 onDispose { viewModel.flushDescription() }
             }
 
-            // The agent/PR card (EXP-156): a live "Coding now" session and the
-            // PR/branch chips linking to the dedicated Changes page. Start
-            // moved to the bottom bar (EXP-240), so this renders only with a
-            // session, a PR, or a pushed branch.
-            val cardVisible = session != null ||
-                !issue.prUrl.isNullOrBlank() ||
-                !issue.branch.isNullOrBlank()
+            // The PR/branch rows (EXP-156) linking to the dedicated Changes
+            // page. Start moved to the bottom bar (EXP-240) and the live
+            // session to its own card above (EXP-698 r4), so this renders only
+            // with a PR or a pushed branch.
+            val cardVisible = !issue.prUrl.isNullOrBlank() || !issue.branch.isNullOrBlank()
             if (cardVisible) {
                 Spacer(Modifier.height(20.dp))
                 // EXP-327: no repo chip here — the PR row itself is the link to
@@ -705,11 +716,6 @@ fun IssueDetailScreen(
                 // says (Linear parity).
                 AgentPrCard(
                     issue = issue,
-                    session = session,
-                    sessionOwner = session?.let { s -> state.users.firstOrNull { it.id == s.userId } },
-                    steerEnabled = steerEnabled,
-                    currentUserId = currentUserId,
-                    onWatch = onOpenSteer,
                     onOpenChanges = onOpenChanges,
                 )
             }
@@ -805,6 +811,7 @@ fun IssueDetailScreen(
             priority = IssuePriority.fromWire(issue.priority),
             assignee = state.assignee,
             hideAssignee = soloMemberId != null,
+            teamLabels = state.teamLabels,
             issueLabels = state.issueLabels,
             currentBoard = state.board,
             hasMoveTargets = moveTargets.isNotEmpty(),
@@ -997,23 +1004,10 @@ private fun RemoteEditBanner(onReload: () -> Unit) {
 // read-only indicator built on the shared glass chip idiom.
 @Composable
 private fun OriginChip(isAgent: Boolean) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .glassButton()
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-    ) {
-        Icon(
-            if (isAgent) ExpIcons.uiAgentSource else ExpIcons.uiWidget,
-            contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        Spacer(Modifier.width(5.dp))
-        Text(
-            if (isAgent) "Agent" else "Feedback widget",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-    }
+    GlassPill(
+        if (isAgent) "Agent" else "Feedback widget",
+        size = PillSize.Sm,
+        mode = PillMode.Readonly,
+        icon = if (isAgent) ExpIcons.uiAgentSource else ExpIcons.uiWidget,
+    )
 }

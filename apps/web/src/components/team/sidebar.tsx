@@ -27,6 +27,7 @@ import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { BoardSettingsDialog } from "@/components/team/board-settings-dialog"
 import { SettingsSidebar } from "@/components/team/settings-sidebar"
+import { TeamAvatar } from "@/components/team/team-avatar"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { GettingStartedButton } from "@/components/getting-started/getting-started-button"
 import { ChangelogSheet, WhatsNewCard } from "@/components/whats-new"
@@ -229,11 +230,7 @@ export function TeamSidebar({
                       className="min-w-0 flex-1 h-10"
                       aria-label="Team switcher"
                     >
-                      <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold shrink-0">
-                        {team?.name?.[0]?.toUpperCase() ??
-                          teamSlug[0]?.toUpperCase() ??
-                          `E`}
-                      </div>
+                      <TeamAvatar name={team?.name ?? teamSlug} size={28} />
                       <span className="text-sm font-semibold truncate">
                         {team?.name ?? teamSlug}
                       </span>
@@ -251,9 +248,7 @@ export function TeamSidebar({
                           })
                         }
                       >
-                        <div className="flex h-5 w-5 items-center justify-center rounded bg-primary text-primary-foreground text-[0.625rem] font-bold shrink-0">
-                          {ws.name[0]?.toUpperCase()}
-                        </div>
+                        <TeamAvatar name={ws.name} size={20} />
                         <span className="truncate">{ws.name}</span>
                         {ws.slug === teamSlug && (
                           <UiCheckIcon className="ml-auto h-4 w-4" />
@@ -464,7 +459,10 @@ export function TeamSidebar({
                         {session?.user?.image && (
                           <AvatarImage src={session.user.image} />
                         )}
-                        <AvatarFallback className="text-xs">
+                        <AvatarFallback
+                          className="text-xs"
+                          userId={session?.user?.id}
+                        >
                           {userInitials}
                         </AvatarFallback>
                       </Avatar>

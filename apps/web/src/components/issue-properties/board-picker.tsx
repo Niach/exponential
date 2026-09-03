@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { useLiveQuery, eq } from "@tanstack/react-db"
 import { Check } from "lucide-react"
 import { boardCollection } from "@/lib/collections"
@@ -15,7 +15,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { MoveBoardConfirmDialog } from "@/components/issue-properties/move-board-confirm"
 import { BoardGlyph } from "@/components/board-glyph"
 import type { Board } from "@/db/schema"
@@ -33,6 +33,9 @@ interface BoardPickerProps {
   open?: boolean
   onOpenChange?: (open: boolean) => void
   hideTrigger?: boolean
+  // Replaces the default chip (the mobile properties sheet renders the picker
+  // as a full-width property row) — same contract as `AssigneePicker`.
+  trigger?: ReactNode
 }
 
 // Move-to-board picker for the issue detail view (EXP-57): single-select
@@ -50,6 +53,7 @@ export function BoardPicker({
   open: controlledOpen,
   onOpenChange,
   hideTrigger,
+  trigger,
 }: BoardPickerProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
   const open = controlledOpen ?? uncontrolledOpen
@@ -94,24 +98,21 @@ export function BoardPicker({
       >
         {!hideTrigger && (
           <MobilePopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="xs"
-              className="text-muted-foreground"
-              disabled={disabled}
-            >
-              <BoardGlyph
-                board={selectedBoard ?? { color: `#71717a` }}
-                className="size-3.5"
-              />
-              {selectedBoard ? (
-                <span className="max-w-[7.5rem] truncate">
-                  {selectedBoard.name}
-                </span>
-              ) : (
-                `Board`
-              )}
-            </Button>
+            {trigger ?? (
+              <Pill mode="action" disabled={disabled}>
+                <BoardGlyph
+                  board={selectedBoard ?? { color: `#71717a` }}
+                  className="size-3.5"
+                />
+                {selectedBoard ? (
+                  <span className="max-w-[7.5rem] truncate">
+                    {selectedBoard.name}
+                  </span>
+                ) : (
+                  `Board`
+                )}
+              </Pill>
+            )}
           </MobilePopoverTrigger>
         )}
         <MobilePopoverContent

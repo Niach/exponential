@@ -57,10 +57,47 @@ public final class AttachmentsApi: Sendable {
         filename: String,
         contentType: String
     ) async throws -> UploadedAttachment {
+        try await upload(
+            accountId: accountId,
+            path: "/api/issues/\(issueId)/files",
+            data: data,
+            filename: filename,
+            contentType: contentType
+        )
+    }
+
+    /// EXP-702: a steered image belongs to the SESSION, not to the issue the
+    /// run happens to be about — it never shows up in the issue's Files
+    /// section, and a batch/action run (which has no issue at all) can carry
+    /// images too. Same multipart part name and response contract as the issue
+    /// route; the server gates on session ownership.
+    public func uploadSessionImage(
+        accountId: String,
+        sessionId: String,
+        data: Data,
+        filename: String,
+        contentType: String
+    ) async throws -> UploadedAttachment {
+        try await upload(
+            accountId: accountId,
+            path: "/api/sessions/\(sessionId)/files",
+            data: data,
+            filename: filename,
+            contentType: contentType
+        )
+    }
+
+    private func upload(
+        accountId: String,
+        path: String,
+        data: Data,
+        filename: String,
+        contentType: String
+    ) async throws -> UploadedAttachment {
         guard let baseUrl = instanceUrl(for: accountId) else {
             throw AttachmentsError.noInstanceUrl
         }
-        guard let url = URL(string: "\(baseUrl)/api/issues/\(issueId)/files") else {
+        guard let url = URL(string: "\(baseUrl)\(path)") else {
             throw AttachmentsError.invalidUrl
         }
 

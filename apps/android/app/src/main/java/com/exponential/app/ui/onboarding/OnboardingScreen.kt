@@ -22,7 +22,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,7 +29,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -41,7 +39,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.LocalReduceMotion
 import com.exponential.app.ui.theme.Motion
@@ -70,7 +67,8 @@ fun OnboardingScreen(
     val done by viewModel.done.collectAsStateWithLifecycle()
     val needsTeamChoice by viewModel.needsTeamChoice.collectAsStateWithLifecycle()
     val teamSubmitting by viewModel.teamSubmitting.collectAsStateWithLifecycle()
-    val teamError by viewModel.teamError.collectAsStateWithLifecycle()
+    val teamCreateError by viewModel.teamCreateError.collectAsStateWithLifecycle()
+    val teamJoinError by viewModel.teamJoinError.collectAsStateWithLifecycle()
 
     var step by remember { mutableIntStateOf(0) }
     // EXP-523: `transitionSpec` is a plain lambda, not a composable one, so the
@@ -128,7 +126,8 @@ fun OnboardingScreen(
                         needsChoice = needsTeamChoice,
                         submitting = teamSubmitting,
                         prepareError = error,
-                        actionError = teamError,
+                        createError = teamCreateError,
+                        joinError = teamJoinError,
                         onRetry = { viewModel.prepare() },
                         onSignOut = { viewModel.signOut() },
                         onCreateTeam = { viewModel.createTeam(it) },
@@ -204,14 +203,13 @@ private fun TeamStep(
     needsChoice: Boolean,
     submitting: Boolean,
     prepareError: String?,
-    actionError: String?,
+    createError: String?,
+    joinError: String?,
     onRetry: () -> Unit,
     onSignOut: () -> Unit,
     onCreateTeam: (String) -> Unit,
     onJoinTeam: (String) -> Unit,
 ) {
-    var teamName by remember { mutableStateOf("") }
-    var inviteInput by remember { mutableStateOf("") }
     Column(
         modifier = Modifier.widthIn(max = 460.dp).fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -224,7 +222,7 @@ private fun TeamStep(
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            "Create a team for your work, or join an existing one with an invite.",
+            "Create a team, or join one with an invite link from a teammate.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             textAlign = TextAlign.Center,
@@ -258,63 +256,17 @@ private fun TeamStep(
                 }
             }
             else -> {
-                Column(
-                    modifier = Modifier.fillMaxWidth().glassCard().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text("Create a team", style = MaterialTheme.typography.titleSmall)
-                    GlassTextField(
-                        value = teamName,
-                        onValueChange = { teamName = it },
-                        singleLine = true,
-                        placeholder = "e.g. Acme Inc",
-                        enabled = !submitting,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Button(
-                        onClick = { onCreateTeam(teamName) },
-                        enabled = !submitting && teamName.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(if (submitting) "Creating…" else "Create team")
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-                Column(
-                    modifier = Modifier.fillMaxWidth().glassCard().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text("Join a team", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "Ask a teammate for an invite link and paste it here.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                    GlassTextField(
-                        value = inviteInput,
-                        onValueChange = { inviteInput = it },
-                        singleLine = true,
-                        placeholder = "Invite link or code",
-                        enabled = !submitting,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedButton(
-                        onClick = { onJoinTeam(inviteInput) },
-                        enabled = !submitting && inviteInput.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(if (submitting) "Joining…" else "Join team")
-                    }
-                }
-                if (actionError != null) {
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        actionError,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center,
-                    )
-                }
+                // EXP-698: the same two glass cards the zero-team empty state
+                // raises in `TeamSetupSheet` — one composable, one copy.
+                TeamSetupForm(
+                    state = TeamSetupFormState(
+                        busy = submitting,
+                        createError = createError,
+                        joinError = joinError,
+                    ),
+                    onCreate = onCreateTeam,
+                    onJoin = onJoinTeam,
+                )
             }
         }
     }

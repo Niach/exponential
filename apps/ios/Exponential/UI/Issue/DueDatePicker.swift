@@ -1,27 +1,17 @@
 import ExpUI
 import SwiftUI
 
-/// Shared inline due-date picker used in both Create and Detail views.
-/// Shows a row with the current date (or "None"), tappable to expand a graphical calendar.
+/// The inline due-date picker of the New-issue page: a row with the current
+/// date (or "None"), tappable to unfold a graphical calendar. It carries NO
+/// card of its own — it is the last row inside the property card (EXP-167), and
+/// wears the shared `GlassMetaRowTokens` geometry so it reads as the fourth of
+/// those rows. (EXP-698 r4 dropped the `embedded` flag: the standalone,
+/// self-`glassSection()`ing variant had no call site left.)
 struct DueDatePicker: View {
     @Binding var date: Date?
-    /// When true, renders WITHOUT its own `.glassSection()` so the picker can sit
-    /// as the last row inside another card (EXP-167 — the Status/Priority card).
-    var embedded: Bool = false
     @State private var expanded = false
 
     var body: some View {
-        Group {
-            if embedded {
-                core
-            } else {
-                core.glassSection()
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: expanded)
-    }
-
-    private var core: some View {
         VStack(spacing: 0) {
             Button {
                 expanded.toggle()
@@ -29,42 +19,46 @@ struct DueDatePicker: View {
                     date = Date()
                 }
             } label: {
-                HStack {
-                    AppIcon(AppIcons.uiDueDate, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .frame(width: 22)
+                // EXP-698 r4: the same row as the Status/Priority/Assignee
+                // rows above it — label left, glyph beside the value right, no
+                // up/down chevron (the calendar unfolding IS the feedback).
+                HStack(spacing: 6) {
                     Text("Due date")
                         .font(.subheadline)
-                        .foregroundStyle(.white)
-                    Spacer()
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    Spacer(minLength: 8)
+                    AppIcon(AppIcons.uiDueDate, size: GlassMetaRowTokens.glyphSize)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     if let d = date {
                         Text(formatted(d))
                             .font(.subheadline)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        // The only way back to "no due date" — the row itself
+                        // opens the calendar, so clearing needs its own target.
                         Button {
                             date = nil
                             expanded = false
                         } label: {
-                            AppIcon(AppIcons.uiClear, size: AppIcon.Size.medium)
+                            AppIcon(AppIcons.uiClear, size: GlassMetaRowTokens.glyphSize)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Clear due date")
                     } else {
                         Text("None")
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
-                    AppIcon(expanded ? AppIcons.uiChevronUp : AppIcons.uiChevronDown, size: 11)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.horizontal, GlassMetaRowTokens.horizontalPadding)
+                .padding(.vertical, GlassMetaRowTokens.verticalPadding)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
             if expanded, date != nil {
-                Divider().background(Color.white.opacity(0.06))
+                GlassDivider()
                 DatePicker(
                     "",
                     selection: Binding(
@@ -81,6 +75,7 @@ struct DueDatePicker: View {
                 .padding(.bottom, 8)
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: expanded)
     }
 
     private func formatted(_ date: Date) -> String {

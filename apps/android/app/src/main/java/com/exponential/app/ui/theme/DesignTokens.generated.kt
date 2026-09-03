@@ -44,10 +44,27 @@ object DesignTokens {
         val Red: Color = Color(0xFFEF4444)
         val Orange: Color = Color(0xFFF97316)
         val Blue: Color = Color(0xFF3B82F6)
+        val CodeText: Color = Color(0xFF8AB4F8)
+        val CodeFill: Color = Color(0x1F8AB4F8)
+        val CodeStroke: Color = Color(0x338AB4F8)
     }
 
-    // Glass surfaces (EXP-269) — mobile UI keeps its hand-written
-    // GlassTokens (ui/theme/Glass.kt); do not migrate.
+    // Avatar fallback hues (EXP-698 r4) — index = fnv1a32(userId) % Hues.size,
+    // see ui/components/Avatars.kt. Order is the contract; never reorder.
+    object Avatar {
+        val Red: Color = Color(0xFFF87171)
+        val Orange: Color = Color(0xFFFB923C)
+        val Yellow: Color = Color(0xFFFACC15)
+        val Green: Color = Color(0xFF4ADE80)
+        val Teal: Color = Color(0xFF2DD4BF)
+        val Blue: Color = Color(0xFF60A5FA)
+        val Violet: Color = Color(0xFFA78BFA)
+        val Pink: Color = Color(0xFFF472B6)
+        val Hues: List<Color> = listOf(Red, Orange, Yellow, Green, Teal, Blue, Violet, Pink)
+    }
+
+    // Glass surfaces (EXP-269) — read through the ui/theme/Glass.kt GlassTokens
+    // aliases; the styleguide Components group renders the same values (EXP-698).
     object Glass {
         val BackgroundTop: Color = Color(0xFF09090B)
         val BackgroundBottom: Color = Color(0xFF18181B)

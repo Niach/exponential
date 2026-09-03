@@ -1,5 +1,6 @@
 import { Search } from "lucide-react"
 import type { Issue } from "@/db/schema"
+import { GlassGroup } from "@/components/ui/glass-rows"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -55,7 +56,7 @@ export function IssuesPane({
           className="h-9 rounded-md pl-8"
         />
       </div>
-      <div className="max-h-44 overflow-y-auto rounded-lg border-0 bg-glass-row sm:max-h-none sm:min-h-32 sm:flex-1">
+      <GlassGroup className="max-h-44 overflow-y-auto sm:max-h-none sm:min-h-32 sm:flex-1">
         {rows.length === 0 ? (
           <div className="px-3 py-6 text-center text-xs text-muted-foreground">
             {search.trim()
@@ -77,7 +78,7 @@ export function IssuesPane({
                     onToggle(issue.id)
                   }
                 }}
-                className="flex cursor-pointer items-center gap-2 border-b border-glass-stroke px-3 py-2 last:border-b-0 hover:bg-glass-active/50"
+                className="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-glass-active/50"
               >
                 <Checkbox
                   checked={checked}
@@ -93,7 +94,7 @@ export function IssuesPane({
             )
           })
         )}
-      </div>
+      </GlassGroup>
       {count > 0 && (
         <p className="text-xs text-muted-foreground">
           {count} issue{count === 1 ? `` : `s`} selected

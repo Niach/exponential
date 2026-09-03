@@ -3,13 +3,7 @@ import { trpc } from "@/lib/trpc-client"
 import { authClient } from "@/lib/auth/client"
 import { useSession } from "@/hooks/use-session"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogBody,
@@ -59,22 +53,26 @@ export function DeleteAccountSection() {
 
   return (
     <>
-      <Card className="border-destructive/50">
-        <CardHeader>
-          <CardTitle className="text-base text-destructive">
-            Danger Zone
-          </CardTitle>
-          <CardDescription>
+      <div>
+        <GlassSectionHeader
+          label="Danger zone"
+          className="[&>span]:text-destructive"
+        />
+        <GlassRow className="justify-between gap-3">
+          <span className="min-w-0 text-sm text-muted-foreground">
             Permanently delete your account and every team where you are the
             only member.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="destructive" onClick={() => setShowDialog(true)}>
+          </span>
+          <Button
+            variant="destructive"
+            size="xs"
+            className="shrink-0"
+            onClick={() => setShowDialog(true)}
+          >
             Delete account
           </Button>
-        </CardContent>
-      </Card>
+        </GlassRow>
+      </div>
 
       <Dialog
         open={showDialog}

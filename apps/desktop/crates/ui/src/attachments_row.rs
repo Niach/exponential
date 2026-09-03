@@ -10,14 +10,12 @@
 //! files. The issue-detail strip is gone too (EXP-256).
 
 use gpui::{
-    div, App, ElementId, InteractiveElement as _, IntoElement, ParentElement, SharedString, Styled,
+    div, App, ElementId, IntoElement, ParentElement, SharedString, Styled,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    h_flex, ActiveTheme as _, Icon, Sizable as _,
+    button::ButtonVariants as _, ActiveTheme as _, Icon, Sizable as _,
 };
 
-use crate::controls::WebControl as _;
 use crate::icons::registry;
 
 /// One `![alt](url)` occurrence in a markdown string — the web's
@@ -164,25 +162,14 @@ pub(crate) fn file_chip(
     on_remove: Option<ChipRemove>,
     cx: &App,
 ) -> gpui::AnyElement {
+    use crate::surface::{PillMode, PillSize};
     let glyph = crate::issue_files::icon_for_content_type(content_type);
-    let mut row = h_flex()
-        .id(id.into())
-        .flex_shrink_0()
-        .gap_1p5()
-        .px_2()
-        .py_1()
-        .rounded_md()
-        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-        .items_center()
-        .child(
-            Icon::from(glyph)
-                .xsmall()
-                .text_color(cx.theme().muted_foreground),
-        )
+    // EXP-698: the ONE small readonly pill, not a bespoke rounded-md chip.
+    let mut row = crate::surface::glass_pill(id, PillSize::Sm, PillMode::Readonly, cx)
+        .child(Icon::from(glyph).with_size(gpui::px(PillSize::Sm.glyph())))
         .child(
             div()
                 .max_w(gpui::px(96.))
-                .text_xs()
                 .whitespace_nowrap()
                 .overflow_hidden()
                 .text_ellipsis()
@@ -190,23 +177,25 @@ pub(crate) fn file_chip(
         )
         .child(
             div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
+                .text_color(cx.theme().foreground.opacity(0.5))
                 .child(SharedString::from(crate::issue_files::format_bytes(
                     size_bytes,
                 ))),
         );
 
     if let Some((id, on_click)) = on_remove {
-        row = row.child(
-            Button::new(id)
+        // `pr_1` (not the pill's 8px): the ✕ is its own hit box, so the
+        // capsule tightens on that side instead of padding a button. Same
+        // inset as the steer composer's pending chips.
+        row = row.pr_1().child(
+            // A 16px BARE glyph, not a 24px circle: inside a 24px pill a
+            // circle of the pill's own height fills it edge to edge.
+            gpui_component::button::Button::new(id)
                 .ghost()
-                .web_icon_xs()
-                .icon(
-                    Icon::new(registry::UI_CLOSE)
-                        .xsmall()
-                        .text_color(cx.theme().muted_foreground),
-                )
+                .with_size(gpui::px(16.))
+                .rounded_full()
+                .cursor_pointer()
+                .icon(Icon::new(registry::UI_CLOSE))
                 .on_click(move |event, window, cx| {
                     cx.stop_propagation();
                     on_click(event, window, cx);

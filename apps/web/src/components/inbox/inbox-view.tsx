@@ -18,6 +18,7 @@ import {
   boardCollection,
   teamCollection,
 } from "@/lib/collections"
+import { GlassRow } from "@/components/ui/glass-rows"
 import { cn } from "@/lib/utils"
 
 // EXP-273: derived from the shared registry rather than hand-listed, so the
@@ -75,10 +76,6 @@ type Group = IssueGroup | SupportGroup
 // issue list instead of mounting them all.
 const GROUP_CAP = 100
 const GROUP_CHUNK = 200
-
-// EXP-616 — the glass row shell (ui/glass-rows.tsx GlassRow), inlined because
-// these rows ARE the <Link> and align items-start for the two-line body.
-const NOTIFICATION_ROW = `flex items-start gap-3 rounded-md border border-glass-stroke bg-glass-row px-3 py-2 transition-colors duration-fast hover:bg-glass-active/50`
 
 // Single Linear-style activity stream: one row per issue group, showing the
 // latest notification's sentence (titles are already full human sentences —
@@ -235,89 +232,110 @@ export function InboxView({ teamSlug }: { teamSlug: string }) {
             const latest = g.items[0]
             if (g.kind === `support`) {
               return (
-                <Link
+                <GlassRow
                   key={`support:${g.teamId ?? `unknown`}`}
-                  to="/t/$teamSlug/support"
-                  params={{ teamSlug: g.teamSlug ?? teamSlug }}
-                  onClick={() => void markGroupRead(g)}
+                  asChild
+                  interactive
                   className={cn(
-                    NOTIFICATION_ROW,
+                    `items-start px-3 py-2`,
                     g.unread === 0 && `opacity-60`
                   )}
                 >
+                  <Link
+                    to="/t/$teamSlug/support"
+                    params={{ teamSlug: g.teamSlug ?? teamSlug }}
+                    onClick={() => void markGroupRead(g)}
+                  >
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                      <SupportIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            `truncate text-sm`,
+                            g.unread > 0 && `font-medium`
+                          )}
+                        >
+                          Support
+                        </span>
+                        {g.teamName != null && teamMap.size > 1 && (
+                          <span className="truncate text-xs text-muted-foreground">
+                            {g.teamName}
+                          </span>
+                        )}
+                        {/* EXP-698: fixed trailing columns — the stamp is
+                            right-aligned in its own 4rem slot and the unread
+                            dot keeps its 8px slot whether or not it is lit, so
+                            read and unread rows line up exactly. */}
+                        <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
+                          {relativeTime(latest.createdAt)}
+                        </span>
+                        <span className="w-2 shrink-0" aria-hidden>
+                          {g.unread > 0 && (
+                            <span className="block h-2 w-2 rounded-full bg-primary" />
+                          )}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {latest.title}
+                      </div>
+                    </div>
+                  </Link>
+                </GlassRow>
+              )
+            }
+            const Icon = typeIcon[latest.type] ?? Bell
+            return (
+              <GlassRow
+                key={g.issue.id}
+                asChild
+                interactive
+                className={cn(
+                  `items-start px-3 py-2`,
+                  g.unread === 0 && `opacity-60`
+                )}
+              >
+                <Link
+                  to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+                  params={{
+                    teamSlug: g.teamSlug,
+                    boardSlug: g.board.slug,
+                    issueIdentifier: g.issue.identifier,
+                  }}
+                  onClick={() => void markGroupRead(g)}
+                >
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
-                    <SupportIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                    <Icon className="h-3.5 w-3.5 text-muted-foreground" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
+                      <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                        {g.issue.identifier}
+                      </span>
                       <span
                         className={cn(
                           `truncate text-sm`,
                           g.unread > 0 && `font-medium`
                         )}
                       >
-                        Support
+                        {g.issue.title}
                       </span>
-                      {g.teamName != null && teamMap.size > 1 && (
-                        <span className="truncate text-xs text-muted-foreground">
-                          {g.teamName}
-                        </span>
-                      )}
-                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                      <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
                         {relativeTime(latest.createdAt)}
                       </span>
-                      {g.unread > 0 && (
-                        <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
-                      )}
+                      <span className="w-2 shrink-0" aria-hidden>
+                        {g.unread > 0 && (
+                          <span className="block h-2 w-2 rounded-full bg-primary" />
+                        )}
+                      </span>
                     </div>
                     <div className="mt-0.5 truncate text-xs text-muted-foreground">
                       {latest.title}
                     </div>
                   </div>
                 </Link>
-              )
-            }
-            const Icon = typeIcon[latest.type] ?? Bell
-            return (
-              <Link
-                key={g.issue.id}
-                to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
-                params={{
-                  teamSlug: g.teamSlug,
-                  boardSlug: g.board.slug,
-                  issueIdentifier: g.issue.identifier,
-                }}
-                onClick={() => void markGroupRead(g)}
-                className={cn(NOTIFICATION_ROW, g.unread === 0 && `opacity-60`)}
-              >
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
-                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                      {g.issue.identifier}
-                    </span>
-                    <span
-                      className={cn(
-                        `truncate text-sm`,
-                        g.unread > 0 && `font-medium`
-                      )}
-                    >
-                      {g.issue.title}
-                    </span>
-                    <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                      {relativeTime(latest.createdAt)}
-                    </span>
-                    {g.unread > 0 && (
-                      <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
-                    )}
-                  </div>
-                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {latest.title}
-                  </div>
-                </div>
-              </Link>
+              </GlassRow>
             )
           })
         )}

@@ -51,8 +51,12 @@ pub enum CompletionDecoration {
     /// The issue's RESOLVED status (custom rows included) — resolution is
     /// per-issue, so the glyph/tint stay correct in cross-team composers.
     Status(domain::statuses::ResolvedStatus),
-    /// The member's profile image URL (`None` = initials fallback).
-    User { image_url: Option<String> },
+    /// The member's user id (the EXP-698 hue key) + profile image URL
+    /// (`None` = the hue-hashed initials fallback).
+    User {
+        user_id: String,
+        image_url: Option<String>,
+    },
     /// EXP-551: the emoji glyph itself (it IS what the row inserts).
     Emoji { glyph: SharedString },
 }
@@ -68,8 +72,9 @@ pub fn completion_row_content(item: &CompletionItem, cx: &mut App) -> gpui::AnyE
         Some(CompletionDecoration::Status(status)) => {
             row = row.child(crate::icons::resolved_status_icon(status, cx).xsmall());
         }
-        Some(CompletionDecoration::User { image_url }) => {
+        Some(CompletionDecoration::User { user_id, image_url }) => {
             row = row.child(crate::user_avatar::user_avatar(
+                user_id,
                 &item.label,
                 image_url.as_deref(),
                 gpui_component::Size::XSmall,
@@ -256,6 +261,7 @@ impl CompletionSource for StoreCompletionSource {
                             label: name.into(),
                             detail: email.into(),
                             decoration: Some(CompletionDecoration::User {
+                                user_id: user.id.clone(),
                                 image_url: user.image.clone(),
                             }),
                         })

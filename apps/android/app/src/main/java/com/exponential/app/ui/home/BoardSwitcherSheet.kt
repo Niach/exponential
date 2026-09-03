@@ -1,5 +1,6 @@
 package com.exponential.app.ui.home
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.ServerBoardGroup
@@ -26,6 +28,7 @@ import com.exponential.app.ui.components.BoardRow
 import com.exponential.app.ui.components.TeamAvatar
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
@@ -33,13 +36,18 @@ import com.exponential.app.ui.theme.TextEmphasis
  * account's teams and boards (server → team → board). This is
  * the old Boards home screen's tree, relocated — picking a board swaps the
  * Issues tab's list in place instead of pushing a new destination.
- * Mirrors iOS BoardSwitcherSheet (no create-board action here — the sheet
- * spans teams, so a new board's target team would be ambiguous).
+ * Mirrors iOS BoardSwitcherSheet. EXP-698 r5 gave every team block its own
+ * "Create board" row (the target team is the block's, so nothing is ambiguous
+ * any more) and put a "New team" row at the very bottom.
  */
 @Composable
 fun BoardSwitcherSheet(
     groups: List<ServerBoardGroup>,
+    /** The board the Issues tab is showing — its row takes the active paint. */
+    currentBoardId: String?,
     onSelect: (accountId: String, boardId: String) -> Unit,
+    onCreateBoard: (teamId: String) -> Unit,
+    onCreateTeam: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     GlassSheet(title = "Switch board", onDismiss = onDismiss) {
@@ -74,7 +82,18 @@ fun BoardSwitcherSheet(
                     ServerSection(
                         group = group,
                         showServerHeader = groups.size > 1,
+                        currentBoardId = currentBoardId,
                         onSelect = onSelect,
+                        onCreateBoard = onCreateBoard,
+                    )
+                }
+                // The last row in the sheet, under every server's teams: a
+                // team is the one thing the tree above can't offer to make.
+                item(key = "new-team") {
+                    MutedActionRow(
+                        label = "New team",
+                        testTag = "board-switcher-new-team",
+                        onClick = onCreateTeam,
                     )
                 }
             }
@@ -86,7 +105,9 @@ fun BoardSwitcherSheet(
 private fun ServerSection(
     group: ServerBoardGroup,
     showServerHeader: Boolean,
+    currentBoardId: String?,
     onSelect: (accountId: String, boardId: String) -> Unit,
+    onCreateBoard: (teamId: String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // The server/email header only disambiguates when several accounts are
@@ -116,7 +137,9 @@ private fun ServerSection(
             TeamBlockView(
                 accountId = group.accountId,
                 block = block,
+                currentBoardId = currentBoardId,
                 onSelect = onSelect,
+                onCreateBoard = onCreateBoard,
             )
         }
     }
@@ -126,7 +149,9 @@ private fun ServerSection(
 private fun TeamBlockView(
     accountId: String,
     block: TeamBlock,
+    currentBoardId: String?,
     onSelect: (accountId: String, boardId: String) -> Unit,
+    onCreateBoard: (teamId: String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
@@ -135,25 +160,60 @@ private fun TeamBlockView(
         ) {
             TeamAvatar(block.team, size = 18.dp)
             Spacer(Modifier.width(8.dp))
+            // EXP-698 r5: no board COUNT — the rows below are the count,
+            // and the number read as an unread badge.
             Text(
                 block.team.name,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
-            Text(
-                "${block.boards.size}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
         }
         block.boards.forEach { board ->
             key(board.id) {
                 BoardRow(
                     board = board,
+                    active = board.id == currentBoardId,
                     onClick = { onSelect(accountId, board.id) },
                 )
             }
         }
+        MutedActionRow(
+            label = "Create board",
+            testTag = "board-switcher-create-board",
+            onClick = { onCreateBoard(block.team.id) },
+        )
+    }
+}
+
+/**
+ * The switcher's two make-something rows. Deliberately NOT carded: a board row
+ * is a thing you can switch to, and drawing "Create board" the same way would
+ * have made the list of boards look one longer than it is.
+ */
+@Composable
+private fun MutedActionRow(label: String, testTag: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            // The capture suites address these two by tag — their labels also
+            // read as ordinary content elsewhere on the sheet.
+            .testTag(testTag)
+            .clickable(onClick = onClick)
+            .padding(horizontal = GlassTokens.RowPaddingH, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            ExpIcons.uiAdd,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
     }
 }

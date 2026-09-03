@@ -59,7 +59,9 @@ export function AccountOverview({
       <div className="flex items-center gap-3">
         <Avatar className="h-12 w-12">
           {session?.user?.image && <AvatarImage src={session.user.image} />}
-          <AvatarFallback>{userInitials}</AvatarFallback>
+          <AvatarFallback userId={session?.user?.id}>
+            {userInitials}
+          </AvatarFallback>
         </Avatar>
         <div className="min-w-0">
           <div className="truncate font-medium">

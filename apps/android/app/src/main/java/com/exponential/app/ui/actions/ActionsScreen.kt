@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -57,10 +56,15 @@ import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EndedRunRow
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
-import com.exponential.app.ui.components.GlassPillButton
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillMode
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.GlassSegmentedControl
+import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.components.SwitchThumb
 import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.components.effortLabel
+import com.exponential.app.ui.components.glassSwitchColors
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.StartCodingSheet
@@ -254,9 +258,9 @@ fun ActionsScreen(
                             // the "New action" entry (EXP-431) as its trailing
                             // control.
                             item(key = "__actions_header__") {
-                                SectionLabel(title = "Actions") {
-                                    GlassPillButton(
-                                        label = "New action",
+                                SectionHeader(title = "Actions") {
+                                    GlassPill(
+                                        "New action",
                                         icon = ExpIcons.actionCreate,
                                         enabled = selectedTeamId != null,
                                         onClick = { createOpen = true },
@@ -469,14 +473,15 @@ private fun ActionRow(
         // carries none today — the guard keeps it that way).
         if (!action.isBuiltin) {
             Box {
-                IconButton(onClick = { menuOpen = true }) {
-                    Icon(
-                        ExpIcons.uiMore,
-                        contentDescription = "Action options",
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                }
+                // EXP-698: every trailing row action is the one 32dp glass
+                // circle — a bare glyph in an M3 touch box read as a hitbox,
+                // not a control.
+                CircleIconButton(
+                    ExpIcons.uiMore,
+                    contentDescription = "Action options",
+                    onClick = { menuOpen = true },
+                    modifier = Modifier.padding(start = 8.dp),
+                )
                 GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     GlassMenuItem(
                         text = { Text("Edit") },
@@ -528,10 +533,10 @@ private fun AutomationsContent(
         // EXP-574 (web parity): section header, with the owner-only create
         // entry as its trailing control.
         item(key = "__automations_header__") {
-            SectionLabel(title = "Automations") {
+            SectionHeader(title = "Automations") {
                 if (isOwner) {
-                    GlassPillButton(
-                        label = "New automation",
+                    GlassPill(
+                        "New automation",
                         icon = ExpIcons.uiAdd,
                         enabled = !busy,
                         onClick = onNew,
@@ -583,7 +588,7 @@ private fun AutomationsContent(
         }
         if (runs.isNotEmpty()) {
             item(key = "__recent_runs_header__") {
-                SectionLabel(
+                SectionHeader(
                     title = "Recent automated runs",
                     modifier = Modifier.padding(top = 12.dp),
                 )
@@ -723,40 +728,50 @@ private fun AutomationRow(
             }
         }
         Spacer(Modifier.width(8.dp))
-        // Owner-only (every `automations` write is owner-gated server-side).
-        Switch(
-            checked = automation.enabled,
-            onCheckedChange = onSetEnabled,
-            enabled = isOwner && !busy,
-        )
-        if (isOwner) {
-            Box {
-                IconButton(onClick = { menuOpen = true }, enabled = !busy) {
-                    Icon(
+        // EXP-698: the trailing controls are their OWN cluster, CENTRED against
+        // the row — the body wraps to four lines on a scheduled automation, and
+        // a top-aligned toggle then floated beside the title while every other
+        // list row in the app lines its actions up on the row's middle.
+        Row(
+            modifier = Modifier.align(Alignment.CenterVertically),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Owner-only (every `automations` write is owner-gated server-side).
+            Switch(
+                checked = automation.enabled,
+                onCheckedChange = onSetEnabled,
+                enabled = isOwner && !busy,
+                colors = glassSwitchColors(),
+                thumbContent = SwitchThumb,
+            )
+            if (isOwner) {
+                Box {
+                    CircleIconButton(
                         ExpIcons.uiMore,
                         contentDescription = "Automation options",
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        onClick = { menuOpen = true },
+                        enabled = !busy,
+                        modifier = Modifier.padding(start = 8.dp),
                     )
-                }
-                GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    GlassMenuItem(
-                        text = { Text("Edit") },
-                        leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            onEdit()
-                        },
-                    )
-                    GlassMenuItem(
-                        text = { Text("Delete") },
-                        leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
-                        destructive = true,
-                        onClick = {
-                            menuOpen = false
-                            confirmDelete = true
-                        },
-                    )
+                    GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        GlassMenuItem(
+                            text = { Text("Edit") },
+                            leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
+                            onClick = {
+                                menuOpen = false
+                                onEdit()
+                            },
+                        )
+                        GlassMenuItem(
+                            text = { Text("Delete") },
+                            leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
+                            destructive = true,
+                            onClick = {
+                                menuOpen = false
+                                confirmDelete = true
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -828,8 +843,8 @@ private fun AutomationsEmptyState(isOwner: Boolean, onNew: () -> Unit) {
                 textAlign = TextAlign.Center,
             )
             if (isOwner) {
-                GlassPillButton(
-                    label = "New automation",
+                GlassPill(
+                    "New automation",
                     icon = ExpIcons.uiAdd,
                     onClick = onNew,
                     modifier = Modifier.testTag("new-automation"),
@@ -909,39 +924,7 @@ private fun SuggestionRow(suggestion: ActionSuggestion, onUse: () -> Unit) {
 // The small "Action" / "Automation" pill on a suggestion row.
 @Composable
 private fun SuggestionKindChip(label: String) {
-    Text(
-        label,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        maxLines = 1,
-        modifier = Modifier
-            .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.08f))
-            .padding(horizontal = 8.dp, vertical = 2.dp),
-    )
-}
-
-// The web `SectionLabel` (agent-session-row.tsx): title · spacer · optional
-// trailing control (EXP-574 layout parity; EXP-697 dropped the count).
-@Composable
-private fun SectionLabel(
-    title: String,
-    modifier: Modifier = Modifier,
-    trailing: (@Composable () -> Unit)? = null,
-) {
-    Row(
-        modifier = modifier.fillMaxWidth().padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.weight(1f))
-        trailing?.invoke()
-    }
+    GlassPill(label, size = PillSize.Sm, mode = PillMode.Readonly, maxLines = 1)
 }
 
 @Composable

@@ -12,6 +12,7 @@ import { AssigneeDropdown } from "@/components/issue-properties/assignee-dropdow
 import { IssueRowContextMenu } from "@/components/issue-row-menu/context-menu"
 import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
@@ -286,20 +287,15 @@ const IssueRow = memo(function IssueRow({
             colour dots instead, which is all a phone-width row can hold. */}
         <div className="hidden md:flex items-center gap-1.5 ml-4 shrink-0">
           {issueLabels.map((label) => (
-            <span
-              key={label.id}
-              className="flex items-center gap-1 border border-border/50 rounded-full px-1.5 py-px text-xs text-muted-foreground"
-            >
-              <div
-                className="h-1.5 w-1.5 rounded-full shrink-0"
-                style={{ backgroundColor: label.color }}
-              />
+            <Pill key={label.id} dot={label.color}>
               {label.name}
-            </span>
+            </Pill>
           ))}
         </div>
+        {/* EXP-698: below `sm` the title gets the whole line — the dots and
+            the due date are what truncated it to "Pus…". */}
         {issueLabels.length > 0 && (
-          <div className="flex md:hidden items-center gap-1 shrink-0">
+          <div className="hidden sm:flex md:hidden items-center gap-1 shrink-0">
             {issueLabels.slice(0, 3).map((label) => (
               <div
                 key={label.id}
@@ -331,7 +327,7 @@ const IssueRow = memo(function IssueRow({
             detail, never inline from the list (EXP-247). The
             tone (red overdue / orange today) is what explains
             the overdue-first ordering — REV2-48. */}
-        <div className="flex items-center justify-end">
+        <div className="max-sm:hidden flex items-center justify-end">
           {issue.dueDate && (
             <span
               className={`flex items-center gap-1 px-1 ${dueDateToneClass(issue.dueDate, today)}`}
@@ -712,9 +708,9 @@ export function IssueList({
               </div>
               {canCreate && (
                 <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className="hidden md:inline-flex text-muted-foreground opacity-0 group-hover:opacity-100 hover:opacity-100"
+                  variant="glass"
+                  size="icon-sm"
+                  className="hidden md:inline-flex opacity-0 group-hover:opacity-100 hover:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation()
                     // A new issue can never be born a duplicate (no canonical

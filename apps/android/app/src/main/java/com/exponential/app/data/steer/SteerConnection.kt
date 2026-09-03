@@ -955,7 +955,8 @@ class SteerConnection internal constructor(
 
     /**
      * Send the composed draft — the typed text plus any pending images
-     * (EXP-511): upload each image to the session's issue, then send ONE
+     * (EXP-511): upload each image to the SESSION (EXP-698 — not to its
+     * issue; a batch, action or chat run has none), then send ONE
      * message whose text carries an `![image](/api/attachments/…)` embed per
      * upload — the host swaps those for local file paths so the agent reads
      * the file directly.
@@ -974,12 +975,11 @@ class SteerConnection internal constructor(
             return
         }
         scope.launch {
-            val issueId = session.value?.issueId
             val uploads = issueImagesApi
-            if (ws == null || issueId == null || uploads == null) {
-                // Batch and action runs have no issue to attach to, and the
-                // composer hides the attach button for them — so this only
-                // guards a session that ended mid-compose.
+            if (ws == null || uploads == null) {
+                // EXP-698: images upload against the SESSION, so a batch,
+                // action or chat run can be shown one too — this only guards a
+                // session that ended mid-compose.
                 _steerImageError.value = "Images can't be sent right now"
                 return@launch
             }
@@ -994,9 +994,9 @@ class SteerConnection internal constructor(
                 for ((index, image) in images.withIndex()) {
                     if (image.uploadedId != null) continue
                     val uploaded = try {
-                        uploads.upload(
+                        uploads.uploadSessionImage(
                             accountId,
-                            issueId,
+                            codingSessionId,
                             image.bytes,
                             image.filename,
                             image.contentType,
