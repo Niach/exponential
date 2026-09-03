@@ -24,7 +24,7 @@ public struct SlashCommand: Equatable, Sendable, Identifiable {
     /// The agents that can run it — `coding_sessions.agent` values.
     public let agents: [String]
     /// Destructive enough to need a confirm before it goes out (`/clear`,
-    /// `/new`: the conversation is discarded).
+    /// the conversation is discarded).
     public let confirm: Bool
 
     public var id: String { name }

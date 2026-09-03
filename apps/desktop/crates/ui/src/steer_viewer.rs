@@ -3131,7 +3131,7 @@ mod tests {
         ));
     }
 
-    /// EXP-724: the `/clear` (and `/new`) confirm is the same four strings on
+    /// EXP-724: the `/clear` confirm is the same four strings on
     /// web, iOS, Android and here. `Cancel` is [`AlertSpec`]'s own footer
     /// label, which is why it is asserted against the alert, not a constant.
     #[test]
@@ -3142,8 +3142,6 @@ mod tests {
             "The agent forgets everything in this session so far. Files in the worktree are kept."
         );
         assert_eq!(slash_commands::confirm_button("clear"), "Run /clear");
-        assert_eq!(slash_commands::confirm_title("new"), "Run /new?");
-        assert_eq!(slash_commands::confirm_button("new"), "Run /new");
     }
 
     /// The two compaction strings the strip and its marker row render come

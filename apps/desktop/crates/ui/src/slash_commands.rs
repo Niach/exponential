@@ -16,7 +16,7 @@
 //!   agent's rows, in contract order, so an empty query lists them all;
 //! * **what accepting leaves behind** — `/name ` for a command that takes an
 //!   argument, bare `/name` for one that does not. Accepting never sends;
-//! * **the confirm copy** for the context-discarding rows (`/clear`, `/new`).
+//! * **the confirm copy** for the context-discarding row (`/clear`).
 //!   The publisher executes whatever it receives, so asking first is entirely
 //!   the client's job — on all four of them, in the same words.
 
@@ -119,10 +119,11 @@ mod tests {
     #[test]
     fn an_empty_query_lists_the_agents_whole_catalog_in_contract_order() {
         let all = names("/", SessionAgent::Claude);
-        assert_eq!(all, vec!["compact", "clear", "model", "init", "review"]);
-        // `/new` is codex/pi's twin of `/clear` — neither agent sees both.
-        assert!(names("/", SessionAgent::Codex).contains(&"new"));
-        assert!(!names("/", SessionAgent::Codex).contains(&"clear"));
+        assert_eq!(all, vec!["compact", "clear"]);
+        // Every agent sees the same two rows (the desktop maps `/clear` per
+        // agent — pi runs it natively).
+        assert_eq!(names("/", SessionAgent::Codex), all);
+        assert_eq!(names("/", SessionAgent::Pi), all);
     }
 
     #[test]
@@ -159,7 +160,7 @@ mod tests {
     #[test]
     fn the_confirm_copy_names_the_command_in_the_title_and_the_button() {
         assert_eq!(confirm_title("clear"), "Run /clear?");
-        assert_eq!(confirm_button("new"), "Run /new");
+        assert_eq!(confirm_button("clear"), "Run /clear");
         assert_eq!(
             CONFIRM_BODY,
             "The agent forgets everything in this session so far. \

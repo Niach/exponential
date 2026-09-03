@@ -2170,7 +2170,7 @@ pub(crate) fn dispatch_command(
         return CommandAttempt::Retry;
     }
     // pi never touches the PTY: its commands ride the observer extension,
-    // which calls pi's own `ctx.compact()`/`ctx.newSession()`/`setModel`.
+    // which calls pi's own `ctx.compact()`/`ctx.newSession()`.
     if link.dispatch_to_sink(command) {
         return CommandAttempt::Ran;
     }
@@ -10538,7 +10538,7 @@ mod tests {
         let write_input: InputHook = Arc::new(|_| panic!("pi never types"));
         let mut parked = Vec::new();
         link.submit(
-            crate::commands::parse_command("/model anthropic/opus-5", SessionAgent::Pi).unwrap(),
+            crate::commands::parse_command("/compact keep the diff", SessionAgent::Pi).unwrap(),
         );
         pump_commands(
             &mut parked,
@@ -10553,7 +10553,7 @@ mod tests {
         );
         assert_eq!(
             seen.lock().unwrap().as_slice(),
-            &[("model".to_string(), "anthropic/opus-5".to_string())]
+            &[("compact".to_string(), "keep the diff".to_string())]
         );
     }
 

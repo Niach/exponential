@@ -163,8 +163,9 @@ describe(`SlashCommandMenu`, () => {
     render(<Harness agent="codex" onSend={vi.fn()} />)
     const el = field()
     type(el, `/`)
-    // /clear is claude's; codex rotates with /new.
-    expect(screen.queryByText(`/clear`)).toBeNull()
-    expect(screen.getByText(`/new`)).toBeTruthy()
+    // The two rows are every agent's; nothing outside the catalog shows.
+    expect(screen.getByText(`/compact`)).toBeTruthy()
+    expect(screen.getByText(`/clear`)).toBeTruthy()
+    expect(screen.queryByText(`/new`)).toBeNull()
   })
 })

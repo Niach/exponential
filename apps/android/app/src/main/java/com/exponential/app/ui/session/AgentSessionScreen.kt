@@ -1053,7 +1053,7 @@ fun AgentSessionScreen(
         )
     }
 
-    // EXP-724: `/clear` and `/new` throw the conversation away — the same
+    // EXP-724: `/clear` throws the conversation away — the same
     // confirm shape as the kill dialog, with the copy pinned ×4.
     val confirmCommand = slashConfirm
     if (confirmCommand != null) {

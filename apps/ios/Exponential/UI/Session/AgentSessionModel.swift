@@ -156,7 +156,7 @@ final class AgentSessionModel {
     }
 
     /// The catalog command the draft would SEND as, if any — what the confirm
-    /// gate reads before a `/clear` or `/new` goes out.
+    /// gate reads before a `/clear` goes out.
     var pendingSlashCommand: SlashCommand? {
         SlashCommands.command(for: draftText, agent: session?.agent)
     }

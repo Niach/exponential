@@ -108,11 +108,12 @@ export interface DomainContract {
   /**
    * EXP-724: the curated slash commands a steering client may offer in its
    * composer (`/` typeahead) and the desktop executes on the agent TUI.
-   * Inclusion rule: only a command whose EFFECT is observable in the activity
-   * feed — a compaction bar, a rotated conversation, a new agent turn, a
-   * model-change line. TUI-local printers (/cost, /context, /status, /help),
-   * the login flow (/login, /logout — EXP-430/444 own it), the kill path
-   * (/exit) and picker-openers are deliberately absent. `agents` ⊆
+   * Deliberately tiny: `/compact` and `/clear` are the two whose effect
+   * every viewer can SEE (the compaction bar, a rotated conversation).
+   * TUI-local printers (/cost, /status, /help), /model, /init, /review, the
+   * login flow (EXP-430/444) and the kill path (/exit) stay out. A name is
+   * the CATALOG's, not necessarily the CLI's: the desktop maps it per agent
+   * (pi has no `/clear`; it runs `ctx.newSession()`). `agents` ⊆
    * codingAgent.values; `argHint` empty = the command takes no argument;
    * `confirm` = the client asks before sending (context is discarded).
    * Generated into all four clients as parallel arrays; the desktop's

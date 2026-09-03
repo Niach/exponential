@@ -280,36 +280,8 @@
         "name": "clear",
         "description": "Start a fresh conversation (context is discarded)",
         "argHint": "",
-        "agents": ["claude"],
+        "agents": ["claude", "codex", "pi"],
         "confirm": true
-      },
-      {
-        "name": "new",
-        "description": "Start a fresh conversation (context is discarded)",
-        "argHint": "",
-        "agents": ["codex", "pi"],
-        "confirm": true
-      },
-      {
-        "name": "model",
-        "description": "Switch the model",
-        "argHint": "model",
-        "agents": ["claude", "pi"],
-        "confirm": false
-      },
-      {
-        "name": "init",
-        "description": "Write CLAUDE.md / AGENTS.md for this repo",
-        "argHint": "",
-        "agents": ["claude", "codex"],
-        "confirm": false
-      },
-      {
-        "name": "review",
-        "description": "Review the current changes",
-        "argHint": "",
-        "agents": ["claude", "codex"],
-        "confirm": false
       }
     ]
   }

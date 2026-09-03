@@ -1794,7 +1794,7 @@ mod tests {
                 )))
                 .unwrap();
         };
-        send("/new");
+        send("/clear");
         send("\r");
         let received: Mutex<Vec<_>> = Mutex::new(Vec::new());
         wait_for(|| {
@@ -1804,7 +1804,7 @@ mod tests {
             !received.lock().unwrap().is_empty()
         });
         let received = received.into_inner().unwrap();
-        assert_eq!(received[0].text(), "/new");
+        assert_eq!(received[0].text(), "/clear");
         assert!(
             recorded.inputs.lock().unwrap().is_empty(),
             "no space prefix, no text, no Enter"

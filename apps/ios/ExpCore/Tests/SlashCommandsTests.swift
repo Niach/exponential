@@ -48,12 +48,11 @@ final class SlashCommandsTests: XCTestCase {
     // MARK: - Per-agent catalog
 
     func testCatalogIsFilteredByAgentInContractOrder() {
-        let claude = SlashCommands.catalog(for: "claude").map(\.name)
-        XCTAssertEqual(claude, ["compact", "clear", "model", "init", "review"])
-        let codex = SlashCommands.catalog(for: "codex").map(\.name)
-        XCTAssertEqual(codex, ["compact", "new", "init", "review"])
-        let pi = SlashCommands.catalog(for: "pi").map(\.name)
-        XCTAssertEqual(pi, ["compact", "new", "model"])
+        // The same two rows for every agent — the desktop maps `/clear` per
+        // agent (pi has no `/clear`; it runs `ctx.newSession()`).
+        for agent in ["claude", "codex", "pi"] {
+            XCTAssertEqual(SlashCommands.catalog(for: agent).map(\.name), ["compact", "clear"])
+        }
     }
 
     func testAnAbsentAgentFallsBackToClaude() {
@@ -76,7 +75,7 @@ final class SlashCommandsTests: XCTestCase {
     func testABareSlashListsEverythingTheAgentCanRun() {
         XCTAssertEqual(
             SlashCommands.matches(draft: "/", agent: "claude").map(\.name),
-            ["compact", "clear", "model", "init", "review"]
+            ["compact", "clear"]
         )
     }
 
@@ -111,13 +110,13 @@ final class SlashCommandsTests: XCTestCase {
     }
 
     func testTheMenuIsAgentScoped() {
-        // claude has /clear, codex has /new — never both.
+        // Names outside the catalog never show, whatever the CLI itself ships.
         XCTAssertEqual(
             SlashCommands.matches(draft: "/cl", agent: "claude").map(\.name), ["clear"]
         )
-        XCTAssertTrue(SlashCommands.matches(draft: "/cl", agent: "codex").isEmpty)
-        XCTAssertEqual(SlashCommands.matches(draft: "/n", agent: "codex").map(\.name), ["new"])
-        XCTAssertTrue(SlashCommands.matches(draft: "/n", agent: "claude").isEmpty)
+        XCTAssertEqual(SlashCommands.matches(draft: "/cl", agent: "codex").map(\.name), ["clear"])
+        XCTAssertTrue(SlashCommands.matches(draft: "/n", agent: "codex").isEmpty)
+        XCTAssertTrue(SlashCommands.matches(draft: "/mo", agent: "claude").isEmpty)
         // A session with no agent is claude's catalog.
         XCTAssertEqual(SlashCommands.matches(draft: "/cl", agent: nil).map(\.name), ["clear"])
     }
@@ -131,8 +130,6 @@ final class SlashCommandsTests: XCTestCase {
         let clear = SlashCommands.all.first { $0.name == "clear" }
         XCTAssertEqual(clear?.argHint, "")
         XCTAssertEqual(clear?.insertion, "/clear")
-        let model = SlashCommands.all.first { $0.name == "model" }
-        XCTAssertEqual(model?.insertion, "/model ")
     }
 
     // MARK: - Send rule
@@ -153,20 +150,22 @@ final class SlashCommandsTests: XCTestCase {
 
     func testTheSendRuleIsAgentScopedToo() {
         XCTAssertEqual(SlashCommands.command(for: "/clear", agent: "claude")?.name, "clear")
-        XCTAssertNil(SlashCommands.command(for: "/clear", agent: "codex"))
-        XCTAssertEqual(SlashCommands.command(for: "/new", agent: "codex")?.name, "new")
-        XCTAssertEqual(SlashCommands.command(for: "/new", agent: "pi")?.name, "new")
-        XCTAssertNil(SlashCommands.command(for: "/new", agent: "claude"))
-        XCTAssertNil(SlashCommands.command(for: "/init", agent: "pi"))
+        XCTAssertEqual(SlashCommands.command(for: "/clear", agent: "codex")?.name, "clear")
+        XCTAssertEqual(SlashCommands.command(for: "/clear", agent: "pi")?.name, "clear")
+        // Outside the catalog, whatever the CLI itself ships.
+        XCTAssertNil(SlashCommands.command(for: "/new", agent: "codex"))
+        XCTAssertNil(SlashCommands.command(for: "/model opus", agent: "claude"))
+        XCTAssertNil(SlashCommands.command(for: "/init", agent: "codex"))
+        XCTAssertNil(SlashCommands.command(for: "/review", agent: "claude"))
     }
 
     // MARK: - Confirm
 
     func testOnlyTheConversationDiscardingCommandsConfirm() {
         let confirming = SlashCommands.all.filter(\.confirm).map(\.name)
-        XCTAssertEqual(confirming, ["clear", "new"])
+        XCTAssertEqual(confirming, ["clear"])
         XCTAssertEqual(SlashCommands.command(for: "/clear", agent: "claude")?.confirm, true)
-        XCTAssertEqual(SlashCommands.command(for: "/new", agent: "codex")?.confirm, true)
+        XCTAssertEqual(SlashCommands.command(for: "/clear", agent: "codex")?.confirm, true)
         XCTAssertEqual(SlashCommands.command(for: "/compact", agent: "claude")?.confirm, false)
     }
 

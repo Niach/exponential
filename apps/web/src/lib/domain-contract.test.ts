@@ -240,8 +240,9 @@ describe(`steer command catalog`, () => {
   it(`compact is offered to every agent and the context-discarding commands confirm`, () => {
     const compact = commands.find((c) => c.name === `compact`)
     expect(compact?.agents).toEqual(contract.codingAgent.values)
-    for (const name of [`clear`, `new`]) {
-      expect(commands.find((c) => c.name === name)?.confirm).toBe(true)
-    }
+    expect(commands.find((c) => c.name === `clear`)?.confirm).toBe(true)
+    // Deliberately tiny (2026-09-03): only the two whose effect every viewer
+    // can see. The desktop maps `clear` per agent (pi runs ctx.newSession()).
+    expect(commands.map((c) => c.name)).toEqual([`compact`, `clear`])
   })
 })

@@ -29,9 +29,9 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: `2026-09-03`,
     title: `Slash commands and compaction in steering`,
     summary: `Type "/" in any steering chat to run the agent's built-in commands, and watch compaction happen instead of guessing.`,
-    body: `- **Slash commands**: typing \`/\` in a steering chat opens the commands your agent supports, such as \`/compact\`, \`/model\`, \`/init\` and \`/review\`. They run on claude, codex and pi, on web, iOS, Android and the desktop viewer.
+    body: `- **Slash commands**: typing \`/\` in a steering chat offers \`/compact\` and \`/clear\`. They run on claude, codex and pi, on web, iOS, Android and the desktop viewer.
 - **Compaction is visible**: while the agent folds its context the chat shows a "Compacting context" bar, and a marker line stays in the transcript once it finishes. No more silent minutes.
-- **Fresh conversation, with a warning**: \`/clear\` and \`/new\` ask for confirmation first, because they discard everything the agent knows so far. Files in the worktree are kept.
+- **Fresh conversation, with a warning**: \`/clear\` asks for confirmation first, because it discards everything the agent knows so far. Files in the worktree are kept.
 - **Compact from the phone**: the session menu on mobile has a "Compact context" entry.`,
   },
   {

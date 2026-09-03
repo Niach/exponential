@@ -88,7 +88,7 @@ pub enum PiEvent {
     /// remote keystroke).
     PlanResolved { id: String, approved: bool },
     /// EXP-724: the extension dispatched a remote slash command through pi's
-    /// own API (`ctx.compact` / `ctx.newSession` / `pi.setModel`). The
+    /// own API (`ctx.compact` / `ctx.newSession`). The
     /// emitter already echoed the command line, so this is confirmation
     /// only.
     Command { name: String, args: String },

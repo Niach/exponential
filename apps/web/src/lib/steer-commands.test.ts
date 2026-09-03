@@ -22,11 +22,11 @@ describe(`steerCommandsFor`, () => {
   it(`filters the catalog by agent, in catalog order`, () => {
     const claude = steerCommandsFor(`claude`).map((c) => c.name)
     const codex = steerCommandsFor(`codex`).map((c) => c.name)
-    expect(claude).toContain(`compact`)
-    expect(claude).toContain(`clear`)
-    // /clear is claude's; codex rotates the conversation with /new.
-    expect(codex).not.toContain(`clear`)
-    expect(codex).toContain(`new`)
+    expect(claude).toEqual([`compact`, `clear`])
+    // Every agent sees the same two rows — the desktop maps `/clear` per
+    // agent (pi runs it natively).
+    expect(codex).toEqual(claude)
+    expect(steerCommandsFor(`pi`).map((c) => c.name)).toEqual(claude)
     // Catalog order is preserved (a prefix of the full list's order).
     const order = STEER_COMMANDS.map((c) => c.name)
     expect(claude).toEqual(order.filter((n) => claude.includes(n)))
@@ -121,11 +121,14 @@ describe(`parseSteerCommand`, () => {
     expect(parseSteerCommand(`/compactify`, commands)).toBeNull()
     expect(parseSteerCommand(`compact`, commands)).toBeNull()
     expect(parseSteerCommand(``, commands)).toBeNull()
-    // /new is codex + pi only.
-    expect(parseSteerCommand(`/new`, commands)).toBeNull()
+    // /new, /model, /init, /review are deliberately NOT in the catalog.
+    for (const text of [`/new`, `/model opus`, `/init`, `/review`]) {
+      expect(parseSteerCommand(text, commands)).toBeNull()
+      expect(parseSteerCommand(text, steerCommandsFor(`codex`))).toBeNull()
+    }
     expect(
-      parseSteerCommand(`/new`, steerCommandsFor(`codex`))?.command.name
-    ).toBe(`new`)
+      parseSteerCommand(`/clear`, steerCommandsFor(`codex`))?.command.name
+    ).toBe(`clear`)
   })
 })
 
@@ -144,6 +147,6 @@ describe(`copy`, () => {
       confirm: `Run /clear`,
       cancel: `Cancel`,
     })
-    expect(steerCommandConfirmCopy(`new`).title).toBe(`Run /new?`)
+    expect(steerCommandConfirmCopy(`compact`).title).toBe(`Run /compact?`)
   })
 })

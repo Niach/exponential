@@ -108,7 +108,7 @@ struct AgentSessionView: View {
     @State private var slashDismissedFor: String?
     /// Keyboard-highlighted row of the `/` menu (hardware keyboards; ↑/↓ wrap).
     @State private var slashHighlight = 0
-    /// A confirm-gated command waiting on its dialog (`/clear`, `/new`).
+    /// A confirm-gated command waiting on its dialog (`/clear`).
     @State private var slashConfirm: SlashCommand?
     @FocusState private var inputFocused: Bool
 
@@ -220,7 +220,7 @@ struct AgentSessionView: View {
         } message: {
             Text("Merges the pull request, completes every linked issue, and closes the coding session.")
         }
-        // EXP-724: `/clear` and `/new` discard the conversation, so they
+        // EXP-724: `/clear` discards the conversation, so confirm rows
         // confirm before the frames go out. Copy is byte-identical ×4.
         .alert(
             slashConfirm.map { SlashCommands.confirmTitle($0) } ?? "",
@@ -1323,7 +1323,7 @@ struct AgentSessionView: View {
     }
 
     private func sendMessage(_ model: AgentSessionModel) {
-        // EXP-724: `/clear` and `/new` discard the whole conversation — ask
+        // EXP-724: `/clear` discards the whole conversation — ask
         // first, then send exactly what was typed.
         if let command = model.pendingSlashCommand, command.confirm {
             slashConfirm = command

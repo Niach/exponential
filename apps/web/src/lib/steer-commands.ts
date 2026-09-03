@@ -108,7 +108,7 @@ export interface SteerCommandConfirmCopy {
   cancel: string
 }
 
-/** The confirmation a context-discarding command (`/clear`, `/new`) shows
+/** The confirmation a context-discarding command (`/clear`) shows
  *  before anything goes out. Client-side only: the publisher executes what it
  *  receives, so every viewer must ask first. */
 export function steerCommandConfirmCopy(name: string): SteerCommandConfirmCopy {

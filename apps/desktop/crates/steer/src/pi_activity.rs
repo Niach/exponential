@@ -240,7 +240,7 @@ pub(crate) fn run_emitter(config: EmitterConfig, sender: ActivitySender, active:
         }
         // EXP-724: remote slash commands. Pi never types into the PTY — the
         // link's sink hands `{name, args}` to the observer extension, which
-        // calls pi's own `ctx.compact()` / `ctx.newSession()` / `setModel`.
+        // calls pi's own `ctx.compact()` / `ctx.newSession()`.
         if let Some(steering) = &config.steering {
             if let Some(commands) = &steering.commands {
                 commands.set_composer_idle(idle);

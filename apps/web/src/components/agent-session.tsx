@@ -2337,7 +2337,7 @@ function MessageComposer({
         )}
       </div>
     </Composer>
-      {/* EXP-724: `/clear` and `/new` throw the conversation away, and the
+      {/* EXP-724: `/clear` throws the conversation away, and the
           publisher runs whatever it receives — so every viewer confirms
           first, with the same copy. */}
       <Dialog

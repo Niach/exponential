@@ -30,14 +30,12 @@ class SlashCommandsTest {
         val pi = SlashCommands.catalogFor("pi").map { it.name }
         // /compact is the one every agent has.
         assertTrue("compact" in claude && "compact" in codex && "compact" in pi)
-        // /clear is claude's name for it, /new is codex's and pi's — both
-        // discard the conversation, so both confirm.
-        assertTrue("clear" in claude)
-        assertFalse("new" in claude)
-        assertTrue("new" in codex)
-        assertFalse("clear" in codex)
+        // /clear is every agent's (the desktop maps it — pi runs
+        // ctx.newSession()); it discards the conversation, so it confirms.
+        assertEquals(listOf("compact", "clear"), claude)
+        assertEquals(claude, codex)
+        assertEquals(claude, pi)
         assertTrue(SlashCommands.all.single { it.name == "clear" }.confirm)
-        assertTrue(SlashCommands.all.single { it.name == "new" }.confirm)
         assertFalse(SlashCommands.all.single { it.name == "compact" }.confirm)
         // Contract order is menu order.
         assertEquals(claude, DomainContract.steerCommandNames.filter { it in claude })
@@ -57,8 +55,9 @@ class SlashCommandsTest {
         assertEquals(listOf("compact", "clear"), SlashCommands.matches("/c", "claude").map { it.name })
         // Not a prefix of anything.
         assertTrue(SlashCommands.matches("/zzz", "claude").isEmpty())
-        // Not this agent's command.
-        assertTrue(SlashCommands.matches("/clear", "codex").isEmpty())
+        // Outside the catalog, whatever the CLI ships.
+        assertTrue(SlashCommands.matches("/new", "codex").isEmpty())
+        assertTrue(SlashCommands.matches("/mo", "claude").isEmpty())
         // The slash must open the draft, and the first whitespace closes the
         // menu — the argument is being typed now.
         assertTrue(SlashCommands.matches("", "claude").isEmpty())
@@ -72,9 +71,7 @@ class SlashCommandsTest {
     @Test
     fun `accepting a row inserts a trailing space only when there is an argument`() {
         assertEquals("/compact ", SlashCommands.all.single { it.name == "compact" }.insertion)
-        assertEquals("/model ", SlashCommands.all.single { it.name == "model" }.insertion)
         assertEquals("/clear", SlashCommands.all.single { it.name == "clear" }.insertion)
-        assertEquals("/init", SlashCommands.all.single { it.name == "init" }.insertion)
     }
 
     @Test
@@ -84,11 +81,12 @@ class SlashCommandsTest {
         assertEquals("compact", SlashCommands.commandFor("  /Compact  ", "pi")?.name)
         // A run with no recorded agent is claude's.
         assertEquals("clear", SlashCommands.commandFor("/clear", null)?.name)
-        // Not in the catalog, or not for this agent.
+        // Not in the catalog, whatever the CLI ships.
         assertNull(SlashCommands.commandFor("/cost", "claude"))
-        assertNull(SlashCommands.commandFor("/clear", "codex"))
-        assertNull(SlashCommands.commandFor("/model opus", "codex"))
-        assertEquals("model", SlashCommands.commandFor("/model opus", "claude")?.name)
+        assertNull(SlashCommands.commandFor("/new", "codex"))
+        assertNull(SlashCommands.commandFor("/model opus", "claude"))
+        assertEquals("clear", SlashCommands.commandFor("/clear", "codex")?.name)
+        assertEquals("clear", SlashCommands.commandFor("/clear", "pi")?.name)
         // Prose, paths and a bare slash are never commands.
         assertNull(SlashCommands.commandFor("fix /compact later", "claude"))
         assertNull(SlashCommands.commandFor("/api/foo", "claude"))
@@ -101,7 +99,7 @@ class SlashCommandsTest {
     fun `the confirm copy is the one every client shows`() {
         assertEquals("Run /clear?", SlashCommands.confirmTitle("clear"))
         assertEquals("Run /clear", SlashCommands.confirmButton("clear"))
-        assertEquals("Run /new?", SlashCommands.confirmTitle("new"))
+        assertEquals("Run /compact?", SlashCommands.confirmTitle("compact"))
         assertEquals(
             "The agent forgets everything in this session so far. " +
                 "Files in the worktree are kept.",

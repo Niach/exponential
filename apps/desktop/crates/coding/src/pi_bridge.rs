@@ -192,10 +192,10 @@ pub const PI_OBSERVER_FILE: &str = ".exp-pi-observer.ts";
 /// EXP-724: the same long-poll carries remote SLASH COMMANDS, which must
 /// never go through `sendUserMessage` — pi dispatches its built-ins only in
 /// the TUI's `onSubmit`, so `/compact` sent as a message is just text for
-/// the model. `compact` runs `ctx.compact()`, `new` runs `ctx.newSession()`
-/// and `model` resolves through `ctx.modelRegistry` into `pi.setModel`; the
-/// live `ctx` is rebound on every `session_start` so a `/new` leaves the
-/// pump steering the session that replaced it. The compaction edges pi
+/// the model. `compact` runs `ctx.compact()` and the catalog's `clear` runs
+/// `ctx.newSession()` (pi's own name for it is `/new`); the live `ctx` is
+/// rebound on every `session_start` so a `clear` leaves the pump steering
+/// the session that replaced it. The compaction edges pi
 /// raises (`session_before_compact`/`session_compact`) are reported too —
 /// they are the only agent's compaction with a real START marker.
 ///
@@ -254,7 +254,7 @@ export default function (pi: any) {
     })
   }
 
-  // The live session context. Rebound on every session_start, so a /new
+  // The live session context. Rebound on every session_start, so a /clear
   // (ctx.newSession) leaves the pump steering the CURRENT session.
   let liveCtx: any = null
 
@@ -266,25 +266,6 @@ export default function (pi: any) {
     emit({ kind: "command_failed", name, message: String(err?.message ?? err) })
     flush()
   }
-  const resolveModel = (spec: string): any => {
-    const registry = liveCtx?.modelRegistry
-    if (!registry || !spec) return undefined
-    const slash = spec.indexOf("/")
-    if (slash > 0) {
-      const found = registry.find?.(spec.slice(0, slash), spec.slice(slash + 1))
-      if (found) return found
-    }
-    // Bare id: prefer the models this machine actually has auth for —
-    // getAll() also lists providers with no API key, and setModel() then
-    // returns false on a name that looked like a perfect match.
-    const lowered = spec.toLowerCase()
-    for (const pool of [registry.getAvailable?.() ?? [], registry.getAll?.() ?? []]) {
-      const hit = pool.find((model: any) => model?.id === spec)
-        ?? pool.find((model: any) => String(model?.id ?? "").toLowerCase() === lowered)
-      if (hit) return hit
-    }
-    return undefined
-  }
   const runCommand = async (name: string, args: string) => {
     try {
       const ctx = liveCtx
@@ -294,14 +275,11 @@ export default function (pi: any) {
           customInstructions: args || undefined,
           onError: (err: any) => failCommand(name, err),
         })
-      } else if (name === "new") {
+      } else if (name === "clear") {
+        // The catalog's `/clear` — pi has no such built-in; `/new` is its
+        // TUI twin and ctx.newSession() is the API behind it.
         if (typeof ctx?.newSession !== "function") throw new Error("this pi build cannot start a new session")
         await ctx.newSession()
-      } else if (name === "model") {
-        const model = resolveModel(args)
-        if (!model) throw new Error(`no model matches ${args}`)
-        // false = no API key configured for that model (pi docs).
-        if ((await pi.setModel(model)) === false) throw new Error(`no API key for ${args}`)
       } else {
         return
       }
@@ -675,7 +653,8 @@ mod tests {
         // would hand `/compact` to the model as literal text.
         assert!(PI_OBSERVER_SOURCE.contains("ctx.compact({"));
         assert!(PI_OBSERVER_SOURCE.contains("ctx.newSession()"));
-        assert!(PI_OBSERVER_SOURCE.contains("pi.setModel(model)"));
+        assert!(PI_OBSERVER_SOURCE.contains("name === \"clear\""));
+        assert!(!PI_OBSERVER_SOURCE.contains("setModel"));
         assert!(PI_OBSERVER_SOURCE.contains("next?.commands ?? []"));
         // The steer contract: deliverAs required while streaming, omitted
         // when idle; background work starts in session_start, never the
