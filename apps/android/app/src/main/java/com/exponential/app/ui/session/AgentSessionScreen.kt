@@ -1,6 +1,7 @@
 package com.exponential.app.ui.session
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -50,6 +52,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -76,6 +79,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -100,6 +108,8 @@ import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.AnswerState
+import com.exponential.app.domain.COMPACTED_LABEL
+import com.exponential.app.domain.COMPACTING_LABEL
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.insertImageMarker
@@ -110,6 +120,8 @@ import com.exponential.app.domain.steerMessageSegments
 import com.exponential.app.domain.renumberImageMarkers
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.QuestionOption
+import com.exponential.app.domain.SlashCommand
+import com.exponential.app.domain.SlashCommands
 import com.exponential.app.domain.activeQuestionIds
 import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.collectSubagents
@@ -123,6 +135,7 @@ import com.exponential.app.ui.components.ComposerToolButton
 import com.exponential.app.ui.components.GlassComposer
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
+import com.exponential.app.ui.components.GlassMenuSurface
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassPillDefaults
 import com.exponential.app.ui.components.PillMode
@@ -343,6 +356,18 @@ fun AgentSessionScreen(
     var diffSheetOpen by remember { mutableStateOf(false) }
     var killDialogOpen by remember { mutableStateOf(false) }
     var mergeConfirmOpen by remember { mutableStateOf(false) }
+    // EXP-724: the `/` command menu. `slashSelected` is the highlighted row
+    // (↑/↓ wrap); `slashDismissedFor` is the draft Escape/Back was pressed on
+    // — the menu stays shut until the text changes, so dismissing is not
+    // undone by the next recomposition. `slashConfirm` holds the command
+    // awaiting its "context is discarded" confirmation.
+    var slashSelected by remember { mutableIntStateOf(0) }
+    var slashDismissedFor by remember { mutableStateOf<String?>(null) }
+    var slashConfirm by remember { mutableStateOf<SlashCommand?>(null) }
+    val slashMatches by viewModel.slashMatches.collectAsStateWithLifecycle()
+    val slashMenuOpen = slashMatches.isNotEmpty() && slashDismissedFor != draft
+    // A changed candidate list can never leave the highlight past its end.
+    LaunchedEffect(slashMatches) { slashSelected = 0 }
     // EXP-688: the top bar's "…" menu, and the Usage sheet it opens.
     var overflowOpen by remember { mutableStateOf(false) }
     var usageSheetOpen by remember { mutableStateOf(false) }
@@ -546,6 +571,8 @@ fun AgentSessionScreen(
                             answerEnabled = phase == AgentPhase.Live && !sessionEnded,
                             answerStates = answerStates,
                             answerLabels = answerLabels,
+                            // EXP-724: filters the command pill's catalog.
+                            agent = session?.agent,
                             // Every answer is one semantic `answer` frame keyed
                             // by the card's wire id (EXP-249); an id-less card
                             // renders read-only and never reaches this (EXP-672).
@@ -814,6 +841,63 @@ fun AgentSessionScreen(
                 }
             }
 
+            // EXP-724: the agent is compacting its context — an indeterminate
+            // strip, never a feed row, so the 10-170s of silence has a visible
+            // reason. It closes on `compaction ended` (which leaves the quiet
+            // marker in the feed), on the connection's 180s backstop, and with
+            // the session itself.
+            if (activity.compacting != null && phase !is AgentPhase.Ended) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassRow()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        ExpIcons.codingCompact,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = TextEmphasis.Secondary,
+                        ),
+                    )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            COMPACTING_LABEL,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(3.dp),
+                            color = Color.White,
+                            trackColor = Color.White.copy(alpha = 0.12f),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
+            // EXP-724: the `/` command menu — a normal child above the
+            // composer, not a Popup: the composer is already pinned to the
+            // bottom above the IME, so the menu simply grows upward from it.
+            if (!sessionEnded && phase !is AgentPhase.Ended && slashMenuOpen) {
+                SlashCommandMenu(
+                    commands = slashMatches,
+                    selected = slashSelected,
+                    onPick = { command ->
+                        viewModel.setDraft(command.insertion)
+                        // Accepting closes the menu; it reopens as soon as the
+                        // draft changes again (never auto-sends).
+                        slashDismissedFor = command.insertion
+                    },
+                )
+                Spacer(Modifier.height(8.dp))
+            }
             // ── Steering input — fully seamless (EXP-312): no captions, no
             // operator state; live implies ownership, input just sends.
             // EXP-621: the composer is present for the WHOLE life of the
@@ -822,9 +906,43 @@ fun AgentSessionScreen(
             // away. Only a finished session retires it; until the stream is
             // live, sending is disabled rather than hidden.
             if (!sessionEnded && phase !is AgentPhase.Ended) {
+                // Escape has no hardware key on most phones — Back dismisses
+                // the menu, and only the menu (EXP-724).
+                BackHandler(enabled = slashMenuOpen) { slashDismissedFor = draft }
                 SteerComposer(
                     value = draft,
                     onValueChange = viewModel::setDraft,
+                    fieldModifier = Modifier.onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        if (!slashMenuOpen) return@onPreviewKeyEvent false
+                        when (event.key) {
+                            // ↑/↓ wrap around the candidate list.
+                            Key.DirectionUp -> {
+                                slashSelected =
+                                    (slashSelected - 1 + slashMatches.size) % slashMatches.size
+                                true
+                            }
+                            Key.DirectionDown -> {
+                                slashSelected = (slashSelected + 1) % slashMatches.size
+                                true
+                            }
+                            // Enter ACCEPTS while the menu is open; it never
+                            // sends the half-typed command underneath it.
+                            Key.Enter, Key.NumPadEnter -> {
+                                val picked = slashMatches.getOrNull(slashSelected)
+                                if (picked != null) {
+                                    viewModel.setDraft(picked.insertion)
+                                    slashDismissedFor = picked.insertion
+                                }
+                                true
+                            }
+                            Key.Escape -> {
+                                slashDismissedFor = draft
+                                true
+                            }
+                            else -> false
+                        }
+                    },
                     pendingImages = pendingImages,
                     // EXP-698: every run can be shown an image — the upload
                     // goes to the SESSION route, so a batch, action or chat
@@ -837,13 +955,19 @@ fun AgentSessionScreen(
                     // button dims and the placeholder says "reconnecting…".
                     live = phase == AgentPhase.Live && connected,
                     planPending = planAwaitingApproval,
+                    commandsAvailable = SlashCommands.catalogFor(session?.agent).isNotEmpty(),
                     onPickImages = {
                         imagePicker.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                         )
                     },
                     onRemoveImage = viewModel::removePendingImage,
-                    onSend = viewModel::sendDraft,
+                    // EXP-724: a command that discards the conversation is
+                    // confirmed first; everything else sends straight out.
+                    onSend = {
+                        val command = viewModel.pendingSlashCommand()
+                        if (command?.confirm == true) slashConfirm = command else viewModel.sendDraft()
+                    },
                 )
             }
             Spacer(Modifier.height(8.dp))
@@ -925,6 +1049,31 @@ fun AgentSessionScreen(
             },
             dismissButton = {
                 TextButton(onClick = { killDialogOpen = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    // EXP-724: `/clear` and `/new` throw the conversation away — the same
+    // confirm shape as the kill dialog, with the copy pinned ×4.
+    val confirmCommand = slashConfirm
+    if (confirmCommand != null) {
+        AlertDialog(
+            onDismissRequest = { slashConfirm = null },
+            title = { Text(SlashCommands.confirmTitle(confirmCommand.name)) },
+            text = { Text(SlashCommands.CONFIRM_BODY) },
+            confirmButton = {
+                TextButton(onClick = {
+                    slashConfirm = null
+                    viewModel.sendDraft()
+                }) {
+                    Text(
+                        SlashCommands.confirmButton(confirmCommand.name),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { slashConfirm = null }) { Text("Cancel") }
             },
         )
     }
@@ -1058,6 +1207,10 @@ private fun ActivityFeed(
      *  multi-select step sends all of them at once); `text` is the typed
      *  reply for a `freeText` option (EXP-513), else null. */
     onAnswer: (AgentFeedItem.Question, List<String>, String?) -> Unit,
+    /** EXP-724: this run's agent (null = the default one) — a steered message
+     *  whose first token is one of ITS catalog commands renders as a command
+     *  pill instead of prose. */
+    agent: String? = null,
     /** EXP-688: how much of the feed's tail the floating Latest-changes bar
      *  covers. The list pads past it (and so does the Jump-to-bottom pill), so
      *  the last message is never parked underneath it. */
@@ -1184,7 +1337,16 @@ private fun ActivityFeed(
                     is AgentFeedRow.Single -> when (val item = row.item) {
                         is AgentFeedItem.Narration -> NarrationBubble(item.text)
                         is AgentFeedItem.Tool -> ToolRow(item.name, item.detail)
-                        is AgentFeedItem.UserMessage -> UserMessageBubble(item.text)
+                        is AgentFeedItem.UserMessage -> {
+                            // EXP-724: a steered catalog command reads as one.
+                            val command = SlashCommands.commandFor(item.text, agent)
+                            if (command != null) {
+                                CommandRow(command, item.text)
+                            } else {
+                                UserMessageBubble(item.text)
+                            }
+                        }
+                        is AgentFeedItem.Compaction -> CompactionMarkerRow()
                         is AgentFeedItem.Permission -> PermissionRow(
                             tool = item.tool,
                             detail = item.detail,
@@ -2362,6 +2524,9 @@ private fun middleTruncate(s: String, max: Int = 72): String {
 private fun SteerComposer(
     value: String,
     onValueChange: (String) -> Unit,
+    /** EXP-724: the screen's key handling for the open `/` menu (↑/↓/Enter/
+     *  Escape) — the composer itself knows nothing about commands. */
+    fieldModifier: Modifier = Modifier,
     pendingImages: List<PendingAttachment>,
     canAttach: Boolean,
     sending: Boolean,
@@ -2370,6 +2535,9 @@ private fun SteerComposer(
     /** A plan-approval card is awaiting the human — the composer doubles as
      *  the "tell Claude what to change" path (EXP-529 batch). */
     planPending: Boolean,
+    /** EXP-724: this run's agent has catalog commands — the placeholder says
+     *  so, since a `/` menu nothing hints at is a menu nobody finds. */
+    commandsAvailable: Boolean,
     onPickImages: () -> Unit,
     onRemoveImage: (Int) -> Unit,
     onSend: () -> Unit,
@@ -2463,12 +2631,13 @@ private fun SteerComposer(
         GlassTextField(
             value = field,
             onValueChange = ::setField,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().then(fieldModifier),
             placeholder = when {
                 planPending -> "Tell Claude what to change…"
                 // Typing is always allowed; the message just waits for
                 // the stream to come back (EXP-621).
                 !live -> "Message the agent (reconnecting…)"
+                commandsAvailable -> "Message the agent… (/ for commands)"
                 else -> "Message the agent…"
             },
             maxLines = 4,
@@ -2478,7 +2647,154 @@ private fun SteerComposer(
     }
 }
 
+/**
+ * EXP-724: the curated slash-command menu above the composer — the same rows
+ * the desktop can execute, filtered by this run's agent. It sits in the layout
+ * (no Popup): the composer is already pinned above the IME, so the menu grows
+ * upward from it and the keyboard never has to move.
+ */
+@Composable
+private fun SlashCommandMenu(
+    commands: List<SlashCommand>,
+    selected: Int,
+    onPick: (SlashCommand) -> Unit,
+) {
+    GlassMenuSurface(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .heightIn(max = 240.dp)
+                .verticalScroll(rememberScrollState())
+                // Scrolls with the content, matching M3's menu padding.
+                .padding(vertical = 4.dp),
+        ) {
+            commands.forEachIndexed { index, command ->
+                val highlighted = index == selected
+                // A command that discards the conversation reads as
+                // destructive here, exactly as its confirm dialog does.
+                val nameColor = if (command.confirm) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp)
+                        .background(
+                            if (highlighted) {
+                                Color.White.copy(alpha = 0.06f)
+                            } else {
+                                Color.Transparent
+                            },
+                        )
+                        .clickable { onPick(command) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "/${command.name}",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontFamily = FontFamily.Monospace,
+                        color = nameColor,
+                        maxLines = 1,
+                    )
+                    if (command.argHint.isNotEmpty()) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            command.argHint,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = TextEmphasis.Tertiary,
+                            ),
+                            maxLines = 1,
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        command.description,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = TextEmphasis.Secondary,
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+    }
+}
+
 // ── Misc rows ────────────────────────────────────────────────────────────────
+
+/** EXP-724: what a finished compaction leaves behind — a quiet centered
+ *  divider, so "why did it forget what we discussed" has an answer later. */
+@Composable
+private fun CompactionMarkerRow() {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+    ) {
+        Icon(
+            ExpIcons.codingCompact,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+        Text(
+            COMPACTED_LABEL,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+    }
+}
+
+/** EXP-724: a steered message that IS a catalog command — the pill says a
+ *  command ran instead of pretending the human typed prose. */
+@Composable
+private fun CommandRow(command: SlashCommand, text: String) {
+    val args = text.trim().drop(1 + command.name.length).trim()
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.End,
+    ) {
+        Row(
+            modifier = Modifier
+                .glassButton(active = false)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                ExpIcons.codingCommand,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            )
+            Text(
+                "/${command.name}",
+                style = MaterialTheme.typography.labelMedium,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (args.isNotEmpty()) {
+                Text(
+                    args,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(
+                        alpha = TextEmphasis.Secondary,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun BannerRow(content: @Composable RowScope.() -> Unit) {

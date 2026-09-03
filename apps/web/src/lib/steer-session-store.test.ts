@@ -5,7 +5,7 @@ import {
   disposeAllSteerSessions,
   type SteerSessionStore,
 } from "@/lib/steer-session-store"
-import { FEED_CAP } from "@/lib/agent-feed"
+import { COMPACTION_TIMEOUT_MS, FEED_CAP } from "@/lib/agent-feed"
 import { MAX_STEER_IMAGES } from "@/lib/steer-image-message"
 import { TRPCClientError } from "@trpc/client"
 
@@ -697,6 +697,118 @@ describe(`terminal closes (EXP-648)`, () => {
     store.reconnect()
     await vi.advanceTimersByTimeAsync(0)
     expect(sockets).toHaveLength(2)
+    store.dispose()
+  })
+})
+
+// EXP-724: the compaction strip. `started` opens it, `ended` closes it AND
+// writes the persistent marker, and nothing may leave it running forever —
+// the agent visibly resuming, a feed reset, the session ending or the
+// backstop all take it down.
+describe(`compaction`, () => {
+  const compaction = (
+    phase: `started` | `ended`,
+    over: Record<string, unknown> = {}
+  ) => ({ t: `activity`, event: { kind: `compaction`, phase, ...over } })
+
+  it(`started opens the strip and ended closes it with a marker row`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(compaction(`started`, { trigger: `manual` }))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().compacting).toMatchObject({ trigger: `manual` })
+    expect(store.getSnapshot().feed).toEqual([])
+    socket.frame(compaction(`ended`))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().compacting).toBeNull()
+    expect(store.getSnapshot().feed).toEqual([{ id: 0, kind: `compaction` }])
+    store.dispose()
+  })
+
+  it(`a bare ended still writes the marker (codex auto-compaction)`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(compaction(`ended`))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().compacting).toBeNull()
+    expect(store.getSnapshot().feed).toEqual([{ id: 0, kind: `compaction` }])
+    store.dispose()
+  })
+
+  it(`the agent resuming clears a strip whose ended marker never came`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(compaction(`started`))
+    await vi.advanceTimersByTimeAsync(100)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `narration`, text: `Back at it` },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().compacting).toBeNull()
+    // No marker row — the fold never reported an end.
+    expect(store.getSnapshot().feed).toEqual([
+      { id: 0, kind: `narration`, text: `Back at it` },
+    ])
+    store.dispose()
+  })
+
+  it(`a human turn or a diff leaves the strip standing`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(compaction(`started`))
+    socket.frame({ t: `activity`, event: { kind: `user_message`, text: `hi` } })
+    socket.frame({ t: `activity`, event: { kind: `diff`, diff: `--- a` } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().compacting).not.toBeNull()
+    store.dispose()
+  })
+
+  it(`the backstop expires the strip after COMPACTION_TIMEOUT_MS`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(compaction(`started`))
+    await vi.advanceTimersByTimeAsync(100)
+    await vi.advanceTimersByTimeAsync(COMPACTION_TIMEOUT_MS - 1_000)
+    expect(store.getSnapshot().compacting).not.toBeNull()
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(store.getSnapshot().compacting).toBeNull()
+    // An expiry is not a completion: no marker row.
+    expect(store.getSnapshot().feed).toEqual([])
+    store.dispose()
+  })
+
+  it(`a replayed started from long ago expires at once`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(
+      compaction(`started`, { at: Date.now() - COMPACTION_TIMEOUT_MS * 2 })
+    )
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().compacting).toBeNull()
+    store.dispose()
+  })
+
+  it(`an activity_reset drops the strip`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(compaction(`started`))
+    await vi.advanceTimersByTimeAsync(100)
+    socket.frame({ t: `activity_reset` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().compacting).toBeNull()
+    store.dispose()
+  })
+
+  it(`a session that ends mid-fold drops the strip`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(compaction(`started`))
+    await vi.advanceTimersByTimeAsync(100)
+    socket.frame({ t: `bye`, outcome: `ended` })
+    socket.serverClose(1000)
+    expect(store.getSnapshot().phase.kind).toBe(`ended`)
+    expect(store.getSnapshot().compacting).toBeNull()
     store.dispose()
   })
 })

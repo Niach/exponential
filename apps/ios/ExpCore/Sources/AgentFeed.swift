@@ -100,6 +100,21 @@ public enum AgentSubagentStatus: String, Sendable {
     case completed
 }
 
+/// EXP-724: a context compaction is in flight on the host agent. Opened by a
+/// `compaction` activity event with `phase: "started"`, closed by `"ended"`.
+/// The viewer draws an indeterminate strip while this is non-nil — there is no
+/// progress to report, only "the agent is busy folding its context away", which
+/// is why the wire carries no percentage.
+public struct AgentCompaction: Equatable, Sendable {
+    /// `manual` (a `/compact` someone ran) or `auto` (the agent hit its
+    /// context ceiling). Absent on publishers that don't know which.
+    public let trigger: String?
+
+    public init(trigger: String? = nil) {
+        self.trigger = trigger
+    }
+}
+
 /// One rendered feed entry. Diffs never enter the feed — the latest one lives
 /// behind the pinned "Latest changes" chip.
 public enum AgentFeedItem: Equatable, Sendable, Identifiable {
@@ -118,6 +133,10 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// A permission prompt the agent hit (protocol v2) — INFORMATIONAL: the
     /// desktop's own TUI owns the approval, there is nothing to answer here.
     case permission(id: Int, tool: String, detail: String?)
+    /// EXP-724: the quiet marker a finished compaction leaves behind, so the
+    /// gap in the conversation above it is explained forever after the strip
+    /// is gone. Carries no text — every client renders `compactedLabel`.
+    case compaction(id: Int)
 
     public var id: Int {
         switch self {
@@ -127,6 +146,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
         case let .question(value): value.id
         case let .subagent(id, _, _, _, _): id
         case let .permission(id, _, _): id
+        case let .compaction(id): id
         }
     }
 
@@ -336,6 +356,36 @@ public enum AgentFeed {
     /// sentinel the label selection skips past, never a type to prefer
     /// (EXP-350).
     public static let subagentFallbackType = "agent"
+    /// EXP-724, byte-identical ×4 (web `agent-feed.ts`, Android `AgentFeed.kt`,
+    /// desktop `feed.rs`): the indeterminate strip's label while a compaction
+    /// runs. The ellipsis is ONE character (U+2026), not three dots.
+    public static let compactingLabel = "Compacting context…"
+    /// The persistent marker row a finished compaction appends.
+    public static let compactedLabel = "Context compacted"
+    /// Backstop for a `started` whose `ended` never arrives (a publisher that
+    /// died mid-compaction, a dropped frame): the strip clears itself after
+    /// this long rather than sticking forever. Same 180s ×4.
+    public static let compactionTimeoutSeconds: TimeInterval = 180
+
+    /// Fold one `compaction` activity event into the current state: `started`
+    /// opens a fresh window (a re-emitted `started` just re-stamps the
+    /// trigger), `ended` closes it, and anything else — an unknown phase, a
+    /// missing one — leaves it exactly as it was. A publisher that only ever
+    /// emits `ended` (codex has no start marker for auto-compaction) is
+    /// handled by the caller, which appends the marker row regardless.
+    public static func applyCompaction(
+        _ current: AgentCompaction?, event: [String: Any]
+    ) -> AgentCompaction? {
+        switch event["phase"] as? String {
+        case "started":
+            let trigger = (event["trigger"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return AgentCompaction(trigger: trigger)
+        case "ended":
+            return nil
+        default:
+            return current
+        }
+    }
 
     /// Ids of the question items still answerable: every card the desktop has
     /// not retired with `question_resolved` (EXP-249). No screen-scraping

@@ -11,9 +11,11 @@ import {
   failAnswer,
   isAnswerLocked,
   pushEcho,
+  resumesAfterCompaction,
   spliceBeforeQuestion,
   upsertQuestion,
   ANSWER_ACK_TIMEOUT_MS,
+  COMPACTION_TIMEOUT_MS,
   FEED_CAP,
   type AnswerStates,
   type EchoEntry,
@@ -160,6 +162,16 @@ export type ActivityEvent =
       at?: number
     }
   | { kind: `permission`; tool: string; detail?: string; at?: number }
+  // EXP-724: the agent is folding its context. `started` opens the
+  // indeterminate strip, `ended` closes it AND leaves a marker row behind.
+  // Codex publishes no start marker for its automatic compaction, so a BARE
+  // `ended` is normal and still writes the marker.
+  | {
+      kind: `compaction`
+      phase: `started` | `ended`
+      trigger?: `manual` | `auto`
+      at?: number
+    }
 
 type ServerFrame =
   | { t: `activity`; event: ActivityEvent }
@@ -206,6 +218,9 @@ export type ViewerPhase =
 
 export type FeedItem =
   | { id: number; kind: `narration`; text: string }
+  // EXP-724: the quiet "Context compacted" hairline a finished compaction
+  // leaves in the transcript. Carries nothing — the copy is a constant.
+  | { id: number; kind: `compaction` }
   | { id: number; kind: `tool`; name: string; detail?: string; subagentId?: string }
   | { id: number; kind: `user_message`; text: string }
   | { id: number; kind: `permission`; tool: string; detail?: string }
@@ -257,10 +272,23 @@ export interface PendingSteerImage {
   uploadedId?: string
 }
 
+/** EXP-724: an in-flight compaction — the strip's whole state. */
+export interface CompactionState {
+  /** When the fold started (the event's `at`, else arrival time) — the
+   *  backstop deadline is measured from here, so a REPLAYED `started` from
+   *  minutes ago expires immediately instead of restarting the clock. */
+  startedAt: number
+  /** `manual` = this viewer (or another) asked for it; absent on older
+   *  desktops. */
+  trigger?: `manual` | `auto`
+}
+
 export interface SteerSessionSnapshot {
   phase: ViewerPhase
   feed: FeedItem[]
   latestDiff: string | null
+  /** Non-null while the agent is compacting (EXP-724). */
+  compacting: CompactionState | null
   answerStates: AnswerStates
   /** The socket is actually open. Distinct from the phase: a silent
    *  slow-consumer redial keeps `phase: live` while the socket is briefly
@@ -367,6 +395,8 @@ export function createSteerSessionStore(
   let phase: ViewerPhase = { kind: `idle` }
   let feed: FeedItem[] = []
   let latestDiff: string | null = null
+  let compacting: CompactionState | null = null
+  let compactionTimer: ReturnType<typeof setTimeout> | null = null
   let answerStates: AnswerStates = {}
   let connected = false
   let nextId = 0
@@ -387,6 +417,7 @@ export function createSteerSessionStore(
     phase,
     feed,
     latestDiff,
+    compacting,
     answerStates,
     connected,
   }
@@ -396,7 +427,7 @@ export function createSteerSessionStore(
     for (const listener of listeners) listener()
   }
   const commit = () => {
-    snapshot = { phase, feed, latestDiff, answerStates, connected }
+    snapshot = { phase, feed, latestDiff, compacting, answerStates, connected }
     notify()
   }
   const commitDraft = () => {
@@ -432,6 +463,35 @@ export function createSteerSessionStore(
     }
   }
 
+  /** EXP-724: drop the compaction strip and its backstop. Every path that
+   *  ends a fold (the `ended` marker, the agent visibly resuming, a feed
+   *  reset, the session ending, disposal) goes through here. */
+  const clearCompaction = () => {
+    compacting = null
+    if (compactionTimer) {
+      clearTimeout(compactionTimer)
+      compactionTimer = null
+    }
+  }
+
+  /** The strip can never stick: a publisher that dies mid-fold, or an agent
+   *  whose end marker is lost, expires on its own. The delay is measured from
+   *  the fold's OWN start, so a `started` replayed out of the relay's log
+   *  minutes later expires on the next tick instead of running a fresh 3
+   *  minutes. */
+  const armCompactionBackstop = (startedAt: number) => {
+    if (compactionTimer) clearTimeout(compactionTimer)
+    compactionTimer = setTimeout(
+      () => {
+        compactionTimer = null
+        if (!compacting) return
+        compacting = null
+        commit()
+      },
+      Math.max(0, COMPACTION_TIMEOUT_MS - (Date.now() - startedAt))
+    )
+  }
+
   /** Returns whether the phase actually changed — a per-frame commit on an
    *  already-live store would notify (and re-render) once per replayed
    *  message, undoing the REV-33 coalescing. */
@@ -449,6 +509,7 @@ export function createSteerSessionStore(
     ackTimers.clear()
     feed = []
     latestDiff = null
+    clearCompaction()
     answerStates = {}
     // After a reset the replayed transcript event is the ONLY copy of a sent
     // message and must render.
@@ -460,6 +521,10 @@ export function createSteerSessionStore(
   }
 
   const handleActivity = (event: ActivityEvent) => {
+    // EXP-724: the agent narrating, calling a tool, asking or spawning a
+    // subagent proves it is working again — close a strip whose `ended`
+    // marker never arrived.
+    if (compacting && resumesAfterCompaction(event.kind)) clearCompaction()
     switch (event.kind) {
       case `narration`: {
         const trimmed = event.text.trim()
@@ -556,6 +621,24 @@ export function createSteerSessionStore(
         // is the publisher saying the branch no longer differs, so it clears
         // the bar rather than leaving a stale diff standing.
         latestDiff = event.diff.trim() ? event.diff : null
+        return
+      }
+      case `compaction`: {
+        if (event.phase === `started`) {
+          const startedAt =
+            typeof event.at === `number` && Number.isFinite(event.at)
+              ? event.at
+              : Date.now()
+          compacting = { startedAt, trigger: event.trigger }
+          armCompactionBackstop(startedAt)
+          return
+        }
+        if (event.phase !== `ended`) return
+        clearCompaction()
+        // An UNMATCHED `ended` still writes the marker: codex publishes no
+        // start marker for its automatic compaction, and the fold happened
+        // either way.
+        append({ kind: `compaction` })
         return
       }
       default:
@@ -764,6 +847,8 @@ export function createSteerSessionStore(
         connected = false
         if (sawEnd) {
           phase = { kind: `ended`, detail: detail ?? undefined }
+          // A run that ended mid-fold is not compacting any more (EXP-724).
+          clearCompaction()
           commit()
           onEnded()
           return
@@ -1042,6 +1127,7 @@ export function createSteerSessionStore(
       disposed = true
       clearRetryTimer()
       clearDialTimers()
+      clearCompaction()
       cancelSelfDispose()
       if (reapTimer) clearTimeout(reapTimer)
       activityQueue.cancel()

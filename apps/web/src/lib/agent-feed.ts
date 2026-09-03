@@ -45,6 +45,32 @@ export function consumeEcho(
   return true
 }
 
+// ── Compaction (EXP-724) ─────────────────────────────────────────────────────
+
+/** A backstop on the `compaction started` strip. Compaction really does take
+ *  minutes (10-170s measured locally), but a publisher that dies mid-fold, or
+ *  an agent whose end marker never arrives, must not leave an indeterminate
+ *  bar running forever. Mirrors the desktop's COMPACTION_TIMEOUT (180s) —
+ *  move all four clients in lockstep. */
+export const COMPACTION_TIMEOUT_MS = 180_000
+
+/** Whether an activity kind proves the agent is WORKING again, which ends a
+ *  compaction strip that never got its `ended` marker (codex publishes no
+ *  start marker at all, and any agent can drop one on a crash).
+ *
+ *  Deliberately narrow: `user_message` is the human typing, `diff` is the
+ *  branch bar refreshing, and the answer/permission/resolution events are all
+ *  bookkeeping around a card that was already on screen — none of them means
+ *  the agent resumed. */
+export function resumesAfterCompaction(kind: string): boolean {
+  return (
+    kind === `narration` ||
+    kind === `tool` ||
+    kind === `question` ||
+    kind === `subagent`
+  )
+}
+
 // ── Frame coalescing (REV-33) ────────────────────────────────────────────────
 
 /** How long incoming activity frames buffer before flushing to state. A join

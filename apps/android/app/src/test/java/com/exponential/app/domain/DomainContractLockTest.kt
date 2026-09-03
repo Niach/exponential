@@ -1,6 +1,7 @@
 package com.exponential.app.domain
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -74,5 +75,36 @@ class DomainContractLockTest {
         assertEquals("user", DomainContract.issueSourceUser)
         assertEquals("widget", DomainContract.issueSourceWidget)
         assertEquals("agent", DomainContract.issueSourceAgent)
+    }
+
+    /**
+     * EXP-724: `steerCommands` generates as five PARALLEL arrays, which only
+     * zip correctly while they are the same length — a regen that adds a field
+     * to one row and not the others must fail here, not silently shift every
+     * description by one. Every listed agent must also be a real coding agent,
+     * or the row is unreachable on every client.
+     */
+    @Test
+    fun steerCommandArraysAreParallelAndNameKnownAgents() {
+        val size = DomainContract.steerCommandNames.size
+        assertEquals(size, DomainContract.steerCommandDescriptions.size)
+        assertEquals(size, DomainContract.steerCommandArgHints.size)
+        assertEquals(size, DomainContract.steerCommandAgents.size)
+        assertEquals(size, DomainContract.steerCommandConfirm.size)
+        // Names are unique, lowercase-kebab, and every row applies somewhere.
+        assertEquals(
+            DomainContract.steerCommandNames,
+            DomainContract.steerCommandNames.distinct(),
+        )
+        for (name in DomainContract.steerCommandNames) {
+            assertTrue(name, Regex("^[a-z][a-z0-9-]*$").matches(name))
+        }
+        for (row in DomainContract.steerCommandAgents) {
+            val agents = row.split(",")
+            assertTrue(row, agents.isNotEmpty())
+            for (agent in agents) {
+                assertTrue(agent, agent in DomainContract.codingAgentValues)
+            }
+        }
     }
 }

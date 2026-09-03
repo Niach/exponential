@@ -29,11 +29,11 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::activity::{
-    secrets_from_worktree, truncate, DiffSnapshots, EmitterConfig, NeedsInputForwarder, Redactor,
-    RemoteAnswer, ID_MAX, NARRATION_MAX, POLL_INTERVAL, QUESTION_TEXT_MAX, TOOL_DETAIL_MAX,
-    TOOL_NAME_MAX,
+    normalize_compaction_trigger, pump_commands, secrets_from_worktree, truncate, DiffSnapshots,
+    EmitterConfig, NeedsInputForwarder, Redactor, RemoteAnswer, ID_MAX, NARRATION_MAX,
+    POLL_INTERVAL, QUESTION_TEXT_MAX, TOOL_DETAIL_MAX, TOOL_NAME_MAX,
 };
-use crate::frames::{ActivityEvent, QuestionOption};
+use crate::frames::{ActivityEvent, CompactionPhase, QuestionOption};
 use crate::pi_observer::PiEvent;
 use crate::publisher::ActivitySender;
 
@@ -43,15 +43,20 @@ use crate::publisher::ActivitySender;
 /// fixed paint budget is the mitigation.
 const PLAN_DIALOG_PAINT: Duration = Duration::from_millis(200);
 
-/// The pi plan gate (EXP-441): at most ONE plan approval is pending at a
-/// time (the extension blocks inside the confirm dialog), keyed by the
-/// extension's `toolCallId`-derived id.
+/// The pi emitter's per-session state: the plan gate (EXP-441) — at most ONE
+/// plan approval is pending at a time (the extension blocks inside the
+/// confirm dialog), keyed by the extension's `toolCallId`-derived id — plus
+/// the open-compaction flag (EXP-724).
 #[derive(Default)]
-pub(crate) struct PiPlanState {
+pub(crate) struct PiRunState {
     pending: Option<PendingPiPlan>,
     /// Ids whose keystroke already landed — injecting twice is never safe,
     /// but re-acking is required (EXP-374: a rejoined viewer re-taps).
     answered: HashSet<String>,
+    /// EXP-724: a `session_before_compact` arrived and its `session_compact`
+    /// has not — the indeterminate bar is open on every viewer, so exactly
+    /// one `ended` must follow (from the event, a shutdown, or teardown).
+    compacting: bool,
 }
 
 pub(crate) struct PendingPiPlan {
@@ -64,7 +69,7 @@ pub(crate) struct PendingPiPlan {
 pub(crate) fn map_event(
     event: PiEvent,
     idle: &mut bool,
-    plan: &mut PiPlanState,
+    plan: &mut PiRunState,
     redactor: &Redactor,
 ) -> Option<ActivityEvent> {
     match event {
@@ -141,6 +146,28 @@ pub(crate) fn map_event(
                 at: None,
             })
         }
+        // EXP-724: the emitter echoed the command line when it dispatched —
+        // the extension's confirmation adds nothing to the feed.
+        PiEvent::Command { .. } => None,
+        PiEvent::CommandFailed { name, message } => {
+            let message = truncate(&redactor.redact(&message), NARRATION_MAX);
+            Some(ActivityEvent::narration(truncate(
+                &format!("Couldn't run /{name}: {message}"),
+                NARRATION_MAX,
+            )))
+        }
+        PiEvent::Compaction { phase, trigger } => {
+            plan.compacting = phase == CompactionPhase::Started;
+            Some(ActivityEvent::compaction(
+                phase,
+                normalize_compaction_trigger(trigger.as_deref()),
+            ))
+        }
+        // A shutdown mid-compaction would strand the bar open.
+        PiEvent::SessionShutdown if plan.compacting => {
+            plan.compacting = false;
+            Some(ActivityEvent::compaction(CompactionPhase::Ended, None))
+        }
         PiEvent::SessionStart | PiEvent::SessionShutdown => None,
     }
 }
@@ -177,9 +204,13 @@ pub(crate) fn run_emitter(config: EmitterConfig, sender: ActivitySender, active:
     )));
 
     let mut idle = false;
-    let mut plan = PiPlanState::default();
+    let mut plan = PiRunState::default();
     let mut diffs = DiffSnapshots::new();
     let mut needs_input = NeedsInputForwarder::new();
+    // EXP-724: remote slash commands, held until pi is between turns —
+    // `ctx.compact()` ABORTS a streaming turn, and `ctx.newSession()`
+    // discards it.
+    let mut parked_commands: Vec<(crate::commands::ParsedCommand, Instant)> = Vec::new();
 
     while active.load(Ordering::SeqCst) {
         if let Some(events) = &config.pi_events {
@@ -207,6 +238,25 @@ pub(crate) fn run_emitter(config: EmitterConfig, sender: ActivitySender, active:
         if let Some(signal) = &config.turn_signal {
             signal.set_idle(idle);
         }
+        // EXP-724: remote slash commands. Pi never types into the PTY — the
+        // link's sink hands `{name, args}` to the observer extension, which
+        // calls pi's own `ctx.compact()` / `ctx.newSession()` / `setModel`.
+        if let Some(steering) = &config.steering {
+            if let Some(commands) = &steering.commands {
+                commands.set_composer_idle(idle);
+                pump_commands(
+                    &mut parked_commands,
+                    commands,
+                    plan.pending.is_some(),
+                    true,
+                    None,
+                    &steering.write_input,
+                    &sender,
+                    None,
+                    |_| {},
+                );
+            }
+        }
         diffs.tick(
             &config.worktree,
             config.base_ref.as_deref(),
@@ -217,6 +267,16 @@ pub(crate) fn run_emitter(config: EmitterConfig, sender: ActivitySender, active:
     }
 
     needs_input.clear_on_teardown(&config.on_needs_input);
+    // EXP-724: never leave a viewer staring at an indeterminate bar for a
+    // session that is gone.
+    if std::mem::take(&mut plan.compacting) {
+        sender.send(ActivityEvent::compaction(CompactionPhase::Ended, None));
+    }
+    if let Some(steering) = &config.steering {
+        if let Some(commands) = &steering.commands {
+            commands.set_composer_idle(false);
+        }
+    }
 }
 
 /// Resolve one remote answer against the plan gate: key `"1"` approves
@@ -227,7 +287,7 @@ pub(crate) fn run_emitter(config: EmitterConfig, sender: ActivitySender, active:
 /// leave its card timing out).
 fn handle_plan_answer(
     answer: &RemoteAnswer,
-    plan: &mut PiPlanState,
+    plan: &mut PiRunState,
     write_input: &crate::publisher::InputHook,
     sender: &ActivitySender,
 ) {
@@ -271,8 +331,8 @@ mod tests {
         Redactor::new(Vec::new())
     }
 
-    fn plan() -> PiPlanState {
-        PiPlanState::default()
+    fn plan() -> PiRunState {
+        PiRunState::default()
     }
 
     #[test]
@@ -317,6 +377,98 @@ mod tests {
             &redactor(),
         )
         .is_none());
+    }
+
+    /// EXP-724: pi is the one agent that reports BOTH compaction edges, and
+    /// its reason vocabulary is folded onto the wire's `manual`/`auto`.
+    #[test]
+    fn pi_compaction_edges_map_onto_the_wire() {
+        let mut idle = false;
+        let mut state = plan();
+        let started = map_event(
+            PiEvent::Compaction {
+                phase: CompactionPhase::Started,
+                trigger: Some("manual".into()),
+            },
+            &mut idle,
+            &mut state,
+            &redactor(),
+        )
+        .unwrap();
+        assert!(matches!(
+            started,
+            ActivityEvent::Compaction {
+                phase: CompactionPhase::Started,
+                ref trigger,
+                ..
+            } if trigger.as_deref() == Some("manual")
+        ));
+        assert!(state.compacting);
+        // A shutdown mid-compaction closes the bar rather than stranding it.
+        let ended = map_event(
+            PiEvent::SessionShutdown,
+            &mut idle,
+            &mut state,
+            &redactor(),
+        )
+        .unwrap();
+        assert!(matches!(
+            ended,
+            ActivityEvent::Compaction {
+                phase: CompactionPhase::Ended,
+                ..
+            }
+        ));
+        assert!(!state.compacting);
+        // …and once closed, a shutdown publishes nothing.
+        assert!(map_event(PiEvent::SessionShutdown, &mut idle, &mut state, &redactor()).is_none());
+        // pi's own auto reasons fold to `auto`.
+        let started = map_event(
+            PiEvent::Compaction {
+                phase: CompactionPhase::Started,
+                trigger: Some("threshold".into()),
+            },
+            &mut idle,
+            &mut state,
+            &redactor(),
+        )
+        .unwrap();
+        assert!(matches!(
+            started,
+            ActivityEvent::Compaction { ref trigger, .. } if trigger.as_deref() == Some("auto")
+        ));
+    }
+
+    /// EXP-724: a dispatched command needs no second echo (the emitter
+    /// published the command line already); a FAILED one is narrated.
+    #[test]
+    fn command_confirmations_are_silent_and_failures_narrate() {
+        let mut idle = false;
+        assert!(map_event(
+            PiEvent::Command {
+                name: "compact".into(),
+                args: String::new(),
+            },
+            &mut idle,
+            &mut plan(),
+            &redactor(),
+        )
+        .is_none());
+        let event = map_event(
+            PiEvent::CommandFailed {
+                name: "model".into(),
+                message: "no model matches gpt-9".into(),
+            },
+            &mut idle,
+            &mut plan(),
+            &redactor(),
+        )
+        .unwrap();
+        assert!(matches!(
+            event,
+            ActivityEvent::Narration { ref text, .. }
+                if text == "Couldn't run /model: no model matches gpt-9"
+        ));
     }
 
     #[test]

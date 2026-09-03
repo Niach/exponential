@@ -92,8 +92,8 @@ pub use control_channel::{
     RemoteStartSubject, TrpcControlApi,
 };
 pub use activity::{
-    spawn_emitter as spawn_activity_emitter, AnswerLink, EmitterConfig, Redactor, RemoteAnswer,
-    Steering, TurnSignal,
+    spawn_emitter as spawn_activity_emitter, AnswerLink, CommandLink, CommandSink, EmitterConfig,
+    Redactor, RemoteAnswer, Steering, TurnSignal,
 };
 pub use feed::{
     active_question_ids, answer_key, collect_subagents, group_feed_rows, summarize_subagent_row,

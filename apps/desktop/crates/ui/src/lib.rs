@@ -96,6 +96,7 @@ mod session;
 mod session_registry;
 mod settings;
 mod sidebar;
+mod slash_commands;
 mod surface;
 mod source_control;
 mod start_coding_dialog;

@@ -32,7 +32,8 @@ use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::activity::{AnswerLink, RemoteAnswer, SessionAgent};
+use crate::activity::{AnswerLink, CommandLink, RemoteAnswer, SessionAgent};
+use crate::commands::parse_command;
 use crate::frames::{
     ActivityEvent, ClientFrame, ServerFrame, CLOSE_REPLACED, CLOSE_UNAUTHORIZED,
 };
@@ -143,6 +144,12 @@ pub struct PublisherHooks {
     /// tokens alone: the agent then sees the URL and can still fetch it over
     /// MCP. Build with [`image_localizer`].
     pub attachments: Option<AttachmentHook>,
+    /// EXP-724: the remote slash-command seam. A composer message whose
+    /// first token is a catalog `/name` for [`Self::agent`] is NOT typed
+    /// here — it crosses to the emitter, which owns the grid and the turn
+    /// state a command needs. `None` = commands ride the ordinary message
+    /// path (they then reach the agent as prose, the pre-EXP-724 behaviour).
+    pub commands: Option<Arc<CommandLink>>,
 }
 
 /// Keystroke frames (`\r` submit, `\x1b` interrupt / CSI sequences, any lone
@@ -714,7 +721,7 @@ async fn run_publisher_loop(
 // `claude` TUI's paste heuristic inserts a newline instead of submitting.
 // Hold the `\r` back until the child has had a beat to drain the text.
 // Ordering is safe — the input task is the only remote-input writer.
-const ENTER_SEPARATION: Duration = Duration::from_millis(150);
+pub(crate) const ENTER_SEPARATION: Duration = Duration::from_millis(150);
 // EXP-249 belt-and-braces: a pre-v2 client answers a picker by sending the
 // option digit and then a bare `\r`. The digit ALONE already submits (and
 // auto-advances a multi-question ask), so the trailing Enter would answer
@@ -761,6 +768,11 @@ struct InputState {
     login_refused_message: bool,
     /// EXP-383 (pi): text chunks buffered for `text_sink` until the `\r`.
     sink_buffer: String,
+    /// EXP-724: the composer-opening chunk was a catalog slash command — the
+    /// whole message is buffered here (never written to the PTY) until its
+    /// `\r` hands it to the [`CommandLink`]. Same staleness rule as
+    /// `sink_buffer`: a buffer this old without its `\r` is a dead message.
+    command_buffer: Option<String>,
 }
 
 /// EXP-514: remote `input` frames are handled on this dedicated session-lived
@@ -807,6 +819,73 @@ async fn handle_input(
             data = localize_image_embeds(data, localize, embeds).await;
         }
     }
+    // EXP-444: a login screen that solicited the OAuth
+    // code closed before this text arrived (local Esc,
+    // OAuth timeout) — writing it now would submit the
+    // code as an ordinary prompt, publish it as a
+    // UserMessage and journal it to every viewer. Refuse
+    // the message (one-shot — the emitter narrates that
+    // nothing was sent) and swallow its trailing Enter.
+    // Single keystrokes pass untouched.
+    // EXP-724: ahead of BOTH the pi sink and the command
+    // buffer now — a refused message must not reach an
+    // agent by any route.
+    if is_message_text(&data)
+        && hooks
+            .answers
+            .as_ref()
+            .is_some_and(|answers| answers.login_refusal_active())
+    {
+        if let Some(answers) = &hooks.answers {
+            answers.note_login_refusal();
+        }
+        state.login_refused_message = true;
+        return;
+    }
+    if std::mem::take(&mut state.login_refused_message) && data == "\r" {
+        return;
+    }
+    // EXP-724: a composer message whose first token is a
+    // catalog `/name` for this agent is a COMMAND, not
+    // prose: it is buffered here (never written) and
+    // handed whole to the emitter on its `\r`. The
+    // emitter owns the grid, the turn state and — for pi
+    // — the observer extension that runs `ctx.compact()`,
+    // none of which this task can reach.
+    if let Some(commands) = &hooks.commands {
+        let stale = state
+            .message_chunk_at
+            .is_none_or(|at| at.elapsed() >= MESSAGE_STALENESS);
+        if stale {
+            state.command_buffer = None;
+        }
+        if is_message_text(&data) {
+            if let Some(buffer) = &mut state.command_buffer {
+                buffer.push_str(&data);
+                state.message_chunk_at = Some(Instant::now());
+                return;
+            }
+            // Only the chunk that OPENS the composer can start a command
+            // — `/compact` in the middle of a pasted paragraph is prose.
+            if parse_command(&data, hooks.agent).is_some() {
+                state.command_buffer = Some(data.clone());
+                state.message_chunk_at = Some(Instant::now());
+                return;
+            }
+        }
+        if data == "\r" {
+            if let Some(buffer) = state.command_buffer.take() {
+                state.message_chunk_at = None;
+                match parse_command(&buffer, hooks.agent) {
+                    Some(command) => commands.submit(command),
+                    // Unreachable (only the first token decides), but never
+                    // drop a steerer's text on the floor: write it as prose.
+                    None => (hooks.write_input)(buffer.as_bytes()),
+                }
+                return;
+            }
+        }
+    }
     // EXP-383 (pi): with a text sink, whole composer
     // messages route to the observer extension — pi's own
     // `sendUserMessage` submits them, so the trailing
@@ -830,29 +909,6 @@ async fn handle_input(
             state.message_chunk_at = None;
             return;
         }
-    }
-    // EXP-444: a login screen that solicited the OAuth
-    // code closed before this text arrived (local Esc,
-    // OAuth timeout) — writing it now would submit the
-    // code as an ordinary prompt, publish it as a
-    // UserMessage and journal it to every viewer. Refuse
-    // the message (one-shot — the emitter narrates that
-    // nothing was sent) and swallow its trailing Enter.
-    // Single keystrokes pass untouched.
-    if is_message_text(&data)
-        && hooks
-            .answers
-            .as_ref()
-            .is_some_and(|answers| answers.login_refusal_active())
-    {
-        if let Some(answers) = &hooks.answers {
-            answers.note_login_refusal();
-        }
-        state.login_refused_message = true;
-        return;
-    }
-    if std::mem::take(&mut state.login_refused_message) && data == "\r" {
-        return;
     }
     let ask_pending = hooks
         .answers
@@ -1326,6 +1382,7 @@ mod tests {
             agent: SessionAgent::Claude,
             text_sink: None,
             attachments: None,
+            commands: None,
         }
     }
 
@@ -1626,6 +1683,198 @@ mod tests {
             &[b"2".to_vec(), b"\x1b".to_vec(), b"\r".to_vec()]
         );
         assert_eq!(sunk.lock().unwrap().len(), 1);
+        handle.shutdown(None);
+    }
+
+    // ── EXP-724: remote slash commands ─────────────────────────────────────
+
+    /// A catalog command is buffered, never written, and crosses whole to the
+    /// emitter on its `\r` — the publisher cannot type one (no grid, no turn
+    /// state) and must not hand it to the agent as prose either.
+    #[test]
+    fn a_catalog_command_crosses_to_the_command_link_instead_of_the_pty() {
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let link = CommandLink::new(None);
+        let mut hooks = recording_hooks(recorded.clone());
+        hooks.commands = Some(link.clone());
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-cmd".to_string(),
+                issue_id: None,
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            hooks,
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        let send = |data: &str| {
+            inject_tx
+                .send(Message::Text(format!(
+                    r#"{{"t":"input","data":{}}}"#,
+                    serde_json::to_string(data).unwrap()
+                )))
+                .unwrap();
+        };
+        // Chunked exactly like a message; only the `\r` completes it.
+        send("/compact keep ");
+        send("the diff");
+        send("\r");
+        let received: Mutex<Vec<_>> = Mutex::new(Vec::new());
+        wait_for(|| {
+            if let Some(command) = link.try_recv() {
+                received.lock().unwrap().push(command);
+            }
+            !received.lock().unwrap().is_empty()
+        });
+        let received = received.into_inner().unwrap();
+        assert_eq!(received.len(), 1, "one command, not one per chunk");
+        assert_eq!(received[0].text(), "/compact keep the diff");
+        assert!(
+            recorded.inputs.lock().unwrap().is_empty(),
+            "a command never reaches the PTY from the publisher"
+        );
+
+        // Prose still rides the ordinary path, `\r` and all.
+        send("just a message");
+        send("\r");
+        wait_for(|| recorded.inputs.lock().unwrap().len() >= 2);
+        assert_eq!(
+            recorded.inputs.lock().unwrap().as_slice(),
+            &[b"just a message".to_vec(), b"\r".to_vec()]
+        );
+        // A command name that is not in claude's catalog is prose too.
+        recorded.inputs.lock().unwrap().clear();
+        send("/new");
+        send("\r");
+        wait_for(|| recorded.inputs.lock().unwrap().len() >= 2);
+        assert_eq!(
+            recorded.inputs.lock().unwrap().as_slice(),
+            &[b"/new".to_vec(), b"\r".to_vec()]
+        );
+        assert!(link.try_recv().is_none());
+        handle.shutdown(None);
+    }
+
+    /// EXP-383's codex sigil guard defuses a leading `/` for PROSE. A catalog
+    /// command must never reach it — the `/` is the whole point there.
+    #[test]
+    fn a_codex_catalog_command_skips_the_sigil_guard() {
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let link = CommandLink::new(None);
+        let mut hooks = recording_hooks(recorded.clone());
+        hooks.agent = SessionAgent::Codex;
+        hooks.commands = Some(link.clone());
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-cmd-cx".to_string(),
+                issue_id: None,
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            hooks,
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        let send = |data: &str| {
+            inject_tx
+                .send(Message::Text(format!(
+                    r#"{{"t":"input","data":{}}}"#,
+                    serde_json::to_string(data).unwrap()
+                )))
+                .unwrap();
+        };
+        send("/new");
+        send("\r");
+        let received: Mutex<Vec<_>> = Mutex::new(Vec::new());
+        wait_for(|| {
+            if let Some(command) = link.try_recv() {
+                received.lock().unwrap().push(command);
+            }
+            !received.lock().unwrap().is_empty()
+        });
+        let received = received.into_inner().unwrap();
+        assert_eq!(received[0].text(), "/new");
+        assert!(
+            recorded.inputs.lock().unwrap().is_empty(),
+            "no space prefix, no text, no Enter"
+        );
+        // …while `/help` (not in the catalog) still gets the guard.
+        send("/help me");
+        send("\r");
+        wait_for(|| recorded.inputs.lock().unwrap().len() >= 3);
+        assert_eq!(
+            recorded.inputs.lock().unwrap().as_slice(),
+            &[b" ".to_vec(), b"/help me".to_vec(), b"\r".to_vec()]
+        );
+        handle.shutdown(None);
+    }
+
+    /// Pi's messages route to the observer extension; its COMMANDS must not
+    /// — `pi.sendUserMessage("/compact")` is literal text to the model.
+    #[test]
+    fn a_pi_catalog_command_bypasses_the_text_sink() {
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let sunk: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let link = CommandLink::new(None);
+        let mut hooks = recording_hooks(recorded.clone());
+        hooks.agent = SessionAgent::Pi;
+        hooks.commands = Some(link.clone());
+        let sink = sunk.clone();
+        hooks.text_sink = Some(Arc::new(move |text| sink.lock().unwrap().push(text)));
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-cmd-pi".to_string(),
+                issue_id: None,
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            hooks,
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        let send = |data: &str| {
+            inject_tx
+                .send(Message::Text(format!(
+                    r#"{{"t":"input","data":{}}}"#,
+                    serde_json::to_string(data).unwrap()
+                )))
+                .unwrap();
+        };
+        send("/compact");
+        send("\r");
+        let received: Mutex<Vec<_>> = Mutex::new(Vec::new());
+        wait_for(|| {
+            if let Some(command) = link.try_recv() {
+                received.lock().unwrap().push(command);
+            }
+            !received.lock().unwrap().is_empty()
+        });
+        let received = received.into_inner().unwrap();
+        assert_eq!(received[0].text(), "/compact");
+        assert!(sunk.lock().unwrap().is_empty(), "never sendUserMessage");
+        assert!(recorded.inputs.lock().unwrap().is_empty(), "never the PTY");
+
+        // Ordinary prose still reaches the sink.
+        send("carry on");
+        send("\r");
+        wait_for(|| !sunk.lock().unwrap().is_empty());
+        assert_eq!(sunk.lock().unwrap().as_slice(), &["carry on".to_string()]);
         handle.shutdown(None);
     }
 

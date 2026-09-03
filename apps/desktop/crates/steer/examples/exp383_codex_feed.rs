@@ -185,6 +185,7 @@ fn main() {
         agent: steer::activity::SessionAgent::Codex,
         text_sink: None,
         attachments: None,
+        commands: None,
     };
     let handle = publish(
         &runtime,

@@ -189,6 +189,16 @@ pub const PI_OBSERVER_FILE: &str = ".exp-pi-observer.ts";
 /// `"steer"` delivers at the next tool boundary; when idle it must be
 /// OMITTED so the message triggers a turn).
 ///
+/// EXP-724: the same long-poll carries remote SLASH COMMANDS, which must
+/// never go through `sendUserMessage` — pi dispatches its built-ins only in
+/// the TUI's `onSubmit`, so `/compact` sent as a message is just text for
+/// the model. `compact` runs `ctx.compact()`, `new` runs `ctx.newSession()`
+/// and `model` resolves through `ctx.modelRegistry` into `pi.setModel`; the
+/// live `ctx` is rebound on every `session_start` so a `/new` leaves the
+/// pump steering the session that replaced it. The compaction edges pi
+/// raises (`session_before_compact`/`session_compact`) are reported too —
+/// they are the only agent's compaction with a real START marker.
+///
 /// Same contract as the MCP bridge: static byte-stable file, zero imports,
 /// no secrets (url + token ride `EXP_OBSERVER_URL`/`EXP_OBSERVER_TOKEN` in
 /// the spawn env — the file is inert without them). Extension rules per pi
@@ -244,18 +254,77 @@ export default function (pi: any) {
     })
   }
 
+  // The live session context. Rebound on every session_start, so a /new
+  // (ctx.newSession) leaves the pump steering the CURRENT session.
+  let liveCtx: any = null
+
+  // --- commands (inbound) --------------------------------------------------
+  // Built-in slash commands dispatch only in pi's TUI onSubmit, so
+  // sendUserMessage("/compact") would just send the literal text to the
+  // model. These run pi's own APIs instead.
+  const failCommand = (name: string, err: any) => {
+    emit({ kind: "command_failed", name, message: String(err?.message ?? err) })
+    flush()
+  }
+  const resolveModel = (spec: string): any => {
+    const registry = liveCtx?.modelRegistry
+    if (!registry || !spec) return undefined
+    const slash = spec.indexOf("/")
+    if (slash > 0) {
+      const found = registry.find?.(spec.slice(0, slash), spec.slice(slash + 1))
+      if (found) return found
+    }
+    // Bare id: prefer the models this machine actually has auth for —
+    // getAll() also lists providers with no API key, and setModel() then
+    // returns false on a name that looked like a perfect match.
+    const lowered = spec.toLowerCase()
+    for (const pool of [registry.getAvailable?.() ?? [], registry.getAll?.() ?? []]) {
+      const hit = pool.find((model: any) => model?.id === spec)
+        ?? pool.find((model: any) => String(model?.id ?? "").toLowerCase() === lowered)
+      if (hit) return hit
+    }
+    return undefined
+  }
+  const runCommand = async (name: string, args: string) => {
+    try {
+      const ctx = liveCtx
+      if (name === "compact") {
+        if (typeof ctx?.compact !== "function") throw new Error("this pi build has no compact API")
+        ctx.compact({
+          customInstructions: args || undefined,
+          onError: (err: any) => failCommand(name, err),
+        })
+      } else if (name === "new") {
+        if (typeof ctx?.newSession !== "function") throw new Error("this pi build cannot start a new session")
+        await ctx.newSession()
+      } else if (name === "model") {
+        const model = resolveModel(args)
+        if (!model) throw new Error(`no model matches ${args}`)
+        // false = no API key configured for that model (pi docs).
+        if ((await pi.setModel(model)) === false) throw new Error(`no API key for ${args}`)
+      } else {
+        return
+      }
+      emit({ kind: "command", name, args })
+      flush()
+    } catch (err) {
+      failCommand(name, err)
+    }
+  }
+
   // --- steering (inbound) --------------------------------------------------
   // Long-poll the sidecar; apply each remote composer message through pi's
-  // own queue. Started from session_start (never the factory), stopped by
-  // session_shutdown.
+  // own queue and each remote slash command through pi's own API. Started
+  // from session_start (never the factory), stopped by session_shutdown.
   let pumping = false
-  const startSteerPump = (ctx: any) => {
+  const startSteerPump = (bootCtx: any) => {
     if (pumping) return
     pumping = true
     const pump = async () => {
       while (!stopped) {
         try {
           const next = await post("/steer", { cwd })
+          const ctx = liveCtx ?? bootCtx
           for (const text of next?.messages ?? []) {
             if (typeof text !== "string" || !text.length) continue
             try {
@@ -264,6 +333,10 @@ export default function (pi: any) {
               if (ctx.isIdle()) pi.sendUserMessage(text)
               else pi.sendUserMessage(text, { deliverAs: "steer" })
             } catch {}
+          }
+          for (const command of next?.commands ?? []) {
+            if (typeof command?.name !== "string") continue
+            await runCommand(command.name, typeof command.args === "string" ? command.args : "")
           }
         } catch {
           await new Promise((resolve) => setTimeout(resolve, 2000))
@@ -275,6 +348,7 @@ export default function (pi: any) {
 
   // --- observation ---------------------------------------------------------
   on("session_start", (_e, ctx) => {
+    liveCtx = ctx
     emit({ kind: "session_start" })
     startSteerPump(ctx)
   })
@@ -309,6 +383,13 @@ export default function (pi: any) {
     if (typeof e?.toolName !== "string") return
     emit({ kind: "tool_end", id: e.toolCallId ?? "", isError: e.isError === true })
   })
+  // Compaction: pi's reason vocabulary is manual | threshold | overflow; the
+  // steer wire carries manual | auto only.
+  on("session_before_compact", (e) => {
+    emit({ kind: "compaction", phase: "started", trigger: e?.reason === "manual" ? "manual" : "auto" })
+    flush()
+  })
+  on("session_compact", () => { emit({ kind: "compaction", phase: "ended" }); flush() })
   on("session_shutdown", () => {
     emit({ kind: "session_shutdown" })
     flush()
@@ -580,6 +661,9 @@ mod tests {
             "message_update",
             "tool_execution_start",
             "tool_execution_end",
+            // EXP-724: pi is the one agent with a real compaction START.
+            "session_before_compact",
+            "session_compact",
             "session_shutdown",
         ] {
             assert!(
@@ -587,6 +671,12 @@ mod tests {
                 "missing subscription: {event}"
             );
         }
+        // EXP-724: commands run pi's own APIs — never sendUserMessage, which
+        // would hand `/compact` to the model as literal text.
+        assert!(PI_OBSERVER_SOURCE.contains("ctx.compact({"));
+        assert!(PI_OBSERVER_SOURCE.contains("ctx.newSession()"));
+        assert!(PI_OBSERVER_SOURCE.contains("pi.setModel(model)"));
+        assert!(PI_OBSERVER_SOURCE.contains("next?.commands ?? []"));
         // The steer contract: deliverAs required while streaming, omitted
         // when idle; background work starts in session_start, never the
         // factory (pi runs factories for --list-models etc.).

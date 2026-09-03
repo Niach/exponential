@@ -4,6 +4,10 @@ import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AnswerState
+import com.exponential.app.domain.COMPACTED_LABEL
+import com.exponential.app.domain.COMPACTING_LABEL
+import com.exponential.app.domain.COMPACTION_TIMEOUT_MS
+import com.exponential.app.domain.CompactionState
 import com.exponential.app.domain.FEED_CAP
 import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.SUBAGENT_FALLBACK_TYPE
@@ -11,6 +15,7 @@ import com.exponential.app.domain.activeQuestionIds
 import com.exponential.app.domain.appendUserMessage
 import com.exponential.app.domain.applyActivityEvent
 import com.exponential.app.domain.capFeed
+import com.exponential.app.domain.clearCompaction
 import com.exponential.app.domain.collectSubagents
 import com.exponential.app.domain.completeSubagent
 import com.exponential.app.domain.currentStepperStep
@@ -695,6 +700,66 @@ class AgentFeedTest {
 
         val done = collectSubagents(listOf(subagent(1, "a", completed = true)))
         assertTrue(visibleSubagentTabs(done, null).isEmpty())
+    }
+
+    // ── Compaction (EXP-724) ────────────────────────────────────────────────
+
+    @Test
+    fun `a compaction is state until it ends, then leaves a marker row`() {
+        val started = ActivityFeedState()
+            .applying(narration("working"))
+            .applying(event("""{"kind":"compaction","phase":"started","trigger":"manual"}"""))
+        assertEquals(CompactionState("manual"), started.compacting)
+        // The strip is state beside the diff — never a feed row.
+        assertEquals(1, started.feed.size)
+        assertTrue(started.feed.none { it is AgentFeedItem.Compaction })
+        assertTrue(groupFeedRows(started.feed).none {
+            it is AgentFeedRow.Single && it.item is AgentFeedItem.Compaction
+        })
+
+        val ended = started.applying(event("""{"kind":"compaction","phase":"ended"}"""))
+        assertNull(ended.compacting)
+        assertEquals(2, ended.feed.size)
+        assertTrue(ended.feed.last() is AgentFeedItem.Compaction)
+        // The marker is its own row in the projection.
+        val rows = groupFeedRows(ended.feed)
+        assertTrue((rows.last() as AgentFeedRow.Single).item is AgentFeedItem.Compaction)
+    }
+
+    @Test
+    fun `a bare ended still marks and an unknown phase changes nothing`() {
+        // Codex auto-compaction publishes no start at all.
+        val bare = ActivityFeedState()
+            .applying(event("""{"kind":"compaction","phase":"ended"}"""))
+        assertNull(bare.compacting)
+        assertEquals(1, bare.feed.size)
+        assertTrue(bare.feed.single() is AgentFeedItem.Compaction)
+
+        val odd = bare
+            .applying(event("""{"kind":"compaction","phase":"paused"}"""))
+            .applying(event("""{"kind":"compaction"}"""))
+        assertEquals(bare.feed, odd.feed)
+        assertNull(odd.compacting)
+    }
+
+    @Test
+    fun `a start with no trigger is still a compaction and clears explicitly`() {
+        val started = ActivityFeedState()
+            .applying(event("""{"kind":"compaction","phase":"started"}"""))
+        assertEquals(CompactionState(null), started.compacting)
+        // The connection's 180s backstop drops the strip WITHOUT a marker —
+        // nothing was observed to finish.
+        val cleared = started.clearCompaction()
+        assertNull(cleared.compacting)
+        assertTrue(cleared.feed.isEmpty())
+        assertEquals(180_000L, COMPACTION_TIMEOUT_MS)
+    }
+
+    @Test
+    fun `the compaction labels are the ones every client shows`() {
+        // Byte-identical to web, iOS and the desktop — the ellipsis is U+2026.
+        assertEquals("Compacting context…", COMPACTING_LABEL)
+        assertEquals("Context compacted", COMPACTED_LABEL)
     }
 
     // ── fixtures ────────────────────────────────────────────────────────────

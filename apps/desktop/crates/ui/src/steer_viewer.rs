@@ -49,10 +49,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, ClickEvent, Entity,
-    FocusHandle, Focusable, InteractiveElement as _, IntoElement, ParentElement as _, Render,
-    ScrollHandle, SharedString, StatefulInteractiveElement as _, StyledImage as _, Styled as _,
-    Subscription, Task, Window,
+    bounce, div, ease_in_out, prelude::FluentBuilder as _, px, relative, AnimationExt as _,
+    AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle, Focusable,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle, SharedString,
+    StatefulInteractiveElement as _, StyledImage as _, Styled as _, Subscription, Task, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
@@ -61,6 +61,9 @@ use gpui_component::{
     spinner::Spinner,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _,
 };
+use steer::activity::SessionAgent;
+use steer::commands::{parse_command, SteerCommand};
+use steer::feed::{COMPACTED_LABEL, COMPACTING_LABEL, COMPACTION_TIMEOUT};
 use steer::{
     answer_key, build_steer_image_message, insert_image_marker, parse_steer_message,
     renumber_image_markers, summarize_subagent_row, AnswerStatus, FeedItem, FeedItemId, FeedKind, FeedRow, QuestionOption,
@@ -70,6 +73,7 @@ use steer::{
 
 use crate::controls::WebText as _;
 use crate::icons::registry;
+use crate::slash_commands;
 use crate::markdown::image_paste::{
     self, max_upload_bytes_for, pasted_image_parts, read_image_file, validate_image,
 };
@@ -88,6 +92,14 @@ const STAGING_TICK: Duration = Duration::from_millis(100);
 
 /// The pending strip's thumbnail edge (web/iOS parity).
 const PENDING_THUMB: f32 = 48.;
+
+/// EXP-724: the open `/` command menu. `items` is already filtered for the
+/// session's agent and the typed prefix ([`slash_commands::menu_matches`]);
+/// `selected` wraps under ↑/↓.
+struct SlashMenu {
+    items: Vec<SteerCommand>,
+    selected: usize,
+}
 
 /// One image staged in the composer, uploaded on send.
 struct PendingImage {
@@ -126,8 +138,17 @@ pub(crate) struct SteerSessionView {
     /// every buffered event; the [`REPLAY_MAX`] cap deliberately does not —
     /// a replay that keeps trickling must still commit.
     staging_started: Option<std::time::Instant>,
+    /// Bumped whenever a compaction opens; a [`COMPACTION_TIMEOUT`] backstop
+    /// that finds its generation superseded exits without clearing.
+    compaction_generation: u64,
     /// Composer.
     input: Entity<TextareaState>,
+    /// EXP-724: the open `/` menu, refreshed on every draft change.
+    slash: Option<SlashMenu>,
+    /// The exact draft Escape dismissed the menu for — it stays shut until
+    /// the draft changes again (and after an accept, so inserting `/clear`
+    /// does not immediately re-open the menu on its own result).
+    slash_dismissed_for: Option<String>,
     pending: Vec<PendingImage>,
     next_pending_key: u64,
     sending: bool,
@@ -159,7 +180,11 @@ impl SteerSessionView {
             crate::controls::web_textarea(1, 6, window, cx)
                 // Enter sends, Shift+Enter inserts a newline (web parity).
                 .submit_on_enter(true)
-                .placeholder("Message the agent…")
+                // EXP-724: the `/` menu is invisible until it is typed, so
+                // the placeholder is the only hint it exists. Every agent's
+                // catalog is non-empty, which is why this is a constant here
+                // and a conditional on web/Android.
+                .placeholder("Message the agent… (/ for commands)")
         });
         let free_text_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Type your answer…"));
@@ -170,7 +195,12 @@ impl SteerSessionView {
             window,
             |this, _, event: &InputEvent, window, cx| match event {
                 InputEvent::PressEnter { shift: false, .. } => this.send(window, cx),
-                InputEvent::Change => cx.notify(),
+                // EXP-724: the `/` menu is a pure function of the draft, so
+                // the change event is the only thing that opens or closes it.
+                InputEvent::Change => {
+                    this.refresh_slash(cx);
+                    cx.notify();
+                }
                 _ => {}
             },
         ));
@@ -240,7 +270,10 @@ impl SteerSessionView {
             sync_offline: false,
             staging_generation: 0,
             staging_started: None,
+            compaction_generation: 0,
             input,
+            slash: None,
+            slash_dismissed_for: None,
             pending: Vec::new(),
             next_pending_key: 0,
             sending: false,
@@ -304,6 +337,9 @@ impl SteerSessionView {
     /// The dock calls this when the chip goes away (the row ended, the user
     /// signed out, the window closed).
     pub(crate) fn shutdown(&mut self) {
+        // EXP-724: nothing is coming to close an open compaction strip once
+        // the socket is gone.
+        self.feed.clear_compaction();
         if let Some(handle) = self.handle.as_ref() {
             handle.note_session_ended();
             handle.shutdown();
@@ -335,6 +371,8 @@ impl SteerSessionView {
             if let Some(handle) = self.handle.as_ref() {
                 handle.note_session_ended();
             }
+            // EXP-724: a run that ended mid-compaction never sends `ended`.
+            self.feed.clear_compaction();
         }
         if self.row != row {
             self.row = row;
@@ -431,6 +469,7 @@ impl SteerSessionView {
     // ── Viewer events ──────────────────────────────────────────────────────
 
     fn apply_event(&mut self, event: ViewerEvent, cx: &mut gpui::Context<Self>) {
+        let was_compacting = self.feed.compacting().is_some();
         match event {
             ViewerEvent::Phase(phase) => self.phase = phase,
             ViewerEvent::Connected(connected) => {
@@ -463,7 +502,31 @@ impl SteerSessionView {
                 self.feed.push_local_message(&text);
             }
         }
+        self.note_compaction(was_compacting, cx);
         cx.notify();
+    }
+
+    /// EXP-724: the feed reads no clock, so the [`COMPACTION_TIMEOUT`]
+    /// backstop that keeps the strip from sticking is ours — armed on the
+    /// edge into compacting, wherever that edge lands (a live frame, or the
+    /// staged replay's swap).
+    fn note_compaction(&mut self, was_compacting: bool, cx: &mut gpui::Context<Self>) {
+        if was_compacting || self.feed.compacting().is_none() {
+            return;
+        }
+        self.compaction_generation += 1;
+        let generation = self.compaction_generation;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(COMPACTION_TIMEOUT).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.compaction_generation != generation {
+                    return;
+                }
+                this.feed.clear_compaction();
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// EXP-656: a replay that never sends `activity_synced` commits on the
@@ -486,7 +549,9 @@ impl SteerSessionView {
                         .staging_started
                         .is_some_and(|started| started.elapsed() >= REPLAY_MAX);
                     if quiet >= REPLAY_QUIET || capped {
+                        let was_compacting = this.feed.compacting().is_some();
                         this.feed.force_swap();
+                        this.note_compaction(was_compacting, cx);
                         this.staging_started = None;
                         cx.notify();
                         return true;
@@ -603,7 +668,161 @@ impl SteerSessionView {
         !self.row_ended() && !matches!(self.phase, ViewerPhase::Ended { .. })
     }
 
+    // ── Slash commands (EXP-724) ───────────────────────────────────────────
+
+    /// Which catalog this session's composer offers. A row that names no
+    /// agent is a claude run (contract order).
+    fn agent(&self) -> SessionAgent {
+        self.row
+            .as_ref()
+            .map_or(SessionAgent::Claude, slash_commands::agent_of)
+    }
+
+    /// Re-derive the `/` menu from the draft. Pure in, pure out — the only
+    /// state it carries is the Escape dismissal, which lasts exactly as long
+    /// as the draft it was pressed on.
+    fn refresh_slash(&mut self, cx: &mut gpui::Context<Self>) {
+        let draft = self.input.read(cx).value().to_string();
+        if self.slash_dismissed_for.as_deref() == Some(draft.as_str()) {
+            self.slash = None;
+            return;
+        }
+        self.slash_dismissed_for = None;
+        let items = slash_commands::menu_matches(&draft, self.agent());
+        self.slash = if items.is_empty() {
+            None
+        } else {
+            let selected = self
+                .slash
+                .as_ref()
+                .map_or(0, |menu| menu.selected)
+                .min(items.len() - 1);
+            Some(SlashMenu { items, selected })
+        };
+    }
+
+    fn move_slash(&mut self, delta: isize, cx: &mut gpui::Context<Self>) {
+        if let Some(menu) = self.slash.as_mut() {
+            let len = menu.items.len() as isize;
+            if len > 0 {
+                menu.selected = (menu.selected as isize + delta).rem_euclid(len) as usize;
+                cx.notify();
+            }
+        }
+    }
+
+    /// Put the highlighted command in the composer. NEVER sends — the user
+    /// still presses Enter on the finished draft (web/iOS/Android parity).
+    fn accept_slash(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(menu) = self.slash.take() else {
+            return;
+        };
+        let Some(command) = menu.items.get(menu.selected).copied() else {
+            return;
+        };
+        let draft = slash_commands::insertion(&command);
+        let position = crate::markdown::byte_offset_to_position(&draft, draft.len());
+        // Set BEFORE the write: the value change re-enters `refresh_slash`,
+        // and a bare `/clear` would otherwise re-open the menu on its own
+        // insertion.
+        self.slash_dismissed_for = Some(draft.clone());
+        self.input.update(cx, |state, cx| {
+            state.set_value(draft, window, cx);
+            state.set_cursor_position(position, window, cx);
+        });
+        cx.notify();
+    }
+
+    // -- keyboard capture (runs BEFORE the textarea's own handlers) ---------
+
+    fn on_slash_up(&mut self, _: &input::MoveUp, _: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.slash.is_some() {
+            self.move_slash(-1, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn on_slash_down(&mut self, _: &input::MoveDown, _: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.slash.is_some() {
+            self.move_slash(1, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn on_slash_escape(&mut self, _: &input::Escape, _: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.slash.take().is_some() {
+            self.slash_dismissed_for = Some(self.input.read(cx).value().to_string());
+            cx.stop_propagation();
+            cx.notify();
+        }
+    }
+
+    /// The whole point of the capture: with a menu open Enter ACCEPTS, and
+    /// the textarea never emits the `PressEnter` that sends.
+    fn on_slash_enter(
+        &mut self,
+        action: &input::Enter,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if self.slash.is_some() && !action.shift {
+            self.accept_slash(window, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn on_slash_tab(
+        &mut self,
+        _: &input::IndentInline,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if self.slash.is_some() {
+            self.accept_slash(window, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    /// EXP-724: a context-discarding command asks first. The publisher runs
+    /// whatever it receives, so the confirm is entirely the client's — same
+    /// words on all four viewers.
+    fn prompt_command(&mut self, name: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let view = cx.entity().downgrade();
+        let opener = window.window_handle();
+        let spec = AlertSpec::new(
+            slash_commands::confirm_title(name),
+            slash_commands::CONFIRM_BODY,
+            slash_commands::confirm_button(name),
+        )
+        .ok_variant(ButtonVariant::Danger)
+        .on_ok(move |_, cx| {
+            let view = view.clone();
+            // The alert's own window is not the one holding the composer.
+            let _ = opener.update(cx, move |_, window, cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |this, cx| this.send_confirmed(window, cx));
+                }
+            });
+            true
+        });
+        native_dialog::open_alert(window, cx, spec);
+    }
+
     fn send(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if !self.can_send(cx) {
+            return;
+        }
+        let text = self.input.read(cx).value().to_string();
+        if let Some(parsed) = parse_command(&text, self.agent()) {
+            if parsed.command.confirm {
+                self.prompt_command(parsed.command.name, window, cx);
+                return;
+            }
+        }
+        self.send_confirmed(window, cx);
+    }
+
+    fn send_confirmed(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if !self.can_send(cx) {
             return;
         }
@@ -717,6 +936,8 @@ impl SteerSessionView {
     fn clear_draft(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.pending.clear();
         self.notice = None;
+        self.slash = None;
+        self.slash_dismissed_for = None;
         self.input
             .update(cx, |state, cx| state.set_value("", window, cx));
     }
@@ -1197,7 +1418,10 @@ impl SteerSessionView {
         let working = live
             && !self.row_ended()
             && active.is_empty()
-            && !self.feed.is_staging();
+            && !self.feed.is_staging()
+            // EXP-724: the compaction strip already says what is happening —
+            // a second "Working…" under it is noise (web parity).
+            && self.feed.compacting().is_none();
         let mut column = v_flex().w_full().min_w_0().gap_0p5().px_3().py_2();
         for (index, row) in rows.iter().enumerate() {
             column = column.child(self.render_row(row, index == last_row && live, &active, cx));
@@ -1264,6 +1488,48 @@ impl SteerSessionView {
                     ),
                 )
                 .into_any_element(),
+            // EXP-724: a message that IS a catalog command reads as a
+            // compact pill, not a chat bubble — the agent was steered, not
+            // spoken to.
+            FeedKind::UserMessage { text }
+                if parse_command(text, self.agent()).is_some() =>
+            {
+                let parsed = parse_command(text, self.agent()).expect("matched above");
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .justify_end()
+                    .pl_8()
+                    .py_1()
+                    .child(
+                        crate::surface::glass_chip()
+                            .max_w_full()
+                            .child(
+                                Icon::new(registry::CODING_COMMAND)
+                                    .xsmall()
+                                    .text_color(muted.opacity(0.7)),
+                            )
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .font_family(theme::terminal::FONT_FAMILY)
+                                    .child(SharedString::from(format!(
+                                        "/{}",
+                                        parsed.command.name
+                                    ))),
+                            )
+                            .when(!parsed.args.is_empty(), |this| {
+                                this.child(
+                                    div()
+                                        .min_w_0()
+                                        .truncate()
+                                        .text_color(muted)
+                                        .child(SharedString::from(parsed.args.clone())),
+                                )
+                            }),
+                    )
+                    .into_any_element()
+            }
             FeedKind::UserMessage { text } => h_flex()
                 .w_full()
                 .min_w_0()
@@ -1339,14 +1605,25 @@ impl SteerSessionView {
             }
             FeedKind::Subagent { .. } => self.render_subagent(item.id, &[item], cx),
             FeedKind::Question(_) => self.render_question(item, active, cx),
-            // EXP-724: the quiet divider a finished compaction leaves behind.
+            // EXP-724: the quiet divider a finished compaction leaves behind
+            // — everything above it is context the agent no longer holds.
             FeedKind::Compaction => h_flex()
                 .w_full()
+                .gap_1p5()
+                .items_center()
                 .justify_center()
-                .py_1()
-                .text_xs()
-                .text_color(muted)
-                .child(steer::feed::COMPACTED_LABEL)
+                .py_1p5()
+                .child(
+                    Icon::new(registry::CODING_COMPACT)
+                        .xsmall()
+                        .text_color(muted.opacity(0.6)),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(COMPACTED_LABEL),
+                )
                 .into_any_element(),
         }
     }
@@ -2212,7 +2489,26 @@ impl SteerSessionView {
             v_flex()
                 .w_full()
                 .min_w_0()
-                .child(Textarea::new(&self.input).w_full().appearance(false))
+                // EXP-724: the `/` menu sits INSIDE the composer card,
+                // above the textarea — no popover, no caret anchoring
+                // (the token is always the whole draft).
+                .when_some(self.render_slash_menu(cx), |this, menu| this.child(menu))
+                .child(
+                    div()
+                        // The five captures run before the textarea's own
+                        // handlers, so with a menu open Enter/Tab accept
+                        // and `PressEnter` — the thing that SENDS — never
+                        // fires (the `mention_input` recipe).
+                        .key_context("SteerComposer")
+                        .w_full()
+                        .min_w_0()
+                        .capture_action(cx.listener(Self::on_slash_up))
+                        .capture_action(cx.listener(Self::on_slash_down))
+                        .capture_action(cx.listener(Self::on_slash_escape))
+                        .capture_action(cx.listener(Self::on_slash_enter))
+                        .capture_action(cx.listener(Self::on_slash_tab))
+                        .child(Textarea::new(&self.input).w_full().appearance(false)),
+                )
                 .into_any_element(),
         )
         .strip((!self.pending.is_empty()).then(|| self.render_pending_strip(cx)))
@@ -2248,6 +2544,120 @@ impl SteerSessionView {
             .child(
                 crate::composer::glass_composer(composer)
                     .capture_action(cx.listener(Self::on_paste)),
+            )
+            .into_any_element()
+    }
+
+    /// EXP-724: the `/` command rows — mono name, muted argument hint, muted
+    /// description. `None` when no menu is open.
+    fn render_slash_menu(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let menu = self.slash.as_ref()?;
+        let muted = cx.theme().muted_foreground;
+        let accent = cx.theme().accent;
+        let mut column = v_flex().w_full().min_w_0().gap_0p5();
+        for (index, command) in menu.items.iter().enumerate() {
+            let selected = index == menu.selected;
+            column = column.child(
+                h_flex()
+                    .id(("steer-slash-row", index))
+                    .w_full()
+                    .min_w_0()
+                    .gap_2()
+                    .items_center()
+                    .px_2()
+                    .py_1()
+                    .rounded(px(theme::tokens::radius::SM))
+                    .when(selected, |this| this.bg(accent))
+                    .hover(|this| this.bg(accent))
+                    .cursor_pointer()
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _, window, cx| {
+                            if let Some(menu) = this.slash.as_mut() {
+                                menu.selected = index;
+                            }
+                            this.accept_slash(window, cx);
+                        }),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .child(SharedString::from(format!("/{}", command.name))),
+                    )
+                    .when(!command.arg_hint.is_empty(), |this| {
+                        this.child(
+                            div()
+                                .flex_shrink_0()
+                                .text_xs()
+                                .text_color(muted)
+                                .font_family(theme::terminal::FONT_FAMILY)
+                                .child(SharedString::from(command.arg_hint.to_string())),
+                        )
+                    })
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(command.description.to_string())),
+                    ),
+            );
+        }
+        Some(column.into_any_element())
+    }
+
+    /// EXP-724: the pinned strip while the agent folds its context. The bar
+    /// is INDETERMINATE on purpose — no agent reports compaction progress,
+    /// and the only honest signal is "still going".
+    fn render_compaction_strip(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let primary = cx.theme().primary;
+        h_flex()
+            .w_full()
+            .flex_shrink_0()
+            .gap_2()
+            .items_center()
+            .px_3()
+            .py_2()
+            .border_t_1()
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            .child(
+                Icon::new(registry::CODING_COMPACT)
+                    .xsmall()
+                    .text_color(muted.opacity(0.7)),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(COMPACTING_LABEL),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h(px(3.))
+                    .rounded_full()
+                    .bg(muted.opacity(0.15))
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .h_full()
+                            .w(relative(0.3))
+                            .rounded_full()
+                            .bg(primary.opacity(0.7))
+                            .with_animation(
+                                "steer-compacting",
+                                gpui::Animation::new(Duration::from_millis(1400))
+                                    .repeat()
+                                    .with_easing(bounce(ease_in_out)),
+                                |bar, delta| bar.ml(relative(delta * 0.7)),
+                            ),
+                    ),
             )
             .into_any_element()
     }
@@ -2486,7 +2896,12 @@ impl Render for SteerSessionView {
         let header = self.render_header(cx);
         let feed = self.render_feed(cx);
         let banners = self.render_banners(cx);
-        let composer = self.composer_visible().then(|| self.render_composer(cx));
+        let composer_visible = self.composer_visible();
+        // EXP-724: between the banners and the composer, exactly where the
+        // web view puts it — and gone with the composer once the run ends.
+        let compacting = (composer_visible && self.feed.compacting().is_some())
+            .then(|| self.render_compaction_strip(cx));
+        let composer = composer_visible.then(|| self.render_composer(cx));
         v_flex()
             .key_context("SteerSession")
             .track_focus(&self.focus_handle)
@@ -2496,6 +2911,7 @@ impl Render for SteerSessionView {
             .child(header)
             .child(feed)
             .children(banners)
+            .children(compacting)
             .children(composer)
     }
 }
@@ -2713,6 +3129,29 @@ mod tests {
         assert!(kill_description(Some("")).starts_with(
             "This force-terminates the terminal and ends the session."
         ));
+    }
+
+    /// EXP-724: the `/clear` (and `/new`) confirm is the same four strings on
+    /// web, iOS, Android and here. `Cancel` is [`AlertSpec`]'s own footer
+    /// label, which is why it is asserted against the alert, not a constant.
+    #[test]
+    fn the_clear_confirm_copy_mirrors_the_web_dialog() {
+        assert_eq!(slash_commands::confirm_title("clear"), "Run /clear?");
+        assert_eq!(
+            slash_commands::CONFIRM_BODY,
+            "The agent forgets everything in this session so far. Files in the worktree are kept."
+        );
+        assert_eq!(slash_commands::confirm_button("clear"), "Run /clear");
+        assert_eq!(slash_commands::confirm_title("new"), "Run /new?");
+        assert_eq!(slash_commands::confirm_button("new"), "Run /new");
+    }
+
+    /// The two compaction strings the strip and its marker row render come
+    /// straight off the feed, byte-identical with the other three clients.
+    #[test]
+    fn the_compaction_copy_mirrors_the_web_labels() {
+        assert_eq!(COMPACTING_LABEL, "Compacting context…");
+        assert_eq!(COMPACTED_LABEL, "Context compacted");
     }
 
     #[test]

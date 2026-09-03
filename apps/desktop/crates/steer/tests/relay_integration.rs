@@ -270,6 +270,7 @@ fn recording_hooks_with(
         agent: steer::activity::SessionAgent::Claude,
         text_sink: None,
         attachments: None,
+        commands: None,
     }
 }
 

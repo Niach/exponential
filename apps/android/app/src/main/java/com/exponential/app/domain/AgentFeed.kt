@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.jsonArray
 
 // The activity feed's model and its pure reducer — the "Agent session" chat
@@ -107,7 +108,25 @@ sealed interface AgentFeedItem {
         val tool: String,
         val detail: String? = null,
     ) : AgentFeedItem
+
+    /** EXP-724: the quiet "Context compacted" divider a `compaction ended`
+     *  leaves in the timeline — the STRIP itself is
+     *  [ActivityFeedState.compacting], never a row. */
+    data class Compaction(override val id: Long) : AgentFeedItem
 }
+
+/** EXP-724: the caption of the indeterminate strip pinned above the composer
+ *  while [ActivityFeedState.compacting] is set — byte-identical to web, iOS
+ *  and the desktop (`COMPACTING_LABEL`); move all four in lockstep. */
+const val COMPACTING_LABEL = "Compacting context…"
+
+/** The marker row [AgentFeedItem.Compaction] renders — byte-identical ×4. */
+const val COMPACTED_LABEL = "Context compacted"
+
+/** A lone `compaction started` (its `ended` lost, or a stale replayed start)
+ *  drops the strip after this long. Web `COMPACTION_TIMEOUT_MS` / iOS /
+ *  desktop `COMPACTION_TIMEOUT` parity. The CONNECTION arms the timer. */
+const val COMPACTION_TIMEOUT_MS = 180_000L
 
 /** `subagent.agentType` when the desktop's hook payload carried none — old
  *  desktop builds also stamp it onto the COMPLETED edge, so it is a sentinel
@@ -410,14 +429,28 @@ private fun JsonObject.bool(key: String): Boolean =
     (this[key] as? JsonPrimitive)?.booleanOrNull == true
 
 private fun JsonObject.int(key: String): Int? = (this[key] as? JsonPrimitive)?.intOrNull
+private fun JsonObject.long(key: String): Long? = (this[key] as? JsonPrimitive)?.longOrNull
 
 /** Everything the room's activity log owns, as ONE immutable value — the whole
  *  decode path is a pure transition over it, so it is unit testable end to end
  *  and the ViewModel is left publishing the result. */
+/** EXP-724: the compaction in flight behind the pinned [COMPACTING_LABEL]
+ *  strip. [trigger] is the publisher's `manual`/`auto` when it knows. */
+data class CompactionState(
+    val trigger: String? = null,
+    /** The frame's own `at` stamp (ms) when it carried one — a replayed
+     *  `started` from long ago has already used its backstop budget. */
+    val startedAtMs: Long? = null,
+)
+
 data class ActivityFeedState(
     val feed: List<AgentFeedItem> = emptyList(),
     /** The most recent worktree diff — each one replaces the previous. */
     val latestDiff: String? = null,
+    /** EXP-724: set by `compaction started`, cleared by `ended`, by the replay
+     *  swap (which re-folds from a fresh state) and by the connection's
+     *  [COMPACTION_TIMEOUT_MS] backstop. Never a feed row. */
+    val compacting: CompactionState? = null,
     /** Per-card answer locks, keyed by the card's wire id (EXP-249). */
     val answerLocks: Map<String, AnswerState> = emptyMap(),
     /** What THIS client picked per locked card — the option labels (a typed
@@ -577,6 +610,19 @@ fun ActivityFeedState.applyActivityEvent(
             )
         }
     }
+    // EXP-724: the strip is state beside the diff, never a row; the end leaves
+    // a marker so "why did it forget everything" has an answer later. A bare
+    // `ended` (codex auto-compaction publishes no start) still marks.
+    "compaction" -> when (event.str("phase")) {
+        "started" -> copy(
+            compacting = CompactionState(
+                trigger = event.str("trigger")?.takeIf { it.isNotBlank() },
+                startedAtMs = event.long("at"),
+            ),
+        )
+        "ended" -> copy(compacting = null).append(AgentFeedItem.Compaction(nextEventId))
+        else -> this
+    }
     else -> this
 }
 
@@ -620,6 +666,12 @@ fun ActivityFeedState.releaseResolvedLocks(): ActivityFeedState {
     val next = answerLocks - done
     return if (next.size == answerLocks.size) this else copy(answerLocks = next)
 }
+
+/** Drop the compaction strip without an `ended` frame (EXP-724): the
+ *  connection's [COMPACTION_TIMEOUT_MS] backstop, or the session ending under
+ *  it. Leaves no marker — nothing was observed to finish. */
+fun ActivityFeedState.clearCompaction(): ActivityFeedState =
+    if (compacting == null) this else copy(compacting = null)
 
 /** A locally-echoed steered message, shown before its transcript twin. */
 fun ActivityFeedState.appendUserMessage(text: String): ActivityFeedState =
