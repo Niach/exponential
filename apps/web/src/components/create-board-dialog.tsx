@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react"
-import { Check, Github } from "lucide-react"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import type { Team } from "@/db/schema"
 import {
@@ -11,17 +10,13 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
 import {
   BoardColorField,
   BoardNameField,
   BoardPrefixField,
 } from "@/components/board-form-fields"
-import {
-  type PickerRepo,
-  useGithubConnectShortcut,
-} from "@/components/github-repo-picker"
-import { ConnectedRepoPicker } from "@/components/connected-repo-picker"
+import { type PickerRepo } from "@/components/github-repo-picker"
+import { BoardRepoField } from "@/components/board-repo-field"
 import { UpgradeDialog } from "@/components/upgrade-dialog"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import { derivePrefix } from "@/lib/board"
@@ -49,7 +44,6 @@ export function CreateBoardDialog({
   const [prefix, setPrefix] = useState(``)
   const [color, setColor] = useState(`#6366f1`)
   const [icon, setIcon] = useState<BoardIcon>(`code`)
-  const [showRepo, setShowRepo] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [productIds, setProductIds] = useState<{
@@ -58,8 +52,10 @@ export function CreateBoardDialog({
   }>({ team: null, teamYearly: null })
 
   const [selection, setSelection] = useState<RepoSelection | null>(null)
+  // EXP-712: the board's own branch; null = the repo's default. Reset with
+  // the repo — a branch belongs to the repo it was picked in.
+  const [branch, setBranch] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const connectShortcut = useGithubConnectShortcut(teamId, open)
 
   useEffect(() => {
     void getRuntimeConfig().then((config) => {
@@ -75,8 +71,8 @@ export function CreateBoardDialog({
     setPrefix(``)
     setColor(`#6366f1`)
     setIcon(`code`)
-    setShowRepo(false)
     setSelection(null)
+    setBranch(null)
     setError(null)
   }
 
@@ -85,8 +81,9 @@ export function CreateBoardDialog({
     setPrefix(derivePrefix(value))
   }
 
-  const handlePickerSelect = (repo: PickerRepo) => {
-    setSelection({ kind: `inline`, repo })
+  const changeSelection = (next: RepoSelection | null) => {
+    setSelection(next)
+    setBranch(null)
   }
 
   const canSubmit = Boolean(name.trim()) && Boolean(prefix.trim())
@@ -113,6 +110,7 @@ export function CreateBoardDialog({
       color,
       icon,
       repository,
+      defaultBranch: repository ? (branch ?? undefined) : undefined,
     })
     setSubmitting(false)
     if (result.ok) {
@@ -127,9 +125,6 @@ export function CreateBoardDialog({
       setError(result.error.message)
     }
   }
-
-  const selectedInlineName =
-    selection?.kind === `inline` ? selection.repo.fullName : null
 
   return (
     <>
@@ -164,54 +159,29 @@ export function CreateBoardDialog({
               <BoardPrefixField value={prefix} onChange={setPrefix} />
               <BoardColorField color={color} onColorChange={setColor} />
 
-              <div className="space-y-2">
-                <Label>Repository (optional)</Label>
-                {showRepo ? (
-                  <ConnectedRepoPicker
-                    teamId={teamId}
-                    value={
-                      selection?.kind === `registry`
-                        ? selection.repositoryId
-                        : null
-                    }
-                    onSelectRegistry={(repo) =>
-                      setSelection({
-                        kind: `registry`,
-                        repositoryId: repo.id,
-                        fullName: repo.fullName,
-                      })
-                    }
-                    onConnectNew={handlePickerSelect}
-                    appendedRow={
-                      selectedInlineName ? (
-                        <div className="flex w-full items-center gap-2 px-3 py-2 text-sm">
-                          <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          <span className="truncate">{selectedInlineName}</span>
-                          <Check className="ml-auto h-4 w-4 shrink-0 text-primary" />
-                        </div>
-                      ) : undefined
-                    }
-                  />
-                ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-full justify-start text-muted-foreground"
-                    onClick={() => {
-                      // One-step connect (EXP-390): no linked account means the
-                      // expansion could only offer a second "Connect GitHub"
-                      // click — open the popup right here instead. The expanded
-                      // picker is the return surface either way.
-                      connectShortcut()
-                      setShowRepo(true)
-                    }}
-                  >
-                    <Github className="mr-2 h-4 w-4" />
-                    Connect a GitHub repository
-                  </Button>
-                )}
-              </div>
+              <BoardRepoField
+                teamId={teamId}
+                repositoryId={
+                  selection?.kind === `registry` ? selection.repositoryId : null
+                }
+                inlineRepo={selection?.kind === `inline` ? selection.repo : null}
+                onSelectRegistry={(repo) =>
+                  changeSelection(
+                    repo
+                      ? {
+                          kind: `registry`,
+                          repositoryId: repo.id,
+                          fullName: repo.fullName,
+                        }
+                      : null
+                  )
+                }
+                onConnectNew={(repo: PickerRepo) =>
+                  changeSelection({ kind: `inline`, repo })
+                }
+                branch={branch}
+                onBranchChange={setBranch}
+              />
 
               {error && (
                 <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">

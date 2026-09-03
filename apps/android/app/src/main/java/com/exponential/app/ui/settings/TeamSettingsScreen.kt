@@ -51,12 +51,14 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.data.api.BoardRepositoryChoice
 import com.exponential.app.data.api.GithubInstallation
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.BoardIcon
+import com.exponential.app.ui.components.BoardRepoField
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPillButton
@@ -338,13 +340,10 @@ private fun BoardsSection(
             }
         }
         repoTarget?.let { board ->
-            ChangeRepositorySheet(
+            BoardRepositorySheet(
                 board = board,
-                repos = state.repos,
-                onPick = { repo ->
-                    if (repo.id != board.repositoryId) viewModel.setBoardRepository(board.id, repo.id)
-                    repoTarget = null
-                },
+                state = state,
+                viewModel = viewModel,
                 onDismiss = { repoTarget = null },
             )
         }
@@ -516,6 +515,7 @@ private fun RepositoriesSection(
                     repo = repo,
                     boards = state.boards,
                     allRepos = state.repos,
+                    state = state,
                     // Sharer-or-owner (EXP-557): remove. Everyone else gets a
                     // read-only row (they can still code on the shared repo).
                     canManage = isOwner ||
@@ -665,7 +665,7 @@ private fun RepositoriesSection(
         }
     }
 
-    // Same picker sheet as board creation (RepositorySelector); here the pick
+    // Same picker sheet as board creation (BoardRepoField); here the pick
     // lands in the registry directly via repositories.add. The sheet calls
     // onPick then dismisses itself on selection.
     val accountId = state.accountId
@@ -687,6 +687,9 @@ private fun RepositoryRow(
     repo: TeamRepo,
     boards: List<BoardEntity>,
     allRepos: List<TeamRepo>,
+    // The whole settings state, for the board repository/branch sheet a
+    // "Used by" chip opens (EXP-712 — it needs the account + team ids).
+    state: TeamSettingsState,
     // Sharer-or-owner (EXP-557): gates the remove action. Non-managers see
     // the row read-only.
     canManage: Boolean,
@@ -799,13 +802,10 @@ private fun RepositoryRow(
         }
     }
     retargetBoard?.let { board ->
-        ChangeRepositorySheet(
+        BoardRepositorySheet(
             board = board,
-            repos = allRepos,
-            onPick = { target ->
-                if (target.id != board.repositoryId) viewModel.setBoardRepository(board.id, target.id)
-                retargetBoard = null
-            },
+            state = state,
+            viewModel = viewModel,
             onDismiss = { retargetBoard = null },
         )
     }
@@ -1185,65 +1185,94 @@ private fun RepoNameChip(repo: TeamRepo) {
 }
 
 /**
- * Retarget a board's backing repo to another already-connected registry repo
- * (`boards.setRepository`) — iOS `ChangeRepositorySheet`. Connecting a NEW
- * repo stays the Repositories section's job; this only offers connected ones.
+ * A board's repository + branch (EXP-712) — the shared [BoardRepoField] block
+ * in a sheet. Every change persists immediately: the repository through
+ * `boards.setRepository` (which RESETS the board's branch pin — it belonged to
+ * the old repo), the branch through `boards.update`. Picking a repo the team
+ * hasn't connected yet adds it to the registry first.
  */
 @Composable
-private fun ChangeRepositorySheet(
+private fun BoardRepositorySheet(
     board: BoardEntity,
-    repos: List<TeamRepo>,
-    onPick: (TeamRepo) -> Unit,
+    state: TeamSettingsState,
+    viewModel: TeamSettingsViewModel,
     onDismiss: () -> Unit,
 ) {
+    val accountId = state.accountId
+    val teamId = state.team?.id
+    if (accountId == null || teamId == null) return
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-    GlassSheet(title = "Change repository", onDismiss = onDismiss) {
+
+    // The captured [board] is a snapshot — Electric re-delivers the row after
+    // each write, but not into this sheet's copy, so the picked values are
+    // tracked locally and re-seeded whenever a different board opens it.
+    var repositoryId by remember(board.id) { mutableStateOf(board.repositoryId) }
+    var branch by remember(board.id) { mutableStateOf(board.defaultBranch) }
+    var pendingInline by remember(board.id) { mutableStateOf<BoardRepositoryChoice.Inline?>(null) }
+
+    // A repo connected from inside this sheet lands in the registry a moment
+    // later; adopt its id then, so the Branch picker can list its branches.
+    LaunchedEffect(state.repos, pendingInline) {
+        val connected = pendingInline?.let { picked ->
+            state.repos.firstOrNull { it.fullName == picked.fullName }
+        }
+        if (connected != null) {
+            repositoryId = connected.id
+            pendingInline = null
+        }
+    }
+
+    GlassSheet(title = "Repository", onDismiss = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(board.name, style = MaterialTheme.typography.labelMedium, color = secondary)
-            if (repos.isEmpty()) {
-                Text(
-                    "No repositories connected. Add one in team settings → Repositories first.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = secondary,
-                )
-            }
-            repos.forEach { repo ->
-                val selected = repo.id == board.repositoryId
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .glassRow()
-                        .clickable { onPick(repo) }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                ) {
-                    Icon(
-                        if (selected) ExpIcons.uiSelected else ExpIcons.uiUnselected,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = if (selected) DesignTokens.Semantic.Blue else tertiary,
-                    )
-                    Text(
-                        repo.fullName,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (repo.isPrivate) {
-                        Icon(ExpIcons.uiPrivate, contentDescription = "Private", modifier = Modifier.size(11.dp), tint = tertiary)
+            BoardRepoField(
+                accountId = accountId,
+                teamId = teamId,
+                repos = state.repos,
+                loading = false,
+                selection = pendingInline
+                    ?: repositoryId?.let { BoardRepositoryChoice.Registry(it) },
+                onSelect = { choice ->
+                    // A retarget resets the pin server-side; mirror that here.
+                    branch = null
+                    when (choice) {
+                        null -> {
+                            pendingInline = null
+                            repositoryId = null
+                            viewModel.setBoardRepository(board.id, null)
+                        }
+                        is BoardRepositoryChoice.Registry -> {
+                            pendingInline = null
+                            repositoryId = choice.repositoryId
+                            viewModel.setBoardRepository(board.id, choice.repositoryId)
+                        }
+                        is BoardRepositoryChoice.Inline -> {
+                            pendingInline = choice
+                            repositoryId = null
+                            viewModel.connectBoardRepository(
+                                boardId = board.id,
+                                fullName = choice.fullName,
+                                defaultBranch = choice.defaultBranch ?: DEFAULT_BRANCH_FALLBACK,
+                                isPrivate = choice.isPrivate ?: false,
+                            )
+                        }
                     }
-                }
-            }
+                },
+                branch = branch,
+                onBranchChange = { picked ->
+                    branch = picked
+                    viewModel.setBoardBranch(board.id, picked)
+                },
+            )
         }
     }
 }
+
+/** Only reached for a repo the picker returned without one (it defaults to `main` itself). */
+private const val DEFAULT_BRANCH_FALLBACK = "main"

@@ -25,6 +25,7 @@ import {
 } from "@/lib/team-membership"
 import { boardVisible } from "@/lib/board-visibility"
 import {
+  effectiveBoardBranch,
   effectiveDefaultBranch,
   resolveBoardRepository,
 } from "@/lib/trpc/repositories"
@@ -770,6 +771,7 @@ export const steerRouter = router({
                   fullName: repositories.fullName,
                   defaultBranch: repositories.defaultBranch,
                   defaultBranchOverride: repositories.defaultBranchOverride,
+                  boardDefaultBranch: boards.defaultBranch,
                 })
                 .from(boards)
                 .innerJoin(
@@ -788,7 +790,11 @@ export const steerRouter = router({
           repo = {
             repositoryId: repoRow.id,
             fullName: repoRow.fullName,
-            defaultBranch: effectiveDefaultBranch(repoRow),
+            // The board's branch (EXP-712) is the rebase target for its PRs.
+            defaultBranch: effectiveBoardBranch(
+              { defaultBranch: repoRow.boardDefaultBranch },
+              repoRow
+            ),
           }
         } else if (input.actionId === BUILTIN_CHAT_ID) {
           // The chat builtin's repo is its required `repo` input — resolved
@@ -933,6 +939,13 @@ export const steerRouter = router({
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
             message: `All issues in a batch must share one repository (${repo.fullName} vs ${resolved.fullName})`,
+          })
+        }
+        // EXP-712: one branch too — the batch worktree has one base.
+        if (repo && repo.defaultBranch !== resolved.defaultBranch) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `All issues in a batch must share one base branch (${repo.defaultBranch} vs ${resolved.defaultBranch})`,
           })
         }
         // Strip installationId — the repo group never rides the relay.

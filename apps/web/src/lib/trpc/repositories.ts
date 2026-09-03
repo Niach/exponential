@@ -269,6 +269,35 @@ export function effectiveDefaultBranch(repo: {
   return repo.defaultBranchOverride ?? repo.defaultBranch
 }
 
+// EXP-712: the branch a BOARD develops on — its own `default_branch` when
+// set, else the repo's effective default. Every board-scoped consumer
+// (worktree base, PR base, conflict-fix rebase target, branch diffs) resolves
+// through this so two boards on one repo can target different branches.
+export function effectiveBoardBranch(
+  board: { defaultBranch: string | null },
+  repo: { defaultBranch: string; defaultBranchOverride: string | null }
+): string {
+  return board.defaultBranch ?? effectiveDefaultBranch(repo)
+}
+
+// The board's own branch pin, but ONLY while the board still points at
+// `fullName` — the PR paths derive their repo from the PR URL, and a board
+// since retargeted to another repo must not lend its branch to a PR that
+// lives elsewhere. Null = fall through to the repo-level resolution.
+export async function boardBranchOverride(
+  boardId: string,
+  fullName: string
+): Promise<string | null> {
+  const { db } = await import(`@/db/connection`)
+  const [row] = await db
+    .select({ defaultBranch: boards.defaultBranch })
+    .from(boards)
+    .innerJoin(repositories, eq(repositories.id, boards.repositoryId))
+    .where(and(eq(boards.id, boardId), eq(repositories.fullName, fullName)))
+    .limit(1)
+  return row?.defaultBranch ?? null
+}
+
 // The override for a (team, "owner/name") pair, or null when the team follows
 // GitHub (or never connected the repo — a PR-URL-derived repo may not have a
 // row). For the paths that resolve the default branch live from GitHub
@@ -296,7 +325,8 @@ export async function repoBranchOverride(
 // Board → repo resolution (v4): a board is backed by exactly one repo via
 // `boards.repositoryId`. Returns null only for dangling data (archived repo).
 // Shared by repositories.forIssue and steer.startSession's precondition.
-// `defaultBranch` is the EFFECTIVE branch (override-aware).
+// `defaultBranch` is the EFFECTIVE branch: the board's own pin (EXP-712),
+// else the repo's override-aware default.
 export async function resolveBoardRepository(boardId: string) {
   const { db } = await import(`@/db/connection`)
   const [row] = await db
@@ -305,6 +335,7 @@ export async function resolveBoardRepository(boardId: string) {
       fullName: repositories.fullName,
       defaultBranch: repositories.defaultBranch,
       defaultBranchOverride: repositories.defaultBranchOverride,
+      boardDefaultBranch: boards.defaultBranch,
       installationId: repositories.installationId,
     })
     .from(boards)
@@ -312,8 +343,14 @@ export async function resolveBoardRepository(boardId: string) {
     .where(and(eq(boards.id, boardId), isNull(repositories.archivedAt)))
     .limit(1)
   if (!row) return null
-  const { defaultBranchOverride, ...rest } = row
-  return { ...rest, defaultBranch: effectiveDefaultBranch(row) }
+  const { defaultBranchOverride, boardDefaultBranch, ...rest } = row
+  return {
+    ...rest,
+    defaultBranch: effectiveBoardBranch(
+      { defaultBranch: boardDefaultBranch },
+      row
+    ),
+  }
 }
 
 async function loadRepository(repositoryId: string) {
@@ -860,8 +897,16 @@ export const repositoriesRouter = router({
   // credentials (repo-local credential helper — EXP-73; the token no longer
   // rides the remote URL). Never persisted server-side — minted per session
   // and expires. Replaces the deleted companion.repoToken.
+  // EXP-712: `boardId` (optional) names the board the launch is for, so the
+  // returned `defaultBranch` is that board's branch when it pins one. A board
+  // that no longer points at this repo is ignored (repo-level resolution).
   installationToken: authedProcedure
-    .input(z.object({ repositoryId: z.string().uuid() }))
+    .input(
+      z.object({
+        repositoryId: z.string().uuid(),
+        boardId: z.string().uuid().optional(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       const repo = await loadRepository(input.repositoryId)
       // Team coding: any member of the repo's team may mint a JIT token
@@ -947,11 +992,17 @@ export const repositoriesRouter = router({
           .set({ defaultBranch: liveDefaultBranch })
           .where(eq(repositories.id, repo.id))
       }
+      const boardBranch = input.boardId
+        ? await boardBranchOverride(input.boardId, repo.fullName)
+        : null
       return {
         token,
         fullName: repo.fullName,
         defaultBranch:
-          repo.defaultBranchOverride ?? liveDefaultBranch ?? repo.defaultBranch,
+          boardBranch ??
+          repo.defaultBranchOverride ??
+          liveDefaultBranch ??
+          repo.defaultBranch,
         // GitHub's REAL expiry for the (possibly cache-served) token — EXP-73:
         // a synthetic now+55min here once labeled a nearly-dead cached token
         // "fresh", and every desktop freshness check trusted the fiction. The

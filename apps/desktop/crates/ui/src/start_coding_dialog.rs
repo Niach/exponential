@@ -334,6 +334,10 @@ enum ActionsLoad {
 /// re-reads the collections).
 struct IssueRow {
     issue_id: String,
+    /// The issue's board — EXP-712: its `default_branch` is the base every
+    /// launch for this issue cuts from, and a batch may only mix boards that
+    /// agree on it.
+    board_id: String,
     identifier: String,
     title: String,
     description: Option<String>,
@@ -565,6 +569,7 @@ impl StartCodingDialogView {
                 }
                 IssueRow {
                     issue_id: issue.id,
+                    board_id: issue.board_id,
                     identifier: issue.identifier,
                     title: issue.title,
                     description: issue.description,
@@ -1499,24 +1504,46 @@ impl StartCodingDialogView {
             }
         }
         let mut repo: Option<&str> = None;
+        // EXP-712: a batch cuts ONE `exp/batch-<id8>` branch, so every issue
+        // in it must resolve to the same BASE branch too — boards on one repo
+        // can now develop on different ones. Same refusal as the server's.
+        let mut bases: Vec<Option<String>> = Vec::new();
         for row in &self.rows {
             if !self.checked.contains(&row.issue_id) {
                 continue;
             }
             match self.repos.get(&row.issue_id) {
-                Some(RepoState::Ready(Some(resolved))) => match repo {
-                    None => repo = Some(&resolved.repository_id),
-                    Some(existing) if existing == resolved.repository_id => {}
-                    Some(_) => {
-                        return Some("One repository per run. Deselect the others.".into())
+                Some(RepoState::Ready(Some(resolved))) => {
+                    match repo {
+                        None => repo = Some(&resolved.repository_id),
+                        Some(existing) if existing == resolved.repository_id => {}
+                        Some(_) => {
+                            return Some("One repository per run. Deselect the others.".into())
+                        }
                     }
-                },
+                    // `repositories.forIssue` resolves the branch through the
+                    // issue's BOARD since EXP-712, so this IS the base the
+                    // launch would cut from.
+                    bases.push(
+                        Some(resolved.default_branch.clone())
+                            .filter(|branch| !branch.trim().is_empty()),
+                    );
+                }
                 // Still resolving (or unresolvable-but-checked — transient).
                 _ => return Some("Checking linked repositories…".into()),
             }
         }
+        if let Some((first, second)) = crate::repo_resolver::batch_branch_conflict(&bases) {
+            return Some(
+                format!(
+                    "All issues in a batch must share one base branch ({first} vs {second})."
+                )
+                .into(),
+            );
+        }
         None
     }
+
 
     /// The dialog's agent/model/effort/mode choices as launch options. A
     /// RESUME never re-enters plan mode (EXP-202): the plan already happened
@@ -1530,10 +1557,15 @@ impl StartCodingDialogView {
     fn batch_request(&self, cx: &App) -> Option<BatchLaunchRequest> {
         let mut repo: Option<RepoGroup> = None;
         let mut issues: Vec<BatchIssueSpec> = Vec::new();
+        // EXP-712: the board whose branch the batch cuts from. The blocker
+        // already refused a set whose boards resolve to different branches,
+        // so the FIRST board's branch is every checked issue's branch.
+        let mut board_id: Option<String> = None;
         for row in &self.rows {
             if !self.checked.contains(&row.issue_id) {
                 continue;
             }
+            board_id.get_or_insert_with(|| row.board_id.clone());
             let Some(RepoState::Ready(Some(resolved))) = self.repos.get(&row.issue_id) else {
                 return None;
             };
@@ -1555,6 +1587,7 @@ impl StartCodingDialogView {
         Some(BatchLaunchRequest {
             batch_id: coding::new_batch_id(),
             team_id: self.team_id.clone(),
+            board_id,
             repo: repo?,
             issues,
             device_label: coding::default_device_label(),

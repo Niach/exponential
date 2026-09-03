@@ -1178,6 +1178,8 @@ pub fn build_launch(
     };
     let request = LaunchRequest {
         issue_id: issue.id.clone(),
+        // EXP-712: the issue's board decides the worktree base + PR target.
+        board_id: Some(issue.board_id.clone()),
         issue_identifier: issue.identifier.clone(),
         issue_status: issue.status,
         device_label: coding::default_device_label(),

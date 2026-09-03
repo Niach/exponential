@@ -106,6 +106,8 @@ final class WireDecodingTests: XCTestCase {
     func testBoardDecodesWireSortOrderAndIgnoresDeadColumns() throws {
         // `is_protected` was dropped server-side (EXP-364) — a stale snapshot
         // that still carries it must decode fine (Codable drops unknown keys).
+        // A pre-EXP-712 snapshot omits `default_branch` entirely: nil, which
+        // means the board follows its repo's default branch.
         let board = try decode(BoardEntity.self, #"""
         {
           "id": "p1", "team_id": "w1", "name": "P", "slug": "p", "prefix": "P",
@@ -114,6 +116,29 @@ final class WireDecodingTests: XCTestCase {
         }
         """#)
         XCTAssertEqual(board.sortOrder, 2)
+        XCTAssertNil(board.defaultBranch)
+    }
+
+    // EXP-712: the board's own branch rides the boards shape as
+    // `default_branch` (nullable — null means follow the repo).
+    func testBoardDecodesDefaultBranch() throws {
+        let pinned = try decode(BoardEntity.self, #"""
+        {
+          "id": "p1", "team_id": "w1", "name": "P", "slug": "p", "prefix": "P",
+          "sort_order": 1, "repository_id": "r1", "default_branch": "release/1.x",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(pinned.defaultBranch, "release/1.x")
+
+        let following = try decode(BoardEntity.self, #"""
+        {
+          "id": "p2", "team_id": "w1", "name": "Q", "slug": "q", "prefix": "Q",
+          "sort_order": 1, "repository_id": "r1", "default_branch": null,
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertNil(following.defaultBranch)
     }
 
     // MARK: - Attachment

@@ -18,8 +18,8 @@ vi.mock(`@/lib/runtime-config`, () => ({
   }),
 }))
 
-vi.mock(`@/components/connected-repo-picker`, () => ({
-  ConnectedRepoPicker: () => <div data-testid="repo-picker" />,
+vi.mock(`@/components/board-repo-field`, () => ({
+  BoardRepoField: () => <div data-testid="repo-field" />,
 }))
 
 vi.mock(`@/components/upgrade-dialog`, () => ({
@@ -59,7 +59,7 @@ describe(`CreateBoardDialog`, () => {
 
     expect(screen.getByLabelText(`Name`)).toBeTruthy()
     expect(screen.getByLabelText(`Prefix`)).toBeTruthy()
-    expect(screen.getByText(`Repository (optional)`)).toBeTruthy()
+    expect(screen.getByTestId(`repo-field`)).toBeTruthy()
     expect(screen.getByRole(`button`, { name: `Create board` })).toBeTruthy()
     // EXP-180: templates and public boards are gone.
     expect(screen.queryByText(`Quickstart`)).toBeNull()
@@ -111,6 +111,7 @@ describe(`CreateBoardDialog`, () => {
       color: `#6366f1`,
       icon: `code`,
       repository: undefined,
+      defaultBranch: undefined,
     })
   })
 })

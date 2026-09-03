@@ -38,6 +38,7 @@ import {
   assertRepoManager,
   BRANCH_PREFIX_DEFAULT,
   connectRepositoryInTx,
+  effectiveBoardBranch,
   effectiveDefaultBranch,
   healRepoDefaultBranches,
   isForeignKeyViolation,
@@ -532,6 +533,26 @@ describe(`healRepoDefaultBranches`, () => {
     expect(healed[0].defaultBranchOverride).toBe(`develop`)
     expect(persist).toHaveBeenCalledWith(`r1`, { defaultBranch: `master` })
     expect(effectiveDefaultBranch(healed[0])).toBe(`develop`)
+  })
+})
+
+describe(`effectiveBoardBranch (EXP-712)`, () => {
+  const repo = { defaultBranch: `main`, defaultBranchOverride: `develop` }
+
+  it(`prefers the board's own branch over the team pin`, () => {
+    expect(
+      effectiveBoardBranch({ defaultBranch: `release/1.x` }, repo)
+    ).toBe(`release/1.x`)
+  })
+
+  it(`falls back to the repo's effective default when the board pins nothing`, () => {
+    expect(effectiveBoardBranch({ defaultBranch: null }, repo)).toBe(`develop`)
+    expect(
+      effectiveBoardBranch(
+        { defaultBranch: null },
+        { defaultBranch: `main`, defaultBranchOverride: null }
+      )
+    ).toBe(`main`)
   })
 })
 

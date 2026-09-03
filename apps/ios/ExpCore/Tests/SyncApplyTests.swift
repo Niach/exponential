@@ -177,14 +177,15 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(row?.dirty, "tracked")
     }
 
-    func testBoardInsertPersistsRepositoryAndIcon() async throws {
-        // The boards shape carries the repo ride-along + the curated icon; an
-        // inserted row must persist both (EXP-364 removed `is_protected` —
-        // protected boards are gone from the product and the shape).
+    func testBoardInsertPersistsRepositoryIconAndBranch() async throws {
+        // The boards shape carries the repo ride-along, the curated icon and
+        // the board's own branch (EXP-712); an inserted row must persist all
+        // three (EXP-364 removed `is_protected` — protected boards are gone
+        // from the product and the shape).
         let board = BoardEntity(
             id: "p1", teamId: "ws1", name: "Dogfood", slug: "exponential",
             prefix: "EXP", color: "#6366f1", sortOrder: 0,
-            repositoryId: "repo1", icon: "rocket",
+            repositoryId: "repo1", icon: "rocket", defaultBranch: "release/1.x",
             createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z"
         )
         let message = ShapeMessage<BoardEntity>.insert(
@@ -194,6 +195,24 @@ final class SyncApplyTests: XCTestCase {
         let stored = try await pool.read { try BoardEntity.fetchOne($0, key: "p1") }
         XCTAssertEqual(stored?.repositoryId, "repo1")
         XCTAssertEqual(stored?.icon, "rocket")
+        XCTAssertEqual(stored?.defaultBranch, "release/1.x")
+    }
+
+    func testBoardInsertKeepsNullDefaultBranch() async throws {
+        // NULL is the load-bearing value: the board follows its repo's default
+        // branch (EXP-712). It must round-trip as nil, never as "".
+        let board = BoardEntity(
+            id: "p2", teamId: "ws1", name: "Design", slug: "design",
+            prefix: "DES", color: "#6366f1", sortOrder: 0,
+            repositoryId: nil, icon: nil, defaultBranch: nil,
+            createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z"
+        )
+        let message = ShapeMessage<BoardEntity>.insert(
+            key: #""public"."boards"/"p2""#, value: board
+        )
+        try await applyBatch(messages: [message], name: "boards", table: "boards", pool: pool)
+        let stored = try await pool.read { try BoardEntity.fetchOne($0, key: "p2") }
+        XCTAssertNil(stored?.defaultBranch)
     }
 
     // EXP-637: the coding-sessions shape carries the agent's own close-out.

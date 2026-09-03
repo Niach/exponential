@@ -23,6 +23,7 @@ const BOARD_COLUMNS = [
   `color`,
   `icon`,
   `repository_id`,
+  `default_branch`,
   `sort_order`,
   `deleted_at`,
   `created_at`,

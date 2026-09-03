@@ -7,7 +7,8 @@
 //!   `null` means "no repository linked" and the launcher must not proceed
 //!   (the disabled Start-coding button with the "Link a repository…"
 //!   helper — never a crash, never a false block).
-//! - `repositories.installationToken({repositoryId})` — **mutation** — mints
+//! - `repositories.installationToken({repositoryId, boardId?})` —
+//!   **mutation** — mints
 //!   the session-gated JIT GitHub-App installation token (~55 min TTL,
 //!   `INSTALLATION_TOKEN_TTL_MS` server-side). **NEVER persisted, never
 //!   logged**; the raw value only ever flows into the transient token-embedded
@@ -159,6 +160,12 @@ struct MergePullInput<'a> {
 #[serde(rename_all = "camelCase")]
 struct InstallationTokenInput<'a> {
     repository_id: &'a str,
+    /// EXP-712: the board the launch is for. When set, the returned
+    /// `defaultBranch` is THAT board's branch (board pin → team pin →
+    /// GitHub); omitted for board-less runs (actions, chat, shells), which
+    /// keep the repo-level resolution.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    board_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -205,13 +212,20 @@ pub fn for_issue(
 }
 
 /// `repositories.installationToken` — mutation (JIT, session-gated).
+/// `board_id` (EXP-712) makes the returned `default_branch` the BOARD's
+/// branch instead of the repo's — every worktree base and PR target of a
+/// board-scoped launch resolves through it.
 pub fn installation_token(
     trpc: &TrpcClient,
     repository_id: &str,
+    board_id: Option<&str>,
 ) -> Result<InstallationToken, ApiError> {
     trpc.mutation(
         "repositories.installationToken",
-        &InstallationTokenInput { repository_id },
+        &InstallationTokenInput {
+            repository_id,
+            board_id,
+        },
     )
 }
 
@@ -272,8 +286,9 @@ pub fn remove(trpc: &TrpcClient, repository_id: &str) -> Result<RemoveResult, Ap
     trpc.mutation("repositories.remove", &RemoveInput { repository_id })
 }
 
-/// `repositories.listBranches` — query (owner-gated, live from GitHub). Feeds
-/// the settings pane's default-branch dropdown (EXP-462).
+/// `repositories.listBranches` — query (member-gated, live from GitHub).
+/// Feeds the settings pane's default-branch dropdown (EXP-462) and the board
+/// form's branch dropdown (EXP-712).
 pub fn list_branches(trpc: &TrpcClient, repository_id: &str) -> Result<RepoBranches, ApiError> {
     trpc.query_with_input(
         "repositories.listBranches",
@@ -349,7 +364,7 @@ mod tests {
             200,
             r#"{"result":{"data":{"token":"ghs_secret123","fullName":"acme/web","defaultBranch":"main","expiresAt":"2026-07-03T12:55:00.000Z"}}}"#,
         );
-        let token = installation_token(&client(&base), "repo-1").unwrap();
+        let token = installation_token(&client(&base), "repo-1", None).unwrap();
         assert_eq!(token.token, "ghs_secret123");
         assert_eq!(token.full_name, "acme/web");
         assert_eq!(token.default_branch, "main");
@@ -360,6 +375,24 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/repositories.installationToken HTTP/1.1"));
         assert!(request.ends_with(r#"{"repositoryId":"repo-1"}"#));
+    }
+
+    /// EXP-712: a BOARD launch names its board so the mint answers with the
+    /// board's branch. A board-less run (action/chat/shell) must keep sending
+    /// the bare input — the server would otherwise resolve someone else's pin.
+    #[test]
+    fn installation_token_carries_the_board_for_board_launches() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"token":"ghs_secret123","fullName":"acme/web","defaultBranch":"develop","expiresAt":"2026-07-03T12:55:00.000Z"}}}"#,
+        );
+        let token = installation_token(&client(&base), "repo-1", Some("board-1")).unwrap();
+        assert_eq!(token.default_branch, "develop");
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(r#"{"repositoryId":"repo-1","boardId":"board-1"}"#),
+            "{request}"
+        );
     }
 
     #[test]
@@ -548,7 +581,7 @@ mod tests {
             412,
             r#"{"error":{"message":"The Exponential GitHub App is not installed on acme/web. Reconnect it in team settings.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
         );
-        match installation_token(&client(&base), "repo-1") {
+        match installation_token(&client(&base), "repo-1", None) {
             Err(ApiError::Http { status, message }) => {
                 assert_eq!(status, 412);
                 assert!(message.contains("GitHub App is not installed"));

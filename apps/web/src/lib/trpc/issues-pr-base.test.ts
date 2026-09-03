@@ -34,13 +34,17 @@ const h = vi.hoisted(() => ({
 
 // membership.ts's getDb() dynamically imports @/db/connection; this mock also
 // satisfies lib/trpc.ts's module-scope `db` import without a live Postgres.
-vi.mock(`@/db/connection`, () => ({
-  db: {
-    select: () => ({
-      from: () => ({ where: () => ({ limit: async () => [] }) }),
-    }),
-  },
-}))
+vi.mock(`@/db/connection`, () => {
+  // EXP-712: boardBranchOverride joins boards → repositories; no board pin.
+  const tail = { where: () => ({ limit: async () => [] }) }
+  return {
+    db: {
+      select: () => ({
+        from: () => ({ ...tail, innerJoin: () => tail }),
+      }),
+    },
+  }
+})
 
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 

@@ -119,6 +119,12 @@ pub struct Board {
     /// Coding affordances gate purely on this presence.
     #[serde(default)]
     pub repository_id: Option<String>,
+    /// `boards.default_branch` (EXP-712, nullable) — the branch THIS board's
+    /// coding sessions branch from and whose PRs they target. `None` = follow
+    /// the repo's own default (team pin, else GitHub), so two boards on one
+    /// repository can develop on different branches.
+    #[serde(default)]
+    pub default_branch: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
     #[serde(default)]
@@ -144,6 +150,7 @@ impl Board {
             color: None,
             icon: None,
             repository_id: None,
+            default_branch: None,
             sort_order: None,
             created_at: None,
             updated_at: None,

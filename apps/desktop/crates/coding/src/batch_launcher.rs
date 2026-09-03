@@ -48,6 +48,12 @@ pub struct BatchLaunchRequest {
     /// The team the issues live in — `codingSessions.start`'s batch
     /// subject (`{ teamId }`).
     pub team_id: String,
+    /// EXP-712: the board the batch branch is cut from — the FIRST issue's.
+    /// A batch whose boards disagree on the base branch is refused before it
+    /// gets here (the dialog's blocker locally, `steer.startSession`
+    /// remotely), so any board of the set names the same branch. `None` only
+    /// when no board could be resolved, which degrades to the repo default.
+    pub board_id: Option<String>,
     pub repo: RepoGroup,
     /// Only issues resolving to `repo`, already filtered to launchable ones
     /// (2+ — a single selection takes the plain issue path).
