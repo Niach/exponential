@@ -2,8 +2,9 @@
 //!
 //! A faithful Rust port of the proven iOS `ContentBlock` /
 //! `MarkdownConversion.swift` model and its Android twin
-//! (`apps/android/.../ui/markdown/model/ContentBlock.kt`): **only images split
-//! the document into blocks**. Headings, lists, quotes and fenced code become
+//! (`apps/android/.../ui/markdown/model/ContentBlock.kt`): **only images and
+//! tables split the document into blocks** (EXP-726 added tables). Headings,
+//! lists, quotes and fenced code become
 //! *paragraph-level attributes* inside a single [`ContentBlock::Text`];
 //! inline formatting is a list of [`InlineMark`] ranges. Markdown is derived
 //! from blocks only at save time — never round-tripped per keystroke.
@@ -161,7 +162,19 @@ impl RichText {
     }
 }
 
-/// One block of the document. Only images split blocks.
+/// Column alignment declared by a GFM table's delimiter row (EXP-726). The
+/// unmarked form (`---`) stays distinct from an explicit `:---` so a column
+/// nobody aligned is never rewritten with a colon on the next save.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TableAlignment {
+    #[default]
+    None,
+    Left,
+    Center,
+    Right,
+}
+
+/// One block of the document. Images and tables split blocks.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ContentBlock {
     Text {
@@ -174,6 +187,18 @@ pub enum ContentBlock {
         /// relative `/api/attachments/{id}` form.
         url: String,
         alt: String,
+    },
+    /// A GFM pipe table (EXP-726). Row 0 is ALWAYS the header, so `rows` holds
+    /// only the body; `header`, every body row and `alignments` are all
+    /// `alignments.len()` wide (parse pads short rows and drops extra cells).
+    /// Cells reuse [`RichText`] so marks and decoration pills apply unchanged,
+    /// but each holds exactly ONE inline paragraph — a `\n` inside a cell has
+    /// no GFM spelling.
+    Table {
+        id: u64,
+        header: Vec<RichText>,
+        rows: Vec<Vec<RichText>>,
+        alignments: Vec<TableAlignment>,
     },
 }
 
@@ -193,14 +218,33 @@ impl ContentBlock {
         }
     }
 
+    pub fn table(
+        header: Vec<RichText>,
+        rows: Vec<Vec<RichText>>,
+        alignments: Vec<TableAlignment>,
+    ) -> Self {
+        Self::Table {
+            id: next_block_id(),
+            header,
+            rows,
+            alignments,
+        }
+    }
+
     pub fn id(&self) -> u64 {
         match self {
-            Self::Text { id, .. } | Self::Image { id, .. } => *id,
+            Self::Text { id, .. } | Self::Image { id, .. } | Self::Table { id, .. } => *id,
         }
     }
 
     pub fn is_image(&self) -> bool {
         matches!(self, Self::Image { .. })
+    }
+
+    /// True for the blocks that are NOT editable text — the ones
+    /// [`normalize_blocks`] pads with text neighbours.
+    pub fn is_block_level(&self) -> bool {
+        matches!(self, Self::Image { .. } | Self::Table { .. })
     }
 }
 
@@ -210,24 +254,24 @@ impl ContentBlock {
 /// 1. An empty document becomes exactly one empty text block.
 /// 2. The first block is always a text block.
 /// 3. The last block is always a text block.
-/// 4. No two image blocks are adjacent.
+/// 4. No two block-level blocks (image, table) are adjacent.
 ///
-/// These guarantee every image has a text block above and below it, so
-/// backspace merges and caret placement always have somewhere to land.
+/// These guarantee every image and table has a text block above and below it,
+/// so backspace merges and caret placement always have somewhere to land.
 pub fn normalize_blocks(blocks: &mut Vec<ContentBlock>) {
     if blocks.is_empty() {
         blocks.push(ContentBlock::text(RichText::empty()));
         return;
     }
-    if blocks.first().is_some_and(ContentBlock::is_image) {
+    if blocks.first().is_some_and(ContentBlock::is_block_level) {
         blocks.insert(0, ContentBlock::text(RichText::empty()));
     }
-    if blocks.last().is_some_and(ContentBlock::is_image) {
+    if blocks.last().is_some_and(ContentBlock::is_block_level) {
         blocks.push(ContentBlock::text(RichText::empty()));
     }
     let mut i = 1;
     while i < blocks.len() {
-        if blocks[i].is_image() && blocks[i - 1].is_image() {
+        if blocks[i].is_block_level() && blocks[i - 1].is_block_level() {
             blocks.insert(i, ContentBlock::text(RichText::empty()));
         }
         i += 1;
@@ -260,6 +304,22 @@ mod tests {
         assert!(!blocks[2].is_image());
         assert!(blocks[3].is_image());
         assert!(!blocks[4].is_image());
+    }
+
+    #[test]
+    fn normalize_wraps_tables_with_text_blocks() {
+        let mut blocks = vec![
+            ContentBlock::table(vec![RichText::plain("a")], Vec::new(), vec![TableAlignment::None]),
+            ContentBlock::image("/api/attachments/a", "a"),
+        ];
+        normalize_blocks(&mut blocks);
+        // text, table, text, image, text
+        assert_eq!(blocks.len(), 5);
+        assert!(!blocks[0].is_block_level());
+        assert!(matches!(&blocks[1], ContentBlock::Table { .. }));
+        assert!(!blocks[2].is_block_level());
+        assert!(blocks[3].is_image());
+        assert!(!blocks[4].is_block_level());
     }
 
     #[test]

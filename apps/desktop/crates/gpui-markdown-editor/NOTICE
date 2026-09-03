@@ -398,5 +398,63 @@ Tests
   byte-identical. `test.md`'s `<details>` assertion tightened from
   "HtmlBlock or RawMarkdown" to exactly RawMarkdown.
 
+Table cell escaping + insert/menu affordances (EXP-726 — data-corruption fix
+plus the maintenance UI the issue asks for)
+- src/components/markdown/table.rs (`serialize_table_cell_markdown`): dropped
+  the `\` -> `\\` doubling. A cell is ONE inline paragraph, so the inline
+  serializer has already escaped everything that needs escaping; doubling here
+  double-escaped its own output and shipped `a\*b` (the escaped intra-word
+  asterisk) as `a\\*b`, which web, iOS and Android all render as a literal
+  backslash. The only cell-level rewrites left are GFM's own two: an
+  unescaped `|` would end the cell and a `\n` would end the row.
+- src/components/markdown/table.rs (`split_table_cells`): the parse side is
+  now the exact inverse, mirroring comrak's `unescape_pipes`
+  (comrak-0.53.0/src/parser/table.rs) — a backslash pair is consumed
+  atomically so a `\|` never splits a cell, but ONLY `\|` collapses; `\\`,
+  `\*`, `\_` and friends reach the inline parser verbatim, which is where
+  CommonMark escapes belong. Upstream collapsed `\\` here, which is exactly
+  what forced the serializer's doubling.
+- src/components/markdown/table.rs (`TableData::insert_row` /
+  `insert_column`), src/editor/table_edit.rs (`insert_table_row` /
+  `insert_table_column`): the INSERT twins of the existing `append_*` pair,
+  with the same undo capture, runtime rebuild, axis selection, new-cell focus
+  and dirty marking. `insert_row` takes a BODY index so a pipe table can never
+  lose its header row; `insert_column` inherits the alignment of the column it
+  displaces.
+- src/editor/context_menu.rs: four handlers (`on_insert_table_row_above` /
+  `_below`, `on_insert_table_column_left` / `_right`) and their menu items,
+  placed FIRST in both axis menus (inserts, then aligns/moves, then delete).
+  "Insert row above" is disabled on visual row 0 — that row IS the header.
+- src/strings.rs: four new `I18nStrings` fields
+  (`table_axis_insert_row_above` / `_below`,
+  `table_axis_insert_column_left` / `_right`) with en + zh defaults, override
+  slots and merge arms.
+- src/components/block/render.rs: the four axis bands' LEFT `on_mouse_down`
+  now emits `RequestOpenTableAxisMenu` instead of `RequestSelectTableAxis`
+  (`open_table_axis_menu` selects the axis first, so nothing is lost) — a
+  plain click on a handle opens its menu, which is what the handles look like
+  they do; right-click is unchanged. `RequestSelectTableAxis` and its
+  `src/editor/events.rs` arm were removed with the last constructor. A visible
+  band (hover preview or selection) also paints a `⋯` / `⋮` glyph in
+  `table_append_button_text`, so the band reads as a handle instead of a bare
+  tint.
+- src/components/block/render.rs: the column-axis band row is now an ABSOLUTE
+  overlay hanging above the header row (`top(-activation_band)`), mirroring
+  how the row bands hang at `left(-activation_band)`. Upstream inserted it as
+  a real 18px gutter ROW, so merely hovering a column pushed the whole table
+  down by a band height and back up on leave — the table jittered under the
+  pointer. Accepted consequence: for a table at the very top of the editor the
+  band paints in the padding above it (and, in an embedded/auto-height host,
+  can be clipped there); the band is decoration only — the header cells' own
+  top activation strip is what hit-tests, so nothing becomes unreachable.
+- Tests: `*_exp726` in src/components/markdown/table.rs (cell escaping only
+  touches pipes; the splitter mirrors `unescape_pipes`; escaped cells reach a
+  byte-identical fixpoint; row/column inserts at an index and past the end)
+  and `table_row_and_column_inserts_write_canonical_markdown` in
+  src/editor/tests.rs (insert row below the header / insert column left,
+  asserted on the serialized bytes). The host's byte-parity gate
+  (`crates/ui/src/markdown/wysiwyg_parity.rs`) gained nine table fixtures that
+  must survive this engine's round-trip unchanged.
+
 (This list is kept current as further vendoring changes land; see git history
 of this directory for the precise diffs.)

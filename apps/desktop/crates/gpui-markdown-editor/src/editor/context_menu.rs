@@ -477,6 +477,87 @@ impl Editor {
         self.on_apply_column_alignment(TableColumnAlignment::Right, cx);
     }
 
+    // --- EXP-726: inserts. Rows are addressed by VISUAL index (header = 0),
+    // the table model by BODY index, so "above" is `index - 1` and "below" is
+    // `index`. Inserting above the header is refused: a pipe table's first row
+    // IS its header, and the menu disables that item to match.
+
+    pub(super) fn on_insert_table_row_above(
+        &mut self,
+        _event: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(selection) = self.active_axis_menu_selection() else {
+            return;
+        };
+        if selection.kind != TableAxisKind::Row || selection.index == 0 {
+            return;
+        }
+        let Some(table_block) = self.table_block_by_id(selection.table_block_id, cx) else {
+            return;
+        };
+        self.close_context_menu(cx);
+        self.insert_table_row(&table_block, selection.index - 1, cx);
+    }
+
+    pub(super) fn on_insert_table_row_below(
+        &mut self,
+        _event: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(selection) = self.active_axis_menu_selection() else {
+            return;
+        };
+        if selection.kind != TableAxisKind::Row {
+            return;
+        }
+        let Some(table_block) = self.table_block_by_id(selection.table_block_id, cx) else {
+            return;
+        };
+        self.close_context_menu(cx);
+        self.insert_table_row(&table_block, selection.index, cx);
+    }
+
+    pub(super) fn on_insert_table_column_left(
+        &mut self,
+        _event: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(selection) = self.active_axis_menu_selection() else {
+            return;
+        };
+        if selection.kind != TableAxisKind::Column {
+            return;
+        }
+        let Some(table_block) = self.table_block_by_id(selection.table_block_id, cx) else {
+            return;
+        };
+        self.close_context_menu(cx);
+        self.insert_table_column(&table_block, selection.index, cx);
+    }
+
+    pub(super) fn on_insert_table_column_right(
+        &mut self,
+        _event: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(selection) = self.active_axis_menu_selection() else {
+            return;
+        };
+        if selection.kind != TableAxisKind::Column {
+            return;
+        }
+        let Some(table_block) = self.table_block_by_id(selection.table_block_id, cx) else {
+            return;
+        };
+        self.close_context_menu(cx);
+        self.insert_table_column(&table_block, selection.index + 1, cx);
+    }
+
     pub(super) fn on_move_table_row_up(
         &mut self,
         _event: &ClickEvent,
@@ -842,6 +923,33 @@ impl Editor {
                 let table = table_block.read(cx).record.table.clone()?;
                 let items = match selection.kind {
                     TableAxisKind::Column => vec![
+                        // EXP-726: inserts lead the menu (Linear's ordering) —
+                        // adding structure is the common action, moving and
+                        // deleting the rarer ones.
+                        Self::render_axis_menu_item(
+                            theme,
+                            "table-axis-insert-column-left",
+                            s.table_axis_insert_column_left.clone(),
+                            true,
+                            false,
+                            Self::on_insert_table_column_left,
+                            cx,
+                        ),
+                        Self::render_axis_menu_item(
+                            theme,
+                            "table-axis-insert-column-right",
+                            s.table_axis_insert_column_right.clone(),
+                            true,
+                            false,
+                            Self::on_insert_table_column_right,
+                            cx,
+                        ),
+                        div()
+                            .mx(px(d.menu_separator_margin_x))
+                            .my(px(d.menu_separator_margin_y))
+                            .h(px(d.menu_separator_height))
+                            .bg(c.dialog_border)
+                            .into_any_element(),
                         Self::render_axis_menu_item(
                             theme,
                             "table-axis-align-column-left",
@@ -947,6 +1055,35 @@ impl Editor {
                                     .into_any_element(),
                             );
                         }
+                        // EXP-726: inserts lead, as in the column menu.
+                        // "Insert row above" is disabled on the header: row 0
+                        // IS the pipe table's header row.
+                        items.push(Self::render_axis_menu_item(
+                            theme,
+                            "table-axis-insert-row-above",
+                            s.table_axis_insert_row_above.clone(),
+                            selection.index > 0,
+                            false,
+                            Self::on_insert_table_row_above,
+                            cx,
+                        ));
+                        items.push(Self::render_axis_menu_item(
+                            theme,
+                            "table-axis-insert-row-below",
+                            s.table_axis_insert_row_below.clone(),
+                            true,
+                            false,
+                            Self::on_insert_table_row_below,
+                            cx,
+                        ));
+                        items.push(
+                            div()
+                                .mx(px(d.menu_separator_margin_x))
+                                .my(px(d.menu_separator_margin_y))
+                                .h(px(d.menu_separator_height))
+                                .bg(c.dialog_border)
+                                .into_any_element(),
+                        );
                         items.push(Self::render_axis_menu_item(
                             theme,
                             "table-axis-move-row-up",

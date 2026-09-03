@@ -58,6 +58,16 @@ pub(crate) fn editor_theme(cx: &App) -> Arc<MarkdownEditorTheme> {
     c.table_border = app.border;
     c.table_header_bg = app.muted;
     c.table_cell_bg = Hsla::transparent_black();
+    // EXP-726: the table maintenance chrome. The vendored defaults are a fixed
+    // blue/slate pair that reads as a foreign accent inside our zinc palette;
+    // the axis bands are the app's hover/selected row fills and the append
+    // buttons the secondary button triple.
+    c.table_cell_active_outline = app.ring;
+    c.table_axis_preview_bg = app.accent;
+    c.table_axis_selected_bg = app.list_active;
+    c.table_append_button_bg = app.secondary;
+    c.table_append_button_hover = app.secondary_hover;
+    c.table_append_button_text = app.secondary_foreground;
     c.image_placeholder_bg = app.muted;
     c.image_placeholder_border = app.border;
     c.image_placeholder_text = app.muted_foreground;

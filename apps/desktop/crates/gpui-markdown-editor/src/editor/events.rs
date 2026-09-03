@@ -2185,11 +2185,6 @@ impl Editor {
                     self.preview_table_axis(block.entity_id(), *kind, *index, *hovered, cx);
                 }
             }
-            BlockEvent::RequestSelectTableAxis { kind, index } => {
-                if block.read(cx).kind() == BlockKind::Table {
-                    self.select_table_axis(block.entity_id(), *kind, *index, cx);
-                }
-            }
             BlockEvent::RequestOpenTableAxisMenu {
                 kind,
                 index,

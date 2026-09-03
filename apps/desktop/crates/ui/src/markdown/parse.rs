@@ -6,9 +6,10 @@
 //! §12.6#1): it is a line-for-line port of cmark-gfm, so edge cases (text-node
 //! consolidation, bracket fallback, fence handling) behave identically.
 //!
-//! Only images split blocks. Headings, lists, quotes and fenced code become
-//! paragraph-level attributes inside a [`ContentBlock::Text`]. Task-list items
-//! are detected manually (NOT via comrak's tasklist extension) so unchecked
+//! Only images and GFM tables (EXP-726) split blocks. Headings, lists, quotes
+//! and fenced code become paragraph-level attributes inside a
+//! [`ContentBlock::Text`]. Task-list items are detected manually (NOT via
+//! comrak's tasklist extension) so unchecked
 //! boxes don't degrade to plain bullets — the same reasoning the iOS
 //! implementation documents.
 //!
@@ -16,12 +17,14 @@
 //! so autolinking here would rewrite `https://x` to `[https://x](https://x)`
 //! on the next save, diverging the stored bytes from the web client.
 
-use comrak::nodes::{AstNode, ListType as MdListType, NodeValue};
+use comrak::nodes::{
+    AstNode, ListType as MdListType, NodeValue, TableAlignment as MdTableAlignment,
+};
 use comrak::{parse_document, Arena, Options};
 
 use super::blocks::{
     normalize_blocks, BlockKind, ContentBlock, InlineKind, InlineMark, ListType, ParagraphAttrs,
-    RichText, THEMATIC_BREAK_GLYPH,
+    RichText, TableAlignment, THEMATIC_BREAK_GLYPH,
 };
 
 /// How a GFM SOFT break (a lone `\n` inside a paragraph) is interpreted.
@@ -58,6 +61,9 @@ pub fn markdown_to_blocks_with(markdown: &str, soft_breaks: SoftBreakMode) -> Ve
     let arena = Arena::new();
     let mut options = Options::default();
     options.extension.strikethrough = true;
+    // EXP-726: GFM pipe tables. Without it a table degrades into one run-on
+    // paragraph — the bug the steer feed showed as raw `|---|---|` text.
+    options.extension.table = true;
     let doc = parse_document(&arena, markdown, &options);
 
     let mut collector = BlockCollector::default();
@@ -112,6 +118,10 @@ struct RenderContext {
     strip_task_prefix: bool,
     /// Soft-break interpretation (see [`SoftBreakMode`]).
     soft_breaks: SoftBreakMode,
+    /// EXP-726: inside a table cell, which is ONE inline paragraph — images
+    /// stay literal `![alt](url)` text and every break collapses to a space,
+    /// because neither has a spelling inside a GFM pipe cell.
+    in_table_cell: bool,
 }
 
 #[derive(Default)]
@@ -238,6 +248,17 @@ impl BlockCollector {
         self.blocks.push(ContentBlock::image(url, alt));
     }
 
+    fn emit_table(
+        &mut self,
+        header: Vec<RichText>,
+        rows: Vec<Vec<RichText>>,
+        alignments: Vec<TableAlignment>,
+    ) {
+        self.flush_text();
+        self.blocks
+            .push(ContentBlock::table(header, rows, alignments));
+    }
+
     fn emit_code_block(&mut self, literal: &str, lang: Option<&str>) {
         // Each source line of the fenced block becomes its own CodeBlock
         // paragraph; the serializer detects the consecutive run and emits a
@@ -344,6 +365,8 @@ fn visit<'a>(node: &'a AstNode<'a>, collector: &mut BlockCollector, ctx: &mut Re
             collector.append(literal);
         }
 
+        NodeValue::SoftBreak if ctx.in_table_cell => collector.append(" "),
+
         NodeValue::SoftBreak => match ctx.soft_breaks {
             SoftBreakMode::Space => collector.append(" "),
             // EXP-118: the LineBreak treatment below — a paragraph boundary
@@ -363,6 +386,8 @@ fn visit<'a>(node: &'a AstNode<'a>, collector: &mut BlockCollector, ctx: &mut Re
                 }
             }
         },
+
+        NodeValue::LineBreak if ctx.in_table_cell => collector.append(" "),
 
         NodeValue::LineBreak => {
             // A hard break becomes a paragraph boundary carrying the same
@@ -411,7 +436,14 @@ fn visit<'a>(node: &'a AstNode<'a>, collector: &mut BlockCollector, ctx: &mut Re
 
         NodeValue::Image(link) => {
             let alt = collect_text(node);
-            collector.emit_image(link.url.clone(), alt);
+            if ctx.in_table_cell {
+                // A cell cannot hold a block-level image; GFM's own renderers
+                // keep it inline, and the contract stores the literal text so
+                // every client shows the same thing.
+                collector.append(&format!("![{alt}]({})", link.url));
+            } else {
+                collector.emit_image(link.url.clone(), alt);
+            }
         }
 
         NodeValue::CodeBlock(code_block) => {
@@ -473,6 +505,46 @@ fn visit<'a>(node: &'a AstNode<'a>, collector: &mut BlockCollector, ctx: &mut Re
             ctx.strip_task_prefix = false;
         }
 
+        // EXP-726: a GFM pipe table. Row 0 is always the header; ragged body
+        // rows are padded to the header width and surplus cells dropped, which
+        // is what GFM's own reference renderer does.
+        NodeValue::Table(table) => {
+            let alignments: Vec<TableAlignment> = table
+                .alignments
+                .iter()
+                .map(|alignment| match alignment {
+                    MdTableAlignment::None => TableAlignment::None,
+                    MdTableAlignment::Left => TableAlignment::Left,
+                    MdTableAlignment::Center => TableAlignment::Center,
+                    MdTableAlignment::Right => TableAlignment::Right,
+                })
+                .collect();
+
+            let mut header: Vec<RichText> = Vec::new();
+            let mut rows: Vec<Vec<RichText>> = Vec::new();
+            for row in node.children() {
+                let is_header = matches!(row.data.borrow().value, NodeValue::TableRow(true));
+                let cells: Vec<RichText> = row
+                    .children()
+                    .map(|cell| render_table_cell(cell, ctx))
+                    .collect();
+                if is_header && header.is_empty() {
+                    header = cells;
+                } else {
+                    rows.push(cells);
+                }
+            }
+
+            let columns = alignments.len().max(header.len()).max(1);
+            let mut alignments = alignments;
+            alignments.resize(columns, TableAlignment::None);
+            header.resize(columns, RichText::empty());
+            for row in &mut rows {
+                row.resize(columns, RichText::empty());
+            }
+            collector.emit_table(header, rows, alignments);
+        }
+
         NodeValue::ThematicBreak => {
             collector.start_para(ParagraphAttrs {
                 kind: BlockKind::ThematicBreak,
@@ -490,6 +562,44 @@ fn visit<'a>(node: &'a AstNode<'a>, collector: &mut BlockCollector, ctx: &mut Re
         NodeValue::HtmlInline(literal) => collector.append(literal),
 
         _ => render_children(node, collector, ctx),
+    }
+}
+
+/// Render one `TableCell`'s inline children into a single-paragraph
+/// [`RichText`] (EXP-726). A fresh collector keeps the cell's marks in
+/// cell-local byte offsets and makes an image inside it literal text instead
+/// of a block split.
+fn render_table_cell<'a>(cell: &'a AstNode<'a>, ctx: &mut RenderContext) -> RichText {
+    let mut collector = BlockCollector::default();
+    let previous_cell = ctx.in_table_cell;
+    let previous_soft_breaks = ctx.soft_breaks;
+    ctx.in_table_cell = true;
+    ctx.soft_breaks = SoftBreakMode::Space;
+    render_children(cell, &mut collector, ctx);
+    ctx.in_table_cell = previous_cell;
+    ctx.soft_breaks = previous_soft_breaks;
+
+    // Cells hold inline content only, so there is normally exactly one
+    // paragraph; join defensively so a nested block can never lose text.
+    let mut text = String::new();
+    let mut marks: Vec<InlineMark> = Vec::new();
+    for para in &collector.paras {
+        if !text.is_empty() {
+            text.push(' ');
+        }
+        let offset = text.len();
+        text.push_str(&para.text);
+        marks.extend(para.marks.iter().map(|m| InlineMark {
+            start: m.start + offset,
+            end: m.end + offset,
+            kind: m.kind,
+            href: m.href.clone(),
+        }));
+    }
+    RichText {
+        text,
+        paragraphs: vec![ParagraphAttrs::PLAIN],
+        marks,
     }
 }
 
@@ -597,6 +707,124 @@ mod tests {
             .expect("link mark");
         assert_eq!(link.href.as_deref(), Some("/x"));
         assert_eq!(&rich.text[link.start..link.end], "f");
+    }
+
+    // --- EXP-726: GFM pipe tables. ---
+
+    fn table_block(
+        blocks: &[ContentBlock],
+        i: usize,
+    ) -> (&Vec<RichText>, &Vec<Vec<RichText>>, &Vec<TableAlignment>) {
+        match &blocks[i] {
+            ContentBlock::Table {
+                header,
+                rows,
+                alignments,
+                ..
+            } => (header, rows, alignments),
+            other => panic!("expected a table block at {i}, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pipe_table_becomes_table_block() {
+        let blocks = markdown_to_blocks("| l | c | r | n |\n| :--- | :---: | ---: | --- |\n| 1 | 2 | 3 | 4 |");
+        // normalize wraps a block-level table in text blocks.
+        assert_eq!(blocks.len(), 3);
+        let (header, rows, alignments) = table_block(&blocks, 1);
+        assert_eq!(
+            header.iter().map(|c| c.text.as_str()).collect::<Vec<_>>(),
+            vec!["l", "c", "r", "n"]
+        );
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].iter().map(|c| c.text.as_str()).collect::<Vec<_>>(),
+            vec!["1", "2", "3", "4"]
+        );
+        assert_eq!(
+            alignments,
+            &vec![
+                TableAlignment::Left,
+                TableAlignment::Center,
+                TableAlignment::Right,
+                TableAlignment::None,
+            ]
+        );
+    }
+
+    #[test]
+    fn table_cells_carry_cell_local_mark_offsets() {
+        let blocks = markdown_to_blocks(
+            "| **bold** | see [docs](/help/page) |\n| --- | --- |\n| `code` | plain |",
+        );
+        let (header, rows, _) = table_block(&blocks, 1);
+        assert_eq!(header[0].text, "bold");
+        assert_eq!(header[0].marks.len(), 1);
+        assert_eq!(header[0].marks[0].kind, InlineKind::Bold);
+        assert_eq!(header[0].marks[0].start..header[0].marks[0].end, 0..4);
+
+        assert_eq!(header[1].text, "see docs");
+        let link = header[1]
+            .marks
+            .iter()
+            .find(|m| m.kind == InlineKind::Link)
+            .expect("link mark");
+        // Offsets are CELL-local, not document-local.
+        assert_eq!(&header[1].text[link.start..link.end], "docs");
+        assert_eq!(link.href.as_deref(), Some("/help/page"));
+
+        assert_eq!(rows[0][0].text, "code");
+        assert_eq!(rows[0][0].marks[0].kind, InlineKind::InlineCode);
+    }
+
+    #[test]
+    fn a_table_interrupts_prose_and_keeps_text_neighbours() {
+        let blocks =
+            markdown_to_blocks("before\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nafter");
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(text_block(&blocks, 0).text, "before");
+        let (header, _, _) = table_block(&blocks, 1);
+        assert_eq!(header[0].text, "a");
+        assert_eq!(text_block(&blocks, 2).text, "after");
+    }
+
+    #[test]
+    fn ragged_body_rows_are_padded_to_the_header_width() {
+        let blocks = markdown_to_blocks("| a | b | c |\n| --- | --- | --- |\n| 1 |\n| 1 | 2 | 3 | 4 |");
+        let (header, rows, alignments) = table_block(&blocks, 1);
+        assert_eq!(header.len(), 3);
+        assert_eq!(alignments.len(), 3);
+        assert_eq!(rows[0].len(), 3);
+        assert!(rows[0][1].text.is_empty());
+        // Surplus cells are dropped, never widening the table.
+        assert_eq!(rows[1].len(), 3);
+        assert_eq!(rows[1][2].text, "3");
+    }
+
+    #[test]
+    fn cell_images_stay_literal_instead_of_splitting_the_document() {
+        // An image inside a cell would otherwise flush the run and emit an
+        // Image BLOCK in the middle of the table.
+        let blocks = markdown_to_blocks(
+            "| ![alt](/api/attachments/abc) | b |\n| --- | --- |\n| 1 | 2 |",
+        );
+        assert_eq!(blocks.len(), 3, "the table must stay ONE block");
+        let (header, _, _) = table_block(&blocks, 1);
+        assert_eq!(header[0].text, "![alt](/api/attachments/abc)");
+        assert!(header[0].marks.is_empty());
+        // …and it survives the round-trip as literal text, not an image block.
+        assert_eq!(
+            super::super::serialize::blocks_to_markdown(&blocks),
+            "| ![alt](/api/attachments/abc) | b |\n| --- | --- |\n| 1 | 2 |"
+        );
+    }
+
+    #[test]
+    fn header_only_tables_parse() {
+        let blocks = markdown_to_blocks("| a | b |\n| --- | --- |");
+        let (header, rows, _) = table_block(&blocks, 1);
+        assert_eq!(header.len(), 2);
+        assert!(rows.is_empty());
     }
 
     #[test]

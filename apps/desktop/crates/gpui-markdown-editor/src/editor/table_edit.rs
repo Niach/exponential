@@ -214,6 +214,120 @@ impl Editor {
         cx.notify();
     }
 
+    /// EXP-726: inserts an empty body row at `body_index` (0-based into the
+    /// BODY rows) and focuses its first cell — the [`append_table_row`] twin
+    /// for the axis menu's "Insert row above/below".
+    ///
+    /// [`append_table_row`]: Self::append_table_row
+    pub(super) fn insert_table_row(
+        &mut self,
+        table_block: &Entity<Block>,
+        body_index: usize,
+        cx: &mut Context<Self>,
+    ) {
+        self.sync_table_record_from_runtime(table_block, cx);
+
+        let Some(mut table) = table_block.read(cx).record.table.clone() else {
+            return;
+        };
+        let started_local_capture = if self.pending_undo_capture.is_none() {
+            self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+            true
+        } else {
+            false
+        };
+        let body_index = body_index.min(table.rows.len());
+        table.insert_row(body_index);
+
+        table_block.update(cx, move |block, _cx| {
+            block.record.table = Some(table.clone());
+        });
+        self.rebuild_table_runtimes(cx);
+        // The new row is visual row `body_index + 1` (the header is 0).
+        self.set_table_axis_selection(
+            Some(TableAxisSelection {
+                table_block_id: table_block.entity_id(),
+                kind: TableAxisKind::Row,
+                index: body_index + 1,
+            }),
+            cx,
+        );
+        if let Some(cell) = table_block
+            .read(cx)
+            .table_runtime
+            .as_ref()
+            .and_then(|runtime| runtime.rows.get(body_index))
+            .and_then(|row| row.first())
+        {
+            self.focus_block(cell.entity_id());
+        }
+        self.mark_dirty(cx);
+        self.request_active_block_scroll_into_view(cx);
+        if started_local_capture {
+            self.finalize_pending_undo_capture(cx);
+        }
+        cx.notify();
+    }
+
+    /// EXP-726: inserts an empty column at `column`, inheriting the alignment
+    /// of the column it displaces — the [`append_table_column`] twin for the
+    /// axis menu's "Insert column left/right".
+    ///
+    /// [`append_table_column`]: Self::append_table_column
+    pub(super) fn insert_table_column(
+        &mut self,
+        table_block: &Entity<Block>,
+        column: usize,
+        cx: &mut Context<Self>,
+    ) {
+        self.sync_table_record_from_runtime(table_block, cx);
+
+        let Some(mut table) = table_block.read(cx).record.table.clone() else {
+            return;
+        };
+        let started_local_capture = if self.pending_undo_capture.is_none() {
+            self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+            true
+        } else {
+            false
+        };
+        let column = column.min(table.column_count());
+        let alignment = table
+            .alignments
+            .get(column)
+            .or_else(|| table.alignments.last())
+            .copied()
+            .unwrap_or(TableColumnAlignment::Default);
+        table.insert_column(column, alignment);
+
+        table_block.update(cx, move |block, _cx| {
+            block.record.table = Some(table.clone());
+        });
+        self.rebuild_table_runtimes(cx);
+        self.set_table_axis_selection(
+            Some(TableAxisSelection {
+                table_block_id: table_block.entity_id(),
+                kind: TableAxisKind::Column,
+                index: column,
+            }),
+            cx,
+        );
+        if let Some(cell) = table_block
+            .read(cx)
+            .table_runtime
+            .as_ref()
+            .and_then(|runtime| runtime.header.get(column))
+        {
+            self.focus_block(cell.entity_id());
+        }
+        self.mark_dirty(cx);
+        self.request_active_block_scroll_into_view(cx);
+        if started_local_capture {
+            self.finalize_pending_undo_capture(cx);
+        }
+        cx.notify();
+    }
+
     pub(super) fn preview_table_axis(
         &mut self,
         table_block_id: EntityId,

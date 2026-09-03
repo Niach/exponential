@@ -47,7 +47,10 @@ use gpui_component::{
 use super::image_url;
 
 use super::autocomplete::{detect_trigger, CompletionItem, CompletionSource};
-use super::blocks::{BlockKind, ContentBlock, InlineKind, InlineMark, ListType, ParagraphAttrs};
+use super::blocks::{
+    BlockKind, ContentBlock, InlineKind, InlineMark, ListType, ParagraphAttrs, RichText,
+    TableAlignment,
+};
 use super::image_paste::{
     new_draft_url, pasted_image_parts, read_image_file, validate_image, AttachmentTransport,
     StagedImage,
@@ -1031,7 +1034,12 @@ impl MarkdownEditor {
             .iter()
             .enumerate()
             .map(|(index, block)| match block {
-                ContentBlock::Text { .. } => {
+                // EXP-726: a table has no structural editor block here (this
+                // legacy block editor is superseded by the vendored WYSIWYG
+                // surface, which edits tables natively). Its canonical raw
+                // text goes into a text block, so it renders as source and
+                // still re-serializes byte-identically.
+                ContentBlock::Text { .. } | ContentBlock::Table { .. } => {
                     let fragment = blocks_to_markdown(std::slice::from_ref(block));
                     let placeholder = (index == 0).then(|| self.placeholder.clone());
                     self.new_text_block_with_placeholder(&fragment, placeholder, window, cx)
@@ -2113,6 +2121,14 @@ impl gpui::RenderOnce for MarkdownView {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let blocks = Rc::new(markdown_to_blocks(&self.source));
         let mut children: Vec<gpui::AnyElement> = Vec::new();
+        // EXP-233: the width this view painted at on the previous frame (see
+        // the long comment below). EXP-726 hoists it above the block loop —
+        // a table needs it to decide grow-vs-scroll.
+        let key = (window.window_handle().window_id(), self.id.clone());
+        let known_width = view_widths()
+            .lock()
+            .ok()
+            .and_then(|widths| widths.get(&key).copied());
 
         for (block_index, block) in blocks.iter().enumerate() {
             match block {
@@ -2126,6 +2142,23 @@ impl gpui::RenderOnce for MarkdownView {
                         url,
                         alt,
                         None,
+                        cx,
+                    ));
+                }
+                ContentBlock::Table {
+                    header,
+                    rows,
+                    alignments,
+                    ..
+                } => {
+                    children.push(render_view_table(
+                        &self,
+                        block_index,
+                        header,
+                        rows,
+                        alignments,
+                        known_width,
+                        window,
                         cx,
                     ));
                 }
@@ -2239,11 +2272,6 @@ impl gpui::RenderOnce for MarkdownView {
             })
             .when(!self.chat, |this| this.gap_1p5())
             .children(children);
-        let key = (window.window_handle().window_id(), self.id.clone());
-        let known_width = view_widths()
-            .lock()
-            .ok()
-            .and_then(|widths| widths.get(&key).copied());
         let sized = match known_width {
             Some(width) => div().w(px(width)).max_w_full().child(content),
             None => div().w_full().child(content),
@@ -2293,23 +2321,149 @@ fn line_marks(content: &super::blocks::RichText, lines: &[&str], index: usize) -
         .collect()
 }
 
+// ---------------------------------------------------------------------------
+// Table rendering (EXP-726)
+// ---------------------------------------------------------------------------
+
+/// Per-column width bounds. The floor keeps a one-character column clickable,
+/// the ceiling stops one long cell from pushing every neighbour off screen.
+const TABLE_MIN_COLUMN_WIDTH: f32 = 48.0;
+const TABLE_MAX_COLUMN_WIDTH: f32 = 480.0;
+/// `px_2()` on both sides plus the 1px separator the cell carries.
+const TABLE_CELL_CHROME: f32 = 17.0;
+
+/// Render a GFM table as a real grid. Column widths are measured off the
+/// SHAPED display text of every cell (the same `layout_line` path the text
+/// elements take, so it is a layout-cache hit), clamped, and then either
+/// grown to fill the known content width or pinned inside a horizontal
+/// scroller when the natural table is wider than the column. Works unchanged
+/// under `.chat(true)` — the steer feed just measures at the smaller rem.
 #[allow(clippy::too_many_arguments)]
-fn render_view_line(
+fn render_view_table(
     view: &MarkdownView,
-    blocks: &Rc<Vec<ContentBlock>>,
     block_index: usize,
-    line_index: usize,
+    header: &[RichText],
+    rows: &[Vec<RichText>],
+    alignments: &[TableAlignment],
+    known_width: Option<f32>,
+    window: &mut Window,
+    cx: &mut App,
+) -> gpui::AnyElement {
+    let columns = alignments.len().max(header.len()).max(1);
+    let theme = cx.theme();
+    let border = theme.border;
+    let header_bg = theme.muted;
+    let font = gpui::font(theme.font_family.to_string());
+    // The chat rhythm renders at `text_sm`; documents inherit the base rem.
+    let rems = gpui::Rems(if view.chat { 0.875 } else { 1.0 });
+
+    let widths: Vec<f32> = (0..columns)
+        .map(|column| {
+            let natural = std::iter::once(header.get(column))
+                .chain(rows.iter().map(|row| row.get(column)))
+                .flatten()
+                .map(|cell| {
+                    let display = build_display_line(
+                        &cell.text,
+                        &cell.marks,
+                        view.resolver.as_ref(),
+                        view.chat,
+                        cx,
+                    );
+                    crate::screens::measure_text(window, &display.text, font.clone(), rems)
+                })
+                .fold(0.0f32, f32::max);
+            (natural + TABLE_CELL_CHROME).clamp(TABLE_MIN_COLUMN_WIDTH, TABLE_MAX_COLUMN_WIDTH)
+        })
+        .collect();
+    let natural_width: f32 = widths.iter().sum();
+    // Unknown width (the very first frame) is treated as "fits": the fraction
+    // layout degrades gracefully, a fixed-width one would overflow the column.
+    let fits = known_width.is_none_or(|available| natural_width <= available);
+
+    let total_rows = 1 + rows.len();
+    let mut grid_rows: Vec<gpui::AnyElement> = Vec::with_capacity(total_rows);
+    for (row_index, cells) in std::iter::once(header)
+        .chain(rows.iter().map(|row| row.as_slice()))
+        .enumerate()
+    {
+        let is_header = row_index == 0;
+        let mut row = h_flex().items_stretch().when(is_header, |this| {
+            this.bg(header_bg).font_weight(FontWeight::MEDIUM)
+        });
+        for column in 0..columns {
+            let empty = RichText::empty();
+            let cell = cells.get(column).unwrap_or(&empty);
+            let text_element = render_inline_text(
+                view,
+                &format!("t{block_index}-{row_index}-{column}"),
+                &cell.text,
+                cell.marks.clone(),
+                cx,
+            );
+            let width = widths[column];
+            let mut cell_div = div()
+                .flex_none()
+                .when(fits, |this| this.w(gpui::relative(width / natural_width)))
+                .when(!fits, |this| this.w(px(width)))
+                .min_w_0()
+                .px_2()
+                .py_1()
+                .flex()
+                .when(column + 1 < columns, |this| {
+                    this.border_r_1().border_color(border)
+                })
+                .when(row_index + 1 < total_rows, |this| {
+                    this.border_b_1().border_color(border)
+                });
+            cell_div = match alignments.get(column).copied().unwrap_or_default() {
+                TableAlignment::Center => cell_div.justify_center(),
+                TableAlignment::Right => cell_div.justify_end(),
+                TableAlignment::None | TableAlignment::Left => cell_div.justify_start(),
+            };
+            row = row.child(cell_div.child(text_element));
+        }
+        grid_rows.push(row.into_any_element());
+    }
+
+    let grid = v_flex()
+        .flex_none()
+        .when(fits, |this| this.w_full())
+        .when(!fits, |this| this.w(px(natural_width)))
+        .border_1()
+        .border_color(border)
+        .rounded(px(6.))
+        .overflow_hidden()
+        .children(grid_rows);
+
+    if fits {
+        div().w_full().child(grid).into_any_element()
+    } else {
+        div()
+            .id(ElementId::from(SharedString::from(format!(
+                "{}-table-{block_index}",
+                view.id
+            ))))
+            .w_full()
+            .overflow_x_scroll()
+            .child(grid)
+            .into_any_element()
+    }
+}
+
+/// EXP-726: the inline half of a rendered line — decoration pills, clickable
+/// link/issue targets, mono overrides and the window selection layer — with no
+/// block-level chrome. `key` disambiguates the element ids (`{block}-{line}`
+/// for a prose line, `t{block}-{row}-{col}` for a table cell).
+fn render_inline_text(
+    view: &MarkdownView,
+    key: &str,
     line: &str,
-    attrs: &ParagraphAttrs,
     marks: Vec<InlineMark>,
     cx: &mut App,
 ) -> gpui::AnyElement {
     let theme = cx.theme();
-    let muted = theme.muted_foreground;
-    let text_id = ElementId::from(SharedString::from(format!(
-        "{}-line-{block_index}-{line_index}",
-        view.id
-    )));
+    let text_id = ElementId::from(SharedString::from(format!("{}-line-{key}", view.id)));
     let display = build_display_line(line, &marks, view.resolver.as_ref(), view.chat, cx);
     let mono = theme.mono_font_family.clone();
 
@@ -2387,12 +2541,9 @@ fn render_view_line(
     // EXP-521: wrap the finished text element as a window-selection
     // participant. The pill wrapper (if any) stays INSIDE so highlight quads
     // paint over the pills and under the glyphs.
-    let text_element: gpui::AnyElement = if view.selectable {
+    if view.selectable {
         SelectableLineText {
-            id: ElementId::from(SharedString::from(format!(
-                "{}-sel-{block_index}-{line_index}",
-                view.id
-            ))),
+            id: ElementId::from(SharedString::from(format!("{}-sel-{key}", view.id))),
             child: text_element,
             layout: text_layout_for_selection,
             text: SharedString::from(display.text.clone()),
@@ -2401,7 +2552,29 @@ fn render_view_line(
         .into_any_element()
     } else {
         text_element
-    };
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_view_line(
+    view: &MarkdownView,
+    blocks: &Rc<Vec<ContentBlock>>,
+    block_index: usize,
+    line_index: usize,
+    line: &str,
+    attrs: &ParagraphAttrs,
+    marks: Vec<InlineMark>,
+    cx: &mut App,
+) -> gpui::AnyElement {
+    let text_element = render_inline_text(
+        view,
+        &format!("{block_index}-{line_index}"),
+        line,
+        marks,
+        cx,
+    );
+    let theme = cx.theme();
+    let muted = theme.muted_foreground;
 
     // Wrap with block-level styling + list gutter.
     let content: gpui::AnyElement = match attrs.kind {
@@ -3456,6 +3629,57 @@ mod tests {
         });
         let (_view, cx) = cx.add_window_view(|_window, _cx| Host);
         for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+    }
+
+    /// EXP-726: drive the whole table render path — per-column `layout_line`
+    /// measurement, the fraction/fixed width split and the horizontal
+    /// scroller — through a real window, at BOTH rhythms. A layout-order or
+    /// element-id regression panics here rather than in the running app.
+    #[gpui::test]
+    async fn markdown_view_paints_tables_in_a_real_window(cx: &mut gpui::TestAppContext) {
+        struct Host;
+        impl Render for Host {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                _cx: &mut Context<Self>,
+            ) -> impl IntoElement {
+                v_flex()
+                    .size_full()
+                    .child(
+                        MarkdownView::new(
+                            SharedString::from("table-paint-test"),
+                            "before\n\n| l | c | r |\n| :--- | :---: | ---: |\n\
+                             | 1 | **2** | [x](/y) |\n\nafter",
+                        )
+                        .resolver(test_resolver()),
+                    )
+                    // A table far wider than the test window takes the
+                    // fixed-width + `overflow_x_scroll` branch.
+                    .child(
+                        MarkdownView::new(
+                            SharedString::from("table-paint-test-wide"),
+                            "| a very long header cell indeed | another quite long \
+                             header cell | a third one |\n| --- | --- | --- |\n\
+                             | see #EXP-42 | @ada@example.com | `code` |",
+                        )
+                        .resolver(test_resolver())
+                        .chat(true),
+                    )
+            }
+        }
+
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let (_view, cx) = cx.add_window_view(|_window, _cx| Host);
+        // Three frames: the first has no recorded width (the "fits" fallback),
+        // the canvas records one, the third takes the real branch.
+        for _ in 0..3 {
             cx.update(|window, cx| window.draw(cx).clear(cx));
             cx.run_until_parked();
         }

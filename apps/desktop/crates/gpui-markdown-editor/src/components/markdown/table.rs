@@ -138,6 +138,33 @@ impl TableData {
         }
     }
 
+    /// Inserts one empty body row at `body_index` (0-based into the BODY rows,
+    /// so the header is never displaced — a pipe table must keep its header).
+    /// An out-of-range index appends, matching [`append_row`](Self::append_row).
+    pub fn insert_row(&mut self, body_index: usize) {
+        self.normalize_shape();
+        let columns = self.column_count();
+        let row = (0..columns)
+            .map(|_| InlineTextTree::plain(String::new()))
+            .collect::<Vec<_>>();
+        let at = body_index.min(self.rows.len());
+        self.rows.insert(at, row);
+    }
+
+    /// Inserts one empty column at `column` in the header, the alignment list
+    /// and every body row. An out-of-range index appends.
+    pub fn insert_column(&mut self, column: usize, alignment: TableColumnAlignment) {
+        self.normalize_shape();
+        let at = column.min(self.header.len());
+        self.header.insert(at, InlineTextTree::plain(String::new()));
+        self.alignments
+            .insert(at.min(self.alignments.len()), alignment);
+        for row in &mut self.rows {
+            let at = at.min(row.len());
+            row.insert(at, InlineTextTree::plain(String::new()));
+        }
+    }
+
     /// Sets the alignment of one column if it exists.
     pub fn set_column_alignment(&mut self, column: usize, alignment: TableColumnAlignment) {
         self.normalize_shape();
@@ -527,8 +554,15 @@ fn split_table_cells(line: &str) -> Option<Vec<String>> {
 
     for ch in inner.chars() {
         if escaping {
+            // EXP-726: mirror comrak's `unescape_pipes` (parser/table.rs) —
+            // ONLY the pair `\|` collapses; every other backslash pair is a
+            // cell-level escape that belongs to the INLINE parser and must
+            // reach it verbatim (`\\` stays `\\` and becomes one literal
+            // backslash there, `\*` stays `\*` and becomes a literal `*`).
+            // Collapsing `\\` here made the cell serializer double every
+            // backslash to stay symmetric, so `a\*b` shipped as `a\\*b`.
             match ch {
-                '|' | '\\' => current.push(ch),
+                '|' => current.push(ch),
                 _ => {
                     current.push('\\');
                     current.push(ch);
@@ -589,9 +623,14 @@ fn serialize_alignment(alignment: TableColumnAlignment) -> &'static str {
     }
 }
 
+/// EXP-726: a cell is ONE inline paragraph of GFM. The inline serializer has
+/// already escaped everything that needs escaping, so the only cell-level
+/// rewrites are GFM's two: an unescaped `|` would end the cell, and a newline
+/// would end the row. Doubling backslashes here (upstream) double-escaped the
+/// inline serializer's own output — `a\*b` shipped as `a\\*b`, which every
+/// other client then renders as a literal backslash.
 pub(crate) fn serialize_table_cell_markdown(tree: &InlineTextTree) -> String {
     tree.serialize_markdown()
-        .replace('\\', "\\\\")
         .replace('|', "\\|")
         .replace('\n', " ")
 }
@@ -1180,5 +1219,112 @@ mod tests {
         assert_eq!(table.column_count(), 1);
         table.remove_column(0);
         assert_eq!(table.column_count(), 1);
+    }
+
+    // --- EXP-726: cell escaping is the exact inverse of comrak's splitter. ---
+
+    #[test]
+    fn cell_escaping_only_touches_pipes_exp726() {
+        let table = TableData {
+            header: vec![
+                InlineTextTree::plain("a*b".to_string()),
+                InlineTextTree::plain("back\\slash".to_string()),
+            ],
+            rows: vec![vec![
+                InlineTextTree::plain("x | y".to_string()),
+                InlineTextTree::plain("z".to_string()),
+            ]],
+            alignments: vec![TableColumnAlignment::Default; 2],
+        };
+        let lines = serialize_table_markdown_lines(&table);
+        // The inline serializer escapes the intra-word asterisk once; the cell
+        // must NOT escape that escape, and a lone backslash stays lone.
+        assert_eq!(lines[0], "| a\\*b | back\\slash |");
+        assert_eq!(lines[2], "| x \\| y | z |");
+    }
+
+    #[test]
+    fn split_table_cells_mirrors_comrak_unescape_pipes_exp726() {
+        // Only `\|` collapses; `\\` and `\*` reach the inline parser verbatim.
+        let table = parse_root_table_region(&[
+            "| a \\| b | back\\slash |".to_string(),
+            "| --- | --- |".to_string(),
+            "| a\\*b | c\\\\d |".to_string(),
+        ])
+        .expect("table should parse");
+        assert_eq!(table.header[0].serialize_markdown(), "a | b");
+        assert_eq!(table.header[1].serialize_markdown(), "back\\slash");
+        assert_eq!(table.rows[0][0].serialize_markdown(), "a\\*b");
+        // `\\` reaches the INLINE parser, which unescapes it to one literal
+        // backslash; that backslash then goes back out bare (it precedes a
+        // letter), the same one-time convergence the top-level escape table
+        // has (NOTICE, EXP-261).
+        assert_eq!(table.rows[0][1].serialize_markdown(), "c\\d");
+    }
+
+    #[test]
+    fn escaped_cells_round_trip_byte_identically_exp726() {
+        for source in [
+            "| a \\| b | c |",
+            "| a\\*b | back\\slash |",
+        ] {
+            let lines = vec![source.to_string(), "| --- | --- |".to_string()];
+            let table = parse_root_table_region(&lines)
+                .unwrap_or_else(|| panic!("{source:?} should parse as a table"));
+            assert_eq!(serialize_table_markdown_lines(&table)[0], source);
+        }
+    }
+
+    // --- EXP-726: row/column INSERT (the append twins). ---
+
+    #[test]
+    fn insert_row_adds_an_empty_body_row_at_the_index_exp726() {
+        let mut table = parse_root_table_region(&[
+            "| a | b |".to_string(),
+            "| --- | --- |".to_string(),
+            "| 1 | 2 |".to_string(),
+            "| 3 | 4 |".to_string(),
+        ])
+        .expect("table should parse");
+
+        table.insert_row(0);
+        assert_eq!(
+            serialize_table_markdown_lines(&table),
+            vec![
+                "| a | b |".to_string(),
+                "| --- | --- |".to_string(),
+                "|  |  |".to_string(),
+                "| 1 | 2 |".to_string(),
+                "| 3 | 4 |".to_string(),
+            ]
+        );
+
+        // Past the end appends instead of panicking.
+        table.insert_row(99);
+        assert_eq!(table.rows.len(), 4);
+        assert!(table.rows[3][0].serialize_markdown().is_empty());
+    }
+
+    #[test]
+    fn insert_column_adds_an_empty_column_at_the_index_exp726() {
+        let mut table = parse_root_table_region(&[
+            "| a | b |".to_string(),
+            "| --- | ---: |".to_string(),
+            "| 1 | 2 |".to_string(),
+        ])
+        .expect("table should parse");
+
+        table.insert_column(1, TableColumnAlignment::Center);
+        assert_eq!(
+            serialize_table_markdown_lines(&table),
+            vec![
+                "| a |  | b |".to_string(),
+                "| --- | :---: | ---: |".to_string(),
+                "| 1 |  | 2 |".to_string(),
+            ]
+        );
+
+        table.insert_column(99, TableColumnAlignment::Default);
+        assert_eq!(table.column_count(), 4);
     }
 }

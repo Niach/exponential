@@ -276,3 +276,37 @@ async fn user_selection_moves_emit_selection_changed_once(cx: &mut TestAppContex
     redraw(cx);
     assert_eq!(seen.get(), 2);
 }
+
+/// EXP-726: the axis menu's row/column INSERT actions, asserted on the bytes
+/// they produce. "Insert row below" on the header is body index 0; "Insert
+/// column left" on column 1 is insert-at-1.
+#[gpui::test]
+async fn table_row_and_column_inserts_write_canonical_markdown(cx: &mut TestAppContext) {
+    let markdown = "| a | b |\n| --- | ---: |\n| 1 | 2 |";
+    let editor = cx.new(|cx| Editor::new(markdown, MarkdownEditorOptions::default(), cx));
+
+    let table = editor.read_with(cx, |editor, cx| {
+        editor
+            .document
+            .visible_blocks()
+            .iter()
+            .find(|visible| visible.entity.read(cx).kind() == crate::components::BlockKind::Table)
+            .map(|visible| visible.entity.clone())
+            .expect("the document should hold a native table block")
+    });
+
+    editor.update(cx, |editor, cx| {
+        editor.insert_table_row(&table, 0, cx);
+        assert_eq!(
+            editor.markdown(cx),
+            "| a | b |\n| --- | ---: |\n|  |  |\n| 1 | 2 |"
+        );
+
+        // The new column inherits the alignment of the one it displaces.
+        editor.insert_table_column(&table, 1, cx);
+        assert_eq!(
+            editor.markdown(cx),
+            "| a |  | b |\n| --- | ---: | ---: |\n|  |  |  |\n| 1 |  | 2 |"
+        );
+    });
+}
