@@ -176,6 +176,18 @@ struct IssueDetailView: View {
                             onOpenProperties: { activeSheet = .properties }
                         )
 
+                        // Coding now (EXP-698 r4): a live session is the most
+                        // perishable state on the page, so it rides directly
+                        // under the chips in the same card chrome instead of
+                        // below the description. Renders nothing without one.
+                        CodingNowCard(
+                            issue: issue,
+                            runningSessions: vm.runningSessions,
+                            users: vm.users,
+                            config: vm.steerConfig,
+                            currentUserId: deps.auth.userId
+                        )
+
                         // A remote edit arrived while editing locally — offer
                         // a non-blocking reload (field-level last-write-wins).
                         if vm.editor.pendingRemoteMarkdown != nil {
@@ -225,18 +237,12 @@ struct IssueDetailView: View {
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("issue-description")
 
-                        // Coding + PR status card (EXP-156): "Coding now" /
-                        // GitHub-style PR + branch chips → diff page. Remote
-                        // start moved into the bottom bar (EXP-240). Renders
-                        // nothing when there's nothing to show.
-                        AgentPrCard(
-                            issue: issue,
-                            runningSessions: vm.runningSessions,
-                            permissions: vm.permissions,
-                            users: vm.users,
-                            config: vm.steerConfig,
-                            currentUserId: deps.auth.userId
-                        )
+                        // PR status rows (EXP-156): GitHub-style PR + branch
+                        // chips → diff page. Remote start moved into the bottom
+                        // bar (EXP-240), the session row into `CodingNowCard`
+                        // above (EXP-698 r4). Renders nothing when there's
+                        // nothing to show.
+                        AgentPrCard(issue: issue)
 
                         // Widget/agent submission metadata (EXP-496):
                         // expandable card, default collapsed; renders nothing

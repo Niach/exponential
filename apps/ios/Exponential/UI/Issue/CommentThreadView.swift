@@ -850,25 +850,15 @@ private struct RegularCommentRow: View {
 
 // MARK: - Shared helpers
 
+// EXP-698 r4: the shared `UserAvatar` — a commenter's PICTURE when there is
+// one, and otherwise the hashed-hue initials chip every client paints. The 28pt
+// diameter is the timeline's marker size and stays.
 private func avatar(author: UserEntity?, id: String?) -> some View {
-    Circle()
-        .fill(Color.white.opacity(0.08))
-        .frame(width: 28, height: 28)
-        .overlay(
-            Text(initials(for: author, id: id))
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-        )
+    UserAvatar(user: author, id: id, size: 28)
 }
 
 private func displayName(for author: UserEntity?, id: String?, fallback: String = "Someone") -> String {
     memberDisplayName(author, id: id, generic: fallback)
-}
-
-private func initials(for author: UserEntity?, id: String?) -> String {
-    let source = displayName(for: author, id: id)
-    let parts = source.split(separator: " ").prefix(2)
-    return parts.map { $0.first.map(String.init) ?? "" }.joined().uppercased()
 }
 
 private func relativeDate(_ s: String) -> String {

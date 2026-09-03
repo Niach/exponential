@@ -2,29 +2,24 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// The compact coding/PR status section on issue detail (EXP-156). EXP-240
-/// moved the remote-start affordance into the bottom bar's Start-coding
-/// circle; EXP-246 dropped the glass card wrapper (full-width rows, Linear
-/// parity). A pure status glance with up to three coexisting rows:
-///   - Session: a running coding session → "Coding now" + tap-to-watch (the
-///              session's own runner when the relay is on — EXP-312: live
-///              sessions are owner-only; an inert note when steering is off).
-///   - PR:      a linked PR → GitHub-style capsule chip (pull icon tinted by
-///              state + "PR #n"), tapping opens the diff page.
-///   - Branch:  a pushed branch, no PR yet → branch icon + mono name chip,
-///              same diff page.
-/// No inline Close/Merge/GitHub-link/diff-count here — the review actions live
-/// on the diff page (ChangesView).
-struct AgentPrCard: View {
+/// The live-session card on issue detail (EXP-698 r4). It used to be the first
+/// row of `AgentPrCard`, hidden under the description with the PR/branch rows;
+/// a session is the most perishable thing on the screen, so it sits directly
+/// under the property chips instead, in the SAME chrome as
+/// `IssuePropertyChipsBox` (10pt padding + `.glassCard()`) — the two cards read
+/// as one stack of issue state.
+///
+/// One line: the state dot + label, the "· name · device" byline taking the
+/// rest of the width, and — for the session's OWN runner when the relay is on
+/// (EXP-312: live sessions are owner-only) — a primary Watch pill. No chevron:
+/// the pill IS the affordance, and a teammate's session offers nothing to tap.
+struct CodingNowCard: View {
     let issue: IssueEntity
     let runningSessions: [CodingSessionEntity]
-    let permissions: TeamPermissions
     let users: [UserEntity]
     /// Relay config, loaded by the view model's refreshSteer (EXP-240) —
-    /// gates tap-to-watch on the session row.
+    /// gates Watch.
     let config: SteerConfig?
-    /// EXP-312: live sessions are owner-only — tap-to-watch renders only on
-    /// the caller's own session.
     let currentUserId: String?
 
     @Environment(\.accountId) private var accountId
@@ -35,70 +30,15 @@ struct AgentPrCard: View {
         runningSessions.max { $0.startedAt < $1.startedAt }
     }
 
-    private var showsCard: Bool {
-        session != nil
-            || issue.prUrl != nil
-            || (issue.branch?.isEmpty == false)
-    }
-
     var body: some View {
-        Group {
-            if showsCard {
-                content
-            }
+        if let session {
+            card(session)
         }
     }
 
-    // Full-width rows, no card wrapper (EXP-246) — the PR/branch chips keep
-    // their own glassButton capsules.
-    private var content: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let session {
-                sessionRow(session)
-            }
-            if issue.prUrl != nil {
-                prChip
-            } else if let branch = issue.branch, !branch.isEmpty {
-                branchChip(branch)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - Session row
-
-    @ViewBuilder
-    private func sessionRow(_ session: CodingSessionEntity) -> some View {
-        // EXP-312: only the session's own runner may open it live — teammates
-        // see the status badge + byline, nothing tappable.
+    private func card(_ session: CodingSessionEntity) -> some View {
         let ownSession = currentUserId != nil && session.userId == currentUserId
         let canWatch = ownSession && config?.enabled == true
-        VStack(alignment: .leading, spacing: 6) {
-            if canWatch {
-                NavigationLink(value: AppRoute.agentSession(
-                    accountId: accountId, sessionId: session.id
-                )) {
-                    sessionRowContent(session, chevron: true)
-                }
-                .buttonStyle(.plain)
-            } else {
-                sessionRowContent(session, chevron: false)
-            }
-            // Relay explicitly off on this instance: the badge stays, steering
-            // doesn't. (config?.enabled == false is only true once config loads.)
-            if ownSession, config?.enabled == false {
-                Text("Live steering is unavailable on this instance.")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-        }
-        // EXP-642: the store slide's pop-out rect is measured off this row
-        // (`PopRects`). `contain` keeps the link inside it queryable.
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("coding-now-row")
-    }
-
-    private func sessionRowContent(_ session: CodingSessionEntity, chevron: Bool) -> some View {
         let owner = users.first { $0.id == session.userId }
         // The parked states render a static dot/label instead of the pulsing
         // green "Coding now": review green, done blue (once the PR merges),
@@ -117,28 +57,55 @@ struct AgentPrCard: View {
         case .done: "Done"
         case .running: "Coding now"
         }
-        return HStack(spacing: 8) {
-            if state != .running {
-                Circle()
-                    .fill(tint)
-                    .frame(width: 9, height: 9)
-            } else {
-                PulsingLiveDot()
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                if state != .running {
+                    Circle()
+                        .fill(tint)
+                        .frame(width: 9, height: 9)
+                } else {
+                    PulsingLiveDot()
+                }
+                Text(label)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(tint)
+                    .fixedSize(horizontal: true, vertical: false)
+                Text(sessionByline(owner: owner, session: session))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if canWatch {
+                    // The app's link-around-a-pill pattern (the duplicate
+                    // banner, Support's linked issue): the pill stays a resting
+                    // label and the NavigationLink owns the tap.
+                    NavigationLink(value: AppRoute.agentSession(
+                        accountId: accountId, sessionId: session.id
+                    )) {
+                        GlassPill("Watch", icon: AppIcons.navDevices, primary: true)
+                            .contentShape(Capsule())
+                    }
+                    // Not `.plain`: the link owns the press, so it has to be
+                    // the one that dims the pill's solid fill.
+                    .buttonStyle(.glassPillPrimary)
+                }
             }
-            Text(label)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(tint)
-            Text(sessionByline(owner: owner, session: session))
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            if chevron {
-                AppIcon(AppIcons.uiChevronRight, size: 11)
+            // Relay explicitly off on this instance: the badge stays, steering
+            // doesn't. (config?.enabled == false is only true once config loads.)
+            if ownSession, config?.enabled == false {
+                Text("Live steering is unavailable on this instance.")
+                    .font(.caption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         }
-        .contentShape(Rectangle())
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+        // EXP-642: the store slide's pop-out rect is measured off this card
+        // (`PopRects`). `contain` keeps the Watch link inside it queryable.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("coding-now-row")
     }
 
     private func sessionByline(owner: UserEntity?, session: CodingSessionEntity) -> String {
@@ -147,6 +114,49 @@ struct AgentPrCard: View {
             return "· \(name) · \(device)"
         }
         return "· \(name)"
+    }
+}
+
+/// The compact PR/branch status section on issue detail (EXP-156). EXP-240
+/// moved the remote-start affordance into the bottom bar's Start-coding
+/// circle; EXP-246 dropped the glass card wrapper (full-width rows, Linear
+/// parity); EXP-698 r4 moved the session row out into `CodingNowCard`, which
+/// sits above the description with the property chips. What is left are the two
+/// rows that belong beside the code:
+///   - PR:      a linked PR → GitHub-style capsule chip (pull icon tinted by
+///              state + "PR #n"), tapping opens the diff page.
+///   - Branch:  a pushed branch, no PR yet → branch icon + mono name chip,
+///              same diff page.
+/// No inline Close/Merge/GitHub-link/diff-count here — the review actions live
+/// on the diff page (ChangesView).
+struct AgentPrCard: View {
+    let issue: IssueEntity
+
+    @Environment(\.accountId) private var accountId
+
+    private var showsCard: Bool {
+        issue.prUrl != nil || (issue.branch?.isEmpty == false)
+    }
+
+    var body: some View {
+        Group {
+            if showsCard {
+                content
+            }
+        }
+    }
+
+    // Full-width rows, no card wrapper (EXP-246) — the PR/branch chips keep
+    // their own glassButton capsules.
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if issue.prUrl != nil {
+                prChip
+            } else if let branch = issue.branch, !branch.isEmpty {
+                branchChip(branch)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - PR / branch chips (GitHub-style, EXP-240)

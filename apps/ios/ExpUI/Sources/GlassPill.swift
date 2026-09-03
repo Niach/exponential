@@ -28,6 +28,14 @@ import SwiftUI
 // `TextOpacity.secondary`. Only `.select` when SELECTED changes it, to
 // `fillActive` + `strokeActive` with a full-opacity label — the same "selected"
 // treatment a `GlassRow` and a segmented segment wear.
+//
+// `primary:` (EXP-698 r4) is PAINT, orthogonal to size and mode: the solid
+// `primary` fill with `primaryForeground` content and no hairline, dimmed while
+// pressed — the one loud pill in a view, for the action the screen exists for
+// (issue detail's Watch). It is the same flag on all four clients (web
+// `primary`, desktop `.primary()`, Android `primary =`), so a pill is never
+// promoted by hand-painting a background at a call site. Disabled keeps the
+// shared glass treatment: a disabled pill must not read as the loud one.
 
 /// The pinned geometry of a glass pill, per size rung. Numbers live here
 /// rather than inline so `GlassPillTokenTests` can hold them still: a pill
@@ -107,6 +115,8 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
     var mode: GlassPillMode = .readonly
     var dot: Color? = nil
     var isOpaque: Bool = false
+    /// The loud paint (see the file header): solid `primary`, no hairline.
+    var primary: Bool = false
     var enabled: Bool = true
     let leading: Leading
     let trailing: Trailing
@@ -117,6 +127,7 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
         mode: GlassPillMode = .readonly,
         dot: Color? = nil,
         isOpaque: Bool = false,
+        primary: Bool = false,
         enabled: Bool = true,
         @ViewBuilder leading: () -> Leading,
         @ViewBuilder trailing: () -> Trailing
@@ -126,6 +137,7 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
         self.mode = mode
         self.dot = dot
         self.isOpaque = isOpaque
+        self.primary = primary
         self.enabled = enabled
         self.leading = leading()
         self.trailing = trailing()
@@ -135,6 +147,10 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
         if case .select(let selected, _) = mode { return selected }
         return false
     }
+
+    /// A disabled pill is never the loud one — it keeps the shared glass
+    /// treatment, which is what "disabled" looks like everywhere else.
+    private var isPrimary: Bool { primary && enabled }
 
     private var labelOpacity: Double {
         guard enabled else { return TextOpacity.quaternary }
@@ -147,11 +163,19 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
         case .readonly:
             content.allowsHitTesting(false)
         case .action(let action), .select(_, let action):
-            Button(action: action) {
-                content.contentShape(Capsule())
+            if isPrimary {
+                Button(action: action) {
+                    content.contentShape(Capsule())
+                }
+                .buttonStyle(GlassPillPrimaryPressStyle())
+                .disabled(!enabled)
+            } else {
+                Button(action: action) {
+                    content.contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(!enabled)
             }
-            .buttonStyle(.plain)
-            .disabled(!enabled)
         }
     }
 
@@ -170,10 +194,55 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
             }
             trailing
         }
-        .foregroundStyle(.white.opacity(labelOpacity))
+        .foregroundStyle(
+            isPrimary
+                ? DesignTokens.Palette.primaryForeground
+                : Color.white.opacity(labelOpacity)
+        )
         .padding(.horizontal, size.horizontalPadding)
         .frame(height: size.height)
-        .glassButton(isActive: isSelected, isOpaque: isOpaque)
+        .modifier(Paint(isPrimary: isPrimary, isSelected: isSelected, isOpaque: isOpaque))
+    }
+
+    /// Glass or solid — the ONE branch between the two paints, so everything
+    /// above it (geometry, font, label opacity) is shared.
+    private struct Paint: ViewModifier {
+        let isPrimary: Bool
+        let isSelected: Bool
+        let isOpaque: Bool
+
+        func body(content: Content) -> some View {
+            if isPrimary {
+                content
+                    .background(DesignTokens.Palette.primary, in: Capsule())
+            } else {
+                content
+                    .glassButton(isActive: isSelected, isOpaque: isOpaque)
+            }
+        }
+    }
+
+}
+
+/// The press feedback of a `primary` pill: a solid fill has no hairline to
+/// brighten, so the fill itself dims — the same cue the submit button gives.
+/// Public because a primary pill is not always its own Button: wrapped in a
+/// `NavigationLink` (issue detail's Watch) the LINK owns the press, and
+/// `.buttonStyle(.plain)` there would leave the loud pill inert under a finger.
+public struct GlassPillPrimaryPressStyle: ButtonStyle {
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.8 : 1)
+    }
+}
+
+extension ButtonStyle where Self == GlassPillPrimaryPressStyle {
+    /// `.buttonStyle(.glassPillPrimary)` — for the host that owns the tap of a
+    /// `primary` pill it did not build as a Button.
+    public static var glassPillPrimary: GlassPillPrimaryPressStyle {
+        GlassPillPrimaryPressStyle()
     }
 }
 
@@ -186,6 +255,7 @@ extension GlassPill where Trailing == EmptyView {
         mode: GlassPillMode = .readonly,
         dot: Color? = nil,
         isOpaque: Bool = false,
+        primary: Bool = false,
         enabled: Bool = true,
         @ViewBuilder leading: () -> Leading
     ) {
@@ -195,6 +265,7 @@ extension GlassPill where Trailing == EmptyView {
             mode: mode,
             dot: dot,
             isOpaque: isOpaque,
+            primary: primary,
             enabled: enabled,
             leading: leading
         ) { EmptyView() }
@@ -208,6 +279,7 @@ extension GlassPill where Leading == EmptyView, Trailing == EmptyView {
         mode: GlassPillMode = .readonly,
         dot: Color? = nil,
         isOpaque: Bool = false,
+        primary: Bool = false,
         enabled: Bool = true
     ) {
         self.init(
@@ -216,6 +288,7 @@ extension GlassPill where Leading == EmptyView, Trailing == EmptyView {
             mode: mode,
             dot: dot,
             isOpaque: isOpaque,
+            primary: primary,
             enabled: enabled
         ) { EmptyView() } trailing: { EmptyView() }
     }
@@ -230,6 +303,7 @@ extension GlassPill where Leading == AppIcon, Trailing == EmptyView {
         mode: GlassPillMode = .readonly,
         dot: Color? = nil,
         isOpaque: Bool = false,
+        primary: Bool = false,
         enabled: Bool = true
     ) {
         self.init(
@@ -238,6 +312,7 @@ extension GlassPill where Leading == AppIcon, Trailing == EmptyView {
             mode: mode,
             dot: dot,
             isOpaque: isOpaque,
+            primary: primary,
             enabled: enabled
         ) {
             AppIcon(icon, size: size.glyphSize)

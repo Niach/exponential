@@ -585,16 +585,20 @@ struct IssueListView: View {
                         .foregroundStyle(dueDateColor(dueDate))
                     }
 
-                    // Assignee avatar (pseudonym initial when the user row
-                    // isn't synced) — hidden on solo teams, where every issue
-                    // is the sole member's (EXP-247).
+                    // Assignee avatar — hidden on solo teams, where every issue
+                    // is the sole member's (EXP-247). EXP-698 r4: the shared
+                    // `UserAvatar`, not a hand-rolled initial on a grey disc —
+                    // the row now shows the member's PICTURE when there is one,
+                    // and the hashed hue when there isn't.
                     if !vm.singleMemberTeam, let assigneeId = issue.assigneeId {
                         // Sized off the height floor rather than a fixed 22:
                         // the floor scales with Dynamic Type, so a hard 22
                         // would poke above it at text sizes below default and
                         // make rows with an assignee taller than rows without.
-                        userAvatar(
-                            vm.userFor(id: assigneeId), id: assigneeId, size: rowContentMinHeight
+                        UserAvatar(
+                            user: vm.userFor(id: assigneeId),
+                            id: assigneeId,
+                            size: rowContentMinHeight
                         )
                     }
                 }
@@ -1086,17 +1090,6 @@ struct IssueListView: View {
                 }
             }
         }
-    }
-
-    @ViewBuilder
-    private func userAvatar(_ user: UserEntity?, id: String, size: CGFloat) -> some View {
-        let initial = memberDisplayName(user, id: id).prefix(1).uppercased()
-        Text(initial)
-            .font(.system(size: size * 0.45, weight: .medium))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            .background(Color.white.opacity(0.15))
-            .clipShape(Circle())
     }
 
     private func formatDueDate(_ dateString: String) -> String {

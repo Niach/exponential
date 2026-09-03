@@ -210,11 +210,16 @@ extension ToggleStyle where Self == GlassToggleStyle {
 // MARK: - Circle icon button
 
 /// A drawn glass circle around a single glyph — the ONE chrome for a trailing
-/// action, in a list row or a toolbar alike (EXP-698). `controlMd` (32pt) with
-/// a 17pt glyph at 70 % white is the default on both mobile clients (Android
-/// matches 17dp); web and desktop use a 16px glyph in the same 32px circle.
-/// The explicit sizes that survive here are the deliberately smaller in-row
-/// ones.
+/// action on a surface WE paint: a list row, a section header, the Login page's
+/// header (EXP-698). `controlMd` (32pt) with a 17pt glyph at 70 % white is the
+/// default on both mobile clients (Android matches 17dp); web and desktop use a
+/// 16px glyph in the same 32px circle. The explicit sizes that survive here are
+/// the deliberately smaller in-row ones.
+///
+/// NOT for a `ToolbarItem` (EXP-698 r4): iOS 26 paints its own Liquid Glass
+/// capsule behind every toolbar item, so a drawn circle on top reads as two
+/// concentric rings. A toolbar button is BARE content — the glyph (or a plain
+/// text `Button`) in a 32pt frame, no fill, no stroke.
 public struct CircleIconButton: View {
     let icon: String
     let accessibilityLabel: String
@@ -297,33 +302,10 @@ public struct CircleIconLabel: View {
     }
 }
 
-/// The one back button for a `topBarLeading` slot on a page that hides the
-/// system chevron (EXP-687 made New issue a page) — Android's
-/// `TopBarBackButton`, the same circle around the `ui-back` glyph.
-public struct TopBarBackButton: View {
-    var accessibilityLabel: String = "Back"
-    var enabled: Bool = true
-    let action: () -> Void
-
-    public init(
-        accessibilityLabel: String = "Back",
-        enabled: Bool = true,
-        action: @escaping () -> Void
-    ) {
-        self.accessibilityLabel = accessibilityLabel
-        self.enabled = enabled
-        self.action = action
-    }
-
-    public var body: some View {
-        CircleIconButton(
-            AppIcons.uiBack,
-            accessibilityLabel: accessibilityLabel,
-            enabled: enabled,
-            action: action
-        )
-    }
-}
+// `TopBarBackButton` is gone (EXP-698 r4): its one call site (New issue, the
+// page that hides the system chevron to run its discard confirmation) is a
+// plain toolbar `Button` around the `ui-back` glyph now, because the system's
+// own toolbar glass already draws the circle this type used to.
 
 // MARK: - Text field
 
