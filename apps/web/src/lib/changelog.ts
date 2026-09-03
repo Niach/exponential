@@ -41,7 +41,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     summary: `Markdown tables render as real tables on every client, and the web and desktop editors add, move and delete rows and columns from hover controls.`,
     body: `- **Tables everywhere**: a GFM table in a description, comment or agent message renders as a grid on web, desktop, iOS and Android instead of raw pipes, and survives an edit on every client.
 - **Editing on web and desktop**: hover a table for plus buttons on its right and bottom edges, and for handles above a column or beside a row that open a menu to insert, move or delete it.
-- **Mobile**: tap any cell to edit its text; row and column changes stay on web and desktop.`,
+- **Mobile**: tap any cell to edit its text. To remove a table, long-press a cell on iOS or Android, or use the keyboard bar's Delete table on the mobile web; row and column changes stay on web and desktop.`,
   },
   {
     id: `2026-09-board-branches`,

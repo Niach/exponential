@@ -53,6 +53,7 @@ function makeEditor(options?: {
     `extendMarkRange`,
     `setLink`,
     `unsetLink`,
+    `deleteTable`,
   ]) {
     chain[name] = record(name)
   }
@@ -179,6 +180,53 @@ describe(`FormattingRail button order`, () => {
     const { container } = render(<EditorInsertBar editor={editor} />)
     const labels = railLabels(container)
     expect(labels).toEqual([`Insert emoji`])
+  })
+
+  // EXP-727: the phone's one table action. The hover chrome is desktop-only
+  // and a long-press in a cell is the browser's own selection, so Delete
+  // table joins the keyboard bar exactly while the caret is inside a table.
+  it(`adds Delete table to the mobile row only while the caret is in a table`, () => {
+    const { editor, rec } = makeEditor({ active: { table: true } })
+    const { container } = render(
+      <FormattingRail
+        editor={editor}
+        imageUpload={imageUpload}
+        platform="mobile"
+        mode="main"
+        onModeChange={vi.fn()}
+        onDismissKeyboard={vi.fn()}
+      />
+    )
+    expect(railLabels(container)).toEqual([
+      `Insert emoji`,
+      `Insert image or file`,
+      `Insert issue reference`,
+      `Link`,
+      `Text formatting`,
+      `Lists`,
+      `Quote`,
+      `Code`,
+      `Delete table`,
+      `Hide keyboard`,
+    ])
+    const button = screen.getByLabelText(`Delete table`)
+    expect(button.className).toContain(`is-destructive`)
+    fireEvent.click(button)
+    expect(rec.commands).toEqual([`focus`, `deleteTable`])
+  })
+
+  it(`keeps Delete table off the desktop bubble, which has the hover chrome`, () => {
+    const { editor } = makeEditor({ active: { table: true } })
+    const { container } = render(
+      <FormattingRail
+        editor={editor}
+        imageUpload={imageUpload}
+        platform="desktop"
+        mode="main"
+        onModeChange={vi.fn()}
+      />
+    )
+    expect(railLabels(container)).not.toContain(`Delete table`)
   })
 
   it(`has no keyboard-down button on desktop`, () => {

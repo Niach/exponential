@@ -19,7 +19,8 @@ import { conceptIcon } from "@/lib/icons.generated"
 // EXP-726 — the desktop table chrome: a hover-only overlay drawn INSIDE the
 // `.tiptap-wrapper` (already `position: relative`) so it scrolls with the
 // document instead of floating over the viewport. Read-only editors and
-// phones never mount it — mobile edits cell content and nothing else.
+// phones never mount it — mobile edits cell content, and its one table
+// action (Delete table) sits on the keyboard bar (EXP-727, formatting-rail).
 //
 // Everything is derived from the cell under the pointer: `+` on the table's
 // right and bottom edges append a column/row, a grip above the hovered column

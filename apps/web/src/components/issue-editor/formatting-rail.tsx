@@ -60,6 +60,7 @@ const BackIcon = conceptIcon(`ui-back`)
 const CheckIcon = conceptIcon(`ui-check`)
 const CloseIcon = conceptIcon(`ui-close`)
 const KeyboardDownIcon = conceptIcon(`ui-chevron-down`)
+const DeleteIcon = conceptIcon(`ui-delete`)
 
 /**
  * The text to insert for the `#` button. The issue-ref autocomplete only
@@ -95,11 +96,14 @@ function useEditorTransactions(editor: Editor) {
  *  static toolbar it replaces. */
 function RailButton({
   active,
+  destructive,
   label,
   onClick,
   children,
 }: {
   active?: boolean
+  /** Red glyph — the rail's one destructive action (Delete table, EXP-727). */
+  destructive?: boolean
   label: string
   onClick: () => void
   children: React.ReactNode
@@ -110,7 +114,7 @@ function RailButton({
       tabIndex={-1}
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClick}
-      className={active ? `is-active` : ``}
+      className={cn(active && `is-active`, destructive && `is-destructive`)}
       title={label}
       aria-label={label}
     >
@@ -285,6 +289,22 @@ export function FormattingRail({
       >
         <CodeIcon className="size-3.5" />
       </RailButton>
+      {/* EXP-727: a phone has no hover chrome for tables (table-controls.tsx
+          is desktop-only) and a long-press inside a cell is the browser's
+          own selection, so the ONE mobile table action rides the keyboard
+          bar while the caret sits in a table. Row/column edits stay desktop. */}
+      {platform === `mobile` && isActive(`table`) && (
+        <>
+          <RailSeparator />
+          <RailButton
+            label="Delete table"
+            destructive
+            onClick={() => editor.chain().focus().deleteTable().run()}
+          >
+            <DeleteIcon className="size-3.5" />
+          </RailButton>
+        </>
+      )}
       <div className="flex-1" aria-hidden />
       {platform === `mobile` && (
         <RailButton

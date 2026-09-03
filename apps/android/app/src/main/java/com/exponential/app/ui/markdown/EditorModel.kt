@@ -434,6 +434,64 @@ class EditorModel {
         updateCell(cell.id, text, caret)
     }
 
+    // -- Table deletion (EXP-727) --------------------------------------------------
+
+    /**
+     * The ONE table manipulation mobile ships: drop the whole table. Its
+     * neighbours are separate paragraphs (a table never splits one the way an
+     * inserted image does), so they rejoin as two LINES of one run rather than
+     * concatenating like [deleteImageRow]; an empty neighbour — the separator
+     * [EditorRows.normalize] keeps around every block-level row — is dropped
+     * instead of surviving as a blank line. The caret lands where the table stood.
+     */
+    fun deleteTableRow(rowId: String) {
+        val idx = rows.indexOfFirst { it.id == rowId }
+        if (idx < 0) return
+        val table = rows[idx] as? EditorRow.Table ?: return
+        val cellIds = table.table.allCells.map { it.id }.toSet()
+        val next = rows.toMutableList()
+        val prev = next.getOrNull(idx - 1) as? EditorRow.TextRun
+        val after = next.getOrNull(idx + 1) as? EditorRow.TextRun
+        if (prev != null && after != null) {
+            val (merged, caret) = joinParagraphs(prev, after)
+            next[idx - 1] = merged
+            next.removeAt(idx + 1)
+            next.removeAt(idx)
+            rows = EditorRows.normalize(next)
+            bumpAll()
+            focusedRowId = merged.id
+            desiredSelection = merged.id to caret
+        } else {
+            next.removeAt(idx)
+            rows = EditorRows.normalize(next)
+            bumpAll()
+            if (focusedRowId in cellIds) focusedRowId = null
+        }
+        if (selection?.first in cellIds) selection = null
+        cellIds.forEach { revisions.remove(it) }
+        renumberOrdered()
+        notifyEdit()
+    }
+
+    /**
+     * Two runs a table no longer separates, joined on a paragraph break, plus
+     * the caret at the seam. An empty side is dropped (an empty run is the
+     * normalize separator, not content).
+     */
+    private fun joinParagraphs(
+        first: EditorRow.TextRun,
+        second: EditorRow.TextRun,
+    ): Pair<EditorRow.TextRun, Int> {
+        if (first.text.isEmpty()) return second to 0
+        if (second.text.isEmpty()) return first to first.text.length
+        val merged = first.copy(
+            text = first.text + "\n" + second.text,
+            paragraphs = first.paragraphs + second.paragraphs,
+            marks = first.marks + MarkOps.offset(second.marks, first.text.length + 1),
+        )
+        return merged to first.text.length + 1
+    }
+
     // -- Inline marks -----------------------------------------------------------
 
     fun toggleMark(rowId: String, range: IntRange, kind: InlineKind, href: String? = null) {
