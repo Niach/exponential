@@ -20,6 +20,7 @@ import {
 import { CommentComposer } from "@/components/comment-composer"
 import { EventRow } from "@/components/comment-rows/event"
 import { RegularCommentRow } from "@/components/comment-rows/regular"
+import { TimelineRow } from "@/components/comment-rows/timeline-row"
 import { relativeTime } from "@/components/comment-rows/format"
 import { displayUserName } from "@/lib/user-display"
 import { getCommentBodyText } from "@/lib/domain"
@@ -196,16 +197,27 @@ export function IssueTimeline({
           natives already show it, and it is what makes an otherwise empty
           timeline read as a history instead of a void. Never part of the
           "(N)" count, which stays the count of real activity. */}
-      <div className="flex items-center gap-2 py-1 pl-1 text-xs text-muted-foreground">
-        <span className="flex size-3.5 shrink-0 items-center justify-center">
-          <span className="size-1.5 rounded-full bg-current" />
-        </span>
-        <span className="truncate">
-          <span className="font-medium text-foreground">{createdWho}</span>
-          {` `}created the issue{createdTime ? ` · ${createdTime}` : ``}
-        </span>
-      </div>
-      {merged.map((item) => {
+      <TimelineRow
+        lineAbove={false}
+        lineBelow={merged.length > 0}
+        marker={
+          <span className="size-1.5 rounded-full bg-muted-foreground" />
+        }
+        markerSize={6}
+        markerTop={7}
+      >
+        <div className="flex min-h-5 items-center text-xs text-muted-foreground">
+          <span className="truncate">
+            <span className="font-medium text-foreground">{createdWho}</span>
+            {` `}created the issue{createdTime ? ` · ${createdTime}` : ``}
+          </span>
+        </div>
+      </TimelineRow>
+      {merged.map((item, index) => {
+        // The rail spans the history: it never starts above the creation row
+        // (drawn first, always) and never runs past the last entry into the
+        // composer.
+        const lineBelow = index < merged.length - 1
         if (item.kind === `event`) {
           return (
             <EventRow
@@ -214,6 +226,7 @@ export function IssueTimeline({
               userMap={userMap}
               labelMap={labelMap}
               boardMap={boardMap}
+              lineBelow={lineBelow}
             />
           )
         }
@@ -230,6 +243,7 @@ export function IssueTimeline({
             comment={comment}
             attachments={commentAttachmentMap.get(comment.id) ?? []}
             canModify={canModify}
+            lineBelow={lineBelow}
             users={users}
             editing={editingCommentId === comment.id}
             onCancelEdit={() => setEditingCommentId(null)}

@@ -516,6 +516,35 @@ export const componentStyles = `
 .cmp-tab-bar .item.active { background: var(--active); color: var(--fg); }
 .cmp-tab-bar .glyph { width: 20px; height: 20px; }
 
+/* --------------------------------------------------------------- bulk bar */
+.cmp-bulk-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: var(--r-xl3);
+  border: 1px solid var(--stroke-strong);
+  background: var(--opaque-card);
+}
+.cmp-bulk-bar .item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--ctl-md);
+  padding: 0 8px;
+  border-radius: var(--r-md);
+  color: var(--muted-fg);
+  font-size: 14px;
+}
+.cmp-bulk-bar .item.destructive { color: var(--destructive); }
+.cmp-bulk-bar .value {
+  padding: 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.cmp-bulk-bar .glyph { width: 16px; height: 16px; }
+
 /* ------------------------------------------------------------- usage bar */
 .cmp-usage-bar { display: grid; gap: 6px; }
 .cmp-usage-bar .line { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }

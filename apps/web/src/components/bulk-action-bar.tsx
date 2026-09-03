@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   Check,
   Flag,
@@ -13,6 +13,8 @@ import {
 import type { Issue, Label, User } from "@/db/schema"
 import { issueCollection, issueLabelCollection } from "@/lib/collections"
 import { conceptIcon } from "@/lib/icons.generated"
+import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
+import { useMobileChrome } from "@/hooks/use-mobile-chrome"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { useRemoteStart } from "@/hooks/use-remote-start"
@@ -37,6 +39,7 @@ import { getInitials } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { Pill } from "@/components/ui/pill"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -85,6 +88,16 @@ export function BulkActionBar({
   const [busy, setBusy] = useState(false)
   const issueIds = useMemo(() => issues.map((issue) => issue.id), [issues])
   const { options: teamStatusOptions } = useTeamStatusesContext()
+
+  // EXP-698 r5: while a selection lives, THIS bar is the phone's bottom
+  // chrome — the tab bar and its FAB step aside (`use-mobile-chrome.tsx`),
+  // and the list spends `--bulkbar-h` instead of `--tabbar-h`.
+  const { setBulkBarPresent } = useMobileChrome()
+  useEffect(() => {
+    setBulkBarPresent(true)
+    return () => setBulkBarPresent(false)
+  }, [setBulkBarPresent])
+  const publishBulkBarHeight = useChromeHeightVar(`--bulkbar-h`)
 
   const orderedUsers = useMemo(
     () => [...users].sort((left, right) => left.name.localeCompare(right.name)),
@@ -188,32 +201,37 @@ export function BulkActionBar({
     // animation writes `transform` (tw-animate-css's keyframes replace it
     // wholesale), which would cancel the `-translate-x-1/2` centering and snap
     // the bar half its width to the right on every phone selection.
-    <div className="md:contents max-md:fixed max-md:bottom-[calc(max(1rem,env(safe-area-inset-bottom))+3.75rem)] max-md:left-1/2 max-md:z-40 max-md:max-w-[calc(100vw-2rem)] max-md:-translate-x-1/2">
+    // EXP-698 r5: on phones the bar IS the tab bar now, so it copies the tab
+    // bar's box exactly — pinned to `bottom-0` with the safe-area inset as its
+    // own PADDING, never as an offset. That is what makes the measured
+    // `--bulkbar-h` (published here, spent by TAB_BAR_CLEARANCE) cover the
+    // same footprint `--tabbar-h` does; an inset expressed as `bottom-…` would
+    // sit outside the measured box and under-reserve the list's clearance.
+    <div
+      ref={publishBulkBarHeight}
+      className="md:contents max-md:fixed max-md:bottom-0 max-md:left-1/2 max-md:z-40 max-md:max-w-[calc(100vw-2rem)] max-md:-translate-x-1/2 max-md:pb-[max(1rem,env(safe-area-inset-bottom))]"
+    >
       <div
-        // On md+ the bar sits in-flow inside the fixed-height filter row; below
-        // md it floats centered above the mobile tab bar (z-[35]) like the
-        // native selection pill (EXP-405/FEED-12). Bottom offset (on the
-        // wrapper) = the tab bar's own bottom padding + its 3.25rem pill height
-        // + a 0.5rem gap.
+        // EXP-698 r5: the opaque glass card of the tab bar and the natives'
+        // selection bar — 24px radius over the strong hairline, 10×8 padding.
         // EXP-523: enter-only. Clearing a selection is a deliberate action and
         // reads fine instantly, and an exit would mean threading presence state
         // through both call sites (board view + my-issues) for no real gain.
-        className="glass-panel flex items-center gap-1 rounded-lg px-2 py-1.5 motion-safe:animate-in motion-safe:slide-in-from-bottom-1 motion-safe:fade-in-0 motion-safe:zoom-in-95 duration-fast ease-decelerate max-md:shadow-lg max-md:shadow-black/40"
+        className="flex items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2 motion-safe:animate-in motion-safe:slide-in-from-bottom-1 motion-safe:fade-in-0 motion-safe:zoom-in-95 duration-fast ease-decelerate max-md:h-[52px] max-md:shadow-lg max-md:shadow-black/40"
         data-testid="bulk-action-bar"
       >
-        <span className="px-1.5 text-xs font-medium whitespace-nowrap">
-          {issues.length}
-          <span className="hidden lg:inline"> selected</span>
-        </span>
         <Button
           variant="ghost"
-          size="icon-xs"
-          className="text-muted-foreground"
+          size="icon"
+          className="size-8 text-muted-foreground"
           aria-label="Clear selection"
           onClick={onClear}
         >
-          <X className="size-3.5" />
+          <X className="size-4" />
         </Button>
+        <span className="px-1 text-sm font-semibold whitespace-nowrap">
+          {issues.length}
+        </span>
 
         <Separator orientation="vertical" className="mx-1 h-4!" />
 
@@ -222,12 +240,12 @@ export function BulkActionBar({
             <Button
               variant="ghost"
               size="sm"
-              className="text-muted-foreground"
+              className="text-muted-foreground max-md:w-8 max-md:px-0!"
               disabled={busy}
               aria-label="Set status"
             >
               <ListTodo className="size-4" />
-              <span className="hidden lg:inline">Status</span>
+              <span className="hidden md:inline">Status</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -263,12 +281,12 @@ export function BulkActionBar({
             <Button
               variant="ghost"
               size="sm"
-              className="text-muted-foreground"
+              className="text-muted-foreground max-md:w-8 max-md:px-0!"
               disabled={busy}
               aria-label="Set priority"
             >
               <Flag className="size-4" />
-              <span className="hidden lg:inline">Priority</span>
+              <span className="hidden md:inline">Priority</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -300,12 +318,12 @@ export function BulkActionBar({
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-muted-foreground"
+                className="text-muted-foreground max-md:w-8 max-md:px-0!"
                 disabled={busy}
                 aria-label="Set assignee"
               >
                 <CircleUser className="size-4" />
-                <span className="hidden lg:inline">Assignee</span>
+                <span className="hidden md:inline">Assignee</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
@@ -349,12 +367,12 @@ export function BulkActionBar({
             <Button
               variant="ghost"
               size="sm"
-              className="text-muted-foreground"
+              className="text-muted-foreground max-md:w-8 max-md:px-0!"
               disabled={busy}
               aria-label="Set labels"
             >
               <Tag className="size-4" />
-              <span className="hidden lg:inline">Labels</span>
+              <span className="hidden md:inline">Labels</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -410,12 +428,12 @@ export function BulkActionBar({
             <Button
               variant="ghost"
               size="sm"
-              className="text-destructive hover:text-destructive"
+              className="text-destructive hover:text-destructive max-md:w-8 max-md:px-0!"
               disabled={busy}
               aria-label="Delete selected"
             >
               <Trash2 className="size-4" />
-              <span className="hidden lg:inline">Delete</span>
+              <span className="hidden md:inline">Delete</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -515,10 +533,13 @@ function BulkStartCodingControl({
   const busy = remote.starting || remote.sentTo !== null
   return (
     <>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="text-muted-foreground"
+      {/* EXP-698 r5: the row's ONE call to action — the accent pill every
+          client paints here, text and all, on phones too. */}
+      <Pill
+        size="md"
+        mode="action"
+        primary
+        className="mx-1"
         disabled={busy}
         aria-label="Start coding"
         onClick={() => setDialogOpen(true)}
@@ -528,8 +549,8 @@ function BulkStartCodingControl({
         ) : (
           <StartCodingIcon className="size-4" />
         )}
-        <span className="hidden lg:inline">Start coding</span>
-      </Button>
+        Start coding
+      </Pill>
       <LaunchDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}

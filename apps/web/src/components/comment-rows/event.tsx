@@ -3,6 +3,7 @@ import { displayUserName } from "@/lib/user-display"
 import { conceptIcon } from "@/lib/icons.generated"
 import { StatusIcon } from "@/components/issue-properties/status-dropdown"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import { TimelineRow } from "@/components/comment-rows/timeline-row"
 
 // EXP-317: timeline glyphs come from the shared registry, so a status change
 // (or a board move) looks the same here as it does in the desktop IDE.
@@ -96,11 +97,14 @@ export function EventRow({
   userMap,
   labelMap,
   boardMap,
+  lineBelow = true,
 }: {
   event: IssueEvent
   userMap: Map<string, User>
   labelMap: Map<string, Label>
   boardMap?: Map<string, Board>
+  /** The feed's LAST row draws no rail below it — see `TimelineRow`. */
+  lineBelow?: boolean
 }) {
   const { resolve: resolveStatus } = useTeamStatusesContext()
   const actor = event.actorUserId ? userMap.get(event.actorUserId) : undefined
@@ -228,12 +232,24 @@ export function EventRow({
       return null
   }
 
+  // EXP-698 r5: the glyph is CENTRED in the timeline gutter, on the same rail
+  // the creation row and the comment avatars ride.
   return (
-    <div className="flex items-center gap-2 py-1 pl-1 text-xs text-muted-foreground">
-      {icon ?? <Icon className="size-3.5 shrink-0" />}
-      <span className="truncate">
-        <span className="font-medium text-foreground">{actorName}</span> {text}
-      </span>
-    </div>
+    <TimelineRow
+      lineBelow={lineBelow}
+      marker={icon ?? <Icon className="size-3.5 shrink-0" />}
+      markerSize={14}
+      markerTop={3}
+    >
+      {/* `min-h-5` + the row's default padding is what leaves the 6px break
+          around a 14px glyph somewhere to go: a shorter row draws no rail at
+          all and the feed's spine breaks (see `TimelineRow`). */}
+      <div className="flex min-h-5 items-center text-xs text-muted-foreground">
+        <span className="truncate">
+          <span className="font-medium text-foreground">{actorName}</span>{` `}
+          {text}
+        </span>
+      </div>
+    </TimelineRow>
   )
 }

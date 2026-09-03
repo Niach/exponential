@@ -18,6 +18,7 @@ import {
   formatDateForMutation,
   getIssueDescriptionText,
   normalizeIssueDescriptionText,
+  type IssuePriority,
 } from "@/lib/domain"
 import {
   uploadIssueFile,
@@ -50,6 +51,7 @@ import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { IssueTimeline } from "@/components/issue-timeline"
 import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
 import { IssueDetailMobileBar } from "@/components/issue-detail-mobile-bar"
+import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { IssueFilesSection } from "@/components/issue-files-section"
 import { SubscribeToggle } from "@/components/subscribe-toggle"
 import { IssueDetailMobileMenu } from "@/components/issue-detail-mobile-menu"
@@ -508,6 +510,36 @@ export function IssueDetailView({
     })
   }
 
+  // EXP-698 r5: ONE definition per property mutation — the desktop band and
+  // the phone sheet are two renderings of the same panel, and a closure that
+  // exists twice is a rule that can disagree with itself.
+  const handlePriorityChange = async (priority: IssuePriority) => {
+    if (readOnly) return
+    await trpc.issues.update.mutate({ id: issue.id, priority })
+  }
+
+  const handleAssigneeChange = async (assigneeId: string | null) => {
+    if (readOnly) return
+    await trpc.issues.update.mutate({ id: issue.id, assigneeId })
+  }
+
+  const handleToggleLabel = async (labelId: string) => {
+    if (readOnly) return
+    if (issueLabelIds.includes(labelId)) {
+      await trpc.issueLabels.remove.mutate({ issueId: issue.id, labelId })
+      return
+    }
+    await trpc.issueLabels.add.mutate({ issueId: issue.id, labelId })
+  }
+
+  const handleDueDateSelect = async (date: Date | undefined) => {
+    if (readOnly) return
+    await trpc.issues.update.mutate({
+      id: issue.id,
+      dueDate: formatDateForMutation(date),
+    })
+  }
+
   // Delete is a hard delete (issues.delete cleans up attachments server-side);
   // once it commits, land back on the board with the carried filters.
   const handleDeleteIssue = async () => {
@@ -576,34 +608,15 @@ export function IssueDetailView({
       status={statusOption}
       onStatusChange={handleStatusChange}
       priority={issue.priority}
-      onPriorityChange={async (priority) => {
-        if (readOnly) return
-        await trpc.issues.update.mutate({ id: issue.id, priority })
-      }}
+      onPriorityChange={handlePriorityChange}
       assigneeId={issue.assigneeId}
-      onAssigneeChange={async (assigneeId) => {
-        if (readOnly) return
-        await trpc.issues.update.mutate({ id: issue.id, assigneeId })
-      }}
+      onAssigneeChange={handleAssigneeChange}
       users={users}
       teamId={teamId}
       selectedLabelIds={issueLabelIds}
-      onToggleLabel={async (labelId) => {
-        if (readOnly) return
-        if (issueLabelIds.includes(labelId)) {
-          await trpc.issueLabels.remove.mutate({ issueId: issue.id, labelId })
-          return
-        }
-        await trpc.issueLabels.add.mutate({ issueId: issue.id, labelId })
-      }}
+      onToggleLabel={handleToggleLabel}
       dueDate={dueDate}
-      onDueDateSelect={async (date) => {
-        if (readOnly) return
-        await trpc.issues.update.mutate({
-          id: issue.id,
-          dueDate: formatDateForMutation(date),
-        })
-      }}
+      onDueDateSelect={handleDueDateSelect}
       source={issue.source}
       boardColor={board.color}
       boardPrefix={board.prefix}
@@ -613,6 +626,34 @@ export function IssueDetailView({
       issueIdentifier={issue.identifier}
       onBoardChange={handleBoardChange}
       disabled={readOnly}
+    />
+  )
+
+  // EXP-698 r5 — the phone's properties SHEET is the create form's row list,
+  // not the desktop chip band: Status / Priority / Assignee / Due date /
+  // Board as full-width rows, then the label chips. Same mutations as the
+  // band above; Board rides the shared move-confirm dialog.
+  const mobilePropertiesPanel = (
+    <IssueEditorMobileProperties
+      status={statusOption}
+      priority={issue.priority}
+      assigneeId={issue.assigneeId}
+      selectedLabelIds={issueLabelIds}
+      teamId={teamId}
+      users={users}
+      dueDate={dueDate}
+      disabled={readOnly}
+      board={{
+        boardId: issue.boardId,
+        teamId,
+        issueIdentifier: issue.identifier,
+        onBoardChange: handleBoardChange,
+      }}
+      onStatusChange={handleStatusChange}
+      onPriorityChange={handlePriorityChange}
+      onAssigneeChange={handleAssigneeChange}
+      onToggleLabel={handleToggleLabel}
+      onDueDateSelect={handleDueDateSelect}
     />
   )
 
@@ -634,12 +675,16 @@ export function IssueDetailView({
 
   // Header actions shared by the desktop breadcrumb and the compact phone
   // header below — one definition each, two arrangements.
+  // EXP-698 r5: bare chevrons — no circle, no fill. The switcher is a pair of
+  // glyphs beside the "N / total" counter (IDE parity, `issue_header.rs`);
+  // the copy-link / subscribe / trash trio keeps its circles.
   const switcherButtons = position ? (
     <>
       <IconTooltip label="Previous issue" shortcut="K">
         <Button
-          variant="glass"
+          variant="ghost"
           size="icon-sm"
+          className="text-muted-foreground hover:text-foreground"
           aria-label="Previous issue (K)"
           disabled={!position.prevIdentifier}
           onClick={() => navigateToIssue(position.prevIdentifier)}
@@ -649,8 +694,9 @@ export function IssueDetailView({
       </IconTooltip>
       <IconTooltip label="Next issue" shortcut="J">
         <Button
-          variant="glass"
+          variant="ghost"
           size="icon-sm"
+          className="text-muted-foreground hover:text-foreground"
           aria-label="Next issue (J)"
           disabled={!position.nextIdentifier}
           onClick={() => navigateToIssue(position.nextIdentifier)}
@@ -842,13 +888,9 @@ export function IssueDetailView({
       <ChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
       <span className="shrink-0 font-mono">{issue.identifier}</span>
       <span className="truncate text-foreground">{title}</span>
-      <div className="ml-auto flex shrink-0 items-center">
-        {switcherButtons}
-        {position && (
-          <Separator orientation="vertical" className="mx-1 !h-3.5" />
-        )}
-        {mobileMenu}
-      </div>
+      {/* EXP-698 r5: no prev/next on phones — the natives have none either,
+          and the row is too tight for a switcher nobody reaches for there. */}
+      <div className="ml-auto flex shrink-0 items-center">{mobileMenu}</div>
     </div>
   )
 
@@ -999,7 +1041,7 @@ export function IssueDetailView({
           <IssueDetailMobileBar
             issueId={issue.id}
             users={users}
-            propertiesNode={propsPanel}
+            propertiesNode={mobilePropertiesPanel}
             codingNode={codingFab}
             onSubmitComment={handleCommentSubmit}
             hidden={descriptionFocused}

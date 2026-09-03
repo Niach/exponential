@@ -10,9 +10,12 @@ import {
   type StatusRowOption,
 } from "@/lib/team-statuses"
 import { labelCollection } from "@/lib/collections"
+import { useTeamBoards } from "@/hooks/use-team-data"
 import { formatDate, getInitials } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
+import { BoardPicker } from "@/components/issue-properties/board-picker"
+import { BoardGlyph } from "@/components/board-glyph"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import {
   priorities,
@@ -72,6 +75,15 @@ export interface IssueEditorMobilePropertiesProps {
   dueDate: Date | undefined
   hideAssignee?: boolean
   hideDueDateChip?: boolean
+  /** EXP-698 r5 (the issue detail's phone sheet only): a Board row after Due
+   * date, moving the issue through the same confirm dialog the desktop chip
+   * uses. Absent on the create form — a new issue is already ON its board. */
+  board?: {
+    boardId: string
+    teamId: string
+    issueIdentifier?: string | null
+    onBoardChange: (boardId: string) => void | Promise<void>
+  }
   disableStatus?: boolean
   disabled?: boolean
   onStatusChange: (status: StatusRowOption) => void | Promise<void>
@@ -95,6 +107,7 @@ export function IssueEditorMobileProperties({
   dueDate,
   hideAssignee,
   hideDueDateChip,
+  board,
   disableStatus,
   disabled,
   onStatusChange,
@@ -106,6 +119,11 @@ export function IssueEditorMobileProperties({
   onCreateMoreChange,
 }: IssueEditorMobilePropertiesProps) {
   const { options, byId } = useTeamStatusesContext()
+  // Only queried when the Board row is asked for (`undefined` skips it).
+  const boardOptions = useTeamBoards(board?.teamId)
+  const currentBoard = board
+    ? boardOptions.find((row) => row.id === board.boardId)
+    : undefined
   const statusOptions = creatableStatusOptions(options)
   const assignee = assigneeId
     ? users.find((user) => user.id === assigneeId)
@@ -255,6 +273,33 @@ export function IssueEditorMobileProperties({
               />
             </MobilePopoverContent>
           </MobilePopover>
+        )}
+
+        {board && (
+          <BoardPicker
+            disabled={disabled}
+            teamId={board.teamId}
+            selectedBoardId={board.boardId}
+            issueIdentifier={board.issueIdentifier}
+            onSelect={board.onBoardChange}
+            trigger={
+              <PropertyRow
+                label="Board"
+                disabled={disabled}
+                value={
+                  <>
+                    <BoardGlyph
+                      board={currentBoard ?? { color: `#71717a` }}
+                      className="!h-3.5 !w-3.5"
+                    />
+                    <span className="max-w-[8rem] truncate">
+                      {currentBoard?.name ?? `Board`}
+                    </span>
+                  </>
+                }
+              />
+            }
+          />
         )}
       </div>
 

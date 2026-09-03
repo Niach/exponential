@@ -31,16 +31,20 @@ import {
   svgCheck,
   svgChevronRight,
   svgCircleHelp,
+  svgCircleUser,
   svgEllipsis,
+  svgFlag,
   svgGitMerge,
   svgHash,
   svgImage,
   svgInbox,
+  svgListTodo,
   svgPaperclip,
   svgPlay,
   svgPlus,
   svgSend,
   svgSmile,
+  svgTag,
   svgTerminal,
   svgTrash,
   svgX,
@@ -145,6 +149,33 @@ function tabsRow(labels: string[], activeIndex: number): string {
     )
     .join(``)
   return `<div class="cmp-tabs-row">${tabs}</div>`
+}
+
+/**
+ * The selection bar. `labelled` is the desktop arm (icon + text on every
+ * button); the phone arm keeps only the glyphs, and only Start coding keeps
+ * its words.
+ */
+function bulkBar(labelled: boolean): string {
+  const button = (glyph: string, label: string, destructive = false): string =>
+    [
+      `<span class="item${destructive ? ` destructive` : ``}">`,
+      glyph,
+      labelled ? `<span class="label">${escapeHtml(label)}</span>` : ``,
+      `</span>`,
+    ].join(``)
+  return [
+    `<div class="cmp-bulk-bar">`,
+    `<span class="item">${svgX}</span>`,
+    `<span class="value">3</span>`,
+    button(svgListTodo, `Status`),
+    button(svgFlag, `Priority`),
+    button(svgCircleUser, `Assignee`),
+    button(svgTag, `Labels`),
+    pill(`Start coding`, { size: `md`, glyph: svgPlay, primary: true }),
+    button(svgTrash, `Delete`, true),
+    `</div>`,
+  ].join(``)
 }
 
 function iconButton(glyph: string): string {
@@ -754,6 +785,28 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `<span class="item">${svgPlus}</span>`,
         `<span class="item">${svgGitMerge}</span>`,
         `<span class="item">${svgBell}</span>`,
+        `</div>`,
+      ].join(``),
+  },
+  {
+    id: `bulk-bar`,
+    title: `Bulk action bar`,
+    kind: `Surfaces`,
+    blurb: `The selection's own bar: the tab bar's opaque card at radius XL3, padding 10x8, holding the clear cross, the count, one ghost button per property, the accent Start coding pill and a destructive trash. On a phone it REPLACES the tab bar and the labels drop away.`,
+    status: {
+      web: ok(`BulkActionBar`, `apps/web/src/components/bulk-action-bar.tsx`),
+      desktop: ok(`render_bulk_bar`, `apps/desktop/crates/ui/src/issue_list.rs`),
+      ios: ok(`selectionBar`, `apps/ios/Exponential/UI/Issue/IssueListView.swift`),
+      android: ok(
+        `SelectionBar`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/issue/IssueListScreen.kt`
+      ),
+    },
+    render: () =>
+      [
+        `<div class="cmp-stack">`,
+        bulkBar(true),
+        bulkBar(false),
         `</div>`,
       ].join(``),
   },

@@ -5,8 +5,11 @@ import {
   useTeamBySlug,
   useTeamBoardsWithReady,
 } from "@/hooks/use-team-data"
+import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { EmptyState } from "@/components/empty-state"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
+import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
+import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { Button } from "@/components/ui/button"
 import { readLastVisited } from "@/lib/last-visited"
 
@@ -19,6 +22,7 @@ function TeamIndexPage() {
   const navigate = useNavigate()
   const team = useTeamBySlug(teamSlug)
   const { boards, boardsReady } = useTeamBoardsWithReady(team?.id)
+  const permissions = useTeamPermissions(team)
   const [createOpen, setCreateOpen] = useState(false)
 
   useEffect(() => {
@@ -49,18 +53,29 @@ function TeamIndexPage() {
     return null
   }
 
+  // EXP-698 r5: the empty TEAM carries the checklist the empty BOARD does —
+  // same wording as the IDE and the natives, cards inline underneath. The
+  // whole thing is one scroll column: on a phone the cards are taller than
+  // the viewport.
   return (
-    <div className="flex h-full flex-1 items-center justify-center">
-      <EmptyState
-        icon={FolderKanban}
-        title="Create your first board"
-        description="Boards hold your issues. Create one to start tracking work."
-      >
-        <Button onClick={() => setCreateOpen(true)}>
-          <FolderKanban className="mr-2 size-4" />
-          Create a board
-        </Button>
-      </EmptyState>
+    <div className={`h-full overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
+      <div className="flex min-h-[60vh] flex-1 items-center justify-center">
+        <EmptyState
+          icon={FolderKanban}
+          title="No boards yet"
+          description="Create a board to start tracking work."
+        >
+          <Button onClick={() => setCreateOpen(true)}>
+            <FolderKanban className="mr-2 size-4" />
+            Create a board
+          </Button>
+        </EmptyState>
+      </div>
+      {/* Members only — the guidance block is meaningless before the viewer's
+          own member row has synced (board parity). */}
+      {team && permissions.isMember && (
+        <GettingStartedSection team={team} teamSlug={teamSlug} />
+      )}
       {team && (
         <CreateBoardDialog
           open={createOpen}

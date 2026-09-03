@@ -338,7 +338,9 @@ async function recipeOpenBoardSwitcher(page: Page): Promise<void> {
     )
   }
   await trigger.first().click()
-  await page.getByRole(`dialog`, { name: `Boards` }).waitFor({ timeout: 15_000 })
+  await page
+    .getByRole(`dialog`, { name: `Switch board` })
+    .waitFor({ timeout: 15_000 })
 }
 
 // ----------------------------------------------------------------- coding

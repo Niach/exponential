@@ -524,7 +524,7 @@
       "id": "board-empty",
       "group": "issues",
       "title": "Empty board",
-      "blurb": "A board with nothing on it yet: the empty state, and the only place the getting-started cards render inline.",
+      "blurb": "A board with nothing on it yet: the empty state, with the getting-started cards inline underneath on every client.",
       "order": 7,
       "web": {
         "route": "/t/$teamSlug/boards/launch-marketing",
@@ -562,7 +562,7 @@
       "web": {
         "route": "/t/$teamSlug/boards/$boardSlug",
         "anchor": {
-          "text": "selected",
+          "testId": "bulk-action-bar",
           "timeoutMs": 30000
         },
         "recipe": "openBoardBulkEdit",
@@ -604,7 +604,7 @@
       "webMobile": {
         "route": "/t/$teamSlug/boards/$boardSlug",
         "anchor": {
-          "text": "Boards",
+          "text": "Switch board",
           "timeoutMs": 30000
         },
         "recipe": "openBoardSwitcher",
@@ -1851,10 +1851,10 @@
         }
       },
       "notes": {
-        "web": "Not a route: it is a sidebar-footer sheet (EXP-88), and the button hides once every checklist entry is done (EXP-548). The seed must leave at least one entry incomplete or the recipe has nothing to click. The same cards also render inline under an EMPTY board's empty state.",
-        "web-mobile": "The phone layout replaces the sidebar with the tab bar, and the footer entry with it — there is no mobile entry point for the sheet.",
-        "ios": "Mobile has no checklist surface yet.",
-        "android": "Mobile has no checklist surface yet."
+        "web": "Not a route: it is a sidebar-footer sheet (EXP-88), and the button hides once every checklist entry is done (EXP-548). The seed must leave at least one entry incomplete or the recipe has nothing to click. The same cards also render inline under an EMPTY board's and an empty team's empty state.",
+        "web-mobile": "No sheet on phones: the cards render inline under an empty board / empty team.",
+        "ios": "Inline under an empty board / empty team.",
+        "android": "Inline under an empty board / empty team."
       }
     }
   ]

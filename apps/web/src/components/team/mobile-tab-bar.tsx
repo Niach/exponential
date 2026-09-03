@@ -4,6 +4,7 @@ import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { readLastVisited } from "@/lib/last-visited"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
+import { useMobileChrome } from "@/hooks/use-mobile-chrome"
 import { useSession } from "@/hooks/use-session"
 import {
   useUnreadNotificationCount,
@@ -34,7 +35,10 @@ const NavSupportIcon = conceptIcon(`nav-support`)
 // bar publishes `0px` rather than dropping the property, so no route ever
 // falls back to it while there is no pill on screen. `+1.25rem` is the gap
 // above the pill.
-export const TAB_BAR_CLEARANCE = `max-md:pb-[calc(var(--tabbar-h,4.25rem)+1.25rem)]`
+// EXP-698 r5: the bulk bar takes the tab bar's slot on a selection, so the
+// clearance is whichever bar is actually down there — `max()` of the two
+// published heights, never their sum.
+export const TAB_BAR_CLEARANCE = `max-md:pb-[calc(max(var(--tabbar-h,4.25rem),var(--bulkbar-h,0px))+1.25rem)]`
 
 // Mobile chrome (topbar + tab bar) hides on the detail routes — they carry
 // their own breadcrumb/back headers, mirroring the native apps pushing a
@@ -144,7 +148,10 @@ export function MobileTabBar({
   boards,
 }: MobileTabBarProps) {
   const matchRoute = useMatchRoute()
-  const visible = useMobileChromeVisible()
+  // EXP-698 r5: a multi-selection replaces the bar with the bulk bar (native
+  // parity) — one occupant of the bottom edge, FAB included.
+  const { bulkBarPresent } = useMobileChrome()
+  const visible = useMobileChromeVisible() && !bulkBarPresent
   const { boardSlug } = useParams({ strict: false })
   // EXP-698: what TAB_BAR_CLEARANCE spends. `0px` on the detail routes that
   // hide the bar (never removed — the literal fallback would reserve a

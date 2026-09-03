@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { useLiveQuery, eq } from "@tanstack/react-db"
 import { Check } from "lucide-react"
 import { boardCollection } from "@/lib/collections"
@@ -33,6 +33,9 @@ interface BoardPickerProps {
   open?: boolean
   onOpenChange?: (open: boolean) => void
   hideTrigger?: boolean
+  // Replaces the default chip (the mobile properties sheet renders the picker
+  // as a full-width property row) — same contract as `AssigneePicker`.
+  trigger?: ReactNode
 }
 
 // Move-to-board picker for the issue detail view (EXP-57): single-select
@@ -50,6 +53,7 @@ export function BoardPicker({
   open: controlledOpen,
   onOpenChange,
   hideTrigger,
+  trigger,
 }: BoardPickerProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
   const open = controlledOpen ?? uncontrolledOpen
@@ -94,19 +98,21 @@ export function BoardPicker({
       >
         {!hideTrigger && (
           <MobilePopoverTrigger asChild>
-            <Pill mode="action" disabled={disabled}>
-              <BoardGlyph
-                board={selectedBoard ?? { color: `#71717a` }}
-                className="size-3.5"
-              />
-              {selectedBoard ? (
-                <span className="max-w-[7.5rem] truncate">
-                  {selectedBoard.name}
-                </span>
-              ) : (
-                `Board`
-              )}
-            </Pill>
+            {trigger ?? (
+              <Pill mode="action" disabled={disabled}>
+                <BoardGlyph
+                  board={selectedBoard ?? { color: `#71717a` }}
+                  className="size-3.5"
+                />
+                {selectedBoard ? (
+                  <span className="max-w-[7.5rem] truncate">
+                    {selectedBoard.name}
+                  </span>
+                ) : (
+                  `Board`
+                )}
+              </Pill>
+            )}
           </MobilePopoverTrigger>
         )}
         <MobilePopoverContent

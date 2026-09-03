@@ -1,5 +1,5 @@
-import { Ellipsis } from "lucide-react"
 import type { Attachment, Comment, User } from "@/db/schema"
+import { conceptIcon } from "@/lib/icons.generated"
 import { getCommentBodyText } from "@/lib/domain"
 import { getInitials } from "@/lib/utils"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { CommentComposer } from "@/components/comment-composer"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { CommentAttachments } from "@/components/comment-rows/attachments"
+import { TimelineRow } from "@/components/comment-rows/timeline-row"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,6 +16,10 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { authorLabel, relativeTime } from "./format"
 
+// EXP-698 r5: the comment menu is a bare vertical ellipsis on every client —
+// no glass ring around it.
+const UiMoreVerticalIcon = conceptIcon(`ui-more-vertical`)
+
 export interface RegularCommentRowProps {
   author: User | undefined
   comment: Comment
@@ -22,6 +27,8 @@ export interface RegularCommentRowProps {
   attachments: Attachment[]
   canModify: boolean
   editing: boolean
+  /** The feed's LAST row draws no rail below it — see `TimelineRow`. */
+  lineBelow?: boolean
   onDelete: () => void
   onEdit: () => void
   onCancelEdit: () => void
@@ -36,6 +43,7 @@ export function RegularCommentRow({
   attachments,
   canModify,
   editing,
+  lineBelow = true,
   onDelete,
   onEdit,
   onCancelEdit,
@@ -45,16 +53,24 @@ export function RegularCommentRow({
   const bodyText = getCommentBodyText(comment.body)
   const name = authorLabel(author, comment.authorId)
 
+  // EXP-698 r5: the comment is a BUBBLE — name, time and the ⋮ menu live
+  // inside the card with the body, and the avatar rides the timeline gutter
+  // (iOS `RegularCommentRow` / Android `RegularCommentRow.kt`).
   return (
-    <div className="flex gap-2.5 py-2">
-      <Avatar className="h-7 w-7 shrink-0">
-        {author?.image && <AvatarImage src={author.image} />}
-        <AvatarFallback className="text-xs" userId={comment.authorId}>
-          {getInitials(name)}
-        </AvatarFallback>
-      </Avatar>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2 text-xs">
+    <TimelineRow
+      lineBelow={lineBelow}
+      marker={
+        <Avatar className="h-7 w-7 shrink-0">
+          {author?.image && <AvatarImage src={author.image} />}
+          <AvatarFallback className="text-xs" userId={comment.authorId}>
+            {getInitials(name)}
+          </AvatarFallback>
+        </Avatar>
+      }
+      markerSize={28}
+    >
+      <div className="rounded-xl border border-glass-stroke-card bg-glass-card px-3 pt-2 pb-2.5">
+        <div className="flex items-center gap-2 text-xs">
           <span className="font-medium text-foreground">{name}</span>
           <span className="text-muted-foreground">
             {relativeTime(comment.createdAt)}
@@ -65,12 +81,12 @@ export function RegularCommentRow({
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
-                  variant="glass"
-                  size="icon-sm"
-                  className="ml-auto"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="-my-1 ml-auto text-muted-foreground hover:text-foreground"
                   aria-label="Comment actions"
                 >
-                  <Ellipsis />
+                  <UiMoreVerticalIcon />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -119,6 +135,6 @@ export function RegularCommentRow({
           </>
         )}
       </div>
-    </div>
+    </TimelineRow>
   )
 }

@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { Link } from "@tanstack/react-router"
 import {
@@ -118,25 +124,29 @@ function StateDot({ className }: { className: string }) {
   return <span className={cn(`inline-flex size-2 rounded-full`, className)} />
 }
 
+// EXP-698 r5: the coding-now badge is the readonly `sm` pill on every client —
+// a tone dot, the tone as the text colour, and the tone at 40% as the stroke
+// (IDE `.border_color(tone.opacity(0.4))`, iOS/Android `GlassPill(tint:)`).
+// The tones are the Tailwind palette vars so the inline mix and the dot draw
+// the SAME colour the class-based rows draw.
 const SESSION_STATE_BADGE: Record<
   Exclude<SessionDisplayState, `running`>,
-  { label: string; badge: string; dot: string }
+  { label: string; tone: string }
 > = {
-  needs_input: {
-    label: `Needs input`,
-    badge: `text-amber-400`,
-    dot: `bg-amber-500`,
-  },
-  review: {
-    label: `Ready for review`,
-    badge: `text-emerald-400`,
-    dot: `bg-emerald-500`,
-  },
-  done: {
-    label: `Done`,
-    badge: `text-sky-400`,
-    dot: `bg-sky-500`,
-  },
+  needs_input: { label: `Needs input`, tone: `var(--color-amber-400)` },
+  review: { label: `Ready for review`, tone: `var(--color-emerald-400)` },
+  done: { label: `Done`, tone: `var(--color-sky-400)` },
+}
+
+const RUNNING_TONE = `var(--color-emerald-400)`
+const PAUSED_TONE = `var(--muted-foreground)`
+
+/** Text in the tone, stroke in the tone at 40% — the readonly pill's tint. */
+function toneStyle(tone: string): CSSProperties {
+  return {
+    color: tone,
+    borderColor: `color-mix(in srgb, ${tone} 40%, transparent)`,
+  }
 }
 
 /** Live-session badge — "Coding now" / "Needs input" / "Ready for review" /
@@ -158,8 +168,9 @@ export function SessionStatusBadge({
   if (paused) {
     return (
       <Pill
-        className="gap-1.5 text-muted-foreground"
-        leading={<StateDot className="bg-muted-foreground/40" />}
+        size="sm"
+        style={toneStyle(PAUSED_TONE)}
+        dot={`color-mix(in srgb, ${PAUSED_TONE} 40%, transparent)`}
       >
         Paused
         {count > 1 ? ` (·${count})` : ``}
@@ -167,8 +178,10 @@ export function SessionStatusBadge({
     )
   }
   if (state === `running`) {
+    // The pulsing ping IS the dot while a run is live — it rides the `leading`
+    // slot so the ripple has room the 6px disc would clip.
     return (
-      <Pill className="gap-1.5 text-emerald-400" leading={<RunningPing />}>
+      <Pill size="sm" style={toneStyle(RUNNING_TONE)} leading={<RunningPing />}>
         Coding now
         {count > 1 ? ` (·${count})` : ``}
       </Pill>
@@ -176,10 +189,7 @@ export function SessionStatusBadge({
   }
   const style = SESSION_STATE_BADGE[state]
   return (
-    <Pill
-      className={cn(`gap-1.5`, style.badge)}
-      leading={<StateDot className={style.dot} />}
-    >
+    <Pill size="sm" style={toneStyle(style.tone)} dot={style.tone}>
       {style.label}
       {count > 1 ? ` (·${count})` : ``}
     </Pill>
