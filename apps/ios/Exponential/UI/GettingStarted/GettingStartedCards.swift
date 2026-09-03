@@ -70,11 +70,20 @@ struct GettingStartedCards: View {
                 Spacer(minLength: 8)
             }
 
+            // Two lines, and the CARD grows to hold them (Android's
+            // `maxLines = 2`, web wraps freely). At one line every description
+            // and every locked hint ended in an ellipsis a third of the way
+            // through its sentence — the shot showed "Runs coding sessions on
+            // your machine and registers it as one of y…", which tells a new
+            // user nothing. `fixedSize` is what stops the VStack from
+            // compressing the label back to one line inside a fixed-height
+            // card.
             Text(locked ? lockedHint(entry) : entry.key.entryDescription)
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .lineLimit(1)
-                .truncationMode(.tail)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             if state != .done {
                 GlassPill(

@@ -27,6 +27,11 @@ struct IssueListView: View {
     // a pushed `.board` renders the bare empty state.
     @Environment(\.gettingStarted) private var gettingStarted
     @State private var viewModel: IssueListViewModel?
+    /// The row whose next release must NOT count as a tap (see `issueRow`).
+    /// Only one row can be under a finger at a time, so this is a single
+    /// optional rather than a set — and it carries its own expiry instead of a
+    /// timer Task, so there is no stale removal to race the next long-press.
+    @State private var tapSuppression: TapSuppression?
     @State private var showFilterSheet = false
     // Multi-select mode (EXP-239): long-press a row to enter, tap toggles,
     // and the selection bar (floating above the tab bar, EXP-405) acts on
@@ -525,49 +530,59 @@ struct IssueListView: View {
 
     @ViewBuilder
     private func issueRow(issue: IssueEntity, vm: IssueListViewModel) -> some View {
-        if selectionActive {
-            Button {
-                toggleSelection(issue.id)
-            } label: {
-                issueRowContent(issue: issue, vm: vm, selected: selectedIds.contains(issue.id))
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("issue-row-\(issue.identifier ?? issue.id)")
-        } else {
-            // Inline status/priority editing (EXP-247): tap the icons to open a
-            // picker — only when the viewer may mutate this issue. In selection
-            // mode taps keep toggling selection, so these stay nil there.
-            let canMutate = vm.permissions.canMutateIssue(creatorId: issue.creatorId)
-            let onLongPress: () -> Void = {
-                guard vm.permissions.isMember else { return }
-                enterSelection(with: issue.id, vm: vm)
-            }
-            // A plain Button, not a NavigationLink (EXP-698 r5): a link in a
-            // List row makes the system draw its own disclosure chevron at the
-            // row's edge, outside the glass card — the selection branch above
-            // already proves a Button keeps the whole card tappable. The row
-            // draws the chevron INSIDE the card instead, like the other three
-            // clients, and pushes through the navigator's `pushRoute`.
-            Button {
-                pushRoute(.issue(accountId: accountId, id: issue.id))
-            } label: {
-                issueRowContent(
-                    issue: issue,
-                    vm: vm,
-                    selected: nil,
-                    onTapStatus: canMutate ? { inlineEdit = InlineEdit(kind: .status, issue: $0) } : nil,
-                    onTapPriority: canMutate ? { inlineEdit = InlineEdit(kind: .priority, issue: $0) } : nil,
-                    onIconLongPress: onLongPress
-                )
-            }
-            .buttonStyle(.plain)
-            // Long-press enters multi-select (EXP-239); simultaneous so the
-            // button's plain tap keeps navigating.
-            .simultaneousGesture(
-                LongPressGesture(minimumDuration: 0.35).onEnded { _ in onLongPress() }
-            )
-            .accessibilityIdentifier("issue-row-\(issue.identifier ?? issue.id)")
+        // Inline status/priority editing (EXP-247): tap the icons to open a
+        // picker — only when the viewer may mutate this issue. In selection
+        // mode taps keep toggling selection, so these stay nil there.
+        let canMutate = !selectionActive && vm.permissions.canMutateIssue(creatorId: issue.creatorId)
+        let onLongPress: () -> Void = {
+            guard vm.permissions.isMember else { return }
+            enterSelection(with: issue.id, vm: vm)
         }
+        // ONE Button for both modes (EXP-698 r5). A plain Button, not a
+        // NavigationLink: a link in a List row makes the system draw its own
+        // disclosure chevron at the row's edge, outside the glass card, so the
+        // row draws the chevron INSIDE the card like the other three clients
+        // and pushes through the navigator's `pushRoute`. The mode is decided
+        // at tap time rather than by swapping two Buttons: a long-press flips
+        // `selectionActive` while the finger is still down, and a swapped
+        // Button would receive the release as a fresh tap and toggle the row
+        // straight back out of the selection (the styleguide lane's
+        // "Long-press did not enter multi-select").
+        Button {
+            // The release that ended the long-press, not a tap: it would
+            // toggle the just-selected row straight back out (and, as the only
+            // selected row, leave selection mode again).
+            if consumeTapSuppression(for: issue.id) { return }
+            if selectionActive {
+                toggleSelection(issue.id)
+            } else {
+                pushRoute(.issue(accountId: accountId, id: issue.id))
+            }
+        } label: {
+            issueRowContent(
+                issue: issue,
+                vm: vm,
+                selected: selectionActive ? selectedIds.contains(issue.id) : nil,
+                onTapStatus: canMutate ? { inlineEdit = InlineEdit(kind: .status, issue: $0) } : nil,
+                onTapPriority: canMutate ? { inlineEdit = InlineEdit(kind: .priority, issue: $0) } : nil,
+                // In selection mode `canMutate` is false, so the glyphs carry
+                // no tap and `inlineEditableIcon` attaches no gesture at all —
+                // and `enterSelection` is a no-op once selection is on. One
+                // closure, guarded where it acts.
+                onIconLongPress: onLongPress
+            )
+        }
+        .buttonStyle(.plain)
+        // Long-press enters multi-select (EXP-239); simultaneous so the
+        // button's plain tap keeps navigating.
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.35).onEnded { _ in
+                guard !selectionActive else { return }
+                tapSuppression = TapSuppression(issueId: issue.id)
+                onLongPress()
+            }
+        )
+        .accessibilityIdentifier("issue-row-\(issue.identifier ?? issue.id)")
     }
 
     @ViewBuilder
@@ -750,6 +765,16 @@ struct IssueListView: View {
         }
     }
 
+    /// Whether this row's tap is the release that ended its own long-press,
+    /// consuming the guard either way. Bounded in time as well as consumed on
+    /// use: if the touch is cancelled by the system no release ever arrives,
+    /// and an unbounded flag would then swallow a genuine tap later on.
+    private func consumeTapSuppression(for issueId: String) -> Bool {
+        guard let suppression = tapSuppression else { return false }
+        tapSuppression = nil
+        return suppression.issueId == issueId && !suppression.isExpired
+    }
+
     private func toggleSelection(_ issueId: String) {
         if selectedIds.contains(issueId) {
             selectedIds.remove(issueId)
@@ -764,6 +789,7 @@ struct IssueListView: View {
     }
 
     private func exitSelection() {
+        tapSuppression = nil
         withAnimation(motion.standard) {
             selectionActive = false
             selectedIds = []
@@ -1201,6 +1227,24 @@ struct IssueListView: View {
         if date < Date() { return DesignTokens.Semantic.red }
         return .white.opacity(TextOpacity.tertiary)
     }
+}
+
+/// One armed tap-swallow (EXP-698 r5). A long-press flips `selectionActive`
+/// while the finger is still DOWN; the release that follows arrives at the row
+/// as an ordinary tap, which in selection mode means "toggle" — so the row the
+/// press just selected would deselect itself. The row records which issue is
+/// under the finger and the tap consumes it.
+///
+/// The window has to outlast a comfortable hold (the press registers at 0.35s,
+/// the finger may stay down well past that) while still expiring, because a
+/// system-cancelled touch never sends the release that would consume it.
+private struct TapSuppression {
+    static let window: Duration = .seconds(2)
+
+    let issueId: String
+    let armedAt = ContinuousClock.now
+
+    var isExpired: Bool { armedAt.duration(to: ContinuousClock.now) > Self.window }
 }
 
 /// Transient outcome of a selection-bar action (EXP-239).
