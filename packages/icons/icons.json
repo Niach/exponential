@@ -142,6 +142,8 @@
     "coding-plan": "clipboard-list",
     "coding-subagent": "bot",
     "coding-diff": "file-diff",
+    "coding-compact": "fold-vertical",
+    "coding-command": "square-slash",
 
     "notification-issue-assigned": "user-plus",
     "notification-issue-comment": "message-square",

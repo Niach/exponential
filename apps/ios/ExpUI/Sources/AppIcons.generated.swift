@@ -156,6 +156,7 @@ public enum AppIcons {
         "file-text",
         "flag",
         "flask-conical",
+        "fold-vertical",
         "folder",
         "folder-kanban",
         "folder-open",
@@ -249,6 +250,7 @@ public enum AppIcons {
         "sparkles",
         "square-kanban",
         "square-pen",
+        "square-slash",
         "square-terminal",
         "star",
         "strikethrough",
@@ -295,6 +297,10 @@ public enum AppIcons {
     public static let actionSuggestion: String = "lightbulb"
     /// Concept `coding-assistant`.
     public static let codingAssistant: String = "sparkles"
+    /// Concept `coding-command`.
+    public static let codingCommand: String = "square-slash"
+    /// Concept `coding-compact`.
+    public static let codingCompact: String = "fold-vertical"
     /// Concept `coding-diff`.
     public static let codingDiff: String = "file-diff"
     /// Concept `coding-ended`.

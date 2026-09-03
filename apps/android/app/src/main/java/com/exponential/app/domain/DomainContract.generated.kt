@@ -34,6 +34,11 @@ object DomainContract {
     val actionInputTypeValues: List<String> = listOf("text", "repo", "board", "pr", "icon", "textarea")
     val actionTriggerEventValues: List<String> = listOf("created", "status_changed", "assignee_changed", "label_added", "priority_changed", "pr_opened", "pr_merged")
     val actionScheduleIntervalValues: List<String> = listOf("daily", "weekly", "monthly")
+    val steerCommandNames: List<String> = listOf("compact", "clear", "new", "model", "init", "review")
+    val steerCommandDescriptions: List<String> = listOf("Compact the conversation context", "Start a fresh conversation (context is discarded)", "Start a fresh conversation (context is discarded)", "Switch the model", "Write CLAUDE.md / AGENTS.md for this repo", "Review the current changes")
+    val steerCommandArgHints: List<String> = listOf("instructions", "", "", "model", "", "")
+    val steerCommandAgents: List<String> = listOf("claude,codex,pi", "claude", "codex,pi", "claude,pi", "claude,codex", "claude,codex")
+    val steerCommandConfirm: List<Boolean> = listOf(false, true, true, false, false, false)
 
     const val issueStatusStartedMax: Int = 4
     const val codingSessionStaleMs: Long = 7200000L

@@ -928,6 +928,8 @@ describe(`activity event kinds`, () => {
       { kind: `subagent`, id: `sub-1`, agentType: `code-reviewer`, status: `completed` },
       { kind: `tool`, name: `Grep`, detail: `foo`, subagentId: `sub-1` },
       { kind: `permission`, tool: `Bash`, detail: `rm -rf build` },
+      { kind: `compaction`, phase: `started`, trigger: `auto` },
+      { kind: `compaction`, phase: `ended` },
     ]
     for (const event of events) activity(hub, pub, event)
 
@@ -944,6 +946,9 @@ describe(`activity event kinds`, () => {
     activity(hub, pub, question)
     activity(hub, pub, planQuestion)
     activity(hub, pub, { kind: `answer_ack`, id: `toolu_plan` })
+    // EXP-724: a lone `started` replays too — a late joiner learns the
+    // agent is mid-compaction.
+    activity(hub, pub, { kind: `compaction`, phase: `started`, trigger: `manual` })
 
     const member = connectMember(hub)
     expect(member.frames()[0]).toEqual({ t: `activity_reset` })
@@ -953,6 +958,7 @@ describe(`activity event kinds`, () => {
       `question`,
       `question`,
       `answer_ack`,
+      `compaction`,
     ])
     expect(member.events()[3]).toEqual(planQuestion as never)
   })
@@ -1004,6 +1010,9 @@ describe(`activity event kinds`, () => {
     activity(hub, pub, { kind: `answer_ack` }) // id is required
     activity(hub, pub, { kind: `subagent`, id: `s`, agentType: `t`, status: `paused` })
     activity(hub, pub, { kind: `permission` }) // tool is required
+    activity(hub, pub, { kind: `compaction` }) // phase is required
+    activity(hub, pub, { kind: `compaction`, phase: `paused` })
+    activity(hub, pub, { kind: `compaction`, phase: `started`, trigger: `magic` })
     activity(hub, pub, { kind: `unknown_kind`, text: `x` })
     expect(member.events().length).toBe(0)
   })

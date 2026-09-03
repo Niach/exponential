@@ -295,6 +295,29 @@ pub enum ActivityEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
+    /// EXP-724: the agent is compacting its context. `started` opens an
+    /// indeterminate "Compacting context…" strip on every viewer, `ended`
+    /// closes it and leaves a "Context compacted" marker in the feed. A
+    /// publisher that only observes the END (codex auto-compaction) sends a
+    /// bare `ended`; viewers time a lone `started` out. `trigger` is
+    /// claude's PreCompact trigger (`manual` | `auto`; pi's threshold/
+    /// overflow map to `auto`), absent on codex — kept a plain string so a
+    /// future value never fails the parse.
+    Compaction {
+        phase: CompactionPhase,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        trigger: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+}
+
+/// `started` | `ended` — the two [`ActivityEvent::Compaction`] edges.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CompactionPhase {
+    Started,
+    Ended,
 }
 
 /// `started` | `completed` — the two [`ActivityEvent::Subagent`] edges.
@@ -328,6 +351,15 @@ impl ActivityEvent {
             name: name.into(),
             detail,
             subagent_id: None,
+            at: None,
+        }
+    }
+
+    /// EXP-724 compaction edge; `trigger` is `manual`/`auto` when known.
+    pub fn compaction(phase: CompactionPhase, trigger: Option<&str>) -> Self {
+        ActivityEvent::Compaction {
+            phase,
+            trigger: trigger.map(str::to_string),
             at: None,
         }
     }
@@ -379,6 +411,7 @@ impl ActivityEvent {
                 fields.extend(detail.as_mut());
                 fields
             }
+            ActivityEvent::Compaction { .. } => Vec::new(),
         }
     }
 
@@ -394,7 +427,8 @@ impl ActivityEvent {
             | ActivityEvent::QuestionResolved { at, .. }
             | ActivityEvent::AnswerAck { at, .. }
             | ActivityEvent::Subagent { at, .. }
-            | ActivityEvent::Permission { at, .. } => at,
+            | ActivityEvent::Permission { at, .. }
+            | ActivityEvent::Compaction { at, .. } => at,
         }
     }
 }
@@ -1022,6 +1056,40 @@ mod tests {
     }
 
     #[test]
+    fn compaction_serializes_to_the_relay_schema_and_parses_back() {
+        // EXP-724: `{kind, phase, trigger?, at?}` — trigger omitted when
+        // unknown (codex), present verbatim when claude/pi report it.
+        let started = ActivityEvent::compaction(CompactionPhase::Started, Some("manual"));
+        assert_eq!(
+            ClientFrame::Activity { event: started.clone() }.to_json(),
+            r#"{"t":"activity","event":{"kind":"compaction","phase":"started","trigger":"manual"}}"#
+        );
+        let ended = ActivityEvent::compaction(CompactionPhase::Ended, None);
+        assert_eq!(
+            ClientFrame::Activity { event: ended.clone() }.to_json(),
+            r#"{"t":"activity","event":{"kind":"compaction","phase":"ended"}}"#
+        );
+        // The viewer role reads them back (EXP-696) — a future trigger value
+        // parses, an unknown phase does not.
+        let parsed: ActivityEvent = serde_json::from_str(
+            r#"{"kind":"compaction","phase":"started","trigger":"overflow","at":3}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            parsed,
+            ActivityEvent::Compaction {
+                phase: CompactionPhase::Started,
+                trigger: Some("overflow".into()),
+                at: Some(3),
+            }
+        );
+        assert!(serde_json::from_str::<ActivityEvent>(
+            r#"{"kind":"compaction","phase":"paused"}"#
+        )
+        .is_err());
+    }
+
+    #[test]
     fn activity_reset_is_a_bare_tag() {
         assert_eq!(ClientFrame::ActivityReset.to_json(), r#"{"t":"activity_reset"}"#);
     }
@@ -1061,6 +1129,7 @@ mod tests {
                 at: None,
             },
             ActivityEvent::Permission { tool: "Bash".into(), detail: None, at: None },
+            ActivityEvent::compaction(CompactionPhase::Started, None),
         ];
         for event in &mut events {
             *event.at_mut() = Some(7);

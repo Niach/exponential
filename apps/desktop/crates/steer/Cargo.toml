@@ -11,6 +11,9 @@ publish = false
 # headless CLI. The desktop re-enables terminal's gpui half via ui/app.
 terminal = { path = "../terminal", default-features = false }
 api = { path = "../api" }
+# EXP-724: the generated steer-command catalog (contract.generated.rs) —
+# gpui-free, so the headless CLI links it too.
+domain = { path = "../domain" }
 # The ONLY tokio in the desktop workspace (§3.5/§8): tokio-tungstenite needs a
 # reactor, and it runs on its own runtime, isolated from gpui's executors and
 # from the blocking reqwest sync/tRPC stack.

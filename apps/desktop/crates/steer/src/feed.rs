@@ -45,7 +45,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
-use crate::frames::{ActivityEvent, QuestionOption, SubagentStatus};
+use crate::frames::{ActivityEvent, CompactionPhase, QuestionOption, SubagentStatus};
 
 /// Client-side feed cap — old items fall off the top. Matches the relay's
 /// `ACTIVITY_LOG_CAP` so a full-history replay renders in full (web
@@ -72,6 +72,20 @@ pub const REPLAY_QUIET: Duration = Duration::from_millis(400);
 /// (and appends the rest) instead of holding the buffer forever (iOS
 /// `replayMaxSeconds`).
 pub const REPLAY_MAX: Duration = Duration::from_secs(3);
+
+/// EXP-724: a lone `compaction started` (its `ended` lost, or a replayed
+/// start from long ago) drops the strip after this long. Web
+/// `COMPACTION_TIMEOUT_MS` / iOS / Android parity — move all four in
+/// lockstep. The CALLER arms the timer and calls
+/// [`SteerFeed::clear_compaction`].
+pub const COMPACTION_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// The strip's caption while [`SteerFeed::compacting`] is set — byte-identical
+/// to the web/iOS/Android label.
+pub const COMPACTING_LABEL: &str = "Compacting context…";
+
+/// The feed marker left behind by `compaction ended` — byte-identical ×4.
+pub const COMPACTED_LABEL: &str = "Context compacted";
 
 // ---------------------------------------------------------------------------
 // Feed items
@@ -112,6 +126,17 @@ pub enum FeedKind {
         detail: Option<String>,
     },
     Question(QuestionCard),
+    /// EXP-724: the quiet "Context compacted" divider `compaction ended`
+    /// leaves in the timeline (the strip itself is [`SteerFeed::compacting`],
+    /// never an item).
+    Compaction,
+}
+
+/// EXP-724: the in-flight compaction behind the pinned "Compacting context…"
+/// strip. `trigger` is claude's `manual`/`auto` when known.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Compaction {
+    pub trigger: Option<String>,
 }
 
 /// One item of the visible feed.
@@ -239,6 +264,9 @@ struct Staged {
 pub struct SteerFeed {
     items: Vec<FeedItem>,
     latest_diff: Option<String>,
+    /// EXP-724: set by `compaction started`, cleared by `ended`, the swap,
+    /// the caller's [`COMPACTION_TIMEOUT`] and session end.
+    compacting: Option<Compaction>,
     answers: HashMap<String, AnswerState>,
     next_id: FeedItemId,
     /// Locally-echoed sent messages awaiting their transcript-derived twin.
@@ -271,6 +299,18 @@ impl SteerFeed {
     /// latest replaces the previous one, and an empty diff clears it.
     pub fn latest_diff(&self) -> Option<&str> {
         self.latest_diff.as_deref()
+    }
+
+    /// EXP-724: the compaction in flight, if any — renders the indeterminate
+    /// [`COMPACTING_LABEL`] strip.
+    pub fn compacting(&self) -> Option<&Compaction> {
+        self.compacting.as_ref()
+    }
+
+    /// Drop the strip without an `ended` frame: the caller's
+    /// [`COMPACTION_TIMEOUT`], or the session ending under it.
+    pub fn clear_compaction(&mut self) {
+        self.compacting = None;
     }
 
     pub fn answer_state(&self, key: &str) -> Option<&AnswerState> {
@@ -601,6 +641,21 @@ impl SteerFeed {
                     Some(diff)
                 };
             }
+            ActivityEvent::Compaction { phase, trigger, .. } => match phase {
+                // EXP-724: the strip is state beside the diff, never a row;
+                // the end leaves a marker so "why did it forget" has an
+                // answer later. A bare `ended` (codex auto-compaction) still
+                // marks.
+                CompactionPhase::Started => {
+                    self.compacting = Some(Compaction {
+                        trigger: non_blank(trigger),
+                    });
+                }
+                CompactionPhase::Ended => {
+                    self.compacting = None;
+                    self.push_item(FeedKind::Compaction);
+                }
+            },
         }
     }
 
@@ -686,6 +741,7 @@ impl SteerFeed {
 
         self.items.clear();
         self.latest_diff = None;
+        self.compacting = None;
         self.answers.clear();
         self.echoes.clear();
         if let Some(anchor) = anchor_id {
@@ -1051,6 +1107,7 @@ mod tests {
                 FeedKind::Permission { tool, .. } => tool.clone(),
                 FeedKind::Subagent { subagent_id, .. } => subagent_id.clone(),
                 FeedKind::Question(card) => card.text.clone(),
+                FeedKind::Compaction => COMPACTED_LABEL.to_string(),
             })
             .collect()
     }
@@ -1121,6 +1178,49 @@ mod tests {
         // EXP-688: an empty diff means the branch no longer differs.
         feed.apply(ActivityEvent::diff("   "));
         assert_eq!(feed.latest_diff(), None);
+    }
+
+    // ── Compaction (EXP-724) ───────────────────────────────────────────────
+
+    #[test]
+    fn a_compaction_shows_the_strip_until_ended_then_leaves_a_marker() {
+        let mut feed = SteerFeed::new();
+        feed.apply(ActivityEvent::compaction(CompactionPhase::Started, Some("manual")));
+        assert_eq!(
+            feed.compacting(),
+            Some(&Compaction {
+                trigger: Some("manual".into())
+            })
+        );
+        // The strip is state, never a row.
+        assert!(feed.is_empty());
+        feed.apply(ActivityEvent::compaction(CompactionPhase::Ended, None));
+        assert_eq!(feed.compacting(), None);
+        assert_eq!(feed.items()[0].kind, FeedKind::Compaction);
+        // A bare `ended` (codex auto-compaction) still marks the timeline.
+        feed.apply(ActivityEvent::compaction(CompactionPhase::Ended, None));
+        assert_eq!(feed.len(), 2);
+        assert_eq!(COMPACTING_LABEL, "Compacting context…");
+        assert_eq!(COMPACTED_LABEL, "Context compacted");
+    }
+
+    #[test]
+    fn the_caller_can_drop_a_stale_compaction_and_the_swap_does_too() {
+        let mut feed = SteerFeed::new();
+        feed.apply(ActivityEvent::compaction(CompactionPhase::Started, None));
+        feed.clear_compaction();
+        assert_eq!(feed.compacting(), None);
+
+        feed.apply(ActivityEvent::compaction(CompactionPhase::Started, None));
+        feed.apply_reset();
+        // Still up while staging — the reset clears nothing on the spot.
+        assert!(feed.compacting().is_some());
+        feed.apply(ActivityEvent::narration("replayed"));
+        feed.apply_synced();
+        // The replay carried no `started`, so the swap re-derived "not
+        // compacting".
+        assert_eq!(feed.compacting(), None);
+        assert_eq!(texts(&feed), vec!["replayed".to_string()]);
     }
 
     // ── Echo dedupe (EXP-78) ───────────────────────────────────────────────

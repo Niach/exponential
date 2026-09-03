@@ -1339,6 +1339,15 @@ impl SteerSessionView {
             }
             FeedKind::Subagent { .. } => self.render_subagent(item.id, &[item], cx),
             FeedKind::Question(_) => self.render_question(item, active, cx),
+            // EXP-724: the quiet divider a finished compaction leaves behind.
+            FeedKind::Compaction => h_flex()
+                .w_full()
+                .justify_center()
+                .py_1()
+                .text_xs()
+                .text_color(muted)
+                .child(steer::feed::COMPACTED_LABEL)
+                .into_any_element(),
         }
     }
 

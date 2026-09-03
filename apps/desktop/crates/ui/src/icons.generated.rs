@@ -161,6 +161,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "file-text" => ExpIcon::FileText,
         "flag" => ExpIcon::Flag,
         "flask-conical" => ExpIcon::FlaskConical,
+        "fold-vertical" => ExpIcon::FoldVertical,
         "folder" => ExpIcon::Folder,
         "folder-kanban" => ExpIcon::FolderKanban,
         "folder-open" => ExpIcon::FolderOpen,
@@ -254,6 +255,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "sparkles" => ExpIcon::Sparkles,
         "square-kanban" => ExpIcon::SquareKanban,
         "square-pen" => ExpIcon::SquarePen,
+        "square-slash" => ExpIcon::SquareSlash,
         "square-terminal" => ExpIcon::SquareTerminal,
         "star" => ExpIcon::Star,
         "strikethrough" => ExpIcon::Strikethrough,
@@ -297,6 +299,10 @@ pub const ACTION_RUN: ExpIcon = ExpIcon::Play;
 pub const ACTION_SUGGESTION: ExpIcon = ExpIcon::Lightbulb;
 /// Registry concept `coding-assistant` -> Lucide `sparkles`.
 pub const CODING_ASSISTANT: ExpIcon = ExpIcon::Sparkles;
+/// Registry concept `coding-command` -> Lucide `square-slash`.
+pub const CODING_COMMAND: ExpIcon = ExpIcon::SquareSlash;
+/// Registry concept `coding-compact` -> Lucide `fold-vertical`.
+pub const CODING_COMPACT: ExpIcon = ExpIcon::FoldVertical;
 /// Registry concept `coding-diff` -> Lucide `file-diff`.
 pub const CODING_DIFF: ExpIcon = ExpIcon::FileDiff;
 /// Registry concept `coding-ended` -> Lucide `circle-check`.
