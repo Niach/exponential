@@ -24,11 +24,11 @@
 //! missing agent CLI still skips. `EXP_SKIP_ONBOARDING=1` bypasses the whole
 //! wizard (dev/CI machines without agent CLIs).
 
-use gpui::prelude::FluentBuilder as _;
+use std::rc::Rc;
+
 use gpui::{
     div, px, App, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
-    Window,
+    ParentElement, Render, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -343,11 +343,24 @@ impl OnboardingView {
                 "onboarding-choice-join",
                 Icon::new(registry::EDITOR_LINK),
                 "Join a team",
-                "Use an invite link a teammate sent you.",
+                "Use an invite link a teammate sent you",
                 TeamPage::Join,
                 cx,
             ))
             .into_any_element()
+    }
+
+    /// The Back that returns an embedded form's footer to the choice page
+    /// (EXP-470/EXP-698 — the form owns the row, so it needs a handle back
+    /// into the wizard).
+    fn back_to_choice(&self, cx: &mut gpui::Context<Self>) -> Rc<dyn Fn(&mut Window, &mut App)> {
+        let this = cx.entity().downgrade();
+        Rc::new(move |_window, cx| {
+            let _ = this.update(cx, |this: &mut Self, cx| {
+                this.team_page = TeamPage::Choice;
+                cx.notify();
+            });
+        })
     }
 
     fn team_create_page(
@@ -356,7 +369,8 @@ impl OnboardingView {
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         if self.create_team.is_none() {
-            let view = cx.new(|cx| CreateTeamDialogView::new(true, window, cx));
+            let on_back = self.back_to_choice(cx);
+            let view = cx.new(|cx| CreateTeamDialogView::new(true, window, cx).with_back(on_back));
             self._subscriptions.push(cx.subscribe(
                 &view,
                 |_, _, _: &TeamCreated, cx| cx.notify(), // step advances via collections
@@ -375,7 +389,8 @@ impl OnboardingView {
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         if self.join_team.is_none() {
-            let view = cx.new(|cx| JoinTeamView::new(None, true, window, cx));
+            let on_back = self.back_to_choice(cx);
+            let view = cx.new(|cx| JoinTeamView::new(None, true, window, cx).with_back(on_back));
             self._subscriptions.push(cx.subscribe(
                 &view,
                 |this: &mut Self, _, _: &InviteAccepted, cx| {
@@ -461,47 +476,49 @@ impl Render for OnboardingView {
         };
 
         let muted = cx.theme().muted_foreground;
-        // Which steps apply this run (for the "Step x of y" line): the
-        // account pair counts as two entries while pending.
-        let (title, subtitle, position): (&'static str, &'static str, Option<(usize, usize)>) = {
-            let total = if self.account_pending(cx) { 2 } else { 0 }
-                + if self.tools_pending(cx) { 1 } else { 0 };
+        // The card HEAD (web `OnboardingWizard` parity): a primary-tinted
+        // 48px disc, the step title, the muted blurb. No "Step x of y" —
+        // the web wizard never numbered its steps, and neither do we.
+        let (icon, title, subtitle): (crate::icons::ExpIcon, &'static str, &'static str) =
             match &step {
-                WizardStep::Syncing => ("Welcome to Exponential", "Syncing your account…", None),
+                WizardStep::Syncing => (
+                    registry::SETTINGS_MEMBERS,
+                    "Welcome to Exponential",
+                    "Syncing your account…",
+                ),
                 WizardStep::Team => match self.team_page {
                     TeamPage::Choice => (
+                        registry::SETTINGS_MEMBERS,
                         "Welcome to Exponential",
                         "Teams hold your boards and teammates. Create your own, or join \
                          one you've been invited to.",
-                        Some((1, total)),
                     ),
                     TeamPage::Create => (
+                        registry::SETTINGS_MEMBERS,
                         "Create a team",
                         "Name your team. You can rename it and invite teammates later.",
-                        Some((1, total)),
                     ),
                     TeamPage::Join => (
+                        registry::EDITOR_LINK,
                         "Join a team",
                         "Ask a teammate for an invite link (team settings → Members), \
                          then paste it below.",
-                        Some((1, total)),
                     ),
                 },
                 WizardStep::Board { .. } => (
+                    registry::NAV_BOARDS,
                     "Create your first board",
                     "Boards hold your issues. Connect a GitHub repository to unlock \
                      coding features. You can also do this later.",
-                    Some((2, total)),
                 ),
                 WizardStep::Tools => (
+                    registry::NAV_DEVICES,
                     "Set up your tools",
                     "Exponential runs coding sessions with git and an agent CLI (Claude \
                      Code, Codex, or pi). Git is required; one agent is enough. \
                      Everything else works without them.",
-                    Some((total.max(1), total.max(1))),
                 ),
-            }
-        };
+            };
 
         let body: gpui::AnyElement = match &step {
             WizardStep::Syncing => v_flex()
@@ -523,37 +540,30 @@ impl Render for OnboardingView {
             WizardStep::Tools => self.tools_page(window, cx),
         };
 
-        // Footer: every step is skippable; the tools step's primary Continue
-        // appears once the report is fully green (both dismiss it).
+        // Footer: the last row INSIDE the card body. Every step is skippable;
+        // the tools step's primary Continue appears once the report is fully
+        // green (both dismiss it). Create/Join contribute nothing here — the
+        // embedded forms render their own Back / primary row (web parity:
+        // those pages carry no "Set up later", Back goes to the choice page
+        // which keeps the skip).
         let footer: Option<gpui::AnyElement> = match &step {
             WizardStep::Syncing => None,
-            WizardStep::Team => {
-                let skip = Button::new("onboarding-skip-team")
-                    .ghost().web_sm()
-                    .label("Set up later")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.complete_account_steps(cx);
-                    }));
-                Some(match self.team_page {
-                    TeamPage::Choice => h_flex().justify_end().child(skip).into_any_element(),
-                    // Create/Join get a Back to the choice page (EXP-470).
-                    TeamPage::Create | TeamPage::Join => h_flex()
-                        .items_center()
-                        .justify_between()
+            WizardStep::Team => match self.team_page {
+                TeamPage::Choice => Some(
+                    h_flex()
+                        .justify_end()
                         .child(
-                            Button::new("onboarding-team-back")
+                            Button::new("onboarding-skip-team")
                                 .ghost().web_sm()
-                                .icon(registry::UI_BACK)
-                                .label("Back")
+                                .label("Set up later")
                                 .on_click(cx.listener(|this, _, _, cx| {
-                                    this.team_page = TeamPage::Choice;
-                                    cx.notify();
+                                    this.complete_account_steps(cx);
                                 })),
                         )
-                        .child(skip)
                         .into_any_element(),
-                })
-            }
+                ),
+                TeamPage::Create | TeamPage::Join => None,
+            },
             WizardStep::Board { .. } => Some(
                 h_flex()
                     .justify_end()
@@ -592,7 +602,7 @@ impl Render for OnboardingView {
                 Some(
                     row.child(if all_green {
                         Button::new("onboarding-tools-continue")
-                            .primary().web_md()
+                            .primary().web_md().rounded_full()
                             .label("Continue")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.complete_tools_step(cx);
@@ -614,41 +624,63 @@ impl Render for OnboardingView {
         // Full-window surface (login parity: floats on the Shell's page
         // gradient); the column scrolls when a step (the board form) runs
         // taller than the window.
+        //
+        // EXP-698 — ONE card, byte-for-byte the web wizard's: a 672px
+        // `GlassGroup` (radius 12, glass-row fill, no outer stroke) whose two
+        // sections — the head and the p-6 body — are split by the group's
+        // hairline. Title, blurb and footer all live INSIDE it; nothing
+        // floats above or below.
         div()
             .id("onboarding-scroll")
             .size_full()
             .overflow_y_scroll()
             .text_color(cx.theme().foreground)
             .child(
-                div().size_full().flex().items_center().justify_center().child(
+                // min-height, not height: a card taller than the window
+                // (the board step) must grow the scroll extent instead of
+                // being centred past the top edge.
+                div().w_full().min_h_full().flex().items_center().justify_center().child(
                     v_flex()
-                        .w(px(480.))
+                        .w_full()
+                        .max_w(px(672.))
+                        .px_6()
                         .my_8()
-                        .gap_4()
                         .child(
-                            v_flex()
-                                .gap_1()
-                                .when_some(position, |this, (current, total)| {
-                                    // A one-step run reads awkwardly as
-                                    // "Step 1 of 1" — drop the line.
-                                    this.when(total > 1, |this| {
-                                        this.child(div().text_xs().text_color(muted).child(
-                                            SharedString::from(format!(
-                                                "Step {current} of {total}"
-                                            )),
-                                        ))
-                                    })
-                                })
+                            crate::surface::glass_group()
                                 .child(
-                                    div()
-                                        .text_xl()
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .child(title),
+                                    v_flex()
+                                        .p_6()
+                                        .items_center()
+                                        .gap_1p5()
+                                        .text_center()
+                                        .child(
+                                            div()
+                                                .size(px(48.))
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .rounded_full()
+                                                .bg(cx.theme().primary.opacity(0.1))
+                                                .child(
+                                                    Icon::new(icon)
+                                                        .size(px(24.))
+                                                        .text_color(cx.theme().primary),
+                                                ),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xl()
+                                                .font_weight(FontWeight::SEMIBOLD)
+                                                .child(title),
+                                        )
+                                        .child(
+                                            div().text_sm().text_color(muted).child(subtitle),
+                                        ),
                                 )
-                                .child(div().text_sm().text_color(muted).child(subtitle)),
-                        )
-                        .child(crate::surface::glass_card().p_6().child(body))
-                        .children(footer),
+                                .child(crate::surface::glass_row_divider(
+                                    v_flex().p_6().gap_4().child(body).children(footer),
+                                )),
+                        ),
                 ),
             )
             .into_any_element()

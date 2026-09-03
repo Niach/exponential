@@ -12,9 +12,11 @@
 //! Opened from the team picker's "Create team…" item
 //! via the [`CreateTeam`] action; [`init`] owns the handler.
 
+use std::rc::Rc;
+
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, size, App, AppContext as _, Entity, InteractiveElement as _, IntoElement,
+    div, px, size, App, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement,
     ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Window,
 };
@@ -31,6 +33,7 @@ use crate::controls::WebControl as _;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 
 use crate::actions::CreateTeam;
+use crate::icons::registry;
 use crate::navigation::switch_team;
 use crate::queries;
 
@@ -79,12 +82,17 @@ pub struct CreateTeamDialogView {
     /// EXP-369: the scrolling form pane, so the footer can stay pinned.
     /// Unused in `embedded` mode (the wizard column scrolls instead).
     body_scroll: ScrollHandle,
+    /// EXP-698, embedded only: the wizard's Back-to-the-choice-page hook.
+    /// Present ⇒ the footer becomes the web wizard's `justify-between` row
+    /// (ghost Back leading, the primary trailing); absent ⇒ the standalone
+    /// dialog's Cancel/Create row is unchanged.
+    on_back: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl CreateTeamDialogView {
     pub(crate) fn new(embedded: bool, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let name = cx.new(|cx| InputState::new(window, cx).placeholder("e.g. Side Boards"));
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder("e.g. Acme Inc"));
 
         let subscriptions = vec![cx.subscribe_in(
             &name,
@@ -103,8 +111,16 @@ impl CreateTeamDialogView {
             error: None,
             focused_once: false,
             body_scroll: ScrollHandle::new(),
+            on_back: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// EXP-698 (embedded host only): give the footer a Back button that
+    /// returns the onboarding wizard to its choice page.
+    pub(crate) fn with_back(mut self, on_back: Rc<dyn Fn(&mut Window, &mut App)>) -> Self {
+        self.on_back = Some(on_back);
+        self
     }
 
     fn submit(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -195,16 +211,28 @@ impl Render for CreateTeamDialogView {
         let disabled = self.name.read(cx).value().trim().is_empty() || self.submitting;
         let closable = !self.submitting;
 
+        // Embedded (the wizard) mirrors the web wizard card: a foreground
+        // "Team name" label over an h-9 input. The standalone window keeps
+        // the muted sm form every other native dialog draws.
+        let label = if self.embedded {
+            div()
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(cx.theme().foreground)
+                .child("Team name")
+        } else {
+            div().text_sm().text_color(cx.theme().muted_foreground).child("Name")
+        };
+        let input = if self.embedded {
+            Input::new(&self.name).web_input()
+        } else {
+            Input::new(&self.name).web_input_sm()
+        };
         let mut form = v_flex().gap_4().child(
             v_flex()
                 .gap_2()
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Name"),
-                )
-                .child(Input::new(&self.name).web_input_sm()),
+                .child(label)
+                .child(input),
         );
 
         if let Some(error) = &self.error {
@@ -217,11 +245,30 @@ impl Render for CreateTeamDialogView {
         }
 
         // Cancel exists only in the dialog host — the embedded wizard step has
-        // nothing to close.
+        // nothing to close; it gets a Back to the wizard's choice page instead
+        // (leading, with the primary pushed to the trailing edge).
         let footer = h_flex()
             .flex_shrink_0()
-            .justify_end()
+            .items_center()
             .gap_2()
+            .map(|row| {
+                if self.on_back.is_some() {
+                    row.justify_between()
+                } else {
+                    row.justify_end()
+                }
+            })
+            .when_some(self.on_back.clone(), |row, on_back| {
+                row.child(
+                    Button::new("onboarding-team-back")
+                        .ghost()
+                        .web_sm()
+                        .icon(registry::UI_BACK)
+                        .label("Back")
+                        .disabled(self.submitting)
+                        .on_click(move |_, window, cx| on_back(window, cx)),
+                )
+            })
             .when(!self.embedded, |row| {
                 row.child(
                     Button::new("create-team-cancel")
@@ -238,11 +285,12 @@ impl Render for CreateTeamDialogView {
                 )
             })
             .child(
-                Button::new("create-team-submit")
-                    .primary().cursor_pointer()
-                    .web_sm()
+                {
+                    let submit = Button::new("create-team-submit").primary().cursor_pointer();
+                    if self.embedded { submit.web_md().rounded_full() } else { submit.web_sm() }
+                }
                     .label(if self.submitting {
-                        "Creating..."
+                        "Creating…"
                     } else {
                         "Create team"
                     })
