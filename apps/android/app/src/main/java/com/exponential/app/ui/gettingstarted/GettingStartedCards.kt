@@ -121,10 +121,11 @@ private fun EntryCard(
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            // A locked hint is a whole instruction (~90 chars) and says
-            // nothing at all cut to one line; a description is one line by
-            // design.
-            maxLines = if (locked) 2 else 1,
+            // Descriptions and locked hints alike are ONE SENTENCE by
+            // contract and wrap on web — cut to a single line they ended
+            // mid-word behind an ellipsis. Two lines fits every string in the
+            // copy table at this width; the overflow is a guard, not a design.
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         // A locked step has nothing to tap yet, and a done one nothing left to
