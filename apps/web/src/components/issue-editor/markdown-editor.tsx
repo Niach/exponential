@@ -21,6 +21,7 @@ import { Markdown } from "tiptap-markdown"
 // python/rust/go — enough for plan code blocks without pulling all 200 grammars.
 const lowlight = createLowlight(common)
 import { MarkdownImage } from "@/lib/markdown-image"
+import { MarkdownTableExtensions } from "@/lib/markdown-table"
 import { MarkdownParagraph } from "@/components/issue-editor/markdown-paragraph"
 import { ArrowInputRules } from "@/lib/arrow-input-rules"
 import { IssueRefExtension } from "@/lib/issue-ref-extension"
@@ -38,6 +39,7 @@ import {
 } from "@/components/autocomplete-rows"
 import { EditorSelectionRail } from "@/components/issue-editor/selection-rail"
 import { EditorInsertBar } from "@/components/issue-editor/formatting-rail"
+import { EditorTableControls } from "@/components/issue-editor/table-controls"
 import { EditorMobileFormattingBar } from "@/components/issue-editor/mobile-formatting-bar"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
@@ -209,6 +211,8 @@ export const MarkdownEditor = forwardRef<
     const [activeIndex, setActiveIndex] = useState(0)
     const keyHandlerRef = useRef<(event: KeyboardEvent) => boolean>(() => false)
     const menuRef = useRef<HTMLDivElement | null>(null)
+    // The positioning origin for the table hover overlay (EXP-726).
+    const wrapperRef = useRef<HTMLDivElement | null>(null)
 
     // True when `handleUploadedFiles` below would claim this batch — the drop
     // handler needs to know BEFORE it decides to move the caret.
@@ -268,6 +272,12 @@ export const MarkdownEditor = forwardRef<
         TaskList,
         TaskItem.configure({ nested: true }),
         MarkdownImage,
+        // EXP-726 — declared AFTER StarterKit so the in-table Enter/Shift-Enter
+        // keymap outranks splitBlock, and BEFORE the ref/mention/autocomplete
+        // extensions because tiptap builds its plugins from the REVERSED
+        // extension list: the autocomplete, declared last, keeps Tab/Enter for
+        // its candidate menu.
+        ...MarkdownTableExtensions,
         IssueRefExtension.configure({
           getResolved: (identifier) =>
             issueRefsRef.current?.resolve(identifier) ?? null,
@@ -648,6 +658,7 @@ export const MarkdownEditor = forwardRef<
 
     return (
       <div
+        ref={wrapperRef}
         className={cn(`tiptap-wrapper`, appearance === `chat` && `tiptap-chat`)}
       >
         {/* EXP-568: no always-on toolbar — the formatting rail floats over a
@@ -667,7 +678,12 @@ export const MarkdownEditor = forwardRef<
             the selection rail only shows over a selection, where inserting
             would replace it. */}
         {editable && editor && !isMobile ? (
-          <EditorInsertBar editor={editor} imageUpload={imageUpload} />
+          <>
+            <EditorInsertBar editor={editor} imageUpload={imageUpload} />
+            {/* EXP-726: table +/grip chrome is desktop-editing only — a
+                read-only body or a phone gets cells and nothing else. */}
+            <EditorTableControls editor={editor} wrapperRef={wrapperRef} />
+          </>
         ) : null}
         {editable && autocomplete && menuStyle
           ? createPortal(

@@ -782,6 +782,119 @@ html {
   margin: 0.5rem 0;
 }
 
+/* ── GFM tables (EXP-726) ──
+   @tiptap/extension-table renders every table through its TableView node
+   view, i.e. always inside `div.tableWrapper` — that wrapper is the only
+   place a horizontal scroll may live, so a wide table scrolls itself instead
+   of widening the issue column. */
+.tiptap-content .tableWrapper {
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+
+.tiptap-content table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  font-size: 0.875rem;
+}
+
+.tiptap-content th,
+.tiptap-content td {
+  border: 1px solid var(--border);
+  padding: 0.3rem 0.6rem;
+  vertical-align: top;
+  /* The cell-selection overlay below is drawn against this. */
+  position: relative;
+  min-width: 3rem;
+}
+
+/* One inline paragraph per cell — its document margin would double every row
+   height. */
+.tiptap-content th > p,
+.tiptap-content td > p {
+  margin: 0;
+}
+
+.tiptap-content th {
+  font-weight: 600;
+  text-align: left;
+  /* The shared surface-tint idiom, one step above the document ground. */
+  background: color-mix(in oklab, var(--foreground) 4%, transparent);
+}
+
+/* prosemirror-tables marks the cells of a CellSelection; ::after keeps the
+   tint above the text's background without touching the cell's own box. */
+.tiptap-content .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in oklab, var(--ring) 18%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.tiptap-chat .tiptap-content .tableWrapper {
+  margin: 0.5rem 0;
+}
+
+.tiptap-chat .tiptap-content table {
+  font-size: 0.8125rem;
+}
+
+.tiptap-chat .tiptap-content th,
+.tiptap-chat .tiptap-content td {
+  padding: 0.2rem 0.45rem;
+}
+
+/* Hover chrome for the table overlay (components/issue-editor/table-controls.tsx).
+   Same glass pill recipe as .editor-image-menu-trigger — these mount only
+   while the pointer is over a table, so they fade IN rather than sitting at
+   opacity 0. Positioned by inline left/top in `.tiptap-wrapper` coordinates;
+   the transform centres them on that point. */
+.editor-table-add,
+.editor-table-grip {
+  position: absolute;
+  z-index: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--glass-stroke-card);
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--popover) 95%, transparent);
+  color: color-mix(in oklab, var(--popover-foreground) 85%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 6px 18px -8px oklch(0 0 0 / 0.42),
+    inset 0 1px 0 color-mix(in oklab, var(--foreground) 8%, transparent);
+  /* EXP-523: the shared `fast` duration + `standard` curve. */
+  transition:
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    background var(--motion-duration-fast) var(--motion-ease-standard),
+    border-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+/* The grips read as axis bands, not buttons — a short pill along the edge. */
+.editor-table-grip.is-column {
+  width: 1.75rem;
+  height: 0.875rem;
+  border-radius: 6px;
+}
+
+.editor-table-grip.is-row {
+  width: 0.875rem;
+  height: 1.75rem;
+  border-radius: 6px;
+}
+
+.editor-table-add:hover,
+.editor-table-grip:hover,
+.editor-table-grip[data-state="open"] {
+  color: var(--foreground);
+  background: var(--accent);
+  border-color: color-mix(in oklab, var(--foreground) 16%, transparent);
+}
+
 .tiptap-content img,
 .tiptap-content .editor-image {
   display: block;
