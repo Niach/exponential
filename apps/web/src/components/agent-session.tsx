@@ -2218,125 +2218,125 @@ function MessageComposer({
   // format are unchanged.
   return (
     <>
-    <Composer
-      strip={
-        pending.length > 0 && (
-          <div className="flex flex-wrap gap-2 px-3 pt-3">
-            {pending.map((image) => (
-              <div key={image.url} className="relative">
-                <img
-                  src={image.url}
-                  alt=""
-                  className="size-16 rounded-md border border-glass-stroke-card object-cover"
-                />
-                <button
-                  type="button"
-                  aria-label="Remove image"
-                  disabled={sending}
-                  onClick={() => removeImage(image.url)}
-                  className="absolute -right-1.5 -top-1.5 rounded-full border border-glass-stroke-card bg-popover p-0.5 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="size-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )
-      }
-      tools={
-        <>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept={acceptedImageContentTypes.join(`,`)}
-            className="hidden"
-            onChange={(e) => {
-              filePickerOpenRef.current = false
-              if (e.target.files) addFiles(Array.from(e.target.files))
-              e.target.value = ``
-            }}
-          />
-          <ComposerTool
-            aria-label="Attach image"
-            title="Attach image"
-            disabled={sending}
-            onClick={() => {
-              filePickerOpenRef.current = true
-              fileInputRef.current?.click()
-            }}
+      <Composer
+        strip={
+          pending.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-3 pt-3">
+              {pending.map((image) => (
+                <div key={image.url} className="relative">
+                  <img
+                    src={image.url}
+                    alt=""
+                    className="size-16 rounded-md border border-glass-stroke-card object-cover"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Remove image"
+                    disabled={sending}
+                    onClick={() => removeImage(image.url)}
+                    className="absolute -right-1.5 -top-1.5 rounded-full border border-glass-stroke-card bg-popover p-0.5 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )
+        }
+        tools={
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept={acceptedImageContentTypes.join(`,`)}
+              className="hidden"
+              onChange={(e) => {
+                filePickerOpenRef.current = false
+                if (e.target.files) addFiles(Array.from(e.target.files))
+                e.target.value = ``
+              }}
+            />
+            <ComposerTool
+              aria-label="Attach image"
+              title="Attach image"
+              disabled={sending}
+              onClick={() => {
+                filePickerOpenRef.current = true
+                fileInputRef.current?.click()
+              }}
+            >
+              <UiAddIcon />
+            </ComposerTool>
+          </>
+        }
+        submit={
+          <ComposerSubmit
+            aria-label="Send"
+            title="Send"
+            disabled={sending || !live || (!text.trim() && pending.length === 0)}
+            onClick={() => void send()}
           >
-            <UiAddIcon />
-          </ComposerTool>
-        </>
-      }
-      submit={
-        <ComposerSubmit
-          aria-label="Send"
-          title="Send"
-          disabled={sending || !live || (!text.trim() && pending.length === 0)}
-          onClick={() => void send()}
-        >
-          <UiSendIcon className="!size-6" />
-        </ComposerSubmit>
-      }
-      onDrop={(event) => {
-        if (event.dataTransfer.files.length === 0) return
-        event.preventDefault()
-        addFiles(Array.from(event.dataTransfer.files))
-      }}
-      onDragOver={(event) => {
-        if (event.dataTransfer.types.includes(`Files`)) event.preventDefault()
-      }}
-    >
-      {/* EXP-698: the steer field is the mention field — `@` members, `#`
-          issue refs and `:` emoji all work while steering. EXP-724: the `/`
-          menu floats above it, so the field gets a positioned wrapper of its
-          own (the mention popup anchors inside the field's own). */}
-      <div className="relative">
-        <MentionTextarea
-          ref={fieldRef}
-          value={text}
-          onValueChange={(next) => store.setDraftText(next)}
-          users={users}
-          onKeyDown={(e) => {
-            // The menu gets first refusal: with it open, Enter/Tab accept a
-            // command and must NEVER send the half-typed draft.
-            if (menu.handleKeyDown(e)) return
-            if (e.key === `Enter` && !e.shiftKey) {
+            <UiSendIcon className="!size-6" />
+          </ComposerSubmit>
+        }
+        onDrop={(event) => {
+          if (event.dataTransfer.files.length === 0) return
+          event.preventDefault()
+          addFiles(Array.from(event.dataTransfer.files))
+        }}
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes(`Files`)) event.preventDefault()
+        }}
+      >
+        {/* EXP-698: the steer field is the mention field — `@` members, `#`
+            issue refs and `:` emoji all work while steering. EXP-724: the `/`
+            menu floats above it, so the field gets a positioned wrapper of its
+            own (the mention popup anchors inside the field's own). */}
+        <div className="relative">
+          <MentionTextarea
+            ref={fieldRef}
+            value={text}
+            onValueChange={(next) => store.setDraftText(next)}
+            users={users}
+            onKeyDown={(e) => {
+              // The menu gets first refusal: with it open, Enter/Tab accept a
+              // command and must NEVER send the half-typed draft.
+              if (menu.handleKeyDown(e)) return
+              if (e.key === `Enter` && !e.shiftKey) {
+                e.preventDefault()
+                void send()
+              }
+            }}
+            onPaste={(e) => {
+              if (e.clipboardData.files.length === 0) return
               e.preventDefault()
-              void send()
+              addFiles(Array.from(e.clipboardData.files))
+            }}
+            placeholder={
+              placeholder ??
+              (commands.length > 0
+                ? `Message the agent… (/ for commands)`
+                : `Message the agent…`)
             }
-          }}
-          onPaste={(e) => {
-            if (e.clipboardData.files.length === 0) return
-            e.preventDefault()
-            addFiles(Array.from(e.clipboardData.files))
-          }}
-          placeholder={
-            placeholder ??
-            (commands.length > 0
-              ? `Message the agent… (/ for commands)`
-              : `Message the agent…`)
-          }
-          rows={1}
-          className={cn(
-            `max-h-32 min-h-9 w-full border-none px-3 pb-1 pt-3 shadow-none focus-visible:border-transparent`,
-            // The card IS the field chrome, so the field drops the stock
-            // Textarea's glass fill (EXP-616).
-            `bg-transparent`
-          )}
-        />
-        {menu.open && (
-          <SlashCommandMenu
-            commands={menu.candidates}
-            active={menu.active}
-            onSelect={menu.accept}
-            onHover={menu.setActive}
+            rows={1}
+            className={cn(
+              `max-h-32 min-h-9 w-full border-none px-3 pb-1 pt-3 shadow-none focus-visible:border-transparent`,
+              // The card IS the field chrome, so the field drops the stock
+              // Textarea's glass fill (EXP-616).
+              `bg-transparent`
+            )}
           />
-        )}
-      </div>
-    </Composer>
+          {menu.open && (
+            <SlashCommandMenu
+              commands={menu.candidates}
+              active={menu.active}
+              onSelect={menu.accept}
+              onHover={menu.setActive}
+            />
+          )}
+        </div>
+      </Composer>
       {/* EXP-724: `/clear` throws the conversation away, and the
           publisher runs whatever it receives — so every viewer confirms
           first, with the same copy. */}

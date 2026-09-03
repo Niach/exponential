@@ -1502,8 +1502,13 @@ impl SteerSessionView {
                     .pl_8()
                     .py_1()
                     .child(
-                        crate::surface::glass_chip()
-                            .max_w_full()
+                        crate::surface::glass_pill(
+                            SharedString::from(format!("steer-command-{}", item.id)),
+                            crate::surface::PillSize::Sm,
+                            crate::surface::PillMode::Readonly,
+                            cx,
+                        )
+                        .max_w_full()
                             .child(
                                 Icon::new(registry::CODING_COMMAND)
                                     .xsmall()
