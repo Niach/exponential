@@ -290,8 +290,8 @@
         "file": "shots/board-bulk-edit/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 70630,
-        "sha256": "81aa8778ff4ae9384fb26e6655de49a85d10f24af2d44bbd57b7bbe16516ced2"
+        "bytes": 68616,
+        "sha256": "2810bad95c97f69a99dc4d0eed7006422b675db94ae45897cce7dcff9d8e15cc"
       },
       "ios": {
         "file": "shots/board-bulk-edit/ios.webp",
@@ -710,15 +710,15 @@
         "file": "shots/onboarding/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 21426,
-        "sha256": "80179153d9898b4526caf6095b1a1db5aae32a248a2bf2c6f699e8b31cf5c4f3"
+        "bytes": 23586,
+        "sha256": "7119a4e257331b161e5e17b60b94e80bac6552e3dadc5e779a801d0c97a0d12b"
       },
       "desktop": {
         "file": "shots/onboarding/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 14240,
-        "sha256": "4851da2c670367cebef18482cdd6b7957eba77515aa7c8c7b10edce3a21379dc"
+        "bytes": 14632,
+        "sha256": "7feb4a3d7687e928a20b2c268eb0e3238a7cc2b0d8441d9c627464736825c28b"
       },
       "ios": {
         "file": "shots/onboarding/ios.webp",
@@ -747,15 +747,15 @@
         "file": "shots/onboarding-create-team/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 34392,
-        "sha256": "d8a75b755499dbda160075f20c29d41119d48d6388951b9a97e5b99387b46b97"
+        "bytes": 33722,
+        "sha256": "6d5bb586bb537f09216078407f93877d5fe1c6b2c00adad76c01ca850ab508c5"
       },
       "desktop": {
         "file": "shots/onboarding-create-team/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 10854,
-        "sha256": "7f897f8592921d4438801eb8d3d69edb76278dc0d082655c25fd8a299506e113"
+        "bytes": 10842,
+        "sha256": "02a3be474626d875cb5af2e30406d011e42530ac2ead4b3b71b73e33b7ab9169"
       },
       "ios": {
         "file": "shots/onboarding-create-team/ios.webp",
@@ -784,8 +784,8 @@
         "file": "shots/onboarding-join/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 12002,
-        "sha256": "ad6a9b4d94d7bc39cd10b5759db8622803457056949ba1bf8f0e3c62a2079c97"
+        "bytes": 12360,
+        "sha256": "000004359f76af7010facc234ea487c1b40cb13912faf545824e9d366571402b"
       },
       "web": {
         "file": "shots/onboarding-join/web.webp",
