@@ -222,7 +222,7 @@ private fun TeamStep(
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            "Create a team for your work, or join an existing one with an invite.",
+            "Create a team, or join one with an invite link from a teammate.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             textAlign = TextAlign.Center,
