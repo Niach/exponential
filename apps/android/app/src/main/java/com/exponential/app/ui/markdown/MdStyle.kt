@@ -28,6 +28,11 @@ object MdStyle {
     val Placeholder = Color.White.copy(alpha = 0.3f)
     val Dim = Color.White.copy(alpha = 0.3f) // thematic break
 
+    // GFM table chrome (EXP-726): a hairline grid on a barely-there header tint,
+    // the same two tiers iOS uses for `tableBorder`/`tableHeaderBackground`.
+    val TableBorder = Color.White.copy(alpha = 0.16f)
+    val TableHeaderBg = Color.White.copy(alpha = 0.06f)
+
     /**
      * Inline-code chrome, the one thing a rendering surface may re-tint
      * (EXP-698). The document renderers — issue descriptions, comments, the
@@ -96,6 +101,14 @@ object MdStyle {
 
     val textInsetV = 4.dp
     val blockSpacing = 8.dp
+
+    // Table geometry (EXP-726). A column is as wide as its widest cell, capped
+    // so one essay-length cell cannot push the rest off the horizontal scroll.
+    val tableCellMinWidth = 56.dp
+    val tableCellMaxWidth = 280.dp
+    val tableCellPadX = 8.dp
+    val tableCellPadY = 6.dp
+    val tableBorderWidth = 1.dp
 
     // `#IDENTIFIER` chip geometry (EXP-423): a rounded RECT (iOS ~5pt, web 6px,
     // desktop 4) — mention pills stay unpainted here, they keep their flat span.

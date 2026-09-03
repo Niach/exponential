@@ -7,6 +7,9 @@ import com.exponential.app.ui.markdown.model.InlineMark
 import com.exponential.app.ui.markdown.model.ListType
 import com.exponential.app.ui.markdown.model.ParagraphAttrs
 import com.exponential.app.ui.markdown.model.RichText
+import com.exponential.app.ui.markdown.model.TableAlignment
+import com.exponential.app.ui.markdown.model.TableCell
+import com.exponential.app.ui.markdown.model.TableData
 
 /**
  * Serializes [ContentBlock]s back to GFM markdown — the save path, where byte
@@ -36,9 +39,60 @@ object MarkdownSerializer {
                     if (md.isNotEmpty()) parts.add(md)
                 }
                 is ContentBlock.ImageBlock -> parts.add("![${block.alt}](${block.url})")
+                is ContentBlock.TableBlock -> parts.add(serializeTable(block.table))
             }
         }
         return parts.joinToString("\n\n")
+    }
+
+    // -- Tables (EXP-726) --------------------------------------------------
+    //
+    // The cross-client canonical form, byte-locked by MarkdownRoundTripTest and
+    // mirrored on web, iOS and the desktop: one space each side of every cell,
+    // no column-width padding, rows joined by '\n', delimiter cells
+    // `---`/`:---`/`:---:`/`---:`, an empty cell written `|  |`, and `|` inside
+    // a cell escaped as `\|`.
+
+    private fun serializeTable(table: TableData): String {
+        val width = table.columnCount
+        if (width == 0) return ""
+        val out = mutableListOf(serializeTableRow(table.header, width))
+        out.add(delimiterRow(table.alignments, width))
+        for (row in table.rows) out.add(serializeTableRow(row, width))
+        return out.joinToString("\n")
+    }
+
+    private fun serializeTableRow(cells: List<TableCell>, width: Int): String {
+        val sb = StringBuilder("|")
+        for (i in 0 until width) {
+            val cell = cells.getOrNull(i)
+            sb.append(" ").append(if (cell == null) "" else serializeCell(cell)).append(" |")
+        }
+        return sb.toString()
+    }
+
+    /**
+     * One cell's inline markdown. A cell is never a heading (bold survives), a
+     * stray newline folds to a space, and every `|` is escaped LAST so the
+     * escape also covers pipes a link destination brought along.
+     */
+    private fun serializeCell(cell: TableCell): String =
+        inline(cell.text, cell.marks, isHeading = false)
+            .replace("\n", " ")
+            .replace("|", "\\|")
+
+    private fun delimiterRow(alignments: List<TableAlignment>, width: Int): String {
+        val sb = StringBuilder("|")
+        for (i in 0 until width) {
+            val cell = when (alignments.getOrElse(i) { TableAlignment.None }) {
+                TableAlignment.Left -> ":---"
+                TableAlignment.Center -> ":---:"
+                TableAlignment.Right -> "---:"
+                TableAlignment.None -> "---"
+            }
+            sb.append(" ").append(cell).append(" |")
+        }
+        return sb.toString()
     }
 
     // -- Text block --------------------------------------------------------

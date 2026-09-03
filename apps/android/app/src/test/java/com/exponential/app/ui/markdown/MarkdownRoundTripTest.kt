@@ -195,4 +195,76 @@ class MarkdownRoundTripTest {
 
     /** A literal `:shortcode:` is plain text — nothing converts it on parse. */
     @Test fun literalShortcodeStaysPlainText() = assertStable("wrote :tada: by hand")
+
+    // --- GFM tables (EXP-726). The nine fixtures below are the CROSS-CLIENT
+    // corpus: byte-identical strings live in the desktop's CONTRACT_FIXTURES,
+    // the iOS table suite and the web round-trip test, so a table written on
+    // any client survives a save on every other one unchanged. ---
+
+    @Test fun tableBasic() = assertStable("| a | b |\n| --- | --- |\n| 1 | 2 |")
+
+    @Test fun tableAlignments() =
+        assertStable("| l | c | r | n |\n| :--- | :---: | ---: | --- |\n| 1 | 2 | 3 | 4 |")
+
+    @Test fun tableInlineMarks() = assertStable(
+        "| **bold** | [link](https://example.com) |\n| --- | --- |\n| `code` | *em* |",
+    )
+
+    @Test fun tableEscapedPipe() = assertStable("| a \\| b | c |\n| --- | --- |\n| 1 | 2 |")
+
+    @Test fun tableEmptyCell() = assertStable("| a | b |\n| --- | --- |\n| 1 |  |")
+
+    @Test fun tableHeaderOnly() = assertStable("| a | b |\n| --- | --- |")
+
+    @Test fun tableBetweenParagraphs() =
+        assertStable("before\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nafter")
+
+    @Test fun tableChipCells() =
+        assertStable("| @jane@example.com | #EXP-42 |\n| --- | --- |\n| x | y |")
+
+    @Test fun tableUnicode() =
+        assertStable("| Gr\u00fc\u00dfe | \uD83D\uDE80 |\n| --- | --- |\n| \u00fc | \u00e9 |")
+
+    // --- Normalisation: GitHub-style padded input collapses to the canonical
+    // one-space form, and a ragged body row is padded with empty cells. Both
+    // must be FIXPOINTS — the second pass may not move a byte. ---
+
+    @Test fun paddedTableNormalisesToCanonical() {
+        val padded = "| Name  | Value |\n| ----- | ----- |\n| a     | b     |"
+        val canonical = "| Name | Value |\n| --- | --- |\n| a | b |"
+        assertEquals(canonical, roundTrip(padded))
+        assertEquals(canonical, roundTrip(canonical))
+    }
+
+    @Test fun raggedRowIsPaddedWithEmptyCells() {
+        val ragged = "| a | b | c |\n| --- | --- | --- |\n| 1 |"
+        val canonical = "| a | b | c |\n| --- | --- | --- |\n| 1 |  |  |"
+        assertEquals(canonical, roundTrip(ragged))
+        assertEquals(canonical, roundTrip(canonical))
+    }
+
+    @Test fun tightPipeTableNormalisesToCanonical() =
+        assertEquals("| a | b |\n| --- | --- |\n| 1 | 2 |", roundTrip("|a|b|\n|---|---|\n|1|2|"))
+
+    @Test fun tableFixturesAreIdempotent() {
+        for (md in TABLE_FIXTURES) {
+            val once = roundTrip(md)
+            assertEquals(md, once)
+            assertEquals(once, roundTrip(once))
+        }
+    }
+
+    private companion object {
+        val TABLE_FIXTURES = listOf(
+            "| a | b |\n| --- | --- |\n| 1 | 2 |",
+            "| l | c | r | n |\n| :--- | :---: | ---: | --- |\n| 1 | 2 | 3 | 4 |",
+            "| **bold** | [link](https://example.com) |\n| --- | --- |\n| `code` | *em* |",
+            "| a \\| b | c |\n| --- | --- |\n| 1 | 2 |",
+            "| a | b |\n| --- | --- |\n| 1 |  |",
+            "| a | b |\n| --- | --- |",
+            "before\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nafter",
+            "| @jane@example.com | #EXP-42 |\n| --- | --- |\n| x | y |",
+            "| Gr\u00fc\u00dfe | \uD83D\uDE80 |\n| --- | --- |\n| \u00fc | \u00e9 |",
+        )
+    }
 }

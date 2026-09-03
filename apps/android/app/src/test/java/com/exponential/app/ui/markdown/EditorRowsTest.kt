@@ -63,4 +63,34 @@ class EditorRowsTest {
         assertEquals(listOf(1, 2, 3), run.paragraphs.map { it.orderedIndex })
         assertTrue(run.paragraphs.all { it.listType == ListType.Ordered })
     }
+
+    // --- Tables (EXP-726) are rows in their own right, exactly like images. ---
+
+    @Test fun tableSurvivesRowRoundTrip() =
+        assertEquals(
+            "| a | b |\n| --- | --- |\n| 1 | 2 |",
+            roundTripViaRows("| a | b |\n| --- | --- |\n| 1 | 2 |"),
+        )
+
+    @Test fun tableBetweenParagraphsSurvivesRowRoundTrip() =
+        assertEquals(
+            "before\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nafter",
+            roundTripViaRows("before\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nafter"),
+        )
+
+    @Test fun tableRowIsPaddedWithTextRuns() {
+        val rows = EditorRows.fromBlocks(MarkdownParser.parse("| a |\n| --- |\n| 1 |"))
+        assertEquals(listOf("TextRun", "Table", "TextRun"), rows.map { it::class.simpleName })
+    }
+
+    @Test fun cellIdsAreStableAcrossTheRowRoundTrip() {
+        val rows = EditorRows.fromBlocks(MarkdownParser.parse("| a | b |\n| --- | --- |\n| 1 | 2 |"))
+        val table = rows.filterIsInstance<EditorRow.Table>().single().table
+        val ids = table.allCells.map { it.id }
+        assertEquals(4, ids.toSet().size)
+        val back = EditorRows.toBlocks(rows).filterIsInstance<ContentBlock.TableBlock>().single()
+        assertEquals(ids, back.table.allCells.map { it.id })
+        assertEquals(0 to 1, table.locate(table.header[1].id))
+        assertEquals(1 to 0, table.locate(table.rows[0][0].id))
+    }
 }

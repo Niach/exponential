@@ -183,6 +183,7 @@ fun MarkdownEditor(
                             modifier = Modifier.fillMaxWidth(),
                         )
                         is EditorRow.Image -> BlockImageEditView(model = model, row = row)
+                        is EditorRow.Table -> TableRowEditView(model = model, row = row)
                     }
                 }
             }

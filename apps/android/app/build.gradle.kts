@@ -207,6 +207,7 @@ dependencies {
     implementation(libs.browser)
     implementation(libs.commonmark.core)
     implementation(libs.commonmark.ext.strikethrough)
+    implementation(libs.commonmark.ext.tables)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.ktor3)
 

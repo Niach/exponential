@@ -11,6 +11,7 @@ import com.exponential.app.ui.markdown.model.InlineKind
 import com.exponential.app.ui.markdown.model.ListType
 import com.exponential.app.ui.markdown.model.ParagraphAttrs
 import com.exponential.app.ui.markdown.model.PendingImage
+import com.exponential.app.ui.markdown.model.TableCell
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -173,7 +174,12 @@ class EditorModel {
      */
     fun updateRun(rowId: String, newText: String, caret: Int) {
         val idx = rows.indexOfFirst { it.id == rowId }
-        if (idx < 0) return
+        // Table cells are fields too (EXP-726) and reach this same entry point
+        // keyed by their CELL id, which is never a row id.
+        if (idx < 0) {
+            updateCell(rowId, newText, caret)
+            return
+        }
         val row = rows[idx] as? EditorRow.TextRun ?: return
         if (row.text == newText) return
         val diff = TextDiff.of(row.text, newText, caret)
@@ -324,6 +330,61 @@ class EditorModel {
             paragraphs = first.paragraphs + second.paragraphs.drop(1),
             marks = first.marks + MarkOps.offset(second.marks, first.text.length),
         )
+
+    // -- Table cells (EXP-726) --------------------------------------------------
+
+    /** Where a table cell lives: its table ROW's id plus (row, col), header = row 0. */
+    data class CellLocation(val tableRowId: String, val row: Int, val col: Int)
+
+    /** The location of the cell with [cellId], or null when it is not a cell id. */
+    fun locateCell(cellId: String): CellLocation? {
+        for (r in rows) {
+            if (r !is EditorRow.Table) continue
+            val at = r.table.locate(cellId) ?: continue
+            return CellLocation(r.id, at.first, at.second)
+        }
+        return null
+    }
+
+    /** The cell with [cellId], if any — the table field seeds its value from it. */
+    fun cell(cellId: String): TableCell? {
+        val loc = locateCell(cellId) ?: return null
+        val table = (rows.firstOrNull { it.id == loc.tableRowId } as? EditorRow.Table)?.table
+        return table?.cellAt(loc.row, loc.col)
+    }
+
+    /**
+     * A cell field's post-edit text. A cell is ONE inline paragraph, so any
+     * newline the IME or a paste brought in folds to a space before the mark
+     * remap; no revision bump, exactly like [updateRun].
+     */
+    private fun updateCell(cellId: String, newText: String, caret: Int) {
+        val loc = locateCell(cellId) ?: return
+        val idx = rows.indexOfFirst { it.id == loc.tableRowId }
+        val tableRow = rows.getOrNull(idx) as? EditorRow.Table ?: return
+        val cell = tableRow.table.cellAt(loc.row, loc.col) ?: return
+        val text = newText.replace('\n', ' ')
+        if (cell.text == text) return
+        val safeCaret = caret.coerceIn(0, text.length)
+        val diff = TextDiff.of(cell.text, text, safeCaret)
+        val marks = MarkRemap.remap(diff, text, cell.marks)
+        replaceRow(
+            idx,
+            tableRow.copy(table = tableRow.table.withCell(loc.row, loc.col, cell.copy(text = text, marks = marks))),
+        )
+        selection = cellId to (safeCaret..safeCaret)
+        notifyEdit()
+    }
+
+    /**
+     * Set a table cell's text by coordinate (header = row 0) — the host-facing
+     * form of [updateCell] for callers that address the grid, not the cell id.
+     */
+    fun updateTableCell(rowId: String, row: Int, col: Int, text: String, caret: Int = text.length) {
+        val tableRow = rows.firstOrNull { it.id == rowId } as? EditorRow.Table ?: return
+        val cell = tableRow.table.cellAt(row, col) ?: return
+        updateCell(cell.id, text, caret)
+    }
 
     // -- Inline marks -----------------------------------------------------------
 
@@ -834,7 +895,8 @@ class EditorModel {
         var changed = false
         val next = rows.map { r ->
             when (r) {
-                is EditorRow.Image -> {
+                // A block-level row breaks every open list run.
+                is EditorRow.Image, is EditorRow.Table -> {
                     counters.clear()
                     types.clear()
                     r
@@ -892,6 +954,13 @@ class EditorModel {
         for (r in rows) {
             revCounter++
             revisions[r.id] = revCounter
+            // Cell fields re-seed off their own id's revision (EXP-726).
+            if (r is EditorRow.Table) {
+                for (c in r.table.allCells) {
+                    revCounter++
+                    revisions[c.id] = revCounter
+                }
+            }
         }
     }
 

@@ -634,4 +634,119 @@ class EditorModelTest {
         assertTrue(m.revision(last.id) > before)
         assertFalse(m.isDirty)
     }
+
+    // --- Table cells (EXP-726). A cell is a field like any other: its edits
+    // arrive through updateRun keyed by the CELL id, which the model routes
+    // into the table. No manipulation UI exists on mobile, so these are the
+    // only table mutations. ---
+
+    private fun table(m: EditorModel) = m.rows.filterIsInstance<EditorRow.Table>().single().table
+
+    @Test
+    fun editingACellRewritesTheTable() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val cell = table(m).rows[0][1]
+        m.updateRun(cell.id, "22", 2)
+        assertEquals("| a | b |\n| --- | --- |\n| 1 | 22 |", m.currentMarkdown())
+        assertTrue(m.isDirty)
+    }
+
+    @Test
+    fun editingAHeaderCellRewritesTheHeaderRow() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        m.updateRun(table(m).header[0].id, "name", 4)
+        assertEquals("| name | b |\n| --- | --- |\n| 1 | 2 |", m.currentMarkdown())
+    }
+
+    @Test
+    fun updateTableCellAddressesTheGridByCoordinate() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val rowId = m.rows.filterIsInstance<EditorRow.Table>().single().id
+        m.updateTableCell(rowId, row = 0, col = 1, text = "head")
+        m.updateTableCell(rowId, row = 1, col = 0, text = "one")
+        assertEquals("| a | head |\n| --- | --- |\n| one | 2 |", m.currentMarkdown())
+    }
+
+    /** A cell is ONE inline paragraph: a pasted newline folds to a space. */
+    @Test
+    fun aNewlinePastedIntoACellBecomesASpace() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val cell = table(m).rows[0][0]
+        m.updateRun(cell.id, "one\ntwo", 7)
+        assertEquals("one two", table(m).rows[0][0].text)
+        assertEquals("| a | b |\n| --- | --- |\n| one two | 2 |", m.currentMarkdown())
+    }
+
+    /** A `|` typed into a cell is escaped on the way out, never on the way in. */
+    @Test
+    fun aPipeTypedIntoACellIsEscapedOnSerialize() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        m.updateRun(table(m).rows[0][0].id, "x | y", 5)
+        assertEquals("x | y", table(m).rows[0][0].text)
+        assertEquals("| a | b |\n| --- | --- |\n| x \\| y | 2 |", m.currentMarkdown())
+    }
+
+    @Test
+    fun cellMarksAreRemappedAroundAnInsertion() {
+        val m = model("| a **b** | c |\n| --- | --- |\n| 1 | 2 |")
+        val cell = table(m).header[0]
+        assertEquals("a b", cell.text)
+        m.updateRun(cell.id, "xa b", 1)
+        val mark = table(m).header[0].marks.single()
+        assertEquals(3, mark.start)
+        assertEquals(4, mark.end)
+        assertEquals("| xa **b** | c |\n| --- | --- |\n| 1 | 2 |", m.currentMarkdown())
+    }
+
+    /** No revision bump: the field already holds what the user typed. */
+    @Test
+    fun aCellEditDoesNotBumpItsRevision() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val cell = table(m).rows[0][0]
+        val before = m.revision(cell.id)
+        m.updateRun(cell.id, "11", 2)
+        assertEquals(before, m.revision(cell.id))
+    }
+
+    @Test
+    fun loadingATableBumpsEveryCellRevision() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        assertTrue(table(m).allCells.all { m.revision(it.id) > 0 })
+    }
+
+    @Test
+    fun locateCellFindsHeaderAndBodyCoordinates() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val rowId = m.rows.filterIsInstance<EditorRow.Table>().single().id
+        val t = table(m)
+        assertEquals(EditorModel.CellLocation(rowId, 0, 1), m.locateCell(t.header[1].id))
+        assertEquals(EditorModel.CellLocation(rowId, 1, 0), m.locateCell(t.rows[0][0].id))
+        assertNull(m.locateCell("not-a-cell"))
+    }
+
+    /** Formatting intents address ROWS; a focused cell id is simply not one. */
+    @Test
+    fun markOpsNoOpForCellIds() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val before = m.currentMarkdown()
+        val cell = table(m).header[0]
+        m.toggleMark(cell.id, 0..1, InlineKind.Bold)
+        m.setHeading(cell.id, 1)
+        m.toggleList(cell.id, ListType.Bullet)
+        m.clearParagraphFormat(cell.id, 0)
+        assertEquals(before, m.currentMarkdown())
+    }
+
+    /** An ordered list restarts after a table, exactly as it does after an image. */
+    @Test
+    fun orderedListRestartsAfterATable() {
+        val m = model("1. one\n\n| h |\n| --- |\n| x |\n\n1. two")
+        val runs = runs(m).filter { it.text.isNotEmpty() }
+        val last = runs.last()
+        // A structural edit (a new line) is what triggers the renumber pass.
+        m.updateRun(last.id, "two\nthree", 9)
+        val after = runs(m).first { it.id == last.id }
+        assertEquals(listOf(1, 2), after.paragraphs.map { it.orderedIndex })
+        assertEquals(listOf(1), runs(m).first { it.id == runs.first().id }.paragraphs.map { it.orderedIndex })
+    }
 }
