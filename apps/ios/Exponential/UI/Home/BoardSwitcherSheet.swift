@@ -27,7 +27,12 @@ struct BoardSwitcherSheet: View {
                         serverSection(group)
                     }
                     // At the very bottom, under every server's teams.
-                    plainActionRow(icon: AppIcons.uiAdd, title: "New team", action: onCreateTeam)
+                    plainActionRow(
+                    icon: AppIcons.uiAdd,
+                    title: "New team",
+                    identifier: "board-switcher-new-team",
+                    action: onCreateTeam
+                )
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 4)
@@ -103,7 +108,12 @@ struct BoardSwitcherSheet: View {
                     .buttonStyle(.plain)
                 }
 
-                plainActionRow(icon: AppIcons.uiAdd, title: "Create board", action: onCreateBoard)
+                plainActionRow(
+                    icon: AppIcons.uiAdd,
+                    title: "Create board",
+                    identifier: "board-switcher-create-board",
+                    action: onCreateBoard
+                )
             }
         }
     }
@@ -144,10 +154,14 @@ struct BoardSwitcherSheet: View {
 
     /// A plain (non-carded) muted row — the two creation entries. Deliberately
     /// card-less: they are not boards, and a glass row here would read as one.
+    /// The identifier is what the styleguide lane taps: both titles are also
+    /// button LABELS elsewhere on the screen behind the sheet, so a label query
+    /// would be ambiguous.
     @ViewBuilder
     private func plainActionRow(
         icon: String,
         title: String,
+        identifier: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -163,5 +177,6 @@ struct BoardSwitcherSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
     }
 }

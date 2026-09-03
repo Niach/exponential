@@ -38,7 +38,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * (`packages/view-catalog/src/views.test.ts` gates both directions AND requires
  * the two platforms' `sg_*` sets to be identical):
  *
- *   sg_sign-in · sg_board-switcher · sg_board-filters · sg_board-empty ·
+ *   sg_sign-in · sg_board-switcher · sg_onboarding-create-team ·
+ *   sg_board-filters · sg_board-empty ·
  *   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
  *   sg_start-coding-actions · sg_start-coding-chat ·
@@ -203,7 +204,20 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(TEAM_NAME), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_board-switcher")
-        Espresso.pressBack()
+
+        // --- Create team: the switcher's own "New team" row (EXP-698 r5).
+        // The row CLOSES the sheet and opens the name dialog — two stacked
+        // bottom surfaces is a dead end on Android — so this waits on the
+        // dialog's tag rather than on the sheet going away, and it dismisses
+        // the sheet on the way for free.
+        composeRule.onNode(hasTestTag("board-switcher-new-team")).performClick()
+        flow.waitFor(hasTestTag("create-team-dialog"), NAV_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_onboarding-create-team")
+        // Cancel, not back: the next shot starts from the plain board list, and
+        // an unconfirmed dialog must leave no team behind.
+        composeRule.onNode(hasText("Cancel")).performClick()
+        flow.waitForGone(hasTestTag("create-team-dialog"), NAV_TIMEOUT)
         flow.waitForGone(hasText("Switch board"), NAV_TIMEOUT)
         flow.settle(longer = true)
 

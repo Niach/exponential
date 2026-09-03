@@ -758,6 +758,10 @@ private fun CreateTeamDialog(
 ) {
     var name by remember { mutableStateOf("") }
     AlertDialog(
+        // EXP-698 r5: the styleguide lane photographs this dialog off the
+        // switcher's "New team" row (`sg_onboarding-create-team`); a dialog
+        // window has no other stable handle to wait on.
+        modifier = Modifier.testTag("create-team-dialog"),
         onDismissRequest = onDismiss,
         title = { Text("Create a team") },
         text = {

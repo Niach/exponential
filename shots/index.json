@@ -743,12 +743,26 @@
       }
     },
     "onboarding-create-team": {
+      "android": {
+        "file": "shots/onboarding-create-team/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 34392,
+        "sha256": "d8a75b755499dbda160075f20c29d41119d48d6388951b9a97e5b99387b46b97"
+      },
       "desktop": {
         "file": "shots/onboarding-create-team/desktop.webp",
         "width": 1800,
         "height": 1126,
         "bytes": 10854,
         "sha256": "7f897f8592921d4438801eb8d3d69edb76278dc0d082655c25fd8a299506e113"
+      },
+      "ios": {
+        "file": "shots/onboarding-create-team/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 31294,
+        "sha256": "b647198786a58fe1298a648f776a4da74318b40c2d53e93a4d432339db0795a9"
       },
       "web": {
         "file": "shots/onboarding-create-team/web.webp",

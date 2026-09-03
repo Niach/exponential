@@ -14,7 +14,8 @@ import XCTest
 /// `packages/view-catalog/src/views.test.ts` gates both directions, and
 /// additionally requires the iOS and Android `sg_*` sets to be IDENTICAL.
 ///
-///   sg_sign-in · sg_board-switcher · sg_board-filters · sg_board-empty ·
+///   sg_sign-in · sg_board-switcher · sg_onboarding-create-team ·
+///   sg_board-filters · sg_board-empty ·
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
 ///   sg_start-coding-actions · sg_start-coding-chat ·
@@ -22,6 +23,12 @@ import XCTest
 ///   sg_automations · sg_action-suggestions · sg_reviews ·
 ///   sg_support-thread · sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding
+///
+/// EXP-698 r5 added `sg_onboarding-create-team`: the board switcher grew a
+/// "New team" row (and a per-team "Create board" one), so the create-or-join
+/// team form is now reachable from the app's home instead of only from the
+/// zero-team empty state a seeded account never shows. It is captured right
+/// after `sg_board-switcher`, off that row.
 ///
 /// EXP-642 reshuffled the front of the set: the old `sg_instance-picker` shot
 /// IS the cloud Apple/Google chooser a first-run user meets, so it took over
@@ -143,7 +150,41 @@ final class StyleguideScreenshots: XCTestCase {
             "Board switcher never listed the seeded team"
         )
         snapshot("sg_board-switcher", settle: 2)
-        dismissSheet(app, whileVisible: switcherHeadline)
+
+        // ── sg_onboarding-create-team: the create-or-join team form ──────────
+        // Reached from the switcher's bottom "New team" row, which is also how
+        // it DISMISSES the switcher — the row parks its intent and the sheet is
+        // presented from the switcher's `onDismiss` (two presentations in one
+        // transaction get dropped). So there is a dismissal animation in
+        // between: wait on the sheet's own identifier, never on a delay.
+        let newTeamRow = app.buttons["board-switcher-new-team"]
+        XCTAssertTrue(newTeamRow.waitForExistence(timeout: 15), "Board switcher has no New team row")
+        // The sheet is fitted to its content, so the row is on screen for the
+        // seeded team — scroll it up only if a longer board list ever pushes it
+        // under the fold.
+        scrollUntilVisible(app, newTeamRow, attempts: 3)
+        newTeamRow.tap()
+        let teamSetupSheet = app.descendants(matching: .any)["team-setup-sheet"].firstMatch
+        XCTAssertTrue(
+            teamSetupSheet.waitForExistence(timeout: 20),
+            "New team row did not open the team setup sheet"
+        )
+        // Gate on real content, not the container: the sheet chrome renders
+        // before the two forms do.
+        let createTeamHeading = app.staticTexts["Create a team"]
+        XCTAssertTrue(
+            createTeamHeading.waitForExistence(timeout: 15),
+            "Team setup sheet never rendered its Create a team form"
+        )
+        snapshot("sg_onboarding-create-team", settle: 1)
+        // Nothing was submitted, so no team is created and the next steps start
+        // from the same board list. The switcher is already gone — this only
+        // has to close the setup sheet.
+        dismissSheet(app, whileVisible: app.staticTexts["Set up a team"].firstMatch)
+        XCTAssertTrue(
+            showcaseRowTitle.waitForExistence(timeout: 20),
+            "Dismissing the team setup sheet did not return to the board list"
+        )
 
         // ── sg_board-filters: the board's filter sheet ───────────────────────
         // The trigger is the nav-bar "Filters" toolbar item; the sheet headline

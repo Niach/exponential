@@ -217,7 +217,7 @@
       "id": "onboarding-create-team",
       "group": "auth",
       "title": "Onboarding · Create a team",
-      "blurb": "The wizard’s create branch: name the team you will own.",
+      "blurb": "Name the team you will own: the wizard’s create branch on web and desktop, the sheet behind the board switcher’s New team row on the phones.",
       "order": 3,
       "web": {
         "route": "/onboarding",
@@ -230,9 +230,13 @@
         "settleMs": 600
       },
       "webMobile": "inherit",
-      "notes": {
-        "ios": "The mobile wizard puts the Create and Join cards on ONE step (TeamSetupView / OnboardingScreen), so this branch is not a screen of its own there — see `onboarding`.",
-        "android": "The mobile wizard puts the Create and Join cards on ONE step (TeamSetupView / OnboardingScreen), so this branch is not a screen of its own there — see `onboarding`."
+      "ios": {
+        "shot": "sg_onboarding-create-team",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_onboarding-create-team",
+        "lane": "styleguide"
       },
       "desktop": {
         "drive": {

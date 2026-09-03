@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.ServerBoardGroup
@@ -89,7 +90,11 @@ fun BoardSwitcherSheet(
                 // The last row in the sheet, under every server's teams: a
                 // team is the one thing the tree above can't offer to make.
                 item(key = "new-team") {
-                    MutedActionRow(label = "New team", onClick = onCreateTeam)
+                    MutedActionRow(
+                        label = "New team",
+                        testTag = "board-switcher-new-team",
+                        onClick = onCreateTeam,
+                    )
                 }
             }
         }
@@ -175,6 +180,7 @@ private fun TeamBlockView(
         }
         MutedActionRow(
             label = "Create board",
+            testTag = "board-switcher-create-board",
             onClick = { onCreateBoard(block.team.id) },
         )
     }
@@ -186,10 +192,13 @@ private fun TeamBlockView(
  * have made the list of boards look one longer than it is.
  */
 @Composable
-private fun MutedActionRow(label: String, onClick: () -> Unit) {
+private fun MutedActionRow(label: String, testTag: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // The capture suites address these two by tag — their labels also
+            // read as ordinary content elsewhere on the sheet.
+            .testTag(testTag)
             .clickable(onClick = onClick)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
