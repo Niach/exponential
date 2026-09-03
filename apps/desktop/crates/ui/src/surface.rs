@@ -328,14 +328,13 @@ pub(crate) fn glass_tray() -> Div {
 /// is `theme.popover`, the shared glass-menu fill (`FILL_CARD` composited over
 /// `POPOVER`, byte-equal to Android's `GlassTokens.OpaqueCardFill`).
 ///
-/// It WRAPS (EXP-698 round 5): the buttons keep their text labels on every
-/// surface — that is the point of the shared bar — so a narrow panel flows
-/// them onto a second line inside the same capsule rather than overflowing it.
-/// The host row's `min_h` is a floor, so the row grows with the bar
-/// (`filter_bar::CONTROL_ROW_MIN_H`).
+/// It does NOT wrap: the bar is a single fixed-height capsule, one row on
+/// every surface. When the labeled row does not fit, the CALLER collapses its
+/// buttons to icon-only with tooltips instead of flowing them onto a second
+/// line (`issue_list::render_bulk_bar` and its `BULK_BAR_LABEL_MIN_W` gate) —
+/// a two-line bar would change the host row's height under the list.
 pub(crate) fn glass_bar(cx: &App) -> Div {
     h_flex()
-        .flex_wrap()
         .items_center()
         .gap_1()
         .px_2p5()

@@ -39,10 +39,10 @@ use crate::filter_popover::{FilterView, IssueFilterPopover, OnFiltersChange, OnV
 ///
 /// So the floor is the bulk branch's 50, and the trigger branch's 48 grows
 /// into it. EXP-698 round 5: it was 44 while the bulk cluster was a bare
-/// tray; the opaque capsule is 6px taller. On a panel too narrow for one
-/// line the capsule WRAPS and the row grows past this floor with it — the
-/// list moves once, on entering multiselect, which is the same trade the
-/// wrapping trigger cluster already makes.
+/// tray; the opaque capsule is 6px taller. The capsule never wraps — a narrow
+/// panel collapses its buttons to icon-only instead
+/// (`issue_list::BULK_BAR_LABEL_MIN_W`) — so 50 is the bulk branch's height
+/// at EVERY width, and the swap stays jump-free.
 const CONTROL_ROW_MIN_H: f32 = 50.;
 
 #[derive(IntoElement)]
