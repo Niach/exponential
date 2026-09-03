@@ -266,5 +266,23 @@
   "actionInputs": {
     "max": 10,
     "maxTextLength": 4096
+  },
+  "steerCommands": {
+    "commands": [
+      {
+        "name": "compact",
+        "description": "Compact the conversation context",
+        "argHint": "instructions",
+        "agents": ["claude", "codex", "pi"],
+        "confirm": false
+      },
+      {
+        "name": "clear",
+        "description": "Start a fresh conversation (context is discarded)",
+        "argHint": "",
+        "agents": ["claude", "codex", "pi"],
+        "confirm": true
+      }
+    ]
   }
 }

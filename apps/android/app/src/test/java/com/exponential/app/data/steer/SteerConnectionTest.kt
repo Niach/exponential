@@ -600,6 +600,33 @@ class SteerConnectionTest {
     }
 
     @Test
+    fun theCompactionStripNeverOutlivesTheSession() = runBlocking {
+        // EXP-724: `compaction started` pins an indeterminate strip. Its
+        // `ended` normally takes it down — but a run that ENDS under it never
+        // sends one, and a strip stuck up forever reads as a hung agent.
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            val socket = liveWithFeed(transport, connection)
+            socket.emit(
+                """{"t":"activity","event":{"kind":"compaction","phase":"started","trigger":"manual"}}""",
+            )
+            waitUntil("the compaction strip") { connection.activity.value.compacting != null }
+            assertEquals("manual", connection.activity.value.compacting?.trigger)
+            // The strip is state, not a row: the feed is untouched.
+            assertEquals(1, connection.activity.value.feed.size)
+
+            socket.emit("""{"t":"bye","outcome":"ended"}""")
+            // The relay hangs up right behind its bye.
+            socket.hangUp()
+            waitUntil("the ended phase") { connection.phase.value is AgentPhase.Ended }
+            assertNull(connection.activity.value.compacting)
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
     fun closeIsFinalAndAKickCannotReviveIt() = runBlocking {
         val transport = FakeTransport()
         val connection = connection(transport)

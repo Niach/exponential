@@ -35,6 +35,11 @@ public enum DomainContract {
     public static let actionInputTypeValues: [String] = ["text", "repo", "board", "pr", "icon", "textarea"]
     public static let actionTriggerEventValues: [String] = ["created", "status_changed", "assignee_changed", "label_added", "priority_changed", "pr_opened", "pr_merged"]
     public static let actionScheduleIntervalValues: [String] = ["daily", "weekly", "monthly"]
+    public static let steerCommandNames: [String] = ["compact", "clear"]
+    public static let steerCommandDescriptions: [String] = ["Compact the conversation context", "Start a fresh conversation (context is discarded)"]
+    public static let steerCommandArgHints: [String] = ["instructions", ""]
+    public static let steerCommandAgents: [String] = ["claude,codex,pi", "claude,codex,pi"]
+    public static let steerCommandConfirm: [Bool] = [false, true]
 
     public static let issueStatusStartedMax: Int = 4
     public static let codingSessionStaleMs: Int = 7200000

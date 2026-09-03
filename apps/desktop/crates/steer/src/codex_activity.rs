@@ -31,6 +31,15 @@
 //!   keystroke exactly like the claude emitter does.
 //! - `codex resume` appends to the SAME rollout file — a full-history replay
 //!   on attach, deliberately matching the claude `--continue` posture.
+//! - COMPACTION (EXP-724, verified on 0.144.5): a `/compact` writes
+//!   `event_msg`/`task_started`, then a TOP-LEVEL `{"type":"compacted"}`
+//!   line, then `event_msg`/`token_count`, then `event_msg`/
+//!   `{"type":"context_compacted"}`. There is no start marker and no
+//!   `user_message` for the command itself — so the emitter publishes
+//!   `compaction started` only for a compaction IT dispatched (the remote
+//!   `/compact`, trigger `manual`), and `context_compacted` is the end edge
+//!   for both that and an auto-compaction. An unmatched `ended` is fine: the
+//!   clients append the marker row and clear a bar that was never open.
 //!
 //! Redaction stance (stricter than claude's, because codex has no Bash
 //! `description` field): an `exec_command` headline is the DERIVED first
@@ -55,11 +64,11 @@ use crate::activity::{
     TOOL_NAME_MAX,
 };
 use crate::activity::{
-    settle, settle_for, tail_transcript, truncate, AnswerAttempt, RemoteAnswer, ANSWER_RETRY_TTL,
-    PLAN_SUBMIT_PROBE,
+    normalize_compaction_trigger, pump_commands, settle, settle_for, tail_transcript, truncate,
+    AnswerAttempt, RemoteAnswer, ANSWER_RETRY_TTL, COMPACTION_MAX, PLAN_SUBMIT_PROBE,
 };
 use crate::codex_approval_picker::{self, ApprovalSnapshot, CodexApprovalWatcher};
-use crate::frames::{ActivityEvent, QuestionOption};
+use crate::frames::{ActivityEvent, CompactionPhase, QuestionOption};
 use crate::publisher::{ActivitySender, InputHook};
 
 /// How long to wait for the rollout file before logging (mirrors the claude
@@ -250,6 +259,12 @@ pub(crate) struct CodexState {
     /// The turn-edge half of the attention flag (`task_complete` /
     /// `turn_aborted` → idle, waiting on a human).
     idle: bool,
+    /// EXP-724: when the open compaction started. Codex leaves NO start
+    /// marker in the rollout (module header), so this is only ever set by
+    /// the emitter's own remote `/compact` dispatch — an auto-compaction is
+    /// end-only, and an unmatched `ended` still appends the marker row on
+    /// every client.
+    compacting_since: Option<Instant>,
 }
 
 impl CodexState {
@@ -489,6 +504,14 @@ fn parse_event_msg(payload: &Value, state: &mut CodexState, redactor: &Redactor)
         "turn_aborted" => {
             state.idle = true;
             vec![ActivityEvent::narration("Turn aborted.")]
+        }
+        // EXP-724: codex's ONLY compaction marker (verified on 0.144.5: a
+        // `/compact` writes `task_started` → a top-level `compacted` line →
+        // `token_count` → this). There is no start edge to read, so `started`
+        // comes from the remote dispatch alone.
+        "context_compacted" => {
+            state.compacting_since = None;
+            vec![ActivityEvent::compaction(CompactionPhase::Ended, None)]
         }
         _ => Vec::new(),
     }
@@ -914,6 +937,10 @@ fn run_emitter_with_root(
     let mut approval_watcher = CodexApprovalWatcher::new();
     let mut approvals = CodexApprovals::default();
     let mut parked_answers: Vec<(RemoteAnswer, Instant)> = Vec::new();
+    // EXP-724: remote slash commands held until codex is between turns —
+    // its mid-task handling of `/compact` and `/new` is unverified, and a
+    // command that rotates the conversation mid-turn would lose work.
+    let mut parked_commands: Vec<(crate::commands::ParsedCommand, Instant)> = Vec::new();
     // The publisher's EXP-334 free-text reroute signal, sticky while the
     // viewport is scrolled — like the claude emitter's grid memory.
     let mut grid_picker_visible = false;
@@ -1035,6 +1062,44 @@ fn run_emitter_with_root(
             signal.set_idle(state.idle);
         }
 
+        // 4-bis) EXP-724: remote slash commands, idle-gated, and the
+        //     compaction bar they open. A `/compact` this emitter typed is
+        //     the ONE compaction codex tells us about up front (its rollout
+        //     has no start marker), so the `started` edge is published here;
+        //     `context_compacted` closes it, and the ceiling below is the
+        //     backstop for a compaction that never reports back.
+        if let Some(steering) = &config.steering {
+            if let Some(commands) = &steering.commands {
+                commands.set_composer_idle(state.idle);
+                pump_commands(
+                    &mut parked_commands,
+                    commands,
+                    approval_watcher.is_pending() || !state.pending_asks.is_empty(),
+                    true,
+                    config.term.as_ref(),
+                    &steering.write_input,
+                    &sender,
+                    None,
+                    |command| {
+                        if command.command.name == "compact" && state.compacting_since.is_none() {
+                            state.compacting_since = Some(Instant::now());
+                            sender.send(ActivityEvent::compaction(
+                                CompactionPhase::Started,
+                                normalize_compaction_trigger(Some("manual")),
+                            ));
+                        }
+                    },
+                );
+            }
+        }
+        if state
+            .compacting_since
+            .is_some_and(|at| at.elapsed() >= COMPACTION_MAX)
+        {
+            state.compacting_since = None;
+            sender.send(ActivityEvent::compaction(CompactionPhase::Ended, None));
+        }
+
         // 5) Debounced worktree diff snapshot (only when changed).
         diffs.tick(
             &config.worktree,
@@ -1088,8 +1153,16 @@ fn run_emitter_with_root(
     }
 
     needs_input.clear_on_teardown(&config.on_needs_input);
+    // EXP-724: never leave a viewer staring at an indeterminate bar for a
+    // session that is gone.
+    if state.compacting_since.take().is_some() {
+        sender.send(ActivityEvent::compaction(CompactionPhase::Ended, None));
+    }
     if let Some(steering) = &config.steering {
         steering.link.set_grid_picker_pending(false);
+        if let Some(commands) = &steering.commands {
+            commands.set_composer_idle(false);
+        }
     }
 }
 
@@ -1393,6 +1466,34 @@ mod tests {
         );
         assert_eq!(narration_text(&events[0]), "Turn aborted.");
         assert!(state.attention());
+    }
+
+    /// EXP-724: codex leaves no compaction START in the rollout — only
+    /// `context_compacted` — so the end edge publishes on its own and clears
+    /// whatever the emitter had open.
+    #[test]
+    fn context_compacted_publishes_the_end_edge() {
+        let mut state = CodexState::default();
+        state.compacting_since = Some(Instant::now());
+        let events = parse(
+            &mut state,
+            r#"{"timestamp":"t","type":"event_msg","payload":{"type":"context_compacted"}}"#,
+        );
+        assert!(matches!(
+            &events[..],
+            [ActivityEvent::Compaction {
+                phase: CompactionPhase::Ended,
+                trigger: None,
+                ..
+            }]
+        ));
+        assert!(state.compacting_since.is_none());
+        // The top-level `compacted` line that precedes it stays ignored.
+        assert!(parse(
+            &mut state,
+            r#"{"timestamp":"t","type":"compacted","payload":{"message":"…"}}"#
+        )
+        .is_empty());
     }
 
     #[test]

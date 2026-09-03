@@ -599,6 +599,53 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(nextEventId, 9)
     }
 
+    // MARK: - Compaction (EXP-724)
+
+    func testCompactionStartedOpensTheWindowWithItsTrigger() {
+        let state = AgentFeed.applyCompaction(
+            nil, event: ["phase": "started", "trigger": "manual"]
+        )
+        XCTAssertEqual(state, AgentCompaction(trigger: "manual"))
+    }
+
+    func testCompactionStartedWithoutATriggerStillOpensTheWindow() {
+        let state = AgentFeed.applyCompaction(nil, event: ["phase": "started"])
+        XCTAssertNotNil(state)
+        XCTAssertNil(state?.trigger)
+    }
+
+    func testCompactionEndedClosesTheWindow() {
+        let open = AgentCompaction(trigger: "auto")
+        XCTAssertNil(AgentFeed.applyCompaction(open, event: ["phase": "ended"]))
+        // An unmatched `ended` (codex publishes no start marker for auto
+        // compaction) is simply a no-op on the state.
+        XCTAssertNil(AgentFeed.applyCompaction(nil, event: ["phase": "ended"]))
+    }
+
+    func testUnknownOrMissingCompactionPhaseLeavesTheStateAlone() {
+        let open = AgentCompaction(trigger: "manual")
+        XCTAssertEqual(AgentFeed.applyCompaction(open, event: ["phase": "paused"]), open)
+        XCTAssertEqual(AgentFeed.applyCompaction(open, event: [:]), open)
+        XCTAssertNil(AgentFeed.applyCompaction(nil, event: ["phase": "paused"]))
+        XCTAssertNil(AgentFeed.applyCompaction(nil, event: ["trigger": "manual"]))
+    }
+
+    func testCompactionMarkerIsAnOrdinarySingleFeedRow() {
+        let rows = AgentFeed.rows([.narration(id: 1, text: "hi"), .compaction(id: 2)])
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[1].id, 2)
+        XCTAssertEqual(rows[1], .single(.compaction(id: 2)))
+    }
+
+    /// The strings the four clients draw — byte-identical (EXP-724). The
+    /// ellipsis is ONE character (U+2026).
+    func testCompactionLabelsAreTheLockedLiterals() {
+        XCTAssertEqual(AgentFeed.compactingLabel, "Compacting context\u{2026}")
+        XCTAssertEqual(AgentFeed.compactedLabel, "Context compacted")
+        XCTAssertEqual(AgentFeed.compactingLabel.count, "Compacting context".count + 1)
+        XCTAssertEqual(AgentFeed.compactionTimeoutSeconds, 180)
+    }
+
     // MARK: - Fixtures
 
     private func tool(_ id: Int, subagentId: String? = nil) -> AgentFeedItem {

@@ -210,6 +210,7 @@ fn main() {
         agent: steer::activity::SessionAgent::Pi,
         text_sink: Some(Arc::new(move |text: String| steer_handle.push(text))),
         attachments: None,
+        commands: None,
     };
     let handle = publish(
         &runtime,

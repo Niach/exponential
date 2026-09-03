@@ -6662,6 +6662,7 @@ name = "steer"
 version = "0.14.30"
 dependencies = [
  "api",
+ "domain",
  "flume 0.11.1",
  "futures-util",
  "log",

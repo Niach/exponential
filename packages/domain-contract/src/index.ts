@@ -105,6 +105,29 @@ export interface DomainContract {
    * how far back an offline device replays issue_events on reconnect.
    */
   automation: { cooldownSeconds: number; eventCatchupHours: number }
+  /**
+   * EXP-724: the curated slash commands a steering client may offer in its
+   * composer (`/` typeahead) and the desktop executes on the agent TUI.
+   * Deliberately tiny: `/compact` and `/clear` are the two whose effect
+   * every viewer can SEE (the compaction bar, a rotated conversation).
+   * TUI-local printers (/cost, /status, /help), /model, /init, /review, the
+   * login flow (EXP-430/444) and the kill path (/exit) stay out. A name is
+   * the CATALOG's, not necessarily the CLI's: the desktop maps it per agent
+   * (pi has no `/clear`; it runs `ctx.newSession()`). `agents` ⊆
+   * codingAgent.values; `argHint` empty = the command takes no argument;
+   * `confirm` = the client asks before sending (context is discarded).
+   * Generated into all four clients as parallel arrays; the desktop's
+   * `steer::commands` catalog and every viewer's menu read the SAME rows.
+   */
+  steerCommands: {
+    commands: readonly {
+      name: string
+      description: string
+      argHint: string
+      agents: readonly string[]
+      confirm: boolean
+    }[]
+  }
 }
 
 export const contract = contractJson as unknown as DomainContract

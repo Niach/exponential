@@ -318,6 +318,25 @@ html {
    `--ease-*` theme namespace above (core's `ease-*` sets `--tw-ease`, which
    tw-animate-css reads the same way). Always pair with
    `motion-reduce:transition-none` (or `motion-safe:` on the animation). */
+/* EXP-724 — the indeterminate Progress bar (the steering compaction strip):
+   a third-width segment sweeping the track, because compaction takes real
+   time (10-170s) with nothing measurable to report. Tailwind v4 registers a
+   custom animation through the `--animate-*` theme namespace, keyframes and
+   all; always used behind `motion-safe:`. */
+@theme {
+  --animate-progress-indeterminate: progress-indeterminate 1.4s
+    cubic-bezier(0.65, 0, 0.35, 1) infinite;
+
+  @keyframes progress-indeterminate {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(300%);
+    }
+  }
+}
+
 @utility duration-fast {
   --tw-duration: var(--motion-duration-fast);
   transition-duration: var(--motion-duration-fast);

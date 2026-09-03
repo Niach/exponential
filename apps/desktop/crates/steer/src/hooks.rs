@@ -154,6 +154,23 @@ pub enum HookEventKind {
     /// `session_id` reaching the transcript pin at startup instead of at the
     /// first plan/notification hook, minutes in.
     SessionStarted { source: Option<String> },
+    /// EXP-724: `PreCompact` — compaction is about to run. Payload verified
+    /// on claude 2.1.259: `{session_id, transcript_path, cwd,
+    /// hook_event_name:"PreCompact", trigger:"manual"|"auto",
+    /// custom_instructions}`. The wire only ever carries the two triggers.
+    CompactStarted {
+        trigger: Option<String>,
+        custom_instructions: Option<String>,
+    },
+    /// EXP-724: `PostCompact` — compaction finished. It fires on 2.1.259
+    /// (payload: `hook_event_name`, `trigger`, and a `compact_summary`
+    /// carrying the WHOLE summary, which is deliberately never read), but a
+    /// REFUSED compaction ("Not enough messages to compact.") fires
+    /// `PreCompact` and nothing else — so the emitter keeps three more end
+    /// edges (the transcript's `compact_boundary`/`local_command` verdict, a
+    /// `SessionStart{source:"compact"}`, and a tick timeout). A second end
+    /// for the same compaction is a no-op.
+    CompactEnded { trigger: Option<String> },
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +228,16 @@ pub fn parse_hook_event(body: &[u8]) -> Option<HookEvent> {
         },
         "SessionStart" => HookEventKind::SessionStarted {
             source: string_field(&value, "source"),
+        },
+        // EXP-724: claude documents `trigger` + `custom_instructions` on
+        // PreCompact; both are read defensively (a missing trigger just
+        // leaves the bar unlabelled).
+        "PreCompact" => HookEventKind::CompactStarted {
+            trigger: string_field(&value, "trigger"),
+            custom_instructions: string_field(&value, "custom_instructions"),
+        },
+        "PostCompact" => HookEventKind::CompactEnded {
+            trigger: string_field(&value, "trigger"),
         },
         other => {
             log::debug!("ignoring hook event {other:?}");
@@ -346,6 +373,10 @@ struct HookRegistrations {
     stop: Vec<HookGroup>,
     #[serde(rename = "SessionStart")]
     session_start: Vec<HookGroup>,
+    #[serde(rename = "PreCompact")]
+    pre_compact: Vec<HookGroup>,
+    #[serde(rename = "PostCompact")]
+    post_compact: Vec<HookGroup>,
 }
 
 #[derive(Serialize)]
@@ -424,6 +455,11 @@ pub fn hook_settings_json() -> String {
             // — the pin (and the router's bound set) learn the live session
             // id before any plan/notification hook would have.
             session_start: vec![HookGroup::new(None)],
+            // EXP-724: the two compaction edges. Compaction goes silent for
+            // 10–170s (real `durationMs` locally) and without these a remote
+            // viewer just watches a dead feed.
+            pre_compact: vec![HookGroup::new(None)],
+            post_compact: vec![HookGroup::new(None)],
         },
     };
     serde_json::to_string_pretty(&settings).expect("hook settings serialization cannot fail")
@@ -915,9 +951,43 @@ mod tests {
             ),
             None
         );
+    }
+
+    /// EXP-724: the two compaction edges. `PreCompact` used to be dropped
+    /// (nothing consumed it); it is now the bar's opening edge.
+    #[test]
+    fn parses_the_compaction_edges() {
         assert_eq!(
-            parse_hook_event(br#"{"hook_event_name":"PreCompact"}"#),
-            None
+            parse(
+                r#"{"session_id":"s","hook_event_name":"PreCompact","trigger":"manual",
+                    "custom_instructions":"keep the diff"}"#
+            )
+            .kind,
+            HookEventKind::CompactStarted {
+                trigger: Some("manual".into()),
+                custom_instructions: Some("keep the diff".into()),
+            }
+        );
+        assert_eq!(
+            parse(r#"{"session_id":"s","hook_event_name":"PreCompact","trigger":"auto"}"#).kind,
+            HookEventKind::CompactStarted {
+                trigger: Some("auto".into()),
+                custom_instructions: None,
+            }
+        );
+        // A build that drops the field still opens the bar, unlabelled.
+        assert_eq!(
+            parse(r#"{"session_id":"s","hook_event_name":"PreCompact"}"#).kind,
+            HookEventKind::CompactStarted {
+                trigger: None,
+                custom_instructions: None,
+            }
+        );
+        assert_eq!(
+            parse(r#"{"session_id":"s","hook_event_name":"PostCompact","trigger":"manual"}"#).kind,
+            HookEventKind::CompactEnded {
+                trigger: Some("manual".into()),
+            }
         );
     }
 
@@ -962,6 +1032,8 @@ mod tests {
             "Notification",
             "Stop",
             "SessionStart",
+            "PreCompact",
+            "PostCompact",
         ] {
             assert!(
                 hooks[event][0].get("matcher").is_none(),
@@ -975,6 +1047,8 @@ mod tests {
             "Notification",
             "Stop",
             "SessionStart",
+            "PreCompact",
+            "PostCompact",
         ] {
             let command = &hooks[event][0]["hooks"][0];
             assert_eq!(command["type"], "command");

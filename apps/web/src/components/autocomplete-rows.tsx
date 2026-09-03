@@ -5,6 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import type { ResolvedIssueRef } from "@/components/issue-ref-provider"
 import type { EmojiRecord } from "@/lib/emoji"
+import type { SteerCommand } from "@/lib/steer-commands"
 
 // The candidate rows of the @mention / #issue / :emoji autocomplete menus — shared
 // between the comment composer (mention-textarea.tsx) and the TipTap markdown
@@ -129,6 +130,44 @@ export function EmojiCandidateRow({
         </span>
       )}
       <span className="truncate text-muted-foreground">{emoji.l}</span>
+    </button>
+  )
+}
+
+/** EXP-724: a steering slash-command candidate — the mono `/name`, what it
+ *  does, and a muted `<hint>` when it takes an argument. */
+export function CommandCandidateRow({
+  command,
+  active,
+  onSelect,
+  onHover,
+}: {
+  command: SteerCommand
+  active: boolean
+  onSelect: () => void
+  onHover: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onMouseDown={(e) => {
+        e.preventDefault()
+        onSelect()
+      }}
+      onMouseEnter={onHover}
+      className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm ${
+        active ? `bg-accent` : ``
+      }`}
+    >
+      <span className="shrink-0 font-mono text-xs">/{command.name}</span>
+      <span className="truncate text-muted-foreground">
+        {command.description}
+      </span>
+      {command.argHint && (
+        <span className="ml-auto shrink-0 font-mono text-xs text-muted-foreground/70">
+          {`<${command.argHint}>`}
+        </span>
+      )}
     </button>
   )
 }

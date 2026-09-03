@@ -84,6 +84,7 @@ export const byeFrame = z.object({
 //   answer_ack:        injection confirmed    { kind, id, askId? }
 //   subagent:          subagent lifecycle     { kind, id, agentType, status }
 //   permission:        informational prompt   { kind, tool, detail? }  (NOT answerable)
+//   compaction:        context compaction     { kind, phase, trigger? }  (started|ended)
 export const questionOptionSchema = z.object({
   label: z.string().max(256),
   // The raw keystroke a steering client sends to pick the option (also the
@@ -186,6 +187,18 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     kind: z.literal(`permission`),
     tool: z.string().max(128),
     detail: z.string().max(1024).optional(),
+    at: z.number().optional(),
+  }),
+  // EXP-724: the agent is compacting its context. `started` opens an
+  // indeterminate "Compacting context…" strip on every viewer, `ended`
+  // closes it (and leaves a "Context compacted" marker in the feed). A
+  // publisher that can only observe the END (codex auto-compaction) sends a
+  // bare `ended`; clients time a lone `started` out. `trigger` is claude's
+  // PreCompact trigger (pi maps threshold/overflow → auto); absent on codex.
+  z.object({
+    kind: z.literal(`compaction`),
+    phase: z.enum([`started`, `ended`]),
+    trigger: z.enum([`manual`, `auto`]).optional(),
     at: z.number().optional(),
   }),
 ])

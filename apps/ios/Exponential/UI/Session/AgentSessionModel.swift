@@ -70,6 +70,9 @@ final class AgentSessionModel {
         didSet {
             guard oldValue != phase else { return }
             logger.info("phase \(Self.describe(oldValue), privacy: .public) -> \(Self.describe(self.phase), privacy: .public)")
+            // EXP-724: nothing is compacting on a session that is over — the
+            // `ended` edge that would have closed the strip is never coming.
+            if case .ended = phase { clearCompaction() }
         }
     }
     /// The feed stays visible while disconnected (closed/ended states) and is
@@ -97,6 +100,12 @@ final class AgentSessionModel {
     private(set) var answerTracker = AgentAnswerTracker()
     /// The most recent worktree diff — each one replaces the previous.
     private(set) var latestDiff: String?
+    /// EXP-724: a context compaction is running on the host agent — the
+    /// composer grows an indeterminate strip for as long as this is non-nil,
+    /// so the 10–170s of silence reads as work instead of a hang. Set by the
+    /// `compaction` activity event and cleared by its `ended` edge, the replay
+    /// swap, the end of the session, and a backstop timer.
+    private(set) var compacting: AgentCompaction?
     /// The synced coding_sessions row — flips to ended via Electric.
     private(set) var session: CodingSessionEntity?
     /// EXP-549/550: the host machine as it presents right now — the LIVE
@@ -138,6 +147,19 @@ final class AgentSessionModel {
     /// EXP-511: images picked for the next steer message, shown as a strip
     /// above the input row until they are sent or removed.
     var pendingImages: [PendingSteerImage] = []
+
+    /// EXP-724: the slash-command rows the composer's menu should show for the
+    /// current draft — empty whenever the menu must not open (the pure rule
+    /// lives in ExpCore's SlashCommands, mirrored ×4).
+    var slashMatches: [SlashCommand] {
+        SlashCommands.matches(draft: draftText, agent: session?.agent)
+    }
+
+    /// The catalog command the draft would SEND as, if any — what the confirm
+    /// gate reads before a `/clear` goes out.
+    var pendingSlashCommand: SlashCommand? {
+        SlashCommands.command(for: draftText, agent: session?.agent)
+    }
 
     /// The draft as it would be sent — what the send button's enablement and
     /// the empty-message guard read.
@@ -313,6 +335,9 @@ final class AgentSessionModel {
     /// to be cancelled by every newer lock, so several pending locks then all
     /// expired together and the stepper rolled back more than one step.
     private var answerExpiryTasks: [String: Task<Void, Never>] = [:]
+    /// EXP-724: the backstop behind an open compaction strip — armed on
+    /// `started`, cancelled by `ended` and by every clear.
+    private var compactionTimeoutTask: Task<Void, Never>?
     /// EXP-582: inbound relay frames waiting for the next flush. The socket's
     /// receive callback hops to the main actor ONCE PER FRAME, and with every
     /// frame mutating `feed` directly each one bought a full SwiftUI render
@@ -535,6 +560,7 @@ final class AgentSessionModel {
         dialInFlight = false
         lastFrameAt = nil
         cancelAnswerExpiries()
+        clearCompaction()
         sessionObservationTask?.cancel()
         sessionObservationTask = nil
         deviceObservationTask?.cancel()
@@ -740,6 +766,9 @@ final class AgentSessionModel {
                         // waiting for an `ended` status a deleted row can
                         // never report.
                         self.session = row
+                        // EXP-724: the run is over (or gone) — no `ended`
+                        // compaction frame will ever arrive for it.
+                        if self.sessionEnded { self.clearCompaction() }
                         self.rebuildHostDevice()
                         // EXP-678: a batch run's Merge target only appears
                         // once THIS row flips to in_review (the pr_open
@@ -1194,6 +1223,39 @@ final class AgentSessionModel {
         recentEchoes = []
         answerTracker.reset()
         cancelAnswerExpiries()
+        clearCompaction()
+    }
+
+    // MARK: - Compaction strip (EXP-724)
+
+    /// Close the strip and disarm its backstop. Idempotent — every path that
+    /// can strand a `started` calls it (the replay swap, the session ending,
+    /// teardown).
+    private func clearCompaction() {
+        compactionTimeoutTask?.cancel()
+        compactionTimeoutTask = nil
+        compacting = nil
+    }
+
+    /// The strip can never stick: a `started` whose `ended` never lands (a
+    /// publisher that died mid-compaction, a dropped frame) expires on its own
+    /// after `AgentFeed.compactionTimeoutSeconds`. No marker row — nothing
+    /// confirms the compaction ever finished.
+    ///
+    /// `startedAt` is the frame's own `at` stamp (ms) when it carries one: a
+    /// replayed `started` from long ago has already used up its budget and
+    /// expires at once instead of holding the strip for the full window
+    /// (web/desktop parity).
+    private func armCompactionTimeout(startedAt: Double?) {
+        compactionTimeoutTask?.cancel()
+        let age = startedAt.map { max(0, Date().timeIntervalSince1970 - $0 / 1000) } ?? 0
+        let delay = max(0, AgentFeed.compactionTimeoutSeconds - age)
+        compactionTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, !Task.isCancelled else { return }
+            self.compactionTimeoutTask = nil
+            self.compacting = nil
+        }
     }
 
     // MARK: - Staged join replay (EXP-656)
@@ -1422,6 +1484,20 @@ final class AgentSessionModel {
                 tool: tool,
                 detail: Self.trimmedField(event["detail"])
             ))
+        case "compaction":
+            // EXP-724. The strip's state is the pure fold; the marker row is
+            // the caller's job because only `ended` writes one — and it writes
+            // one even for an UNMATCHED `ended` (codex publishes no start
+            // marker for auto-compaction, so the gap still gets explained).
+            let phase = event["phase"] as? String
+            compacting = AgentFeed.applyCompaction(compacting, event: event)
+            if phase == "started" {
+                armCompactionTimeout(startedAt: event["at"] as? Double)
+            } else if phase == "ended" {
+                compactionTimeoutTask?.cancel()
+                compactionTimeoutTask = nil
+                append(.compaction(id: takeEventId()))
+            }
         default:
             // Unknown kinds are skipped, never fatal — a newer desktop may
             // publish events this build has no renderer for.

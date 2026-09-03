@@ -12,7 +12,9 @@ import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.AnswerState
+import com.exponential.app.domain.COMPACTION_TIMEOUT_MS
 import com.exponential.app.domain.CodingSessionLiveness
+import com.exponential.app.domain.CompactionState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.INLINE_IMAGE_CONTENT_TYPES
 import com.exponential.app.domain.MAX_IMAGE_UPLOAD_BYTES
@@ -22,6 +24,7 @@ import com.exponential.app.domain.appendUserMessage
 import com.exponential.app.domain.applyActivityEvent
 import com.exponential.app.domain.buildSteerImageMessage
 import com.exponential.app.domain.canonicalContentType
+import com.exponential.app.domain.clearCompaction
 import com.exponential.app.domain.failUnacknowledged
 import com.exponential.app.domain.lockAnswer
 import com.exponential.app.domain.locksCard
@@ -260,6 +263,11 @@ class SteerConnection internal constructor(
     /** Pending ack deadlines, one per locked card. */
     private val ackTimeouts = mutableMapOf<String, Job>()
 
+    /** EXP-724: the deadline for a compaction whose `ended` never arrives (a
+     *  dropped frame, a stale replayed start). A strip stuck up forever is
+     *  worse than one that vanishes a little early. */
+    private var compactionTimeoutJob: Job? = null
+
     /** Locally-echoed sent messages awaiting their transcript-derived
      *  `user_message` event (EXP-78 dedupe): text → sent-at millis. */
     private val recentEchoes = ArrayDeque<Pair<String, Long>>()
@@ -455,6 +463,27 @@ class SteerConnection internal constructor(
         if (prev == next) return
         Log.i(TAG, "[$sid] phase $prev -> $next ($why)")
         _phase.value = next
+        // EXP-724: the run is over — whatever it was compacting, it is not
+        // compacting now, and the strip must not outlive the session.
+        if (next is AgentPhase.Ended) {
+            _activity.value = _activity.value.clearCompaction()
+            armCompactionTimeout(null)
+        }
+    }
+
+    /** (Re)arm the [COMPACTION_TIMEOUT_MS] backstop for [compacting], or drop
+     *  it when nothing is in flight (EXP-724). */
+    private fun armCompactionTimeout(compacting: CompactionState?) {
+        compactionTimeoutJob?.cancel()
+        compactionTimeoutJob = null
+        if (compacting == null) return
+        // A replayed `started` from long ago expires at once instead of
+        // holding the strip for the full window (web/iOS/desktop parity).
+        val age = compacting.startedAtMs?.let { (System.currentTimeMillis() - it).coerceAtLeast(0L) } ?: 0L
+        compactionTimeoutJob = scope.launch {
+            delay((COMPACTION_TIMEOUT_MS - age).coerceAtLeast(0L))
+            _activity.value = _activity.value.clearCompaction()
+        }
     }
 
     /** Wait [ms], or return early when [kick] wakes us. A token left over from
@@ -766,6 +795,9 @@ class SteerConnection internal constructor(
             if (after.answerLocks[key] != AnswerState.Sending) ackTimeouts.remove(key)?.cancel()
         }
         _activity.value = after
+        // EXP-724: a compaction that started needs a deadline; one that ended
+        // (or was replaced) has no deadline left to guard.
+        if (after.compacting != before.compacting) armCompactionTimeout(after.compacting)
     }
 
     // ── Staged replay (EXP-656) ──────────────────────────────────────────────
@@ -857,6 +889,9 @@ class SteerConnection internal constructor(
             if (key !in carried) ackTimeouts.remove(key)?.cancel()
         }
         _activity.value = next
+        // EXP-724: the swap re-derived the compaction state from the replay —
+        // arm the backstop for a start it carried, drop it otherwise.
+        armCompactionTimeout(next.compacting)
         Log.i(
             TAG,
             "[$sid] replay committed (why=$why frames=${staged.size} " +

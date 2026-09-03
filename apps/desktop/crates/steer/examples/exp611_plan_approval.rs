@@ -183,6 +183,7 @@ fn main() {
         agent: steer::activity::SessionAgent::Claude,
         text_sink: None,
         attachments: None,
+        commands: None,
     };
     let handle = publish(
         &runtime,
@@ -208,6 +209,7 @@ fn main() {
                 answers: answers_rx,
                 link: answer_link,
                 write_input,
+                commands: None,
             }),
             bypass_permissions: false,
             plan_mode: true,

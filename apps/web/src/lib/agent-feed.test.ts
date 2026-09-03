@@ -15,10 +15,12 @@ import {
   isAnswerLocked,
   looksLikeMarkdown,
   pushEcho,
+  resumesAfterCompaction,
   summarizeSubagentRow,
   spliceBeforeQuestion,
   upsertQuestion,
   visibleSubagentTabs,
+  COMPACTION_TIMEOUT_MS,
   ECHO_CAP,
   ECHO_TTL_MS,
   type AnswerStates,
@@ -837,5 +839,43 @@ describe(`createActivityCoalescer`, () => {
     queue.enqueue(2)
     vi.advanceTimersByTime(50)
     expect(batches).toEqual([[2]])
+  })
+})
+
+// EXP-724 — the compaction strip's pure half.
+describe(`compaction`, () => {
+  it(`only the agent WORKING again resumes a stuck strip`, () => {
+    for (const kind of [`narration`, `tool`, `question`, `subagent`]) {
+      expect(resumesAfterCompaction(kind)).toBe(true)
+    }
+    for (const kind of [
+      `user_message`,
+      `diff`,
+      `answer_ack`,
+      `permission`,
+      `question_resolved`,
+      `compaction`,
+    ]) {
+      expect(resumesAfterCompaction(kind)).toBe(false)
+    }
+  })
+
+  it(`pins the backstop at the desktop's COMPACTION_TIMEOUT (180s)`, () => {
+    expect(COMPACTION_TIMEOUT_MS).toBe(180_000)
+  })
+
+  it(`a compaction marker is its own single row, never folded into a run`, () => {
+    const item = (id: number, kind: string) => ({ id, kind })
+    const feed = [
+      item(1, `tool`),
+      item(2, `compaction`),
+      item(3, `tool`),
+      item(4, `tool`),
+    ]
+    expect(groupFeedRows(feed)).toEqual([
+      { kind: `single`, item: feed[0] },
+      { kind: `single`, item: feed[1] },
+      { kind: `toolRun`, id: 3, items: [feed[2], feed[3]] },
+    ])
   })
 })

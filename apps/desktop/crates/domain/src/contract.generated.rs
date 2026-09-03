@@ -32,6 +32,11 @@ pub const PI_THINKING_VALUES: &[&str] = &["off", "minimal", "low", "medium", "hi
 pub const ACTION_INPUT_TYPE_VALUES: &[&str] = &["text", "repo", "board", "pr", "icon", "textarea"];
 pub const ACTION_TRIGGER_EVENT_VALUES: &[&str] = &["created", "status_changed", "assignee_changed", "label_added", "priority_changed", "pr_opened", "pr_merged"];
 pub const ACTION_SCHEDULE_INTERVAL_VALUES: &[&str] = &["daily", "weekly", "monthly"];
+pub const STEER_COMMAND_NAMES: &[&str] = &["compact", "clear"];
+pub const STEER_COMMAND_DESCRIPTIONS: &[&str] = &["Compact the conversation context", "Start a fresh conversation (context is discarded)"];
+pub const STEER_COMMAND_ARG_HINTS: &[&str] = &["instructions", ""];
+pub const STEER_COMMAND_AGENTS: &[&str] = &["claude,codex,pi", "claude,codex,pi"];
+pub const STEER_COMMAND_CONFIRM: &[bool] = &[false, true];
 
 pub const ISSUE_STATUS_STARTED_MAX: usize = 4;
 pub const CODING_SESSION_STALE_MS: i64 = 7200000;

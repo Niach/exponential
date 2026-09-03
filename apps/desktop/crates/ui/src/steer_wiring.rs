@@ -62,9 +62,10 @@ use coding::{
 };
 use steer::publisher::pty_writer_input_hook;
 use steer::{
-    spawn_activity_emitter, spawn_control_channel, AnswerLink, ControlApi, ControlChannelHandle,
-    DeviceIdentity, EmitterConfig, HookEvent, HookServer, PublishSpec, PublisherHandle,
-    PublisherHooks, PublisherTickets, Steering, SteerRuntime, TrpcControlApi, TrpcPublisherTickets,
+    spawn_activity_emitter, spawn_control_channel, AnswerLink, CommandLink, ControlApi,
+    ControlChannelHandle, DeviceIdentity, EmitterConfig, HookEvent, HookServer, PublishSpec,
+    PublisherHandle, PublisherHooks, PublisherTickets, Steering, SteerRuntime, TrpcControlApi,
+    TrpcPublisherTickets,
 };
 use sync::{KillWatch, Store};
 
@@ -1294,6 +1295,16 @@ pub fn attach_publisher(
         Some((events, steer_handle)) => (Some(events), Some(steer_handle)),
         None => (None, None),
     };
+    // EXP-724: the remote slash-command seam. The publisher RECOGNISES a
+    // catalog command and hands it whole to the emitter, which owns the grid
+    // and the turn state typing one needs. Pi is the exception that proves
+    // it: its commands never touch the PTY at all, so its sink pushes
+    // `{name, args}` onto the same observer-extension queue the text sink
+    // uses, and the extension calls pi's own APIs.
+    let command_link = CommandLink::new(pi_steer.clone().map(|handle| {
+        Arc::new(move |name: &str, args: &str| handle.push_command(name, args))
+            as steer::CommandSink
+    }));
 
     let hooks = PublisherHooks {
         write_input: write_input.clone(),
@@ -1322,6 +1333,7 @@ pub fn attach_publisher(
             trpc.clone(),
             worktree.join(coding::launcher::STEER_IMAGES_DIR),
         )),
+        commands: Some(command_link.clone()),
     };
 
     // EXP-214: the needs-input forwarder's own handle — cloned before the
@@ -1429,6 +1441,7 @@ pub fn attach_publisher(
                 answers,
                 link: answer_link,
                 write_input,
+                commands: Some(command_link),
             }),
             bypass_permissions,
             plan_mode,

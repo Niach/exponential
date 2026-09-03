@@ -16,8 +16,8 @@ use anyhow::Context as _;
 use coding::{CodingAgent, PreparedLaunch, SESSION_HEARTBEAT_INTERVAL};
 use steer::publisher::pty_writer_input_hook;
 use steer::{
-    AnswerLink, EmitterConfig, PublishSpec, PublisherHooks, PublisherTickets, SteerRuntime,
-    Steering, TrpcPublisherTickets,
+    AnswerLink, CommandLink, EmitterConfig, PublishSpec, PublisherHooks, PublisherTickets,
+    SteerRuntime, Steering, TrpcPublisherTickets,
 };
 use terminal::emulator::Emulator;
 use terminal::pty::{self, ChildExit};
@@ -243,6 +243,14 @@ pub fn launch(
             Some((events, steer_handle)) => (Some(events), Some(steer_handle)),
             None => (None, None),
         };
+        // EXP-724: the remote slash-command seam. Pi's commands run through
+        // its observer extension (never the PTY), so its sink is the same
+        // steer queue the text sink pushes into; claude and codex get no
+        // sink and are typed into by the emitter.
+        let command_link = CommandLink::new(pi_steer.clone().map(|handle| {
+            Arc::new(move |name: &str, args: &str| handle.push_command(name, args))
+                as steer::CommandSink
+        }));
         let kill_tx = control_tx.clone();
         let hooks = PublisherHooks {
             write_input: write_input.clone(),
@@ -263,6 +271,7 @@ pub fn launch(
                 Arc::clone(&env.ctx.trpc),
                 worktree.join(coding::launcher::STEER_IMAGES_DIR),
             )),
+            commands: Some(Arc::clone(&command_link)),
         };
         let tickets: Arc<dyn PublisherTickets> = Arc::new(TrpcPublisherTickets {
             trpc: Arc::clone(&env.ctx.trpc),
@@ -303,6 +312,7 @@ pub fn launch(
                     answers,
                     link: answer_link,
                     write_input,
+                    commands: Some(command_link),
                 }),
                 pi_events,
                 bypass_permissions,

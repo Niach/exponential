@@ -102,6 +102,14 @@ struct AgentSessionView: View {
     /// the ended edge only fires after that, so a finished run's feed opened
     /// from a list stays browsable.
     @State private var sawLiveSession = false
+    /// EXP-724: the draft the `/` menu was dismissed at (Escape / an accepted
+    /// row). Keyed on the DRAFT, not a bool, so the menu comes back on its own
+    /// the moment the text changes and no `onChange` has to race the accept.
+    @State private var slashDismissedFor: String?
+    /// Keyboard-highlighted row of the `/` menu (hardware keyboards; ↑/↓ wrap).
+    @State private var slashHighlight = 0
+    /// A confirm-gated command waiting on its dialog (`/clear`).
+    @State private var slashConfirm: SlashCommand?
     @FocusState private var inputFocused: Bool
 
     private static let bottomAnchor = "feed-bottom"
@@ -152,6 +160,7 @@ struct AgentSessionView: View {
                 if let model {
                     feedArea(model)
                     banners(model)
+                    compactionStrip(model)
                     bottomBar(model)
                 } else {
                     Spacer()
@@ -210,6 +219,23 @@ struct AgentSessionView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Merges the pull request, completes every linked issue, and closes the coding session.")
+        }
+        // EXP-724: `/clear` discards the conversation, so confirm rows
+        // confirm before the frames go out. Copy is byte-identical ×4.
+        .alert(
+            slashConfirm.map { SlashCommands.confirmTitle($0) } ?? "",
+            isPresented: Binding(
+                get: { slashConfirm != nil },
+                set: { if !$0 { slashConfirm = nil } }
+            ),
+            presenting: slashConfirm
+        ) { command in
+            Button(SlashCommands.confirmButton(command), role: .destructive) {
+                if let model { performSend(model) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text(SlashCommands.confirmBody)
         }
         .photosPicker(
             isPresented: $showPhotoPicker,
@@ -671,13 +697,21 @@ struct AgentSessionView: View {
             case let .tool(_, name, detail, _):
                 ToolRow(name: name, detail: detail)
             case let .userMessage(_, text):
-                UserMessageBubble(text: text, context: markdownContext)
+                // EXP-724: a steered slash command is a control action, not
+                // prose — it renders as a compact pill instead of a bubble.
+                if let command = SlashCommands.command(for: text, agent: model?.session?.agent) {
+                    CommandPill(command: command, text: text)
+                } else {
+                    UserMessageBubble(text: text, context: markdownContext)
+                }
             case let .question(question):
                 questionCard(question)
             case let .subagent(_, _, agentType, status, detail):
                 SubagentRow(agentType: agentType, status: status, detail: detail)
             case let .permission(_, tool, detail):
                 PermissionRow(tool: tool, detail: detail)
+            case .compaction:
+                CompactionMarkerRow()
             }
         }
     }
@@ -867,6 +901,38 @@ struct AgentSessionView: View {
             .multilineTextAlignment(.center)
     }
 
+    // MARK: - Compaction strip (EXP-724)
+
+    /// The indeterminate strip a running compaction puts above the composer:
+    /// the agent goes silent for 10–170s while it folds its context away, and
+    /// without this the viewer reads that as a hang. Indeterminate on purpose
+    /// — no publisher knows how far along a compaction is. It never outlives
+    /// the session (the model clears the state on every end path).
+    @ViewBuilder
+    private func compactionStrip(_ model: AgentSessionModel) -> some View {
+        if model.compacting != nil, !model.isOver {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    AppIcon(AppIcons.codingCompact, size: AppIcon.Size.small)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    Text(AgentFeed.compactingLabel)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    Spacer(minLength: 0)
+                }
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .tint(.white.opacity(TextOpacity.secondary))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .glassRow()
+            .padding(.horizontal, 14)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(AgentFeed.compactingLabel)
+        }
+    }
+
     private func bannerRow(@ViewBuilder content: () -> some View) -> some View {
         HStack(spacing: 8) {
             content()
@@ -888,10 +954,56 @@ struct AgentSessionView: View {
         if !model.isOver {
             // Steering is fully seamless (EXP-312) — no captions, no
             // operator state; input just sends.
-            composerCard(model)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+            VStack(spacing: 8) {
+                // EXP-724: the `/` menu rides ABOVE the composer, inside the
+                // same bottom band, so it sits over the feed and above the
+                // keyboard instead of being clipped by the field.
+                if slashMenuVisible(model) {
+                    SlashCommandMenu(
+                        commands: model.slashMatches,
+                        highlighted: slashHighlight
+                    ) { command in
+                        applySlashCommand(command, model)
+                    }
+                }
+                composerCard(model)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
+    }
+
+    // MARK: - Slash commands (EXP-724)
+
+    /// The menu is up while the field has focus, the draft matches something,
+    /// and it hasn't been dismissed at exactly this draft.
+    private func slashMenuVisible(_ model: AgentSessionModel) -> Bool {
+        inputFocused && !model.slashMatches.isEmpty
+            && slashDismissedFor != model.draftText
+    }
+
+    /// Accepting a row REWRITES the draft and never sends — `/name ` when the
+    /// command takes an argument, `/name` when it does not. The menu closes on
+    /// the accepted draft; typing anything reopens it.
+    private func applySlashCommand(_ command: SlashCommand, _ model: AgentSessionModel) {
+        model.draftText = command.insertion
+        slashDismissedFor = command.insertion
+        slashHighlight = 0
+        inputFocused = true
+    }
+
+    /// The row a hardware Return would accept.
+    private func highlightedSlashCommand(_ model: AgentSessionModel) -> SlashCommand? {
+        let matches = model.slashMatches
+        guard matches.indices.contains(slashHighlight) else { return matches.first }
+        return matches[slashHighlight]
+    }
+
+    /// ↑/↓ wrap around the list (web/Android/desktop parity).
+    private func moveSlashHighlight(_ delta: Int, _ model: AgentSessionModel) {
+        let count = model.slashMatches.count
+        guard count > 0 else { return }
+        slashHighlight = ((slashHighlight + delta) % count + count) % count
     }
 
     // MARK: - Floating changes bar (EXP-688)
@@ -1143,6 +1255,34 @@ struct AgentSessionView: View {
             )
             .font(.subheadline)
             .focused($inputFocused)
+            // EXP-724: hardware-keyboard driving of the `/` menu. Every
+            // handler returns `.ignored` while the menu is closed, so a
+            // Bluetooth keyboard behaves exactly as it did before.
+            .onKeyPress(.upArrow) {
+                guard slashMenuVisible(model) else { return .ignored }
+                moveSlashHighlight(-1, model)
+                return .handled
+            }
+            .onKeyPress(.downArrow) {
+                guard slashMenuVisible(model) else { return .ignored }
+                moveSlashHighlight(1, model)
+                return .handled
+            }
+            .onKeyPress(.return) {
+                // Return with an open menu ACCEPTS — it never sends.
+                guard slashMenuVisible(model),
+                      let command = highlightedSlashCommand(model) else { return .ignored }
+                applySlashCommand(command, model)
+                return .handled
+            }
+            .onKeyPress(.escape) {
+                guard slashMenuVisible(model) else { return .ignored }
+                slashDismissedFor = model.draftText
+                return .handled
+            }
+            .onChange(of: model.draftText) { _, _ in
+                slashHighlight = 0
+            }
             .padding(.horizontal, 12)
             .padding(.top, 12)
             .padding(.bottom, 4)
@@ -1183,6 +1323,16 @@ struct AgentSessionView: View {
     }
 
     private func sendMessage(_ model: AgentSessionModel) {
+        // EXP-724: `/clear` discards the whole conversation — ask
+        // first, then send exactly what was typed.
+        if let command = model.pendingSlashCommand, command.confirm {
+            slashConfirm = command
+            return
+        }
+        performSend(model)
+    }
+
+    private func performSend(_ model: AgentSessionModel) {
         guard !model.pendingImages.isEmpty else {
             guard !model.trimmedDraft.isEmpty else { return }
             // Clear ONLY once the frames are actually out (EXP-621): a send
@@ -2215,6 +2365,68 @@ private struct PermissionRow: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// EXP-724: the quiet marker a finished compaction leaves in the feed, so the
+/// gap in the conversation above it stays explained after the strip is gone.
+/// Centered and muted — it is punctuation, not a turn. `compactedLabel` is
+/// byte-identical on all four clients.
+private struct CompactionMarkerRow: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            Spacer(minLength: 0)
+            AppIcon(AppIcons.codingCompact, size: 11)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            Text(AgentFeed.compactedLabel)
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// EXP-724: a steered slash command in the feed. It is a control action, not
+/// prose, so it gets a compact pill on the human side of the conversation
+/// instead of a markdown bubble: `square-slash` · mono `/name` · muted args.
+private struct CommandPill: View {
+    let command: SlashCommand
+    /// The message as sent — everything after the command token is its
+    /// argument.
+    let text: String
+
+    /// Everything after the command token — the match ran on that first
+    /// whitespace token, so the rest of the message is exactly the argument.
+    private var arguments: String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let space = trimmed.firstIndex(where: { $0.isWhitespace }) else { return "" }
+        return String(trimmed[space...]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 32)
+            HStack(spacing: 6) {
+                AppIcon(AppIcons.codingCommand, size: 11)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text(command.token)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.white)
+                if !arguments.isEmpty {
+                    Text(arguments)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .glassRow()
+        }
+        .padding(.vertical, 2)
     }
 }
 

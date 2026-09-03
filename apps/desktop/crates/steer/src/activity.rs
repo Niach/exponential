@@ -64,7 +64,7 @@ use regex::Regex;
 use serde_json::Value;
 use terminal::{display_offset, screen_lines, scroll_to_bottom, TermHandle};
 
-use crate::frames::{ActivityEvent, QuestionOption, SubagentStatus};
+use crate::frames::{ActivityEvent, CompactionPhase, QuestionOption, SubagentStatus};
 use crate::hooks::{HookEvent, HookEventKind, HookQuestion};
 use crate::login_picker::{self, LoginPhase, LoginWatcher};
 use crate::permission_picker::{self, PermissionPickerWatcher, PermissionSnapshot};
@@ -459,6 +459,18 @@ pub struct TranscriptState {
     /// entries — a queued message delivered at a turn BOUNDARY can land as a
     /// regular human `user` entry too, which must not double the bubble.
     pub published_queued: Vec<String>,
+    /// EXP-724: command texts (`/compact keep the diff`) the emitter already
+    /// published when it dispatched a REMOTE slash command — claude records
+    /// the same command as an origin-less `<command-name>` user entry a
+    /// moment later, and this FIFO twin makes that entry consume the memory
+    /// instead of doubling the bubble (the `published_queued` pattern).
+    pub published_commands: Vec<String>,
+    /// EXP-724: a `system`/`compact_boundary` entry flushed since the last
+    /// emitter look — the transcript's own "compaction finished" edge, and
+    /// the backstop for a claude build whose `PostCompact` hook never fires.
+    /// A flag, not an event: only the emitter knows whether a compaction is
+    /// open, and an unmatched end must never reach the wire from here.
+    pub compact_boundary: bool,
     /// EXP-360: subagent lifecycle facts read off the MAIN transcript, drained
     /// by the emitter each tick. claude ≥2.1.220 runs `Agent` subagents in the
     /// BACKGROUND: the tool_result is an immediate launch ack
@@ -664,7 +676,43 @@ pub fn process_transcript_line(
         Some("attachment") => parse_queued_command(&entry, redactor, state)
             .into_iter()
             .collect(),
-        // system/summary/etc. → never published.
+        // EXP-724: `system` entries are still never published wholesale —
+        // but two of them carry facts the emitter needs.
+        //
+        // * `compact_boundary` (with `compactMetadata.{trigger,preTokens,
+        //   postTokens,durationMs}`) is claude's own end-of-compaction
+        //   marker, and the only end edge a build without the `PostCompact`
+        //   hook leaves behind.
+        // * `local_command` is where claude 2.1.259 puts a slash command's
+        //   `<local-command-stdout>` (older builds used an origin-less USER
+        //   entry — both shapes are read). It is also the ONLY end edge a
+        //   REFUSED compaction has: "Not enough messages to compact." fires
+        //   `PreCompact` but no `PostCompact`, no boundary, and no `Stop`
+        //   (the command never starts a turn), so without this the bar would
+        //   hang until [`COMPACTION_MAX`].
+        //
+        // Both edges are recorded as a FLAG: only the emitter knows whether a
+        // compaction is open, and an unmatched end must never reach the wire
+        // from here.
+        Some("system") => {
+            match entry.get("subtype").and_then(Value::as_str) {
+                Some("compact_boundary") => {
+                    state.compact_boundary = true;
+                    Vec::new()
+                }
+                Some("local_command") => {
+                    let content = entry.get("content").and_then(Value::as_str).unwrap_or("");
+                    if let Some(text) = xml_tag(content, "local-command-stdout") {
+                        if is_compaction_result(&strip_ansi(text)) {
+                            state.compact_boundary = true;
+                        }
+                    }
+                    parse_command_stdout(content, redactor).into_iter().collect()
+                }
+                _ => Vec::new(),
+            }
+        }
+        // summary/etc. → never published.
         _ => Vec::new(),
     }
 }
@@ -1062,11 +1110,37 @@ fn parse_assistant_entry(entry: &Value, redactor: &Redactor) -> Vec<ActivityEven
 /// `<system-reminder>` blocks — fails the gate or the block filter. Fails
 /// CLOSED: if a future claude version drops `origin`, user messages silently
 /// stop appearing rather than risking a leak of injected content.
+///
+/// EXP-724 adds the ONE deliberate exception: a slash command and its local
+/// result carry NO `origin` at all ([`parse_command_entry`],
+/// [`parse_command_stdout`]) — they are recognised by their tagged body, and
+/// only ever published as the command line itself or one allow-listed
+/// result line.
 fn parse_user_entry(
     entry: &Value,
     redactor: &Redactor,
     state: &mut TranscriptState,
 ) -> Option<ActivityEvent> {
+    // Injected content is dropped whatever else the entry looks like — a
+    // skill body (`isMeta`) carries a `<command-name>` tag too, and the
+    // post-compaction summary is a user entry as well.
+    if entry.get("isMeta").and_then(Value::as_bool) == Some(true)
+        || entry.get("isCompactSummary").and_then(Value::as_bool) == Some(true)
+    {
+        return None;
+    }
+    let content = entry.get("message").and_then(|m| m.get("content"))?;
+    // EXP-724: a slash command and its result land as origin-LESS user
+    // entries with a tagged string body, so they must be recognised before
+    // the `origin.kind == "human"` gate would drop them.
+    if let Value::String(raw) = content {
+        if raw.contains("<command-name>") {
+            return parse_command_entry(raw, redactor, state);
+        }
+        if raw.contains("<local-command-stdout>") {
+            return parse_command_stdout(raw, redactor);
+        }
+    }
     let origin_kind = entry
         .get("origin")
         .and_then(|o| o.get("kind"))
@@ -1074,12 +1148,6 @@ fn parse_user_entry(
     if origin_kind != Some("human") {
         return None;
     }
-    if entry.get("isMeta").and_then(Value::as_bool) == Some(true)
-        || entry.get("isCompactSummary").and_then(Value::as_bool) == Some(true)
-    {
-        return None;
-    }
-    let content = entry.get("message").and_then(|m| m.get("content"))?;
     let text = match content {
         // The argv-seeded initial prompt lands as a plain string.
         Value::String(s) => s.clone(),
@@ -1105,6 +1173,140 @@ fn parse_user_entry(
         return None;
     }
     Some(ActivityEvent::user_message(redacted))
+}
+
+/// Published-command memory cap (see [`TranscriptState::published_commands`]).
+const PUBLISHED_COMMANDS_CAP: usize = 8;
+
+/// The value of one `<tag>…</tag>` in a transcript body, untruncated
+/// (unlike [`tag_value`], which caps at `ID_MAX` because it reads ids).
+fn xml_tag<'a>(text: &'a str, tag: &str) -> Option<&'a str> {
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    let start = text.find(&open)? + open.len();
+    let end = text[start..].find(&close)? + start;
+    Some(text[start..end].trim())
+}
+
+/// EXP-724: a claude slash command → the command line as one `user_message`.
+///
+/// Verified on claude 2.1.259: a `/compact opus` is recorded as an
+/// origin-less `user` entry whose string content is
+/// `<command-name>/compact</command-name> <command-message>compact</command-message>
+/// <command-args>opus</command-args>` — the same shape a SKILL invocation
+/// uses, except a skill's name is BARE (`workflow-authoring`) and its entry
+/// carries `isMeta:true`. The leading `/` is therefore the discriminator:
+/// without it there is nothing a viewer typed and nothing to echo.
+///
+/// A command the emitter DISPATCHED already published its own echo at
+/// dispatch time, so its twin consumes the [`TranscriptState::
+/// published_commands`] memory instead of doubling the bubble; a command the
+/// desktop user typed locally has no twin and publishes here.
+fn parse_command_entry(
+    raw: &str,
+    redactor: &Redactor,
+    state: &mut TranscriptState,
+) -> Option<ActivityEvent> {
+    let name = xml_tag(raw, "command-name")?.strip_prefix('/')?;
+    if name.is_empty() {
+        return None;
+    }
+    let args = xml_tag(raw, "command-args").unwrap_or_default();
+    let text = if args.is_empty() {
+        format!("/{name}")
+    } else {
+        format!("/{name} {args}")
+    };
+    let redacted = truncate(&redactor.redact(&text), NARRATION_MAX);
+    if let Some(pos) = state.published_commands.iter().position(|t| t == &redacted) {
+        state.published_commands.remove(pos);
+        return None;
+    }
+    Some(ActivityEvent::user_message(redacted))
+}
+
+/// EXP-724: the prefixes of a `<local-command-stdout>` body worth narrating.
+///
+/// A slash command's local output is an ALLOW-list, never a passthrough: most
+/// of it is TUI chrome for a screen no remote viewer is looking at (`/cost`
+/// tables, `/status` dumps), and the few lines that matter are the ones that
+/// tell a viewer the command took effect.
+const COMMAND_RESULT_PREFIXES: [&str; 4] = [
+    "Compacted",
+    "Not enough messages to compact",
+    "Set model to",
+    "Kept model as",
+];
+
+/// EXP-724: whether a `<local-command-stdout>` body is a `/compact` VERDICT
+/// — the compaction ran ("Compacted …") or was refused ("Not enough messages
+/// to compact."). Either way the bar must close.
+fn is_compaction_result(text: &str) -> bool {
+    let line = text.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("");
+    line.starts_with("Compacted") || line.starts_with("Not enough messages to compact")
+}
+
+/// EXP-724: a `<local-command-stdout>` entry → at most one narration.
+///
+/// Claude writes the raw TUI string in, ANSI SGR codes and all
+/// (`\x1b[2mCompacted (ctrl+o to see full summary)\x1b[22m`) — and appends a
+/// line PER HOOK it ran, quoting each hook's shell command verbatim
+/// (observed on 2.1.259: five lines, four of them
+/// `PreCompact [curl -s -m 3 …] completed successfully`). Only the FIRST
+/// line is the verdict; the rest is our own sidecar plumbing and has no
+/// business on a viewer's feed.
+fn parse_command_stdout(raw: &str, redactor: &Redactor) -> Option<ActivityEvent> {
+    let body = xml_tag(raw, "local-command-stdout")?;
+    let stripped = strip_ansi(body);
+    let verdict = command_stdout_verdict(&stripped)?;
+    Some(ActivityEvent::narration(truncate(
+        &redactor.redact(verdict),
+        NARRATION_MAX,
+    )))
+}
+
+/// The allow-listed first line of an ANSI-stripped `local-command-stdout`.
+fn command_stdout_verdict(stripped: &str) -> Option<&str> {
+    let line = stripped.lines().map(str::trim).find(|line| !line.is_empty())?;
+    COMMAND_RESULT_PREFIXES
+        .iter()
+        .any(|prefix| line.starts_with(prefix))
+        .then_some(line)
+}
+
+/// Drop ANSI escape sequences (SGR and friends) from a TUI string. Kept
+/// deliberately small: everything published is truncated and redacted
+/// downstream, so the only job here is not showing `[2m` to a viewer.
+fn strip_ansi(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            out.push(c);
+            continue;
+        }
+        // CSI (`ESC [ … final`) and the two-char sequences; anything else
+        // just loses its ESC.
+        match chars.next() {
+            Some('[') => {
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() || c == '~' {
+                        break;
+                    }
+                }
+            }
+            Some(']') => {
+                // OSC — terminated by BEL or ST (`ESC \`).
+                for c in chars.by_ref() {
+                    if c == '\u{7}' || c == '\u{1b}' {
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 /// EXP-672: how much of a card's text seeds [`synthetic_question_id`] — long
@@ -1776,6 +1978,84 @@ impl AnswerLink {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The publisher ↔ emitter command seam (EXP-724)
+// ---------------------------------------------------------------------------
+
+/// EXP-724: a pi command dispatch — `(name, args)` onto the observer
+/// extension's `/steer` queue. `None` (claude/codex) means the emitter types
+/// the command into the TUI instead.
+pub type CommandSink = Arc<dyn Fn(&str, &str) + Send + Sync>;
+
+/// The publisher ↔ emitter seam for remote slash commands, the sibling of
+/// [`AnswerLink`] (EXP-724).
+///
+/// The publisher RECOGNISES a command (its first token is a catalog `/name`
+/// for the session's agent, [`crate::commands::parse_command`]) but must not
+/// execute one: typing needs the grid and the composer's turn state, both of
+/// which the emitter owns. So a whole recognised composer message crosses
+/// here and the emitter drains it, exactly like an answer.
+///
+/// One `Arc` is shared by both sides (the receiver lives inside), so the
+/// wiring builds it once and hands the same handle to
+/// [`crate::publisher::PublisherHooks`] and [`Steering`].
+pub struct CommandLink {
+    tx: flume::Sender<crate::commands::ParsedCommand>,
+    rx: flume::Receiver<crate::commands::ParsedCommand>,
+    /// Emitter side: is the agent between turns? pi's `ctx.compact()` aborts
+    /// a streaming turn and codex's mid-task command handling is unverified,
+    /// so both hold a command until this reads true (claude's TUI queues
+    /// input mid-turn and needs no gate).
+    composer_idle: AtomicBool,
+    sink: Option<CommandSink>,
+}
+
+impl CommandLink {
+    /// `sink` dispatches pi commands through the observer extension; pass
+    /// `None` for the agents whose commands are typed into the TUI.
+    pub fn new(sink: Option<CommandSink>) -> Arc<Self> {
+        let (tx, rx) = flume::unbounded();
+        Arc::new(Self {
+            tx,
+            rx,
+            composer_idle: AtomicBool::new(false),
+            sink,
+        })
+    }
+
+    /// Publisher side: hand one recognised command to the emitter
+    /// (fire-and-forget — a dead emitter just means it never runs).
+    pub fn submit(&self, command: crate::commands::ParsedCommand) {
+        let _ = self.tx.send(command);
+    }
+
+    /// Emitter side: the next queued command, if any.
+    pub fn try_recv(&self) -> Option<crate::commands::ParsedCommand> {
+        self.rx.try_recv().ok()
+    }
+
+    /// Emitter side: publish the between-turns bit.
+    pub fn set_composer_idle(&self, idle: bool) {
+        self.composer_idle.store(idle, Ordering::Relaxed);
+    }
+
+    pub fn composer_idle(&self) -> bool {
+        self.composer_idle.load(Ordering::Relaxed)
+    }
+
+    /// Emitter side: hand the command to pi's observer extension. `false`
+    /// when this session has no sink (claude/codex — type it instead).
+    pub fn dispatch_to_sink(&self, command: &crate::commands::ParsedCommand) -> bool {
+        match &self.sink {
+            Some(sink) => {
+                sink(command.command.name, &command.args);
+                true
+            }
+            None => false,
+        }
+    }
+}
+
 /// Everything the emitter needs to ACT on a remote answer: the inbox, the flag
 /// channel back to the publisher, and the PTY writer the keystrokes go into
 /// (the same `Terminal::writer()` local typing uses — the child cannot tell
@@ -1784,6 +2064,182 @@ pub struct Steering {
     pub answers: flume::Receiver<RemoteAnswer>,
     pub link: Arc<AnswerLink>,
     pub write_input: InputHook,
+    /// EXP-724: the remote slash-command seam. `None` = commands are not
+    /// executed for this session (they never reach the publisher either).
+    pub commands: Option<Arc<CommandLink>>,
+}
+
+/// EXP-724: how long a command waits for a busy composer (codex/pi) before
+/// it is refused. Long enough to cover a normal turn, short enough that a
+/// steerer learns the command did not run.
+pub(crate) const COMMAND_IDLE_WAIT: Duration = Duration::from_secs(60);
+
+/// EXP-724: how long the emitter watches for the typed command to LEAVE the
+/// composer after the submitting Enter. A slash popup that accepted the
+/// completion instead of submitting leaves the text sitting there — one more
+/// Enter then runs it, and never a third (an Enter on an empty composer is a
+/// no-op in every agent TUI, so the false-positive costs nothing).
+///
+/// Verified against a live claude 2.1.259 through this exact path
+/// (`examples/exp724_slash_commands.rs`): a BRACKETED `/compact` plus ONE
+/// Enter runs immediately — the slash popup opens on TYPED `/` only, and a
+/// paste lands as literal text that claude's REPL parses as a command on
+/// submit, so the probe finds the composer already empty and no second
+/// Enter is sent. The probe stays because codex's popup behaviour differs
+/// per build and a stuck composer is otherwise invisible to the steerer.
+pub(crate) const COMMAND_SUBMIT_PROBE: Duration = Duration::from_millis(500);
+
+/// EXP-724: how many trailing grid rows count as "the composer" for the
+/// submit probe. The input box sits at the very bottom above its hint line;
+/// scanning further up would find the SUBMITTED command in the scrollback
+/// and re-Enter forever.
+const COMPOSER_TAIL_LINES: usize = 4;
+
+/// EXP-724: refusals a remote command can earn, byte-identical on every
+/// viewer because they ride the ordinary narration channel.
+pub(crate) const COMMAND_REFUSED_PICKER: &str = "Answer the pending prompt first.";
+pub(crate) const COMMAND_REFUSED_BUSY: &str = "The agent is busy — try again when it is idle.";
+
+/// Outcome of one command-dispatch attempt (EXP-724), mirroring
+/// [`AnswerAttempt`]: `Retry` means the composer is busy and the emitter
+/// parks the command for [`COMMAND_IDLE_WAIT`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CommandAttempt {
+    /// Handed to the agent — it is running.
+    Ran,
+    /// Handled for good without running (refused, or nothing to run against).
+    Refused,
+    /// The composer is busy — park and try again.
+    Retry,
+}
+
+/// Whether the composer still shows `text` — the submit probe's question.
+pub(crate) fn composer_holds(lines: &[String], text: &str) -> bool {
+    lines
+        .iter()
+        .rev()
+        .take(COMPOSER_TAIL_LINES)
+        .any(|line| line.contains(text))
+}
+
+/// EXP-724: type one catalog command into a claude/codex TUI and submit it.
+///
+/// Bracketed exactly like a steered message (the `write_input` hook brackets
+/// anything longer than a keystroke), then [`ENTER_SEPARATION`] and the
+/// submitting `\r` — the same choreography a remote message already uses,
+/// which is why command chunks never need (and never reach) the EXP-383
+/// codex space guard: that guard exists to DEFUSE a leading `/`, and here
+/// the `/` is the point.
+pub(crate) fn type_command(
+    command: &crate::commands::ParsedCommand,
+    term: &TermHandle,
+    write_input: &InputHook,
+) {
+    let text = command.text();
+    write_input(text.as_bytes());
+    std::thread::sleep(crate::publisher::ENTER_SEPARATION);
+    write_input(b"\r");
+    if !settle_for(COMMAND_SUBMIT_PROBE, || {
+        !composer_holds(&screen_lines(term), &text)
+    }) {
+        // The popup accepted a completion instead of submitting.
+        write_input(b"\r");
+    }
+}
+
+/// EXP-724: run one remote command for a PTY-driven agent (claude, codex).
+///
+/// A pending grid picker owns the keyboard, and unlike a free-text message a
+/// command is NOT worth Esc-ing a plan/permission prompt away for — refuse
+/// and say so. `idle_gated` sessions (codex) hold until the composer is
+/// between turns.
+pub(crate) fn dispatch_command(
+    command: &crate::commands::ParsedCommand,
+    link: &CommandLink,
+    picker_pending: bool,
+    idle_gated: bool,
+    term: Option<&TermHandle>,
+    write_input: &InputHook,
+    sender: &ActivitySender,
+) -> CommandAttempt {
+    if picker_pending {
+        sender.send(ActivityEvent::narration(COMMAND_REFUSED_PICKER));
+        return CommandAttempt::Refused;
+    }
+    if idle_gated && !link.composer_idle() {
+        return CommandAttempt::Retry;
+    }
+    // pi never touches the PTY: its commands ride the observer extension,
+    // which calls pi's own `ctx.compact()`/`ctx.newSession()`.
+    if link.dispatch_to_sink(command) {
+        return CommandAttempt::Ran;
+    }
+    let Some(term) = term else {
+        // No grid to type into — nothing safe to do (tests, headless).
+        log::debug!("activity: command dropped — no terminal grid");
+        return CommandAttempt::Refused;
+    };
+    type_command(command, term, write_input);
+    CommandAttempt::Ran
+}
+
+/// EXP-724: one emitter tick's command work — drain the link, echo every new
+/// command onto the feed, then run (or park, or refuse) what is queued.
+///
+/// The echo happens at DRAIN time for every agent, before the command can
+/// run: claude records a `<command-name>` twin the `published` memory
+/// consumes ([`parse_command_entry`]), codex records no user message for a
+/// command at all, and pi's `input` event never fires for one — so without
+/// this the steerer's own command would simply never appear in the feed.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn pump_commands(
+    parked: &mut Vec<(crate::commands::ParsedCommand, Instant)>,
+    link: &CommandLink,
+    picker_pending: bool,
+    idle_gated: bool,
+    term: Option<&TermHandle>,
+    write_input: &InputHook,
+    sender: &ActivitySender,
+    mut published: Option<&mut Vec<String>>,
+    mut on_dispatched: impl FnMut(&crate::commands::ParsedCommand),
+) {
+    while let Some(command) = link.try_recv() {
+        let text = truncate(&command.text(), NARRATION_MAX);
+        if let Some(published) = published.as_deref_mut() {
+            published.push(text.clone());
+            if published.len() > PUBLISHED_COMMANDS_CAP {
+                let excess = published.len() - PUBLISHED_COMMANDS_CAP;
+                published.drain(..excess);
+            }
+        }
+        sender.send(ActivityEvent::user_message(text));
+        parked.push((command, Instant::now()));
+    }
+    parked.retain_mut(|(command, since)| {
+        match dispatch_command(
+            command,
+            link,
+            picker_pending,
+            idle_gated,
+            term,
+            write_input,
+            sender,
+        ) {
+            CommandAttempt::Ran => {
+                on_dispatched(command);
+                false
+            }
+            CommandAttempt::Refused => false,
+            CommandAttempt::Retry => {
+                if since.elapsed() >= COMMAND_IDLE_WAIT {
+                    sender.send(ActivityEvent::narration(COMMAND_REFUSED_BUSY));
+                    false
+                } else {
+                    true
+                }
+            }
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -2232,11 +2688,34 @@ struct SteerState {
     /// a subagent-raised prompt still falls back to the main transcript's
     /// last tool or the literal "Tool" — no worse than before.
     last_tool: Option<(String, Instant)>,
+    /// EXP-724: when the open compaction started (`PreCompact`). `Some` = the
+    /// viewers are showing the indeterminate "Compacting context…" bar, so
+    /// exactly one `ended` must follow — from `PostCompact`, the transcript's
+    /// `compact_boundary`, a `SessionStart{source:"compact"}`, a turn/session
+    /// end, [`COMPACTION_MAX`], or teardown, whichever lands first.
+    compacting_since: Option<Instant>,
 }
 
 /// EXP-444: how long after an injected login answer the emitter waits for a
 /// recognizable follow-up screen before flagging probable anchor drift.
 const LOGIN_DRIFT_WINDOW: Duration = Duration::from_secs(15);
+
+/// EXP-724: fold an agent's compaction reason onto the wire's two values.
+/// The relay's schema accepts `manual` | `auto` ONLY (pi reports
+/// `threshold`/`overflow`, a future claude could report anything else), and
+/// an unknown trigger would sever the publisher socket.
+pub(crate) fn normalize_compaction_trigger(trigger: Option<&str>) -> Option<&'static str> {
+    match trigger {
+        None => None,
+        Some(trigger) if trigger.eq_ignore_ascii_case("manual") => Some("manual"),
+        Some(_) => Some("auto"),
+    }
+}
+
+/// EXP-724: the compaction bar's hard ceiling. Real compactions ran 10–170s
+/// locally; past this the end edge is presumed lost and the bar closes on
+/// its own. A stuck indeterminate bar is worse than a missing one.
+pub(crate) const COMPACTION_MAX: Duration = Duration::from_secs(300);
 
 /// How wide a deferred subagent sweep reaches (EXP-404).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -2772,10 +3251,63 @@ impl SteerState {
                 // The turn is over ⇒ no permission dialog is up either —
                 // retire the card and drop an unconfirmed hold (EXP-455).
                 self.resolve_permission(sender);
+                // EXP-724: …and no compaction is still running (claude
+                // compacts BETWEEN turns; a bar still open here lost its
+                // end edge).
+                self.end_compaction(sender);
             }
+            // EXP-724: compaction opens the indeterminate bar on every
+            // viewer. `custom_instructions` is deliberately NOT published —
+            // the command line itself already echoed it, and the payload is
+            // unredacted claude input.
+            HookEventKind::CompactStarted { trigger, .. } => {
+                self.start_compaction(trigger.as_deref(), sender);
+            }
+            HookEventKind::CompactEnded { .. } => self.end_compaction(sender),
             // EXP-443: pure pin fuel — `pin.observe` above already absorbed
             // the (possibly rotated) session id; no card, no attention edge.
-            HookEventKind::SessionStarted { .. } => {}
+            // EXP-724: `source == "compact"` is claude re-opening the session
+            // on the compacted context — an end edge for a build whose
+            // `PostCompact` hook never fires.
+            HookEventKind::SessionStarted { source } => {
+                if source.as_deref() == Some("compact") {
+                    self.end_compaction(sender);
+                }
+            }
+        }
+    }
+
+    /// EXP-724: open the compaction bar. A second `PreCompact` for an
+    /// already-open compaction only refreshes the clock — never a second
+    /// `started` on the wire.
+    fn start_compaction(&mut self, trigger: Option<&str>, sender: &ActivitySender) {
+        let fresh = self.compacting_since.is_none();
+        self.compacting_since = Some(Instant::now());
+        if fresh {
+            sender.send(ActivityEvent::compaction(
+                CompactionPhase::Started,
+                normalize_compaction_trigger(trigger),
+            ));
+        }
+    }
+
+    /// EXP-724: close the compaction bar, once. Every end edge funnels here,
+    /// so the four fallbacks can all fire without ever doubling the marker.
+    fn end_compaction(&mut self, sender: &ActivitySender) {
+        if self.compacting_since.take().is_some() {
+            sender.send(ActivityEvent::compaction(CompactionPhase::Ended, None));
+        }
+    }
+
+    /// EXP-724: the last-resort end edge — a compaction whose end never
+    /// arrived at all ([`COMPACTION_MAX`]).
+    fn compaction_timeout(&mut self, sender: &ActivitySender) {
+        if self
+            .compacting_since
+            .is_some_and(|at| at.elapsed() >= COMPACTION_MAX)
+        {
+            log::debug!("activity: compaction bar timed out — closing it");
+            self.end_compaction(sender);
         }
     }
 
@@ -4011,6 +4543,10 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     // [`ANSWER_RETRY_TTL`] — a tap that beats the picker paint must not be
     // dropped on the floor.
     let mut parked_answers: Vec<(RemoteAnswer, Instant)> = Vec::new();
+    // EXP-724: remote slash commands waiting on a busy composer. Claude is
+    // never gated, so this only ever holds a command refused by a live
+    // picker for the length of one tick.
+    let mut parked_commands: Vec<(crate::commands::ParsedCommand, Instant)> = Vec::new();
     // EXP-334: whether the last grid look (bottom of scrollback) showed a
     // picker — the publisher's free-text reroute signal. Sticky while
     // scrolled, like the watchers.
@@ -4081,6 +4617,14 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             );
         }
 
+        // 1-bis) EXP-724: the transcript's own end-of-compaction marker
+        //    (`system`/`compact_boundary`) — the backstop for a claude whose
+        //    `PostCompact` hook never fires. Only closes a bar this emitter
+        //    opened; an unmatched boundary publishes nothing.
+        if std::mem::take(&mut transcript_state.compact_boundary) {
+            steer.end_compaction(&sender);
+        }
+
         // 2) The hooks sidecar (EXP-249): the structured half. Drained before
         //    the grid so a picker that paints in the same tick is already
         //    known by identity when the watcher confirms it.
@@ -4091,6 +4635,7 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
         }
         steer.plan_timeout(&sender);
         steer.permission_timeout(&sender);
+        steer.compaction_timeout(&sender);
 
         // 3) Picker watch on the live grid: the transcript never carries the
         //    picker's REAL option rows and (on withholding claudes) cannot
@@ -4457,6 +5002,12 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
                 .link
                 .set_ask_pending(question_watcher.is_pending() || steer.ask.is_some());
             steering.link.set_grid_picker_pending(grid_picker_visible);
+            // EXP-724: claude's TUI queues input mid-turn, so its commands
+            // are never idle-gated — the flag is published anyway so the
+            // seam reads the same on all three agents.
+            if let Some(commands) = &steering.commands {
+                commands.set_composer_idle(steer.turn_idle);
+            }
         }
 
         // 5) EXP-360: background-subagent lifecycle read off the lines tailed
@@ -4617,6 +5168,26 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
             &redactor,
         );
 
+        // 8-bis) EXP-724: remote slash commands. Claude is never idle-gated
+        //     (its TUI queues input mid-turn — EXP-356 already publishes the
+        //     `queued_command`), but a picker on the grid owns the keyboard,
+        //     and a command is not worth Esc-ing an approval away for.
+        if let Some(steering) = &config.steering {
+            if let Some(commands) = &steering.commands {
+                pump_commands(
+                    &mut parked_commands,
+                    commands,
+                    grid_picker_visible || steer.has_pending_question(),
+                    false,
+                    config.term.as_ref(),
+                    &steering.write_input,
+                    &sender,
+                    Some(&mut transcript_state.published_commands),
+                    |_| {},
+                );
+            }
+        }
+
         // 9) Wait out the poll interval — interrupted by a remote answer, so
         //    steering never sits a full second behind the steerer's tap.
         //    Transiently refused answers stay parked and are retried each
@@ -4665,9 +5236,15 @@ fn run_emitter(config: EmitterConfig, sender: ActivitySender, active: Arc<Atomic
     }
 
     needs_input.clear_on_teardown(&config.on_needs_input);
+    // EXP-724: never leave a viewer staring at an indeterminate bar for a
+    // session that is gone.
+    steer.end_compaction(&sender);
     if let Some(steering) = &config.steering {
         steering.link.set_ask_pending(false);
         steering.link.set_grid_picker_pending(false);
+        if let Some(commands) = &steering.commands {
+            commands.set_composer_idle(false);
+        }
     }
 }
 
@@ -9503,6 +10080,501 @@ mod tests {
         assert!(steer.pin.sessions.contains("boot-1"));
         assert!(steer.attention.is_none());
         assert!(drained(&rx).is_empty(), "no events published");
+    }
+
+    // ── EXP-724: compaction + remote slash commands ────────────────────────
+
+    fn compaction_of(event: &ActivityEvent) -> (CompactionPhase, Option<String>) {
+        match event {
+            ActivityEvent::Compaction { phase, trigger, .. } => (*phase, trigger.clone()),
+            other => panic!("expected a compaction event, got {other:?}"),
+        }
+    }
+
+    /// The bar opens on `PreCompact` and closes on `PostCompact` — once.
+    #[test]
+    fn compaction_hooks_open_and_close_the_bar_exactly_once() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        let mut transcript = TranscriptState::default();
+        let redactor = Redactor::new(vec![]);
+
+        steer.apply_hook(
+            hook(HookEventKind::CompactStarted {
+                trigger: Some("manual".to_string()),
+                custom_instructions: Some("keep the diff".to_string()),
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        let events = drained(&rx);
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            compaction_of(&events[0]),
+            (CompactionPhase::Started, Some("manual".to_string()))
+        );
+        // The custom instructions are claude's unredacted input — never the
+        // bar's payload.
+        assert!(!format!("{events:?}").contains("keep the diff"));
+
+        // A second start for the same compaction publishes nothing.
+        steer.apply_hook(
+            hook(HookEventKind::CompactStarted {
+                trigger: Some("auto".to_string()),
+                custom_instructions: None,
+            }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        assert!(drained(&rx).is_empty());
+
+        steer.apply_hook(
+            hook(HookEventKind::CompactEnded { trigger: None }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        let events = drained(&rx);
+        assert_eq!(events.len(), 1);
+        assert_eq!(compaction_of(&events[0]), (CompactionPhase::Ended, None));
+
+        // …and every further end edge is a no-op: the bar is shut.
+        steer.apply_hook(
+            hook(HookEventKind::CompactEnded { trigger: None }),
+            &sender,
+            &redactor,
+            &mut transcript,
+        );
+        steer.apply_hook(hook(HookEventKind::Stop), &sender, &redactor, &mut transcript);
+        assert!(
+            drained(&rx)
+                .iter()
+                .all(|event| !matches!(event, ActivityEvent::Compaction { .. })),
+            "no second ended"
+        );
+    }
+
+    /// An unknown trigger is folded onto the wire's two values — the relay
+    /// schema accepts `manual`/`auto` only and severs the socket otherwise.
+    #[test]
+    fn a_compaction_trigger_is_folded_onto_the_wire_vocabulary() {
+        assert_eq!(normalize_compaction_trigger(None), None);
+        assert_eq!(normalize_compaction_trigger(Some("manual")), Some("manual"));
+        assert_eq!(normalize_compaction_trigger(Some("Manual")), Some("manual"));
+        for other in ["auto", "threshold", "overflow", "whatever"] {
+            assert_eq!(normalize_compaction_trigger(Some(other)), Some("auto"));
+        }
+    }
+
+    /// Every fallback closes the bar, and none of them fires twice: a
+    /// `SessionStart{source:"compact"}`, a turn end, and the ceiling.
+    #[test]
+    fn every_compaction_fallback_closes_the_bar() {
+        let redactor = Redactor::new(vec![]);
+        let start = |steer: &mut SteerState, sender: &ActivitySender| {
+            steer.apply_hook(
+                hook(HookEventKind::CompactStarted {
+                    trigger: None,
+                    custom_instructions: None,
+                }),
+                sender,
+                &redactor,
+                &mut TranscriptState::default(),
+            );
+        };
+
+        // 1) claude re-opened the session on the compacted context.
+        let (sender, rx) = ActivitySender::test_pair();
+        let mut steer = SteerState::default();
+        start(&mut steer, &sender);
+        drained(&rx);
+        steer.apply_hook(
+            hook(HookEventKind::SessionStarted {
+                source: Some("compact".to_string()),
+            }),
+            &sender,
+            &redactor,
+            &mut TranscriptState::default(),
+        );
+        assert_eq!(
+            compaction_of(&drained(&rx)[0]),
+            (CompactionPhase::Ended, None)
+        );
+        // A startup/resume SessionStart is NOT an end edge.
+        start(&mut steer, &sender);
+        drained(&rx);
+        steer.apply_hook(
+            hook(HookEventKind::SessionStarted {
+                source: Some("resume".to_string()),
+            }),
+            &sender,
+            &redactor,
+            &mut TranscriptState::default(),
+        );
+        assert!(drained(&rx).is_empty());
+
+        // 2) the turn ended with the bar still open.
+        steer.apply_hook(hook(HookEventKind::Stop), &sender, &redactor, &mut TranscriptState::default());
+        assert!(drained(&rx)
+            .iter()
+            .any(|event| matches!(event, ActivityEvent::Compaction { phase: CompactionPhase::Ended, .. })));
+
+        // 3) the ceiling.
+        start(&mut steer, &sender);
+        drained(&rx);
+        steer.compaction_timeout(&sender);
+        assert!(drained(&rx).is_empty(), "not yet");
+        steer.compacting_since = Some(Instant::now() - COMPACTION_MAX);
+        steer.compaction_timeout(&sender);
+        assert_eq!(
+            compaction_of(&drained(&rx)[0]),
+            (CompactionPhase::Ended, None)
+        );
+    }
+
+    /// The transcript's own `compact_boundary` is recorded as a FLAG, never
+    /// published from the parser — only the emitter knows whether a bar is
+    /// open, and an unmatched end must not reach the wire from here.
+    #[test]
+    fn a_compact_boundary_entry_only_arms_the_flag() {
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState::default();
+        let line = r#"{"type":"system","subtype":"compact_boundary","content":"Conversation compacted","compactMetadata":{"trigger":"manual","preTokens":610302,"postTokens":15658,"durationMs":165238}}"#;
+        assert!(process_transcript_line(line, &redactor, &mut state).is_empty());
+        assert!(state.compact_boundary);
+
+        // Any other system entry stays inert.
+        let mut state = TranscriptState::default();
+        assert!(process_transcript_line(
+            r#"{"type":"system","subtype":"hook_error","content":"x"}"#,
+            &redactor,
+            &mut state
+        )
+        .is_empty());
+        assert!(!state.compact_boundary);
+    }
+
+    /// Verified on claude 2.1.259: a slash command's output lands as a
+    /// `system`/`local_command` entry, and a REFUSED compaction's verdict is
+    /// its only end edge (no PostCompact, no boundary, no Stop).
+    #[test]
+    fn a_local_command_system_entry_narrates_and_can_end_a_compaction() {
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState::default();
+        let events = process_transcript_line(
+            r#"{"type":"system","subtype":"local_command","content":"<local-command-stdout>Not enough messages to compact.</local-command-stdout>"}"#,
+            &redactor,
+            &mut state,
+        );
+        assert!(matches!(
+            &events[..],
+            [ActivityEvent::Narration { text, .. }] if text == "Not enough messages to compact."
+        ));
+        assert!(state.compact_boundary, "the refusal closes the bar");
+
+        // A non-compaction verdict narrates without touching the bar.
+        let mut state = TranscriptState::default();
+        let events = process_transcript_line(
+            r#"{"type":"system","subtype":"local_command","content":"<local-command-stdout>Set model to Opus 5</local-command-stdout>"}"#,
+            &redactor,
+            &mut state,
+        );
+        assert_eq!(events.len(), 1);
+        assert!(!state.compact_boundary);
+
+        // …and TUI chrome is dropped whichever entry shape carries it.
+        let mut state = TranscriptState::default();
+        assert!(process_transcript_line(
+            r#"{"type":"system","subtype":"local_command","content":"<local-command-stdout>Total cost: $1.20</local-command-stdout>"}"#,
+            &redactor,
+            &mut state,
+        )
+        .is_empty());
+    }
+
+    /// A slash command lands as an origin-LESS user entry — the one entry
+    /// shape allowed past the `origin.kind == "human"` gate (EXP-724).
+    #[test]
+    fn a_slash_command_entry_publishes_the_command_line() {
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState::default();
+        let entry = |body: &str| {
+            format!(
+                r#"{{"type":"user","message":{{"role":"user","content":{}}}}}"#,
+                serde_json::to_string(body).unwrap()
+            )
+        };
+        let events = process_transcript_line(
+            &entry(
+                "<command-name>/compact</command-name>\n            \
+                 <command-message>compact</command-message>\n            \
+                 <command-args>opus</command-args>",
+            ),
+            &redactor,
+            &mut state,
+        );
+        assert!(matches!(
+            &events[..],
+            [ActivityEvent::UserMessage { text, .. }] if text == "/compact opus"
+        ));
+
+        // No args → the bare command line.
+        let events = process_transcript_line(
+            &entry("<command-name>/clear</command-name>\n<command-args></command-args>"),
+            &redactor,
+            &mut state,
+        );
+        assert!(matches!(
+            &events[..],
+            [ActivityEvent::UserMessage { text, .. }] if text == "/clear"
+        ));
+
+        // A SKILL is a bare name (and `isMeta`) — never a command echo.
+        assert!(process_transcript_line(
+            &entry("<command-name>workflow-authoring</command-name>"),
+            &redactor,
+            &mut state,
+        )
+        .is_empty());
+        assert!(process_transcript_line(
+            r#"{"type":"user","isMeta":true,"message":{"role":"user","content":"<command-name>/compact</command-name>"}}"#,
+            &redactor,
+            &mut state,
+        )
+        .is_empty());
+
+        // The twin of a command the emitter DISPATCHED consumes the memory.
+        state.published_commands.push("/compact opus".to_string());
+        assert!(process_transcript_line(
+            &entry("<command-name>/compact</command-name><command-args>opus</command-args>"),
+            &redactor,
+            &mut state,
+        )
+        .is_empty());
+        assert!(state.published_commands.is_empty());
+    }
+
+    /// A command's local stdout is an ALLOW-list: the lines that prove the
+    /// command took effect, ANSI-stripped; everything else is TUI chrome.
+    #[test]
+    fn only_allow_listed_command_output_is_narrated() {
+        let redactor = Redactor::new(vec![]);
+        let mut state = TranscriptState::default();
+        let entry = |body: &str| {
+            format!(
+                r#"{{"type":"user","message":{{"role":"user","content":{}}}}}"#,
+                serde_json::to_string(body).unwrap()
+            )
+        };
+        let events = process_transcript_line(
+            &entry(
+                "<local-command-stdout>\u{1b}[2mCompacted (ctrl+o to see full summary)\u{1b}[22m</local-command-stdout>",
+            ),
+            &redactor,
+            &mut state,
+        );
+        assert!(matches!(
+            &events[..],
+            [ActivityEvent::Narration { text, .. }]
+                if text == "Compacted (ctrl+o to see full summary)"
+        ));
+        for allowed in ["Set model to Opus 5 and saved it", "Kept model as Sonnet"] {
+            assert_eq!(
+                process_transcript_line(
+                    &entry(&format!("<local-command-stdout>{allowed}</local-command-stdout>")),
+                    &redactor,
+                    &mut state
+                )
+                .len(),
+                1
+            );
+        }
+        // Verified on 2.1.259: claude appends one "<Hook> [<shell command>]
+        // completed successfully" line per hook it ran — our own sidecar's
+        // curl line included. Only the verdict is published.
+        let events = process_transcript_line(
+            &entry(
+                "<local-command-stdout>Compacted (ctrl+o to see full summary)\n\
+                 PreCompact [curl -s -m 3 -X POST -K \"$EXP_HOOK_CONFIG\" …] completed successfully\n\
+                 PostCompact [curl -s -m 3 -X POST …] completed successfully</local-command-stdout>",
+            ),
+            &redactor,
+            &mut state,
+        );
+        assert!(matches!(
+            &events[..],
+            [ActivityEvent::Narration { text, .. }]
+                if text == "Compacted (ctrl+o to see full summary)"
+        ));
+        // Everything else is dropped.
+        for other in ["Total cost: $1.20", "", "Usage limit resets at 5pm"] {
+            assert!(process_transcript_line(
+                &entry(&format!("<local-command-stdout>{other}</local-command-stdout>")),
+                &redactor,
+                &mut state
+            )
+            .is_empty());
+        }
+    }
+
+    /// The command pump echoes every command once, remembers it for the
+    /// transcript twin, and refuses (never queues) while a picker is up.
+    #[test]
+    fn the_command_pump_echoes_dispatches_and_refuses() {
+        let (sender, rx) = ActivitySender::test_pair();
+        let link = CommandLink::new(None);
+        let write_input: InputHook = Arc::new(|_| {});
+        let mut parked = Vec::new();
+        let mut published = Vec::new();
+        let command = crate::commands::parse_command("/compact keep it", SessionAgent::Claude)
+            .expect("catalog command");
+
+        // No grid: the echo still lands (the steerer must see their command).
+        link.submit(command.clone());
+        pump_commands(
+            &mut parked,
+            &link,
+            false,
+            false,
+            None,
+            &write_input,
+            &sender,
+            Some(&mut published),
+            |_| {},
+        );
+        let events = drained(&rx);
+        assert!(matches!(
+            &events[..],
+            [ActivityEvent::UserMessage { text, .. }] if text == "/compact keep it"
+        ));
+        assert_eq!(published, vec!["/compact keep it".to_string()]);
+        assert!(parked.is_empty());
+
+        // A picker on the grid refuses outright — a command is not worth
+        // Esc-ing an approval away for.
+        link.submit(command.clone());
+        pump_commands(
+            &mut parked,
+            &link,
+            true,
+            false,
+            None,
+            &write_input,
+            &sender,
+            None,
+            |_| {},
+        );
+        let events = drained(&rx);
+        assert!(matches!(&events[1], ActivityEvent::Narration { text, .. } if text == COMMAND_REFUSED_PICKER));
+        assert!(parked.is_empty());
+
+        // Idle-gated (codex/pi): held while the agent works, refused at the
+        // ceiling — and never dispatched.
+        link.set_composer_idle(false);
+        link.submit(command.clone());
+        pump_commands(
+            &mut parked,
+            &link,
+            false,
+            true,
+            None,
+            &write_input,
+            &sender,
+            None,
+            |_| panic!("must not dispatch while busy"),
+        );
+        assert_eq!(parked.len(), 1);
+        drained(&rx);
+        parked[0].1 = Instant::now() - COMMAND_IDLE_WAIT;
+        pump_commands(
+            &mut parked,
+            &link,
+            false,
+            true,
+            None,
+            &write_input,
+            &sender,
+            None,
+            |_| panic!("must not dispatch while busy"),
+        );
+        assert!(parked.is_empty());
+        let events = drained(&rx);
+        assert!(matches!(&events[0], ActivityEvent::Narration { text, .. } if text == COMMAND_REFUSED_BUSY));
+
+        // Idle again → the hold lifts on the first tick (this session has no
+        // grid to type into, so it settles instead of parking; the typing
+        // path itself is covered by the pi-sink test and the live harness).
+        link.set_composer_idle(true);
+        link.submit(command);
+        pump_commands(
+            &mut parked,
+            &link,
+            false,
+            true,
+            None,
+            &write_input,
+            &sender,
+            None,
+            |_| {},
+        );
+        assert!(parked.is_empty(), "no longer held");
+    }
+
+    /// Pi's commands never reach a PTY: the link's sink takes them.
+    #[test]
+    fn a_pi_command_goes_to_the_sink_not_the_terminal() {
+        let (sender, _rx) = ActivitySender::test_pair();
+        let seen: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_seen = seen.clone();
+        let link = CommandLink::new(Some(Arc::new(move |name: &str, args: &str| {
+            sink_seen
+                .lock()
+                .unwrap()
+                .push((name.to_string(), args.to_string()));
+        })));
+        link.set_composer_idle(true);
+        let write_input: InputHook = Arc::new(|_| panic!("pi never types"));
+        let mut parked = Vec::new();
+        link.submit(
+            crate::commands::parse_command("/compact keep the diff", SessionAgent::Pi).unwrap(),
+        );
+        pump_commands(
+            &mut parked,
+            &link,
+            false,
+            true,
+            None,
+            &write_input,
+            &sender,
+            None,
+            |_| {},
+        );
+        assert_eq!(
+            seen.lock().unwrap().as_slice(),
+            &[("compact".to_string(), "keep the diff".to_string())]
+        );
+    }
+
+    /// The submit probe reads the COMPOSER, not the scrollback: the command
+    /// echoed into history above the input box must not look like a stuck
+    /// composer (that would Enter forever).
+    #[test]
+    fn the_submit_probe_only_looks_at_the_composer_tail() {
+        let lines: Vec<String> = vec![
+            "> /compact".to_string(),
+            "  Compacting…".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "╭──────────────╮".to_string(),
+            "│ >            │".to_string(),
+            "╰──────────────╯".to_string(),
+        ];
+        assert!(!composer_holds(&lines, "/compact"));
+        let mut stuck = lines.clone();
+        stuck[5] = "│ > /compact   │".to_string();
+        assert!(composer_holds(&stuck, "/compact"));
     }
 
     /// EXP-443: a SubagentStart arms the one-shot rescan flag (the emitter

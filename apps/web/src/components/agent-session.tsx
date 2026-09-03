@@ -40,6 +40,18 @@ import {
   type SubagentSummary,
 } from "@/lib/agent-feed"
 import {
+  parseSteerCommand,
+  steerCommandConfirmCopy,
+  steerCommandsFor,
+  COMPACTED_LABEL,
+  COMPACTING_LABEL,
+  type SteerCommand,
+} from "@/lib/steer-commands"
+import {
+  SlashCommandMenu,
+  useSlashCommandMenu,
+} from "@/components/steer-command-menu"
+import {
   acquireSteerSession,
   type FeedItem,
   type QuestionItem,
@@ -71,6 +83,7 @@ import {
   MentionTextarea,
   type MentionTextareaHandle,
 } from "@/components/mention-textarea"
+import { Progress } from "@/components/ui/progress"
 import {
   Collapsible,
   CollapsibleContent,
@@ -78,7 +91,10 @@ import {
 } from "@/components/ui/collapsible"
 import {
   Dialog,
+  DialogCancel,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -94,6 +110,8 @@ import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 // EXP-317: the session glyphs the native clients also draw resolve through
 // the shared registry (packages/icons/icons.json).
 const CodingAssistantIcon = conceptIcon(`coding-assistant`)
+const CodingCompactIcon = conceptIcon(`coding-compact`)
+const CodingCommandIcon = conceptIcon(`coding-command`)
 const CodingPlanIcon = conceptIcon(`coding-plan`)
 const CodingStopIcon = conceptIcon(`coding-stop`)
 const CodingSubagentIcon = conceptIcon(`coding-subagent`)
@@ -222,8 +240,11 @@ export function AgentSessionView({
   // EXP-698: the steer composer is the mention field, so it needs the run's
   // team roster for `@` autocomplete.
   const { users: teamUsers } = useTeamUsers(session.teamId)
-  const { phase, feed, latestDiff, answerStates, connected } =
+  const { phase, feed, latestDiff, compacting, answerStates, connected } =
     useSyncExternalStore(store.subscribe, store.getSnapshot)
+  /** EXP-724: the agent is folding its context — the strip above the composer
+   *  says so, and the generic "Working…" footer stands down while it does. */
+  const compactingNow = compacting !== null
   useEffect(() => store.connect(), [store])
   // The synced row is the truth for "still running" inside the redial loops.
   useEffect(
@@ -292,8 +313,9 @@ export function AgentSessionView({
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
     // needsInput re-pins when the EXP-389 "Working…" footer toggles (its
-    // other inputs — phase, the feed-derived question set — are covered).
-  }, [feed, atBottom, phase.kind, session.needsInput])
+    // other inputs — phase, the feed-derived question set — are covered);
+    // the compaction strip (EXP-724) takes height the same way.
+  }, [feed, atBottom, phase.kind, session.needsInput, compactingNow])
 
   // Switching conversation tabs re-pins to the newest event (EXP-356).
   useEffect(() => {
@@ -384,10 +406,22 @@ export function AgentSessionView({
       ),
     [live, feed, questionIds]
   )
+  /** EXP-724: the slash commands THIS session's agent can run (an agent-less
+   *  row is a claude run). Empty catalog = no menu, no hint, no "…" entry. */
+  const agentCommands = useMemo(
+    () => steerCommandsFor(session.agent),
+    [session.agent]
+  )
   /** EXP-389: the agent is actively working — live and nothing waiting on
    *  the user (no active question card, synced needs_input clear; all three
-   *  agents drive the flag). Mobile parity. */
-  const working = live && !sessionEnded && !awaitingInput && !session.needsInput
+   *  agents drive the flag). Mobile parity. EXP-724: a compaction has its own
+   *  strip, so the generic footer stands down while one runs. */
+  const working =
+    live &&
+    !sessionEnded &&
+    !awaitingInput &&
+    !session.needsInput &&
+    !compactingNow
   /** EXP-549/550: the host machine per the synced devices row — its RENAMED
    *  label, and whether it is offline right now. */
   const device = useSessionDevice(session)
@@ -417,6 +451,13 @@ export function AgentSessionView({
     dialog: killDialog,
   } = useKillSession(session, currentUserId, device.label, paused)
   const canKill = live && ownsLiveRow
+  /** EXP-724: "Compact context" in the mobile "…" menu — a live, connected
+   *  session whose agent has the command and is not already folding. */
+  const canCompact =
+    live &&
+    connected &&
+    !compactingNow &&
+    agentCommands.some((command) => command.name === `compact`)
   const pausedTitle = `${device.label ?? `The device`} is offline`
   const pausedBody = `The agent is paused on that machine and continues when it comes back online.`
   // The `closed` phase (relay `bye publisher_lost`) does not redial on its
@@ -542,7 +583,7 @@ export function AgentSessionView({
               </span>
             </div>
             <span className="max-w-full truncate text-[11px] text-muted-foreground">
-              {phaseLabel(phase, device, awaitingInput, paused)}
+              {phaseLabel(phase, device, awaitingInput, paused, compactingNow)}
             </span>
           </div>
           {/* A dropped stream redials from here too — a phone has no desktop
@@ -561,8 +602,10 @@ export function AgentSessionView({
           {/* A finished run with no fresh numbers has nothing to offer, so the
               trigger goes away rather than opening an empty menu (its width
               stays, so the title does not jump). */}
-          {!agentUsage && !canKill && <span className="size-8 shrink-0" />}
-          {(agentUsage || canKill) && (
+          {!agentUsage && !canKill && !canCompact && (
+            <span className="size-8 shrink-0" />
+          )}
+          {(agentUsage || canKill || canCompact) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -578,6 +621,16 @@ export function AgentSessionView({
                   <DropdownMenuItem onSelect={() => setUsageOpen(true)}>
                     <UiUsageIcon className="size-4" />
                     Usage
+                  </DropdownMenuItem>
+                )}
+                {/* EXP-724: the one command worth a menu entry — the others
+                    are typed with `/` in the composer. */}
+                {canCompact && (
+                  <DropdownMenuItem
+                    onSelect={() => store.sendMessage(`/compact`)}
+                  >
+                    <CodingCompactIcon className="size-4" />
+                    Compact context
                   </DropdownMenuItem>
                 )}
                 {canKill && (
@@ -756,10 +809,25 @@ export function AgentSessionView({
                             detail={item.detail}
                           />
                         )
-                      case `user_message`:
-                        return (
+                      case `user_message`: {
+                        // EXP-724: a steered slash command renders as a
+                        // compact pill, not as a chat bubble of prose.
+                        const command = parseSteerCommand(
+                          item.text,
+                          agentCommands
+                        )
+                        return command ? (
+                          <CommandRow
+                            key={item.id}
+                            name={command.command.name}
+                            args={command.args}
+                          />
+                        ) : (
                           <UserMessageBubble key={item.id} text={item.text} />
                         )
+                      }
+                      case `compaction`:
+                        return <CompactionRow key={item.id} />
                       case `permission`:
                         return (
                           <PermissionRow
@@ -834,6 +902,21 @@ export function AgentSessionView({
               {phase.detail ?? `Connection lost.`}
             </div>
           )}
+          {/* EXP-724: the compaction strip. Indeterminate on purpose — the
+              fold takes 10-170s with nothing measurable to report; the
+              persistent marker row lands in the feed when it finishes. */}
+          {compactingNow && (
+            <div className="border-t border-border/60 px-3 py-2">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <CodingCompactIcon className="size-3 shrink-0" />
+                <span>{COMPACTING_LABEL}</span>
+                {compacting?.trigger === `manual` && (
+                  <span className="text-muted-foreground/60">requested</span>
+                )}
+              </div>
+              <Progress value={null} className="mt-1 h-1" />
+            </div>
+          )}
           {phase.kind === `starting` && !paused && feed.length > 0 && (
             <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
               <UiLoadingIcon className="size-3 animate-spin" />
@@ -859,6 +942,7 @@ export function AgentSessionView({
                 onSend={sendMessage}
                 sessionId={session.id}
                 users={teamUsers}
+                agent={session.agent}
                 placeholder={
                   planPending ? `Tell Claude what to change…` : undefined
                 }
@@ -912,11 +996,18 @@ function phaseLabel(
   /** EXP-549: the host machine per the synced devices row (renamed label). */
   device: SessionDevice,
   awaitingInput: boolean,
-  paused: boolean
+  paused: boolean,
+  /** EXP-724: folding its context, which is neither working nor waiting. */
+  compacting = false
 ): string {
   const deviceLabel = device.label
   if (paused) return `Paused · ${deviceLabel ?? `device`} is offline`
   if (phase.kind === `live`) {
+    if (compacting) {
+      return deviceLabel
+        ? `${COMPACTING_LABEL} · ${deviceLabel}`
+        : COMPACTING_LABEL
+    }
     if (awaitingInput) {
       return deviceLabel ? `Needs your input · ${deviceLabel}` : `Needs your input`
     }
@@ -1243,6 +1334,37 @@ const UserMessageBubble = memo(function UserMessageBubble({
     </div>
   )
 })
+
+/** EXP-724: a steered slash command. Right-aligned like the sender's own
+ *  bubble (it IS their turn), but a compact pill — `/compact` is an
+ *  instruction to the tool, not prose worth a chat bubble. */
+function CommandRow({ name, args }: { name: string; args: string }) {
+  return (
+    <div className="flex justify-end py-1 pl-8">
+      <div className="flex min-w-0 items-center gap-1.5 rounded-xl border border-glass-stroke-strong bg-glass-active px-3 py-1.5">
+        <CodingCommandIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="shrink-0 font-mono text-xs">/{name}</span>
+        {args && (
+          <span className="truncate text-xs text-muted-foreground">{args}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** EXP-724: the hairline a finished compaction leaves in the transcript —
+ *  everything above it is no longer in the agent's context. */
+function CompactionRow() {
+  return (
+    <div className="flex items-center gap-2 py-1.5">
+      <span className="h-px flex-1 bg-border/60" />
+      <span className="shrink-0 text-[0.6875rem] text-muted-foreground/70">
+        {COMPACTED_LABEL}
+      </span>
+      <span className="h-px flex-1 bg-border/60" />
+    </div>
+  )
+}
 
 type AnswerHandler = (
   item: QuestionItem,
@@ -1952,6 +2074,7 @@ function MessageComposer({
   live,
   onSend,
   sessionId,
+  agent,
   placeholder,
   users,
 }: {
@@ -1964,6 +2087,9 @@ function MessageComposer({
    *  (EXP-702) — issue runs included, so steering screenshots never clutter
    *  the issue's Files section. */
   sessionId: string
+  /** EXP-724: the session's coding agent (synced row), which decides which
+   *  slash commands the `/` menu offers. Null = a claude run. */
+  agent: string | null
   /** Context-aware hint (e.g. the plan-approval "Tell Claude what to
    *  change…"); the default stays the generic prompt. */
   placeholder?: string
@@ -1979,6 +2105,14 @@ function MessageComposer({
     store.getDraftSnapshot
   )
   const [sending, setSending] = useState(false)
+  /** EXP-724: a context-discarding command waiting on its confirmation. */
+  const [confirming, setConfirming] = useState<SteerCommand | null>(null)
+  const commands = useMemo(() => steerCommandsFor(agent), [agent])
+  const menu = useSlashCommandMenu({
+    text,
+    commands,
+    onAccept: (next) => store.setDraftText(next),
+  })
   const fileInputRef = useRef<HTMLInputElement>(null)
   const fieldRef = useRef<MentionTextareaHandle>(null)
   // A file chooser steals focus without moving it anywhere in the document
@@ -2028,9 +2162,24 @@ function MessageComposer({
     store.removeDraftImage(url)
   }
 
-  const send = async () => {
+  const send = async (confirmed = false) => {
     if (sending || !live) return
     if (!text.trim() && pending.length === 0) return
+    // EXP-724: a slash command is the WHOLE message. It rides the ordinary
+    // input frames (the desktop recognizes it by its first token), so the only
+    // client-side rules are: no image payload to wrap it in, and a
+    // context-discarding command asks first.
+    const command = parseSteerCommand(text, commands)
+    if (command) {
+      if (pending.length > 0) {
+        toast.error(`Remove the images to send a command`)
+        return
+      }
+      if (command.command.confirm && !confirmed) {
+        setConfirming(command.command)
+        return
+      }
+    }
     if (pending.length === 0) {
       if (onSend(text)) store.clearDraftAfterSend()
       return
@@ -2068,104 +2217,158 @@ function MessageComposer({
   // natives' composerCard), now the shared `Composer`. Behavior and wire
   // format are unchanged.
   return (
-    <Composer
-      strip={
-        pending.length > 0 && (
-          <div className="flex flex-wrap gap-2 px-3 pt-3">
-            {pending.map((image) => (
-              <div key={image.url} className="relative">
-                <img
-                  src={image.url}
-                  alt=""
-                  className="size-16 rounded-md border border-glass-stroke-card object-cover"
-                />
-                <button
-                  type="button"
-                  aria-label="Remove image"
-                  disabled={sending}
-                  onClick={() => removeImage(image.url)}
-                  className="absolute -right-1.5 -top-1.5 rounded-full border border-glass-stroke-card bg-popover p-0.5 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="size-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )
-      }
-      tools={
-        <>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept={acceptedImageContentTypes.join(`,`)}
-            className="hidden"
-            onChange={(e) => {
-              filePickerOpenRef.current = false
-              if (e.target.files) addFiles(Array.from(e.target.files))
-              e.target.value = ``
-            }}
-          />
-          <ComposerTool
-            aria-label="Attach image"
-            title="Attach image"
-            disabled={sending}
-            onClick={() => {
-              filePickerOpenRef.current = true
-              fileInputRef.current?.click()
-            }}
+    <>
+      <Composer
+        strip={
+          pending.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-3 pt-3">
+              {pending.map((image) => (
+                <div key={image.url} className="relative">
+                  <img
+                    src={image.url}
+                    alt=""
+                    className="size-16 rounded-md border border-glass-stroke-card object-cover"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Remove image"
+                    disabled={sending}
+                    onClick={() => removeImage(image.url)}
+                    className="absolute -right-1.5 -top-1.5 rounded-full border border-glass-stroke-card bg-popover p-0.5 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )
+        }
+        tools={
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept={acceptedImageContentTypes.join(`,`)}
+              className="hidden"
+              onChange={(e) => {
+                filePickerOpenRef.current = false
+                if (e.target.files) addFiles(Array.from(e.target.files))
+                e.target.value = ``
+              }}
+            />
+            <ComposerTool
+              aria-label="Attach image"
+              title="Attach image"
+              disabled={sending}
+              onClick={() => {
+                filePickerOpenRef.current = true
+                fileInputRef.current?.click()
+              }}
+            >
+              <UiAddIcon />
+            </ComposerTool>
+          </>
+        }
+        submit={
+          <ComposerSubmit
+            aria-label="Send"
+            title="Send"
+            disabled={sending || !live || (!text.trim() && pending.length === 0)}
+            onClick={() => void send()}
           >
-            <UiAddIcon />
-          </ComposerTool>
-        </>
-      }
-      submit={
-        <ComposerSubmit
-          aria-label="Send"
-          title="Send"
-          disabled={sending || !live || (!text.trim() && pending.length === 0)}
-          onClick={() => void send()}
-        >
-          <UiSendIcon className="!size-6" />
-        </ComposerSubmit>
-      }
-      onDrop={(event) => {
-        if (event.dataTransfer.files.length === 0) return
-        event.preventDefault()
-        addFiles(Array.from(event.dataTransfer.files))
-      }}
-      onDragOver={(event) => {
-        if (event.dataTransfer.types.includes(`Files`)) event.preventDefault()
-      }}
-    >
-      {/* EXP-698: the steer field is the mention field — `@` members, `#`
-          issue refs and `:` emoji all work while steering. */}
-      <MentionTextarea
-        ref={fieldRef}
-        value={text}
-        onValueChange={(next) => store.setDraftText(next)}
-        users={users}
-        onKeyDown={(e) => {
-          if (e.key === `Enter` && !e.shiftKey) {
-            e.preventDefault()
-            void send()
-          }
+            <UiSendIcon className="!size-6" />
+          </ComposerSubmit>
+        }
+        onDrop={(event) => {
+          if (event.dataTransfer.files.length === 0) return
+          event.preventDefault()
+          addFiles(Array.from(event.dataTransfer.files))
         }}
-        onPaste={(e) => {
-          if (e.clipboardData.files.length === 0) return
-          e.preventDefault()
-          addFiles(Array.from(e.clipboardData.files))
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes(`Files`)) event.preventDefault()
         }}
-        placeholder={placeholder ?? `Message the agent…`}
-        rows={1}
-        className={cn(
-          `max-h-32 min-h-9 w-full border-none px-3 pb-1 pt-3 shadow-none focus-visible:border-transparent`,
-          // The card IS the field chrome, so the field drops the stock
-          // Textarea's glass fill (EXP-616).
-          `bg-transparent`
-        )}
-      />
-    </Composer>
+      >
+        {/* EXP-698: the steer field is the mention field — `@` members, `#`
+            issue refs and `:` emoji all work while steering. EXP-724: the `/`
+            menu floats above it, so the field gets a positioned wrapper of its
+            own (the mention popup anchors inside the field's own). */}
+        <div className="relative">
+          <MentionTextarea
+            ref={fieldRef}
+            value={text}
+            onValueChange={(next) => store.setDraftText(next)}
+            users={users}
+            onKeyDown={(e) => {
+              // The menu gets first refusal: with it open, Enter/Tab accept a
+              // command and must NEVER send the half-typed draft.
+              if (menu.handleKeyDown(e)) return
+              if (e.key === `Enter` && !e.shiftKey) {
+                e.preventDefault()
+                void send()
+              }
+            }}
+            onPaste={(e) => {
+              if (e.clipboardData.files.length === 0) return
+              e.preventDefault()
+              addFiles(Array.from(e.clipboardData.files))
+            }}
+            placeholder={
+              placeholder ??
+              (commands.length > 0
+                ? `Message the agent… (/ for commands)`
+                : `Message the agent…`)
+            }
+            rows={1}
+            className={cn(
+              `max-h-32 min-h-9 w-full border-none px-3 pb-1 pt-3 shadow-none focus-visible:border-transparent`,
+              // The card IS the field chrome, so the field drops the stock
+              // Textarea's glass fill (EXP-616).
+              `bg-transparent`
+            )}
+          />
+          {menu.open && (
+            <SlashCommandMenu
+              commands={menu.candidates}
+              active={menu.active}
+              onSelect={menu.accept}
+              onHover={menu.setActive}
+            />
+          )}
+        </div>
+      </Composer>
+      {/* EXP-724: `/clear` throws the conversation away, and the
+          publisher runs whatever it receives — so every viewer confirms
+          first, with the same copy. */}
+      <Dialog
+        open={confirming !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirming(null)
+        }}
+      >
+        <DialogContent mobile="alert" className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {steerCommandConfirmCopy(confirming?.name ?? ``).title}
+            </DialogTitle>
+            <DialogDescription>
+              {steerCommandConfirmCopy(confirming?.name ?? ``).body}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogCancel onClick={() => setConfirming(null)} />
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setConfirming(null)
+                void send(true)
+              }}
+            >
+              {steerCommandConfirmCopy(confirming?.name ?? ``).confirm}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

@@ -2124,6 +2124,73 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `fold-vertical`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "fold-vertical",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M12 22v-6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 8V2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M4 12H2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M10 12H8"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M16 12h-2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M22 12h-2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m15 19-3-3-3 3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m15 5-3 3-3-3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `folder`: ImageVector by lazy {
         ImageVector.Builder(
             name = "folder",
@@ -5076,6 +5143,31 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `square-slash`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "square-slash",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M5 3H19A2 2 0 0 1 21 5V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V5A2 2 0 0 1 5 3Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 15L15 9"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `square-terminal`: ImageVector by lazy {
         ImageVector.Builder(
             name = "square-terminal",
@@ -6001,6 +6093,7 @@ public object ExpIcons {
         "file-text" -> `file-text`
         "flag" -> `flag`
         "flask-conical" -> `flask-conical`
+        "fold-vertical" -> `fold-vertical`
         "folder" -> `folder`
         "folder-kanban" -> `folder-kanban`
         "folder-open" -> `folder-open`
@@ -6094,6 +6187,7 @@ public object ExpIcons {
         "sparkles" -> `sparkles`
         "square-kanban" -> `square-kanban`
         "square-pen" -> `square-pen`
+        "square-slash" -> `square-slash`
         "square-terminal" -> `square-terminal`
         "star" -> `star`
         "strikethrough" -> `strikethrough`
@@ -6136,6 +6230,10 @@ public object ExpIcons {
     public val actionSuggestion: ImageVector get() = `lightbulb`
     /** Concept `coding-assistant`. */
     public val codingAssistant: ImageVector get() = `sparkles`
+    /** Concept `coding-command`. */
+    public val codingCommand: ImageVector get() = `square-slash`
+    /** Concept `coding-compact`. */
+    public val codingCompact: ImageVector get() = `fold-vertical`
     /** Concept `coding-diff`. */
     public val codingDiff: ImageVector get() = `file-diff`
     /** Concept `coding-ended`. */

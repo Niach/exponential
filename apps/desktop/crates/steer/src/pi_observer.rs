@@ -32,6 +32,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+use crate::frames::CompactionPhase;
 use crate::hooks::{bearer_matches, respond, MAX_BODY_BYTES};
 
 /// Spawn-env vars the observer extension reads (mirrored by
@@ -86,6 +87,21 @@ pub enum PiEvent {
     /// EXP-441: the confirm dialog resolved (locally or by an injected
     /// remote keystroke).
     PlanResolved { id: String, approved: bool },
+    /// EXP-724: the extension dispatched a remote slash command through pi's
+    /// own API (`ctx.compact` / `ctx.newSession`). The
+    /// emitter already echoed the command line, so this is confirmation
+    /// only.
+    Command { name: String, args: String },
+    /// EXP-724: the dispatch threw (an unknown model, a pi without the
+    /// API) — narrated so a steerer is never left guessing.
+    CommandFailed { name: String, message: String },
+    /// EXP-724: pi's own compaction edges (`session_before_compact` /
+    /// `session_compact`). `trigger` is already folded onto the wire's
+    /// `manual`/`auto` by the extension.
+    Compaction {
+        phase: CompactionPhase,
+        trigger: Option<String>,
+    },
     SessionShutdown,
 }
 
@@ -142,6 +158,25 @@ fn parse_event(value: &Value) -> Option<PiEvent> {
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
         }),
+        "command" => Some(PiEvent::Command {
+            name: string_field(value, "name")?,
+            args: string_field(value, "args").unwrap_or_default(),
+        }),
+        "command_failed" => Some(PiEvent::CommandFailed {
+            name: string_field(value, "name")?,
+            message: string_field(value, "message").unwrap_or_default(),
+        }),
+        "compaction" => Some(PiEvent::Compaction {
+            phase: match value.get("phase").and_then(Value::as_str)? {
+                "started" => CompactionPhase::Started,
+                "ended" => CompactionPhase::Ended,
+                other => {
+                    log::debug!("pi observer: ignoring compaction phase {other:?}");
+                    return None;
+                }
+            },
+            trigger: string_field(value, "trigger"),
+        }),
         "session_shutdown" => Some(PiEvent::SessionShutdown),
         other => {
             log::debug!("pi observer: ignoring event kind {other:?}");
@@ -154,47 +189,67 @@ fn parse_event(value: &Value) -> Option<PiEvent> {
 // The steer queue
 // ---------------------------------------------------------------------------
 
+/// One thing the extension's next `/steer` poll should apply. Commands ride
+/// the SAME queue as messages so their order relative to a steerer's prose
+/// is preserved (EXP-724).
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SteerItem {
+    Message(String),
+    Command { name: String, args: String },
+}
+
 #[derive(Default)]
 struct SteerQueue {
-    messages: Mutex<VecDeque<String>>,
+    items: Mutex<VecDeque<SteerItem>>,
     wake: Condvar,
 }
 
 impl SteerQueue {
-    fn push(&self, text: String) {
-        let mut messages = match self.messages.lock() {
-            Ok(messages) => messages,
+    fn push(&self, item: SteerItem) {
+        let mut items = match self.items.lock() {
+            Ok(items) => items,
             Err(poisoned) => poisoned.into_inner(),
         };
-        if messages.len() >= STEER_QUEUE_CAP {
-            messages.pop_front();
+        if items.len() >= STEER_QUEUE_CAP {
+            items.pop_front();
         }
-        messages.push_back(text);
+        items.push_back(item);
         self.wake.notify_all();
     }
 
     /// Drain everything queued, parking up to [`STEER_POLL_WAIT`] when empty.
-    fn drain_or_wait(&self) -> Vec<String> {
-        let messages = match self.messages.lock() {
-            Ok(messages) => messages,
+    fn drain_or_wait(&self) -> Vec<SteerItem> {
+        let items = match self.items.lock() {
+            Ok(items) => items,
             Err(poisoned) => poisoned.into_inner(),
         };
-        let (mut messages, _) = self
+        let (mut items, _) = self
             .wake
-            .wait_timeout_while(messages, STEER_POLL_WAIT, |messages| messages.is_empty())
+            .wait_timeout_while(items, STEER_POLL_WAIT, |items| items.is_empty())
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        messages.drain(..).collect()
+        items.drain(..).collect()
     }
 }
 
 /// The publisher's steer seam for ONE pi session: `push` queues a remote
-/// composer message for the extension's next `/steer` poll.
+/// composer message and `push_command` a remote slash command for the
+/// extension's next `/steer` poll.
 #[derive(Clone)]
 pub struct PiSteerHandle(Arc<SteerQueue>);
 
 impl PiSteerHandle {
     pub fn push(&self, text: String) {
-        self.0.push(text);
+        self.0.push(SteerItem::Message(text));
+    }
+
+    /// EXP-724: `{name, args}` for the extension to run through pi's own API
+    /// — never `pi.sendUserMessage`, which sends `/compact` to the model as
+    /// literal text (built-in commands dispatch only in the TUI's onSubmit).
+    pub fn push_command(&self, name: &str, args: &str) {
+        self.0.push(SteerItem::Command {
+            name: name.to_string(),
+            args: args.to_string(),
+        });
     }
 }
 
@@ -425,7 +480,7 @@ fn handle_connection(
         }
         Route::Steer => {
             let queue = subscriber_queue(subscribers, &cwd);
-            let messages = match queue {
+            let items = match queue {
                 Some(queue) => queue.drain_or_wait(),
                 // No session for this cwd (yet) — park anyway so the
                 // extension's poll loop doesn't spin.
@@ -434,8 +489,20 @@ fn handle_connection(
                     Vec::new()
                 }
             };
-            let body = serde_json::to_string(&serde_json::json!({ "messages": messages }))
-                .unwrap_or_else(|_| r#"{"messages":[]}"#.to_string());
+            let mut messages: Vec<&String> = Vec::new();
+            let mut commands: Vec<serde_json::Value> = Vec::new();
+            for item in &items {
+                match item {
+                    SteerItem::Message(text) => messages.push(text),
+                    SteerItem::Command { name, args } => {
+                        commands.push(serde_json::json!({ "name": name, "args": args }))
+                    }
+                }
+            }
+            let body = serde_json::to_string(
+                &serde_json::json!({ "messages": messages, "commands": commands }),
+            )
+            .unwrap_or_else(|_| r#"{"messages":[],"commands":[]}"#.to_string());
             write!(
                 writer,
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -600,7 +667,7 @@ mod tests {
     }
 
     #[test]
-    fn steer_long_poll_returns_pushed_messages() {
+    fn steer_long_poll_returns_pushed_messages_and_commands() {
         let server = ObserverServer::start().unwrap();
         let worktree = temp_worktree("steer");
         let (_events, steer) = server.subscribe(&worktree);
@@ -611,9 +678,28 @@ mod tests {
         let response = post(server.port(), server.token(), "/steer", &body);
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
         assert!(
-            response.contains(r#"{"messages":["focus on the failing test"]}"#),
+            response.contains(r#""messages":["focus on the failing test"]"#),
             "{response}"
         );
+        assert!(response.contains(r#""commands":[]"#), "{response}");
+
+        // EXP-724: a slash command rides the same poll under its own key —
+        // the extension runs it through pi's API, never sendUserMessage.
+        steer.push_command("compact", "keep the diff");
+        let response = post(server.port(), server.token(), "/steer", &body);
+        // Compare parsed, not as text: serde_json's key order flips with the
+        // `preserve_order` feature, which cargo unifies in from other
+        // workspace crates in a multi-crate test run.
+        let payload: serde_json::Value = serde_json::from_str(
+            response.split("\r\n\r\n").nth(1).unwrap_or_default(),
+        )
+        .unwrap_or_else(|err| panic!("{err}: {response}"));
+        assert_eq!(
+            payload["commands"],
+            serde_json::json!([{ "name": "compact", "args": "keep the diff" }]),
+            "{response}"
+        );
+        assert_eq!(payload["messages"], serde_json::json!([]), "{response}");
 
         // Poll first, push from another thread: the park wakes and delivers.
         let port = server.port();
@@ -624,7 +710,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(300));
         steer.push("second".to_string());
         let response = poller.join().unwrap();
-        assert!(response.contains(r#"{"messages":["second"]}"#), "{response}");
+        assert!(response.contains(r#""messages":["second"]"#), "{response}");
         let _ = std::fs::remove_dir_all(&worktree);
     }
 

@@ -211,3 +211,38 @@ describe(`domain-contract parity`, () => {
     }
   })
 })
+
+// EXP-724: the curated steer slash-command catalog — the one list every
+// viewer's `/` menu offers and the desktop publisher executes.
+describe(`steer command catalog`, () => {
+  const commands = contract.steerCommands.commands
+
+  it(`names are unique slash-safe tokens with non-empty descriptions`, () => {
+    const names = commands.map((c) => c.name)
+    expect(new Set(names).size).toBe(names.length)
+    for (const command of commands) {
+      expect(command.name).toMatch(/^[a-z][a-z0-9-]*$/)
+      expect(command.description.trim().length).toBeGreaterThan(0)
+      expect(typeof command.argHint).toBe(`string`)
+      expect(typeof command.confirm).toBe(`boolean`)
+    }
+  })
+
+  it(`every command names at least one known coding agent`, () => {
+    for (const command of commands) {
+      expect(command.agents.length).toBeGreaterThan(0)
+      for (const agent of command.agents) {
+        expect(contract.codingAgent.values).toContain(agent)
+      }
+    }
+  })
+
+  it(`compact is offered to every agent and the context-discarding commands confirm`, () => {
+    const compact = commands.find((c) => c.name === `compact`)
+    expect(compact?.agents).toEqual(contract.codingAgent.values)
+    expect(commands.find((c) => c.name === `clear`)?.confirm).toBe(true)
+    // Deliberately tiny (2026-09-03): only the two whose effect every viewer
+    // can see. The desktop maps `clear` per agent (pi runs ctx.newSession()).
+    expect(commands.map((c) => c.name)).toEqual([`compact`, `clear`])
+  })
+})
