@@ -3,7 +3,12 @@ import type { User } from "@/db/schema"
 import { conceptIcon } from "@/lib/icons.generated"
 import { CommentComposer } from "@/components/comment-composer"
 import { setFeedbackLauncherHidden } from "@/components/feedback-widget-provider"
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
 
 // EXP-568 — the phone issue-detail bottom bar: the three things a reader
@@ -111,7 +116,14 @@ export function IssueDetailMobileBar({
           side="bottom"
           className="gap-0 p-2 pb-[max(1rem,env(safe-area-inset-bottom))]"
         >
-          <SheetTitle className="sr-only">Issue properties</SheetTitle>
+          {/* EXP-698 r5: a VISIBLE title, like every other bottom sheet on
+              every client (iOS/Android both head this one "Properties") —
+              a sheet that slides up unlabelled reads as a menu that lost its
+              heading. Same `SheetHeader`/`SheetTitle` pair (and drag area) as
+              the board switcher. */}
+          <SheetHeader className="px-3 pt-2 pb-1">
+            <SheetTitle>Properties</SheetTitle>
+          </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto">{propertiesNode}</div>
         </SheetContent>
       </Sheet>

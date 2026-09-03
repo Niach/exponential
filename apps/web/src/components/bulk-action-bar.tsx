@@ -217,30 +217,39 @@ export function BulkActionBar({
         // EXP-523: enter-only. Clearing a selection is a deliberate action and
         // reads fine instantly, and an exit would mean threading presence state
         // through both call sites (board view + my-issues) for no real gain.
-        className="flex items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2 motion-safe:animate-in motion-safe:slide-in-from-bottom-1 motion-safe:fade-in-0 motion-safe:zoom-in-95 duration-fast ease-decelerate max-md:h-[52px] max-md:shadow-lg max-md:shadow-black/40"
+        // Phone budget (416px viewport → 384px of bar): the separators go, the
+        // gaps halve and Start coding shrinks, so × + count + four 32px icons
+        // + the pill + the trash land around 340px — the natives' one-row
+        // 360dp bar. `overflow-x-auto` is the safety net, not the plan: a
+        // longer count or a translated label scrolls instead of pushing the
+        // destructive button off the screen edge (EXP-698 r5 shot review).
+        className="flex items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2 motion-safe:animate-in motion-safe:slide-in-from-bottom-1 motion-safe:fade-in-0 motion-safe:zoom-in-95 duration-fast ease-decelerate max-md:h-[52px] max-md:max-w-[calc(100vw-2rem)] max-md:gap-0.5 max-md:overflow-x-auto max-md:shadow-lg max-md:shadow-black/40"
         data-testid="bulk-action-bar"
       >
         <Button
           variant="ghost"
           size="icon"
-          className="size-8 text-muted-foreground"
+          className="size-8 shrink-0 text-muted-foreground"
           aria-label="Clear selection"
           onClick={onClear}
         >
           <X className="size-4" />
         </Button>
-        <span className="px-1 text-sm font-semibold whitespace-nowrap">
+        <span className="shrink-0 px-1 text-sm font-semibold whitespace-nowrap">
           {issues.length}
         </span>
 
-        <Separator orientation="vertical" className="mx-1 h-4!" />
+        <Separator
+          orientation="vertical"
+          className="mx-1 h-4! max-md:hidden"
+        />
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="sm"
-              className="text-muted-foreground max-md:w-8 max-md:px-0!"
+              className="shrink-0 text-muted-foreground max-md:w-8 max-md:px-0!"
               disabled={busy}
               aria-label="Set status"
             >
@@ -281,7 +290,7 @@ export function BulkActionBar({
             <Button
               variant="ghost"
               size="sm"
-              className="text-muted-foreground max-md:w-8 max-md:px-0!"
+              className="shrink-0 text-muted-foreground max-md:w-8 max-md:px-0!"
               disabled={busy}
               aria-label="Set priority"
             >
@@ -318,7 +327,7 @@ export function BulkActionBar({
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-muted-foreground max-md:w-8 max-md:px-0!"
+                className="shrink-0 text-muted-foreground max-md:w-8 max-md:px-0!"
                 disabled={busy}
                 aria-label="Set assignee"
               >
@@ -367,7 +376,7 @@ export function BulkActionBar({
             <Button
               variant="ghost"
               size="sm"
-              className="text-muted-foreground max-md:w-8 max-md:px-0!"
+              className="shrink-0 text-muted-foreground max-md:w-8 max-md:px-0!"
               disabled={busy}
               aria-label="Set labels"
             >
@@ -421,14 +430,17 @@ export function BulkActionBar({
           onClear={onClear}
         />
 
-        <Separator orientation="vertical" className="mx-1 h-4!" />
+        <Separator
+          orientation="vertical"
+          className="mx-1 h-4! max-md:hidden"
+        />
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="sm"
-              className="text-destructive hover:text-destructive max-md:w-8 max-md:px-0!"
+              className="shrink-0 text-destructive hover:text-destructive max-md:w-8 max-md:px-0!"
               disabled={busy}
               aria-label="Delete selected"
             >
@@ -539,7 +551,7 @@ function BulkStartCodingControl({
         size="md"
         mode="action"
         primary
-        className="mx-1"
+        className="mx-1 max-md:mx-0 max-md:gap-1 max-md:px-2.5 max-md:text-xs"
         disabled={busy}
         aria-label="Start coding"
         onClick={() => setDialogOpen(true)}
