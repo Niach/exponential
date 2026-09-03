@@ -4,6 +4,7 @@ import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.ContentBlock
 import com.exponential.app.ui.markdown.model.InlineKind
 import com.exponential.app.ui.markdown.model.ListType
+import com.exponential.app.ui.markdown.model.TableAlignment
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -115,5 +116,92 @@ class MarkdownParserTest {
             .first { it.content.text.isNotEmpty() }
         assertEquals("quoted\ncontinued", tb.content.text)
         assertTrue(tb.content.paragraphs.all { it.kind == BlockKind.Blockquote })
+    }
+
+    // --- GFM tables (EXP-726) ---
+
+    private fun table(md: String) =
+        MarkdownParser.parse(md).filterIsInstance<ContentBlock.TableBlock>().single().table
+
+    @Test
+    fun pipeTableBecomesATableBlock() {
+        val t = table("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        assertEquals(2, t.columnCount)
+        assertEquals(listOf("a", "b"), t.header.map { it.text })
+        assertEquals(listOf(listOf("1", "2")), t.rows.map { row -> row.map { it.text } })
+    }
+
+    @Test
+    fun headerCellsCarryTheColumnAlignments() {
+        val t = table("| l | c | r | n |\n| :--- | :---: | ---: | --- |\n| 1 | 2 | 3 | 4 |")
+        assertEquals(
+            listOf(TableAlignment.Left, TableAlignment.Center, TableAlignment.Right, TableAlignment.None),
+            t.alignments,
+        )
+    }
+
+    @Test
+    fun headerOnlyTableHasNoBodyRows() {
+        val t = table("| a | b |\n| --- | --- |")
+        assertEquals(listOf("a", "b"), t.header.map { it.text })
+        assertTrue(t.rows.isEmpty())
+    }
+
+    @Test
+    fun raggedBodyRowIsPaddedToTheHeaderWidth() {
+        val t = table("| a | b | c |\n| --- | --- | --- |\n| 1 |")
+        assertEquals(listOf(listOf("1", "", "")), t.rows.map { row -> row.map { it.text } })
+    }
+
+    @Test
+    fun tableBetweenParagraphsKeepsItsTextNeighbours() {
+        val kinds = MarkdownParser.parse("before\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nafter")
+            .filter { it !is ContentBlock.TextBlock || it.content.text.isNotEmpty() }
+            .map { it::class.simpleName }
+        assertEquals(listOf("TextBlock", "TableBlock", "TextBlock"), kinds)
+    }
+
+    @Test
+    fun cellMarksCarryCellLocalOffsets() {
+        val t = table("| a **b** | c |\n| --- | --- |\n| 1 | 2 |")
+        assertEquals("a b", t.header[0].text)
+        val mark = t.header[0].marks.single()
+        assertEquals(InlineKind.Bold, mark.kind)
+        assertEquals(2, mark.start)
+        assertEquals(3, mark.end)
+    }
+
+    @Test
+    fun imageInsideACellStaysLiteralText() {
+        val t = table("| ![a](/api/attachments/x) | c |\n| --- | --- |\n| 1 | 2 |")
+        assertEquals("![a](/api/attachments/x)", t.header[0].text)
+        assertTrue(MarkdownParser.parse("| ![a](/x) |\n| --- |").none { it is ContentBlock.ImageBlock })
+    }
+
+    /**
+     * commonmark-java splits a row on unescaped pipes and unescapes `\|`
+     * BEFORE the inline parser runs, so a code span's `\|` reaches us as a
+     * bare `|` — which is exactly why the serializer may escape pipes over the
+     * whole rendered cell, code spans included, and still round-trip.
+     */
+    @Test
+    fun escapedPipeInsideACodeSpanIsUnescaped() {
+        val t = table("| `a \\| b` | c |\n| --- | --- |\n| 1 | 2 |")
+        assertEquals("a | b", t.header[0].text)
+        assertEquals(InlineKind.InlineCode, t.header[0].marks.single().kind)
+    }
+
+    /**
+     * The other half of that rule, and what the serializer's backslash-aware
+     * pipe escape targets: the splitter consumes the LAST backslash as the
+     * pipe's escape and the inline parser then collapses the remaining `\\`
+     * pair, so three source backslashes plus a pipe are the only way to carry
+     * a literal backslash-then-pipe through a cell.
+     */
+    @Test
+    fun backslashBeforeAnEscapedPipeSurvivesAsBoth() {
+        val t = table("| a\\\\\\|b | c |\n| --- | --- |\n| 1 | 2 |")
+        assertEquals("a\\|b", t.header[0].text)
+        assertEquals("c", t.header[1].text)
     }
 }

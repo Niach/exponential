@@ -7,9 +7,18 @@ import com.exponential.app.ui.markdown.model.InlineMark
 import com.exponential.app.ui.markdown.model.ListType
 import com.exponential.app.ui.markdown.model.ParagraphAttrs
 import com.exponential.app.ui.markdown.model.RichText
+import com.exponential.app.ui.markdown.model.TableAlignment
+import com.exponential.app.ui.markdown.model.TableCell
+import com.exponential.app.ui.markdown.model.TableData
 import com.exponential.app.ui.markdown.model.normalizeBlocks
 import org.commonmark.ext.gfm.strikethrough.Strikethrough
 import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension
+import org.commonmark.ext.gfm.tables.TableBlock as CmTableBlock
+import org.commonmark.ext.gfm.tables.TableBody as CmTableBody
+import org.commonmark.ext.gfm.tables.TableCell as CmTableCell
+import org.commonmark.ext.gfm.tables.TableHead as CmTableHead
+import org.commonmark.ext.gfm.tables.TableRow as CmTableRow
+import org.commonmark.ext.gfm.tables.TablesExtension
 import org.commonmark.node.BlockQuote
 import org.commonmark.node.BulletList
 import org.commonmark.node.Code
@@ -49,7 +58,7 @@ object MarkdownParser {
     // so autolinking here would rewrite `https://x` to `[https://x](https://x)`
     // on the next mobile save, diverging the stored bytes from the web client.
     private val parser: Parser = Parser.builder()
-        .extensions(listOf(StrikethroughExtension.create()))
+        .extensions(listOf(StrikethroughExtension.create(), TablesExtension.create()))
         .build()
 
     /**
@@ -84,6 +93,14 @@ object MarkdownParser {
 
     private class RenderContext(val softBreaksAsNewlines: Boolean = false) {
         val listStack = ArrayDeque<ListFrame>()
+        /**
+         * Inside a table cell (EXP-726). A cell is ONE inline paragraph: an
+         * image degrades to its literal `![alt](url)` text and every break
+         * (soft or hard, [softBreaksAsNewlines] notwithstanding) becomes a
+         * space, so the cell can never grow a second line the pipe syntax
+         * cannot carry.
+         */
+        var inTableCell = false
         var inBlockquote = false
         /** Attrs the next [Paragraph] should adopt (set when a list item opens). */
         var pendingItemAttrs: ParagraphAttrs? = null
@@ -237,13 +254,15 @@ object MarkdownParser {
                 // for the terminal reading instead, where it is a real line —
                 // and a line is a paragraph boundary here, not a raw '\n':
                 // RichText's invariant is one ParagraphAttrs per '\n'-line.
-                is SoftLineBreak -> if (ctx.softBreaksAsNewlines) {
+                is SoftLineBreak -> if (ctx.softBreaksAsNewlines && !ctx.inTableCell) {
                     breakParaPreservingMarks(currentPara().attrs)
                 } else {
                     append(" ")
                 }
 
-                is HardLineBreak -> {
+                is HardLineBreak -> if (ctx.inTableCell) {
+                    append(" ")
+                } else {
                     // A hard break becomes a paragraph boundary carrying the same attrs,
                     // matching how iOS re-splits the run by line at serialize time.
                     breakParaPreservingMarks(currentPara().attrs)
@@ -285,8 +304,15 @@ object MarkdownParser {
                 }
 
                 is Image -> {
-                    emitImage(url = node.destination ?: "", alt = collectText(node))
+                    val url = node.destination ?: ""
+                    val alt = collectText(node)
+                    // A cell cannot hold a block, so an image inside one stays
+                    // the literal markdown it was written as (contract §cells).
+                    if (ctx.inTableCell) append("![" + alt + "](" + url + ")")
+                    else emitImage(url = url, alt = alt)
                 }
+
+                is CmTableBlock -> emitTable(node, ctx)
 
                 is FencedCodeBlock -> emitCodeBlock(node.literal, node.info?.takeIf { it.isNotBlank() })
 
@@ -351,6 +377,100 @@ object MarkdownParser {
 
                 else -> renderChildren(node, ctx)
             }
+        }
+
+        /**
+         * A GFM pipe table (EXP-726). Row 0 is the header and carries the
+         * column alignments; ragged body rows are padded with empty cells and
+         * extra cells are dropped, so [TableData] is always rectangular.
+         */
+        private fun emitTable(node: CmTableBlock, ctx: RenderContext) {
+            var header: List<TableCell> = emptyList()
+            var alignments: List<TableAlignment> = emptyList()
+            val body = mutableListOf<List<TableCell>>()
+            var section = node.firstChild
+            while (section != null) {
+                when (section) {
+                    is CmTableHead -> for (row in sectionRows(section)) {
+                        if (header.isEmpty()) {
+                            header = row.map { renderCellInline(it, ctx) }
+                            alignments = row.map { alignmentOf(it) }
+                        }
+                    }
+                    is CmTableBody -> for (row in sectionRows(section)) {
+                        body.add(row.map { renderCellInline(it, ctx) })
+                    }
+                }
+                section = section.next
+            }
+            if (header.isEmpty()) return
+            val width = header.size
+            val rows = body.map { cells ->
+                if (cells.size == width) cells
+                else List(width) { i -> cells.getOrNull(i) ?: TableCell(text = "") }
+            }
+            flushText()
+            blocks.add(
+                ContentBlock.TableBlock(
+                    table = TableData(
+                        header = header,
+                        rows = rows,
+                        alignments = List(width) { alignments.getOrElse(it) { TableAlignment.None } },
+                    ),
+                ),
+            )
+        }
+
+        /** The cells of every [CmTableRow] directly under a head/body section. */
+        private fun sectionRows(section: Node): List<List<CmTableCell>> {
+            val out = mutableListOf<List<CmTableCell>>()
+            var row = section.firstChild
+            while (row != null) {
+                if (row is CmTableRow) {
+                    val cells = mutableListOf<CmTableCell>()
+                    var cell = row.firstChild
+                    while (cell != null) {
+                        if (cell is CmTableCell) cells.add(cell)
+                        cell = cell.next
+                    }
+                    out.add(cells)
+                }
+                row = row.next
+            }
+            return out
+        }
+
+        private fun alignmentOf(cell: CmTableCell): TableAlignment = when (cell.alignment) {
+            CmTableCell.Alignment.LEFT -> TableAlignment.Left
+            CmTableCell.Alignment.CENTER -> TableAlignment.Center
+            CmTableCell.Alignment.RIGHT -> TableAlignment.Right
+            else -> TableAlignment.None
+        }
+
+        /**
+         * Render one cell's inline children into a FRESH collector so the
+         * enclosing document's paragraph stack is untouched; the result is one
+         * inline paragraph (text + marks).
+         */
+        private fun renderCellInline(cell: CmTableCell, ctx: RenderContext): TableCell {
+            val sub = BlockCollector()
+            val cellCtx = RenderContext(ctx.softBreaksAsNewlines)
+            cellCtx.inTableCell = true
+            sub.renderChildren(cell, cellCtx)
+            val rich = sub.finalizeInline()
+            return TableCell(text = rich.text, marks = rich.marks)
+        }
+
+        /** The collected paragraphs folded into ONE inline line (no separators). */
+        fun finalizeInline(): RichText {
+            val sb = StringBuilder()
+            val marks = mutableListOf<InlineMark>()
+            for (p in paras) {
+                val offset = sb.length
+                sb.append(p.sb)
+                for (m in p.marks) marks.add(m.copy(start = m.start + offset, end = m.end + offset))
+            }
+            return RichText(sb.toString(), listOf(ParagraphAttrs.PLAIN), marks)
         }
 
         private fun emitCodeBlock(literal: String, lang: String?) {

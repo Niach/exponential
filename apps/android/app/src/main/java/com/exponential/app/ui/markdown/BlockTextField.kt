@@ -20,6 +20,7 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
@@ -49,6 +50,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -104,6 +106,15 @@ fun BlockTextField(
     row: EditorRow.TextRun,
     placeholder: String?,
     mentionMembers: List<MentionMember> = emptyList(),
+    /**
+     * A table cell (EXP-726): the field holds ONE PARAGRAPH, so a typed or
+     * pasted newline folds to a space and the IME offers Next instead of a
+     * return key. It still WRAPS — `BasicTextField(singleLine = true)` would
+     * clip the cell to one horizontally-scrolling line while the read view
+     * wraps at the 280dp column cap, so the row jumped height the moment you
+     * tapped into a long cell.
+     */
+    singleLine: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val revision = model.revision(row.id)
@@ -350,7 +361,15 @@ fun BlockTextField(
 
     BasicTextField(
         value = value,
-        onValueChange = { raw ->
+        onValueChange = { input ->
+            // A cell is one inline paragraph: fold any newline the IME or a
+            // paste brought in to a space (same length, so the reported
+            // selection stays valid) before anything else looks at the text.
+            val raw = if (singleLine && input.text.contains('\n')) {
+                input.copy(text = input.text.replace('\n', ' '))
+            } else {
+                input
+            }
             // A chip is ONE thing (EXP-655): a caret moved INTO a resolved
             // `#IDENTIFIER` (arrow keys, the IME's cursor control) skips to
             // the edge it was heading for, and a backspace at the chip's
@@ -377,6 +396,14 @@ fun BlockTextField(
         ),
         onTextLayout = { textLayout = it },
         cursorBrush = SolidColor(MdStyle.Link),
+        // Never `singleLine = true`: newline folding + ImeAction.Next is the
+        // whole of the cell contract, and the flag would additionally forbid
+        // wrapping, which the read view does (see the KDoc on [singleLine]).
+        keyboardOptions = if (singleLine) {
+            KeyboardOptions(imeAction = ImeAction.Next)
+        } else {
+            KeyboardOptions.Default
+        },
         // Per-paragraph styles (heading/list/quote/code) + inline marks +
         // resolved `#IDENTIFIER` chips (EXP-322) — display-only, the stored
         // markdown keeps the bare tokens.

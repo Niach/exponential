@@ -381,11 +381,6 @@ public enum MarkdownChipDecorator {
             // whose foreground is CLEAR when a status glyph is painted over it
             // (EXP-423) — the title must not inherit that.
             var attrs = attributed.attributes(at: NSMaxRange(range) - 1, effectiveRange: nil)
-            // Belt and braces with `IssueRefs.decorate`'s own guard: a verbatim
-            // pipe-table run is re-emitted from its SOURCE STRING, so an
-            // attachment character inserted into it reaches the saved markdown
-            // (EXP-322). Never insert a title inside one.
-            guard attrs[.markdownTableBlock] == nil else { return }
             let identifier = ns.substring(with: NSRange(location: range.location + 1, length: range.length - 1))
                 .uppercased()
             guard let raw = titleResolver(identifier) else { return }

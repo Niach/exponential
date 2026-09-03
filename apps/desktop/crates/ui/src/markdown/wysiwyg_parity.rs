@@ -191,3 +191,29 @@ async fn code_and_raw_source_keep_their_literal_issue_refs(cx: &mut TestAppConte
     let (editor, cx) = painted_chip_editor(src, MarkdownEditorMode::Source, cx);
     assert_eq!(editor.update(cx, |editor, cx| editor.markdown(cx)), src);
 }
+
+/// EXP-726: a literal backslash immediately before a pipe inside a table cell.
+/// `\|` is GFM's pipe escape and `\\` its backslash escape, so the wire form of
+/// the cell text `a\|b` is `a` + THREE backslashes + `|` + `b`. Both desktop
+/// pipelines have to agree on that byte for byte — the block serializer
+/// (`serialize::escape_cell_pipes`) and the vendored WYSIWYG engine — or a save
+/// through one editor silently turns the pipe back into a cell separator for
+/// the other. Platform-local (NOT a contract fixture: no cross-client suite
+/// carries it yet).
+#[gpui::test]
+async fn backslash_before_a_table_pipe_round_trips_byte_identically(cx: &mut TestAppContext) {
+    let md = "| a\\\\\\|b | c |\n| --- | --- |\n| 1 | 2 |";
+
+    // (a) the comrak block pipeline.
+    assert_eq!(
+        super::serialize::blocks_to_markdown(&super::parse::markdown_to_blocks(md)),
+        md
+    );
+
+    // (b) the vendored WYSIWYG engine, plus its own fixpoint.
+    let editor = cx.new(|cx| MarkdownEditor::from_markdown(cx, md.to_string(), None));
+    let first = editor.update(cx, |editor, cx| editor.markdown(cx));
+    assert_eq!(first, md);
+    let editor = cx.new(|cx| MarkdownEditor::from_markdown(cx, first.clone(), None));
+    assert_eq!(editor.update(cx, |editor, cx| editor.markdown(cx)), first);
+}

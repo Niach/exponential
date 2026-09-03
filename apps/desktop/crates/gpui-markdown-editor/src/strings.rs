@@ -256,6 +256,14 @@ pub struct I18nStrings {
     pub table_axis_align_column_center: String,
     /// Table-axis menu item for right-aligning a column.
     pub table_axis_align_column_right: String,
+    /// Table-axis menu item for inserting a column to the left (EXP-726).
+    pub table_axis_insert_column_left: String,
+    /// Table-axis menu item for inserting a column to the right (EXP-726).
+    pub table_axis_insert_column_right: String,
+    /// Table-axis menu item for inserting a row above (EXP-726).
+    pub table_axis_insert_row_above: String,
+    /// Table-axis menu item for inserting a row below (EXP-726).
+    pub table_axis_insert_row_below: String,
     /// Table-axis menu item for moving a column left.
     pub table_axis_move_column_left: String,
     /// Table-axis menu item for moving a column right.
@@ -470,6 +478,10 @@ struct I18nStringsDe {
     table_axis_align_column_left: Option<String>,
     table_axis_align_column_center: Option<String>,
     table_axis_align_column_right: Option<String>,
+    table_axis_insert_column_left: Option<String>,
+    table_axis_insert_column_right: Option<String>,
+    table_axis_insert_row_above: Option<String>,
+    table_axis_insert_row_below: Option<String>,
     table_axis_move_column_left: Option<String>,
     table_axis_move_column_right: Option<String>,
     table_axis_delete_column: Option<String>,
@@ -915,6 +927,18 @@ impl I18nStringsDe {
             table_axis_align_column_right: self
                 .table_axis_align_column_right
                 .unwrap_or(defaults.table_axis_align_column_right),
+            table_axis_insert_column_left: self
+                .table_axis_insert_column_left
+                .unwrap_or(defaults.table_axis_insert_column_left),
+            table_axis_insert_column_right: self
+                .table_axis_insert_column_right
+                .unwrap_or(defaults.table_axis_insert_column_right),
+            table_axis_insert_row_above: self
+                .table_axis_insert_row_above
+                .unwrap_or(defaults.table_axis_insert_row_above),
+            table_axis_insert_row_below: self
+                .table_axis_insert_row_below
+                .unwrap_or(defaults.table_axis_insert_row_below),
             table_axis_move_column_left: self
                 .table_axis_move_column_left
                 .unwrap_or(defaults.table_axis_move_column_left),
@@ -1161,6 +1185,10 @@ impl I18nStrings {
             table_axis_align_column_left: "左对齐此列".into(),
             table_axis_align_column_center: "居中此列".into(),
             table_axis_align_column_right: "右对齐此列".into(),
+            table_axis_insert_column_left: "在左侧插入列".into(),
+            table_axis_insert_column_right: "在右侧插入列".into(),
+            table_axis_insert_row_above: "在上方插入行".into(),
+            table_axis_insert_row_below: "在下方插入行".into(),
             table_axis_move_column_left: "向左移动此列".into(),
             table_axis_move_column_right: "向右移动此列".into(),
             table_axis_delete_column: "删除此列".into(),
@@ -1375,6 +1403,10 @@ impl I18nStrings {
             table_axis_align_column_left: "Align Column Left".into(),
             table_axis_align_column_center: "Align Column Center".into(),
             table_axis_align_column_right: "Align Column Right".into(),
+            table_axis_insert_column_left: "Insert Column Left".into(),
+            table_axis_insert_column_right: "Insert Column Right".into(),
+            table_axis_insert_row_above: "Insert Row Above".into(),
+            table_axis_insert_row_below: "Insert Row Below".into(),
             table_axis_move_column_left: "Move Column Left".into(),
             table_axis_move_column_right: "Move Column Right".into(),
             table_axis_delete_column: "Delete Column".into(),

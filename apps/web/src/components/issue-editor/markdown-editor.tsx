@@ -21,6 +21,11 @@ import { Markdown } from "tiptap-markdown"
 // python/rust/go — enough for plan code blocks without pulling all 200 grammars.
 const lowlight = createLowlight(common)
 import { MarkdownImage } from "@/lib/markdown-image"
+import {
+  MarkdownTableExtensions,
+  moveSelectionAfterTable,
+  tableTrailingNodeOptions,
+} from "@/lib/markdown-table"
 import { MarkdownParagraph } from "@/components/issue-editor/markdown-paragraph"
 import { ArrowInputRules } from "@/lib/arrow-input-rules"
 import { IssueRefExtension } from "@/lib/issue-ref-extension"
@@ -38,6 +43,7 @@ import {
 } from "@/components/autocomplete-rows"
 import { EditorSelectionRail } from "@/components/issue-editor/selection-rail"
 import { EditorInsertBar } from "@/components/issue-editor/formatting-rail"
+import { EditorTableControls } from "@/components/issue-editor/table-controls"
 import { EditorMobileFormattingBar } from "@/components/issue-editor/mobile-formatting-bar"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
@@ -209,6 +215,8 @@ export const MarkdownEditor = forwardRef<
     const [activeIndex, setActiveIndex] = useState(0)
     const keyHandlerRef = useRef<(event: KeyboardEvent) => boolean>(() => false)
     const menuRef = useRef<HTMLDivElement | null>(null)
+    // The positioning origin for the table hover overlay (EXP-726).
+    const wrapperRef = useRef<HTMLDivElement | null>(null)
 
     // True when `handleUploadedFiles` below would claim this batch — the drop
     // handler needs to know BEFORE it decides to move the caret.
@@ -255,6 +263,11 @@ export const MarkdownEditor = forwardRef<
           // Replaced below by MarkdownParagraph so intentional blank lines
           // round-trip through GFM (EXP-7).
           paragraph: false,
+          // EXP-726: TrailingNode appends its paragraph on every editor,
+          // read-only ones included. MarkdownTable's own trailing-paragraph
+          // plugin does the job for tables and skips read-only bodies, which
+          // would otherwise render a blank row under a closing table.
+          trailingNode: tableTrailingNodeOptions,
         }),
         MarkdownParagraph,
         CodeBlockLowlight.configure({
@@ -268,6 +281,12 @@ export const MarkdownEditor = forwardRef<
         TaskList,
         TaskItem.configure({ nested: true }),
         MarkdownImage,
+        // EXP-726 — declared AFTER StarterKit so the in-table Enter/Shift-Enter
+        // keymap outranks splitBlock, and BEFORE the ref/mention/autocomplete
+        // extensions because tiptap builds its plugins from the REVERSED
+        // extension list: the autocomplete, declared last, keeps Tab/Enter for
+        // its candidate menu.
+        ...MarkdownTableExtensions,
         IssueRefExtension.configure({
           getResolved: (identifier) =>
             issueRefsRef.current?.resolve(identifier) ?? null,
@@ -354,6 +373,10 @@ export const MarkdownEditor = forwardRef<
       },
       insertImage: ({ alt, src }) => {
         if (!editor) return
+        // A table cell holds ONE paragraph, so a block image inserted at a
+        // caret inside one would split the table around it. Park the
+        // selection after the table and let the image land below it.
+        moveSelectionAfterTable(editor)
         // A drop onto (or just before) an existing image leaves a
         // NodeSelection over it — setImage would REPLACE that node. Insert
         // after it instead, so the dropped image lands beside the existing
@@ -374,7 +397,11 @@ export const MarkdownEditor = forwardRef<
         editor.chain().focus().setImage({ alt, src }).run()
       },
       appendImage: ({ alt, src }) => {
-        editor?.chain().focus(`end`).setImage({ alt, src }).run()
+        if (!editor) return
+        // `end` lands inside the last cell when the document ends in a table.
+        editor.commands.focus(`end`)
+        moveSelectionAfterTable(editor)
+        editor.chain().focus().setImage({ alt, src }).run()
       },
     }))
 
@@ -648,6 +675,7 @@ export const MarkdownEditor = forwardRef<
 
     return (
       <div
+        ref={wrapperRef}
         className={cn(`tiptap-wrapper`, appearance === `chat` && `tiptap-chat`)}
       >
         {/* EXP-568: no always-on toolbar — the formatting rail floats over a
@@ -667,7 +695,12 @@ export const MarkdownEditor = forwardRef<
             the selection rail only shows over a selection, where inserting
             would replace it. */}
         {editable && editor && !isMobile ? (
-          <EditorInsertBar editor={editor} imageUpload={imageUpload} />
+          <>
+            <EditorInsertBar editor={editor} imageUpload={imageUpload} />
+            {/* EXP-726: table +/grip chrome is desktop-editing only — a
+                read-only body or a phone gets cells and nothing else. */}
+            <EditorTableControls editor={editor} wrapperRef={wrapperRef} />
+          </>
         ) : null}
         {editable && autocomplete && menuStyle
           ? createPortal(

@@ -30,7 +30,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-639 third-party components are distributed as part of this build. They are
+640 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -715,7 +715,7 @@ Apache License
 MIT
 ------------------------------------------------------------------------------
 
-Applies to the following 33 components:
+Applies to the following 34 components:
 
   @tiptap/core 3.23.1
     Copyright (c) 2025, Tiptap GmbH
@@ -766,6 +766,8 @@ Applies to the following 33 components:
   @tiptap/extension-placeholder 3.23.1
     Copyright (c) 2025, Tiptap GmbH
   @tiptap/extension-strike 3.23.1
+    Copyright (c) 2025, Tiptap GmbH
+  @tiptap/extension-table 3.23.1
     Copyright (c) 2025, Tiptap GmbH
   @tiptap/extension-task-item 3.23.6
     Copyright (c) 2025, Tiptap GmbH

@@ -6,7 +6,10 @@
 //! `\n` between items), `\n\n` between blocks, `**`/`*`/`~~`/`***`
 //! delimiters, ATX headings, fenced code blocks, and `![alt](url)` images.
 
-use super::blocks::{BlockKind, ContentBlock, InlineKind, InlineMark, ListType, ParagraphAttrs, RichText};
+use super::blocks::{
+    BlockKind, ContentBlock, InlineKind, InlineMark, ListType, ParagraphAttrs, RichText,
+    TableAlignment,
+};
 
 /// The GFM interchange form of an intentional blank line — a paragraph
 /// holding only a no-break space, written as the entity so it survives every
@@ -29,9 +32,101 @@ pub fn blocks_to_markdown(blocks: &[ContentBlock]) -> String {
             ContentBlock::Image { url, alt, .. } => {
                 parts.push(format!("![{alt}]({url})"));
             }
+            ContentBlock::Table {
+                header,
+                rows,
+                alignments,
+                ..
+            } => {
+                parts.push(serialize_table(header, rows, alignments));
+            }
         }
     }
     parts.join("\n\n")
+}
+
+// -- Table block (EXP-726) ------------------------------------------------
+
+/// The canonical cross-client pipe table: one space each side of every cell,
+/// NO column-width padding, `---` / `:---` / `:---:` / `---:` delimiters, an
+/// empty cell as `|  |`, rows joined by a single `\n`. The blank lines around
+/// it fall out of `parts.join("\n\n")` above.
+fn serialize_table(
+    header: &[RichText],
+    rows: &[Vec<RichText>],
+    alignments: &[TableAlignment],
+) -> String {
+    let columns = alignments.len().max(header.len()).max(1);
+    let mut lines = Vec::with_capacity(2 + rows.len());
+    lines.push(serialize_table_row(header, columns));
+    lines.push(format!(
+        "| {} |",
+        (0..columns)
+            .map(|column| match alignments.get(column).copied().unwrap_or_default() {
+                TableAlignment::None => "---",
+                TableAlignment::Left => ":---",
+                TableAlignment::Center => ":---:",
+                TableAlignment::Right => "---:",
+            })
+            .collect::<Vec<_>>()
+            .join(" | ")
+    ));
+    lines.extend(rows.iter().map(|row| serialize_table_row(row, columns)));
+    lines.join("\n")
+}
+
+fn serialize_table_row(cells: &[RichText], columns: usize) -> String {
+    let rendered = (0..columns)
+        .map(|column| match cells.get(column) {
+            Some(cell) => serialize_table_cell(cell),
+            None => String::new(),
+        })
+        .collect::<Vec<_>>();
+    format!("| {} |", rendered.join(" | "))
+}
+
+/// A cell is ONE inline paragraph. Only GFM's two cell-level rewrites apply:
+/// an unescaped `|` would end the cell and a newline would end the row (the
+/// parser already collapses in-cell breaks to spaces, so the `\n` guard is
+/// belt-and-braces for hand-built blocks).
+fn serialize_table_cell(cell: &RichText) -> String {
+    escape_cell_pipes(&inline(&cell.text, &cell.marks, false)).replace('\n', " ")
+}
+
+/// EXP-726: GFM's cell-level pipe escape. `inline` above emits this pipeline's
+/// text VERBATIM (it escapes nothing), so the cell layer is the only place a
+/// literal backslash can be protected — and it must be, because every parser
+/// (comrak `unescape_pipes`, cmark-gfm, markdown-it, commonmark-java) resolves
+/// `\|` to a pipe and `\\` to one backslash BEFORE the cell is inline-parsed.
+/// Writing `a\|b` (backslash, pipe) as `a\\|b` therefore reads back as a
+/// backslash followed by a CELL SEPARATOR — the pipe's data is gone. So double
+/// the run of backslashes immediately preceding each `|` and then escape the
+/// pipe: `a|b` -> `a\|b`, `a\|b` -> `a\\\|b`, `a\\|b` -> `a\\\\\|b`.
+/// Backslashes NOT followed by a pipe stay bare (fixture `literal_backslash`:
+/// `back\slash` is stable).
+fn escape_cell_pipes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut backslash_run = 0usize;
+    for ch in text.chars() {
+        match ch {
+            '\\' => {
+                backslash_run += 1;
+                out.push('\\');
+            }
+            '|' => {
+                for _ in 0..backslash_run {
+                    out.push('\\');
+                }
+                out.push_str("\\|");
+                backslash_run = 0;
+            }
+            _ => {
+                backslash_run = 0;
+                out.push(ch);
+            }
+        }
+    }
+    out
 }
 
 // -- Text block ----------------------------------------------------------
@@ -358,6 +453,30 @@ pub(crate) const CONTRACT_FIXTURES: &[(&str, &str)] = &[
     ("dollar_amount", "price is $5"),
     ("angle_brackets", "5 < 6 > 4"),
     ("brackets_without_url", "1 + 1 = 2 [not a link]"),
+    // EXP-726: the GFM table contract. Byte-mirrored by the Android
+    // `MarkdownRoundTripTest.kt`, the iOS table suite and the web
+    // `markdown-table.test.ts` — add a fixture in all four or in none.
+    ("table_basic", "| a | b |\n| --- | --- |\n| 1 | 2 |"),
+    (
+        "table_alignments",
+        "| l | c | r | n |\n| :--- | :---: | ---: | --- |\n| 1 | 2 | 3 | 4 |",
+    ),
+    (
+        "table_inline_marks",
+        "| **bold** | [link](https://example.com) |\n| --- | --- |\n| `code` | *em* |",
+    ),
+    ("table_escaped_pipe", "| a \\| b | c |\n| --- | --- |\n| 1 | 2 |"),
+    ("table_empty_cell", "| a | b |\n| --- | --- |\n| 1 |  |"),
+    ("table_header_only", "| a | b |\n| --- | --- |"),
+    (
+        "table_between_paragraphs",
+        "before\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nafter",
+    ),
+    (
+        "table_chip_cells",
+        "| @jane@example.com | #EXP-42 |\n| --- | --- |\n| x | y |",
+    ),
+    ("table_unicode", "| Grüße | 🚀 |\n| --- | --- |\n| ü | é |"),
 ];
 
 #[cfg(test)]
@@ -566,6 +685,83 @@ mod tests {
     #[test]
     fn mention_and_issue_ref_round_trip() {
         assert_stable("cc @jane@example.com see #EXP-42");
+    }
+
+    // --- EXP-726: GFM tables. ---
+
+    #[test]
+    fn table_pipe_in_a_cell_is_escaped() {
+        let blocks = markdown_to_blocks("| a \\| b | c |\n| --- | --- |\n| 1 | 2 |");
+        assert_eq!(
+            blocks_to_markdown(&blocks),
+            "| a \\| b | c |\n| --- | --- |\n| 1 | 2 |"
+        );
+    }
+
+    // EXP-726: a literal backslash immediately before a pipe. `\|` is the
+    // pipe escape and `\\` the backslash escape, so the backslash run in front
+    // of a pipe has to be doubled — otherwise `a\|b` ships as `a\\|b`, which
+    // every GFM parser reads as a backslash plus a CELL SEPARATOR. Platform
+    // local (NOT a contract fixture).
+    #[test]
+    fn escape_cell_pipes_doubles_the_backslash_run_before_a_pipe_exp726() {
+        assert_eq!(escape_cell_pipes(r"a|b"), r"a\|b");
+        assert_eq!(escape_cell_pipes(r"a\|b"), r"a\\\|b");
+        assert_eq!(escape_cell_pipes(r"a\\|b"), r"a\\\\\|b");
+        // Backslashes that do NOT precede a pipe are untouched (the
+        // `literal_backslash` fixture).
+        assert_eq!(escape_cell_pipes(r"back\slash"), r"back\slash");
+        assert_eq!(escape_cell_pipes(r"trailing\"), "trailing\\");
+        assert_eq!(escape_cell_pipes("plain"), "plain");
+    }
+
+    #[test]
+    fn table_backslash_before_pipe_round_trips_byte_identically_exp726() {
+        // Wire form: `a`, three backslashes, `|`, `b` — reads back as the cell
+        // text `a\|b` on every client.
+        let md = "| a\\\\\\|b | c |\n| --- | --- |\n| 1 | 2 |";
+        assert_stable(md);
+        // And it is a fixpoint.
+        assert_eq!(round_trip(&round_trip(md)), md);
+    }
+
+    #[test]
+    fn header_only_table_round_trips() {
+        assert_stable("| a | b |\n| --- | --- |");
+    }
+
+    #[test]
+    fn padded_github_style_table_converges_to_the_canonical_form() {
+        // What GitHub's own editor (and most hand-authoring) produces: aligned
+        // pipes, padded cells, ragged body rows, `:-:` delimiters.
+        let padded = "| Name  | Score |\n|:------|------:|\n| Alice |    10 |\n| Bob   |";
+        let once = round_trip(padded);
+        assert_eq!(
+            once,
+            "| Name | Score |\n| :--- | ---: |\n| Alice | 10 |\n| Bob |  |"
+        );
+        // …and the canonical form is a fixpoint.
+        assert_eq!(round_trip(&once), once);
+    }
+
+    #[test]
+    fn a_table_cell_never_emits_a_newline() {
+        // Hand-built blocks may carry one; the cell serializer flattens it so
+        // the row can never be split in two.
+        let blocks = vec![ContentBlock::table(
+            vec![RichText::plain("a\nb"), RichText::plain("c")],
+            Vec::new(),
+            vec![
+                super::super::blocks::TableAlignment::None,
+                super::super::blocks::TableAlignment::None,
+            ],
+        )];
+        assert_eq!(blocks_to_markdown(&blocks), "| a b | c |\n| --- | --- |");
+    }
+
+    #[test]
+    fn table_is_separated_from_its_neighbours_by_blank_lines() {
+        assert_stable("before\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nafter");
     }
 
     // --- Idempotency: a second round-trip must equal the first. ---

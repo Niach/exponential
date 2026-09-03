@@ -4,6 +4,7 @@ import com.exponential.app.ui.markdown.model.ContentBlock
 import com.exponential.app.ui.markdown.model.InlineMark
 import com.exponential.app.ui.markdown.model.ParagraphAttrs
 import com.exponential.app.ui.markdown.model.RichText
+import com.exponential.app.ui.markdown.model.TableData
 import java.util.UUID
 
 /**
@@ -39,7 +40,20 @@ sealed interface EditorRow {
         val url: String,
         val alt: String,
     ) : EditorRow
+
+    /**
+     * A GFM table (EXP-726). Like [Image] it is NOT a text run: the row itself
+     * takes no caret, its CELLS do — each is its own field keyed by the cell
+     * id, which [EditorModel] routes through the same `updateRun` entry point.
+     */
+    data class Table(
+        override val id: String = UUID.randomUUID().toString(),
+        val table: TableData,
+    ) : EditorRow
 }
+
+/** Whether this row is an editable text run (everything else is block-level). */
+internal val EditorRow.isText: Boolean get() = this is EditorRow.TextRun
 
 object EditorRows {
 
@@ -52,6 +66,7 @@ object EditorRows {
         for (block in blocks) {
             when (block) {
                 is ContentBlock.ImageBlock -> rows.add(EditorRow.Image(url = block.url, alt = block.alt))
+                is ContentBlock.TableBlock -> rows.add(EditorRow.Table(table = block.table))
                 is ContentBlock.TextBlock -> {
                     val rich = block.content
                     val lines = rich.lines
@@ -103,6 +118,10 @@ object EditorRows {
                     flush()
                     blocks.add(ContentBlock.ImageBlock(url = row.url, alt = row.alt))
                 }
+                is EditorRow.Table -> {
+                    flush()
+                    blocks.add(ContentBlock.TableBlock(table = row.table))
+                }
             }
         }
         flush()
@@ -118,15 +137,15 @@ object EditorRows {
             out.add(emptyRun())
             return out
         }
-        if (out.first() is EditorRow.Image) {
+        if (!out.first().isText) {
             out.add(0, emptyRun())
         }
-        if (out.last() is EditorRow.Image) {
+        if (!out.last().isText) {
             out.add(emptyRun())
         }
         var i = 1
         while (i < out.size) {
-            if (out[i] is EditorRow.Image && out[i - 1] is EditorRow.Image) {
+            if (!out[i].isText && !out[i - 1].isText) {
                 out.add(i, emptyRun())
             }
             i++

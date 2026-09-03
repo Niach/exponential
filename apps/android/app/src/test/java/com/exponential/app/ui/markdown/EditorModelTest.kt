@@ -634,4 +634,231 @@ class EditorModelTest {
         assertTrue(m.revision(last.id) > before)
         assertFalse(m.isDirty)
     }
+
+    // --- Table cells (EXP-726). A cell is a field like any other: its edits
+    // arrive through updateRun keyed by the CELL id, which the model routes
+    // into the table. No manipulation UI exists on mobile, so these are the
+    // only table mutations. ---
+
+    private fun table(m: EditorModel) = m.rows.filterIsInstance<EditorRow.Table>().single().table
+
+    @Test
+    fun editingACellRewritesTheTable() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val cell = table(m).rows[0][1]
+        m.updateRun(cell.id, "22", 2)
+        assertEquals("| a | b |\n| --- | --- |\n| 1 | 22 |", m.currentMarkdown())
+        assertTrue(m.isDirty)
+    }
+
+    @Test
+    fun editingAHeaderCellRewritesTheHeaderRow() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        m.updateRun(table(m).header[0].id, "name", 4)
+        assertEquals("| name | b |\n| --- | --- |\n| 1 | 2 |", m.currentMarkdown())
+    }
+
+    @Test
+    fun updateTableCellAddressesTheGridByCoordinate() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val rowId = m.rows.filterIsInstance<EditorRow.Table>().single().id
+        m.updateTableCell(rowId, row = 0, col = 1, text = "head")
+        m.updateTableCell(rowId, row = 1, col = 0, text = "one")
+        assertEquals("| a | head |\n| --- | --- |\n| one | 2 |", m.currentMarkdown())
+    }
+
+    /** A cell is ONE inline paragraph: a pasted newline folds to a space. */
+    @Test
+    fun aNewlinePastedIntoACellBecomesASpace() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val cell = table(m).rows[0][0]
+        m.updateRun(cell.id, "one\ntwo", 7)
+        assertEquals("one two", table(m).rows[0][0].text)
+        assertEquals("| a | b |\n| --- | --- |\n| one two | 2 |", m.currentMarkdown())
+    }
+
+    /** A `|` typed into a cell is escaped on the way out, never on the way in. */
+    @Test
+    fun aPipeTypedIntoACellIsEscapedOnSerialize() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        m.updateRun(table(m).rows[0][0].id, "x | y", 5)
+        assertEquals("x | y", table(m).rows[0][0].text)
+        assertEquals("| a | b |\n| --- | --- |\n| x \\| y | 2 |", m.currentMarkdown())
+    }
+
+    @Test
+    fun cellMarksAreRemappedAroundAnInsertion() {
+        val m = model("| a **b** | c |\n| --- | --- |\n| 1 | 2 |")
+        val cell = table(m).header[0]
+        assertEquals("a b", cell.text)
+        m.updateRun(cell.id, "xa b", 1)
+        val mark = table(m).header[0].marks.single()
+        assertEquals(3, mark.start)
+        assertEquals(4, mark.end)
+        assertEquals("| xa **b** | c |\n| --- | --- |\n| 1 | 2 |", m.currentMarkdown())
+    }
+
+    /** No revision bump: the field already holds what the user typed. */
+    @Test
+    fun aCellEditDoesNotBumpItsRevision() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val cell = table(m).rows[0][0]
+        val before = m.revision(cell.id)
+        m.updateRun(cell.id, "11", 2)
+        assertEquals(before, m.revision(cell.id))
+    }
+
+    @Test
+    fun loadingATableBumpsEveryCellRevision() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        assertTrue(table(m).allCells.all { m.revision(it.id) > 0 })
+    }
+
+    @Test
+    fun locateCellFindsHeaderAndBodyCoordinates() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val rowId = m.rows.filterIsInstance<EditorRow.Table>().single().id
+        val t = table(m)
+        assertEquals(EditorModel.CellLocation(rowId, 0, 1), m.locateCell(t.header[1].id))
+        assertEquals(EditorModel.CellLocation(rowId, 1, 0), m.locateCell(t.rows[0][0].id))
+        assertNull(m.locateCell("not-a-cell"))
+    }
+
+    /** BLOCK intents address ROWS; a cell has no block formatting to toggle. */
+    @Test
+    fun blockOpsNoOpForCellIds() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val before = m.currentMarkdown()
+        val cell = table(m).header[0]
+        m.setHeading(cell.id, 1)
+        m.toggleList(cell.id, ListType.Bullet)
+        m.toggleQuote(cell.id)
+        m.toggleCodeBlock(cell.id)
+        m.clearParagraphFormat(cell.id, 0)
+        assertEquals(before, m.currentMarkdown())
+    }
+
+    // --- Toolbar ops inside a cell. The toolbar stays up for a focused cell,
+    // so every INLINE action has to reach it: marks over a selection, marks
+    // queued at a collapsed caret, emoji/`@`/`#` insertion, clear formatting.
+    // Only the block group above is a deliberate no-op. ---
+
+    @Test
+    fun boldOverASelectionInsideACell() {
+        val m = model("| a | b |\n| --- | --- |\n| one | 2 |")
+        val cell = table(m).rows[0][0]
+        m.toggleMark(cell.id, 0..3, InlineKind.Bold)
+        val mark = table(m).rows[0][0].marks.single()
+        assertEquals(InlineKind.Bold, mark.kind)
+        assertEquals(0, mark.start)
+        assertEquals(3, mark.end)
+        assertEquals("| a | b |\n| --- | --- |\n| **one** | 2 |", m.currentMarkdown())
+    }
+
+    /** Re-tapping Bold over the same covered range unwraps it again. */
+    @Test
+    fun boldTogglesOffAgainInsideACell() {
+        val m = model("| a | b |\n| --- | --- |\n| **one** | 2 |")
+        val cell = table(m).rows[0][0]
+        m.toggleMark(cell.id, 0..3, InlineKind.Bold)
+        assertTrue(table(m).rows[0][0].marks.isEmpty())
+        assertEquals("| a | b |\n| --- | --- |\n| one | 2 |", m.currentMarkdown())
+    }
+
+    /** Bold at a collapsed caret then typing: the queue applies to the cell. */
+    @Test
+    fun pendingBoldMarksTheNextTextTypedInACell() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val cell = table(m).rows[0][0]
+        m.setFocused(cell.id)
+        m.updateSelection(cell.id, 1..1)
+        m.togglePendingMark(cell.id, 1, InlineKind.Bold)
+        assertTrue(m.pendingMarkActive(cell.id, 1, InlineKind.Bold))
+        m.updateRun(cell.id, "1x", 2)
+        val mark = table(m).rows[0][0].marks.single()
+        assertEquals(InlineKind.Bold, mark.kind)
+        assertEquals(1, mark.start)
+        assertEquals(2, mark.end)
+        assertEquals("| a | b |\n| --- | --- |\n| 1**x** | 2 |", m.currentMarkdown())
+    }
+
+    @Test
+    fun emojiInsertLandsAtTheCaretOfTheFocusedCell() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val cell = table(m).rows[0][0]
+        m.setFocused(cell.id)
+        m.updateSelection(cell.id, 1..1)
+        m.insertPlainText("🚀")
+        assertEquals("1🚀", table(m).rows[0][0].text)
+        assertEquals("| a | b |\n| --- | --- |\n| 1🚀 | 2 |", m.currentMarkdown())
+    }
+
+    /** `@` in a cell also arms the mention menu, exactly as it does in a run. */
+    @Test
+    fun mentionInsertArmsTheAutocompleteOnACell() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        val cell = table(m).rows[0][0]
+        m.setFocused(cell.id)
+        m.updateSelection(cell.id, 1..1)
+        m.insertPlainText("@")
+        assertEquals("1@", table(m).rows[0][0].text)
+        assertTrue(m.consumeAutocompleteArm(cell.id))
+    }
+
+    @Test
+    fun clearFormattingStripsMarksOverACellSelection() {
+        val m = model("| a | b |\n| --- | --- |\n| **one** | 2 |")
+        val cell = table(m).rows[0][0]
+        m.clearFormatting(cell.id, 0..3)
+        assertTrue(table(m).rows[0][0].marks.isEmpty())
+        assertEquals("| a | b |\n| --- | --- |\n| one | 2 |", m.currentMarkdown())
+    }
+
+    /**
+     * The image button with a cell focused: GFM has no block content inside a
+     * cell, so the image lands right AFTER the table — never at the end of the
+     * document past everything that followed it.
+     */
+    @Test
+    fun imageInsertedFromACellLandsAfterTheTable() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |\n\ntail")
+        val cell = table(m).header[0]
+        m.setFocused(cell.id)
+        m.insertImageUrl("/api/attachments/x", alt = "img")
+        val tableIdx = m.rows.indexOfFirst { it is EditorRow.Table }
+        val imageIdx = m.rows.indexOfFirst { it is EditorRow.Image }
+        val tailIdx = m.rows.indexOfFirst { it is EditorRow.TextRun && it.text == "tail" }
+        assertTrue(imageIdx > tableIdx)
+        assertTrue(imageIdx < tailIdx)
+        assertEquals(
+            "| a | b |\n| --- | --- |\n| 1 | 2 |\n\n![img](/api/attachments/x)\n\ntail",
+            m.currentMarkdown(),
+        )
+    }
+
+    /** A table with nothing after it still gets a caret line under the image. */
+    @Test
+    fun imageInsertedFromACellInATrailingTable() {
+        val m = model("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        m.setFocused(table(m).header[0].id)
+        m.insertImageUrl("/api/attachments/x", alt = "img")
+        assertEquals(
+            "| a | b |\n| --- | --- |\n| 1 | 2 |\n\n![img](/api/attachments/x)",
+            m.currentMarkdown(),
+        )
+        assertTrue(m.rows.last() is EditorRow.TextRun)
+    }
+
+    /** An ordered list restarts after a table, exactly as it does after an image. */
+    @Test
+    fun orderedListRestartsAfterATable() {
+        val m = model("1. one\n\n| h |\n| --- |\n| x |\n\n1. two")
+        val runs = runs(m).filter { it.text.isNotEmpty() }
+        val last = runs.last()
+        // A structural edit (a new line) is what triggers the renumber pass.
+        m.updateRun(last.id, "two\nthree", 9)
+        val after = runs(m).first { it.id == last.id }
+        assertEquals(listOf(1, 2), after.paragraphs.map { it.orderedIndex })
+        assertEquals(listOf(1), runs(m).first { it.id == runs.first().id }.paragraphs.map { it.orderedIndex })
+    }
 }

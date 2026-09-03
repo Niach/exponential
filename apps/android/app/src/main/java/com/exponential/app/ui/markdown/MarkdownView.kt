@@ -89,6 +89,7 @@ fun MarkdownView(
                 when (block) {
                     is ContentBlock.TextBlock -> TextBlockView(block.content, issueRefs)
                     is ContentBlock.ImageBlock -> ImageBlockView(block.url, block.alt)
+                    is ContentBlock.TableBlock -> TableBlockView(block.table, issueRefs)
                 }
             }
         }
@@ -304,7 +305,7 @@ private fun ListItemView(
  * hairline and status glyph behind the text (EXP-423).
  */
 @Composable
-private fun ChipText(line: AnnotatedLine, style: TextStyle, modifier: Modifier = Modifier) {
+internal fun ChipText(line: AnnotatedLine, style: TextStyle, modifier: Modifier = Modifier) {
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     Text(
         text = line.text,

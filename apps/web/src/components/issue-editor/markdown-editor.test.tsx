@@ -94,3 +94,32 @@ describe(`MarkdownEditor formatting rail`, () => {
     unmount()
   })
 })
+
+// EXP-726: a GFM table must RENDER as a grid on every read-only surface
+// (comment bodies, the agent feed, the description preview) — before this the
+// `<table>` was dropped and the cells flattened into paragraphs.
+describe(`MarkdownEditor tables`, () => {
+  it(`renders a read-only table with header cells and alignment`, async () => {
+    const { container } = render(
+      <MarkdownEditor
+        markdown={`| l | c |\n| :--- | :---: |\n| 1 | 2 |`}
+        editable={false}
+        onChange={() => {}}
+      />
+    )
+    await mountedContent(container)
+    await waitFor(() => {
+      expect(container.querySelector(`table`)).toBeTruthy()
+    })
+    expect(container.querySelectorAll(`table th`).length).toBe(2)
+    expect(container.querySelectorAll(`table td`).length).toBe(2)
+    expect(
+      container.querySelector(`table th[style*="text-align"]`)
+    ).toBeTruthy()
+    expect(
+      container.querySelector(`table td[style*="text-align: center"]`)
+    ).toBeTruthy()
+    // The scroll container the wide-table rule hangs off.
+    expect(container.querySelector(`.tableWrapper`)).toBeTruthy()
+  })
+})

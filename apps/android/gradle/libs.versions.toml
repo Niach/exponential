@@ -83,6 +83,7 @@ security-crypto = { group = "androidx.security", name = "security-crypto", versi
 browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }
 commonmark-core = { group = "org.commonmark", name = "commonmark", version.ref = "commonmark" }
 commonmark-ext-strikethrough = { group = "org.commonmark", name = "commonmark-ext-gfm-strikethrough", version.ref = "commonmark" }
+commonmark-ext-tables = { group = "org.commonmark", name = "commonmark-ext-gfm-tables", version.ref = "commonmark" }
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-network-ktor3 = { group = "io.coil-kt.coil3", name = "coil-network-ktor3", version.ref = "coil" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }

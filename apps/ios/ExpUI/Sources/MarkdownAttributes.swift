@@ -11,9 +11,6 @@ extension NSAttributedString.Key {
     public static let markdownCodeBlockLang = NSAttributedString.Key("exp.markdownCodeBlockLang")
     public static let markdownBlockquote = NSAttributedString.Key("exp.markdownBlockquote")
     public static let markdownInlineCode = NSAttributedString.Key("exp.markdownInlineCode")
-    // Marks a verbatim GFM pipe-table run: the serializer re-emits its lines
-    // joined by single newlines (a blank line would terminate the table).
-    public static let markdownTableBlock = NSAttributedString.Key("exp.markdownTableBlock")
     public static let markdownImageURL = NSAttributedString.Key("exp.markdownImageURL")
     public static let markdownImageAlt = NSAttributedString.Key("exp.markdownImageAlt")
     public static let markdownStrikethrough = NSAttributedString.Key("exp.markdownStrikethrough")
@@ -75,6 +72,17 @@ public enum MarkdownStyle {
     /// Extra advance kerned onto a status chip's hidden `#` so the painted
     /// glyph clears the identifier next to it (EXP-655).
     public static let chipStatusIconGap: CGFloat = 6
+    /// EXP-726 — GFM table chrome. The hairline matches `chipBorder` and the
+    /// header tint `codeBlockBackground`, so a table reads as the same family
+    /// of surfaces as a fence or a chip (web `--border` / `--foreground 4%`,
+    /// Android `MdStyle.TableBorder`/`TableHeaderBg`).
+    public nonisolated(unsafe) static let tableBorder = PlatformColor.white.withAlphaComponent(0.16)
+    public nonisolated(unsafe) static let tableHeaderBackground = PlatformColor.white.withAlphaComponent(0.06)
+    /// Cell width bounds. A cell hugs its content between these — narrower
+    /// would make one-character columns unreadable, wider would push the row
+    /// off a phone before the horizontal scroller earns its keep.
+    public static let tableCellMinWidth: CGFloat = 56
+    public static let tableCellMaxWidth: CGFloat = 280
     public nonisolated(unsafe) static let blockquoteTextColor = PlatformColor.white.withAlphaComponent(0.6)
     public nonisolated(unsafe) static let blockquoteBarColor = PlatformColor.white.withAlphaComponent(0.25)
     public nonisolated(unsafe) static let placeholderColor = PlatformColor.white.withAlphaComponent(0.3)

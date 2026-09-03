@@ -29,12 +29,25 @@ public struct MarkdownParseOptions: OptionSet, Sendable {
 public enum ContentBlock: Identifiable, Equatable {
     case text(id: UUID, attributedContent: NSAttributedString)
     case image(id: UUID, url: String, alt: String)
+    /// A GFM pipe table (EXP-726). Its CELL ids share this id namespace, so
+    /// `IssueEditorModel` routes a cell edit exactly like a block edit.
+    case table(id: UUID, table: TableBlock)
 
     public var id: UUID {
         switch self {
         case .text(let id, _): return id
         case .image(let id, _, _): return id
+        case .table(let id, _): return id
         }
+    }
+
+    /// Everything that is NOT an editable text run — an image or a table. Those
+    /// blocks are never adjacent to one another in the document: `normalize`
+    /// keeps an (initially empty) text block between them, above the first and
+    /// below the last, so the editor always has somewhere to put the caret.
+    public var isBlockLevel: Bool {
+        if case .text = self { return false }
+        return true
     }
 
     public static func normalize(_ blocks: inout [ContentBlock]) {
@@ -42,15 +55,15 @@ public enum ContentBlock: Identifiable, Equatable {
             blocks = [.text(id: UUID(), attributedContent: NSAttributedString())]
             return
         }
-        if case .image = blocks.first {
+        if blocks.first?.isBlockLevel == true {
             blocks.insert(.text(id: UUID(), attributedContent: NSAttributedString()), at: 0)
         }
-        if case .image = blocks.last {
+        if blocks.last?.isBlockLevel == true {
             blocks.append(.text(id: UUID(), attributedContent: NSAttributedString()))
         }
         var i = 1
         while i < blocks.count {
-            if case .image = blocks[i], case .image = blocks[i - 1] {
+            if blocks[i].isBlockLevel, blocks[i - 1].isBlockLevel {
                 blocks.insert(.text(id: UUID(), attributedContent: NSAttributedString()), at: i)
             }
             i += 1
@@ -77,7 +90,7 @@ public enum MarkdownConversion {
             return (attrStr.attribute(.markdownCodeBlock, at: range.location, effectiveRange: nil) as? Bool) != true
         }
         let attrs = attrStr.attributes(at: range.location, effectiveRange: nil)
-        if attrs[.markdownCodeBlock] as? Bool == true || attrs[.markdownTableBlock] as? Bool == true {
+        if attrs[.markdownCodeBlock] as? Bool == true {
             return false
         }
         let text = (attrStr.string as NSString).substring(with: range)
@@ -90,7 +103,6 @@ public enum MarkdownConversion {
 
         var markdown = ""
         var inCodeBlock = false
-        var inTableBlock = false
         var codeBlockLang: String?
 
         let paragraphs = splitIntoParagraphs(attrStr)
@@ -118,7 +130,6 @@ public enum MarkdownConversion {
                     inCodeBlock = false
                     codeBlockLang = nil
                 }
-                inTableBlock = false
                 markdown += "\n\n" + blankLineMarker
                 continue
             }
@@ -126,7 +137,6 @@ public enum MarkdownConversion {
             let attrs = attrStr.attributes(at: para.location, effectiveRange: nil)
 
             if let isCode = attrs[.markdownCodeBlock] as? Bool, isCode {
-                inTableBlock = false
                 let lang = attrs[.markdownCodeBlockLang] as? String
                 // Back-to-back fences with DIFFERENT languages must not merge
                 // into the first fence: close the open one, then the reopen logic
@@ -155,17 +165,6 @@ public enum MarkdownConversion {
                 inCodeBlock = false
                 codeBlockLang = nil
             }
-
-            if attrs[.markdownTableBlock] as? Bool == true {
-                // Verbatim pipe-table lines: consecutive rows must join with a
-                // SINGLE newline — the generic paragraph separator below would
-                // insert a blank line, which terminates a GFM table.
-                markdown += inTableBlock ? "\n" : (i > 0 ? "\n\n" : "")
-                inTableBlock = true
-                markdown += expWithoutObjectReplacements(paraStr.string)
-                continue
-            }
-            inTableBlock = false
 
             if i > 0 {
                 // A blank line between two items is a paragraph break, never a
@@ -276,9 +275,81 @@ public enum MarkdownConversion {
                 if !md.isEmpty { parts.append(md) }
             case .image(_, let url, let alt):
                 parts.append("![\(alt)](\(url))")
+            case .table(_, let table):
+                let md = serializeTable(table)
+                if !md.isEmpty { parts.append(md) }
             }
         }
         return parts.joined(separator: "\n\n")
+    }
+
+    // MARK: - Tables → Markdown (EXP-726)
+
+    /// The canonical GFM pipe-table form every client emits. See
+    /// `MarkdownTable.swift` for the full contract.
+    static func serializeTable(_ table: TableBlock) -> String {
+        guard table.columnCount > 0 else { return "" }
+        var lines: [String] = [serializeTableRow(table.header)]
+        lines.append(
+            "| " + table.alignments.map(\.delimiter).joined(separator: " | ") + " |"
+        )
+        for row in table.rows { lines.append(serializeTableRow(row)) }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func serializeTableRow(_ cells: [TableCell]) -> String {
+        // An empty cell therefore renders as `|  |` (two spaces), which is the
+        // contract's empty-cell form on every client.
+        "| " + cells.map { serializeTableCell($0.content) }.joined(separator: " | ") + " |"
+    }
+
+    /// One cell is ONE inline paragraph: no block constructs, no newlines, and
+    /// a literal `|` escaped so it cannot split the row.
+    private static func serializeTableCell(_ content: NSAttributedString) -> String {
+        var text = extractInlineMarkdown(from: content, isHeading: false)
+        if text.contains("\n") || text.contains("\r") {
+            text = text
+                .components(separatedBy: .newlines)
+                .joined(separator: " ")
+        }
+        text = escapeTablePipes(text)
+        // The `| ` / ` |` delimiters supply the padding; anything else would
+        // drift from the canonical bytes.
+        return text.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Escape every `|` so it cannot split the row — backslash-run aware.
+    ///
+    /// GFM strips the backslash from any `\|` pair BEFORE the inline parse
+    /// (cmark-gfm's `unescape_pipes`), and the inline parser then reads a `\\`
+    /// pair as ONE literal backslash. So a cell whose text is `a\|b` may not be
+    /// written `a\\|b`: that unescapes to `a\` + a cell separator and loses the
+    /// pipe. The run of backslashes standing immediately in front of a pipe has
+    /// to be DOUBLED first, and only then the pipe escaped:
+    /// `a|b` → `a\|b`, `a\|b` → `a\\\|b`, `a\\|b` → `a\\\\\|b`. Backslashes
+    /// that are not in front of a pipe are the text's own and stay untouched —
+    /// nothing else inside a cell consumes them.
+    private static func escapeTablePipes(_ text: String) -> String {
+        guard text.contains("|") else { return text }
+        var out = ""
+        out.reserveCapacity(text.count + 8)
+        var backslashes = 0
+        for character in text {
+            if character == "\\" {
+                backslashes += 1
+                continue
+            }
+            if character == "|" {
+                out += String(repeating: "\\", count: backslashes * 2)
+                out += "\\|"
+            } else {
+                out += String(repeating: "\\", count: backslashes)
+                out.append(character)
+            }
+            backslashes = 0
+        }
+        out += String(repeating: "\\", count: backslashes)
+        return out
     }
 }
 
@@ -310,6 +381,10 @@ private struct RenderContext {
     var headingLevel: Int = 0
     var inCodeBlock = false
     var inBlockquote = false
+    /// EXP-726: rendering the inline children of a `table_cell`. A cell is ONE
+    /// inline paragraph, so an image stays literal `![alt](url)` text and both
+    /// break kinds collapse to a space — whatever `.hardLineBreaks` says.
+    var inTableCell = false
     var needsBlockSeparator = false
 
     var currentFont: PlatformFont {
@@ -378,6 +453,11 @@ private class BlockCollector {
         blocks.append(.image(id: UUID(), url: url, alt: alt))
     }
 
+    func emitTable(_ table: TableBlock) {
+        flushText()
+        blocks.append(.table(id: UUID(), table: table))
+    }
+
     func finalize() -> [ContentBlock] {
         flushText()
         ContentBlock.normalize(&blocks)
@@ -437,12 +517,14 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
 
     case CMARK_NODE_SOFTBREAK:
         // GFM folds a single newline into a space; chat-shaped sources keep it
-        // as a line break (`.hardLineBreaks`, EXP-440).
-        let softbreak = context.options.contains(.hardLineBreaks) ? "\n" : " "
+        // as a line break (`.hardLineBreaks`, EXP-440). Inside a table cell it
+        // is always a space (EXP-726).
+        let softbreak = (context.options.contains(.hardLineBreaks) && !context.inTableCell) ? "\n" : " "
         collector.currentText.append(NSAttributedString(string: softbreak, attributes: context.makeAttributes()))
 
     case CMARK_NODE_LINEBREAK:
-        collector.currentText.append(NSAttributedString(string: "\n", attributes: context.makeAttributes()))
+        let linebreak = context.inTableCell ? " " : "\n"
+        collector.currentText.append(NSAttributedString(string: linebreak, attributes: context.makeAttributes()))
 
     case CMARK_NODE_STRONG:
         let bold = expBoldFont(context.currentFont)
@@ -503,6 +585,14 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
     case CMARK_NODE_IMAGE:
         let urlStr = cmark_node_get_url(node).flatMap { String(cString: $0) } ?? ""
         let alt = collectText(from: node)
+        // A table cell holds one inline paragraph and can never host an image
+        // BLOCK, so the image stays literal source text there (EXP-726) —
+        // exactly what web, desktop and Android do inside cells.
+        if context.inTableCell {
+            collector.currentText.append(NSAttributedString(
+                string: "![\(alt)](\(urlStr))", attributes: context.makeAttributes()))
+            return
+        }
         collector.emitImage(url: urlStr, alt: alt)
         context.needsBlockSeparator = false
 
@@ -610,7 +700,7 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
                 return
             }
             if typeStr == "table" {
-                appendVerbatimTable(node, collector: collector, context: &context)
+                appendTable(node, collector: collector, context: &context)
                 return
             }
         }
@@ -618,29 +708,112 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
     }
 }
 
-// GFM tables are outside the editor's editable feature set, but they must
-// SURVIVE an iOS edit cycle: descending into table/table_row/table_cell nodes
-// (the default child walk) flattens rows into bare concatenated cell text, and
-// the next autosave then destroys the table for every client. Instead the
-// parsed table is serialized straight back to pipe-table source (the attached
-// table extension provides the commonmark renderer) and carried as one
-// verbatim monospace run that the save path re-emits line-for-line.
-private func appendVerbatimTable(_ node: UnsafeMutablePointer<cmark_node>, collector: BlockCollector, context: inout RenderContext) {
-    var source = ""
-    if let rendered = cmark_render_commonmark(node, CMARK_OPT_DEFAULT, 0) {
-        source = String(cString: rendered).trimmingCharacters(in: .whitespacesAndNewlines)
-        free(rendered)
-    }
-    guard !source.isEmpty else {
+// EXP-726: a GFM pipe table becomes a real `ContentBlock.table` — a grid of
+// per-cell attributed strings the editor renders and edits cell by cell, and
+// the save path re-emits in the shared canonical form.
+//
+// The node shape is `table` → `table_header` / `table_row` → `table_cell`
+// (the extension's own type strings; `CMARK_NODE_TABLE*` are runtime values,
+// not compile-time cases, so the switch above dispatches on the string). Column
+// count and alignments come off the TABLE node via the extension getters.
+private func appendTable(
+    _ node: UnsafeMutablePointer<cmark_node>,
+    collector: BlockCollector,
+    context: inout RenderContext
+) {
+    let columns = Int(cmark_gfm_extensions_get_table_columns(node))
+    guard columns > 0 else {
         renderChildrenToBlocks(node, collector: collector, context: &context)
         return
     }
-    appendBlockSeparatorToCollector(collector: collector, context: &context)
-    var attrs = context.makeAttributes()
-    attrs[.font] = MarkdownStyle.monospaceFont
-    attrs[.markdownTableBlock] = true
-    collector.currentText.append(NSAttributedString(string: source, attributes: attrs))
-    context.needsBlockSeparator = true
+
+    var alignments: [TableAlignment] = []
+    if let raw = cmark_gfm_extensions_get_table_alignments(node) {
+        for column in 0..<columns {
+            switch raw[column] {
+            case UInt8(ascii: "l"): alignments.append(.left)
+            case UInt8(ascii: "c"): alignments.append(.center)
+            case UInt8(ascii: "r"): alignments.append(.right)
+            default: alignments.append(.none)
+            }
+        }
+    }
+
+    var header: [TableCell]?
+    var rows: [[TableCell]] = []
+    var child = cmark_node_first_child(node)
+    while let row = child {
+        defer { child = cmark_node_next(row) }
+        guard let typePtr = cmark_node_get_type_string(row) else { continue }
+        let rowType = String(cString: typePtr)
+        guard rowType == "table_header" || rowType == "table_row" else { continue }
+        let isHeader = cmark_gfm_extensions_get_table_row_is_header(row) != 0
+            || rowType == "table_header"
+
+        var cells: [TableCell] = []
+        var cellNode = cmark_node_first_child(row)
+        while let cell = cellNode {
+            defer { cellNode = cmark_node_next(cell) }
+            guard let cellTypePtr = cmark_node_get_type_string(cell),
+                  String(cString: cellTypePtr) == "table_cell" else { continue }
+            cells.append(TableCell(content: renderTableCell(cell, context: context)))
+        }
+        // Ragged rows are padded with empty cells and over-long ones truncated
+        // (`TableBlock.init` does both) so the grid is always rectangular.
+        if isHeader, header == nil {
+            while cells.count < columns { cells.append(TableCell()) }
+            header = Array(cells.prefix(columns))
+        } else {
+            rows.append(cells)
+        }
+    }
+
+    guard let header else {
+        renderChildrenToBlocks(node, collector: collector, context: &context)
+        return
+    }
+    collector.emitTable(TableBlock(header: header, rows: rows, alignments: alignments))
+    context.needsBlockSeparator = false
+}
+
+/// One cell's inline children, rendered into a FRESH buffer so nothing leaks
+/// into the surrounding text block. Leading/trailing whitespace is trimmed —
+/// the serializer's `| ` / ` |` delimiters supply the padding, so a
+/// GitHub-style width-padded source normalizes to the canonical bytes.
+private func renderTableCell(
+    _ node: UnsafeMutablePointer<cmark_node>,
+    context: RenderContext
+) -> NSAttributedString {
+    let cellCollector = BlockCollector(baseURL: context.baseURL)
+    var cellContext = context
+    cellContext.inTableCell = true
+    cellContext.needsBlockSeparator = false
+    cellContext.headingLevel = 0
+    cellContext.listStack = []
+    cellContext.inBlockquote = false
+    renderChildrenToBlocks(node, collector: cellCollector, context: &cellContext)
+    return trimmedAttributedString(cellCollector.currentText)
+}
+
+private func trimmedAttributedString(_ attributed: NSAttributedString) -> NSAttributedString {
+    let ns = attributed.string as NSString
+    var start = 0
+    var end = ns.length
+    let whitespace = CharacterSet.whitespacesAndNewlines
+    while start < end,
+          let scalar = Unicode.Scalar(ns.character(at: start)),
+          whitespace.contains(scalar) {
+        start += 1
+    }
+    while end > start,
+          let scalar = Unicode.Scalar(ns.character(at: end - 1)),
+          whitespace.contains(scalar) {
+        end -= 1
+    }
+    guard start != 0 || end != ns.length else {
+        return NSAttributedString(attributedString: attributed)
+    }
+    return attributed.attributedSubstring(from: NSRange(location: start, length: end - start))
 }
 
 private func renderChildrenToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collector: BlockCollector, context: inout RenderContext) {
@@ -729,8 +902,8 @@ private func collectText(from node: UnsafeMutablePointer<cmark_node>) -> String 
 /// attribute does not survive the pasteboard). So stripping it unconditionally
 /// here is correct, and this is the one chokepoint no decoration or paste path
 /// can bypass — attribute-based skipping alone is not enough, because the
-/// verbatim code-fence and pipe-table emitters re-emit their source string
-/// without consulting attributes at all (EXP-322).
+/// verbatim code-fence emitter re-emits its source string without consulting
+/// attributes at all (EXP-322).
 public func expWithoutObjectReplacements(_ text: String) -> String {
     text.contains("\u{FFFC}") ? text.replacingOccurrences(of: "\u{FFFC}", with: "") : text
 }

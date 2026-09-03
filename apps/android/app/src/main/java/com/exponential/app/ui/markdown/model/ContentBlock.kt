@@ -26,6 +26,74 @@ sealed interface ContentBlock {
         val url: String,
         val alt: String = "image",
     ) : ContentBlock
+
+    /** A GFM pipe table (EXP-726) — block-level like an image. */
+    data class TableBlock(
+        override val id: String = UUID.randomUUID().toString(),
+        val table: TableData,
+    ) : ContentBlock
+}
+
+/** A table column's GFM alignment, from its delimiter cell (`---`/`:---`/`:---:`/`---:`). */
+enum class TableAlignment { None, Left, Center, Right }
+
+/**
+ * One table cell: ONE inline paragraph. [text] never contains a newline (the
+ * editor collapses pasted ones to spaces) and stores the UNESCAPED characters —
+ * the serializer re-escapes `|` on the way out. Cell ids live in the same
+ * namespace as row/block ids so [EditorModel] can route an edit by id alone.
+ */
+data class TableCell(
+    val id: String = UUID.randomUUID().toString(),
+    val text: String,
+    val marks: List<InlineMark> = emptyList(),
+)
+
+/**
+ * A table's grid. Row 0 is ALWAYS the header row (GFM requires one), so
+ * [rows] holds only the body; every body row is padded to [columnCount] on
+ * parse. Cell coordinates used across the model count the header as row 0,
+ * i.e. body row `i` is coordinate row `i + 1`.
+ */
+data class TableData(
+    val header: List<TableCell>,
+    val rows: List<List<TableCell>> = emptyList(),
+    val alignments: List<TableAlignment> = emptyList(),
+) {
+    val columnCount: Int get() = header.size
+
+    /** Every cell in row-major order, header first. */
+    val allCells: List<TableCell> get() = header + rows.flatten()
+
+    fun alignmentAt(col: Int): TableAlignment = alignments.getOrElse(col) { TableAlignment.None }
+
+    /** The cell at (row, col) — row 0 is the header. */
+    fun cellAt(row: Int, col: Int): TableCell? =
+        (if (row == 0) header else rows.getOrNull(row - 1))?.getOrNull(col)
+
+    /** The (row, col) of [cellId], counting the header as row 0. */
+    fun locate(cellId: String): Pair<Int, Int>? {
+        val headerCol = header.indexOfFirst { it.id == cellId }
+        if (headerCol >= 0) return 0 to headerCol
+        for ((r, cells) in rows.withIndex()) {
+            val col = cells.indexOfFirst { it.id == cellId }
+            if (col >= 0) return (r + 1) to col
+        }
+        return null
+    }
+
+    /** A copy with (row, col) replaced by [cell]; unchanged when out of range. */
+    fun withCell(row: Int, col: Int, cell: TableCell): TableData {
+        if (row == 0) {
+            if (col !in header.indices) return this
+            return copy(header = header.toMutableList().also { it[col] = cell })
+        }
+        val bodyIndex = row - 1
+        val bodyRow = rows.getOrNull(bodyIndex) ?: return this
+        if (col !in bodyRow.indices) return this
+        val nextRow = bodyRow.toMutableList().also { it[col] = cell }
+        return copy(rows = rows.toMutableList().also { it[bodyIndex] = nextRow })
+    }
 }
 
 /**

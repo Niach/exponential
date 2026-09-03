@@ -30,7 +30,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-189 third-party components are distributed as part of this build. They are
+190 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -314,11 +314,13 @@ limitations under the License.
 BSD-2-Clause
 ------------------------------------------------------------------------------
 
-Applies to the following 2 components:
+Applies to the following 3 components:
 
   org.commonmark:commonmark 0.24.0
     Copyright (c) 2015, Atlassian Pty Ltd
   org.commonmark:commonmark-ext-gfm-strikethrough 0.24.0
+    Copyright (c) 2015, Atlassian Pty Ltd
+  org.commonmark:commonmark-ext-gfm-tables 0.24.0
     Copyright (c) 2015, Atlassian Pty Ltd
 
 ..............................................................................

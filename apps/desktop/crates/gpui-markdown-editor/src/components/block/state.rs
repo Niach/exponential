@@ -863,8 +863,6 @@ pub enum BlockEvent {
         index: usize,
         hovered: bool,
     },
-    /// Select one native table row or column for batch operations.
-    RequestSelectTableAxis { kind: TableAxisKind, index: usize },
     /// Open the axis context menu for a native table row or column.
     RequestOpenTableAxisMenu {
         kind: TableAxisKind,

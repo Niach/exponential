@@ -39,6 +39,13 @@ const BULLET_HOLLOW: &str = "\u{25E6}";
 const BULLET_SQUARE: &str = "\u{25A1}";
 const TASK_CHECKMARK: &str = "\u{2713}";
 
+/// EXP-726: glyphs painted inside a VISIBLE table axis band (hover preview or
+/// selection), so the band reads as a handle that opens a menu rather than a
+/// bare tint. Horizontal on the column bands, vertical on the row bands —
+/// each points along its own axis.
+const TABLE_COLUMN_AXIS_GLYPH: &str = "\u{22ef}";
+const TABLE_ROW_AXIS_GLYPH: &str = "\u{22ee}";
+
 fn bulleted_list_marker(depth: usize) -> &'static str {
     match depth {
         0 => BULLET_FILLED,
@@ -2913,12 +2920,14 @@ impl Render for Block {
                 let append_extent = px(d.table_append_button_extent);
                 let append_inset = px(d.table_append_button_inset);
                 let activation_band = px(d.table_append_activation_band);
-                let top_gutter = if column_axis_gutter_visible(preview_marker, selected_marker) {
-                    activation_band
-                } else {
-                    px(0.0)
-                };
-                let column_append_top = top_gutter + activation_band;
+                // EXP-726: the column-axis bands are an ABSOLUTE overlay that
+                // hangs above the header row (mirroring how the row bands hang
+                // at `left(-activation_band)`), so they no longer insert a
+                // gutter ROW — merely hovering a column used to push the whole
+                // table down by a band height and back up again on leave.
+                let column_axis_visible =
+                    column_axis_gutter_visible(preview_marker, selected_marker);
+                let column_append_top = activation_band;
                 let column_control_visible = self.table_append_column_hovered;
                 let row_control_visible = self.table_append_row_hovered;
                 let right_gutter = if column_control_visible {
@@ -2934,9 +2943,16 @@ impl Render for Block {
                 let weak_table_block = cx.entity().downgrade();
 
                 let header_cells = runtime.header;
-                let column_axis_row = (top_gutter > px(0.0)).then(|| {
-                    div().w_full().h(top_gutter).flex().gap(px(0.0)).children(
-                        header_cells.iter().enumerate().map(|(column, _cell)| {
+                let column_axis_row = column_axis_visible.then(|| {
+                    div()
+                        .absolute()
+                        .left_0()
+                        .right(right_gutter)
+                        .top(-activation_band)
+                        .h(activation_band)
+                        .flex()
+                        .gap(px(0.0))
+                        .children(header_cells.iter().enumerate().map(|(column, _cell)| {
                             let hover_block = weak_table_block.clone();
                             let select_block = weak_table_block.clone();
                             let menu_block = weak_table_block.clone();
@@ -2971,6 +2987,14 @@ impl Render for Block {
                                         .h_full()
                                         .rounded(px(6.0))
                                         .bg(band_bg)
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .text_size(px(t.text_size))
+                                        .text_color(c.table_append_button_text)
+                                        // EXP-726: the visible band advertises
+                                        // that it opens a menu.
+                                        .child(TABLE_COLUMN_AXIS_GLYPH)
                                         .cursor_pointer()
                                         .on_hover(move |hovered, _window, cx| {
                                             let _ = hover_block.update(cx, |_block, cx| {
@@ -2981,14 +3005,17 @@ impl Render for Block {
                                                 });
                                             });
                                         })
+                                        // EXP-726: a plain left click opens the
+                                        // axis menu (it selects the axis first).
                                         .on_mouse_down(
                                             MouseButton::Left,
-                                            move |_event, _window, cx| {
+                                            move |event, _window, cx| {
                                                 let _ = select_block.update(cx, |_block, cx| {
                                                     cx.stop_propagation();
-                                                    cx.emit(BlockEvent::RequestSelectTableAxis {
+                                                    cx.emit(BlockEvent::RequestOpenTableAxisMenu {
                                                         kind: TableAxisKind::Column,
                                                         index: column,
+                                                        position: event.position,
                                                     });
                                                 });
                                             },
@@ -3008,8 +3035,7 @@ impl Render for Block {
                                         )
                                         .block_mouse_except_scroll(),
                                 )
-                        }),
-                    )
+                        }))
                 });
 
                 let header_hover_block = weak_table_block.clone();
@@ -3048,6 +3074,16 @@ impl Render for Block {
                             .w(activation_band)
                             .rounded(px(6.0))
                             .bg(header_band_bg)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(t.text_size))
+                            .text_color(c.table_append_button_text)
+                            .child(if header_band_bg.a > 0.0 {
+                                TABLE_ROW_AXIS_GLYPH
+                            } else {
+                                ""
+                            })
                             .cursor_pointer()
                             .on_hover(move |hovered, _window, cx| {
                                 let _ = header_hover_block.update(cx, |_block, cx| {
@@ -3058,12 +3094,14 @@ impl Render for Block {
                                     });
                                 });
                             })
-                            .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
+                            // EXP-726: left click opens the axis menu.
+                            .on_mouse_down(MouseButton::Left, move |event, _window, cx| {
                                 let _ = header_select_block.update(cx, |_block, cx| {
                                     cx.stop_propagation();
-                                    cx.emit(BlockEvent::RequestSelectTableAxis {
+                                    cx.emit(BlockEvent::RequestOpenTableAxisMenu {
                                         kind: TableAxisKind::Row,
                                         index: 0,
+                                        position: event.position,
                                     });
                                 });
                             })
@@ -3114,12 +3152,14 @@ impl Render for Block {
                                             });
                                         });
                                     })
-                                    .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
+                                    // EXP-726: left click opens the axis menu.
+                                    .on_mouse_down(MouseButton::Left, move |event, _window, cx| {
                                         let _ = select_block.update(cx, |_block, cx| {
                                             cx.stop_propagation();
-                                            cx.emit(BlockEvent::RequestSelectTableAxis {
+                                            cx.emit(BlockEvent::RequestOpenTableAxisMenu {
                                                 kind: TableAxisKind::Column,
                                                 index: column,
+                                                position: event.position,
                                             });
                                         });
                                     })
@@ -3182,6 +3222,16 @@ impl Render for Block {
                                         .w(activation_band)
                                         .rounded(px(6.0))
                                         .bg(band_bg)
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .text_size(px(t.text_size))
+                                        .text_color(c.table_append_button_text)
+                                        .child(if band_bg.a > 0.0 {
+                                            TABLE_ROW_AXIS_GLYPH
+                                        } else {
+                                            ""
+                                        })
                                         .cursor_pointer()
                                         .on_hover(move |hovered, _window, cx| {
                                             let _ = hover_block.update(cx, |_block, cx| {
@@ -3192,14 +3242,16 @@ impl Render for Block {
                                                 });
                                             });
                                         })
+                                        // EXP-726: left click opens the menu.
                                         .on_mouse_down(
                                             MouseButton::Left,
-                                            move |_event, _window, cx| {
+                                            move |event, _window, cx| {
                                                 let _ = select_block.update(cx, |_block, cx| {
                                                     cx.stop_propagation();
-                                                    cx.emit(BlockEvent::RequestSelectTableAxis {
+                                                    cx.emit(BlockEvent::RequestOpenTableAxisMenu {
                                                         kind: TableAxisKind::Row,
                                                         index: visual_row,
+                                                        position: event.position,
                                                     });
                                                 });
                                             },
@@ -3232,9 +3284,6 @@ impl Render for Block {
 
                 {
                     let mut rows = Vec::with_capacity(2 + body_row_count);
-                    if let Some(column_axis_row) = column_axis_row {
-                        rows.push(column_axis_row.into_any_element());
-                    }
                     rows.push(header_row.into_any_element());
                     rows.extend(body_rows.map(|row| row.into_any_element()));
 
@@ -3358,6 +3407,7 @@ impl Render for Block {
                         .pb(bottom_gutter)
                         .gap(px(0.0))
                         .children(rows)
+                        .children(column_axis_row)
                         .child(column_edge_band)
                         .child(row_edge_band)
                         .child(column_control)

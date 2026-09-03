@@ -116,6 +116,16 @@ struct MarkdownEditor: View {
                                 onRetry: { Task { await model.retryImage(blockId: id) } }
                             )
                             .id(id)
+
+                        case .table(let id, let table):
+                            BlockTableView(
+                                model: model,
+                                blockId: id,
+                                table: table,
+                                isReadOnly: isReadOnly,
+                                onIssueRefTap: onIssueRefTap
+                            )
+                            .id(id)
                         }
                     }
                 }
@@ -303,7 +313,9 @@ struct MarkdownEditor: View {
 
 // MARK: - Editor Text View (UITextView subclass)
 
-private final class EditorTextView: UITextView {
+// Internal, not private: `BlockTableView` builds cell editors from another
+// file in this module (EXP-726).
+final class EditorTextView: UITextView {
     var onDeleteBackwardAtStart: (() -> Void)?
     var onPasteImage: ((UIImage) -> Void)?
     var onIssueRefTap: ((String) -> Void)?
@@ -433,7 +445,7 @@ extension EditorTextView: UIGestureRecognizerDelegate {
 
 // MARK: - Block Text Editor (UIViewRepresentable)
 
-private struct BlockTextEditor: UIViewRepresentable {
+struct BlockTextEditor: UIViewRepresentable {
     let model: IssueEditorModel
     let blockId: UUID
     let content: NSAttributedString
@@ -445,7 +457,17 @@ private struct BlockTextEditor: UIViewRepresentable {
     var isReadOnly = false
     /// See `MarkdownEditor.hugsContentWidth`.
     var hugsContentWidth = false
-    var onPasteImage: (UIImage) -> Void
+    /// EXP-726 — table-cell mode: a cell is ONE inline paragraph, so Return
+    /// leaves the cell instead of splitting it, pasted newlines collapse to
+    /// spaces, the return key reads "next", and the representable measures
+    /// itself against its own width bounds when the proposal is unspecified
+    /// (a horizontally scrolling table row proposes none).
+    var singleLine = false
+    /// Column alignment from the table's delimiter row.
+    var textAlignment: NSTextAlignment = .natural
+    /// Return in `singleLine` mode. Nil swallows the newline.
+    var onReturn: (() -> Void)?
+    var onPasteImage: (UIImage) -> Void = { _ in }
     var onIssueRefTap: ((String) -> Void)?
 
     func makeUIView(context: Context) -> EditorTextView {
@@ -481,6 +503,12 @@ private struct BlockTextEditor: UIViewRepresentable {
         tv.autocorrectionType = .default
         tv.autocapitalizationType = .sentences
         tv.typingAttributes = MarkdownStyle.baseAttributes
+        if singleLine {
+            // The cell is one line of prose, so the keyboard offers "next" and
+            // autocapitalisation stays sentence-shaped like every other block.
+            tv.returnKeyType = .next
+            tv.textContainerInset = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+        }
         if !isReadOnly, let toolbar {
             tv.inputAccessoryView = toolbar
         }
@@ -491,6 +519,8 @@ private struct BlockTextEditor: UIViewRepresentable {
         coord.model = model
         coord.blockId = blockId
         coord.onPasteImage = onPasteImage
+        coord.singleLine = singleLine
+        coord.onReturn = onReturn
         coord.appliedRevision = revision
 
         tv.onDeleteBackwardAtStart = { [weak coord] in coord?.handleDeleteBackwardAtStart() }
@@ -499,6 +529,7 @@ private struct BlockTextEditor: UIViewRepresentable {
 
         coord.beginProgrammaticChange()
         tv.attributedText = content
+        if textAlignment != .natural { tv.textAlignment = textAlignment }
         coord.endProgrammaticChange()
         if content.length == 0, let placeholder {
             coord.showPlaceholder(in: tv, text: placeholder)
@@ -522,7 +553,26 @@ private struct BlockTextEditor: UIViewRepresentable {
         context: Context
     ) -> CGSize? {
         guard let width = proposal.width, width.isFinite, width > 0 else {
-            return nil
+            // A table row scrolls horizontally, so SwiftUI proposes no width to
+            // its cells (EXP-726). Hug the content between the cell bounds and
+            // measure the height AT that width, or the text wraps into a height
+            // nobody reserved.
+            guard singleLine else { return nil }
+            let ideal = tv.sizeThatFits(
+                CGSize(
+                    width: CGFloat.greatestFiniteMagnitude,
+                    height: CGFloat.greatestFiniteMagnitude
+                )
+            )
+            let clamped = min(
+                max(ideal.width.isFinite ? ceil(ideal.width) : MarkdownStyle.tableCellMinWidth,
+                    MarkdownStyle.tableCellMinWidth),
+                MarkdownStyle.tableCellMaxWidth
+            )
+            let fitted = tv.sizeThatFits(
+                CGSize(width: clamped, height: .greatestFiniteMagnitude)
+            )
+            return CGSize(width: clamped, height: fitted.height)
         }
         var targetWidth = width
         if hugsContentWidth {
@@ -550,6 +600,8 @@ private struct BlockTextEditor: UIViewRepresentable {
         coord.model = model
         coord.blockId = blockId
         coord.onPasteImage = onPasteImage
+        coord.singleLine = singleLine
+        coord.onReturn = onReturn
         tv.onDeleteBackwardAtStart = { [weak coord] in coord?.handleDeleteBackwardAtStart() }
         tv.onPasteImage = { [weak coord] image in coord?.onPasteImage?(image) }
         tv.onIssueRefTap = onIssueRefTap
@@ -562,6 +614,7 @@ private struct BlockTextEditor: UIViewRepresentable {
             let savedRange = tv.selectedRange
             coord.beginProgrammaticChange()
             tv.attributedText = content
+            if textAlignment != .natural { tv.textAlignment = textAlignment }
             coord.endProgrammaticChange()
             let pos = min(savedRange.location, tv.textStorage.length)
             tv.selectedRange = NSRange(location: pos, length: 0)
@@ -597,6 +650,9 @@ private struct BlockTextEditor: UIViewRepresentable {
         var model: IssueEditorModel?
         var blockId: UUID?
         var onPasteImage: ((UIImage) -> Void)?
+        /// EXP-726 — see `BlockTextEditor.singleLine`.
+        var singleLine = false
+        var onReturn: (() -> Void)?
         var appliedRevision = 0
 
         private var isProgrammaticChange = false
@@ -798,6 +854,29 @@ private struct BlockTextEditor: UIViewRepresentable {
 
         func textView(_ tv: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             let storage = tv.textStorage
+
+            // EXP-726 — table cell: Return leaves for the next cell, and a
+            // pasted multi-line block collapses to one line. A cell is ONE
+            // inline paragraph on every client, so a newline may never enter
+            // its storage (the serializer would flatten it anyway; keeping the
+            // display honest is the point).
+            if singleLine, text.rangeOfCharacter(from: .newlines) != nil {
+                if text.count == 1 {
+                    onReturn?()
+                    return false
+                }
+                let flattened = text.components(separatedBy: .newlines).joined(separator: " ")
+                let attrs = MarkdownChipDecorator.sanitizedTypingAttributes(tv.typingAttributes)
+                storage.beginEditing()
+                storage.replaceCharacters(
+                    in: range, with: NSAttributedString(string: flattened, attributes: attrs))
+                storage.endEditing()
+                tv.selectedRange = NSRange(
+                    location: range.location + (flattened as NSString).length, length: 0)
+                tv.typingAttributes = attrs
+                textViewDidChange(tv)
+                return false
+            }
 
             // Copy/paste (or an intra-app text drag) of a chip arrives as the
             // PLAIN text "#EXP-42\u{FFFC}": `allowsEditingTextAttributes` is
