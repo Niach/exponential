@@ -26,9 +26,9 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use gpui::{
-    canvas, div, px, size, App, ClickEvent, ClipboardItem, ElementId, FocusHandle, FontWeight,
-    InteractiveElement as _, IntoElement, KeyBinding, ParentElement, Pixels, Render, SharedString,
-    Size, StatefulInteractiveElement as _, Styled, WeakEntity, Window,
+    canvas, div, px, relative, size, App, ClickEvent, ClipboardItem, ElementId, FocusHandle,
+    FontWeight, InteractiveElement as _, IntoElement, KeyBinding, ParentElement, Pixels, Render,
+    ScrollHandle, SharedString, Size, StatefulInteractiveElement as _, Styled, WeakEntity, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -77,6 +77,12 @@ const BULK_CHUNK: usize = 200;
 /// the status column walked out of line. The compact flag is global (one
 /// canvas measure per frame), so every row renders the same grid.
 const COMPACT_LIST_WIDTH: f32 = 440.;
+
+/// EXP-698 round 5: at or above this measured width the bulk bar's buttons
+/// carry their text labels (web `md:` breakpoint); below it they collapse to
+/// icons with the same tooltips, because the list also renders in the ~260px
+/// tool panel.
+const BULK_BAR_LABEL_MIN_W: f32 = 640.;
 
 gpui::actions!(
     issue_list,
@@ -196,6 +202,10 @@ pub struct IssueListView {
     /// their label chips to bare color dots. Global per frame, so every row
     /// keeps the same grid.
     compact: bool,
+    /// EXP-698: measured width at or above [`BULK_BAR_LABEL_MIN_W`] — the
+    /// bulk bar shows its button labels. Kept as a field only so the width
+    /// probe can notify when the classification flips.
+    wide: bool,
     /// Focus target of the [`KEY_CONTEXT`] bindings (terminal-dock pattern).
     focus_handle: FocusHandle,
     /// This window's navigation — the rows highlight the issue whose detail
@@ -219,6 +229,10 @@ pub struct IssueListView {
     /// query per frame while a selection was alive.
     data: Option<(BoardDataKey, Rc<BoardData>)>,
     scroll_handle: VirtualListScrollHandle,
+    /// EXP-698 round 5: the empty-board branch scrolls (empty state +
+    /// Getting-started cards), so it needs a handle of its own — the virtual
+    /// list's is not rendered on that path.
+    empty_scroll: ScrollHandle,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -228,6 +242,7 @@ impl IssueListView {
         // reads; an Electric echo re-renders the list automatically.
         let collections = Store::global(cx).collections().clone();
         let nav = nav_for_window(window, cx);
+        let getting_started = crate::getting_started::GettingStartedProgress::global(cx);
         let subscriptions = vec![
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
             cx.observe(&collections.issue_labels, |_, _, cx| cx.notify()),
@@ -237,6 +252,12 @@ impl IssueListView {
             cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify()),
             // EXP-426: the active-row highlight follows navigation.
             cx.observe(&nav, |_, _, cx| cx.notify()),
+            // EXP-698 round 5: the empty-board branch renders the
+            // Getting-started cards, whose signals include tRPC one-shots
+            // (GitHub, widgets, MCP) no collection observer covers — without
+            // this the block stays stuck on its loading state until some
+            // unrelated echo happens to re-render the list.
+            cx.observe(&getting_started, |_, _, cx| cx.notify()),
         ];
 
         Self {
@@ -252,11 +273,13 @@ impl IssueListView {
             solo_team: false,
             measured_width: Rc::new(Cell::new(px(0.))),
             compact: false,
+            wide: false,
             focus_handle: cx.focus_handle(),
             rows: Rc::new(Vec::new()),
             team_statuses: Rc::new(Vec::new()),
             data: None,
             scroll_handle: VirtualListScrollHandle::new(),
+            empty_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -506,15 +529,23 @@ impl IssueListView {
             .border_b_1()
             .border_color(cx.theme().border.opacity(0.5))
             .child(
-                // EXP-698: the glass chrome every list-row action wears, at
-                // the 24px size — the default 32px circle overflows this
-                // `HEADER_HEIGHT` row (the virtual list measures it at 28).
-                crate::controls::glass_icon_button(
-                    header_id("collapse", &status.group_key),
-                    Icon::new(chevron),
-                    cx,
-                )
-                    .web_icon_xs()
+                // EXP-698 round 5: a BARE chevron — a group header is
+                // structure, not an action, so the disclosure carries no
+                // glass circle on any client (web renders a ghost button,
+                // the steer viewer's section headers the same bare glyph).
+                // The 24px box is the hit target.
+                div()
+                    .id(header_id("collapse", &status.group_key))
+                    .cursor_pointer()
+                    .size(px(24.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        Icon::new(chevron)
+                            .xsmall()
+                            .text_color(cx.theme().muted_foreground),
+                    )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.toggle_group(group_key.clone(), cx);
                     })),
@@ -739,11 +770,15 @@ impl IssueListView {
 
     /// The bulk action bar's element (web `bulk-action-bar.tsx`): N selected ·
     /// clear · Status · Priority · Assignee · Labels · Start coding · Delete
-    /// (nested confirm). Buttons are icon-only with tooltips — every issue
-    /// list renders inside the ~260px tool panel, where the web's labeled
-    /// buttons cannot fit on one row. Property edits keep the selection alive
-    /// — only delete clears it (FIX F3); every mutation chunks at 200 ids
-    /// (FIX F4) and lands via the Electric echo.
+    /// (nested confirm). Property edits keep the selection alive — only delete
+    /// clears it (FIX F3); every mutation chunks at 200 ids (FIX F4) and lands
+    /// via the Electric echo.
+    ///
+    /// EXP-698 round 5: the ONE bar shape of every client — an opaque
+    /// [`crate::surface::glass_bar`] capsule with `icon + label` buttons.
+    /// Under [`BULK_BAR_LABEL_MIN_W`] the labels drop and the buttons go back
+    /// to icon-only with their tooltips: the list also lives in the ~260px
+    /// tool panel, where six labeled buttons cannot fit on one row.
     fn render_bulk_bar(
         &self,
         team_id: String,
@@ -754,15 +789,31 @@ impl IssueListView {
         let busy = self.bulk_busy;
         let list = cx.entity().downgrade();
         let danger = cx.theme().danger;
+        // Read straight off the probe, not off `self.wide`: the parent asks
+        // for this element BEFORE this view's own render runs, so the field
+        // would be one frame stale on the first selection.
+        let labels = self.measured_width.get() >= px(BULK_BAR_LABEL_MIN_W);
+        // `.label()` takes a value, so the collapse is a small helper rather
+        // than a `when` chain on six buttons.
+        let with_label = move |button: Button, label: &'static str| {
+            if labels {
+                button.label(label)
+            } else {
+                button
+            }
+        };
 
         let status_menu = {
             let ids = ids.clone();
             let list = list.clone();
             let team_id = team_id.clone();
-            Button::new("bulk-status")
-                .ghost().cursor_pointer()
-                .small()
-                .icon(Icon::from(ExpIcon::ListTodo))
+            with_label(
+                Button::new("bulk-status")
+                    .ghost()
+                    .web_sm()
+                    .icon(Icon::from(ExpIcon::ListTodo)),
+                "Status",
+            )
                 .tooltip("Status")
                 .disabled(busy)
                 .dropdown_menu(move |menu, _window, cx| {
@@ -804,10 +855,13 @@ impl IssueListView {
         let priority_menu = {
             let ids = ids.clone();
             let list = list.clone();
-            Button::new("bulk-priority")
-                .ghost().cursor_pointer()
-                .small()
-                .icon(Icon::from(ExpIcon::SignalHigh))
+            with_label(
+                Button::new("bulk-priority")
+                    .ghost()
+                    .web_sm()
+                    .icon(Icon::from(ExpIcon::SignalHigh)),
+                "Priority",
+            )
                 .tooltip("Priority")
                 .disabled(busy)
                 .dropdown_menu(move |menu, _window, cx| {
@@ -849,10 +903,13 @@ impl IssueListView {
             let list = list.clone();
             let users = queries::team_users(cx, &team_id);
             (users.len() > 1).then(|| {
-                Button::new("bulk-assignee")
-                    .ghost().cursor_pointer()
-                    .small()
-                    .icon(Icon::new(registry::UI_ASSIGNEE))
+                with_label(
+                    Button::new("bulk-assignee")
+                        .ghost()
+                        .web_sm()
+                        .icon(Icon::new(registry::UI_ASSIGNEE)),
+                    "Assignee",
+                )
                     .tooltip("Assignee")
                     .disabled(busy)
                     .dropdown_menu(move |menu, _window, _cx| {
@@ -922,10 +979,13 @@ impl IssueListView {
             let ids = ids.clone();
             let list = list.clone();
             let team_id = team_id.clone();
-            Button::new("bulk-labels")
-                .ghost().cursor_pointer()
-                .small()
-                .icon(Icon::from(ExpIcon::Tag))
+            with_label(
+                Button::new("bulk-labels")
+                    .ghost()
+                    .web_sm()
+                    .icon(Icon::from(ExpIcon::Tag)),
+                "Labels",
+            )
                 .tooltip("Labels")
                 .disabled(busy)
                 .dropdown_menu(move |menu, _window, cx| {
@@ -1019,10 +1079,19 @@ impl IssueListView {
             // EXP-367: no agent CLI installed → disabled with the reason,
             // never hidden (same copy as every Start-coding affordance).
             let no_agent = crate::coding_flow::no_agent_reason(cx);
-            Button::new("bulk-start-coding")
-                .ghost().cursor_pointer()
-                .small()
-                .icon(Icon::new(registry::ACTION_RUN))
+            // The ONE emphasised control of the bar (web `Start coding` is
+            // the primary button there too).
+            with_label(
+                crate::surface::glass_pill_button_primary(
+                    "bulk-start-coding",
+                    // `Md` == the web `size="sm"` control box (32) the ghost
+                    // buttons beside it wear; `Sm` would sit 8px shorter than
+                    // its own row.
+                    crate::surface::PillSize::Md,
+                )
+                .icon(Icon::new(registry::ACTION_RUN)),
+                "Start coding",
+            )
                 .tooltip(no_agent.clone().unwrap_or_else(|| "Start coding".into()))
                 .disabled(busy || no_agent.is_some())
                 .on_click(move |_, window, cx| {
@@ -1046,10 +1115,15 @@ impl IssueListView {
         let delete_menu = {
             let ids = ids.clone();
             let list = list.clone();
-            Button::new("bulk-delete")
-                .ghost().cursor_pointer()
-                .small()
-                .icon(Icon::new(registry::UI_DELETE).text_color(danger))
+            with_label(
+                Button::new("bulk-delete")
+                    .ghost()
+                    .web_sm()
+                    .icon(Icon::new(registry::UI_DELETE).text_color(danger))
+                    // Destructive: the whole control reads danger, web parity.
+                    .text_color(danger),
+                "Delete",
+            )
                 .tooltip("Delete selected")
                 .disabled(busy)
                 .dropdown_menu(move |menu, _window, _cx| {
@@ -1086,35 +1160,45 @@ impl IssueListView {
         // no-jump invariant, without the old floating-overlay masking).
         // EXP-439: content-sized (no `w_full`) so the filter bar can keep
         // the New Issue button beside it on the same row.
-        // EXP-642: the cluster wears the glass TRAY so it reads as one card
-        // sitting left of the Filter trigger (web `BulkActionBar` parity).
-        crate::surface::glass_tray()
+        // EXP-698 round 5: the cluster wears the OPAQUE bar capsule (EXP-642
+        // had it on the translucent tray) so it reads as the one object
+        // acting on the selection, left of the Filter trigger — the web
+        // `BulkActionBar` card and the two mobile bars, same shape.
+        crate::surface::glass_bar(cx)
             .id("bulk-action-bar")
             .flex_shrink_0()
-            .gap_1()
-            .child(
-                div()
-                    .px_1()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .whitespace_nowrap()
-                    .child(SharedString::from(format!("{count} selected"))),
-            )
             .child(
                 Button::new("bulk-clear")
-                    .ghost().cursor_pointer()
-                    .small()
+                    .ghost()
+                    .web_icon_sm()
                     .icon(Icon::new(registry::UI_CLOSE))
                     .tooltip("Clear selection")
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.clear_selection(cx);
                     })),
             )
+            .child(
+                div()
+                    .px_1()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .whitespace_nowrap()
+                    .child(SharedString::from(format!("{count} selected"))),
+            )
             .child(status_menu)
             .child(priority_menu)
             .when_some(assignee_menu, |this, btn| this.child(btn))
             .child(labels_menu)
             .child(start_coding)
+            // The hairline before the destructive action (web's separator).
+            .child(
+                div()
+                    .w_px()
+                    .h(px(20.))
+                    .mx_1()
+                    .flex_shrink_0()
+                    .bg(theme::tokens::glass::STROKE_CARD.to_hsla()),
+            )
             .child(delete_menu)
             .into_any_element()
     }
@@ -1203,6 +1287,7 @@ impl Render for IssueListView {
         // so a resize across the threshold re-renders exactly once.
         let measured = self.measured_width.get();
         self.compact = measured > px(0.) && measured < px(COMPACT_LIST_WIDTH);
+        self.wide = measured >= px(BULK_BAR_LABEL_MIN_W);
 
         // Base surface: NONE — the list sits directly on the window's page
         // gradient (EXP-282; `colors.list` has been transparent since the
@@ -1210,6 +1295,7 @@ impl Render for IssueListView {
         // context + tracked focus scope the select-all/clear bindings here
         // (terminal-dock pattern).
         let rendered_compact = self.compact;
+        let rendered_wide = self.wide;
         let measured_width = self.measured_width.clone();
         let entity = cx.entity().downgrade();
         let base = v_flex()
@@ -1225,7 +1311,11 @@ impl Render for IssueListView {
                         measured_width.set(bounds.size.width);
                         let compact = bounds.size.width > px(0.)
                             && bounds.size.width < px(COMPACT_LIST_WIDTH);
-                        if compact != rendered_compact {
+                        // EXP-698: the bulk bar's label threshold rides the
+                        // same probe — a resize across EITHER line re-renders
+                        // exactly once.
+                        let wide = bounds.size.width >= px(BULK_BAR_LABEL_MIN_W);
+                        if compact != rendered_compact || wide != rendered_wide {
                             let entity = entity.clone();
                             cx.defer(move |cx| {
                                 if let Some(list) = entity.upgrade() {
@@ -1272,20 +1362,53 @@ impl Render for IssueListView {
             }
             if data.has_any_issues && domain::has_active_filters(&self.filters) {
                 return base
-                    .child(empty_state(
-                        Icon::from(ExpIcon::SearchX),
-                        "No issues match your filters",
-                        "Try removing some filters to see more issues.",
-                        cx,
-                    ))
+                    .child(
+                        v_flex().size_full().items_center().justify_center().child(
+                            crate::controls::empty_state(
+                                Icon::from(ExpIcon::SearchX),
+                                "No issues match your filters",
+                                "Try removing some filters to see more issues.",
+                                cx,
+                            ),
+                        ),
+                    )
+
                     .into_any_element();
             }
+            // EXP-698 round 5: a genuinely empty board is where the
+            // Getting-started checklist belongs — the same cards the page
+            // renders, under the empty state, on every client. The column
+            // scrolls: ten cards are taller than a short panel.
+            let cards = self
+                .bulk_team_id(cx)
+                .and_then(|team_id| crate::getting_started::inline_cards(&team_id, cx));
             return base
-                .child(empty_state(
-                    Icon::from(ExpIcon::ListTodo),
-                    "No issues yet",
-                    "Create an issue to start tracking work.",
-                    cx,
+                .child(crate::scroll_pane::v_scroll_pane(
+                    "issue-list-empty-scroll",
+                    &self.empty_scroll,
+                    v_flex()
+                        .w_full()
+                        .min_w_0()
+                        .px_4()
+                        .pb_4()
+                        .gap_4()
+                        .child(
+                            // Without the cards under it the empty state
+                            // would hug the top of the scroll column; the
+                            // 60% band keeps it optically centred either way.
+                            v_flex()
+                                .w_full()
+                                .min_h(relative(0.6))
+                                .items_center()
+                                .justify_center()
+                                .child(crate::controls::empty_state(
+                                    Icon::from(ExpIcon::ListTodo),
+                                    "No issues yet",
+                                    "Create an issue to start tracking work.",
+                                    cx,
+                                )),
+                        )
+                        .children(cards),
                 ))
                 .into_any_element();
         }
@@ -2305,28 +2428,6 @@ fn list_skeleton(cx: &App) -> impl IntoElement {
     }
 
     v_flex().w_full().child(header).child(body)
-}
-
-/// Web `EmptyState`: centered icon + title + description.
-fn empty_state(
-    icon: Icon,
-    title: &'static str,
-    description: &'static str,
-    cx: &App,
-) -> impl IntoElement {
-    v_flex()
-        .size_full()
-        .items_center()
-        .justify_center()
-        .gap_2()
-        .child(icon.size_6().text_color(cx.theme().muted_foreground))
-        .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(title))
-        .child(
-            div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(description),
-        )
 }
 
 /// Stable per-issue element id: `{kind}-{issue_id}`.

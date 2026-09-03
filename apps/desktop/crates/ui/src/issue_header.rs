@@ -45,6 +45,7 @@ use domain::options::get_issue_priority_config;
 use domain::rows::{Issue, Label, Board, User};
 
 use crate::coding_flow::{LocalSessions, StartCodingControl};
+use crate::controls::WebControl as _;
 use crate::icons::{option_icon, registry, ExpIcon};
 use crate::pickers::{chip_button, PICKER_MENU_MIN_WIDTH, PICKER_SEARCH_WIDTH};
 use crate::issue_detail::{is_subscribed, issue_web_url, set_duplicate_of, DETAIL_GUTTER};
@@ -882,11 +883,14 @@ impl IssueHeader {
                         ))),
                 )
                 .child(
-                    crate::controls::glass_icon_button(
-                        "issue-switch-prev",
-                        Icon::new(registry::UI_CHEVRON_UP),
-                        cx,
-                    )
+                    // EXP-698 round 5: prev/next are NAVIGATION, not actions
+                    // — bare ghost glyphs on every client (web
+                    // `Button variant="ghost" size="icon-sm"`). The circles
+                    // stay on copy-link / subscribe / trash beside them.
+                    Button::new("issue-switch-prev")
+                        .ghost()
+                        .web_icon_sm()
+                        .icon(Icon::new(registry::UI_CHEVRON_UP))
                         .disabled(state.prev_id.is_none())
                         .tooltip("Previous issue")
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -894,11 +898,10 @@ impl IssueHeader {
                         })),
                 )
                 .child(
-                    crate::controls::glass_icon_button(
-                        "issue-switch-next",
-                        Icon::new(registry::UI_CHEVRON_DOWN),
-                        cx,
-                    )
+                    Button::new("issue-switch-next")
+                        .ghost()
+                        .web_icon_sm()
+                        .icon(Icon::new(registry::UI_CHEVRON_DOWN))
                         .disabled(state.next_id.is_none())
                         .tooltip("Next issue")
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -1082,7 +1085,19 @@ impl IssueHeader {
         let solo_team = self.member_users(issue, cx).len() == 1;
         // Gated: the control renders an empty div when hidden (no repo),
         // which would still occupy a gap slot in the row.
-        let start_coding = self.start_coding.read(cx).is_visible(cx);
+        //
+        // EXP-698 round 5: it also stands down while the coding-now CARD is
+        // up — a live run already carries its own state and Watch, so the
+        // launcher beside it is noise (web `issue-coding-rows.tsx` returns
+        // null for the start variant on a live session). A LOCAL run is the
+        // exception: `agent_row` suppresses the card for those because this
+        // very control turns into "Coding… / Stop" — hiding it there would
+        // strand the run with no way to stop it.
+        let local_running = LocalSessions::global_ref(cx)
+            .map(|sessions| sessions.read(cx).get(&issue.id).is_some())
+            .unwrap_or(false);
+        let start_coding = self.start_coding.read(cx).is_visible(cx)
+            && (local_running || !crate::issue_detail::has_live_coding_session(&issue.id, cx));
 
         // EXP-568/EXP-601: everything lives in ONE glass tray — the property
         // chips grow from the left, Start coding floats on the right edge of

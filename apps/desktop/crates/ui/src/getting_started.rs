@@ -45,7 +45,8 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
+    h_flex, notification::Notification, v_flex, ActiveTheme as _, Icon, Sizable as _,
+    WindowExt as _,
 };
 use sync::Store;
 
@@ -70,6 +71,58 @@ const VISIBLE_GRACE: Duration = Duration::from_secs(40);
 
 /// The docs page behind the MCP entry (web: `docsUrl('mcp')`).
 const MCP_DOCS_URL: &str = "https://exponential.at/docs/mcp/";
+
+/// EXP-698 round 5 — the checklist COPY, one place per platform and
+/// byte-identical across all four (web `getting-started-copy.ts`, iOS
+/// `GettingStartedCopy.swift`, Android `GettingStartedCopy.kt`; the web test
+/// `getting-started-copy.test.ts` reads THIS file and asserts every literal).
+///
+/// Rules the drift test depends on: ONE single-line literal per constant, no
+/// escapes, no `"` inside a string, ASCII only. The `mcp` entry has no shared
+/// action label — the desktop hands out the endpoint + docs instead.
+pub(crate) mod copy {
+    pub const DESKTOP_TITLE: &str = "Get the desktop app";
+    pub const DESKTOP_DESCRIPTION: &str = "Runs coding sessions on your machine and registers it as one of your devices.";
+    /// Unused on the IDE — it IS the desktop app — but part of the shared
+    /// contract the drift test checks, so it lives here with its siblings.
+    #[allow(dead_code)]
+    pub const DESKTOP_ACTION: &str = "Download the desktop app";
+
+    pub const GITHUB_TITLE: &str = "Connect a GitHub repo";
+    pub const GITHUB_DESCRIPTION: &str = "Boards attach repositories; pull requests and coding sessions flow back into issues.";
+    pub const GITHUB_ACTION: &str = "Connect GitHub";
+
+    pub const INVITE_TITLE: &str = "Invite your team";
+    pub const INVITE_DESCRIPTION: &str = "Teammates share boards, reviews, and the support inbox.";
+    pub const INVITE_ACTION: &str = "Invite in team settings";
+
+    pub const BOARD_TITLE: &str = "Create a board";
+    pub const BOARD_DESCRIPTION: &str = "Boards hold your issues; connect a repository to code on one.";
+    pub const BOARD_ACTION: &str = "Create a board";
+
+    pub const CODING_TITLE: &str = "Start coding with an agent";
+    pub const CODING_DESCRIPTION: &str = "Start coding on an issue hands it to your agent, which plans, implements, and opens the PR.";
+    pub const CODING_ACTION: &str = "Open Devices";
+
+    pub const ACTION_TITLE: &str = "Create an action";
+    pub const ACTION_DESCRIPTION: &str = "Reusable agent runs for your team, written by your agent from a description.";
+    pub const ACTION_ACTION: &str = "New action";
+
+    pub const SERVER_TITLE: &str = "Set up a server";
+    pub const SERVER_DESCRIPTION: &str = "Run the headless daemon on an always-on machine to take remote Start coding requests.";
+    pub const SERVER_ACTION: &str = "Copy install command";
+
+    pub const WIDGET_TITLE: &str = "Set up the feedback widget";
+    pub const WIDGET_DESCRIPTION: &str = "Visitors report bugs with an annotated screenshot; each lands here as an issue.";
+    pub const WIDGET_ACTION: &str = "Set up in team settings";
+
+    pub const HELPDESK_TITLE: &str = "Enable the helpdesk";
+    pub const HELPDESK_DESCRIPTION: &str = "Support tickets from the widget land in a shared Support inbox.";
+    pub const HELPDESK_ACTION: &str = "Enable in team settings";
+
+    pub const MCP_TITLE: &str = "Connect your tools via MCP";
+    pub const MCP_DESCRIPTION: &str = "Work with issues, boards, and comments from Claude, Cursor, or any MCP client.";
+}
 
 // ---------------------------------------------------------------------------
 // Pure model (mirrors web `deriveEntryStates`; unit-tested)
@@ -620,305 +673,305 @@ impl GettingStartedView {
         loading: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        let theme = cx.theme();
-        let muted = theme.muted_foreground;
-        // Titles + descriptions: byte-equal to the web ENTRY_TITLES /
-        // ENTRY_DESCRIPTIONS (getting-started-cards.tsx).
-        let (icon, title, description) = match entry.key {
-            EntryKey::Desktop => (
-                registry::UI_DEVICE,
-                "Get the desktop app",
-                "The desktop app is a full git IDE and the client that runs coding sessions \
-                 on your machine. Signing in registers it as one of your machines.",
-            ),
-            EntryKey::Github => (
-                registry::UI_GITHUB,
-                "Connect a GitHub repo",
-                "Link a GitHub account to your team so boards can attach repositories. \
-                 Pull requests and coding sessions flow back into their issues.",
-            ),
-            EntryKey::Invite => (
-                registry::UI_INVITE,
-                "Invite your team",
-                "Teammates share boards, reviews, and the support inbox. Send an \
-                 invite by email or hand out an invite link.",
-            ),
-            EntryKey::Board => (
-                registry::NAV_BOARDS,
-                "Create a board",
-                "Boards hold your issues. Connect a repository to code on a board; \
-                 without one it works as a plain board.",
-            ),
-            EntryKey::Coding => (
-                registry::NAV_TERMINAL,
-                "Start coding with an agent",
-                "\"Start coding\" on any issue hands it to your coding agent on your \
-                 machine. It plans first, implements, then commits, pushes, and opens \
-                 the pull request linked back to the issue. You just need git and your \
-                 agent CLI (claude, codex or pi) on your PATH.",
-            ),
-            EntryKey::Action => (
-                registry::ACTION_CREATE,
-                "Create an action",
-                "Actions are reusable agent runs for your team — describe one and your \
-                 agent writes it. Run them from Agents on any device, or wire them to \
-                 automations.",
-            ),
-            EntryKey::Server => (
-                registry::UI_SERVER,
-                "Set up a server",
-                "Run the headless agent daemon on an always-on machine. One command \
-                 installs it; the server then shows up under My machines and can take \
-                 remote \"Start coding\" requests.",
-            ),
-            EntryKey::Widget => (
-                registry::SETTINGS_WIDGET,
-                "Set up the feedback widget",
-                "Embed a feedback button on any website. Visitors report bugs with an \
-                 annotated screenshot, and each lands here as an issue with reporter \
-                 email and page context.",
-            ),
-            EntryKey::Helpdesk => (
-                registry::NAV_SUPPORT,
-                "Enable the helpdesk",
-                "Flip the switch in Settings → Feedback widget and every member shares \
-                 the Support inbox. Support tickets from the widget land there, with \
-                 replies emailed to the reporter.",
-            ),
-            EntryKey::Mcp => (
-                registry::UI_MCP,
-                "Connect your tools via MCP",
-                "This instance exposes an MCP server at /api/mcp. Connect Claude, \
-                 ChatGPT, Cursor, or any MCP client to work with issues, boards, and \
-                 comments from your tools.",
-            ),
-        };
-        let locked = !loading && entry.state == EntryState::Locked;
-        // Web `lockedHint`, case for case.
-        let hint: Option<&'static str> = match (entry.key, entry.locked_by) {
-            _ if !locked => None,
-            (EntryKey::Coding, Some(EntryKey::Desktop)) => Some(
-                "Connect a machine first — coding sessions run on the desktop app or a \
-                 registered server.",
-            ),
-            (EntryKey::Coding, Some(EntryKey::Github)) => {
-                Some("Connect a GitHub repo first. Coding sessions need a repo-backed board.")
-            }
-            (EntryKey::Coding, Some(EntryKey::Board)) => {
-                Some("Create a board with a repository first.")
-            }
-            (EntryKey::Action, _) => Some(
-                "Connect a machine first — the action creator runs on the desktop app or \
-                 a registered server.",
-            ),
-            (EntryKey::Widget, _) => {
-                Some("Create a board first. Widget feedback lands there as issues.")
-            }
-            _ => None,
-        };
+        entry_card(index, entry, team_id, loading, cx)
+    }
+}
 
-        // State glyph: green check / lock / bordered step number (the web
-        // card's exact vocabulary; `loading` renders every card neutral).
-        let glyph: gpui::AnyElement = if !loading && entry.state == EntryState::Done {
-            Icon::new(registry::UI_SELECTED)
-                .small()
-                .text_color(theme::tokens::GREEN.to_hsla())
-                .into_any_element()
-        } else if locked {
-            Icon::new(registry::UI_PRIVATE).small().text_color(muted).into_any_element()
-        } else {
-            div()
-                .size(px(20.))
-                .flex()
+/// One checklist card (EXP-698 round 5: a free function, so the inline
+/// empty-state cards render the same object the page does).
+pub(crate) fn entry_card(
+    index: usize,
+    entry: &Entry,
+    team_id: &str,
+    loading: bool,
+    cx: &mut App,
+) -> gpui::AnyElement {
+    let theme = cx.theme();
+    let muted = theme.muted_foreground;
+    // Titles + descriptions: the shared [`copy`] contract, byte-equal on
+    // all four clients.
+    let (icon, title, description) = match entry.key {
+        EntryKey::Desktop => (
+            registry::UI_DEVICE,
+            copy::DESKTOP_TITLE,
+            copy::DESKTOP_DESCRIPTION,
+        ),
+        EntryKey::Github => (
+            registry::UI_GITHUB,
+            copy::GITHUB_TITLE,
+            copy::GITHUB_DESCRIPTION,
+        ),
+        EntryKey::Invite => (
+            registry::UI_INVITE,
+            copy::INVITE_TITLE,
+            copy::INVITE_DESCRIPTION,
+        ),
+        EntryKey::Board => (
+            registry::NAV_BOARDS,
+            copy::BOARD_TITLE,
+            copy::BOARD_DESCRIPTION,
+        ),
+        EntryKey::Coding => (
+            registry::NAV_TERMINAL,
+            copy::CODING_TITLE,
+            copy::CODING_DESCRIPTION,
+        ),
+        EntryKey::Action => (
+            registry::ACTION_CREATE,
+            copy::ACTION_TITLE,
+            copy::ACTION_DESCRIPTION,
+        ),
+        EntryKey::Server => (
+            registry::UI_SERVER,
+            copy::SERVER_TITLE,
+            copy::SERVER_DESCRIPTION,
+        ),
+        EntryKey::Widget => (
+            registry::SETTINGS_WIDGET,
+            copy::WIDGET_TITLE,
+            copy::WIDGET_DESCRIPTION,
+        ),
+        EntryKey::Helpdesk => (
+            registry::NAV_SUPPORT,
+            copy::HELPDESK_TITLE,
+            copy::HELPDESK_DESCRIPTION,
+        ),
+        EntryKey::Mcp => (registry::UI_MCP, copy::MCP_TITLE, copy::MCP_DESCRIPTION),
+    };
+    let locked = !loading && entry.state == EntryState::Locked;
+    // Web `lockedHint`, case for case.
+    let hint: Option<&'static str> = match (entry.key, entry.locked_by) {
+        _ if !locked => None,
+        (EntryKey::Coding, Some(EntryKey::Desktop)) => Some(
+            "Connect a machine first — coding sessions run on the desktop app or a \
+             registered server.",
+        ),
+        (EntryKey::Coding, Some(EntryKey::Github)) => {
+            Some("Connect a GitHub repo first. Coding sessions need a repo-backed board.")
+        }
+        (EntryKey::Coding, Some(EntryKey::Board)) => {
+            Some("Create a board with a repository first.")
+        }
+        (EntryKey::Action, _) => Some(
+            "Connect a machine first — the action creator runs on the desktop app or \
+             a registered server.",
+        ),
+        (EntryKey::Widget, _) => {
+            Some("Create a board first. Widget feedback lands there as issues.")
+        }
+        _ => None,
+    };
+
+    // State glyph: green check / lock / bordered step number (the web
+    // card's exact vocabulary; `loading` renders every card neutral).
+    let glyph: gpui::AnyElement = if !loading && entry.state == EntryState::Done {
+        Icon::new(registry::UI_SELECTED)
+            .small()
+            .text_color(theme::tokens::GREEN.to_hsla())
+            .into_any_element()
+    } else if locked {
+        Icon::new(registry::UI_PRIVATE).small().text_color(muted).into_any_element()
+    } else {
+        div()
+            .size(px(20.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .border_1()
+            .border_color(theme.border)
+            .text_xs()
+            .text_color(muted)
+            .child(SharedString::from(format!("{}", index + 1)))
+            .into_any_element()
+    };
+
+    let cta: Option<gpui::AnyElement> = if locked || (!loading && entry.state == EntryState::Done)
+    {
+        None
+    } else {
+        entry_cta(index, entry.key, team_id, cx)
+    };
+
+    crate::surface::glass_card()
+        .w_full()
+        .min_w_0()
+        .p_4()
+        .gap_2()
+        .when(locked, |this| this.opacity(0.6))
+        .child(
+            h_flex()
                 .items_center()
-                .justify_center()
-                .rounded_full()
-                .border_1()
-                .border_color(theme.border)
+                .gap_2()
+                .child(div().flex_shrink_0().child(glyph))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .child(Icon::new(icon).small().text_color(muted)),
+                )
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(title),
+                ),
+        )
+        .child(
+            div()
                 .text_xs()
                 .text_color(muted)
-                .child(SharedString::from(format!("{}", index + 1)))
+                .child(hint.unwrap_or(description)),
+        )
+        .children(cta.map(|cta| h_flex().mt_1().gap_2().flex_wrap().items_center().child(cta)))
+        .into_any_element()
+}
+
+/// The per-entry call to action. Where the web links a route, the desktop
+/// opens the matching dialog/settings section; the owner-only web-only
+/// settings pages (widget, helpdesk) open in the browser. Labels are the
+/// shared [`copy`] contract.
+fn entry_cta(
+    index: usize,
+    key: EntryKey,
+    team_id: &str,
+    cx: &mut App,
+) -> Option<gpui::AnyElement> {
+    let team = team_id.to_string();
+    let muted = cx.theme().muted_foreground;
+    Some(match key {
+        // This IDE is the desktop app: nothing to download, the step
+        // completes on its own once the device registration lands.
+        EntryKey::Desktop => return None,
+        EntryKey::Github => Button::new(("gs-cta-github", index))
+            .primary().web_sm()
+            .label(copy::GITHUB_ACTION)
+            .on_click(|_, window, cx| {
+                crate::navigation::navigate(
+                    window,
+                    cx,
+                    crate::navigation::Screen::Settings,
+                );
+                crate::sidebar::select_settings_section(
+                    window,
+                    cx,
+                    crate::settings::SettingsSection::Repositories,
+                );
+            })
+            .into_any_element(),
+        EntryKey::Invite => Button::new(("gs-cta-invite", index))
+            .primary().web_sm()
+            .label(copy::INVITE_ACTION)
+            .on_click(|_, window, cx| {
+                crate::navigation::navigate(
+                    window,
+                    cx,
+                    crate::navigation::Screen::Settings,
+                );
+                crate::sidebar::select_settings_section(
+                    window,
+                    cx,
+                    crate::settings::SettingsSection::Members,
+                );
+            })
+            .into_any_element(),
+        EntryKey::Board => Button::new(("gs-cta-board", index))
+            .primary().web_sm()
+            .label(copy::BOARD_ACTION)
+            .on_click(move |_, window, cx| {
+                crate::create_board_dialog::open(window, cx, team.clone());
+            })
+            .into_any_element(),
+        // EXP-698 round 5: the shared label is "Open Devices" — the
+        // Devices page is where a run is started on ANY machine (and the
+        // only coding entry point the mobile clients can offer), so the
+        // desktop lands there too instead of opening its own launcher.
+        EntryKey::Coding => Button::new(("gs-cta-coding", index))
+            .primary().web_sm()
+            .label(copy::CODING_ACTION)
+            .on_click(|_, window, cx| {
+                crate::navigation::navigate(
+                    window,
+                    cx,
+                    crate::navigation::Screen::Devices,
+                );
+            })
+            .into_any_element(),
+        // The builtin creator run — the Actions page's "New action".
+        EntryKey::Action => Button::new(("gs-cta-action", index))
+            .primary().web_sm()
+            .icon(Icon::new(registry::ACTION_CREATE))
+            .label(copy::ACTION_ACTION)
+            .on_click(move |_, window, cx| {
+                crate::create_action_dialog::open(window, cx, team.clone());
+            })
+            .into_any_element(),
+        // The one-liner goes straight to the clipboard (the shared
+        // label promises exactly that); the Add-device dialog behind
+        // My machines still shows it in full.
+        EntryKey::Server => Button::new(("gs-cta-server", index))
+            .primary().web_sm()
+            .icon(Icon::new(registry::UI_COPY))
+            .label(copy::SERVER_ACTION)
+            .on_click(|_, window, cx| {
+                let snippet = crate::machines::server_install_snippet(cx);
+                cx.write_to_clipboard(ClipboardItem::new_string(snippet));
+                window.push_notification(Notification::success("Copied install command"), cx);
+            })
+            .into_any_element(),
+        EntryKey::Widget => {
+            let url = team_settings_url(&team, "widget", cx)?;
+            Button::new(("gs-cta-widget", index))
+                .primary().web_sm()
+                .icon(Icon::new(registry::UI_EXTERNAL_LINK))
+                .label(copy::WIDGET_ACTION)
+                .on_click(move |_, _, cx| crate::settings::open_url(cx, url.clone()))
                 .into_any_element()
-        };
+        }
+        EntryKey::Helpdesk => {
+            let url = team_settings_url(&team, "widget", cx)?;
+            Button::new(("gs-cta-helpdesk", index))
+                .primary().web_sm()
+                .icon(Icon::new(registry::UI_EXTERNAL_LINK))
+                .label(copy::HELPDESK_ACTION)
+                .on_click(move |_, _, cx| crate::settings::open_url(cx, url.clone()))
+                .into_any_element()
+        }
+        // The web renders per-client setup tabs; the desktop hands out
+        // the endpoint and the docs walkthrough.
+        EntryKey::Mcp => {
+            let endpoint = queries::active_account(cx)
+                .map(|account| format!("{}/api/mcp", account.instance_url.trim_end_matches('/')));
+            h_flex()
+                .gap_2()
+                .flex_wrap()
+                .items_center()
+                .children(endpoint.clone().map(|endpoint| {
+                    Button::new(("gs-cta-mcp-copy", index))
+                        .primary().web_sm()
+                        .icon(Icon::new(registry::UI_COPY))
+                        .label("Copy MCP URL")
+                        .on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(endpoint.clone()));
+                        })
+                }))
+                .child(
+                    Button::new(("gs-cta-mcp-docs", index))
+                        .ghost().web_sm()
+                        .icon(Icon::new(registry::UI_EXTERNAL_LINK))
+                        .label("Setup guide")
+                        .on_click(|_, _, cx| {
+                            crate::settings::open_url(cx, MCP_DOCS_URL.to_string())
+                        }),
+                )
+                .children(endpoint.map(|endpoint| {
+                    div().text_xs().text_color(muted).child(SharedString::from(endpoint))
+                }))
+                .into_any_element()
+        }
+    })
+}
 
-        let cta: Option<gpui::AnyElement> = if locked || (!loading && entry.state == EntryState::Done)
-        {
-            None
-        } else {
-            self.entry_cta(index, entry.key, team_id, cx)
-        };
-
-        crate::surface::glass_card()
-            .w_full()
-            .min_w_0()
-            .p_4()
-            .gap_2()
-            .when(locked, |this| this.opacity(0.6))
-            .child(
-                h_flex()
-                    .items_center()
-                    .gap_2()
-                    .child(div().flex_shrink_0().child(glyph))
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .child(Icon::new(icon).small().text_color(muted)),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(title),
-                    ),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(hint.unwrap_or(description)),
-            )
-            .children(cta.map(|cta| h_flex().mt_1().gap_2().flex_wrap().items_center().child(cta)))
-            .into_any_element()
-    }
-
-    /// The per-entry call to action. Where the web links a route, the desktop
-    /// opens the matching dialog/settings section; the owner-only web-only
-    /// settings pages (widget, helpdesk) open in the browser.
-    fn entry_cta(
-        &self,
-        index: usize,
-        key: EntryKey,
-        team_id: &str,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<gpui::AnyElement> {
-        let team = team_id.to_string();
-        let muted = cx.theme().muted_foreground;
-        Some(match key {
-            // This IDE is the desktop app: nothing to download, the step
-            // completes on its own once the device registration lands.
-            EntryKey::Desktop => return None,
-            EntryKey::Github => Button::new(("gs-cta-github", index))
-                .primary().web_sm()
-                .label("Connect GitHub")
-                .on_click(|_, window, cx| {
-                    crate::navigation::navigate(
-                        window,
-                        cx,
-                        crate::navigation::Screen::Settings,
-                    );
-                    crate::sidebar::select_settings_section(
-                        window,
-                        cx,
-                        crate::settings::SettingsSection::Repositories,
-                    );
-                })
-                .into_any_element(),
-            EntryKey::Invite => Button::new(("gs-cta-invite", index))
-                .primary().web_sm()
-                .label("Invite in team settings")
-                .on_click(|_, window, cx| {
-                    crate::navigation::navigate(
-                        window,
-                        cx,
-                        crate::navigation::Screen::Settings,
-                    );
-                    crate::sidebar::select_settings_section(
-                        window,
-                        cx,
-                        crate::settings::SettingsSection::Members,
-                    );
-                })
-                .into_any_element(),
-            EntryKey::Board => Button::new(("gs-cta-board", index))
-                .primary().web_sm()
-                .label("Create a board")
-                .on_click(move |_, window, cx| {
-                    crate::create_board_dialog::open(window, cx, team.clone());
-                })
-                .into_any_element(),
-            EntryKey::Coding => Button::new(("gs-cta-coding", index))
-                .primary().web_sm()
-                .label("Start coding")
-                .on_click(move |_, window, cx| {
-                    crate::start_coding_dialog::open_for_selection(
-                        window,
-                        cx,
-                        team.clone(),
-                        Vec::new(),
-                        None,
-                        None,
-                    );
-                })
-                .into_any_element(),
-            // The builtin creator run — the Actions page's "New action".
-            EntryKey::Action => Button::new(("gs-cta-action", index))
-                .primary().web_sm()
-                .icon(Icon::new(registry::ACTION_CREATE))
-                .label("New action")
-                .on_click(move |_, window, cx| {
-                    crate::create_action_dialog::open(window, cx, team.clone());
-                })
-                .into_any_element(),
-            EntryKey::Server => Button::new(("gs-cta-server", index))
-                .primary().web_sm()
-                .label("Add a server")
-                .on_click(|_, window, cx| {
-                    crate::machines::open_add_server_dialog(window, cx);
-                })
-                .into_any_element(),
-            EntryKey::Widget => {
-                let url = team_settings_url(&team, "widget", cx)?;
-                Button::new(("gs-cta-widget", index))
-                    .primary().web_sm()
-                    .icon(Icon::new(registry::UI_EXTERNAL_LINK))
-                    .label("Set up in team settings")
-                    .on_click(move |_, _, cx| crate::settings::open_url(cx, url.clone()))
-                    .into_any_element()
-            }
-            EntryKey::Helpdesk => {
-                let url = team_settings_url(&team, "widget", cx)?;
-                Button::new(("gs-cta-helpdesk", index))
-                    .primary().web_sm()
-                    .icon(Icon::new(registry::UI_EXTERNAL_LINK))
-                    .label("Enable in team settings")
-                    .on_click(move |_, _, cx| crate::settings::open_url(cx, url.clone()))
-                    .into_any_element()
-            }
-            // The web renders per-client setup tabs; the desktop hands out
-            // the endpoint and the docs walkthrough.
-            EntryKey::Mcp => {
-                let endpoint = queries::active_account(cx)
-                    .map(|account| format!("{}/api/mcp", account.instance_url.trim_end_matches('/')));
-                h_flex()
-                    .gap_2()
-                    .flex_wrap()
-                    .items_center()
-                    .children(endpoint.clone().map(|endpoint| {
-                        Button::new(("gs-cta-mcp-copy", index))
-                            .primary().web_sm()
-                            .icon(Icon::new(registry::UI_COPY))
-                            .label("Copy MCP URL")
-                            .on_click(move |_, _, cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(endpoint.clone()));
-                            })
-                    }))
-                    .child(
-                        Button::new(("gs-cta-mcp-docs", index))
-                            .ghost().web_sm()
-                            .icon(Icon::new(registry::UI_EXTERNAL_LINK))
-                            .label("Setup guide")
-                            .on_click(|_, _, cx| {
-                                crate::settings::open_url(cx, MCP_DOCS_URL.to_string())
-                            }),
-                    )
-                    .children(endpoint.map(|endpoint| {
-                        div().text_xs().text_color(muted).child(SharedString::from(endpoint))
-                    }))
-                    .into_any_element()
-            }
-        })
-    }
-
+impl GettingStartedView {
     /// EXP-686: the page's two tabs — the web segmented `TabsList`, full-width
     /// under the header. Selecting one REPLACES the screen (no back-stack
     /// push): the tab is part of the screen's identity, not a navigation.
@@ -940,6 +993,107 @@ impl GettingStartedView {
             .child(segment("Suggested actions", GettingStartedTab::Suggestions))
             .into_any_element()
     }
+}
+
+/// How wide one inline card may shrink before the grid drops to a single
+/// column (web `md:grid-cols-2`). The board panel can be narrower than two
+/// readable cards, so the wrap does the responsive work for us.
+const INLINE_CARD_MIN_W: f32 = 240.;
+
+/// EXP-698 round 5 — the checklist as an INLINE block under an empty state
+/// (the empty board's "No issues yet", the empty team's "No boards yet"), on
+/// every client. Same entries, same cards, same CTAs as the page; the header
+/// carries the `{done}/{total} done` progress the page shows beside its title.
+///
+/// `None` while the signals are still loading (an empty state must not flash a
+/// half-answered checklist) and once every entry is done — a finished
+/// checklist under an empty board is just noise.
+pub(crate) fn inline_cards(team_id: &str, cx: &mut App) -> Option<gpui::AnyElement> {
+    let progress = GettingStartedProgress::global(cx);
+    // NOT the page's fast cadence (`from_page: false`): an empty board can
+    // sit on screen all day, and the checklist page is the only surface that
+    // earns the 15s poll — the rail's 60s one is enough here.
+    let snapshot = progress.update(cx, |progress, cx| {
+        progress.ensure(team_id, false, cx);
+        progress.snapshot(team_id, cx)
+    });
+    if snapshot.loading || snapshot.complete {
+        return None;
+    }
+    let Snapshot {
+        entries, done, total, ..
+    } = snapshot;
+    let muted = cx.theme().muted_foreground;
+    let border = cx.theme().border;
+    let primary = cx.theme().primary;
+    // The page's progress pair (`{done}/{total} done` + the 6×192 bar), here
+    // as the section header's trailing control.
+    let progress_bar = h_flex()
+        .items_center()
+        .gap_3()
+        .child(
+            div()
+                .text_sm()
+                .whitespace_nowrap()
+                .text_color(muted)
+                .child(SharedString::from(format!("{done}/{total} done"))),
+        )
+        .child(
+            div()
+                .h(px(6.))
+                .w(px(192.))
+                .rounded_full()
+                .bg(border)
+                .child(
+                    div()
+                        .h_full()
+                        .w(relative((done as f32 / total.max(1) as f32).min(1.)))
+                        .rounded_full()
+                        .bg(primary),
+                ),
+        )
+        .into_any_element();
+
+    let cards: Vec<gpui::AnyElement> = entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| entry_card(index, entry, team_id, false, cx))
+        .collect();
+
+    Some(
+        v_flex()
+            .w_full()
+            .min_w_0()
+            .child(glass_section_header(
+                "Getting started",
+                Some(progress_bar),
+                cx,
+            ))
+            .child(
+                // Two columns, one below `INLINE_CARD_MIN_W`. The gutter is
+                // the cells' own padding, not a flex gap: a gap plus a 50%
+                // basis overflows the row and wraps every card onto its own
+                // line.
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .flex_wrap()
+                    .items_start()
+                    .children(cards.into_iter().map(|card| {
+                        // A GROWING half-width basis, not a fixed 50%: between
+                        // one and two columns wide the cells would otherwise
+                        // wrap one per line at their 240 minimum and leave the
+                        // column ragged on the right.
+                        div()
+                            .flex_grow(1.)
+                            .flex_basis(relative(0.5))
+                            .min_w(px(INLINE_CARD_MIN_W))
+                            .p_1()
+                            .child(card)
+                    })),
+            )
+            .into_any_element(),
+    )
 }
 
 /// `{instance}/t/{slug}/settings/{section}` for the active account — the
@@ -1264,6 +1418,80 @@ mod tests {
     }
 
     // Web `getting-started-cards.test.ts`, case for case.
+
+    /// Every string of the shared [`copy`] contract, so one loop can hold the
+    /// rules the cross-client drift test (`getting-started-copy.test.ts`)
+    /// depends on.
+    const COPY_CONSTANTS: &[(&str, &str)] = &[
+        ("DESKTOP_TITLE", copy::DESKTOP_TITLE),
+        ("DESKTOP_DESCRIPTION", copy::DESKTOP_DESCRIPTION),
+        ("DESKTOP_ACTION", copy::DESKTOP_ACTION),
+        ("GITHUB_TITLE", copy::GITHUB_TITLE),
+        ("GITHUB_DESCRIPTION", copy::GITHUB_DESCRIPTION),
+        ("GITHUB_ACTION", copy::GITHUB_ACTION),
+        ("INVITE_TITLE", copy::INVITE_TITLE),
+        ("INVITE_DESCRIPTION", copy::INVITE_DESCRIPTION),
+        ("INVITE_ACTION", copy::INVITE_ACTION),
+        ("BOARD_TITLE", copy::BOARD_TITLE),
+        ("BOARD_DESCRIPTION", copy::BOARD_DESCRIPTION),
+        ("BOARD_ACTION", copy::BOARD_ACTION),
+        ("CODING_TITLE", copy::CODING_TITLE),
+        ("CODING_DESCRIPTION", copy::CODING_DESCRIPTION),
+        ("CODING_ACTION", copy::CODING_ACTION),
+        ("ACTION_TITLE", copy::ACTION_TITLE),
+        ("ACTION_DESCRIPTION", copy::ACTION_DESCRIPTION),
+        ("ACTION_ACTION", copy::ACTION_ACTION),
+        ("SERVER_TITLE", copy::SERVER_TITLE),
+        ("SERVER_DESCRIPTION", copy::SERVER_DESCRIPTION),
+        ("SERVER_ACTION", copy::SERVER_ACTION),
+        ("WIDGET_TITLE", copy::WIDGET_TITLE),
+        ("WIDGET_DESCRIPTION", copy::WIDGET_DESCRIPTION),
+        ("WIDGET_ACTION", copy::WIDGET_ACTION),
+        ("HELPDESK_TITLE", copy::HELPDESK_TITLE),
+        ("HELPDESK_DESCRIPTION", copy::HELPDESK_DESCRIPTION),
+        ("HELPDESK_ACTION", copy::HELPDESK_ACTION),
+        ("MCP_TITLE", copy::MCP_TITLE),
+        ("MCP_DESCRIPTION", copy::MCP_DESCRIPTION),
+    ];
+
+    /// EXP-698 round 5: the web drift test greps THIS file for `"<value>"`,
+    /// so every literal has to stay one plain single-line ASCII string — no
+    /// embedded quote, no escape, no continuation, nothing empty.
+    #[test]
+    fn copy_constants_are_plain_single_line_ascii() {
+        for (name, value) in COPY_CONSTANTS {
+            assert!(!value.trim().is_empty(), "{name} is empty");
+            assert!(!value.contains('"'), "{name} carries a quote: {value}");
+            assert!(!value.contains('\\'), "{name} carries a backslash: {value}");
+            assert!(!value.contains('\n'), "{name} spans lines: {value}");
+            assert!(value.is_ascii(), "{name} is not ASCII: {value}");
+        }
+    }
+
+    /// [`inline_cards`] enumerates `Snapshot::entries` in place, so the cards
+    /// under an empty board/team come out in `derive_entries` order — which
+    /// `owner_order_is_the_web_order` already pins to the web list. The one
+    /// fact left to prove is that the member view never REORDERS it: it is
+    /// the owner list with the gated entries dropped, nothing else.
+    #[test]
+    fn member_entries_are_a_subsequence_of_the_owner_order() {
+        let owner: Vec<EntryKey> = derive_entries(&Signals::default(), OWNER)
+            .iter()
+            .map(|entry| entry.key)
+            .collect();
+        let member: Vec<EntryKey> = derive_entries(&Signals::default(), MEMBER)
+            .iter()
+            .map(|entry| entry.key)
+            .collect();
+        assert!(member.len() < owner.len(), "the gates dropped nothing");
+        let mut owner_iter = owner.iter();
+        for key in &member {
+            assert!(
+                owner_iter.any(|expected| expected == key),
+                "{key:?} is out of the owner order: member {member:?} vs owner {owner:?}"
+            );
+        }
+    }
 
     #[test]
     fn owner_order_is_the_web_order() {

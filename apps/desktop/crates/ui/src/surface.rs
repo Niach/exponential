@@ -320,6 +320,28 @@ pub(crate) fn glass_tray() -> Div {
         .bg(t::glass::FILL_SECTION.to_hsla())
 }
 
+/// EXP-698 round 5 — the ONE bulk-action bar chrome, shared with web
+/// (`bg-glass-card-opaque` + `border-glass-stroke-strong`, radius 24) and the
+/// two mobile bars: a single OPAQUE capsule that floats over the list it acts
+/// on. Opaque is the point — a translucent bar would show the rows it covers
+/// sliding underneath it (and gpui has no in-scene backdrop blur), so the fill
+/// is `theme.popover`, the shared glass-menu fill (`FILL_CARD` composited over
+/// `POPOVER`, byte-equal to Android's `GlassTokens.OpaqueCardFill`).
+///
+/// It does NOT wrap: the bar is a fixed-height object, and the labels collapse
+/// to icons on a narrow surface instead (`issue_list::render_bulk_bar`).
+pub(crate) fn glass_bar(cx: &App) -> Div {
+    h_flex()
+        .items_center()
+        .gap_1()
+        .px_2p5()
+        .py_2()
+        .rounded(px(t::radius::XL3))
+        .border_1()
+        .border_color(t::glass::STROKE_STRONG.to_hsla())
+        .bg(cx.theme().popover)
+}
+
 /// Shared markdown `TextView` style (EXP-282): code blocks get a glass
 /// section fill instead of the component default opaque `tokens.muted`
 /// panel. Everything else stays at the component defaults the call sites

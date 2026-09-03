@@ -369,6 +369,9 @@ pub struct ScreensPanel {
     /// One frame stale during a live resize; 0.0 before the first paint
     /// falls back to stretch.
     slot_width: std::rc::Rc<std::cell::Cell<f32>>,
+    /// EXP-698 round 5: the "No boards yet" state scrolls — it carries the
+    /// Getting-started cards under it.
+    empty_scroll: gpui::ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -435,6 +438,11 @@ impl ScreensPanel {
             },
         ));
         subscriptions.push(cx.observe(&collections.boards, |_, _, cx| cx.notify()));
+        // EXP-698 round 5: the "No boards yet" center renders the
+        // Getting-started cards — same reason the issue list observes it
+        // (tRPC one-shot signals no collection echo covers).
+        let gs_progress = crate::getting_started::GettingStartedProgress::global(cx);
+        subscriptions.push(cx.observe(&gs_progress, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe_in(
             &Store::global(cx).state(),
             window,
@@ -458,6 +466,7 @@ impl ScreensPanel {
 
         let mut this = Self {
             focus_handle: cx.focus_handle(),
+            empty_scroll: gpui::ScrollHandle::new(),
             nav,
             issue_detail,
             settings,
@@ -1262,28 +1271,24 @@ impl ScreensPanel {
                 )
                 .into_any_element();
         }
+        // EXP-698 round 5: the shared empty-state shape (`controls::empty_state`)
+        // with the Getting-started checklist under it — the same block the
+        // empty board shows, and the web's `/t/$teamSlug` empty page.
+        // The 60% band keeps the state optically centred when no cards
+        // follow it (a complete checklist, or a team still answering).
         let mut column = v_flex()
-            .size_full()
+            .w_full()
+            .min_w_0()
+            .min_h(gpui::relative(0.6))
             .items_center()
             .justify_center()
-            .gap_2()
-            .child(
-                Icon::new(registry::NAV_BOARDS)
-                    .size_6()
-                    .text_color(cx.theme().muted_foreground),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child("No boards yet"),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("Create a board to start tracking issues. Connect a repository to code on it."),
-            );
+            .gap_3()
+            .child(crate::controls::empty_state(
+                Icon::new(registry::NAV_BOARDS),
+                "No boards yet",
+                "Create a board to start tracking work.",
+                cx,
+            ));
         // No team resolves (e.g. mid team-switch churn): the create
         // action would silently no-op, so don't offer a dead button. (The
         // fully-teamless account is handled by the zero-team branch above.)
@@ -1298,7 +1303,25 @@ impl ScreensPanel {
                     }),
             );
         }
-        column.into_any_element()
+        let cards = active_team
+            .as_deref()
+            .and_then(|team_id| crate::getting_started::inline_cards(team_id, cx));
+        v_flex()
+            .size_full()
+            .min_h_0()
+            .child(crate::scroll_pane::v_scroll_pane(
+                "screens-empty-scroll",
+                &self.empty_scroll,
+                v_flex()
+                    .w_full()
+                    .min_w_0()
+                    .px_4()
+                    .pb_4()
+                    .gap_4()
+                    .child(column)
+                    .children(cards),
+            ))
+            .into_any_element()
     }
 }
 

@@ -2021,6 +2021,24 @@ pub(crate) fn issue_web_url(issue: &Issue, cx: &App) -> Option<String> {
     ))
 }
 
+/// Is a coding session LIVE on this issue right now? The exact predicate
+/// [`coding_now_card`] picks its session with — the header gates the
+/// Start-coding pill on it (EXP-698 round 5: the card already says the run is
+/// going, so a second "Start coding" beside it is noise; web hides it the same
+/// way in `issue-coding-rows.tsx`).
+pub(crate) fn has_live_coding_session(issue_id: &str, cx: &App) -> bool {
+    let now = chrono::Utc::now().timestamp();
+    Store::global(cx)
+        .collections()
+        .coding_sessions
+        .read(cx)
+        .iter()
+        .any(|session| {
+            session.issue_id.as_deref() == Some(issue_id)
+                && crate::queries::coding_session_is_live(session, now)
+        })
+}
+
 /// The §4.2 steer presence CARD (EXP-698 — it was a lone pill until this
 /// sweep): while a `coding_sessions` row is live for this issue, the issue
 /// header grows a second [`crate::surface::glass_tray`] under the property

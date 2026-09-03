@@ -606,6 +606,20 @@ impl MachinesSection {
 /// Where the desktop app's builds live — the "Download desktop app" target.
 const DESKTOP_RELEASES_URL: &str = "https://github.com/Niach/exponential/releases/latest";
 
+/// The instance the install one-liner points the daemon at.
+fn server_install_origin(cx: &gpui::App) -> String {
+    queries::active_account(cx)
+        .map(|account| account.instance_url.trim_end_matches('/').to_string())
+        .unwrap_or_else(|| "https://app.exponential.at".to_string())
+}
+
+/// The headless-daemon install one-liner (web `buildServerInstallSnippet`) —
+/// the Add-device dialog shows it, the Getting-started server card copies it.
+pub(crate) fn server_install_snippet(cx: &gpui::App) -> String {
+    let origin = server_install_origin(cx);
+    format!("curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE={origin} sh")
+}
+
 /// The "Add device" dialog (EXP-697, one spec with the web twin): the desktop
 /// app first — it is what actually runs coding sessions — then the install
 /// one-liner for the headless `exponential` CLI as the always-on-server path.
@@ -615,13 +629,10 @@ const DESKTOP_RELEASES_URL: &str = "https://github.com/Niach/exponential/release
 /// `buildServerInstallSnippet` shape exactly. Shared (EXP-470): opened from
 /// this section's band and from the Getting-started page's server card.
 pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
-    let origin = queries::active_account(cx)
-        .map(|account| account.instance_url.trim_end_matches('/').to_string())
-        .unwrap_or_else(|| "https://app.exponential.at".to_string());
+    let origin = server_install_origin(cx);
     // The clipboard gets the ONE-LINE command; the box shows it wrapped over
     // two lines so the snippet never needs a horizontal scroll.
-    let snippet =
-        format!("curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE={origin} sh");
+    let snippet = server_install_snippet(cx);
     let line_two = SharedString::from(format!("  EXP_INSTANCE={origin} sh"));
     let spec = AlertSpec::new(
         "Add device",
