@@ -258,6 +258,31 @@ class MarkdownRoundTripTest {
     @Test fun tightPipeTableNormalisesToCanonical() =
         assertEquals("| a | b |\n| --- | --- |\n| 1 | 2 |", roundTrip("|a|b|\n|---|---|\n|1|2|"))
 
+    // --- Nested tables hoist (EXP-728). NOT supported: a table is a top-level
+    // block, so one found inside a list item or blockquote is hoisted out on
+    // parse (the list splits around it, the quote ends before it) and the
+    // hoisted form is the canonical one. Every native flat model turns
+    // `nested` into `hoisted`; `hoisted` is a fixpoint on all four clients.
+    // Byte-mirrored by the desktop TABLE_HOIST_FIXTURES, the iOS table suite
+    // and the web markdown-table.test.ts — add a fixture in all four or in
+    // none. Ordered lists stay out on purpose: how the tail item is
+    // renumbered after a hoist is engine-specific and not part of the
+    // contract. ---
+
+    @Test fun tableInsideAListItemHoistsToTheTopLevel() {
+        val nested = "- step one\n\n  | a | b |\n  | --- | --- |\n  | 1 | 2 |\n\n- step two"
+        val hoisted = "- step one\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- step two"
+        assertEquals(hoisted, roundTrip(nested))
+        assertEquals(hoisted, roundTrip(hoisted))
+    }
+
+    @Test fun tableInsideABlockquoteHoistsToTheTopLevel() {
+        val nested = "> intro\n>\n> | a | b |\n> | --- | --- |\n> | 1 | 2 |"
+        val hoisted = "> intro\n\n| a | b |\n| --- | --- |\n| 1 | 2 |"
+        assertEquals(hoisted, roundTrip(nested))
+        assertEquals(hoisted, roundTrip(hoisted))
+    }
+
     @Test fun tableFixturesAreIdempotent() {
         for (md in TABLE_FIXTURES) {
             val once = roundTrip(md)

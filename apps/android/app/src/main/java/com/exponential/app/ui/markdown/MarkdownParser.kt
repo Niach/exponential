@@ -383,6 +383,11 @@ object MarkdownParser {
          * A GFM pipe table (EXP-726). Row 0 is the header and carries the
          * column alignments; ragged body rows are padded with empty cells and
          * extra cells are dropped, so [TableData] is always rectangular.
+         *
+         * A table is always a TOP-LEVEL block: the `flushText()` below hoists
+         * one nested in a list item or blockquote out to the document level
+         * (EXP-728, deliberate — nested tables are unsupported; the
+         * `MarkdownRoundTripTest` hoist fixtures lock the result).
          */
         private fun emitTable(node: CmTableBlock, ctx: RenderContext) {
             var header: List<TableCell> = emptyList()

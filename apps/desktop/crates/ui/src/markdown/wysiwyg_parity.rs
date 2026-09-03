@@ -217,3 +217,20 @@ async fn backslash_before_a_table_pipe_round_trips_byte_identically(cx: &mut Tes
     let editor = cx.new(|cx| MarkdownEditor::from_markdown(cx, first.clone(), None));
     assert_eq!(editor.update(cx, |editor, cx| editor.markdown(cx)), first);
 }
+
+/// EXP-728: nested tables are unsupported — the flat model HOISTS a table out
+/// of its list item / blockquote (`serialize::TABLE_HOIST_FIXTURES`), and the
+/// hoisted form is the canonical one, so it must survive the vendored engine
+/// unchanged too. Deliberate, documented divergence: the vendored engine keeps
+/// a quote-nested table it is handed (`document.rs`
+/// `imports_quote_with_native_table_child`) and emits a list-nested one
+/// unindented, which the natives then hoist on their next parse. Nothing
+/// asserts the nested inputs through the WYSIWYG for that reason.
+#[gpui::test]
+async fn hoisted_table_fixtures_survive_wysiwyg_round_trip(cx: &mut TestAppContext) {
+    for (name, _nested, hoisted) in super::serialize::TABLE_HOIST_FIXTURES {
+        let editor = cx.new(|cx| MarkdownEditor::from_markdown(cx, (*hoisted).to_string(), None));
+        let first = editor.update(cx, |editor, cx| editor.markdown(cx));
+        assert_eq!(&first, hoisted, "wysiwyg round-trip diverged for fixture {name}");
+    }
+}

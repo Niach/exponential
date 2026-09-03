@@ -479,6 +479,30 @@ pub(crate) const CONTRACT_FIXTURES: &[(&str, &str)] = &[
     ("table_unicode", "| Grüße | 🚀 |\n| --- | --- |\n| ü | é |"),
 ];
 
+/// EXP-728: NESTED tables are not supported. A table is a top-level block;
+/// one found inside a list item or blockquote is HOISTED out on parse — the
+/// list splits around it, the quote ends before it — and the hoisted form is
+/// the canonical one. `(name, nested, hoisted)`: every native flat model
+/// (this pipeline, iOS, Android) turns `nested` into `hoisted`, and `hoisted`
+/// is a fixpoint on all four clients. Byte-mirrored by the Android
+/// `MarkdownRoundTripTest.kt`, the iOS table suite and the web
+/// `markdown-table.test.ts` — add a fixture in all four or in none. Ordered
+/// lists stay out on purpose: how the tail item is renumbered after a hoist
+/// is engine-specific and not part of the contract.
+#[cfg(test)]
+pub(crate) const TABLE_HOIST_FIXTURES: &[(&str, &str, &str)] = &[
+    (
+        "table_hoisted_from_list",
+        "- step one\n\n  | a | b |\n  | --- | --- |\n  | 1 | 2 |\n\n- step two",
+        "- step one\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- step two",
+    ),
+    (
+        "table_hoisted_from_quote",
+        "> intro\n>\n> | a | b |\n> | --- | --- |\n> | 1 | 2 |",
+        "> intro\n\n| a | b |\n| --- | --- |\n| 1 | 2 |",
+    ),
+];
+
 #[cfg(test)]
 mod tests {
     //! Byte-parity fixtures for the block markdown parser + serializer —
@@ -507,6 +531,16 @@ mod tests {
     fn contract_fixtures_stable() {
         for (name, md) in super::CONTRACT_FIXTURES {
             assert_eq!(&round_trip(md), md, "fixture {name} diverged");
+        }
+    }
+
+    // EXP-728: a table nested in a list item or blockquote hoists to the top
+    // level, and the hoisted form does not move again.
+    #[test]
+    fn nested_tables_hoist_to_top_level() {
+        for (name, nested, hoisted) in super::TABLE_HOIST_FIXTURES {
+            assert_eq!(&round_trip(nested), hoisted, "fixture {name} did not hoist");
+            assert_eq!(&round_trip(hoisted), hoisted, "fixture {name} not a fixpoint");
         }
     }
 

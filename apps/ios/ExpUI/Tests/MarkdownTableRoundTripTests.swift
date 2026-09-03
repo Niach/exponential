@@ -107,6 +107,44 @@ final class MarkdownTableRoundTripTests: XCTestCase {
         XCTAssertEqual(roundTrip(src), src)
     }
 
+    // MARK: - Nested tables hoist (EXP-728)
+
+    /// Nested tables are NOT supported. A table is a top-level block; one
+    /// found inside a list item or blockquote is hoisted out on parse (the
+    /// list splits around it, the quote ends before it) and the hoisted form
+    /// is the canonical one. `(name, nested, hoisted)` — every native flat
+    /// model turns `nested` into `hoisted`; `hoisted` is a fixpoint on all
+    /// four clients. Byte-mirrored by the desktop `TABLE_HOIST_FIXTURES`,
+    /// Android's `MarkdownRoundTripTest.kt` and the web `markdown-table.test.ts`
+    /// — add a fixture in all four or in none. Ordered lists stay out on
+    /// purpose: how the tail item is renumbered after a hoist is
+    /// engine-specific and not part of the contract.
+    private static let hoistFixtures: [(name: String, nested: String, hoisted: String)] = [
+        (
+            "table_hoisted_from_list",
+            "- step one\n\n  | a | b |\n  | --- | --- |\n  | 1 | 2 |\n\n- step two",
+            "- step one\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- step two"
+        ),
+        (
+            "table_hoisted_from_quote",
+            "> intro\n>\n> | a | b |\n> | --- | --- |\n> | 1 | 2 |",
+            "> intro\n\n| a | b |\n| --- | --- |\n| 1 | 2 |"
+        ),
+    ]
+
+    func testNestedTablesHoistToTheTopLevel() {
+        for fixture in Self.hoistFixtures {
+            XCTAssertEqual(
+                roundTrip(fixture.nested), fixture.hoisted,
+                "\(fixture.name) must hoist to the top level"
+            )
+            XCTAssertEqual(
+                roundTrip(fixture.hoisted), fixture.hoisted,
+                "\(fixture.name) hoisted form must be a fixpoint"
+            )
+        }
+    }
+
     // MARK: - Block structure
 
     private func blockKinds(_ markdown: String) -> [String] {

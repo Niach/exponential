@@ -716,6 +716,11 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
 // (the extension's own type strings; `CMARK_NODE_TABLE*` are runtime values,
 // not compile-time cases, so the switch above dispatches on the string). Column
 // count and alignments come off the TABLE node via the extension getters.
+//
+// A table is always a TOP-LEVEL block: `emitTable` flushes the running text
+// block, so one nested in a list item or blockquote is hoisted out to the
+// document level (EXP-728, deliberate — nested tables are unsupported; the
+// `MarkdownTableRoundTripTests` hoist fixtures lock the result).
 private func appendTable(
     _ node: UnsafeMutablePointer<cmark_node>,
     collector: BlockCollector,
