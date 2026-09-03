@@ -248,6 +248,10 @@ impl BlockCollector {
         self.blocks.push(ContentBlock::image(url, alt));
     }
 
+    /// A table is always a TOP-LEVEL block: flushing the running text block
+    /// hoists one nested in a list item or blockquote out to the document
+    /// level (EXP-728, deliberate — nested tables are unsupported; the
+    /// fixtures in `serialize.rs::TABLE_HOIST_FIXTURES` lock the result).
     fn emit_table(
         &mut self,
         header: Vec<RichText>,

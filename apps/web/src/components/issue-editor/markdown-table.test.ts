@@ -395,3 +395,56 @@ describe(`tableMenuModel`, () => {
     ).toBe(true)
   })
 })
+
+// EXP-728 — nested tables are NOT supported. A table is a top-level block:
+// the three native flat models (desktop comrak, iOS, Android) HOIST one found
+// inside a list item or blockquote out to the document level on parse, and
+// the hoisted form is the canonical one. These strings are byte-mirrored in
+// the desktop TABLE_HOIST_FIXTURES, the iOS table suite and the Android
+// MarkdownRoundTripTest — add a fixture in all four or in none.
+//
+// Web is deliberately NOT a normalizer: it keeps the nesting it is handed.
+// Forbidding `table` inside listItem/blockquote in the schema would make the
+// ProseMirror DOMParser hoist too, but its rewrap of the split list's tail is
+// lossy (list type and nesting depth) — real data mangling for a construct
+// nobody wants. Ordered lists stay out of the
+// corpus: how the tail item is renumbered after a hoist is engine-specific.
+describe(`nested tables (EXP-728)`, () => {
+  const hoists: Array<[string, string, string]> = [
+    [
+      `table_hoisted_from_list`,
+      `- step one\n\n  | a | b |\n  | --- | --- |\n  | 1 | 2 |\n\n- step two`,
+      `- step one\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- step two`,
+    ],
+    [
+      `table_hoisted_from_quote`,
+      `> intro\n>\n> | a | b |\n> | --- | --- |\n> | 1 | 2 |`,
+      `> intro\n\n| a | b |\n| --- | --- |\n| 1 | 2 |`,
+    ],
+  ]
+
+  it.each(hoists)(
+    `%s: the hoisted form the natives converge on is a fixpoint here`,
+    (_name, _nested, hoisted) => {
+      expect(roundTrip(hoisted)).toBe(hoisted)
+    }
+  )
+
+  // Structure, not bytes: web's own serializer owns the spacer lines, so
+  // only the nesting itself is pinned here.
+  it.each(hoists)(
+    `%s: web keeps the table inside its list item / blockquote`,
+    (_name, nested) => {
+      const editor = makeEditor(nested)
+      const parents: string[] = []
+      editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === `table`) {
+          parents.push(editor.state.doc.resolve(pos).parent.type.name)
+        }
+      })
+      editor.destroy()
+      expect(parents).toHaveLength(1)
+      expect([`listItem`, `blockquote`]).toContain(parents[0])
+    }
+  )
+})
