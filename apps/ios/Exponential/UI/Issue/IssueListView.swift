@@ -686,14 +686,15 @@ struct IssueListView: View {
                         )
                     }
 
-                    // EXP-698 r5: the row's own disclosure, INSIDE the card —
+                    // EXP-698 r7: the row's own disclosure, INSIDE the card —
                     // the mark web (`ui-chevron-right`, muted) and Android
-                    // (16dp at Tertiary) already drew. Selection mode has the
-                    // check glyph leading instead, so it stays out of there.
-                    if selected == nil {
-                        AppIcon(AppIcons.uiChevronRight, size: 14)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    }
+                    // (16dp at Tertiary) already drew. ALWAYS present, in both
+                    // modes, exactly like Android's: selection mode ADDS the
+                    // leading check glyph and keeps the disclosure, rather than
+                    // trading one for the other (a row that loses its chevron
+                    // on long-press reads as a different row).
+                    AppIcon(AppIcons.uiChevronRight, size: 16)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 .fixedSize(horizontal: true, vertical: false)
             }

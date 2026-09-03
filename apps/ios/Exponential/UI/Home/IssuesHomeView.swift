@@ -195,31 +195,37 @@ struct IssuesHomeView: View {
         currentBoardEntity?.name
     }
 
-    /// One tappable control: current board name + the combobox-style
-    /// up/down chevron. Disabled until there is anything to switch to.
+    /// One tappable control: Android's `BoardSwitcherControl` chip (EXP-698
+    /// r7) — the board's own glyph + its name + the combobox-style up/down
+    /// expander in a single Md glass pill, instead of the bare headline this
+    /// used to be.
+    ///
+    /// With nowhere to switch to the pill stays ENABLED-looking: this is the
+    /// screen's TITLE as much as it is a control, and `enabled: false` would
+    /// drop the board name to quaternary, which reads as "this board is
+    /// broken". Only the expander glyph dims and the tap goes nowhere —
+    /// Android's `onClick = if (enabled) onClick else null`.
     private var switcherControl: some View {
-        Button {
-            showSwitcher = true
-        } label: {
-            HStack(spacing: 5) {
-                // Board glyph tinted with the board color — same idiom as the
-                // board switcher sheet this control opens (EXP-449).
-                if let board = currentBoardEntity {
-                    AppIcon(BoardTypeDisplay.iconName(for: board), size: 15)
-                        .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
-                }
-                Text(currentBoardName ?? "Boards")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                AppIcon(AppIcons.navTeamSwitcher, size: 11, weight: .semibold)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        GlassPill(
+            currentBoardName ?? "Issues",
+            size: .md,
+            mode: .action {
+                guard hasAnyBoards else { return }
+                showSwitcher = true
             }
-            .contentShape(Rectangle())
+        ) {
+            // Board glyph tinted with the board color — same idiom as the
+            // board switcher sheet this control opens (EXP-449).
+            if let board = currentBoardEntity {
+                AppIcon(BoardTypeDisplay.iconName(for: board), size: GlassPillTokens.glyphMd)
+                    .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
+            }
+        } trailing: {
+            AppIcon(AppIcons.navTeamSwitcher, size: GlassPillTokens.glyphMd)
+                .foregroundStyle(.white.opacity(hasAnyBoards ? TextOpacity.secondary : TextOpacity.quaternary))
         }
-        .buttonStyle(.plain)
-        .disabled(!hasAnyBoards)
-        .opacity(hasAnyBoards ? 1 : 0.5)
+        // MUST stay on the tappable element: the styleguide/screenshot suites
+        // reach the switcher via `app.buttons["Switch board"]`.
         .accessibilityLabel("Switch board")
     }
 
