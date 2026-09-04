@@ -21,6 +21,21 @@ struct PendingFileUpload: Identifiable, Sendable {
     var sizeBytes: Int { data.count }
 }
 
+/// One rendered row of the Relations list (EXP-736): the stored relation read
+/// from THIS issue's side, plus the issue on the other end. `inverse` is what
+/// flips "blocks" into "blocked by" — the row itself is always stored in its
+/// type's canonical direction.
+struct IssueRelationRow: Identifiable, Sendable {
+    /// The `issue_relations` row id — what `relations.delete` takes.
+    let id: String
+    let type: IssueRelationType
+    let inverse: Bool
+    let other: IssueEntity
+
+    var label: String { type.label(inverse: inverse) }
+    var iconName: String { type.iconName(inverse: inverse) }
+}
+
 @MainActor @Observable
 final class IssueDetailViewModel {
     var issue: IssueEntity?
@@ -29,6 +44,9 @@ final class IssueDetailViewModel {
     /// issue's team by `teamStatuses`.
     var statusRows: [IssueStatusEntity] = []
     var issueLabels: [IssueLabelEntity] = []
+    /// EXP-736: this issue's relations, resolved to the OTHER issue and read
+    /// from this issue's side. Rows whose counterpart isn't synced are hidden.
+    var relationRows: [IssueRelationRow] = []
     var users: [UserEntity] = []
     /// Every synced `team_members` row; scoped to this issue's team by
     /// `teamUsers` (EXP-487).
@@ -81,7 +99,6 @@ final class IssueDetailViewModel {
     // team_members shape hasn't synced yet (drives a "Syncing team…"
     // banner rather than silently rendering the issue read-only).
     var permissionsPending = false
-    var isSubscribed = false
     /// True when the issue's team has exactly one human member: the
     /// assignee picker row is hidden (nothing to reassign to) — EXP-50.
     var singleMemberTeam = false
@@ -114,7 +131,9 @@ final class IssueDetailViewModel {
     private let issuesApi: IssuesApi
     private let attachmentsApi: AttachmentsApi
     private let labelsApi: LabelsApi
-    private let subscriptionsApi: SubscriptionsApi
+    // EXP-736: typed relations between issues — writes only; the rows
+    // themselves arrive over the `issue-relations` shape.
+    private let relationsApi: RelationsApi
     private let steerApi: SteerApi
     /// Widget/agent submission metadata (EXP-496) — tRPC-only.
     private let widgetsApi: WidgetsApi
@@ -141,7 +160,7 @@ final class IssueDetailViewModel {
         issuesApi: IssuesApi,
         attachmentsApi: AttachmentsApi,
         labelsApi: LabelsApi,
-        subscriptionsApi: SubscriptionsApi,
+        relationsApi: RelationsApi,
         steerApi: SteerApi,
         widgetsApi: WidgetsApi,
         auth: AuthRepository
@@ -152,7 +171,7 @@ final class IssueDetailViewModel {
         self.issuesApi = issuesApi
         self.attachmentsApi = attachmentsApi
         self.labelsApi = labelsApi
-        self.subscriptionsApi = subscriptionsApi
+        self.relationsApi = relationsApi
         self.steerApi = steerApi
         self.widgetsApi = widgetsApi
         self.auth = auth
@@ -321,6 +340,26 @@ final class IssueDetailViewModel {
             } catch {}
         })
 
+        // EXP-736: every relation this issue is on — from EITHER side, so
+        // one observation covers "blocks" and "blocked by". The other issue is
+        // resolved in the same read; a row whose counterpart isn't synced
+        // (different team scope, trashed board) simply drops out below.
+        let relationObs = ValueObservation.tracking { db -> ([IssueRelationEntity], [IssueEntity]) in
+            let rows = try IssueRelationEntity
+                .filter(Column("issue_id") == issueId || Column("related_issue_id") == issueId)
+                .fetchAll(db)
+            let otherIds = rows.map { $0.issueId == issueId ? $0.relatedIssueId : $0.issueId }
+            let others = try IssueEntity.filter(keys: otherIds).fetchAll(db)
+            return (rows, others)
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
+                for try await (rows, others) in relationObs.values(in: pool) {
+                    self?.applyRelations(rows, others: others)
+                }
+            } catch {}
+        })
+
         let issueLabelObs = ValueObservation.tracking { db in
             try IssueLabelEntity.filter(Column("issue_id") == issueId).fetchAll(db)
         }
@@ -343,20 +382,6 @@ final class IssueDetailViewModel {
                     if let issue = self.issue {
                         self.refreshPermissions(for: issue)
                     }
-                }
-            } catch {}
-        })
-
-        // Subscription state for the Bell toggle in the detail toolbar.
-        let subObs = ValueObservation.tracking { db in
-            try IssueSubscriberEntity.filter(Column("issue_id") == issueId).fetchAll(db)
-        }
-        observationTasks.append(Task { [weak self] in
-            do {
-                for try await subs in subObs.values(in: pool) {
-                    guard let self else { return }
-                    let me = self.auth.userId
-                    self.isSubscribed = me != nil && subs.contains { $0.userId == me && !$0.unsubscribed }
                 }
             } catch {}
         })
@@ -386,19 +411,6 @@ final class IssueDetailViewModel {
                 }
             } catch {}
         })
-    }
-
-    func toggleSubscribe() async {
-        let wasSubscribed = isSubscribed
-        do {
-            if wasSubscribed {
-                try await subscriptionsApi.unsubscribe(accountId: accountId, issueId: issueId)
-            } else {
-                try await subscriptionsApi.subscribe(accountId: accountId, issueId: issueId)
-            }
-        } catch {
-            self.error = error.userFacingMessage
-        }
     }
 
     func stopObserving() {
@@ -1050,6 +1062,71 @@ final class IssueDetailViewModel {
         } catch {
             self.error = error.userFacingMessage
         }
+    }
+
+    // MARK: - Relations (EXP-736)
+
+    /// Turn the observed rows into the Relations list: each row read from THIS
+    /// issue's side, the counterpart resolved, ordered like the picker.
+    private func applyRelations(_ rows: [IssueRelationEntity], others: [IssueEntity]) {
+        let byId = Dictionary(others.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        relationRows = rows.compactMap { row -> IssueRelationRow? in
+            guard let type = IssueRelationType.from(row.type) else { return nil }
+            let inverse = row.relatedIssueId == issueId
+            let otherId = inverse ? row.issueId : row.relatedIssueId
+            guard let other = byId[otherId] else { return nil }
+            return IssueRelationRow(id: row.id, type: type, inverse: inverse, other: other)
+        }
+        .sorted { lhs, rhs in
+            let lo = RelationPick.order(type: lhs.type, inverse: lhs.inverse)
+            let ro = RelationPick.order(type: rhs.type, inverse: rhs.inverse)
+            if lo != ro { return lo < ro }
+            return (lhs.other.identifier ?? "") < (rhs.other.identifier ?? "")
+        }
+    }
+
+    /// Link `other` to this issue with the picked (type, side). "Duplicate of"
+    /// is the ONE pick that isn't a plain relation write: `duplicateOfId` and
+    /// the `duplicate` status move in lockstep, and the server mirrors the
+    /// relation row off that update.
+    func addRelation(_ pick: RelationPick, other: IssueEntity) async {
+        guard let issue, other.id != issue.id else { return }
+        if pick.type == .duplicate, !pick.inverse {
+            await markDuplicate(of: other)
+            return
+        }
+        do {
+            try await relationsApi.create(accountId: accountId, CreateRelationInput(
+                issueId: issue.id,
+                relatedIssueId: other.id,
+                type: pick.type.rawValue,
+                inverse: pick.inverse
+            ))
+        } catch {
+            self.error = error.userFacingMessage
+        }
+    }
+
+    /// Drop one relation. The row where THIS issue is the duplicate goes
+    /// through the duplicate path instead, so the FK and the status stay in
+    /// lockstep; every other row (the canonical side included) is a plain
+    /// delete the server unwinds.
+    func removeRelation(_ row: IssueRelationRow) async {
+        if row.type == .duplicate, !row.inverse {
+            await unmarkDuplicate()
+            return
+        }
+        do {
+            try await relationsApi.delete(accountId: accountId, id: row.id)
+        } catch {
+            self.error = error.userFacingMessage
+        }
+    }
+
+    /// Candidate issues for the relation picker — the same same-team,
+    /// self-excluded list the duplicate picker offers.
+    func relationCandidates() async -> [IssueEntity] {
+        await duplicateCandidates()
     }
 
     // MARK: - Duplicate-of (masterplan §5e)

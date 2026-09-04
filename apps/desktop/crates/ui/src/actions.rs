@@ -38,6 +38,13 @@ actions!(
         JoinTeam,
         /// Footer account dropdown: sign out (Phase 2 auth).
         SignOut,
+        /// Rail footer: open the "What's new" dialog for the head
+        /// `changelog::LATEST` entry (EXP-723 — the card and the account
+        /// menu both land here).
+        OpenWhatsNew,
+        /// Rail account dropdown: open Settings on the About section
+        /// (EXP-723 — the desktop's About lives there, not in a dialog).
+        OpenAbout,
         /// Open the Source Control tool + changes screen (branch chip menu,
         /// commit button).
         OpenSourceControl,

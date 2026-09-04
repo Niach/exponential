@@ -73,11 +73,16 @@ pub mod terminal;
 
 use tokens as t;
 
-/// Compact-density base font size (§4.4 knob 1): web is 14px (`text-sm`);
-/// desktop goes one notch tighter. Hand-set per the plan — the generated token
+/// Base font size — the app's rem (§4.4 knob 1).
+///
+/// EXP-723: this now EQUALS the web's `text-sm` (14px), the size the web app's
+/// own chrome is set in, so the two products read at the same density instead
+/// of the IDE running a notch tighter. Every rem-derived metric in the app
+/// (gpui-component's control sizing, `controls.rs`, the tab-strip measurers)
+/// scales off this one number. Hand-set per the plan — the generated token
 /// file carries no type-scale consts (tokens.json `type.baseSize` is the web's
 /// 16px root, not the component base).
-pub const FONT_SIZE_PX: f32 = 13.0;
+pub const FONT_SIZE_PX: f32 = 14.0;
 
 /// Build the full Exponential Dark palette as a gpui-component [`ThemeColor`].
 ///

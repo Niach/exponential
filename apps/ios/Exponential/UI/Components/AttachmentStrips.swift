@@ -141,11 +141,13 @@ struct AttachmentFileTile: View {
 
 // MARK: - Posted-comment strip
 
-/// The read side: a comment's linked attachments. Images render as 64pt
-/// center-cropped thumbs, everything else as a chip; both tap through to Quick
-/// Look over the same download-to-temp path the Files section uses. Passing
-/// `onRemove` turns it into the edit-mode strip (an X on every tile — removals
-/// become permanent when the edit saves).
+/// The read side: a comment's linked attachments. Images render as LARGE
+/// inline tiles stacked vertically (EXP-723 activity redesign — a comment's
+/// screenshot is usually its point, and a 64pt crop showed none of it);
+/// everything else stays a chip. Both tap through to Quick Look over the same
+/// download-to-temp path the Files section uses. Passing `onRemove` turns it
+/// into the edit-mode strip (an X on every tile — removals become permanent
+/// when the edit saves).
 struct CommentAttachmentsStrip: View {
     let attachments: [AttachmentEntity]
     var onRemove: ((String) -> Void)?
@@ -168,13 +170,10 @@ struct CommentAttachmentsStrip: View {
         if !attachments.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 if !images.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(images) { attachment in
-                                imageTile(attachment)
-                            }
+                    VStack(spacing: 8) {
+                        ForEach(images) { attachment in
+                            imageTile(attachment)
                         }
-                        .padding(.vertical, 2)
                     }
                 }
                 ForEach(files) { attachment in
@@ -193,7 +192,7 @@ struct CommentAttachmentsStrip: View {
             Button {
                 preview(attachment)
             } label: {
-                AttachmentThumb(
+                LargeAttachmentImage(
                     attachment: attachment,
                     baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
                     accountId: accountId,
@@ -303,9 +302,64 @@ struct CommentAttachmentsStrip: View {
     }
 }
 
+/// A posted comment's image, full column width (EXP-723): the placeholder
+/// holds the attachment's PROBED aspect ratio so the row never jumps when the
+/// bytes land, and the tile is bounded at 480pt tall like every other client.
+/// Same loader (and process cache) as the thumb below.
+private struct LargeAttachmentImage: View {
+    let attachment: AttachmentEntity
+    let baseURL: URL?
+    let accountId: String
+    let httpClient: HTTPClient?
+    let isLoading: Bool
+
+    @State private var image: UIImage?
+
+    /// Probed dimensions when the server has them; a neutral 4:3 otherwise.
+    private var aspectRatio: CGFloat {
+        guard let width = attachment.width, let height = attachment.height,
+              width > 0, height > 0 else { return 4.0 / 3.0 }
+        return CGFloat(width) / CGFloat(height)
+    }
+
+    var body: some View {
+        ZStack {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Color.white.opacity(0.06)
+                    .aspectRatio(aspectRatio, contentMode: .fit)
+            }
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: 480)
+        .clipShape(RoundedRectangle(cornerRadius: GlassTokens.fieldRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: GlassTokens.fieldRadius)
+                .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
+        )
+        .task(id: attachment.id) {
+            let loader = AttachmentImageLoader(
+                baseURL: baseURL,
+                accountId: accountId,
+                httpClient: httpClient,
+                pendingImages: [:]
+            )
+            image = try? await loader.load(attachment.url)
+        }
+    }
+}
+
 /// A 64pt center-cropped thumbnail for a synced image attachment, fetched (and
 /// process-cached) through the editor's loader so a thumb and the same image
-/// inline in a description share one download.
+/// inline in a description share one download. The PENDING/compose strips keep
+/// it; posted comments render `LargeAttachmentImage` instead.
 private struct AttachmentThumb: View {
     let attachment: AttachmentEntity
     let baseURL: URL?

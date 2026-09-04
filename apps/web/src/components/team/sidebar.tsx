@@ -214,7 +214,9 @@ export function TeamSidebar({
 
   return (
     <>
-      <Sidebar>
+      {/* No right hairline: since EXP-723 the content column is a 10px-inset
+          rounded card whose own stroke is the divider (sidebar-on-ground). */}
+      <Sidebar className="border-r-0!">
         <div className="relative h-full w-full overflow-hidden">
           {/* Main nav panel — slides out left while settings is active. Stays
               mounted so the reverse animation plays; inert removes its tab

@@ -76,6 +76,7 @@ import {
   issueEvents,
   issues,
   issueLabels,
+  issueRelations,
   issueSubscribers,
   notifications,
 } from "@/db/schema"
@@ -299,6 +300,7 @@ describe(`issues.move`, () => {
       issueEvents,
       issueSubscribers,
       issueLabels,
+      issueRelations,
       codingSessions,
       notifications,
     ]) {
@@ -307,7 +309,7 @@ describe(`issues.move`, () => {
       expect(childUpdate!.set).toEqual({ boardId: PROJ_TO })
       expect(collectParams(childUpdate!.where)).toEqual([ISSUE_ID])
     }
-    expect(updates).toHaveLength(8)
+    expect(updates).toHaveLength(9)
 
     // Timeline event with the full hop payload.
     expect(h.recordIssueEvent).toHaveBeenCalledTimes(1)

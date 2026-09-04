@@ -156,6 +156,33 @@ data class IssueLabelEntity(
     @ColumnInfo(name = "board_id") @SerialName("board_id") @JsonNames("boardId") val boardId: String? = null,
 )
 
+// One issue relation (EXP-736, the 20th Electric shape). The row is a DIRECTED
+// edge in the canonical direction — `issue_id` blocks / parents / duplicates
+// `related_issue_id`; `related` is symmetric and normalized server-side — so
+// each side renders its own label off IssueRelationType. Board-scoped by the
+// SOURCE issue, which is why `board_id` is nullable here like every other
+// child mirror.
+@Entity(
+    tableName = "issue_relations",
+    indices = [Index("issue_id"), Index("related_issue_id"), Index("team_id")],
+)
+@Serializable
+data class IssueRelationEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String,
+    @ColumnInfo(name = "related_issue_id") @SerialName("related_issue_id") @JsonNames("relatedIssueId") val relatedIssueId: String,
+    // One of DomainContract.issueRelationTypeValues; an unknown value from a
+    // newer server renders as a plain link instead of failing.
+    val type: String,
+    // DomainContract.issueRelationSourceValues — `user` (picked) or
+    // `reference` (auto-linked from a #IDENT mention).
+    val source: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String,
+    @ColumnInfo(name = "board_id") @SerialName("board_id") @JsonNames("boardId") val boardId: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
+)
+
 @Entity(tableName = "users")
 @Serializable
 data class UserEntity(

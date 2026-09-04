@@ -2379,12 +2379,13 @@ fn due_cell(issue: &Issue, cx: &App) -> impl IntoElement {
 // Chrome bits
 // ---------------------------------------------------------------------------
 
-/// Group-header tint strength. Web parity: `statusHeaderBg`'s `/10` washes in
+/// Group-header tint strength. Web parity: `statusHeaderBg`'s washes in
 /// `apps/web/src/components/issue-list.tsx`. Deliberately between the glass
 /// ladder's row fill (white 5% — the hover state) and its active fill (white
-/// 15% — the selected state), so a tinted header can never be misread as a
-/// hovered or selected issue row.
-const HEADER_TINT_ALPHA: f32 = 0.10;
+/// 9% since EXP-723 — the selected state), so a tinted header can never be
+/// misread as a hovered or selected issue row. Locked by
+/// `header_tint_sits_between_the_row_hover_and_active_fills`.
+const HEADER_TINT_ALPHA: f32 = 0.07;
 
 /// The group header's background wash, in the status' own hue (EXP-293).
 ///

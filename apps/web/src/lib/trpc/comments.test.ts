@@ -18,6 +18,7 @@ const h = vi.hoisted(() => ({
   fireAndForgetCommentNotify: vi.fn(),
   fireAndForgetIssueMentionNotify: vi.fn(),
   deleteStorageObjects: vi.fn(async (..._args: unknown[]) => undefined),
+  syncReferenceRelations: vi.fn(async (..._args: unknown[]) => undefined),
 }))
 
 // lib/trpc.ts imports db/auth at module scope; runtime here only needs the
@@ -41,6 +42,12 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
 }))
 vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
   deleteStorageObjects: h.deleteStorageObjects,
+}))
+// EXP-736: the `#IDENT` reference rows are delta-maintained by the same tx.
+// The row-level SQL has its own unit tests (lib/issue-relations.test.ts); what
+// this file locks is the prev/next/slot triple each comment path hands it.
+vi.mock(`@/lib/issue-relations`, () => ({
+  syncReferenceRelations: h.syncReferenceRelations,
 }))
 
 import {
@@ -529,5 +536,65 @@ describe(`comment attachments (EXP-554)`, () => {
     await caller.delete({ id: COMMENT_ID })
 
     expect(state.issueUpdates).toEqual([])
+  })
+})
+
+// EXP-736: `#IDENT` tokens in a comment body become `related` rows the same
+// way description tokens do. Getting the SLOT wrong is what breaks it: the
+// comment being written is excluded from the survivor scan (its stored body is
+// stale mid-write), and every path must name the text it is replacing.
+describe(`comment #IDENT references (EXP-736)`, () => {
+  beforeEach(() => {
+    state.previousBody = ``
+    state.authorId = `actor`
+    state.selectQueue = []
+    state.dbAttachmentRows = []
+    resetMarkdownState()
+    h.resolveMentions.mockReset()
+    h.resolveMentions.mockImplementation(async () => [])
+    h.syncReferenceRelations.mockClear()
+  })
+
+  it(`create passes the new body as the whole delta, excluding itself`, async () => {
+    await caller.create({ issueId: ISSUE_ID, body: `fixes #EXP-2` })
+
+    expect(h.syncReferenceRelations).toHaveBeenCalledTimes(1)
+    expect(h.syncReferenceRelations.mock.calls[0][1]).toMatchObject({
+      issueId: ISSUE_ID,
+      teamId: `ws-1`,
+      actorUserId: `actor`,
+      previousText: ``,
+      nextText: `fixes #EXP-2`,
+      excludeCommentId: COMMENT_ID,
+    })
+  })
+
+  it(`update passes the stored body as previous and the edit as next`, async () => {
+    state.previousBody = `fixes #EXP-2`
+
+    await caller.update({ id: COMMENT_ID, body: `fixes #EXP-3` })
+
+    expect(h.syncReferenceRelations.mock.calls[0][1]).toMatchObject({
+      issueId: ISSUE_ID,
+      previousText: `fixes #EXP-2`,
+      nextText: `fixes #EXP-3`,
+      excludeCommentId: COMMENT_ID,
+    })
+  })
+
+  it(`delete takes the dying body's references with it`, async () => {
+    state.previousBody = `fixes #EXP-2`
+    // The linked-attachments collection pass finds nothing; the body read
+    // falls through to the stored comment.
+    state.selectQueue = [[]]
+
+    await caller.delete({ id: COMMENT_ID })
+
+    expect(h.syncReferenceRelations.mock.calls[0][1]).toMatchObject({
+      issueId: ISSUE_ID,
+      previousText: `fixes #EXP-2`,
+      nextText: ``,
+      excludeCommentId: COMMENT_ID,
+    })
   })
 })

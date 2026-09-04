@@ -166,6 +166,25 @@ interface IssueLabelDao {
 }
 
 @Dao
+interface IssueRelationDao {
+    // BOTH sides of the edge (EXP-736): the shape syncs rows scoped by their
+    // SOURCE issue, so an issue that is only the TARGET of a relation still
+    // has to find it. The screen resolves the other issue and drops rows
+    // whose counterpart hasn't synced.
+    @Query("SELECT * FROM issue_relations WHERE issue_id = :issueId OR related_issue_id = :issueId")
+    fun observeForIssue(issueId: String): Flow<List<IssueRelationEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: IssueRelationEntity)
+
+    @Query("DELETE FROM issue_relations WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM issue_relations")
+    suspend fun clear()
+}
+
+@Dao
 interface UserDao {
     @Query("SELECT * FROM users ORDER BY name, email")
     fun observeAll(): Flow<List<UserEntity>>

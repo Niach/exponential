@@ -13,6 +13,7 @@ import {
   unique,
   uniqueIndex,
   uuid,
+  check,
   varchar,
   boolean,
   date,
@@ -29,6 +30,10 @@ import {
   issueDescriptionSchema,
   issueEventTypeSchema,
   issueEventTypeValues,
+  issueRelationTypeValues,
+  issueRelationSourceValues,
+  issueRelationTypeSchema,
+  issueRelationSourceSchema,
   issuePrioritySchema,
   issuePriorityValues,
   issueSourceSchema,
@@ -110,6 +115,16 @@ export const issueEventTypeEnum = pgEnum(
 export const subscriberSourceEnum = pgEnum(
   `subscriber_source`,
   subscriberSourceValues
+)
+
+export const issueRelationTypeEnum = pgEnum(
+  `issue_relation_type`,
+  issueRelationTypeValues
+)
+
+export const issueRelationSourceEnum = pgEnum(
+  `issue_relation_source`,
+  issueRelationSourceValues
 )
 
 // ---------------------------------------------------------------------------
@@ -575,6 +590,49 @@ export const issueLabels = pgTable(
     index(`idx_issue_labels_label`).on(table.labelId),
     index(`idx_issue_labels_team`).on(table.teamId),
     index(`idx_issue_labels_board`).on(table.boardId),
+  ]
+)
+
+// EXP-736 issue relations. One row per (issue, related, type) in the
+// CANONICAL direction (see domain.ts issueRelationTypeValues); the source
+// column is named `issue_id` so the shared populate_issue_child_* triggers
+// derive team/board + the trash/archive mirrors from the SOURCE issue's board
+// unchanged. Synced as the 20th shape (mirrors excluded by the allowlist).
+export const issueRelations = pgTable(
+  `issue_relations`,
+  {
+    id: uuidPk(),
+    issueId: uuid(`issue_id`)
+      .notNull()
+      .references(() => issues.id, { onDelete: `cascade` }),
+    relatedIssueId: uuid(`related_issue_id`)
+      .notNull()
+      .references(() => issues.id, { onDelete: `cascade` }),
+    type: issueRelationTypeEnum().notNull(),
+    source: issueRelationSourceEnum().notNull().default(`user`),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    boardId: uuid(`board_id`)
+      .notNull()
+      .references(() => boards.id, { onDelete: `cascade` }),
+    boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
+    boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex(`uniq_issue_relations_pair_type`).on(
+      table.issueId,
+      table.relatedIssueId,
+      table.type
+    ),
+    index(`idx_issue_relations_related`).on(table.relatedIssueId),
+    index(`idx_issue_relations_team`).on(table.teamId),
+    index(`idx_issue_relations_board`).on(table.boardId),
+    check(
+      `chk_issue_relations_not_self`,
+      sql`${table.issueId} <> ${table.relatedIssueId}`
+    ),
   ]
 )
 
@@ -2096,6 +2154,11 @@ export const selectIssueStatusRowSchema = createSelectSchema(issueStatuses, {
 
 export const selectIssueLabelSchema = createSelectSchema(issueLabels)
 
+export const selectIssueRelationSchema = createSelectSchema(issueRelations, {
+  type: issueRelationTypeSchema,
+  source: issueRelationSourceSchema,
+})
+
 export const selectUserSchema = createSelectSchema(users)
 
 export const selectCommentSchema = createSelectSchema(comments, {
@@ -2195,6 +2258,7 @@ export type Issue = InferSelectModel<typeof issues>
 export type Label = InferSelectModel<typeof labels>
 export type IssueStatusRow = InferSelectModel<typeof issueStatuses>
 export type IssueLabel = InferSelectModel<typeof issueLabels>
+export type IssueRelation = InferSelectModel<typeof issueRelations>
 export type Comment = InferSelectModel<typeof comments>
 export type Attachment = InferSelectModel<typeof attachments>
 export type SessionAttachment = InferSelectModel<typeof sessionAttachments>

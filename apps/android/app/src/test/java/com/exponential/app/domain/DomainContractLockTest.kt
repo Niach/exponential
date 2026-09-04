@@ -78,6 +78,89 @@ class DomainContractLockTest {
     }
 
     /**
+     * EXP-736: the relation enum AND both label lists are contract-owned — the
+     * per-side wording ("blocked by", "sub-issue of") is what every client
+     * renders, so a regen that reorders or rewords a value must fail here.
+     */
+    @Test
+    fun issueRelationTypeWireValuesMatchGeneratedContract() {
+        assertEquals(
+            DomainContract.issueRelationTypeValues,
+            IssueRelationType.entries.map { it.wire },
+        )
+        assertEquals(
+            DomainContract.issueRelationTypeForwardLabels,
+            IssueRelationType.entries.map { it.forwardLabel },
+        )
+        assertEquals(
+            DomainContract.issueRelationTypeInverseLabels,
+            IssueRelationType.entries.map { it.inverseLabel },
+        )
+        for (value in DomainContract.issueRelationTypeValues) {
+            assertEquals(value, IssueRelationType.fromWire(value)?.wire)
+        }
+        // An unknown value from a newer server degrades instead of guessing.
+        assertEquals(null, IssueRelationType.fromWire("mentioned"))
+        // The six picker entries only name real types.
+        assertEquals(6, relationPicks.size)
+        for (pick in relationPicks) {
+            assertTrue(pick.title, pick.type.wire in DomainContract.issueRelationTypeValues)
+        }
+        // Both relation events exist in the contract's event vocabulary.
+        assertTrue(DomainContract.issueEventTypeRelationAdded in DomainContract.issueEventTypeValues)
+        assertTrue(DomainContract.issueEventTypeRelationRemoved in DomainContract.issueEventTypeValues)
+    }
+
+    /** The phrases are byte-identical across all four clients (EXP-736). */
+    @Test
+    fun relationEventPhrasesMatchTheSharedWording() {
+        assertEquals(
+            "added related issue EXP-12",
+            relationEventPhrase(added = true, type = "related", identifier = "EXP-12", direction = "forward"),
+        )
+        assertEquals(
+            "removed related issue EXP-12",
+            relationEventPhrase(added = false, type = "related", identifier = "EXP-12", direction = "inverse"),
+        )
+        assertEquals(
+            "marked as blocks EXP-3",
+            relationEventPhrase(added = true, type = "blocks", identifier = "EXP-3", direction = "forward"),
+        )
+        assertEquals(
+            "no longer blocked by EXP-3",
+            relationEventPhrase(added = false, type = "blocks", identifier = "EXP-3", direction = "inverse"),
+        )
+        assertEquals(
+            "marked as sub-issue of EXP-3",
+            relationEventPhrase(added = true, type = "parent", identifier = "EXP-3", direction = "inverse"),
+        )
+        // Too thin to phrase richly: both degrade paths mirror the web
+        // `relationEventPhrase` — a missing counterpart is named "an issue",
+        // an unknown/missing type reads as the symmetric `related`.
+        assertEquals(
+            "marked as blocks an issue",
+            relationEventPhrase(added = true, type = "blocks", identifier = null, direction = "forward"),
+        )
+        assertEquals(
+            "marked as blocked by an issue",
+            relationEventPhrase(added = true, type = "blocks", identifier = "  ", direction = "inverse"),
+        )
+        assertEquals(
+            "added related issue EXP-3",
+            relationEventPhrase(added = true, type = "mentioned", identifier = "EXP-3", direction = "inverse"),
+        )
+        assertEquals(
+            "removed related issue EXP-3",
+            relationEventPhrase(added = false, type = null, identifier = "EXP-3", direction = "forward"),
+        )
+        // The web's `relationEventPhrase('relation_added', {})`.
+        assertEquals(
+            "added related issue an issue",
+            relationEventPhrase(added = true, type = null, identifier = null, direction = null),
+        )
+    }
+
+    /**
      * EXP-724: `steerCommands` generates as five PARALLEL arrays, which only
      * zip correctly while they are the same length — a regen that adds a field
      * to one row and not the others must fail here, not silently shift every

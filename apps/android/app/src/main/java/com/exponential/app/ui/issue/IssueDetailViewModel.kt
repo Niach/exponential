@@ -10,13 +10,14 @@ import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.LabelsApi
+import com.exponential.app.data.api.CreateRelationInput
 import com.exponential.app.data.api.NotificationsApi
+import com.exponential.app.data.api.RelationsApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.WidgetSubmissionResult
 import com.exponential.app.data.api.WidgetsApi
 import com.exponential.app.data.api.SteerStartOptions
-import com.exponential.app.data.api.SubscriptionsApi
 import com.exponential.app.data.api.UpdateIssueInput
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
@@ -25,6 +26,7 @@ import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueLabelEntity
+import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.UserEntity
@@ -37,11 +39,14 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.StartedRunKey
 import com.exponential.app.domain.StartedRunMatch
 import com.exponential.app.domain.IssuePriority
+import com.exponential.app.domain.IssueRelationType
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
+import com.exponential.app.domain.RelationPick
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.canonicalContentType
+import com.exponential.app.domain.relationSortKey
 import com.exponential.app.domain.isInlineImage
 import com.exponential.app.domain.sanitizeFilename
 import com.exponential.app.ui.markdown.AttachmentDims
@@ -88,6 +93,22 @@ data class IssueDetailState(
 )
 
 /**
+ * One relation as THIS issue reads it (EXP-736): the other issue resolved off
+ * the synced rows, with the side-appropriate label ("blocks" vs "blocked by").
+ * [inverse] is true when this issue is the edge's TARGET.
+ */
+data class RelationRow(
+    val id: String,
+    val type: IssueRelationType?,
+    val inverse: Boolean,
+    val label: String,
+    val otherIssueId: String,
+    val otherIdentifier: String,
+    val otherTitle: String,
+    val otherStatus: ResolvedIssueStatus,
+)
+
+/**
  * What to show while the issue isn't in the local cache. [Loading] is the
  * honest default (a push tap can beat sync by seconds); [Unavailable] is
  * reached only after the direct fetch failed — deleted, or not ours.
@@ -102,7 +123,7 @@ class IssueDetailViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
     private val labelsApi: LabelsApi,
-    private val subscriptionsApi: SubscriptionsApi,
+    private val relationsApi: RelationsApi,
     private val issueImagesApi: IssueImagesApi,
     private val attachmentsApi: AttachmentsApi,
     private val notificationsApi: NotificationsApi,
@@ -301,29 +322,83 @@ class IssueDetailViewModel @Inject constructor(
     private val _busyAttachmentIds = MutableStateFlow<Set<String>>(emptySet())
     val busyAttachmentIds: StateFlow<Set<String>> = _busyAttachmentIds
 
-    // Subscription state (separate StateFlow — the main combine is at the 5-arg
-    // typed cap). Drives the Bell/BellOff toggle in the detail top bar.
-    val isSubscribed: StateFlow<Boolean> = combine(
-        dbFlow.scopedQuery(emptyList()) { it.issueSubscriberDao().observeByIssue(issueId) },
-        auth.userId,
-    ) { subs, userId ->
-        userId != null && subs.any { it.userId == userId && !it.unsubscribed }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    // ── Relations (EXP-736) ──────────────────────────────────────────────────
 
-    fun toggleSubscribe() {
-        val subscribed = isSubscribed.value
+    /**
+     * This issue's relations, in the picker's order. A row whose other issue
+     * hasn't synced (another team, a trashed board) is HIDDEN rather than
+     * rendered as a dangling id — the same rule every client applies.
+     */
+    val relations: StateFlow<List<RelationRow>> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.issueRelationDao().observeForIssue(issueId) },
+        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
+        teamStatuses,
+    ) { rows, issues, statuses ->
+        val issuesById = issues.associateBy { it.id }
+        rows.mapNotNull { row -> relationRow(row, issuesById, statuses) }
+            .sortedWith(
+                compareBy({ relationSortKey(it.type, it.inverse) }, { it.otherIdentifier }),
+            )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private fun relationRow(
+        row: IssueRelationEntity,
+        issuesById: Map<String, IssueEntity>,
+        statuses: List<ResolvedIssueStatus>,
+    ): RelationRow? {
+        val inverse = row.issueId != issueId
+        val otherId = if (inverse) row.issueId else row.relatedIssueId
+        val other = issuesById[otherId] ?: return null
+        val type = IssueRelationType.fromWire(row.type)
+        return RelationRow(
+            id = row.id,
+            type = type,
+            inverse = inverse,
+            label = type?.label(inverse) ?: row.type,
+            otherIssueId = other.id,
+            otherIdentifier = other.identifier,
+            otherTitle = other.title,
+            otherStatus = IssueStatusResolver.resolve(other, statuses),
+        )
+    }
+
+    /**
+     * Add the picked relation to [otherId]. "Duplicate of" is NOT a plain
+     * relation write: it stays the issues.update({duplicateOfId}) lockstep
+     * (status + FK + the mirrored row in one transaction), so it routes to
+     * [markDuplicate] exactly like picking the duplicate status does.
+     */
+    fun addRelation(pick: RelationPick, otherId: String) {
+        if (pick.type == IssueRelationType.Duplicate && !pick.inverse) {
+            markDuplicate(otherId)
+            return
+        }
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
-                if (subscribed) subscriptionsApi.unsubscribe(accountId, issueId)
-                else subscriptionsApi.subscribe(accountId, issueId)
-            }.onFailure { t ->
-                reportMutationFailure(
-                    t,
-                    if (subscribed) "You could not be unsubscribed"
-                    else "You could not be subscribed",
+                relationsApi.create(
+                    accountId,
+                    CreateRelationInput(
+                        issueId = issueId,
+                        relatedIssueId = otherId,
+                        type = pick.type.wire,
+                        inverse = pick.inverse,
+                    ),
                 )
-            }
+            }.onFailure { reportMutationFailure(it, "The relation could not be added") }
+        }
+    }
+
+    /** Remove one relation; the duplicate mirror goes through the FK clear. */
+    fun removeRelation(row: RelationRow) {
+        if (row.type == IssueRelationType.Duplicate && !row.inverse) {
+            unmarkDuplicate()
+            return
+        }
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            runCatching { relationsApi.delete(accountId, row.id) }
+                .onFailure { reportMutationFailure(it, "The relation could not be removed") }
         }
     }
 

@@ -6,10 +6,14 @@
 //! `comment-composer.tsx`. The cross-client rules:
 //!
 //! - Attachments are NEVER inlined into the comment markdown — a comment's
-//!   rows carry `attachments.comment_id` and render as a strip below the body:
-//!   inline-image types as squared 64px center-cropped thumbs (click → the
-//!   in-app lightbox), everything else as a file chip (click → fetch + hand to
-//!   the OS), exactly like the Files rail's rows.
+//!   rows carry `attachments.comment_id` and render below the body: EXP-723
+//!   makes inline-image types LARGE tiles stacked in their own column (full
+//!   column width, capped at [`LARGE_TILE_MAX_H`], the aspect taken from the
+//!   row's probed `width`/`height`; click → the in-app lightbox), with the
+//!   file chips wrapping in a row beneath them (click → fetch + hand to the
+//!   OS), exactly like the Files rail's rows. The composer's PENDING strip is
+//!   unaffected: an in-flight pick is a queue entry, so it stays a pill with
+//!   its filename and upload error, never a preview.
 //! - Upload happens ON SEND, sequentially, and each item stamps its
 //!   `uploaded_id` so a retry after a mid-batch failure never re-uploads.
 //! - At most [`MAX_COMMENT_ATTACHMENTS`] per comment (the server enforces the
@@ -48,8 +52,15 @@ use crate::timeline::{IssueTimeline, PendingCommentAttachment, PendingScope};
 /// — the picker refuses extra files instead of letting the mutation fail.
 pub(crate) const MAX_COMMENT_ATTACHMENTS: usize = 10;
 
-/// The squared thumb edge (web `size-16`, iOS/Android 64pt/dp).
-const THUMB: f32 = 64.;
+/// EXP-723: the read tile's height cap (web `max-h-[480px]`, iOS/Android 480).
+/// A portrait screenshot must not take a whole screen of timeline.
+const LARGE_TILE_MAX_H: f32 = 480.;
+
+/// The tile box when the attachment row carries no probed dimensions — a
+/// neutral 160×120 placeholder rather than a full-width band that would jump
+/// to a different shape once the bytes land.
+const LARGE_TILE_FALLBACK_W: f32 = 160.;
+const LARGE_TILE_FALLBACK_H: f32 = 120.;
 
 // ---------------------------------------------------------------------------
 // Reads
@@ -142,7 +153,13 @@ pub(crate) fn comment_attachments_strip(
     }
     let removable = removals.is_some();
 
-    let mut strip = h_flex().w_full().mt_1p5().gap_2().flex_wrap().items_start();
+    // EXP-723: images stack VERTICALLY at full width; files stay a wrapping
+    // chip row underneath them. Two containers, not one flex-wrap: a 480px
+    // tile and a 24px chip in the same wrap line read as a broken grid.
+    let mut images_column = v_flex().w_full().gap_2();
+    let mut files_row = h_flex().w_full().gap_2().flex_wrap().items_start();
+    let mut any_image = false;
+    let mut any_file = false;
     for row in &rows {
         let remove = removable.then(|| {
             let id = row.id.clone();
@@ -152,18 +169,57 @@ pub(crate) fn comment_attachments_strip(
                 },
             )
         });
-        strip = if is_inline_image(row.content_type.as_deref()) {
-            strip.child(image_tile(row, images, remove, cx))
+        if is_inline_image(row.content_type.as_deref()) {
+            any_image = true;
+            images_column = images_column.child(image_tile(row, images, remove, cx));
         } else {
-            strip.child(file_chip(row, remove, cx))
-        };
+            any_file = true;
+            files_row = files_row.child(file_chip(row, remove, cx));
+        }
     }
-    Some(strip.into_any_element())
+    Some(
+        v_flex()
+            .w_full()
+            .mt_1p5()
+            .gap_2()
+            .when(any_image, |strip| strip.child(images_column))
+            .when(any_file, |strip| strip.child(files_row))
+            .into_any_element(),
+    )
 }
 
-/// One squared center-cropped thumb over the shared [`ImageCache`]; click
-/// opens the in-app lightbox at full size (never the browser). Loading and
-/// failed slots render the shared neutral placeholder, clipped to the tile.
+/// The box a LOADING/failed large tile occupies, from the attachment row's
+/// probed dimensions: the natural size scaled down until it fits `max_h`,
+/// never scaled UP (a 40px favicon stays 40px rather than blowing up to the
+/// column width). `None` width means "no probed aspect" — the caller draws
+/// the [`LARGE_TILE_FALLBACK_W`] × [`LARGE_TILE_FALLBACK_H`] neutral box.
+///
+/// Pure so the arithmetic is testable without a gpui App; the READY tile
+/// doesn't use it at all (the decoded image sizes itself under
+/// `max_w_full` + `max_h`).
+fn large_tile_box(natural: Option<(f32, f32)>, max_h: f32) -> (Option<f32>, f32) {
+    match natural {
+        Some((width, height)) if width > 0. && height > 0. => {
+            if height <= max_h {
+                (Some(width), height)
+            } else {
+                let scale = max_h / height;
+                (Some(width * scale), max_h)
+            }
+        }
+        _ => (None, LARGE_TILE_FALLBACK_H),
+    }
+}
+
+/// One LARGE inline image over the shared [`ImageCache`]; click opens the
+/// in-app lightbox at full size (never the browser).
+///
+/// EXP-723: the tile is the web `comment-rows/attachments.tsx` shape — up to
+/// the column's full width, capped at [`LARGE_TILE_MAX_H`], `ScaleDown` so a
+/// small image keeps its own size instead of being blown up, radius
+/// `radius::LG` and a `strokeCard` hairline. Loading and failed slots render
+/// the shared neutral placeholder at the row's probed aspect
+/// ([`large_tile_box`]) so the timeline does not reflow when the bytes land.
 fn image_tile(
     attachment: &Attachment,
     images: &Entity<ImageCache>,
@@ -186,29 +242,32 @@ fn image_tile(
         _ => None,
     };
     let slot = images.update(cx, |cache, cx| cache.slot(&fetch_url, cx));
-    let body = match slot {
-        ImageSlot::Ready(image) => img(image)
-            .size_full()
-            .object_fit(gpui::ObjectFit::Cover)
-            .into_any_element(),
-        // A label would only clip inside a 64px tile — the neutral box IS the
-        // loading/unavailable state here.
-        _ => placeholder_box("", cx),
-    };
-
+    let (box_w, box_h) = large_tile_box(natural, LARGE_TILE_MAX_H);
     let tile = div()
         .id(SharedString::from(format!(
             "comment-attachment-image-{}",
             attachment.id
         )))
-        .size(px(THUMB))
         .flex_shrink_0()
-        .rounded_md()
+        .rounded(px(theme::tokens::radius::LG))
         .overflow_hidden()
         .border_1()
-        .border_color(cx.theme().border)
+        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
         .cursor_pointer()
-        .child(body)
+        .map(|tile| match slot {
+            ImageSlot::Ready(image) => tile.child(
+                img(image)
+                    .max_w_full()
+                    .max_h(px(LARGE_TILE_MAX_H))
+                    .object_fit(gpui::ObjectFit::ScaleDown),
+            ),
+            // A label would only clip — the neutral box IS the
+            // loading/unavailable state here.
+            _ => tile
+                .w(px(box_w.unwrap_or(LARGE_TILE_FALLBACK_W)))
+                .h(px(box_h))
+                .child(placeholder_box("", cx)),
+        })
         .on_click({
             let images = images.clone();
             let url = fetch_url.clone();
@@ -496,6 +555,31 @@ mod tests {
             "created_at": created_at,
         }))
         .unwrap()
+    }
+
+    /// EXP-723: the large tile's box arithmetic — the whole point is that a
+    /// probed row reserves the RIGHT hole before its bytes land, so the
+    /// timeline never reflows under the reader.
+    #[test]
+    fn a_large_tile_scales_down_to_the_height_cap_and_never_up() {
+        // Shorter than the cap: natural size, untouched. A tiny image stays
+        // tiny rather than being blown up to the column width.
+        assert_eq!(large_tile_box(Some((640., 360.)), 480.), (Some(640.), 360.));
+        assert_eq!(large_tile_box(Some((40., 40.)), 480.), (Some(40.), 40.));
+        // Taller than the cap: scaled down, aspect preserved.
+        assert_eq!(large_tile_box(Some((600., 1200.)), 480.), (Some(240.), 480.));
+        // Exactly the cap is not "over" it.
+        assert_eq!(large_tile_box(Some((100., 480.)), 480.), (Some(100.), 480.));
+    }
+
+    /// A row without probed dimensions (an old attachment, or a probe that
+    /// failed) takes the neutral fallback box, not a zero-height sliver.
+    #[test]
+    fn an_unprobed_row_falls_back_to_the_neutral_box() {
+        assert_eq!(large_tile_box(None, 480.), (None, LARGE_TILE_FALLBACK_H));
+        // Degenerate probes are the same case, never a divide by zero.
+        assert_eq!(large_tile_box(Some((0., 100.)), 480.), (None, LARGE_TILE_FALLBACK_H));
+        assert_eq!(large_tile_box(Some((100., 0.)), 480.), (None, LARGE_TILE_FALLBACK_H));
     }
 
     /// The strip's ordering rule, exercised without a gpui App: oldest first,

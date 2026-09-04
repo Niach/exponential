@@ -96,7 +96,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v19_coding_session_device_id", "v20_automations",
              "v21_device_is_default", "v22_coding_session_outcome",
              "v23_agent_status", "v24_drop_coding_session_outcome",
-             "v25_board_default_branch", "v26_coding_session_pr"]
+             "v25_board_default_branch", "v26_coding_session_pr",
+             "v27_issue_relations"]
         )
     }
 
@@ -119,7 +120,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v19_coding_session_device_id", "v20_automations",
              "v21_device_is_default", "v22_coding_session_outcome",
              "v23_agent_status", "v24_drop_coding_session_outcome",
-             "v25_board_default_branch", "v26_coding_session_pr"]
+             "v25_board_default_branch", "v26_coding_session_pr",
+             "v27_issue_relations"]
         )
     }
 
@@ -170,7 +172,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v19_coding_session_device_id", "v20_automations",
              "v21_device_is_default", "v22_coding_session_outcome",
              "v23_agent_status", "v24_drop_coding_session_outcome",
-             "v25_board_default_branch", "v26_coding_session_pr"]
+             "v25_board_default_branch", "v26_coding_session_pr",
+             "v27_issue_relations"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -241,7 +244,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v19_coding_session_device_id", "v20_automations",
              "v21_device_is_default", "v22_coding_session_outcome",
              "v23_agent_status", "v24_drop_coding_session_outcome",
-             "v25_board_default_branch", "v26_coding_session_pr"]
+             "v25_board_default_branch", "v26_coding_session_pr",
+             "v27_issue_relations"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }

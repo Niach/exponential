@@ -7,6 +7,7 @@ import { Route as issuesRoute } from "@/routes/api/shapes/issues"
 import { Route as commentsRoute } from "@/routes/api/shapes/comments"
 import { Route as issueEventsRoute } from "@/routes/api/shapes/issue-events"
 import { Route as issueLabelsRoute } from "@/routes/api/shapes/issue-labels"
+import { Route as issueRelationsRoute } from "@/routes/api/shapes/issue-relations"
 import { Route as issueSubscribersRoute } from "@/routes/api/shapes/issue-subscribers"
 import { Route as attachmentsRoute } from "@/routes/api/shapes/attachments"
 import { Route as codingSessionsRoute } from "@/routes/api/shapes/coding-sessions"
@@ -660,6 +661,7 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     [`comments`, commentsRoute],
     [`issue-events`, issueEventsRoute],
     [`issue-labels`, issueLabelsRoute],
+    [`issue-relations`, issueRelationsRoute],
     [`issue-subscribers`, issueSubscribersRoute],
     [`attachments`, attachmentsRoute],
     [`coding-sessions`, codingSessionsRoute],
@@ -903,7 +905,7 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     proxyElectricRequest.mockResolvedValue(new Response(`ok`))
   })
 
-  // ALL 18 shape routes (the file list in routes/api/shapes/ IS the list).
+  // ALL 20 shape routes (the file list in routes/api/shapes/ IS the list).
   // The pin is what makes adding a server-only column to a synced table safe
   // — an unpinned proxy would stream it to every client on the next deploy
   // with no code change and no test failure. A new route added without a
@@ -912,6 +914,7 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
   const allRoutes = [
     [`actions`, actionsRoute],
     [`attachments`, attachmentsRoute],
+    [`automations`, automationsRoute],
     [`boards`, boardsRoute],
     [`coding-sessions`, codingSessionsRoute],
     [`comments`, commentsRoute],
@@ -919,6 +922,7 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     [`devices`, devicesRoute],
     [`issue-events`, issueEventsRoute],
     [`issue-labels`, issueLabelsRoute],
+    [`issue-relations`, issueRelationsRoute],
     [`issue-statuses`, issueStatusesRoute],
     [`issue-subscribers`, issueSubscribersRoute],
     [`issues`, issuesRoute],

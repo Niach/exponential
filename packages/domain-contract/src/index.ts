@@ -66,6 +66,18 @@ export interface DomainContract {
   device: { onlineWindowSeconds: number }
   subscriberSource: { values: readonly string[] }
   issueEventType: { values: readonly string[] }
+  /**
+   * EXP-736: issue relation types, with BOTH label halves in `values` order —
+   * a row is stored in one canonical direction and each side renders its own
+   * half (blocks/blocked by, parent of/sub-issue of, ...).
+   */
+  issueRelationType: {
+    values: readonly string[]
+    forwardLabels: readonly string[]
+    inverseLabels: readonly string[]
+  }
+  /** Who created a relation row: an explicit pick, or a `#IDENT` reference. */
+  issueRelationSource: { values: readonly string[] }
   /** Coding agent CLIs a desktop device may run (EXP-201; first = default). */
   codingAgent: { values: readonly string[] }
   /** Claude model aliases for coding-session launches (first = default). */

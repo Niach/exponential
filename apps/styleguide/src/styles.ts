@@ -22,6 +22,7 @@ const page = `
   --muted-fg: ${palette.mutedForeground};
   --sidebar: ${palette.sidebar};
   --card: ${glass.fillCard};
+  --panel: ${glass.fillPanel};
   --row: ${glass.fillRow};
   --active: ${glass.fillActive};
   --stroke: ${glass.strokeCard};

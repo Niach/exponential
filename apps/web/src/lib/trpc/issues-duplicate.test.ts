@@ -25,6 +25,13 @@ const h = vi.hoisted(() => ({
   assertAssigneeInTeam: vi.fn(async (..._args: unknown[]) => undefined),
   ensureSubscribed: vi.fn(),
   recordIssueEvent: vi.fn(),
+  syncDuplicateMirror: vi.fn(),
+  syncReferenceRelations: vi.fn(),
+  canonicalizeMarkdownImageUrls: vi.fn((text: string) => text),
+  extractAttachmentIdsFromDescription: vi.fn(() => ({
+    attachmentIds: [] as string[],
+    invalidUrls: [] as string[],
+  })),
   fireAndForgetAssignmentNotify: vi.fn(),
   fireAndForgetStatusChangeNotify: vi.fn(),
   fireAndForgetReporterResolution: vi.fn(),
@@ -62,8 +69,8 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrClosedState: vi.fn(),
 }))
 vi.mock(`@/lib/storage/issue-attachments`, () => ({
-  canonicalizeMarkdownImageUrls: vi.fn(),
-  extractAttachmentIdsFromDescription: vi.fn(),
+  canonicalizeMarkdownImageUrls: h.canonicalizeMarkdownImageUrls,
+  extractAttachmentIdsFromDescription: h.extractAttachmentIdsFromDescription,
   hasMarkdownImages: () => false,
 }))
 vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
@@ -84,6 +91,15 @@ vi.mock(`@/lib/integrations/subscriptions`, () => ({
 }))
 vi.mock(`@/lib/integrations/activity`, () => ({
   recordIssueEvent: h.recordIssueEvent,
+}))
+// EXP-736: the duplicate relation row is a MIRROR of duplicate_of_id, written
+// by the same transaction. The row-level SQL lives in lib/issue-relations.ts
+// (its own unit tests); what this file locks is that every duplicate write
+// path calls it with the right from/to pair.
+vi.mock(`@/lib/issue-relations`, () => ({
+  syncDuplicateMirror: h.syncDuplicateMirror,
+  syncReferenceRelations: h.syncReferenceRelations,
+  loadIssueRelations: vi.fn(async () => []),
 }))
 
 import { issuesRouter } from "@/lib/trpc/issues"
@@ -176,7 +192,56 @@ beforeEach(() => {
   fakeDb.execute.mockClear()
   fakeDb.transaction.mockClear()
   h.recordIssueEvent.mockClear()
+  h.syncDuplicateMirror.mockClear()
+  h.syncReferenceRelations.mockClear()
   h.getSoleHumanMemberId.mockResolvedValue(null)
+})
+
+// EXP-736: the `#IDENT` reference rows are delta-maintained from the
+// description text, so what `description: null` MEANS on this path is
+// load-bearing — it clears the column (the value rides the `{...updates}`
+// spread; the canonicalize guard only keeps an empty string from replacing
+// that NULL), which makes the empty next text the truth rather than a
+// "nothing changed" sentinel.
+describe(`issues.update reference relations (EXP-736)`, () => {
+  it(`clears the description and orphans its references on an explicit null`, async () => {
+    selectQueue.push([currentIssue({ description: `see #EXP-2` })])
+
+    await caller.update({ id: ISSUE_ID, description: null })
+
+    expect(updated).toHaveLength(1)
+    expect(updated[0]!.description).toBeNull()
+    expect(h.syncReferenceRelations).toHaveBeenCalledWith(
+      fakeDb,
+      expect.objectContaining({
+        issueId: ISSUE_ID,
+        previousText: `see #EXP-2`,
+        nextText: ``,
+      })
+    )
+  })
+
+  it(`syncs the delta when the description is rewritten`, async () => {
+    selectQueue.push([currentIssue({ description: `see #EXP-2` })])
+
+    await caller.update({ id: ISSUE_ID, description: `see #EXP-3` })
+
+    expect(h.syncReferenceRelations).toHaveBeenCalledWith(
+      fakeDb,
+      expect.objectContaining({
+        previousText: `see #EXP-2`,
+        nextText: `see #EXP-3`,
+      })
+    )
+  })
+
+  it(`leaves the reference rows alone when the description is untouched`, async () => {
+    selectQueue.push([currentIssue({ description: `see #EXP-2` })])
+
+    await caller.update({ id: ISSUE_ID, title: `Renamed` })
+
+    expect(h.syncReferenceRelations).not.toHaveBeenCalled()
+  })
 })
 
 describe(`issues.create duplicate + completedAt invariants (REV2-27)`, () => {
@@ -273,6 +338,14 @@ describe(`issues.update bare duplicate status (REV2-27)`, () => {
     expect(updated[0]!.status).toBe(`duplicate`)
     expect(updated[0]!.duplicateOfId).toBe(CANONICAL_ID)
     expect(updated[0]!.completedAt).toBeInstanceOf(Date)
+    expect(h.syncDuplicateMirror).toHaveBeenCalledWith(
+      fakeDb,
+      expect.objectContaining({
+        issueId: ISSUE_ID,
+        previousDuplicateOfId: null,
+        nextDuplicateOfId: CANONICAL_ID,
+      })
+    )
   })
 
   it(`still unmarks a duplicate when duplicateOfId is explicitly null`, async () => {
@@ -290,5 +363,35 @@ describe(`issues.update bare duplicate status (REV2-27)`, () => {
     expect(updated[0]!.status).toBe(`backlog`)
     expect(updated[0]!.duplicateOfId).toBeNull()
     expect(updated[0]!.completedAt).toBeNull()
+    expect(h.syncDuplicateMirror).toHaveBeenCalledWith(
+      fakeDb,
+      expect.objectContaining({
+        issueId: ISSUE_ID,
+        previousDuplicateOfId: CANONICAL_ID,
+        nextDuplicateOfId: null,
+      })
+    )
   })
+
+  // A plain status move off 'duplicate' clears duplicate_of_id through
+  // applyStatusDerivations without ever naming it — the mirror has to follow
+  // that path too, or a stale relation row survives the unmark.
+  it(`drops the mirror when a status move clears the duplicate link`, async () => {
+    selectQueue.push([
+      currentIssue({ status: `duplicate`, duplicateOfId: CANONICAL_ID }),
+    ])
+
+    await caller.update({ id: ISSUE_ID, status: `in_progress` })
+
+    expect(updated).toHaveLength(1)
+    expect(updated[0]!.duplicateOfId).toBeNull()
+    expect(h.syncDuplicateMirror).toHaveBeenCalledWith(
+      fakeDb,
+      expect.objectContaining({
+        previousDuplicateOfId: CANONICAL_ID,
+        nextDuplicateOfId: null,
+      })
+    )
+  })
+
 })

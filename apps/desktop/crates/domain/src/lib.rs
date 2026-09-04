@@ -18,7 +18,9 @@
 //! * [`statuses`] — EXP-314 per-team custom statuses: category, tint, glyph
 //!   (the pie-clock parity table) and the resolve chain every surface renders
 //!   through;
-//! * [`board`] — `apps/web/src/lib/board-view.ts` grouping/sorting.
+//! * [`board`] — `apps/web/src/lib/board-view.ts` grouping/sorting;
+//! * [`relations`] — EXP-736 relation picks, per-side labels and the two
+//!   timeline phrases (locked to the generated contract's label slices).
 //!
 //! gpui-free — headless-testable.
 
@@ -32,6 +34,7 @@ pub mod enums;
 pub mod filters;
 pub mod hydrate;
 pub mod options;
+pub mod relations;
 pub mod rows;
 pub mod statuses;
 

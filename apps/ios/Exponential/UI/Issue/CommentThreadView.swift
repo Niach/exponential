@@ -580,15 +580,19 @@ private struct RegularCommentRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
+                // EXP-723 activity redesign: the author reads as the card's
+                // title (subheadline medium), the time + "edited" as one
+                // muted caption beside it — the same weights web, desktop and
+                // Android landed on.
                 Text(displayName(for: author, id: authorId))
-                    .font(.caption.weight(.semibold))
+                    .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white)
                 Text(relativeDate(comment.createdAt))
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 if comment.editedAt != nil {
                     Text("· edited")
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 Spacer()
@@ -750,10 +754,11 @@ private struct RegularCommentRow: View {
             }
         }
         // Glass comment card (EXP-240) — the avatar lives in the timeline
-        // gutter, not inside the card.
+        // gutter, not inside the card. EXP-723 opened the paddings up
+        // (12 / 10 / 12) so the body breathes under the bigger header.
         .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
         .photosPicker(

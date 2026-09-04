@@ -206,8 +206,18 @@
       "pr_merged",
       "board_moved",
       "created",
-      "priority_changed"
+      "priority_changed",
+      "relation_added",
+      "relation_removed"
     ]
+  },
+  "issueRelationType": {
+    "values": ["blocks", "parent", "duplicate", "related"],
+    "forwardLabels": ["blocks", "parent of", "duplicate of", "related to"],
+    "inverseLabels": ["blocked by", "sub-issue of", "duplicated by", "related to"]
+  },
+  "issueRelationSource": {
+    "values": ["user", "reference"]
   },
   "codingAgent": {
     "values": ["claude", "codex", "pi"]

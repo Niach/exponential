@@ -1225,6 +1225,28 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v27 (EXP-736 issue relations): typed links between two issues
+        // (blocks / parent / duplicate / related) arrive as the 20th shape.
+        // A brand-new table for a brand-new shape — it has no
+        // `electric_offsets` row yet, so it snapshots from scratch on its own
+        // and NOTHING resets here (the v20 `automations` precedent).
+        migrator.registerMigration("v27_issue_relations") { db in
+            try db.create(table: "issue_relations", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                // The FORWARD side of the canonical direction; the row is
+                // read from either side, hence both indexes.
+                t.column("issue_id", .text).notNull().indexed()
+                t.column("related_issue_id", .text).notNull().indexed()
+                t.column("type", .text).notNull()
+                t.column("source", .text).notNull()
+                t.column("team_id", .text).notNull().indexed()
+                // The SOURCE issue's board — nullable, mirroring the server.
+                t.column("board_id", .text)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+        }
+
         return migrator
     }
 
@@ -1245,6 +1267,8 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM attachments")
             try db.execute(sql: "DELETE FROM comments")
             try db.execute(sql: "DELETE FROM issue_labels")
+            // EXP-736: relation rows reference issues from both sides.
+            try db.execute(sql: "DELETE FROM issue_relations")
             // EXP-314: must be wiped with everything else — a "Resync now" that
             // left stale status rows behind would keep resolving issues into
             // statuses the server has since renamed or deleted.

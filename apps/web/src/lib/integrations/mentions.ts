@@ -1,7 +1,8 @@
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, ne, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { issues, boards, teamMembers } from "@/db/schema"
 import { users } from "@/db/auth-schema"
+import { boardVisible } from "@/lib/board-visibility"
 import { extractIssueRefs } from "@/lib/issue-refs"
 import { extractMentionEmails } from "@/lib/mention-refs"
 
@@ -42,13 +43,17 @@ export async function resolveMentions(
 
 // Resolve `#IDENTIFIER` issue references (see lib/issue-refs.ts for the token
 // contract) to issues in the same team — mirroring resolveMentions, so a
-// reference only counts when the target issue is actually visible there. v1
-// keeps references as plain links (no notification fan-out); this resolver is
-// the anchor point for a future "referenced-in" signal.
+// reference only counts when the target issue is actually visible there.
+// EXP-736: this is what backs the auto-derived `related`/`reference` relation
+// rows (lib/issue-relations.ts), so it takes the board-visibility predicate
+// (a trashed or archived board's issue must not become a link) and skips the
+// referencing issue itself — `#` its own identifier is not a self-relation.
+// References still fire no notifications (deliberate).
 export async function resolveIssueRefs(
   tx: Tx,
   text: string,
-  teamId: string
+  teamId: string,
+  opts?: { excludeIssueId?: string }
 ): Promise<Array<{ id: string; identifier: string }>> {
   const identifiers = extractIssueRefs(text)
   if (identifiers.length === 0) return []
@@ -60,7 +65,9 @@ export async function resolveIssueRefs(
     .where(
       and(
         eq(boards.teamId, teamId),
-        inArray(issues.identifier, identifiers)
+        boardVisible(),
+        inArray(issues.identifier, identifiers),
+        ...(opts?.excludeIssueId ? [ne(issues.id, opts.excludeIssueId)] : [])
       )
     )
 

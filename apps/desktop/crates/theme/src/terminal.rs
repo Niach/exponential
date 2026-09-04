@@ -24,7 +24,12 @@ use gpui::Hsla;
 /// "e.g. 1.3").
 pub const LINE_HEIGHT: f32 = 1.3;
 
-/// Terminal font size in px — matches the compact-density UI base (§4.4).
+/// Terminal font size in px.
+///
+/// Deliberately pinned at 13 while the UI rem moved to 14 (EXP-723): terminal
+/// output is monospaced, line-dense and often 80+ columns wide, so it wants a
+/// tighter cell than the chrome around it. This is NOT meant to track
+/// [`crate::FONT_SIZE_PX`].
 pub const FONT_SIZE: f32 = 13.0;
 
 /// The bundled monospace family (§6.9 cell metrics / §3.2 "no runtime font

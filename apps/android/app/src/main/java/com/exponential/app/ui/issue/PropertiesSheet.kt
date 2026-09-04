@@ -68,6 +68,11 @@ fun PropertiesSheet(
     onOpenLabels: () -> Unit,
     onOpenMoveBoard: () -> Unit,
     onToggleLabel: (labelId: String, assigned: Boolean) -> Unit,
+    // EXP-736: relations live ONLY here on mobile — the detail page keeps the
+    // chip tray, so the sheet is where an edge is added or dropped.
+    relations: List<RelationRow>,
+    onOpenRelations: () -> Unit,
+    onRemoveRelation: (RelationRow) -> Unit,
     onDismiss: () -> Unit,
 ) {
     GlassSheet(title = "Properties", onDismiss = onDismiss) {
@@ -177,6 +182,12 @@ fun PropertiesSheet(
                 // 16dp group gutter + the group's own 4dp inset, so the
                 // heading sits under the rows' label column.
                 modifier = Modifier.padding(horizontal = 20.dp),
+            )
+            Spacer(Modifier.height(16.dp))
+            RelationsSection(
+                relations = relations,
+                onOpenRelations = onOpenRelations,
+                onRemoveRelation = onRemoveRelation,
             )
             Spacer(Modifier.height(8.dp))
         }

@@ -56,17 +56,18 @@ pub mod avatar {
 // module keeps the short fill/stroke keys from colliding with palette names.
 pub mod glass {
     use crate::Srgb8;
-    pub const BACKGROUND_TOP: Srgb8 = Srgb8 { r: 9, g: 9, b: 11, a: 255 };
-    pub const BACKGROUND_BOTTOM: Srgb8 = Srgb8 { r: 24, g: 24, b: 27, a: 255 };
+    pub const BACKGROUND_TOP: Srgb8 = Srgb8 { r: 5, g: 5, b: 7, a: 255 };
+    pub const BACKGROUND_BOTTOM: Srgb8 = Srgb8 { r: 17, g: 17, b: 20, a: 255 };
     pub const FILL_SECTION: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 10 };
     pub const FILL_ROW: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 13 };
     pub const FILL_CARD: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 15 };
-    pub const FILL_ACTIVE: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 38 };
+    pub const FILL_PANEL: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 10 };
+    pub const FILL_ACTIVE: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 23 };
     pub const STROKE_ROW: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 15 };
     pub const STROKE_SECTION: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 20 };
     pub const STROKE_CARD: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 26 };
     pub const STROKE_STRONG: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 31 };
-    pub const STROKE_ACTIVE: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 51 };
+    pub const STROKE_ACTIVE: Srgb8 = Srgb8 { r: 255, g: 255, b: 255, a: 36 };
 }
 
 // Corner radii in px, matching the web rounded-* scale.

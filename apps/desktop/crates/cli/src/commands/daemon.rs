@@ -1866,7 +1866,7 @@ fn report_worktrees(
 /// actions they fire (`actions` — the name snapshot the log prints), the
 /// event feed (`issue_events`), and the rows the prompt lines and board
 /// filters read (`issues`, `boards`, `labels`, `issue_statuses`).
-/// Deliberately NOT the desktop's 19 — a headless daemon has no views to
+/// Deliberately NOT the desktop's 20 — a headless daemon has no views to
 /// hydrate.
 const AUTOMATION_SHAPES: &[&str] = &[
     "automations",

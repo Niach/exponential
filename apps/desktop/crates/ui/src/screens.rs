@@ -864,9 +864,10 @@ impl ScreensPanel {
     /// its right. The labels are SHAPED with the window's own text system
     /// now, and the chrome is expressed in the units gpui actually lays it
     /// out in: every spacing helper (`px_2`, `gap_1`, `size_3`, `size_5`,
-    /// `gap_0p5`) resolves against the REM size, and this app runs a 13px rem
-    /// — reading them as their 16px-rem pixel values inflated every chip by
-    /// ~23%. The one genuine pixel constant is the title's `max_w`.
+    /// `gap_0p5`) resolves against the REM size, and this app's rem is
+    /// [`theme::FONT_SIZE_PX`] (14px), not the 16px browser root — reading
+    /// them as their 16px-rem pixel values inflated every chip. The one
+    /// genuine pixel constant is the title's `max_w`.
     fn measure_chip_width(&self, entry: &TabEntry, window: &Window, cx: &App) -> f32 {
         /// `surface::rich_tab`'s `px_2p5`, both sides.
         const CHIP_PADDING_REMS: f32 = 0.625 * 2.;
@@ -1765,8 +1766,10 @@ fn pinned_panel_root(
 mod tests {
     use super::partition_tabs;
 
-    /// The strip's `gap_1` and the "+N" button at the app's 13px rem.
-    const GAP: f32 = 3.25;
+    /// The strip's `gap_1` and the "+N" button at the app's rem
+    /// ([`theme::FONT_SIZE_PX`]). Every assertion below is expressed in terms
+    /// of these two, so the exact values only have to be plausible.
+    const GAP: f32 = 3.5;
     const OVERFLOW: f32 = 22.;
 
     fn partition(widths: &[f32], available: f32, active: Option<usize>) -> Vec<usize> {

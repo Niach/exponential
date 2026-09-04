@@ -100,7 +100,7 @@ import kotlinx.coroutines.launch
 // The per-property/combined sheets the detail screen can present (EXP-240).
 // One nullable slot: children opened from the Properties sheet stack over it
 // (propertiesOpen stays true beneath).
-private enum class IssueSheet { Status, Priority, Assignee, Labels, DueDate, Duplicate, MoveBoard, StartCoding }
+private enum class IssueSheet { Status, Priority, Assignee, Labels, DueDate, Duplicate, AddRelation, MoveBoard, StartCoding }
 
 // Linear-mobile-style issue detail (EXP-240): centered "Issue" nav title,
 // identifier chip + overflow header row, large editable title, the property
@@ -121,7 +121,6 @@ fun IssueDetailScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
-    val isSubscribed by viewModel.isSubscribed.collectAsStateWithLifecycle()
     val runningSession by viewModel.runningSession.collectAsStateWithLifecycle()
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
     val widgetSubmission by viewModel.widgetSubmission.collectAsStateWithLifecycle()
@@ -131,6 +130,7 @@ fun IssueDetailScreen(
     val missing by viewModel.missing.collectAsStateWithLifecycle()
     val duplicateOf by viewModel.duplicateOf.collectAsStateWithLifecycle()
     val duplicateCandidates by viewModel.duplicateCandidates.collectAsStateWithLifecycle()
+    val relations by viewModel.relations.collectAsStateWithLifecycle()
     val shareUrl by viewModel.shareUrl.collectAsStateWithLifecycle()
     val syncBanner by viewModel.syncBanner.collectAsStateWithLifecycle()
     // The board team's status rows (EXP-314) — picker vocabulary + chip label.
@@ -358,22 +358,6 @@ fun IssueDetailScreen(
                                         },
                                     )
                                 }
-                                GlassMenuItem(
-                                    leadingIcon = {
-                                        // Menu row: the icon depicts the ACTION, like the
-                                        // label beside it — bell-off next to "Unsubscribe",
-                                        // not the current state (iOS parity).
-                                        Icon(
-                                            if (isSubscribed) ExpIcons.uiUnsubscribe else ExpIcons.uiSubscribe,
-                                            contentDescription = null,
-                                        )
-                                    },
-                                    text = { Text(if (isSubscribed) "Unsubscribe" else "Subscribe") },
-                                    onClick = {
-                                        overflowOpen = false
-                                        viewModel.toggleSubscribe()
-                                    },
-                                )
                                 // Duplicate = status interception (L27): marking a
                                 // duplicate happens by picking the `duplicate` status,
                                 // which opens the canonical-issue picker. Only the
@@ -822,6 +806,9 @@ fun IssueDetailScreen(
             onOpenLabels = { activeSheet = IssueSheet.Labels },
             onOpenMoveBoard = { activeSheet = IssueSheet.MoveBoard },
             onToggleLabel = { id, assigned -> viewModel.toggleLabel(id, assigned) },
+            relations = relations,
+            onOpenRelations = { activeSheet = IssueSheet.AddRelation },
+            onRemoveRelation = { viewModel.removeRelation(it) },
             onDismiss = { propertiesOpen = false },
         )
     }
@@ -895,6 +882,17 @@ fun IssueDetailScreen(
         DuplicatePickerSheet(
             candidates = duplicateCandidates,
             onPick = { viewModel.markDuplicate(it.id) },
+            onDismiss = { activeSheet = null },
+        )
+    }
+
+    // EXP-736: "Add relation" — the relation KIND, then the issue it points
+    // at. Duplicate picks route through the same lockstep write the status
+    // interception uses, so there is one duplicate path, not two.
+    if (activeSheet == IssueSheet.AddRelation && issue != null && isModerator) {
+        RelationPickerSheet(
+            candidates = duplicateCandidates,
+            onPick = { pick, other -> viewModel.addRelation(pick, other.id) },
             onDismiss = { activeSheet = null },
         )
     }

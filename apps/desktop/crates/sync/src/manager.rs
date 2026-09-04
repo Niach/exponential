@@ -94,7 +94,7 @@ pub struct SyncManager {
     /// EXP-533: when [`SyncManager::restart_account`] last rebuilt ANY
     /// pipeline. The wake watchdog and the window-activation kick both restart
     /// on the same wake; without a stamp the second one stops threads the first
-    /// just spawned and respawns all 19. Read via
+    /// just spawned and respawns all 20. Read via
     /// [`SyncManager::restarted_within`].
     last_restart_at: Mutex<Option<Instant>>,
 }

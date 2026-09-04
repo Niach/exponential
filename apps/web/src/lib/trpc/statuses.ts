@@ -20,6 +20,7 @@ import {
 } from "@/lib/domain"
 import { applyStatusDerivations } from "@/lib/status-derivations"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import { syncDuplicateMirror } from "@/lib/issue-relations"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 
 const statusNameSchema = z.string().min(1).max(255)
@@ -415,6 +416,19 @@ export const statusesRouter = router({
               .update(issues)
               .set(setValues)
               .where(eq(issues.id, issue.id))
+            // EXP-736: reassigning off the duplicate status clears
+            // duplicate_of_id through applyStatusDerivations — the mirrored
+            // issue_relations row follows.
+            await syncDuplicateMirror(tx, {
+              issueId: issue.id,
+              teamId: input.teamId,
+              actorUserId: ctx.session.user.id,
+              previousDuplicateOfId: issue.duplicateOfId,
+              nextDuplicateOfId:
+                setValues.duplicateOfId === undefined
+                  ? issue.duplicateOfId
+                  : (setValues.duplicateOfId as string | null),
+            })
             await recordIssueEvent(tx, {
               issueId: issue.id,
               teamId: input.teamId,

@@ -41,6 +41,8 @@ object GlassTokens {
     val RowFillActive = DesignTokens.Glass.FillActive
     val SectionFill = DesignTokens.Glass.FillSection
     val CardFill = DesignTokens.Glass.FillCard
+    /** The cutout main panel's wash over the page gradient (EXP-723; web + desktop only). */
+    val PanelFill = DesignTokens.Glass.FillPanel
 
     /**
      * [CardFill] composited over the opaque card base (white .06 over #171717 ==

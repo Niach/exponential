@@ -203,6 +203,66 @@ class EventPhrasesTest {
         assertTrue(eventRowVisible("something_new"))
     }
 
+    // ── EXP-736: relation events ────────────────────────────────────────────
+
+    @Test
+    fun relationAddedReadsTheSideSpecificPhrase() {
+        assertEquals(
+            "marked as blocked by EXP-3",
+            phrase(
+                event(
+                    "relation_added",
+                    """{"type":"blocks","relatedIdentifier":"EXP-3","direction":"inverse"}""",
+                ),
+            ),
+        )
+        assertEquals(
+            "no longer parent of EXP-3",
+            phrase(
+                event(
+                    "relation_removed",
+                    """{"type":"parent","relatedIdentifier":"EXP-3","direction":"forward"}""",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun relatedReferencesReadAsAnAddedRelatedIssue() {
+        assertEquals(
+            "added related issue EXP-12",
+            phrase(
+                event(
+                    "relation_added",
+                    """{"type":"related","relatedIdentifier":"EXP-12","direction":"forward","source":"reference"}""",
+                ),
+            ),
+        )
+    }
+
+    // EXP-736: a thin relation payload still phrases — the web
+    // `relationEventPhrase` degrades, it never falls back to the bare verb:
+    // an unknown/missing type reads as the symmetric `related`, a missing
+    // counterpart is named "an issue".
+    @Test
+    fun relationEventsWithoutPayloadDegradeLikeTheWeb() {
+        assertEquals("added related issue an issue", phrase(event("relation_added", null)))
+        assertEquals("removed related issue an issue", phrase(event("relation_removed", null)))
+        assertEquals(
+            "marked as blocked by an issue",
+            phrase(event("relation_added", """{"type":"blocks","direction":"inverse"}""")),
+        )
+        assertEquals(
+            "added related issue EXP-3",
+            phrase(
+                event(
+                    "relation_added",
+                    """{"type":"mentioned","relatedIdentifier":"EXP-3","direction":"inverse"}""",
+                ),
+            ),
+        )
+    }
+
     // ── EXP-595: timeline glyphs (web `EventRow` / desktop `EventGlyph` parity) ──
 
     @Test
@@ -216,6 +276,8 @@ class EventPhrasesTest {
         assertSame(ExpIcons.prOpen, plain("pr_opened"))
         assertSame(ExpIcons.prMerged, plain("pr_merged"))
         assertSame(ExpIcons.eventPriorityChanged, plain("priority_changed"))
+        assertSame(ExpIcons.eventRelationAdded, plain("relation_added"))
+        assertSame(ExpIcons.eventRelationRemoved, plain("relation_removed"))
     }
 
     /** EXP-525 parity: the TARGET status's real row wins over the anchor. */

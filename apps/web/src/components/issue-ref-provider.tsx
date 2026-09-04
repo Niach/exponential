@@ -35,6 +35,9 @@ export interface ResolvedIssueRef {
 export interface IssueRefContextValue {
   /** Resolve an identifier (case-insensitive) to a visible issue, or null. */
   resolve: (identifier: string) => ResolvedIssueRef | null
+  /** Resolve a row UUID to a visible issue, or null — the relations card
+   * reads ids off the issue_relations shape, never identifiers. */
+  resolveById: (id: string) => ResolvedIssueRef | null
   /** Search visible issues by identifier/title; empty query = most recent. */
   search: (
     query: string,
@@ -125,10 +128,16 @@ export function IssueRefProvider({
     [refs]
   )
 
+  const byId = useMemo(
+    () => new Map(refs.map((ref) => [ref.id, ref])),
+    [refs]
+  )
+
   const value = useMemo<IssueRefContextValue>(
     () => ({
       resolve: (identifier) =>
         byIdentifier.get(identifier.toUpperCase()) ?? null,
+      resolveById: (id) => byId.get(id) ?? null,
       search: (query, opts) => {
         const q = query.trim().toLowerCase()
         const exclude = new Set(opts?.excludeIssueIds ?? [])
@@ -161,7 +170,7 @@ export function IssueRefProvider({
         })
       },
     }),
-    [byIdentifier, refs, navigate, teamSlug]
+    [byIdentifier, byId, refs, navigate, teamSlug]
   )
 
   return (

@@ -10,13 +10,10 @@
 //! native chrome remains.
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, Entity, InteractiveElement as _, IntoElement,
-    MouseButton, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _,
-    Subscription, Window,
+    prelude::FluentBuilder as _, px, App, Entity, InteractiveElement as _, IntoElement,
+    MouseButton, ParentElement as _, Render, Styled as _, Subscription, Window,
 };
-use gpui_component::{h_flex, ActiveTheme as _, Icon, Sizable as _};
-
-use crate::icons::{registry, ExpIcon};
+use gpui_component::h_flex;
 
 // EXP-269: the vendored TitleBar (rounded window controls — see
 // `crate::title_bar`), not gpui-component's, whose close-button hover fill is
@@ -25,28 +22,10 @@ use crate::title_bar::TitleBar;
 
 use crate::screens::ScreensPanel;
 
-/// The app's display name. EXP-326: rendered by the RAIL, not by this bar —
-/// the titlebar band is the tab row and gives every pixel to the strip.
-#[cfg(not(feature = "staging"))]
-pub(crate) const APP_TITLE: &str = "Exponential";
-#[cfg(feature = "staging")]
-pub(crate) const APP_TITLE: &str = "Exponential (staging)";
-
 /// The bar's own breathing room, left of the strip and right of it before the
 /// window controls. One constant so the rendered padding and the strip's width
 /// budget can never drift apart.
 const BAR_INSET: f32 = 8.;
-
-/// EXP-449: the fixed width of the labelled "New Issue" button — glyph + gap
-/// + the `text_xs` label inside `primary_button`'s `px_2p5`, with a little
-/// slack absorbed by its `justify_center`. Fixed (not content-sized) so the
-/// strip's reserve below can never drift from the rendered width.
-const NEW_ISSUE_BUTTON_W: f32 = 96.;
-
-/// The width the New Issue button takes out of the strip's budget — the
-/// button box plus the [`BAR_INSET`] margin holding it off the window
-/// controls. Same one-constant rule as [`BAR_INSET`].
-const NEW_ISSUE_RESERVE: f32 = NEW_ISSUE_BUTTON_W + BAR_INSET;
 
 /// True when this window paints its own chrome. False only on Linux when gpui
 /// fell back to server-side decorations (X11 without a compositor forces
@@ -59,35 +38,16 @@ pub(crate) fn client_chrome(window: &Window) -> bool {
 
 /// EXP-326: are the macOS traffic lights sitting in the left column's
 /// titlebar strip? That is the ONE case where the strip has no room of its
-/// own — windowed macOS under client chrome. Keep in step with
-/// `shell::traffic_tongue_visible`, which draws the tongue for the collapsed
-/// half of it.
+/// own — windowed macOS under client chrome.
+///
+/// Currently unreferenced: EXP-723 emptied the rail's 34px strip (the brand
+/// and the expand toggle are gone, and with them the traffic-light tongue),
+/// so nothing has to lay out AROUND the cluster any more. Kept because it is
+/// the single written-down statement of where the lights land, which the next
+/// occupant of that strip will need.
+#[allow(dead_code)]
 pub(crate) fn macos_lights_in_strip(window: &Window) -> bool {
     cfg!(target_os = "macos") && client_chrome(window) && !window.is_fullscreen()
-}
-
-/// EXP-326: the app brand — logo glyph + [`APP_TITLE`] — rendered in the left
-/// column's titlebar strip (the expanded rail, and since EXP-464 the settings
-/// nav too) wherever [`macos_lights_in_strip`] leaves it room.
-pub(crate) fn brand(cx: &App) -> impl IntoElement {
-    h_flex()
-        .flex_1()
-        .min_w_0()
-        .items_center()
-        .gap_2()
-        .child(
-            Icon::from(ExpIcon::Logo)
-                .small()
-                .text_color(cx.theme().muted_foreground),
-        )
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .text_sm()
-                .text_color(cx.theme().foreground.opacity(0.7))
-                .child(APP_TITLE),
-        )
 }
 
 /// Wrap interactive titlebar content so pressing it can't start a window
@@ -132,12 +92,12 @@ pub(crate) fn chrome_only_title_bar() -> impl IntoElement {
     TitleBar::new().border_b_0()
 }
 
-/// The main window's titlebar content: the center tab strip plus the EXP-449
-/// New Issue button at the far right (EXP-277 — the decoration band doubles as
-/// the tab row so the content area gains its height back). EXP-326: the brand
-/// and the collapsed-rail expand toggle both moved into the rail column, so
-/// the strip runs from the rail's right edge to the New Issue button.
-/// Search/update/account affordances stay in the rail.
+/// The main window's titlebar content: the center tab strip, and nothing else
+/// (EXP-277 — the decoration band doubles as the tab row so the content area
+/// gains its height back). EXP-723 moved the New Issue button into the rail
+/// header next to Search, where the web keeps it, so the strip now runs from
+/// the rail's right edge all the way to the window controls; the brand and
+/// the rail toggle went the same way earlier / with the collapse.
 ///
 /// EXP-364: mounted ONLY by the Shell's dock branch — every other surface
 /// takes [`chrome_only_title_bar`] — so the rail is always to our left here
@@ -149,12 +109,6 @@ pub struct AppTitleBar {
     screens: Option<Entity<ScreensPanel>>,
     /// Repaints the bar when tabs open/close/retitle.
     _observe_screens: Option<Subscription>,
-    /// Repaints the bar when the rail expands/collapses (EXP-285 — the
-    /// left padding and the collapsed-state expand toggle depend on it).
-    _observe_rail: Option<Subscription>,
-    /// Repaints the bar when the window's scope moves (EXP-449 — the New
-    /// Issue button is enabled only while a board is in scope).
-    _observe_nav: Option<Subscription>,
 }
 
 impl AppTitleBar {
@@ -162,8 +116,6 @@ impl AppTitleBar {
         Self {
             screens: None,
             _observe_screens: None,
-            _observe_rail: None,
-            _observe_nav: None,
         }
     }
 }
@@ -176,56 +128,34 @@ impl Render for AppTitleBar {
                 self.screens = Some(panel);
             }
         }
-        if self._observe_rail.is_none() {
-            let shared = crate::sidebar::rail_shared_for_window(window, cx);
-            self._observe_rail = Some(cx.observe(&shared, |_, _, cx| cx.notify()));
-        }
-        let nav = crate::navigation::nav_for_window(window, cx);
-        if self._observe_nav.is_none() {
-            self._observe_nav = Some(cx.observe(&nav, |_, _, cx| cx.notify()));
-        }
-        // EXP-449: `active_board_id` falls back to the team's first board, so
-        // this is false only when nothing is in scope at all (no team, or a
-        // team whose boards haven't synced) — exactly when the `NewIssue`
-        // handler would bail.
-        let can_create = crate::navigation::active_board_id(&nav, cx).is_some();
-
         // EXP-326: the strip's width budget, computed instead of guessed.
         // Everything left and right of it is fixed-width chrome whose widths
         // are constants here, so the old 240/150 "rough estimates" (which cost
         // the strip ~100px and collapsed tabs into "+N" with visible room to
         // spare) have exact replacements:
         //
-        //   left  = the rail column + the tongue when it is drawn + this
-        //           bar's own inset (`pl` below), plus the vendored fullscreen
-        //           `pl_3`.
-        //   right = the EXP-449 New Issue button, plus the window controls:
-        //           none on macOS (the lights are over the rail), otherwise
-        //           three `TITLE_BAR_HEIGHT`-wide buttons — `TitleBar` draws
-        //           min + max + close here.
+        //   left  = the rail column + this bar's own inset (`pl` below),
+        //           plus the vendored fullscreen `pl_3`.
+        //   right = the window controls: none on macOS (the lights are over
+        //           the rail), otherwise three `TITLE_BAR_HEIGHT`-wide buttons
+        //           — `TitleBar` draws min + max + close here.
         let strip_available = {
             // EXP-285/EXP-456: the full-height LEFT COLUMN (rail, or the
             // settings nav while Settings is up) sits left of this bar — its
             // target width is the budget's first term. macOS lights float
-            // over that column: the expanded rail and the settings nav (both
-            // 164px) clear the cluster entirely; the collapsed rail (44px)
-            // gets the Shell's tongue. Fullscreen hides the lights, so the
-            // reserve is reclaimed outright.
+            // over that column, which is [`crate::sidebar::RAIL_W`] wide and
+            // clears the cluster on its own (EXP-723 removed the collapsed
+            // rail and with it the Shell's traffic-light tongue). Fullscreen
+            // hides the lights, so nothing is reserved for them either way.
             let rail_w = crate::shell::left_column_target_width(window, cx);
-            let tongue_w = if crate::shell::traffic_tongue_visible(window, cx) {
-                crate::shell::TRAFFIC_TONGUE_TOTAL_W
-            } else {
-                0.
-            };
             let left_inset = BAR_INSET;
             let fullscreen_inset = if window.is_fullscreen() { 12. } else { 0. };
-            let right_reserve = NEW_ISSUE_RESERVE
-                + if cfg!(target_os = "macos") {
-                    BAR_INSET
-                } else {
-                    3. * f32::from(crate::title_bar::TITLE_BAR_HEIGHT) + BAR_INSET
-                };
-            let taken = rail_w + tongue_w + left_inset + fullscreen_inset + right_reserve;
+            let right_reserve = if cfg!(target_os = "macos") {
+                BAR_INSET
+            } else {
+                3. * f32::from(crate::title_bar::TITLE_BAR_HEIGHT) + BAR_INSET
+            };
+            let taken = rail_w + left_inset + fullscreen_inset + right_reserve;
             // EXP-343: on Linux CSD the viewport includes the rounded frame's
             // shadow + border, which are NOT content space — without
             // subtracting them the budget runs ~26px long and the strip's
@@ -242,33 +172,16 @@ impl Render for AppTitleBar {
         });
 
         let bar = TitleBar::new()
-            // EXP-288: a hairline under the tab row — the chips' vertical
-            // strokes used to end into nothing.
-            .border_b_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            // EXP-723: NO hairline. The bar sits on the bare content ground
+            // above the cutout panel now, and the panel's own `strokeCard`
+            // stroke is the edge between them — a second rule right above it
+            // reads as a double border.
+            .border_b_0()
             // EXP-303: with the rail present the vendored 80px macOS
-            // traffic-light reserve is wrong in every state — expanded, the
-            // rail (164px) clears the cluster; collapsed, the Shell renders
-            // the sidebar-material tongue segment LEFT of this bar
-            // (`shell::traffic_tongue`), which consumes the reserve. Either
-            // way the bar itself only needs its normal inset.
+            // traffic-light reserve is wrong — the rail is
+            // [`crate::sidebar::RAIL_W`] wide and clears the cluster, so the
+            // bar itself only needs its normal inset.
             .pl(px(BAR_INSET));
-
-        // EXP-449: the New Issue button moved out of the board filter bar and
-        // into the window chrome, so it is reachable from every screen (and
-        // from My Issues, which the filter bar's own gate already allowed).
-        // Keeps its glyph + label, exactly as it read in the filter bar.
-        let new_issue =
-            crate::create_issue_dialog::primary_button("titlebar-new-issue", !can_create, cx)
-                .w(px(NEW_ISSUE_BUTTON_W))
-                .child(Icon::new(registry::UI_ADD).small())
-                .child("New Issue")
-                // `primary_button`'s disabled contract: callers skip `on_click`.
-                .when(can_create, |button| {
-                    button.on_click(|_, window, cx| {
-                        window.dispatch_action(Box::new(crate::actions::NewIssue), cx)
-                    })
-                });
 
         bar.child(
             // The strip content swallows its own mouse-downs (interactive
@@ -283,7 +196,6 @@ impl Render for AppTitleBar {
                 .items_center()
                 .when_some(strip, |bar, strip| bar.child(interactive(strip))),
         )
-        .child(div().mr(px(BAR_INSET)).child(interactive(new_issue)))
     }
 }
 

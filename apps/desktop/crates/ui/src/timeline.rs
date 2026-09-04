@@ -1007,10 +1007,17 @@ impl IssueTimeline {
 /// or missing timestamp — the separator goes with it (iOS `time.isEmpty`
 /// parity), never leaving a dangling " · ".
 fn created_phrase(time: &str) -> String {
+    with_time("created the issue", time)
+}
+
+/// EXP-723: EVERY activity line carries its relative time as a " · " suffix
+/// (web `EventRow` does the same since the activity redesign). Same
+/// empty-time rule as [`created_phrase`] — no dangling separator.
+fn with_time(phrase: &str, time: &str) -> String {
     if time.is_empty() {
-        "created the issue".to_string()
+        phrase.to_string()
     } else {
-        format!("created the issue · {time}")
+        format!("{phrase} · {time}")
     }
 }
 
@@ -1122,6 +1129,7 @@ impl Render for IssueTimeline {
                         &label_map,
                         &board_map,
                         &statuses,
+                        now_epoch,
                         line_above,
                         line_below,
                         cx,
@@ -1386,6 +1394,21 @@ fn event_phrase(
                 None,
             ))
         }
+        // EXP-736: the relation phrases live in `domain::relations` — ONE
+        // table for all four clients, keyed on the payload's per-side
+        // `direction` and the contract's label slices.
+        kind @ ("relation_added" | "relation_removed") => {
+            let phrase = domain::relations::event_phrase(
+                kind,
+                payload.unwrap_or(&serde_json::Value::Null),
+            )?;
+            let glyph = if kind == "relation_added" {
+                registry::EVENT_RELATION_ADDED
+            } else {
+                registry::EVENT_RELATION_REMOVED
+            };
+            Some((EventGlyph::Plain(glyph), phrase, None))
+        }
         // EXP-530: `created` rows exist as the automation-trigger substrate —
         // the issue header already shows creation, so every client suppresses
         // them here (web `EventRow` returns null on the same arm).
@@ -1404,11 +1427,19 @@ fn event_row(
     label_map: &HashMap<String, Label>,
     board_map: &HashMap<String, Board>,
     statuses: &[domain::rows::IssueStatusRow],
+    now_epoch: i64,
     line_above: bool,
     line_below: bool,
     cx: &App,
 ) -> Option<gpui::AnyElement> {
     let (glyph, phrase, link) = event_phrase(event, user_map, label_map, board_map, statuses)?;
+    // EXP-723: the row reads "Actor did X · 2 days ago" on web and desktop.
+    let time = event
+        .created_at
+        .as_deref()
+        .map(|at| comments::relative_time(at, now_epoch))
+        .unwrap_or_default();
+    let phrase = with_time(&phrase, &time);
     let actor_name = match event.actor_user_id.as_deref() {
         Some(id) => comments::user_label(id, user_map.get(id)),
         None => "Someone".to_string(),
@@ -1524,6 +1555,12 @@ mod tests {
         assert_eq!(
             created_phrase("2 hours ago"),
             "created the issue · 2 hours ago"
+        );
+        // EXP-723: every event row wears the same suffix, same rule.
+        assert_eq!(with_time("added label bug", ""), "added label bug");
+        assert_eq!(
+            with_time("added label bug", "2 days ago"),
+            "added label bug · 2 days ago"
         );
     }
 
@@ -1715,6 +1752,99 @@ mod tests {
             &[],
         )
         .is_none());
+
+        // EXP-736: the two relation phrases, per side (the payload's
+        // `direction`), byte-identical to the web `relationEventPhrase`.
+        let (_, phrase, _) = event_phrase(
+            &event(
+                "relation_added",
+                json!({
+                    "type": "blocks",
+                    "relatedIssueId": "i-3",
+                    "relatedIdentifier": "EXP-3",
+                    "direction": "forward",
+                    "source": "user"
+                }),
+            ),
+            &users,
+            &labels,
+            &boards,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(phrase, "marked as blocks EXP-3");
+
+        let (_, phrase, _) = event_phrase(
+            &event(
+                "relation_removed",
+                json!({
+                    "type": "blocks",
+                    "relatedIdentifier": "EXP-3",
+                    "direction": "inverse"
+                }),
+            ),
+            &users,
+            &labels,
+            &boards,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(phrase, "no longer blocked by EXP-3");
+
+        let (_, phrase, _) = event_phrase(
+            &event(
+                "relation_added",
+                json!({
+                    "type": "related",
+                    "relatedIdentifier": "EXP-12",
+                    "direction": "forward",
+                    "source": "reference"
+                }),
+            ),
+            &users,
+            &labels,
+            &boards,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(phrase, "added related issue EXP-12");
+
+        // A relation payload with no identifier still renders — it names
+        // "an issue", exactly like the web `relationEventPhrase`.
+        let (_, phrase, _) = event_phrase(
+            &event("relation_added", json!({ "type": "blocks" })),
+            &users,
+            &labels,
+            &boards,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(phrase, "marked as blocks an issue");
+
+        // An unknown type reads as the symmetric `related` (web fallback).
+        let (_, phrase, _) = event_phrase(
+            &event(
+                "relation_added",
+                json!({ "type": "something_new", "relatedIdentifier": "EXP-3" }),
+            ),
+            &users,
+            &labels,
+            &boards,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(phrase, "added related issue EXP-3");
+
+        // A payload-less relation row degrades to both fallbacks at once.
+        let (_, phrase, _) = event_phrase(
+            &event("relation_removed", json!({})),
+            &users,
+            &labels,
+            &boards,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(phrase, "removed related issue an issue");
 
         // Unknown event type renders nothing (web returns null).
         assert!(event_phrase(

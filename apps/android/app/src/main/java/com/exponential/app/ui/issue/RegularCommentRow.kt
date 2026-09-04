@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -47,6 +48,7 @@ import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.ui.components.CommentAttachmentsStrip
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
+import com.exponential.app.ui.components.LargeCommentAttachments
 import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.components.userDisplayName
@@ -159,12 +161,17 @@ internal fun RegularCommentRow(
                 .weight(1f)
                 .padding(vertical = 6.dp)
                 .glassCard()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                // EXP-723: 12 / 10 / 12 — the body breathes inside the card.
+                .padding(start = 12.dp, top = 10.dp, end = 12.dp, bottom = 12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     userDisplayName(author, comment.authorId),
-                    style = MaterialTheme.typography.labelMedium,
+                    // EXP-723: the author's name is the card's title — a
+                    // notch larger and medium-weight, over a muted time.
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.Medium,
+                    ),
                     color = CommentAuthor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -174,7 +181,7 @@ internal fun RegularCommentRow(
                 Text(
                     relativeTime(comment.createdAt) +
                         if (comment.editedAt != null) " · edited" else "",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.bodySmall,
                     color = CommentMeta,
                 )
                 if (isAuthor && !isEditing) {
@@ -303,7 +310,10 @@ internal fun RegularCommentRow(
                 if (bodyText.isNotBlank()) {
                     MarkdownView(bodyText)
                 }
-                CommentAttachmentsStrip(
+                // EXP-723: a posted comment's images read at full width; the
+                // 64dp thumb strip stays in the edit form above, where the
+                // tiles are a queue rather than content.
+                LargeCommentAttachments(
                     attachments = attachments,
                     onOpen = onOpenAttachment,
                 )

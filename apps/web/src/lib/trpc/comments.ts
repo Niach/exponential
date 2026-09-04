@@ -17,6 +17,7 @@ import {
 } from "@/lib/integrations/notifications"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { resolveMentions } from "@/lib/integrations/mentions"
+import { syncReferenceRelations } from "@/lib/issue-relations"
 
 async function loadCommentForMutation(
   // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
@@ -207,6 +208,19 @@ export const commentsRouter = router({
           })
         }
 
+        // EXP-736: `#IDENT` tokens in a comment become `related` rows with
+        // source='reference', exactly like the ones in a description. The new
+        // comment IS the slot being replaced, so it is excluded from the
+        // survivor scan and its text passed as nextText.
+        await syncReferenceRelations(tx, {
+          issueId: input.issueId,
+          teamId: issueContext.teamId,
+          actorUserId: ctx.session.user.id,
+          previousText: ``,
+          nextText: getCommentBodyText(input.body),
+          excludeCommentId: comment.id,
+        })
+
         if (input.attachmentIds.length > 0) {
           // Same tx (and txId) as the comment insert, so Electric delivers the
           // comment row and its linked attachment rows as one sync unit.
@@ -325,6 +339,17 @@ export const commentsRouter = router({
           })
         }
 
+        // EXP-736: reference-relation delta for the edited body (same rules as
+        // the description edit above).
+        await syncReferenceRelations(tx, {
+          issueId: existing.issueId,
+          teamId: existing.teamId,
+          actorUserId: ctx.session.user.id,
+          previousText: getCommentBodyText(previous?.body),
+          nextText: getCommentBodyText(input.body),
+          excludeCommentId: input.id,
+        })
+
         const { deletedStorageKeys } =
           input.attachmentIds !== undefined
             ? await syncCommentAttachmentsInTx(tx, {
@@ -401,7 +426,22 @@ export const commentsRouter = router({
             .delete(attachments)
             .where(eq(attachments.commentId, input.id))
         }
+        const [dying] = await tx
+          .select({ body: comments.body })
+          .from(comments)
+          .where(eq(comments.id, input.id))
+          .limit(1)
         await tx.delete(comments).where(eq(comments.id, input.id))
+        // EXP-736: a deleted comment takes its `#IDENT` references with it —
+        // the reference rows only die when no other text still names them.
+        await syncReferenceRelations(tx, {
+          issueId: existing.issueId,
+          teamId: existing.teamId,
+          actorUserId: ctx.session.user.id,
+          previousText: getCommentBodyText(dying?.body),
+          nextText: ``,
+          excludeCommentId: input.id,
+        })
         return { txId, storageKeys: linked.map((row) => row.storageKey) }
       })
 

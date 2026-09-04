@@ -1,4 +1,4 @@
-//! The 19 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 20 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 19 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 20 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, and no
 /// scoping mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 19] = [
+pub const SHAPES: [ShapeSpec; 20] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -553,6 +553,27 @@ pub const SHAPES: [ShapeSpec; 19] = [
         ],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "issue_relations",
+        path: "/api/shapes/issue-relations",
+        // EXP-736: the relation graph (blocks / parent / duplicate /
+        // related), a board-scoped child of the SOURCE issue. Byte-matches
+        // the proxy's allowlist (apps/web routes/api/shapes/
+        // issue-relations.ts) — the board-hide mirrors are scoping columns
+        // and stay server-side, like every other child shape.
+        columns: &[
+            "id",
+            "issue_id",
+            "related_issue_id",
+            "type",
+            "source",
+            "team_id",
+            "board_id",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Look a shape up by its table name.
@@ -565,8 +586,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_19_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 19);
+    fn registry_has_20_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 20);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);

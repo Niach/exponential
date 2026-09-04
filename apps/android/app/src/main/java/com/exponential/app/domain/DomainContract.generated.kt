@@ -23,7 +23,11 @@ object DomainContract {
     val codingSessionStatusValues: List<String> = listOf("running", "in_review", "ended")
     val codingSessionEndedByValues: List<String> = listOf("agent", "user", "client", "merge", "system")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
-    val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed")
+    val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed")
+    val issueRelationTypeValues: List<String> = listOf("blocks", "parent", "duplicate", "related")
+    val issueRelationTypeForwardLabels: List<String> = listOf("blocks", "parent of", "duplicate of", "related to")
+    val issueRelationTypeInverseLabels: List<String> = listOf("blocked by", "sub-issue of", "duplicated by", "related to")
+    val issueRelationSourceValues: List<String> = listOf("user", "reference")
     val codingAgentValues: List<String> = listOf("claude", "codex", "pi")
     val codingModelValues: List<String> = listOf("fable", "opus", "sonnet")
     val codingEffortValues: List<String> = listOf("low", "medium", "high", "xhigh", "max")
@@ -99,4 +103,12 @@ object DomainContract {
     const val issueEventTypeBoardMoved: String = "board_moved"
     const val issueEventTypeCreated: String = "created"
     const val issueEventTypePriorityChanged: String = "priority_changed"
+    const val issueEventTypeRelationAdded: String = "relation_added"
+    const val issueEventTypeRelationRemoved: String = "relation_removed"
+    const val issueRelationTypeBlocks: String = "blocks"
+    const val issueRelationTypeParent: String = "parent"
+    const val issueRelationTypeDuplicate: String = "duplicate"
+    const val issueRelationTypeRelated: String = "related"
+    const val issueRelationSourceUser: String = "user"
+    const val issueRelationSourceReference: String = "reference"
 }

@@ -68,6 +68,13 @@ vi.mock(`@/lib/integrations/mentions`, () => ({ resolveMentions: vi.fn() }))
 vi.mock(`@/lib/integrations/subscriptions`, () => ({
   ensureSubscribed: vi.fn(),
 }))
+// EXP-736: statuses.delete's reassignment clears duplicate links through
+// applyStatusDerivations, so the mirror sync rides this transaction. Its SQL
+// has its own tests (lib/issue-relations.test.ts); this file only cares that
+// the reassignment happened.
+vi.mock(`@/lib/issue-relations`, () => ({
+  syncDuplicateMirror: vi.fn(async () => undefined),
+}))
 vi.mock(`@/lib/integrations/activity`, () => ({
   recordIssueEvent: h.recordIssueEvent,
 }))

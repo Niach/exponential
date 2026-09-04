@@ -9,8 +9,8 @@ import SwiftUI
 /// this sheet (EXP-687 retired the dismiss-and-re-present hand-off; dismissing
 /// the child returns here, exactly like Android) — followed by the shared
 /// `IssueLabelsSelector`, whose pills toggle inline and whose add chip opens
-/// the searchable Labels sheet. The Board row hides when there is nowhere to
-/// move.
+/// the searchable Labels sheet, and by `IssueRelationsSection` (EXP-736). The
+/// Board row hides when there is nowhere to move.
 struct IssuePropertiesSheet<Child: View>: View {
     let issue: IssueEntity
     /// EXP-314: the issue's status resolved against its team's status rows.
@@ -19,11 +19,15 @@ struct IssuePropertiesSheet<Child: View>: View {
     /// The issue's team's labels, name-sorted by the caller.
     let labels: [LabelEntity]
     let assignedIds: Set<String>
+    /// EXP-736: this issue's relations, read from its own side. Mobile shows
+    /// them ONLY here — the detail page keeps chips + timeline.
+    let relations: [IssueRelationRow]
     let singleMemberTeam: Bool
     /// The issue's own board — the row draws its glyph + color (EXP-449).
     let board: BoardEntity?
     let hasMoveTargets: Bool
     let onToggleLabel: (String) -> Void
+    let onRemoveRelation: (IssueRelationRow) -> Void
     /// The picker stacked OVER this sheet. Host-owned: a picker that hands off
     /// to another one (duplicate status) is promoted by the host on dismiss.
     @Binding var activeChild: IssuePropertyChild?
@@ -106,6 +110,13 @@ struct IssuePropertiesSheet<Child: View>: View {
                     selectedIds: assignedIds,
                     onToggle: onToggleLabel,
                     onAdd: { activeChild = .labels }
+                )
+
+                // EXP-736: relations sit under the labels, entry point first.
+                IssueRelationsSection(
+                    relations: relations,
+                    onAdd: { activeChild = .addRelation },
+                    onRemove: onRemoveRelation
                 )
             }
             .padding(.horizontal, 16)

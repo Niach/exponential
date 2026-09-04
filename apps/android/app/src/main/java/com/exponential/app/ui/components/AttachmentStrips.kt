@@ -4,6 +4,7 @@ import android.graphics.BitmapFactory
 import android.text.format.Formatter
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -11,8 +12,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -38,12 +41,17 @@ import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.isInlineImage
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 /** The square side every attachment thumbnail uses, on every composer. */
 private val TileSize = 64.dp
 private val TileShape = RoundedCornerShape(8.dp)
+
+/** Reading-size comment images (EXP-723): full width, capped, softly rounded. */
+private val LargeImageMaxHeight = 480.dp
+private val LargeImageShape = RoundedCornerShape(DesignTokens.Radius.Lg)
 
 /**
  * Thumbnails of the attachments queued for the next send — the steer
@@ -134,6 +142,73 @@ fun CommentAttachmentsStrip(
                         modifier = Modifier
                             .size(TileSize)
                             .clip(TileShape)
+                            .clickable { onOpen(attachment) },
+                    )
+                } else {
+                    FileTile(
+                        filename = attachment.filename,
+                        subtitle = Formatter.formatShortFileSize(context, attachment.sizeBytes),
+                        modifier = Modifier.clickable { onOpen(attachment) },
+                    )
+                }
+                if (onRemove != null) {
+                    RemoveBadge(
+                        contentDescription = "Remove ${attachment.filename}",
+                        enabled = true,
+                        onClick = { onRemove(attachment) },
+                        modifier = Modifier.align(Alignment.TopEnd),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A posted comment's attachments at READING size (EXP-723): images stacked
+ * full-width instead of squared into 64dp thumbs — an image someone attached
+ * to a comment is the point of the comment, and the thumb strip made it
+ * something to go and open. Non-images stay the same file chips; the 64dp
+ * strip survives in the composer and the edit form, where the tiles are a
+ * queue rather than content.
+ *
+ * The probed `width`/`height` pre-size each image so the thread doesn't jump
+ * when the bitmap lands; rows without them just cap at 480dp.
+ */
+@Composable
+fun LargeCommentAttachments(
+    attachments: List<AttachmentEntity>,
+    onOpen: (AttachmentEntity) -> Unit,
+    modifier: Modifier = Modifier,
+    onRemove: ((AttachmentEntity) -> Unit)? = null,
+) {
+    if (attachments.isEmpty()) return
+    val context = LocalContext.current
+    Column(
+        modifier = modifier.fillMaxWidth().padding(top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        attachments.forEach { attachment ->
+            Box {
+                if (isInlineImage(attachment.contentType)) {
+                    val width = attachment.width
+                    val height = attachment.height
+                    AsyncImage(
+                        model = attachment.url,
+                        contentDescription = attachment.filename,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = LargeImageMaxHeight)
+                            .then(
+                                if (width != null && height != null && width > 0 && height > 0) {
+                                    Modifier.aspectRatio(width.toFloat() / height.toFloat())
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .clip(LargeImageShape)
+                            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, LargeImageShape)
                             .clickable { onOpen(attachment) },
                     )
                 } else {

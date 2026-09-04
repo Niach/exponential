@@ -1,7 +1,8 @@
 //! Web-parity control metrics (EXP-525) — the shadcn sizing layer.
 //!
-//! gpui-component sizes its controls in rem off this app's 13px root, which
-//! lands every button/input well under the web's shadcn boxes (web Button
+//! gpui-component sizes its controls in rem off this app's root font size
+//! ([`theme::FONT_SIZE_PX`], 14px since EXP-723), which still lands every
+//! button/input under the web's shadcn boxes (web Button
 //! default h-9/px-4, sm h-8/px-3 rounded-full, xs h-6/px-2 rounded-full;
 //! inputs h-9). These helpers are pure `Styled` refinements — gpui-component
 //! applies caller refinements after its own base styles (`refine_style` runs

@@ -26,6 +26,7 @@ apps/marketing/movie-ref/
 
 # Rust (apps/desktop)
 /apps/desktop/target
+/apps/desktop/target-*/
 
 # Built widget artifacts (emitted by packages/widget into the web public dir)
 apps/web/public/widget/

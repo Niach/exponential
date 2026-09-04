@@ -245,6 +245,32 @@ pub struct IssueLabel {
     pub created_at: Option<String>,
 }
 
+/// `issue_relations` shape row (EXP-736) — one directed edge of the relation
+/// graph. Direction is canonical: `blocks` = this issue blocks the related
+/// one, `parent` = this issue is the parent, `duplicate` = this issue is the
+/// duplicate and the related one canonical, `related` = symmetric (the server
+/// normalizes `issue_id < related_issue_id`). `kind` is `Option` like every
+/// other tolerant enum column: an unknown/absent type must degrade to a
+/// hidden row, never wedge hydration.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct IssueRelation {
+    pub id: String,
+    pub issue_id: String,
+    pub related_issue_id: String,
+    #[serde(default, rename = "type")]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub board_id: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
 /// `users` shape row (co-member-scoped; the server pins the 6-column
 /// contract list — admin/verification/billing fields never sync).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
