@@ -96,6 +96,9 @@ const LOCAL_EXCLUDES: &[&str] = &[
     crate::pi_bridge::PI_PLAN_FILE,
     crate::worktree_agents::AGENTS_FILE,
     STEER_IMAGES_DIR,
+    // FEED-22: Claude Code's `isolation: "worktree"` nests agent worktrees
+    // inside the checkout — hidden clone-wide so they never dirty the trunk.
+    crate::git_worktree::CLAUDE_WORKTREES_DIR,
 ];
 
 /// Where the launch came from (§7.1). Both origins run the SAME sequence —

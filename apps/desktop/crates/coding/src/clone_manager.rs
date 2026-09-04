@@ -48,7 +48,9 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::git_credentials;
-use crate::git_worktree::{clone_path, run_git, validate_branch_arg, GitError, TokenUrl};
+use crate::git_worktree::{
+    self, clone_path, run_git, validate_branch_arg, GitError, TokenUrl,
+};
 use crate::trunk_state;
 
 /// Background auto-sync cadence: the GitBar's timer runs [`auto_sync`] this
@@ -222,6 +224,9 @@ pub fn ensure(
         // open; a failure here must not fail the reuse (the next network op
         // installs auth itself).
         let _ = git_credentials::ensure(&clone, url, expires_at);
+        // FEED-22: same best-effort stance for the clone-wide excludes
+        // (Claude Code's in-tree agent worktrees) — heals pre-existing clones.
+        let _ = git_worktree::ensure_trunk_excludes(&clone);
         on_event(CloneEvent::Done);
         return Ok(clone);
     }
@@ -254,6 +259,7 @@ pub fn ensure(
             // so this is best-effort — a transient fetch failure must not fail
             // the clone (the trunk is on disk and usable).
             let _ = fetch(&clone, url);
+            let _ = git_worktree::ensure_trunk_excludes(&clone);
             on_event(CloneEvent::Done);
             Ok(clone)
         }
