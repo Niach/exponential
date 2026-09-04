@@ -16,16 +16,10 @@ struct TeamBoardsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Boards")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                Text("\(boards.count)")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-
-                Spacer()
-
+            // EXP-721: the ONE shared header (Labels/Members parity) — the
+            // hand-rolled `.headline` + count line is gone, counts having been
+            // retired from section headers by EXP-698.
+            GlassSectionHeader("Boards") {
                 // New boards require repo-connect rights — owner-gated, matching
                 // the server's create policy.
                 if isOwner {
@@ -67,30 +61,28 @@ struct TeamBoardsSection: View {
 
                         // Member-level repo + branch editing → boards.setRepository
                         // / boards.update (mutate_resources server-side).
-                        Button {
+                        // EXP-721: the shared chromed circle (Labels parity) —
+                        // a bare glyph read as a stray mark in the row.
+                        CircleIconButton(AppIcons.uiSwap, accessibilityLabel: "Change repository") {
                             repoTarget = board
-                        } label: {
-                            AppIcon(AppIcons.uiSwap, size: AppIcon.Size.small)
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         }
-                        .buttonStyle(.plain)
 
                         // Delete (→ trash) — owner-only (the server refuses for
                         // everyone else). Hidden for non-owners entirely (full
                         // web parity); the tap still routes through the parent's
                         // destructive confirmation alert.
                         if isOwner {
-                            Button {
+                            CircleIconButton(
+                                AppIcons.uiDelete,
+                                accessibilityLabel: "Delete board",
+                                tint: DesignTokens.Palette.destructive.opacity(0.7)
+                            ) {
                                 onDelete(board)
-                            } label: {
-                                AppIcon(AppIcons.uiDelete, size: AppIcon.Size.small)
-                                    .foregroundStyle(.red.opacity(0.5))
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 10)
                     .glassRow()
                 }
             }

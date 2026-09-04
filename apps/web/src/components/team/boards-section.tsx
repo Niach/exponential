@@ -4,11 +4,7 @@ import { trpc } from "@/lib/trpc-client"
 import { getBoardIcon } from "@/lib/board-icons"
 import { Pill } from "@/components/ui/pill"
 import { Button } from "@/components/ui/button"
-import {
-  GlassGroup,
-  GlassRow,
-  GlassSectionHeader,
-} from "@/components/ui/glass-rows"
+import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogCancel,
@@ -114,16 +110,20 @@ export function TeamBoardsSection({
             No boards in this team yet.
           </GlassRow>
         ) : (
-          <GlassGroup>
+          // EXP-721: every team-settings entity list is one SELF-BORDERED
+          // glass row per entity (members, labels, boards — ×4), never a
+          // grouped card with hairlines.
+          <div className="space-y-2">
             {boards.map((board) => {
               const repo = board.repositoryId
                 ? repoMap.get(board.repositoryId)
                 : undefined
               const TypeIcon = getBoardIcon(board)
               return (
-                <div
+                <GlassRow
                   key={board.id}
-                  className="flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors duration-fast hover:bg-glass-active/50"
+                  interactive
+                  className="px-3 py-2.5"
                   onClick={() => setEditTargetId(board.id)}
                 >
                   <TypeIcon
@@ -189,10 +189,10 @@ export function TeamBoardsSection({
                   >
                     <Trash2 />
                   </Button>
-                </div>
+                </GlassRow>
               )
             })}
-          </GlassGroup>
+          </div>
         )}
       </div>
 
@@ -359,14 +359,11 @@ function ArchivedBoardsCard({
         Archived boards and their issues are hidden from everyone in the team.
         Nothing is deleted — unarchive to bring a board back exactly as it was.
       </p>
-      <GlassGroup>
+      <div className="space-y-2">
         {archived.map((board) => {
           const TypeIcon = getBoardIcon(board)
           return (
-            <div
-              key={board.id}
-              className="flex items-center gap-3 px-3 py-2.5"
-            >
+            <GlassRow key={board.id} className="px-3 py-2.5">
               <TypeIcon
                 className="h-4 w-4 shrink-0"
                 style={{ color: board.color }}
@@ -387,10 +384,10 @@ function ArchivedBoardsCard({
               >
                 {restoringId === board.id ? `Unarchiving…` : `Unarchive`}
               </Pill>
-            </div>
+            </GlassRow>
           )
         })}
-      </GlassGroup>
+      </div>
     </div>
   )
 }
@@ -463,14 +460,11 @@ function PendingDeletionCard({
         Deleted boards are kept for 48 hours, then permanently removed with all
         their issues.
       </p>
-      <GlassGroup>
+      <div className="space-y-2">
         {trashed.map((board) => {
           const TypeIcon = getBoardIcon(board)
           return (
-            <div
-              key={board.id}
-              className="flex items-center gap-3 px-3 py-2.5"
-            >
+            <GlassRow key={board.id} className="px-3 py-2.5">
               <TypeIcon
                 className="h-4 w-4 shrink-0"
                 style={{ color: board.color }}
@@ -491,10 +485,10 @@ function PendingDeletionCard({
               >
                 {restoringId === board.id ? `Restoring…` : `Restore`}
               </Pill>
-            </div>
+            </GlassRow>
           )
         })}
-      </GlassGroup>
+      </div>
     </div>
   )
 }

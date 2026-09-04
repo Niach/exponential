@@ -24,11 +24,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import {
-  GlassGroup,
-  GlassRow,
-  GlassSectionHeader,
-} from "@/components/ui/glass-rows"
+import { GlassRow, GlassSectionHeader } from "@/components/ui/glass-rows"
 import {
   Dialog,
   DialogContent,
@@ -288,7 +284,10 @@ export function TeamRepositoriesSection({
               No repositories connected yet.
             </GlassRow>
           ) : (
-            <GlassGroup>
+            // EXP-721: every team-settings entity list is one SELF-BORDERED
+            // glass row per entity (members, labels, boards, repositories),
+            // never a grouped card with hairlines.
+            <div className="space-y-2">
               {repos!.map((repo) => (
                 <RepoRow
                   key={repo.id}
@@ -312,7 +311,7 @@ export function TeamRepositoriesSection({
                   }
                 />
               ))}
-            </GlassGroup>
+            </div>
           )}
         </div>
       </div>
@@ -635,7 +634,9 @@ function RepoRow({
   const inUse = repo.boards.length > 0
 
   return (
-    <div className="space-y-2 px-3 py-2.5">
+    // `gap-2` is the old `space-y-2` between the row's three stacked blocks;
+    // `items-stretch` undoes the base row's centring so they fill the width.
+    <GlassRow className="flex-col items-stretch gap-2 px-3 py-2.5">
       <div className="flex items-center gap-2">
         <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -736,7 +737,7 @@ function RepoRow({
           </span>
         )}
       </div>
-    </div>
+    </GlassRow>
   )
 }
 

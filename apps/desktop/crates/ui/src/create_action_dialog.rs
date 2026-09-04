@@ -388,18 +388,34 @@ impl CreateActionDialogView {
 
     // -- render ---------------------------------------------------------------
 
-    /// The always-visible Automation row: glyph · "Automation" + summary ·
-    /// chevron. Clicking it opens the detail (and, on the first open, adopts
-    /// the single automation-capable machine as the runner). EXP-694: a row
-    /// OF the repository group (the web `GlassGroup` twin), so the stateful
-    /// row rides inside a plain wrapper the group can divide.
+    /// The always-visible Automation row: "Automation" leading, the summary
+    /// trailing behind a chevron. Clicking it opens the detail (and, on the
+    /// first open, adopts the single automation-capable machine as the
+    /// runner). EXP-694: a row OF the repository group (the web `GlassGroup`
+    /// twin), so the stateful row rides inside a plain wrapper the group can
+    /// divide. EXP-721: ONE line — the shared
+    /// [`crate::surface::glass_picker_row`] like the Repository row above it,
+    /// no leading glyph and no second (muted) line; the summary IS the value,
+    /// so it belongs in the value slot, not under the label.
     fn automation_row(&self, cx: &mut gpui::Context<Self>) -> gpui::Div {
         let theme = cx.theme();
         let foreground = theme.foreground;
         let hover = theme.list_active.opacity(0.5);
         let summary = self.automation_summary(cx);
+        // The row already tints its value slot to 70% foreground — the label
+        // must NOT re-apply it (that would compound to 49%).
+        let control = h_flex()
+            .items_center()
+            .gap_1()
+            .child(crate::surface::picker_value_label(summary))
+            .child(
+                Icon::from(registry::UI_CHEVRON_RIGHT)
+                    .xsmall()
+                    .text_color(foreground.opacity(0.5)),
+            )
+            .into_any_element();
         div().w_full().child(
-            crate::surface::glass_row_shell()
+            crate::surface::glass_picker_row("Automation", None, control, cx)
                 .id("ca-automation-row")
                 .cursor_pointer()
                 .hover(move |this| this.bg(hover))
@@ -410,30 +426,7 @@ impl CreateActionDialogView {
                     }
                     this.pane = Pane::Automation;
                     cx.notify();
-                }))
-                .child(
-                    Icon::from(registry::ACTION_AUTOMATION)
-                        .xsmall()
-                        .text_color(foreground.opacity(0.5)),
-                )
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .min_w_0()
-                        .child(div().text_sm().text_color(foreground).child("Automation"))
-                        .child(
-                            div()
-                                .text_xs()
-                                .truncate()
-                                .text_color(foreground.opacity(0.5))
-                                .child(summary),
-                        ),
-                )
-                .child(
-                    Icon::from(registry::UI_CHEVRON_RIGHT)
-                        .xsmall()
-                        .text_color(foreground.opacity(0.5)),
-                ),
+                })),
         )
     }
 

@@ -96,6 +96,10 @@ struct AutomationDialogView {
     submitting: bool,
     error: Option<SharedString>,
     scroll: ScrollHandle,
+    /// EXP-721: the `devices` shape can land AFTER the dialog opened — the
+    /// seeds re-run on every delta so the runner and the agent strip are
+    /// never left empty by a race.
+    _subscriptions: Vec<gpui::Subscription>,
 }
 
 impl AutomationDialogView {
@@ -122,6 +126,25 @@ impl AutomationDialogView {
             // One capable machine = no pick to make.
             None => automation.seed_default_device(cx),
         }
+        // EXP-721: opening the dialog before the `devices` shape has landed
+        // left the runner unbound AND the agent strip unlit forever — the
+        // seeds are idempotent (a pick the user already made is never
+        // disturbed), so re-running them on every delta is safe.
+        let editing_row = existing.is_some();
+        let subscriptions = match sync::Store::try_global(cx) {
+            Some(store) => {
+                let devices = store.collections().devices.clone();
+                vec![cx.observe(&devices, move |this: &mut Self, _, cx| {
+                    if editing_row {
+                        this.automation.ensure_agent_seeded(cx);
+                    } else {
+                        this.automation.seed_default_device(cx);
+                    }
+                    cx.notify();
+                })]
+            }
+            None => Vec::new(),
+        };
         Self {
             team_id,
             automation_id: existing.as_ref().map(|row| row.id.clone()),
@@ -131,6 +154,7 @@ impl AutomationDialogView {
             submitting: false,
             error: None,
             scroll: ScrollHandle::new(),
+            _subscriptions: subscriptions,
         }
     }
 

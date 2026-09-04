@@ -187,7 +187,7 @@ impl AutomationEditorState {
     /// exactly one — the common single-machine case, so "New automation" is
     /// one click less. Several machines and no default leaves the pick
     /// explicit.
-    pub(crate) fn seed_default_device(&mut self, cx: &App) {
+    pub(crate) fn seed_default_device(&mut self, cx: &mut App) {
         if self.device_id.is_none() {
             let devices = automation_devices(cx);
             if let Some(default) = devices.iter().find(|device| device.is_default) {
@@ -202,30 +202,37 @@ impl AutomationEditorState {
     /// EXP-615: the strip has no "Device default" pill — once a device is
     /// bound, an unset (or no-longer-runnable) agent seeds to that machine's
     /// default launch agent, exactly like the start-coding dialog.
-    pub(crate) fn ensure_agent_seeded(&mut self, cx: &App) {
-        let Some(device_id) = self.device_id.as_deref() else {
-            return;
-        };
-        let devices = automation_devices(cx);
-        let Some(device) = devices.iter().find(|d| d.device_id == device_id) else {
-            return;
-        };
-        if self
-            .agent
-            .as_ref()
-            .is_some_and(|agent| device.agents.contains(agent))
-        {
-            return;
-        }
-        let next = device
+    ///
+    /// EXP-721: it seeds even when NO device is bound yet (the `devices` shape
+    /// may still be landing) or when the bound machine advertises no agents.
+    /// [`Self::device_agents`] offers the whole contract list in both cases,
+    /// so leaving `agent` unset painted three pills with none lit — this
+    /// falls back to THIS install's default launch agent instead.
+    pub(crate) fn ensure_agent_seeded(&mut self, cx: &mut App) {
+        let available = self.device_agents(cx);
+        let device_default = self.device_id.as_deref().and_then(|device_id| {
+            automation_devices(cx)
+                .into_iter()
+                .find(|device| device.device_id == device_id)
+                .and_then(|device| device.default_agent)
+        });
+        let global_default = crate::coding_flow::CodingHub::global(cx)
+            .read(cx)
+            .settings
             .default_agent
-            .clone()
-            .or_else(|| device.agents.first().cloned());
+            .id();
+        let next = settle_seed_agent(
+            self.agent.as_deref(),
+            device_default.as_deref(),
+            &available,
+            global_default,
+        );
         if self.agent != next {
+            // A model/effort belongs to ONE agent — they never survive it.
             self.model = None;
             self.effort = None;
+            self.agent = next;
         }
-        self.agent = next;
     }
 
     /// Seed the TRIGGER half from a row's (or a suggestion's) `trigger` JSON.
@@ -822,10 +829,16 @@ impl AutomationEditorState {
         cx: &mut Context<V>,
     ) -> Div {
         let agents = self.device_agents(cx);
-        let active = self
-            .agent
-            .as_deref()
-            .and_then(|picked| agents.iter().position(|id| id == picked));
+        // EXP-721: the strip is a RADIO — one segment is always lit. An
+        // unseeded (or no-longer-runnable) pick falls back to the first pill
+        // exactly like the launch dialogs' `active_ix`, never to "nothing
+        // selected".
+        let active = Some(
+            self.agent
+                .as_deref()
+                .and_then(|picked| agents.iter().position(|id| id == picked))
+                .unwrap_or(0),
+        );
         let click_agents = agents.clone();
         // EXP-694: the strip is the group's FIRST ROW, not a capsule above a
         // labeled column — the same embedded tabs the launch and device
@@ -962,6 +975,34 @@ fn parse_minute_of_day(raw: &str) -> Option<u32> {
     (hours < 24 && minutes < 60).then_some(hours * 60 + minutes)
 }
 
+/// Which agent the strip settles on (EXP-721) — the pure half of
+/// [`AutomationEditorState::ensure_agent_seeded`], so the fallback ladder is
+/// testable without an `App`.
+///
+/// A still-runnable pick is never disturbed; otherwise the bound machine's own
+/// default wins, then THIS install's default launch agent, then whatever the
+/// list offers first. `None` only when nothing is runnable at all — which
+/// `device_agents` never actually reports (it falls back to the contract
+/// list), so the strip always has a lit segment.
+fn settle_seed_agent(
+    picked: Option<&str>,
+    device_default: Option<&str>,
+    available: &[String],
+    global_default: &str,
+) -> Option<String> {
+    let runnable = |candidate: &str| available.iter().any(|id| id == candidate);
+    if let Some(picked) = picked.filter(|picked| runnable(picked)) {
+        return Some(picked.to_string());
+    }
+    if let Some(device_default) = device_default.filter(|agent| runnable(agent)) {
+        return Some(device_default.to_string());
+    }
+    if runnable(global_default) {
+        return Some(global_default.to_string());
+    }
+    available.first().cloned()
+}
+
 /// The synced devices that advertise the `automations` cap — own rows plus
 /// team-shared ones (the shape's scope). Offline rows are INCLUDED: a missed
 /// schedule fires once when the machine comes back.
@@ -1033,6 +1074,48 @@ pub(crate) fn next_run_label(parsed: &ParsedTrigger) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-721: the agent strip is a radio — the ladder must always name a
+    /// segment. The three-pill "no device bound yet" state (the `devices`
+    /// shape still landing, so `device_agents` offers the whole contract
+    /// list) used to leave `agent` NULL and every pill dark.
+    #[test]
+    fn the_agent_seed_always_settles_on_a_runnable_agent() {
+        let all: Vec<String> = domain::contract::CODING_AGENT_VALUES
+            .iter()
+            .map(|id| (*id).to_string())
+            .collect();
+
+        // No device, nothing picked: this install's default agent.
+        assert_eq!(
+            settle_seed_agent(None, None, &all, "codex"),
+            Some("codex".to_string())
+        );
+        // A bound machine's own default outranks the global one.
+        assert_eq!(
+            settle_seed_agent(None, Some("pi"), &all, "codex"),
+            Some("pi".to_string())
+        );
+        // A still-runnable pick is never disturbed.
+        assert_eq!(
+            settle_seed_agent(Some("claude"), Some("pi"), &all, "codex"),
+            Some("claude".to_string())
+        );
+        // A pick the machine cannot run falls through the ladder.
+        let only_claude = vec!["claude".to_string()];
+        assert_eq!(
+            settle_seed_agent(Some("codex"), None, &only_claude, "codex"),
+            Some("claude".to_string())
+        );
+        // ... and so does a global default it cannot run.
+        assert_eq!(
+            settle_seed_agent(None, None, &only_claude, "codex"),
+            Some("claude".to_string())
+        );
+        // Nothing runnable is the only NULL — unreachable through
+        // `device_agents`, which always offers the contract list.
+        assert_eq!(settle_seed_agent(None, None, &[], "codex"), None);
+    }
 
     #[test]
     fn minute_of_day_parsing_is_strict() {

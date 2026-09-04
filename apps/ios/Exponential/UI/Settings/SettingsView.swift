@@ -70,15 +70,21 @@ struct SettingsView: View {
         }
     }
 
+    // EXP-721: ONE grouped card per section (Android's SettingsScreen) — the
+    // gapped stack of individually-filled rows is gone; rows sit hairline-
+    // separated inside a single `.glassSection()`. "Add server" is the last row
+    // of the Servers card, not a floating pill.
     private var serversSection: some View {
         sectionStack(title: "Servers") {
-            VStack(spacing: 6) {
-                ForEach(deps.auth.accounts) { account in
+            VStack(spacing: 0) {
+                ForEach(Array(deps.auth.accounts.enumerated()), id: \.element.id) { index, account in
+                    if index > 0 { GlassDivider() }
                     NavigationLink(value: AppRoute.serverDetail(accountId: account.id)) {
                         serverRow(account)
                     }
                     .buttonStyle(.plain)
                 }
+                if !deps.auth.accounts.isEmpty { GlassDivider() }
                 Button {
                     previousActiveAccountId = deps.auth.activeAccountId
                     showAddServer = true
@@ -92,12 +98,13 @@ struct SettingsView: View {
                             .foregroundStyle(.white)
                         Spacer()
                     }
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-                    .glassRow()
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
+            .glassSection()
         }
     }
 
@@ -128,9 +135,9 @@ struct SettingsView: View {
             AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
                 .foregroundStyle(.white.opacity(TextOpacity.quaternary))
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .glassRow()
+        .contentShape(Rectangle())
     }
 
     private var teamsSection: some View {
@@ -163,8 +170,9 @@ struct SettingsView: View {
                     .padding(.horizontal, 4)
             }
 
-            VStack(spacing: 6) {
-                ForEach(group.teams) { team in
+            VStack(spacing: 0) {
+                ForEach(Array(group.teams.enumerated()), id: \.element.id) { index, team in
+                    if index > 0 { GlassDivider() }
                     Button {
                         handleTeamTap(accountId: group.accountId, teamId: team.id)
                     } label: {
@@ -177,13 +185,14 @@ struct SettingsView: View {
                             AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
                                 .foregroundStyle(.white.opacity(TextOpacity.quaternary))
                         }
-                        .padding(.horizontal, 14)
+                        .padding(.horizontal, 16)
                         .padding(.vertical, 12)
-                        .glassRow()
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
             }
+            .glassSection()
         }
     }
 
@@ -193,7 +202,7 @@ struct SettingsView: View {
 
     private var generalSection: some View {
         sectionStack(title: "General") {
-            VStack(spacing: 6) {
+            VStack(spacing: 0) {
                 // EXP-232: staging-only — exposes live shape status and a
                 // "Resync now" data-wipe hatch, not for store builds.
                 if AppConstants.isStaging {
@@ -201,12 +210,14 @@ struct SettingsView: View {
                         settingsRow(icon: AppIcons.settingsSync, title: "Sync diagnostics")
                     }
                     .buttonStyle(.plain)
+                    GlassDivider()
                 }
                 NavigationLink(value: AppRoute.about) {
                     settingsRow(icon: AppIcons.settingsAbout, title: "About")
                 }
                 .buttonStyle(.plain)
             }
+            .glassSection()
         }
     }
 
@@ -232,8 +243,8 @@ struct SettingsView: View {
             AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
                 .foregroundStyle(.white.opacity(TextOpacity.quaternary))
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .glassRow()
+        .contentShape(Rectangle())
     }
 }

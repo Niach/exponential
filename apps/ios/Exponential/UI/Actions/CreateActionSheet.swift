@@ -55,6 +55,9 @@ struct CreateActionSheet: View {
     @State private var automationAgent = ""
     @State private var automationModel = LaunchVocabulary.cliDefault
     @State private var automationEffort = LaunchVocabulary.cliDefault
+    /// The Automation row's push (EXP-721) — state-driven so the row can be a
+    /// plain `Button` and wear exactly one chevron.
+    @State private var showsAutomation = false
 
     // The creator RUN's own options, seeded from the resolved machine's
     // advertised defaults (EXP-437) exactly like the Start-coding sheet.
@@ -105,8 +108,7 @@ struct CreateActionSheet: View {
                     Form {
                         identitySection
                         descriptionSection
-                        repositorySection
-                        automationSection
+                        configurationSection
                         LaunchOptionsSection(
                             variant: .launch,
                             devices: devices,
@@ -128,6 +130,15 @@ struct CreateActionSheet: View {
                     // EXP-594: white control tint — system blue is retired.
                     .tint(DesignTokens.Palette.primary)
                     .toolbar(.hidden, for: .navigationBar)
+                    // EXP-721: the Automation row pushes by state rather than
+                    // through a `NavigationLink`, which would paint the system's
+                    // own grey disclosure chevron NEXT to the row's own. The
+                    // destination hangs off the Form (not the row) — a List row
+                    // is lazy, and a destination on an unrendered one never
+                    // registers.
+                    .navigationDestination(isPresented: $showsAutomation) {
+                        automationDetail
+                    }
                 }
             },
             primaryAction: {
@@ -172,8 +183,12 @@ struct CreateActionSheet: View {
         .listRowBackground(glassFormRowFill)
     }
 
+    /// Repository + Automation, ONE headerless card (EXP-721): two picker-shaped
+    /// rows that read as the same kind of choice. The automation row used to be
+    /// a section of its own — a header, a bolt glyph, a two-line value and a
+    /// footer — which made an optional setting outweigh the prompt above it.
     @ViewBuilder
-    private var repositorySection: some View {
+    private var configurationSection: some View {
         Section {
             GlassPickerRow(
                 "Repository",
@@ -184,44 +199,26 @@ struct CreateActionSheet: View {
                     return repos.first { $0.id == id }?.fullName ?? id
                 }
             )
-        }
-        .listRowBackground(glassFormRowFill)
-    }
 
-    /// The always-visible automation row — an issue-row shaped summary that
-    /// pushes the detail form. "No automation" is the empty state; a
-    /// configured one reads as its trigger sentence plus the bound machine.
-    private var automationSection: some View {
-        Section {
-            NavigationLink {
-                automationDetail
+            // `GlassPickerRow`'s geometry, pushing instead of sheeting.
+            Button {
+                showsAutomation = true
             } label: {
-                HStack(spacing: 12) {
-                    AppIcon(AppIcons.actionAutomation, size: AppIcon.Size.medium)
+                HStack(spacing: 8) {
+                    Text("Automation")
+                        .foregroundStyle(.white.opacity(TextOpacity.primary))
+                    Spacer(minLength: 8)
+                    Text(hasAutomation
+                        ? AutomationTriggerDisplay.summary(draft.trigger)
+                        : "No automation")
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(hasAutomation
-                            ? AutomationTriggerDisplay.summary(draft.trigger)
-                            : "No automation")
-                            .font(.subheadline)
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                        if hasAutomation, let bound = automationDevice {
-                            Text(LaunchVocabulary.deviceCaption(bound))
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                .lineLimit(1)
-                        }
-                    }
-                    Spacer(minLength: 0)
+                        .lineLimit(1)
+                    AppIcon(AppIcons.uiChevronRight, size: 14)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
+                .contentShape(Rectangle())
             }
-        } header: {
-            GlassSectionHeader("Automation")
-        } footer: {
-            if hasAutomation {
-                Text("The agent sets this up after writing the action.")
-            }
+            .buttonStyle(.plain)
         }
         .listRowBackground(glassFormRowFill)
     }
@@ -235,6 +232,10 @@ struct CreateActionSheet: View {
             } footer: {
                 if automationDevices.isEmpty {
                     Text(AutomationCopy.noAutomationDevice)
+                } else if hasAutomation {
+                    // EXP-721: the note lives HERE now — on the summary row it
+                    // explained a setting the reader had not made yet.
+                    Text("The agent sets this up after writing the action.")
                 }
             }
             .listRowBackground(glassFormRowFill)

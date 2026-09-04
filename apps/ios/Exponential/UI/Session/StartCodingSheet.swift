@@ -645,7 +645,10 @@ struct StartCodingSheet: View {
 
                 // EXP-273: the action's own curated glyph (the builtins set
                 // one too), falling back to the generic action mark.
-                AppIcon(action.icon ?? AppIcons.actionDefault, size: AppIcon.Size.small)
+                // EXP-721: 16pt, Android's 16dp — at the 13pt `.small` rung it
+                // read as a footnote mark beside the 17pt radio, not as the
+                // action's own icon.
+                AppIcon(action.icon ?? AppIcons.actionDefault, size: 16)
                     .foregroundStyle(.secondary)
                     .frame(width: 16)
 

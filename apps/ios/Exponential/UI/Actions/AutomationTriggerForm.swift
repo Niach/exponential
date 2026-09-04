@@ -199,7 +199,10 @@ struct AutomationTriggerForm: View {
                 label: { "Day \($0)" }
             )
         }
-        DatePicker("Time", selection: $draft.schedTime, displayedComponents: .hourAndMinute)
+        // EXP-721: the shared glass row, not the stock compact `DatePicker` —
+        // its grey pill was the one system control left in this card, and its
+        // 12-hour rendering disagreed with every other client's "HH:mm".
+        GlassTimeRow("Time", selection: $draft.schedTime)
     }
 
     @ViewBuilder

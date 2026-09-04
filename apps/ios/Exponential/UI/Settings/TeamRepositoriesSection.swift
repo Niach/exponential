@@ -69,18 +69,13 @@ struct TeamRepositoriesSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Repositories")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                Text("\(repos.count)")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            // EXP-721: the ONE shared header (Boards/Labels/Members parity) —
+            // the hand-rolled `.headline` + count line is gone (EXP-698 retired
+            // header counts); the in-flight spinner rides the trailing slot.
+            GlassSectionHeader("Repositories") {
                 if loading {
                     ProgressView().controlSize(.small).tint(.white.opacity(0.5))
                 }
-
-                Spacer()
 
                 // "Add repository" moved into the header (Boards' "New board"
                 // pattern, EXP-228). Member-level since EXP-557 (connecting a
@@ -255,14 +250,15 @@ struct TeamRepositoriesSection: View {
                 // Sharer-or-owner removal (EXP-557; the server refuses it
                 // while any board still points at the repo); the tap opens a
                 // confirmation.
+                // EXP-721: the shared chromed circle (Boards/Labels parity).
                 if canManage(repo) {
-                    Button {
+                    CircleIconButton(
+                        AppIcons.uiDelete,
+                        accessibilityLabel: "Remove repository",
+                        tint: DesignTokens.Palette.destructive.opacity(0.7)
+                    ) {
                         removeTarget = repo
-                    } label: {
-                        AppIcon(AppIcons.uiDelete, size: AppIcon.Size.small)
-                            .foregroundStyle(.red.opacity(0.5))
                     }
-                    .buttonStyle(.plain)
                 }
             }
 
