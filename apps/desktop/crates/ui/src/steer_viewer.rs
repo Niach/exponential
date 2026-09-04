@@ -57,7 +57,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
-    input::{self, Input, InputEvent, InputState, Textarea, TextareaState},
+    input::{self, InputEvent, InputState, Textarea, TextareaState},
     spinner::Spinner,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _,
 };
@@ -71,7 +71,7 @@ use steer::{
     MAX_STEER_IMAGES, REPLAY_MAX, REPLAY_QUIET,
 };
 
-use crate::controls::WebText as _;
+use crate::controls::{glass_input, WebText as _};
 use crate::icons::registry;
 use crate::slash_commands;
 use crate::markdown::image_paste::{
@@ -1355,7 +1355,7 @@ impl SteerSessionView {
         }
     }
 
-    fn render_feed(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_feed(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         if self.feed.is_empty() {
             let paused = self.paused(cx);
@@ -1424,7 +1424,13 @@ impl SteerSessionView {
             && self.feed.compacting().is_none();
         let mut column = v_flex().w_full().min_w_0().gap_0p5().px_3().py_2();
         for (index, row) in rows.iter().enumerate() {
-            column = column.child(self.render_row(row, index == last_row && live, &active, cx));
+            column = column.child(self.render_row(
+                row,
+                index == last_row && live,
+                &active,
+                window,
+                cx,
+            ));
         }
         if working {
             column = column.child(
@@ -1444,12 +1450,13 @@ impl SteerSessionView {
         row: &FeedRow<'_>,
         live_tail: bool,
         active: &HashSet<FeedItemId>,
+        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         match row {
-            FeedRow::Single(item) => self.render_item(item, active, cx),
+            FeedRow::Single(item) => self.render_item(item, active, window, cx),
             FeedRow::ToolRun { id, items } => self.render_tool_run(*id, items, live_tail, cx),
-            FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, active, cx),
+            FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, active, window, cx),
             FeedRow::Subagent { id, items, .. } => self.render_subagent(*id, items, cx),
         }
     }
@@ -1458,6 +1465,7 @@ impl SteerSessionView {
         &self,
         item: &FeedItem,
         active: &HashSet<FeedItemId>,
+        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
@@ -1609,7 +1617,7 @@ impl SteerSessionView {
                     .into_any_element()
             }
             FeedKind::Subagent { .. } => self.render_subagent(item.id, &[item], cx),
-            FeedKind::Question(_) => self.render_question(item, active, cx),
+            FeedKind::Question(_) => self.render_question(item, active, window, cx),
             // EXP-724: the quiet divider a finished compaction leaves behind
             // — everything above it is context the agent no longer holds.
             FeedKind::Compaction => h_flex()
@@ -1942,6 +1950,7 @@ impl SteerSessionView {
         _id: FeedItemId,
         items: &[&FeedItem],
         active: &HashSet<FeedItemId>,
+        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
@@ -2035,7 +2044,7 @@ impl SteerSessionView {
                         &text,
                         cx,
                     )))
-                    .child(self.render_prompt(item, active, submit_step, cx));
+                    .child(self.render_prompt(item, active, submit_step, window, cx));
             }
             None => {
                 card = card.child(
@@ -2116,6 +2125,7 @@ impl SteerSessionView {
         &self,
         item: &FeedItem,
         active: &HashSet<FeedItemId>,
+        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let Some(card) = item.question() else {
@@ -2165,7 +2175,7 @@ impl SteerSessionView {
                     .text_sm()
                     .child(self.render_body(item.id, &card.text, cx)),
             )
-            .child(self.render_prompt(item, active, false, cx))
+            .child(self.render_prompt(item, active, false, window, cx))
             .into_any_element()
     }
 
@@ -2176,6 +2186,7 @@ impl SteerSessionView {
         item: &FeedItem,
         active: &HashSet<FeedItemId>,
         submit_step: bool,
+        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
@@ -2322,7 +2333,9 @@ impl SteerSessionView {
                     .w_full()
                     .gap_1p5()
                     .items_center()
-                    .child(div().flex_1().min_w_0().child(Input::new(&self.free_text_input)))
+                    .child(
+                        div().flex_1().min_w_0().child(glass_input(&self.free_text_input, window, cx)),
+                    )
                     .child(
                         Button::new(("steer-free-text", item_id as usize))
                             .with_variant(ButtonVariant::Secondary)
@@ -2897,9 +2910,9 @@ impl Focusable for SteerSessionView {
 }
 
 impl Render for SteerSessionView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let header = self.render_header(cx);
-        let feed = self.render_feed(cx);
+        let feed = self.render_feed(window, cx);
         let banners = self.render_banners(cx);
         let composer_visible = self.composer_visible();
         // EXP-724: between the banners and the composer, exactly where the

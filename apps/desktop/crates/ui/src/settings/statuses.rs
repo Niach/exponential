@@ -33,7 +33,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     popover::Popover,
     switch::Switch,
@@ -55,6 +55,7 @@ use crate::navigation::{active_team_id, Navigation};
 use super::labels::{swatch_grid, LABEL_COLORS, STATUS_COLORS};
 use super::{card_title, section};
 use crate::icons::registry;
+use crate::controls::glass_input;
 
 /// Web parity with the labels pane's duplicate message (the server's unique is
 /// `(team_id, lower(name))` across ALL statuses, builtins included).
@@ -649,6 +650,7 @@ impl StatusesPane {
         first_in_category: bool,
         last_in_category: bool,
         siblings: &[(IssueStatusRow, ResolvedStatus)],
+        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let builtin = row.builtin_key.clone();
@@ -727,7 +729,9 @@ impl StatusesPane {
         // Name: locked plain text for builtins, an inline input for customs.
         line = match self.name_inputs.get(&status_id) {
             Some(input) => {
-                line.child(Input::new(input).web_input_sm().appearance(false).flex_1().min_w_0())
+                line.child(
+                    glass_input(input, window, cx).web_input_sm().appearance(false).flex_1().min_w_0(),
+                )
             }
             None => line.child(
                 div()
@@ -867,6 +871,7 @@ impl StatusesPane {
     fn render_create_form(
         &self,
         category: IssueStatusCategory,
+        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let name = self.new_name.read(cx).value().trim().to_string();
@@ -884,7 +889,7 @@ impl StatusesPane {
             .flex_col()
             .gap_3()
             .p_3()
-            .child(Input::new(&self.new_name).web_input_sm())
+            .child(glass_input(&self.new_name, window, cx).web_input_sm())
             .when_some(form_error, |col, message| {
                 col.child(
                     div()
@@ -949,7 +954,7 @@ impl StatusesPane {
 }
 
 impl Render for StatusesPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let statuses = self.scoped_statuses(cx);
         let counts = self.issue_counts(cx);
 
@@ -1008,6 +1013,7 @@ impl Render for StatusesPane {
                     index == 0,
                     index + 1 == rows.len(),
                     &statuses,
+                    window,
                     cx,
                 ));
             }
@@ -1015,7 +1021,7 @@ impl Render for StatusesPane {
             // The Duplicate category is fixed at exactly one status — no "+".
             if category != IssueStatusCategory::Duplicate {
                 if self.creating == Some(category) {
-                    group = group.child(self.render_create_form(category, cx));
+                    group = group.child(self.render_create_form(category, window, cx));
                 } else {
                     // The pie-clock fill tables are defined only up to
                     // ISSUE_STATUS_STARTED_MAX started statuses.

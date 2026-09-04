@@ -41,7 +41,7 @@ use gpui::{
 use gpui_component::{
     button::ButtonVariant,
     h_flex,
-    input::{self, Input, InputEvent, InputState, Textarea, TextareaState},
+    input::{self, InputEvent, InputState, Textarea, TextareaState},
     notification::Notification,
     skeleton::Skeleton,
     text::TextView,
@@ -52,7 +52,7 @@ use sync::Store;
 use domain::rows::{Attachment, Issue};
 
 use crate::coding_flow::StartCodingControl;
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::icons::{registry, ExpIcon};
 use crate::issue_files::{
     all_attachment_ids, attachment_label, file_attachments, format_bytes, icon_for_content_type,
@@ -1917,7 +1917,7 @@ impl DuplicatePicker {
 }
 
 impl Render for DuplicatePicker {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let issues = self.matches(cx);
 
         let mut list = v_flex().w_full().max_h(px(320.)).gap_0p5();
@@ -1972,7 +1972,7 @@ impl Render for DuplicatePicker {
         v_flex()
             .w_full()
             .gap_2()
-            .child(Input::new(&self.search).web_input_sm())
+            .child(glass_input(&self.search, window, cx).web_input_sm())
             .child(
                 div()
                     .id("dup-pick-scroll")

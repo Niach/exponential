@@ -26,18 +26,18 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
     v_flex, ActiveTheme as _, Disableable as _,
 };
 
 use coding::Settings;
 
 use crate::coding_flow::CodingHub;
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::native_dialog::{self, AlertSpec};
 
 use super::doctor_section::DoctorPanel;
-use super::{card_header, card_title, error_notice, section};
+use super::{card_header, danger_zone, error_notice, section};
 
 pub struct ToolsPane {
     repos_input: Entity<InputState>,
@@ -199,17 +199,18 @@ impl ToolsPane {
     fn labeled_input(
         label: &'static str,
         input: &Entity<InputState>,
+        window: &Window,
         cx: &App,
     ) -> impl IntoElement {
         v_flex()
             .gap_1()
             .child(div().text_xs().text_color(cx.theme().muted_foreground).child(label))
-            .child(Input::new(input).web_input_sm())
+            .child(glass_input(input, window, cx).web_input_sm())
     }
 }
 
 impl Render for ToolsPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let dirty = self.dirty(cx);
 
         let card = section(cx)
@@ -221,10 +222,11 @@ impl Render for ToolsPane {
             .child(Self::labeled_input(
                 "Repos & worktrees root",
                 &self.repos_input,
+                window,
                 cx,
             ))
-            .child(Self::labeled_input("Branch prefix", &self.prefix_input, cx))
-            .child(Self::labeled_input("Terminal shell", &self.shell_input, cx));
+            .child(Self::labeled_input("Branch prefix", &self.prefix_input, window, cx))
+            .child(Self::labeled_input("Terminal shell", &self.shell_input, window, cx));
 
         let mut save_area = v_flex().gap_2();
         if let Some(error) = &self.save_error {
@@ -243,34 +245,17 @@ impl Render for ToolsPane {
 
         // EXP-367: local-only destructive hatch for testing fresh-install
         // flows (login, onboarding wizard, tools setup).
-        let danger = section(cx)
-            .child(card_title("Danger zone"))
-            .child(
-                h_flex()
-                    .items_center()
-                    .justify_between()
-                    .gap_3()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(
-                                "Sign out and delete all local settings, accounts, caches, \
-                                 and cloned repositories.",
-                            ),
-                    )
-                    .child(
-                        Button::new("tools-reset-ide")
-                            .danger()
-                            .web_sm()
-                            .label("Reset IDE data")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.confirm_reset(window, cx);
-                            })),
-                    ),
-            );
+        let danger = danger_zone(
+            "Sign out and delete all local settings, accounts, caches, and cloned repositories.",
+            Button::new("tools-reset-ide")
+                .danger()
+                .web_sm()
+                .label("Reset IDE data")
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.confirm_reset(window, cx);
+                })),
+            cx,
+        );
 
         v_flex()
             .w_full()

@@ -19,12 +19,13 @@ use gpui::{
 use gpui_component::{
     button::Button,
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
     popover::Popover,
     v_flex, ActiveTheme as _, Sizable as _,
 };
 
 use crate::emoji;
+use crate::controls::glass_input;
 
 /// Pick callback: the unicode the host inserts at its caret.
 pub(crate) type OnPickEmoji = Rc<dyn Fn(&str, &mut Window, &mut App)>;
@@ -233,7 +234,7 @@ fn push_cells(rows: &mut Vec<GridRow>, indices: &[usize]) {
 }
 
 impl Render for EmojiPicker {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let row_count = self.rows.len();
         v_flex()
             .key_context("EmojiPicker")
@@ -241,7 +242,7 @@ impl Render for EmojiPicker {
             .gap_1()
             .capture_action(cx.listener(Self::on_enter))
             .child(
-                Input::new(&self.query)
+                glass_input(&self.query, window, cx)
                     .small()
                     .appearance(false)
                     .cleanable(true),

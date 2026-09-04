@@ -42,7 +42,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
     select::Select,
     switch::Switch,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
@@ -52,7 +52,7 @@ use sync::Store;
 use coding::CodingAgent;
 
 use crate::coding_flow::CodingHub;
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
     AGENT_CHOICES,
@@ -1956,7 +1956,7 @@ impl DeviceSettingsView {
 }
 
 impl Render for DeviceSettingsView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let row = self.row(cx);
         let online = self.online(cx);
         let muted = cx.theme().muted_foreground;
@@ -1977,7 +1977,8 @@ impl Render for DeviceSettingsView {
             .gap_2()
             .child(surface::glass_group_rows(vec![surface::glass_input_row(
                 "Name",
-                surface::glass_row_input(Input::new(&self.name_input)).into_any_element(),
+                surface::glass_row_input(glass_input(&self.name_input, window, cx))
+                    .into_any_element(),
                 cx,
             )]))
             .child(surface::glass_group_rows(vec![Self::toggle_row(

@@ -46,7 +46,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
     list::{List, ListDelegate, ListItem, ListState},
     v_flex, ActiveTheme as _, Icon, IndexPath, Sizable as _,
 };
@@ -64,6 +64,7 @@ use crate::navigation::{
 };
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
 use crate::icons::registry;
+use crate::controls::glass_input;
 
 /// Web `.slice(0, 30)` — cap the issue result list.
 const MAX_RESULTS: usize = 30;
@@ -343,7 +344,7 @@ impl Render for SearchSheetView {
                     )
                     .child(
                         div().flex_1().min_w_0().text_size(px(14.)).child(
-                            Input::new(&self.input).appearance(false).p_0(),
+                            glass_input(&self.input, window, cx).appearance(false).p_0(),
                         ),
                     )
                     .child(

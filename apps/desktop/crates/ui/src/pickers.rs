@@ -22,7 +22,7 @@ use gpui_component::{
     button::Button,
     calendar::{Calendar, CalendarState},
     checkbox::Checkbox,
-    input::{Input, InputState},
+    input::{InputState},
     menu::{PopupMenu, PopupMenuItem},
     popover::Popover,
     v_flex, ActiveTheme as _, Icon, Sizable as _, Side,
@@ -37,6 +37,7 @@ use domain::{IssuePriority, IssueStatus};
 
 use crate::icons::{option_icon, registry, resolved_status_icon};
 use crate::settings::parse_hex_color;
+use crate::controls::glass_input;
 
 /// A pick callback (the host owns the mutation — tRPC write vs local draft).
 pub(crate) type OnPick<V> = Rc<dyn Fn(V, &mut Window, &mut App)>;
@@ -379,7 +380,7 @@ pub(crate) fn label_picker_popover(
                 query_for_open.read(cx).focus_handle(cx).focus(window, cx);
             }
         })
-        .content(move |_, _, cx| {
+        .content(move |_, window, cx| {
             let filter = query.read(cx).value().trim().to_lowercase();
             let visible: Vec<&Label> = labels
                 .iter()
@@ -388,7 +389,7 @@ pub(crate) fn label_picker_popover(
 
             let mut column = v_flex()
                 .w_full()
-                .child(Input::new(&query).small().appearance(false).cleanable(true));
+                .child(glass_input(&query, window, cx).small().appearance(false).cleanable(true));
             if labels.is_empty() {
                 return column.child(empty_picker_row("No labels in this team", cx));
             }
@@ -505,7 +506,7 @@ pub(crate) fn board_picker_popover(
                 query_for_open.read(cx).focus_handle(cx).focus(window, cx);
             }
         })
-        .content(move |_, _, cx| {
+        .content(move |_, window, cx| {
             let popover_state = cx.entity();
             let filter = query.read(cx).value().trim().to_lowercase();
             let visible: Vec<&Board> = boards
@@ -515,7 +516,7 @@ pub(crate) fn board_picker_popover(
 
             let mut column = v_flex()
                 .w_full()
-                .child(Input::new(&query).small().appearance(false).cleanable(true));
+                .child(glass_input(&query, window, cx).small().appearance(false).cleanable(true));
             column = column.child(
                 div()
                     .h(px(1.))

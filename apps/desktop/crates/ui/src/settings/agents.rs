@@ -46,7 +46,7 @@ use gpui::{
     Subscription, Task, Window,
 };
 use gpui_component::{
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
     select::Select,
     v_flex,
 };
@@ -61,6 +61,7 @@ use crate::coding_selects::{
 use crate::device_settings::{agent_account_rows, login_affordance, own_agent_status};
 use crate::launch_options::{AgentDefaultsGroup, AgentPill, DefaultsToggle};
 use crate::surface;
+use crate::controls::glass_input;
 
 use super::{card_title, error_notice, section};
 
@@ -420,7 +421,11 @@ impl AgentsPane {
     /// render, with this pane's CLI-path row spliced above Model and this
     /// machine's own account + usage rows under the toggles. The old centered
     /// `TabBar` pill strip and the title-above-control fields are gone.
-    fn render_agents_section(&mut self, cx: &mut gpui::Context<Self>) -> gpui::Div {
+    fn render_agents_section(
+        &mut self,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::Div {
         let agent_tab = self.agent_tab;
         let active_ix = CodingAgent::ALL
             .iter()
@@ -474,7 +479,7 @@ impl AgentsPane {
         };
         let path_row = surface::glass_input_row(
             "CLI path",
-            surface::glass_row_input(Input::new(path)).into_any_element(),
+            surface::glass_row_input(glass_input(path, window, cx)).into_any_element(),
             cx,
         );
 
@@ -544,8 +549,8 @@ impl AgentsPane {
 }
 
 impl Render for AgentsPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let agents_card = self.render_agents_section(cx);
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let agents_card = self.render_agents_section(window, cx);
 
         // EXP-694: no Save button — every control autosaves, so the only
         // thing left below the card is a write that failed.

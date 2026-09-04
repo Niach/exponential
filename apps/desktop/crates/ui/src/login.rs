@@ -47,7 +47,7 @@ use gpui_component::{
 };
 use sync::{SessionPhase, Store};
 
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::icons::{registry, ExpIcon};
 use crate::session::{connect_account, AuthContext};
 
@@ -466,11 +466,15 @@ impl LoginView {
     /// the primary path, so it needs no picker chrome — the OAuth/password
     /// methods for `app.exponential.at` render directly. Self-hosting is a
     /// small text link (see [`Self::render_instance_toggle`]).
-    fn render_server_input(&self, cx: &mut gpui::Context<Self>) -> Option<impl IntoElement> {
+    fn render_server_input(
+        &self,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<impl IntoElement> {
         if self.choice != InstanceChoice::SelfHosted {
             return None;
         }
-        Some(labeled(cx, "Server URL", Input::new(&self.server).web_input()))
+        Some(labeled(cx, "Server URL", glass_input(&self.server, window, cx).web_input()))
     }
 
     /// The small, muted instance toggle: most users are on the cloud, so
@@ -657,7 +661,7 @@ fn sign_in_error_message(err: &api::ApiError) -> String {
 }
 
 impl Render for LoginView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let session = Store::global(cx).session(cx);
         let signing_in = session == SessionPhase::SigningIn;
         let expired = matches!(session, SessionPhase::AuthExpired { .. });
@@ -716,7 +720,7 @@ impl Render for LoginView {
         }
 
         // -- self-hosted URL field (cloud needs none) ----------------
-        if let Some(server_input) = self.render_server_input(cx) {
+        if let Some(server_input) = self.render_server_input(window, cx) {
             form = form.child(server_input);
         }
 
@@ -750,12 +754,12 @@ impl Render for LoginView {
         // -- password form ----------------------------------------------------
         if password_enabled {
             form = form
-                .child(labeled(cx, "Email", Input::new(&self.email).web_input()))
+                .child(labeled(cx, "Email", glass_input(&self.email, window, cx).web_input()))
                 .child(labeled(
                     cx,
                     "Password",
                     // Web `PasswordInput`: show/hide eye toggle.
-                    Input::new(&self.password).web_input().mask_toggle(),
+                    glass_input(&self.password, window, cx).web_input().mask_toggle(),
                 ))
                 .child(
                     Button::new("login-submit")

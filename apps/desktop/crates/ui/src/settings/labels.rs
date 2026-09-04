@@ -21,7 +21,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
     popover::Popover,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -29,7 +29,7 @@ use sync::Store;
 
 use domain::rows::Label;
 
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::navigation::{active_team_id, Navigation};
 
 use super::{section, card_header, parse_hex_color, spawn_trpc};
@@ -304,7 +304,12 @@ impl LabelsPane {
         self.create_error = None;
     }
 
-    fn render_label_row(&self, label: &Label, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render_label_row(
+        &self,
+        label: &Label,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
         let color = label.color.clone().unwrap_or_default();
         let swatch_color = parse_hex_color(&color).unwrap_or(cx.theme().muted_foreground);
         let confirming = self.confirming_delete.as_deref() == Some(label.id.as_str());
@@ -375,7 +380,9 @@ impl LabelsPane {
         // itself with a percent width, which collapses to content width
         // inside a flex-basis-0 wrapper div — cutting the name to ~1 char.
         if let Some(input) = self.name_inputs.get(&label.id) {
-            row = row.child(Input::new(input).web_input_sm().appearance(false).flex_1().min_w_0());
+            row = row.child(
+                glass_input(input, window, cx).web_input_sm().appearance(false).flex_1().min_w_0(),
+            );
         } else {
             row = row.child(
                 div()
@@ -461,7 +468,7 @@ impl LabelsPane {
 }
 
 impl Render for LabelsPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let labels = self.scoped_labels(cx);
 
         let mut body = section(cx).child(card_header(
@@ -476,7 +483,7 @@ impl Render for LabelsPane {
 
         let mut list = v_flex().gap_2();
         for label in &labels {
-            list = list.child(self.render_label_row(label, cx));
+            list = list.child(self.render_label_row(label, window, cx));
         }
         if labels.is_empty() && !self.creating {
             list = list.child(
@@ -508,7 +515,7 @@ impl Render for LabelsPane {
                     .flex_col()
                     .gap_3()
                     .p_3()
-                    .child(Input::new(&self.new_name).web_input_sm())
+                    .child(glass_input(&self.new_name, window, cx).web_input_sm())
                     .when_some(form_error, |col, message| {
                         col.child(
                             div()

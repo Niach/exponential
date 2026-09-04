@@ -23,7 +23,7 @@ use gpui::{
 use gpui_component::{
     button::Button,
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
     skeleton::Skeleton,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -31,7 +31,7 @@ use gpui_component::{
 use coding::{CodingAgent, DoctorReport, Tool, ToolCheck};
 
 use crate::coding_flow::CodingHub;
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::icons::registry;
 
 use super::{card_header, section};
@@ -260,7 +260,12 @@ impl DoctorPanel {
     /// inline path input for agent tools (git has no path setting — it must
     /// be on PATH). An installed-but-signed-out agent (EXP-409) instead gets
     /// the sign-in hint alone — its binary and path are fine.
-    fn guidance(&self, check: &ToolCheck, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn guidance(
+        &self,
+        check: &ToolCheck,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
         let tool = check.tool;
         let muted = cx.theme().muted_foreground;
         if check.signed_out() {
@@ -315,7 +320,7 @@ impl DoctorPanel {
                     .gap_2()
                     .items_center()
                     .child(div().flex_1().min_w_0().child(
-                        Input::new(self.input_for(agent)).web_input_sm(),
+                        glass_input(self.input_for(agent), window, cx).web_input_sm(),
                     ))
                     .child(
                         crate::surface::glass_pill_button(
@@ -335,7 +340,7 @@ impl DoctorPanel {
 }
 
 impl Render for DoctorPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let hub = CodingHub::global(cx);
         let (report, running) = {
             let hub = hub.read(cx);
@@ -362,14 +367,14 @@ impl Render for DoctorPanel {
                     let severity = row_severity(&check, report);
                     body = body.child(Self::tool_row(&check, severity, cx));
                     if severity != RowSeverity::Ok {
-                        body = body.child(self.guidance(&check, cx));
+                        body = body.child(self.guidance(&check, window, cx));
                     }
                 }
                 let git = report.git.clone();
                 let severity = row_severity(&git, report);
                 body = body.child(Self::tool_row(&git, severity, cx));
                 if severity != RowSeverity::Ok {
-                    body = body.child(self.guidance(&git, cx));
+                    body = body.child(self.guidance(&git, window, cx));
                 }
             }
         }

@@ -32,7 +32,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    input::{Input, InputState},
+    input::{InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     v_flex, ActiveTheme as _,
 };
@@ -47,6 +47,7 @@ use crate::surface;
 // EXP-615: the agent/model/effort pins render through the ONE shared launch
 // cluster (its Automation variant leads with the "Device default" pill).
 use crate::launch_options;
+use crate::controls::glass_input;
 
 /// Which pane the section shows. EXP-583 dropped the `None` mode: an
 /// automation row exists to fire, so the trigger is never absent — a manual
@@ -381,11 +382,12 @@ impl AutomationEditorState {
         &self,
         prefix: &'static str,
         access: fn(&mut V) -> &mut Self,
+        window: &Window,
         cx: &mut Context<V>,
     ) -> gpui::AnyElement {
         let mut rows = vec![self.render_mode_strip(prefix, access, cx)];
         rows.extend(match self.mode {
-            AutomationMode::Schedule => self.schedule_rows(prefix, access, cx),
+            AutomationMode::Schedule => self.schedule_rows(prefix, access, window, cx),
             AutomationMode::Event => self.event_rows(prefix, access, cx),
         });
         v_flex()
@@ -437,6 +439,7 @@ impl AutomationEditorState {
         &self,
         prefix: &'static str,
         access: fn(&mut V) -> &mut Self,
+        window: &Window,
         cx: &mut Context<V>,
     ) -> Vec<Div> {
         let interval_label = INTERVAL_LABELS
@@ -525,7 +528,7 @@ impl AutomationEditorState {
         }
         rows.push(surface::glass_input_row(
             "Time",
-            surface::glass_row_input(Input::new(&self.time)).into_any_element(),
+            surface::glass_row_input(glass_input(&self.time, window, cx)).into_any_element(),
             cx,
         ));
         rows

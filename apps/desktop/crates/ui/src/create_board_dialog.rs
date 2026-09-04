@@ -39,7 +39,7 @@ use gpui_component::{
 use serde::{Deserialize, Serialize};
 use sync::Store;
 
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::actions::NewBoard;
 use crate::github_connect::{fetch_github_repos, GithubRepo, GithubReposResult};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
@@ -553,13 +553,13 @@ impl CreateBoardDialogView {
 
     /// "Name" = the icon picker LEFT of the name input, one row (EXP-584 —
     /// web `BoardNameField`, board settings and the natives share the shape).
-    fn name_field(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn name_field(&self, window: &Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         v_flex().gap_2().child(field_label(cx, "Name")).child(
             h_flex()
                 .gap_2()
                 .items_center()
                 .child(self.icon_picker(cx))
-                .child(div().flex_1().child(Input::new(&self.name).web_input_sm())),
+                .child(div().flex_1().child(glass_input(&self.name, window, cx).web_input_sm())),
         )
     }
 
@@ -1087,8 +1087,8 @@ impl Render for CreateBoardDialogView {
 
         let mut form = v_flex()
             .gap_4()
-            .child(self.name_field(cx))
-            .child(labeled(cx, "Prefix", Input::new(&self.prefix).web_input_sm()))
+            .child(self.name_field(window, cx))
+            .child(labeled(cx, "Prefix", glass_input(&self.prefix, window, cx).web_input_sm()))
             .child(
                 v_flex()
                     .gap_2()

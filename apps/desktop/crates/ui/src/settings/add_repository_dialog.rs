@@ -23,12 +23,12 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
     spinner::Spinner,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::github_connect::{fetch_github_repos, GithubRepo, GithubReposResult};
 use crate::icons::registry;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
@@ -544,7 +544,8 @@ impl Render for AddRepositoryDialogView {
                     .cloned()
                     .collect();
 
-                body = body.child(Input::new(&self.query).web_input_sm().cleanable(true));
+                body = body
+                    .child(glass_input(&self.query, window, cx).web_input_sm().cleanable(true));
                 if visible.is_empty() {
                     body = body.child(self.message("No repositories found.", cx));
                 } else {

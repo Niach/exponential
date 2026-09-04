@@ -20,7 +20,6 @@ use gpui::{
     Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
     h_flex,
     notification::Notification,
     skeleton::Skeleton,
@@ -30,10 +29,10 @@ use sync::Store;
 
 use api::boards::ArchivedBoard;
 
-use crate::controls::WebControl as _;
 use crate::icons::{board_icon_name_glyph, registry};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
+use crate::surface::{glass_pill_button, PillSize};
 
 use super::{card_header, error_notice, section};
 
@@ -184,7 +183,11 @@ impl ArchivedBoardsPane {
                     .child(board.prefix.clone().unwrap_or_default()),
             )
             .child(
-                crate::surface::glass_pill_button(SharedString::from(format!("unarchive-{}", board.id)), crate::surface::PillSize::Sm, cx)
+                glass_pill_button(
+                    SharedString::from(format!("unarchive-{}", board.id)),
+                    PillSize::Sm,
+                    cx,
+                )
                     .label(if pending { "Unarchiving\u{2026}" } else { "Unarchive" })
                     .disabled(pending)
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -213,9 +216,8 @@ impl Render for ArchivedBoardsPane {
             cx,
         ));
 
-        let refresh = Button::new("archived-boards-refresh")
-            .ghost().cursor_pointer()
-            .web_sm()
+        // EXP-720: the Sm pill, same as worktrees' Refresh.
+        let refresh = glass_pill_button("archived-boards-refresh", PillSize::Sm, cx)
             .label("Refresh")
             .loading(matches!(self.load, Load::Loading))
             .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)));

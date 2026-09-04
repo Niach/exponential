@@ -28,12 +28,12 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Input, InputEvent, InputState, Textarea, TextareaState},
+    input::{InputEvent, InputState, Textarea, TextareaState},
     menu::{DropdownMenu as _, PopupMenuItem},
     v_flex, ActiveTheme as _, Disableable as _,
 };
 
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 
@@ -324,7 +324,7 @@ impl Render for ActionEditorDialogView {
             .child(icon_picker)
             .child(
                 div().flex_1().min_w_0().child(
-                    Input::new(&self.name)
+                    glass_input(&self.name, window, cx)
                         .appearance(false)
                         .h_auto()
                         .px_0()

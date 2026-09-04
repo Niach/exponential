@@ -17,17 +17,17 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
     v_flex, ActiveTheme as _, Disableable as _,
 };
 use sync::Store;
 
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::Navigation;
 
 use super::{
-    active_team, card_title, error_notice, is_owner, open_url, row_stroke, section,
+    active_team, card_title, danger_zone, error_notice, is_owner, open_url, row_stroke, section,
     team_delete_error_message,
 };
 use crate::icons::registry;
@@ -370,7 +370,7 @@ impl GeneralPane {
         )
         .ok_variant(ButtonVariant::Danger)
         .height(gpui::px(320.))
-        .content(move |_, cx| {
+        .content(move |window, cx| {
             v_flex()
                 .gap_1()
                 .mt_2()
@@ -380,7 +380,7 @@ impl GeneralPane {
                         .text_color(cx.theme().muted_foreground)
                         .child(SharedString::from(prompt.clone())),
                 )
-                .child(Input::new(&content_input).web_input_sm())
+                .child(glass_input(&content_input, window, cx).web_input_sm())
                 .into_any_element()
         })
         .on_ok(move |_, cx| {
@@ -422,7 +422,7 @@ impl GeneralPane {
 }
 
 impl Render for GeneralPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(team) = active_team(cx, &self.nav) else {
             return v_flex().child(
                 div()
@@ -448,7 +448,9 @@ impl Render for GeneralPane {
                             .text_color(cx.theme().muted_foreground)
                             .child("Name"),
                     )
-                    .child(Input::new(&self.name_input).web_input_sm().disabled(!owner)),
+                    .child(
+                        glass_input(&self.name_input, window, cx).web_input_sm().disabled(!owner),
+                    ),
             );
 
         if let Some(error) = &self.error {
@@ -481,62 +483,34 @@ impl Render for GeneralPane {
             pane = pane.child(billing);
         }
 
-        // Danger Zone (web settings/general.tsx): owner-only.
+        // Danger zone (web settings/general.tsx): owner-only. EXP-720: the
+        // shared `danger_zone` recipe, same as Tools' "Reset IDE data".
         if owner {
             let team_id = team.id.clone();
             let team_name = team.name.clone();
             pane = pane.child(
-                v_flex()
-                    .w_full()
-                    .gap_3()
-                    .p_4()
-                    .border_1()
-                    .border_color(cx.theme().danger.opacity(0.5))
-                    .rounded(cx.theme().radius_lg)
-                    // EXP-285 made `list_head` transparent, which silently
-                    // flattened this card into the page gradient. The Danger
-                    // Zone must stay a distinct surface, so take the same
-                    // danger tint the sibling `error_notice` card uses.
-                    .bg(cx.theme().danger.opacity(0.1))
-                    .child(
-                        v_flex()
-                            .gap_0p5()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .text_color(cx.theme().danger)
-                                    .child("Danger Zone"),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("Permanently delete this team and all its data."),
-                            ),
-                    )
-                    .child(
-                        h_flex().child(
-                            Button::new("team-delete")
-                                .danger()
-                                .web_sm()
-                                .label("Delete team")
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.open_delete_dialog(
-                                        team_id.clone(),
-                                        team_name.clone(),
-                                        window,
-                                        cx,
-                                    );
-                                })),
-                        ),
-                    )
-                    // Web parity (settings/general.tsx): a refused delete —
-                    // the REV2-55 billing gate above all — is shown, never
-                    // swallowed.
-                    .when_some(self.delete_error.clone(), |zone, message| {
-                        zone.child(error_notice(message, cx))
-                    }),
+                danger_zone(
+                    "Permanently delete this team and all its data.",
+                    Button::new("team-delete")
+                        .danger()
+                        .web_sm()
+                        .label("Delete team")
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.open_delete_dialog(
+                                team_id.clone(),
+                                team_name.clone(),
+                                window,
+                                cx,
+                            );
+                        })),
+                    cx,
+                )
+                // Web parity (settings/general.tsx): a refused delete —
+                // the REV2-55 billing gate above all — is shown, never
+                // swallowed.
+                .when_some(self.delete_error.clone(), |zone, message| {
+                    zone.child(error_notice(message, cx))
+                }),
             );
         }
 

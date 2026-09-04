@@ -19,9 +19,9 @@ use gpui::{
     IntoElement, ParentElement, Render, SharedString, Styled, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant, ButtonVariants as _},
+    button::ButtonVariant,
     h_flex,
-    input::{Input, InputState},
+    input::InputState,
     notification::Notification,
     skeleton::Skeleton,
     v_flex, ActiveTheme as _, Disableable as _, WindowExt as _,
@@ -30,7 +30,8 @@ use gpui_component::{
 use api::token_store::{SecretKind, TokenStore};
 use api::users::{MintedPersonalKey, PersonalKeyMeta, PERSONAL_KEY_READ_TIMEOUT};
 
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
+use crate::surface::{glass_pill_button, PillSize};
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::queries;
 use crate::session::AuthContext;
@@ -166,7 +167,7 @@ impl ApiKeysPane {
             "Create key",
         )
         .height(gpui::px(300.))
-        .content(move |_, cx| {
+        .content(move |window, cx| {
             v_flex()
                 .gap_1()
                 .mt_2()
@@ -176,7 +177,7 @@ impl ApiKeysPane {
                         .text_color(cx.theme().muted_foreground)
                         .child("Name"),
                 )
-                .child(Input::new(&content_input).web_input_sm())
+                .child(glass_input(&content_input, window, cx).web_input_sm())
                 .into_any_element()
         })
         .on_ok(move |_, cx| {
@@ -360,14 +361,14 @@ impl ApiKeysPane {
                             .child(SharedString::from(key.clone())),
                     )
                     .child(
-                        crate::surface::glass_pill_button("api-key-copy", crate::surface::PillSize::Sm, cx)
+                        glass_pill_button("api-key-copy", PillSize::Sm, cx)
                             .label("Copy")
                             .on_click(move |_, _, cx| {
                                 cx.write_to_clipboard(ClipboardItem::new_string(key.clone()));
                             }),
                     )
                     .child(
-                        crate::surface::glass_pill_button("api-key-dismiss", crate::surface::PillSize::Sm, cx)
+                        glass_pill_button("api-key-dismiss", PillSize::Sm, cx)
                             .label("Dismiss")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.minted = None;
@@ -462,7 +463,11 @@ impl ApiKeysPane {
                     .child(SharedString::from(last_used)),
             )
             .child(
-                crate::surface::glass_pill_button(SharedString::from(format!("api-key-revoke-{}", row.id)), crate::surface::PillSize::Sm, cx)
+                glass_pill_button(
+                    SharedString::from(format!("api-key-revoke-{}", row.id)),
+                    PillSize::Sm,
+                    cx,
+                )
                     .label("Revoke")
                     .disabled(self.busy)
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -488,17 +493,15 @@ impl Render for ApiKeysPane {
             body = body.child(self.render_minted(&minted, cx));
         }
 
-        let new_key = Button::new("api-key-new")
-            .outline().cursor_pointer()
-            .web_sm()
+        // EXP-720: the header pair are Sm pills like every other pane's
+        // header action (worktrees' Refresh, the machines band's Add device).
+        let new_key = glass_pill_button("api-key-new", PillSize::Sm, cx)
             .label("New key")
             .disabled(self.busy || !matches!(self.load, Load::Ready(_)))
             .on_click(cx.listener(|this, _, window, cx| {
                 this.open_mint_dialog(window, cx);
             }));
-        let refresh = Button::new("api-keys-refresh")
-            .ghost().cursor_pointer()
-            .web_sm()
+        let refresh = glass_pill_button("api-keys-refresh", PillSize::Sm, cx)
             .label("Refresh")
             .loading(matches!(self.load, Load::Loading))
             .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)));

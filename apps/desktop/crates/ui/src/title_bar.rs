@@ -8,10 +8,12 @@
 //!
 //! 1. **Rounded window controls** (below).
 //! 2. **EXP-287 [`TitleBar::window_controls`]**: minimize/maximize are
-//!    optional. Upstream always draws both, but a non-resizable window (every
-//!    fixed-size native dialog) has no maximize affordance at the OS level, so
-//!    the button would be dead chrome. Upstream has no hook for this either —
-//!    `WindowControls` and `ControlIcon` are private.
+//!    optional. Upstream always draws both, but a window the OS won't
+//!    minimize or maximize (a Linux dialog transient; a non-resizable window)
+//!    would show dead chrome. Upstream has no hook for this either —
+//!    `WindowControls` and `ControlIcon` are private. (EXP-720 made every
+//!    native-chrome dialog resizable, so maximize is now drawn wherever the
+//!    strip is; the hook stays for minimize and for any future fixed window.)
 //!
 //! On (1): the close button's hover/active fill is the
 //! last thing painted in the window's TOP-RIGHT corner, and upstream paints
@@ -61,10 +63,10 @@ pub struct TitleBar {
     children: Vec<AnyElement>,
     on_close_window: Option<Rc<Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>>>,
     /// EXP-287 delta: which of the min/max controls the strip draws. Upstream
-    /// always draws both — but a window opened with `is_resizable: false`
-    /// (every fixed-size native dialog) has no `WS_MAXIMIZEBOX` on Windows and
-    /// no `NSResizableWindowMask` on macOS, so its maximize button is dead
-    /// chrome. Close is never optional.
+    /// always draws both — but a window opened with `is_resizable: false` has
+    /// no `WS_MAXIMIZEBOX` on Windows and no `NSResizableWindowMask` on macOS,
+    /// so its maximize button would be dead chrome (no native-chrome dialog
+    /// is fixed-size since EXP-720). Close is never optional.
     show_minimize: bool,
     show_maximize: bool,
 }
