@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-merge-agent-run-prs`,
+    date: `2026-09-04`,
+    title: `Merge from action and chat runs`,
+    summary: `A pull request opened by an action or chat run now belongs to that run: merge it from the session on every client, and find it under Agent runs in Reviews.`,
+    body: `- **Merge is back on action runs**: an action or chat run that opened a pull request shows the Merge button again, in the desktop Latest changes bar, on the web and mobile Devices rows and in every steering view. Merging closes the run unless the team keeps sessions on merge.
+- **Reviews lists agent runs**: pull requests opened by a run without an issue appear in their own Agent runs group on web, desktop, iOS and Android, with the action name, branch and PR number, and count toward the Reviews badge.
+- **Agents know their PR**: the session tools report the run's pull request, so an agent can tell its own PR from any other when it merges.`,
+  },
+  {
     id: `2026-09-guided-first-run`,
     date: `2026-09-04`,
     title: `A guided first run on every platform`,
