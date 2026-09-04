@@ -128,8 +128,29 @@ enum DiffRendering {
 /// One patch rendered as a colored, monospaced block. Horizontal panning stays
 /// INSIDE this block (each line is single-line + fixed-size, the scroller owns
 /// the horizontal axis) — the page around it only ever scrolls vertically.
+///
+/// EXP-722: a scroller that hides its indicators has NO affordance at rest —
+/// a line cut flush at the block's edge reads as truncated, not as "more to
+/// the right". So the trailing edge FADES while content still lies beyond it
+/// and turns crisp once the reader has panned to the end. It is a mask, not a
+/// painted gradient: the block sits on translucent glass over the page
+/// gradient, so no single colour would match what is behind it.
 struct DiffPatchBlock: View {
     let patch: String
+
+    /// Wide enough to dissolve a few characters, narrow enough to leave the
+    /// line readable — the horizontal twin of `StickyHeaderFade.height`.
+    static let trailingFadeWidth: CGFloat = 36
+
+    @Environment(\.motion) private var motion
+    @State private var viewportWidth: CGFloat = 0
+    /// The content's trailing edge in the scroller's coordinate space — it
+    /// shrinks as the reader pans right.
+    @State private var contentTrailingEdge: CGFloat = 0
+
+    private var overflowsTrailing: Bool {
+        contentTrailingEdge > viewportWidth + 1
+    }
 
     var body: some View {
         let rendered = DiffRendering.lines(of: patch)
@@ -147,7 +168,14 @@ struct DiffPatchBlock: View {
                 }
                 .padding(8)
                 .textSelection(.enabled)
+                .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .scrollView).maxX }) { edge in
+                    contentTrailingEdge = edge
+                }
             }
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+                viewportWidth = width
+            }
+            .mask(trailingFadeMask)
             if rendered.truncated {
                 Text("Diff truncated. Showing the first \(rendered.lines.count) lines.")
                     .font(.caption2)
@@ -158,5 +186,21 @@ struct DiffPatchBlock: View {
         }
         .background(Color.white.opacity(0.03))
         .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    /// Opaque everywhere but the trailing strip, which fades to clear only
+    /// while there is more to scroll to. Routed through the motion environment
+    /// so Reduce Motion snaps the edge instead of dissolving it.
+    private var trailingFadeMask: some View {
+        HStack(spacing: 0) {
+            Rectangle().fill(.black)
+            LinearGradient(
+                colors: [.black, .black.opacity(overflowsTrailing ? 0 : 1)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: Self.trailingFadeWidth)
+        }
+        .animation(motion.fast, value: overflowsTrailing)
     }
 }
