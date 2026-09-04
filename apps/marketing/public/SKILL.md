@@ -56,22 +56,30 @@ Two ways in:
 
 ## Tool families
 
-Around 50 tools, all named `exponential_<family>_<verb>`:
+Around 75 tools, all named `exponential_<family>_<verb>`:
 
 - **teams**: list, get, create, update the user's teams.
 - **boards**: CRUD boards inside a team; a board can be backed by a GitHub
   repository (`boards_set_repository`).
-- **issues**: list and filter (board, status, priority, assignee, due
-  dates, title search), get by UUID or identifier ("ABC-12"), create,
-  update, delete, update_status, subscribe, unsubscribe.
+- **issues**: list and filter (boards, `statusId`/`statusCategory`,
+  priority, assignee, labels any/all/unlabeled, comment activity,
+  created/updated ranges, title search — each with an `exclude*` twin —
+  plus `sort`, where a `-` prefix descends), get by UUID or identifier
+  ("ABC-12"), create, update, delete, update_status, subscribe,
+  unsubscribe. Every list tool paginates: 50 by default, 200 at most.
 - **statuses**: `statuses_list` returns a team's issue statuses (builtin
   and custom); pass a row's id as `statusId` to `issues_update` to set a
-  custom status precisely.
-- **PRs**: `pr_open` links a pushed branch's pull request to one issue, or
-  to a whole batch via `issueIds` + `head`; `pr_merge` squash-merges
-  through the GitHub App (no gh, no token); `pr_retarget` repoints an open
-  PR's base; `issues_pr_files` lists the linked PR's changed files with
-  patches.
+  custom status precisely. `statuses_create` / `_update` / `_delete`
+  manage the custom ones (builtins are locked; deleting one that issues
+  still use needs a `reassignToId`).
+- **PRs**: `pr_open` links a pushed branch's pull request to one issue, to
+  a whole batch via `issueIds` + `head`, or to nothing at all via
+  `repositoryId` + `head` (a chore PR); `pr_merge` squash-merges through
+  the GitHub App (no gh, no token) and mirrors those three forms
+  (`repositoryId` + `prNumber` for the chore case), with `endSessions`
+  overriding the team's end-sessions-on-merge setting for one call;
+  `pr_retarget` repoints an open PR's base; `issues_pr_files` lists the
+  linked PR's changed files with patches.
 - **labels** and **issue_labels**: team label CRUD; attach and detach.
 - **comments**: list, create, update, delete on issues.
 - **notifications**: list, mark read.
@@ -82,6 +90,25 @@ Around 50 tools, all named `exponential_<family>_<verb>`:
 - **actions**: CRUD reusable team prompts that members run locally.
 - **attachments**: upload, get, delete images; upload returns the
   embeddable markdown form.
+- **automations**: list, create, update, toggle, delete the runs bound to
+  one action and one device. `trigger` is either
+  `{kind:"schedule", interval:"daily"|"weekly"|"monthly", minuteOfDay,
+  weekday?, dayOfMonth?}` (the device's local clock) or
+  `{kind:"event", event:"created"|"status_changed"|"assignee_changed"|
+  "label_added"|"priority_changed"|"pr_opened"|"pr_merged", filters?}`.
+  Writes are owner-only, and an ENABLED automation needs every input of
+  its action to be optional.
+- **sessions**: list, get, message (steer), kill, and start a coding,
+  action or chat session on one of the user's own machines. A start
+  targets an ONLINE device (`devices_list` first) — offline devices are
+  refused, never queued. Inside a launcher-started run two more tools
+  register: `sessions_end` (the run's own close-out summary, unattended
+  runs only) and `sessions_ask_parent` (ask the run that started this one).
+- **devices**: `devices_list` shows the user's machines, their online state
+  and the agent CLIs each one can run.
+- **helpdesk**: list and read support threads, reply, add an internal note,
+  close, reopen, escalate a ticket into an issue.
+- **report_bug**: file a bug about Exponential itself with its developers.
 
 Every call is confined to the OAuth grant's scope, or to the API key
 user's membership.
@@ -108,9 +135,12 @@ user's membership.
   `exponential_pr_open` with `issueIds` + `head`. PR open moves linked
   issues to the team's configured PR-open status (default In Review);
   merging moves them to the PR-merge status (default Done).
-- **Actions** are reusable markdown prompts (up to 10 typed inputs) that
-  members run as local agent sessions from the desktop app, the web, or
-  the CLI.
+- **Actions** are reusable markdown prompts (up to 10 typed inputs:
+  `text`, `textarea`, `repo`, `board`, `pr`, `icon`) that members run as
+  local agent sessions from the desktop app, the web, or the CLI. An
+  **automation** is a separate row binding one action to one device and a
+  schedule-or-event trigger; the bound machine starts the run itself, so
+  nothing fires while it is off.
 - **Coding agents**: sessions run Claude Code, Codex, or pi locally with
   the Exponential MCP server wired in automatically. pi has no native MCP
   support, so the launcher injects a small pi extension that bridges every
@@ -140,7 +170,10 @@ Key commands: `whoami`, `status`, `doctor` (checks git and the agent
 CLIs), `code <ISSUE>` (start a coding session for an issue, e.g.
 `exponential code EXP-42 --agent claude`), `run <action>`, `daemon
 install` (register a Linux or macOS machine as an always-on agent box,
-visible under Agents -> My machines in the web app), `update`. Full
+visible under Devices -> My machines in the web app), `update`.
+`code` and `run` share `--agent claude|codex|pi`, `--model`, `--effort`,
+`--plan`, and `--detach` (run headless but still steerable from the web);
+`run` also takes `--team <id>` and repeated `--input k=v`. Full
 reference: https://exponential.at/docs/cli/
 
 ## Integrating the feedback widget for a user
@@ -148,7 +181,7 @@ reference: https://exponential.at/docs/cli/
 When a user asks to add Exponential feedback collection to their site:
 
 1. Get their widget key (`expw_...`). If they have none, they create a
-   widget in Team settings -> Widget in Exponential (team owners; every
+   widget in Team settings -> Feedback widget in Exponential (team owners; every
    plan includes at least one), pick the target board, and add their
    site's domain to the allowlist (submissions are only accepted from
    allowlisted domains; the key itself is public by design).
@@ -160,7 +193,7 @@ When a user asks to add Exponential feedback collection to their site:
      (function (w, d, u) {
        if (w.ExponentialWidget) return;
        var q = [], api = { q: q };
-       ["init","identify","setCustomData","setTheme","open","close","submit"].forEach(function (m) {
+       ["init","identify","setCustomData","setTheme","setLauncherHidden","open","close","submit"].forEach(function (m) {
          api[m] = function () { q.push([m, [].slice.call(arguments)]); };
        });
        w.ExponentialWidget = api;
@@ -179,9 +212,22 @@ When a user asks to add Exponential feedback collection to their site:
      to stamp context onto every submission.
    - `ExponentialWidget.setTheme("dark" | "light" | "auto")` to follow the
      site's theme toggle.
+   - `ExponentialWidget.setLauncherHidden(true)` to hide just the button
+     while the site's own UI covers its corner; the panel and
+     `open()`/`close()`/`submit()` keep working.
+   - Launcher placement per device:
+     `init({ key, launcher: { desktop: { mode: "fab", position:
+     "bottom-right" }, mobile: { mode: "tab", position: "middle-right" } } })`
+     — `mode` is `fab` or `tab`, `position` one of `top-|middle-|bottom-`
+     `left|right`; devices split at a 767px viewport. The older
+     `position: "bottom-right" | "bottom-left"` option still works but is
+     ignored once `launcher` is present. `host` overrides the API origin
+     when a self-hosted loader is served from elsewhere.
    - Headless mode: `init({ key, showButton: false })`, then call
-     `ExponentialWidget.submit({ title, description, screenshot })` from
-     the site's own form; it resolves with `{ ok, identifier, url }`.
+     `ExponentialWidget.submit({ title, description, screenshot, images,
+     labels })` from the site's own form (`images`: up to 3 Blobs, 10 MB
+     each; `labels`: ids of the widget's configured labels); it resolves
+     with `{ ok, identifier, url }`.
 
 Each submission becomes an issue on the configured board with an annotated
 screenshot, reporter metadata, and page context, atomically. Full widget

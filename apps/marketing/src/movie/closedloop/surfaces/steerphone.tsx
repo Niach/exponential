@@ -1,7 +1,9 @@
 // closedloop/surfaces/steerphone.tsx — the live-steer phone: an iPhone
 // chassis whose screen shows the REAL mobile session screen (EXP-388,
-// AgentSessionView twin): nav bar with a status dot + "Live · MacBook Pro"
-// (no issue title up there), a bottom-anchored activity feed of wrench tool
+// AgentSessionView twin): nav bar with the circled back button, a TWO-LINE
+// title block — line 1 the state dot + the issue identifier + its title, line 2
+// the phase caption "Live · MacBook Pro" — and the circled `…` overflow menu
+// (there is no kill button up there), a bottom-anchored activity feed of wrench
 // rows and bubble-less sparkles narration, a trailing white user bubble, and
 // the "Message the agent…" composer with the small glass send capsule.
 // All frame props are COMPOSITION-LOCAL to the segment that renders it.
@@ -13,6 +15,7 @@ import type { SteerItem } from "../../ships/fixtures"
 import { typed, useBlink, wallpaperBackground } from "../../ships/rig"
 import {
   CL_FILE_STATS,
+  CL_ISSUE,
   CL_PHONE_FEED,
   CL_STEER_MSG,
   PHONE_START,
@@ -296,17 +299,19 @@ export const SteerPhone: React.FC<{
     : 0
   return (
     <PhoneChassis glass={glass}>
-      {/* nav bar (shots/steering/ios): circled back · status dot + state ·
-          host · the circled red kill-session button */}
+      {/* nav bar (shots/steering/ios + AgentSessionView): circled back ·
+          two-line title block (dot + identifier + title, then the phase
+          caption) · the circled `…` overflow menu */}
       <div
         style={{
           position: "absolute",
-          top: 40,
+          top: 36,
           left: 12,
           right: 12,
-          height: 34,
+          height: 42,
           display: "flex",
           alignItems: "center",
+          gap: 8,
           color: C.muted,
           zIndex: 2,
         }}
@@ -331,37 +336,65 @@ export const SteerPhone: React.FC<{
         </span>
         <span
           style={{
-            position: "absolute",
-            left: 42,
-            right: 42,
+            flex: 1,
+            minWidth: 0,
             display: "flex",
+            flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
-            gap: 7,
+            gap: 1,
           }}
         >
           <span
             style={{
-              width: 8,
-              height: 8,
-              flexShrink: 0,
-              borderRadius: 999,
-              backgroundColor: C.green,
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              maxWidth: "100%",
             }}
-          />
+          >
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                flexShrink: 0,
+                borderRadius: 999,
+                backgroundColor: C.green,
+              }}
+            />
+            <span
+              style={{
+                fontFamily: MONO_FONT,
+                fontSize: 10.5,
+                color: C.dim,
+                flexShrink: 0,
+              }}
+            >
+              {CL_ISSUE.id}
+            </span>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: C.text,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {CL_ISSUE.title}
+            </span>
+          </span>
           <span
             style={{
-              fontSize: 12,
-              fontWeight: 500,
-              color: C.muted,
+              fontSize: 10.5,
+              color: C.dim,
               whiteSpace: "nowrap",
             }}
           >{`Live · ${PHONE_START.device}`}</span>
         </span>
-        {/* kill-session button (owner-only in the app) */}
+        {/* the `…` overflow menu (kill/resume live in the sheet it opens) */}
         <span
           style={{
-            marginLeft: "auto",
             width: 34,
             height: 34,
             flexShrink: 0,
@@ -371,13 +404,13 @@ export const SteerPhone: React.FC<{
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            color: C.destructive,
+            color: C.text,
           }}
         >
-          <Glyph size={16} sw={2}>
-            <circle cx="12" cy="12" r="9" />
-            <path d="m15 9-6 6" />
-            <path d="m9 9 6 6" />
+          <Glyph size={16} sw={2.4}>
+            <circle cx="12" cy="12" r="0.6" fill="currentColor" />
+            <circle cx="19" cy="12" r="0.6" fill="currentColor" />
+            <circle cx="5" cy="12" r="0.6" fill="currentColor" />
           </Glyph>
         </span>
       </div>

@@ -112,6 +112,23 @@ const BotIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
   </Svg>
 )
 
+// nav-devices = lucide `monitor`, nav-automations = lucide `zap`
+// (packages/icons/icons.json) — the two rail entries EXP-686 split out of the
+// old "Agents" row.
+const MonitorIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <Svg size={size} sw={1.7}>
+    <rect x="2" y="3" width="20" height="14" rx="2" />
+    <path d="M8 21h8" />
+    <path d="M12 17v4" />
+  </Svg>
+)
+
+const ZapIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <Svg size={size} sw={1.7}>
+    <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
+  </Svg>
+)
+
 const SparklesIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
   <Svg size={size} sw={1.7}>
     <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
@@ -232,8 +249,8 @@ const TabStatusGlyph: React.FC<{ status: TabStatus; size?: number }> = ({
 // ── TitleBar (34px, transparent over the gradient, STROKE_ROW hairline) ───────
 // Left: macOS traffic lights over the rail region. Right of the rail edge: the
 // center tab strip — glass chips (surface.rs tab_chip: h24, radius 10, active =
-// FILL_ACTIVE + white text, inactive transparent + muted). Optional presence
-// facepile right-aligned (EXP-337 board-live clip).
+// FILL_ACTIVE + white text, inactive transparent + muted). Nothing else lives
+// up here: the product has no presence facepile (there is no presence shape).
 
 export type ChromeTab = {
   id: string
@@ -272,17 +289,11 @@ export const titleBarTabRect = (
   return null
 }
 
-export type TitleBarPresence = {
-  users: readonly { initials: string; color: string }[]
-  at?: number // global frame the facepile pops in (staggered 3f/avatar); omit = always on
-}
-
 export type TitleBarProps = {
   frame: number
   tabs?: ChromeTab[]
   activeId?: string
   popAt?: Record<string, number> // tab id → global frame it POP-springs in (hidden before)
-  presence?: TitleBarPresence
   newIssue?: boolean // the primary "+ New Issue" pill (right edge); default on
 }
 
@@ -291,7 +302,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   tabs = [],
   activeId,
   popAt,
-  presence,
   newIssue = true,
 }) => (
   <div
@@ -451,88 +461,13 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         New Issue
       </div>
     ) : null}
-    {/* presence facepile — inline right of the tab chips so board-scoped
-        camera crops keep it in shot (EXP-337 board-live) */}
-    {presence ? (
-      <div
-        style={{
-          position: "absolute",
-          left:
-            TAB_STRIP_LEFT +
-            tabs.reduce((acc, t) => acc + chromeTabWidth(t) + TAB_GAP, 0) +
-            14,
-          top: 0,
-          height: WIN.titleBar,
-          display: "flex",
-          alignItems: "center",
-          gap: 7,
-        }}
-      >
-        <div style={{ display: "flex" }}>
-          {presence.users.map((u, i) => {
-            const at =
-              presence.at === undefined ? undefined : presence.at + i * 3
-            if (at !== undefined && frame < at) return null
-            const s =
-              at === undefined
-                ? 1
-                : spring({
-                    frame: frame - at,
-                    fps: 30,
-                    config: { damping: 12, stiffness: 200 },
-                  })
-            return (
-              <span
-                key={u.initials}
-                style={{
-                  width: 18,
-                  height: 18,
-                  marginLeft: i === 0 ? 0 : -5,
-                  borderRadius: 999,
-                  backgroundColor: `color-mix(in srgb, ${u.color} 26%, #18181b)`,
-                  border: `1.5px solid #18181b`,
-                  outline: `1px solid ${u.color}`,
-                  color: u.color,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 8,
-                  fontWeight: 600,
-                  scale: String(0.6 + 0.4 * s),
-                  zIndex: presence.users.length - i,
-                }}
-              >
-                {u.initials}
-              </span>
-            )
-          })}
-        </div>
-        <span
-          style={{
-            fontSize: 11.5,
-            fontWeight: 500,
-            color: C.muted,
-            opacity:
-              presence.at === undefined
-                ? 1
-                : interpolate(
-                    frame,
-                    [presence.at + 8, presence.at + 14],
-                    [0, 1],
-                    CLAMP
-                  ),
-          }}
-        >
-          {`${presence.users.length} online`}
-        </span>
-      </div>
-    ) : null}
   </div>
 )
 
 // ── ExpandedRail (164px labelled rail — sidebar.rs RAIL_EXPANDED_W) ───────────
-// The shipping order (shots/board/desktop.webp): Search · hairline · Inbox /
-// Reviews / Actions / Support · hairline · a "Boards" group label with a
+// The shipping order (shots/board/desktop.webp + sidebar.rs, EXP-699 — the
+// mobile tab-bar order): Search · hairline · Inbox / Support / Devices /
+// Actions / Automations / Reviews · hairline · a "Boards" group label with a
 // trailing plus and the team's boards (each with its own colored pickable
 // glyph; the open board carries the FILL_ACTIVE pill) · hairline · Files /
 // Source Control · and pinned at the bottom Getting started + the user row.
@@ -542,9 +477,11 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 export type RailRowId =
   | "search"
   | "inbox"
-  | "reviews"
-  | "actions"
   | "support"
+  | "devices"
+  | "actions"
+  | "automations"
+  | "reviews"
   | "board"
   | "board1"
   | "board2"
@@ -557,25 +494,28 @@ const ROW_H = 28
 const ROW_X = 7
 const ROW_W = WIN.rail - 14
 
-// Window-local row top Ys, transcribed off the reference shot (1440×900 @1.25):
-// nav pitch 31, hairlines at 71/204/333, boards from 239, the two bottom rows
-// pinned 60/24 up from the window's bottom edge.
+// Window-local row top Ys, transcribed off the reference shot (1440×900 @1.25)
+// and re-pitched for the six EXP-699 nav rows: nav pitch 31, hairlines at
+// 71/266/395, boards from 301, the two bottom rows pinned 60/24 up from the
+// window's bottom edge.
 const RAIL_ROW_Y: Record<RailRowId, number> = {
   search: 37,
   inbox: 78,
-  reviews: 109,
-  actions: 140,
-  support: 171,
-  board: 239,
-  board1: 270,
-  board2: 301,
-  files: 342,
-  "source-control": 373,
+  support: 109,
+  devices: 140,
+  actions: 171,
+  automations: 202,
+  reviews: 233,
+  board: 301,
+  board1: 332,
+  board2: 363,
+  files: 404,
+  "source-control": 435,
   "getting-started": WIN.h - 74,
   user: WIN.h - 38,
 }
-const RAIL_DIVIDERS = [71, 204, 333] // hairline Ys between the sections
-const BOARDS_LABEL_Y = 214 // the "Boards" group label row (h 20)
+const RAIL_DIVIDERS = [71, 266, 395] // hairline Ys between the sections
+const BOARDS_LABEL_Y = 276 // the "Boards" group label row (h 20)
 
 // Cursor-targeting helper: window-local center of a rail row.
 export const railRowCenter = (id: string): { x: number; y: number } => ({
@@ -588,9 +528,11 @@ type NavRowId = Exclude<RailRowId, "board" | "board1" | "board2" | "user">
 const RAIL_ICON: Record<NavRowId, React.FC<{ size?: number }>> = {
   search: SearchIcon,
   inbox: InboxIcon,
-  reviews: GitPullRequestIcon,
-  actions: BotIcon,
   support: LifeBuoyIcon,
+  devices: MonitorIcon,
+  actions: BotIcon,
+  automations: ZapIcon,
+  reviews: GitPullRequestIcon,
   files: FolderIcon,
   "source-control": GitMergeIcon,
   "getting-started": SparklesIcon,
@@ -599,9 +541,11 @@ const RAIL_ICON: Record<NavRowId, React.FC<{ size?: number }>> = {
 const RAIL_LABEL: Record<NavRowId, string> = {
   search: "Search",
   inbox: "Inbox",
-  reviews: "Reviews",
-  actions: "Actions",
   support: "Support",
+  devices: "Devices",
+  actions: "Actions",
+  automations: "Automations",
+  reviews: "Reviews",
   files: "Files",
   "source-control": "Source Control",
   "getting-started": "Getting started",
@@ -789,9 +733,11 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
           [
             "search",
             "inbox",
-            "reviews",
-            "actions",
             "support",
+            "devices",
+            "actions",
+            "automations",
+            "reviews",
             "files",
             "source-control",
             "getting-started",

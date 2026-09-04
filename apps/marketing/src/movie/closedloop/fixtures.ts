@@ -84,6 +84,7 @@ export const SITE = {
 // ── The widget report ─────────────────────────────────────────────────────────
 export const REPORT = {
   panelTitle: "Send feedback",
+  sentTitle: "Feedback sent",
   titleLabel: "Title",
   title: "Checkout button does nothing",
   detailsLabel: "Details",
@@ -193,12 +194,15 @@ export const CL_ISSUE = {
   due: "Jul 19",
   project: CL.project,
   projectColor: "#818cf8",
+  // EXP-496: a widget-filed issue carries an Origin chip on every client.
+  origin: "Feedback widget",
 } as const
 
 // ── The phone start flow (remote start over the steer rails, EXP-385) ────────
-// Strings mirror the real StartCodingSheet: a Form with Cancel / Start coding
-// in the toolbar, an Issues section with a search row, the agent pill strip,
-// and Model + Effort picker rows. One desktop online = no Device row at all;
+// Strings mirror the real StartCodingSheet (EXP-687 chrome: grabber on top, no
+// toolbar buttons, one pinned full-width Start coding button at the floor), an
+// Issues section with a search row, the agent pill strip, and Model + Effort
+// picker rows. One desktop online = no Device row at all;
 // after submit the caller shows the "Start sent" capsule toast.
 export const PHONE_START = {
   cancel: "Cancel",
@@ -265,7 +269,12 @@ export const CL_PR_HEAD = {
 
 export const CL_DIFF_FILES = [
   { status: "M", path: "apps/shop/src/checkout/PayButton.tsx", selected: true },
-  { status: "A", path: "apps/shop/src/checkout/pay-button.test.tsx" },
+  {
+    status: "A",
+    path: "apps/shop/src/checkout/pay-button.test.tsx",
+    add: 42,
+    del: 0,
+  },
 ] as const
 
 export const CL_FILE_STATS = { add: 18, del: 6 } as const
@@ -377,14 +386,9 @@ export const CL_PHONE_FEED: SteerItem[] = [
   },
 ]
 
-// ── The board-live clip: presence + a remote teammate + a push ───────────────
-export const PRESENCE_USERS = [
-  { initials: "RC", color: "#e879f9" }, // Riley (the local user, fuchsia like the board avatars)
-  { initials: "MK", color: "#5eead4" },
-  { initials: "JL", color: "#fbbf24" },
-] as const
-
-export const REMOTE_USER = { name: "Mara", color: "#2dd4bf" } as const
+// ── The board-live clip: a teammate's change lands live, then a push ────────
+// (The product ships no presence facepile and no remote cursors — there is no
+// presence shape — so the clip shows only what actually syncs.)
 export const REMOTE_DRAG_ID = "EXP-149" // Mara drags "Add Apple Pay" Backlog → In Progress
 export const LIVE_EDIT_ID = "EXP-150" // a teammate edit flashes in live
 

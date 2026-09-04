@@ -19,11 +19,13 @@ import {
   CircleCheck,
   CircleDashed,
   CircleDot,
+  CircleArrowUp,
   CircleUser,
   Code,
   ExternalLink,
   GitMerge,
   GitPullRequest,
+  Hash,
   Image as ImageIcon,
   Inbox,
   LifeBuoy,
@@ -34,9 +36,10 @@ import {
   Megaphone,
   MessageSquare,
   Minus,
-  MonitorPlay,
+  Monitor,
   Paperclip,
   Plus,
+  RotateCcw,
   Search,
   Send,
   Settings,
@@ -53,6 +56,8 @@ import {
   TriangleAlert,
   User,
   UserPlus,
+  X,
+  Zap,
   type LucideProps,
 } from "lucide-react"
 
@@ -82,7 +87,9 @@ export const IcCompose = wrap(SquarePen) // nav-create-issue
 export const IcTeamSwitcher = wrap(ChevronsUpDown) // nav-team-switcher
 export const IcInbox = wrap(Inbox) // nav-inbox
 export const IcReviews = wrap(GitPullRequest) // nav-reviews
-export const IcAgents = wrap(Bot) // nav-agents
+export const IcDevices = wrap(Monitor) // nav-devices
+export const IcActions = wrap(Bot) // nav-actions
+export const IcAutomations = wrap(Zap) // nav-automations
 export const IcSupport = wrap(LifeBuoy) // nav-support
 export const IcSparkles = wrap(Sparkles) // nav-getting-started
 export const IcSettings = wrap(Settings) // nav-settings
@@ -117,15 +124,18 @@ export const IcTrash = wrap(Trash2) // ui-delete
 export const IcSmile = wrap(Smile)
 export const IcImage = wrap(ImageIcon)
 export const IcPaperclip = wrap(Paperclip) // ui-attach
-export const IcWatch = wrap(MonitorPlay)
 export const IcCheck = wrap(Check) // ui-check
+export const IcReopen = wrap(RotateCcw)
+export const IcClose = wrap(X) // ui-close
+export const IcHash = wrap(Hash) // editor-issue-ref
+export const IcSubmit = wrap(CircleArrowUp) // ui-submit
 
 /* Inbox notification kinds */
 export const IcAssigned = wrap(UserPlus) // ui-invite
 export const IcComment = wrap(MessageSquare)
 export const IcMention = wrap(AtSign)
 export const IcMerged = wrap(GitMerge) // nav-source-control
-export const IcStatusChanged = wrap(CircleDot)
+export const IcStatusChanged = wrap(CircleCheck) // notification-issue-status-changed
 export const IcAssignee = wrap(CircleUser) // ui-assignee
 
 /* Support */

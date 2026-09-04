@@ -267,46 +267,23 @@ const Avatar: React.FC<{ size: number; text: string }> = ({ size, text }) => (
 
 // ── The web app inside a browser window ──────────────────────────────────────
 // EXP-471: matched to shots/board/web.webp — the sidebar opens with the team
-// switcher plus the round search + compose buttons, the nav is Inbox / Reviews
-// / Agents / Support with count badges, a "Boards" group carries the colored
-// board glyphs, and Getting started + the user row are pinned at the bottom.
+// switcher plus the round search + compose buttons, the nav is the EXP-699
+// order Inbox / Support / Devices / Actions / Automations / Reviews with DOT
+// badges (unread white, live green — never counts), a "Boards" group carries
+// the colored board glyphs, and Getting started + the user row are pinned at
+// the bottom.
 // The list header holds ONLY the ghost Filter button, and the agent dock bar
 // rides along the viewport's bottom edge.
 export const WEB = { w: 560, chrome: 34, viewport: 348, sidebar: 156 } as const
 
-const WEB_NAV: { label: string; badge?: string; icon: React.ReactNode }[] = [
+const WEB_NAV: { label: string; dot?: string; icon: React.ReactNode }[] = [
   {
     label: "Inbox",
-    badge: "2",
+    dot: C.text,
     icon: (
       <Glyph size={13}>
         <path d="M22 12h-6l-2 3h-4l-2-3H2" />
         <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
-      </Glyph>
-    ),
-  },
-  {
-    label: "Reviews",
-    badge: "1",
-    icon: (
-      <Glyph size={13}>
-        <circle cx="18" cy="18" r="3" />
-        <circle cx="6" cy="6" r="3" />
-        <path d="M13 6h3a2 2 0 0 1 2 2v7" />
-        <path d="M6 9v12" />
-      </Glyph>
-    ),
-  },
-  {
-    label: "Agents",
-    icon: (
-      <Glyph size={13} sw={1.7}>
-        <path d="M12 8V4H8" />
-        <rect x="4" y="8" width="16" height="12" rx="2" />
-        <path d="M2 14h2" />
-        <path d="M20 14h2" />
-        <path d="M15 13v2" />
-        <path d="M9 13v2" />
       </Glyph>
     ),
   },
@@ -323,13 +300,57 @@ const WEB_NAV: { label: string; badge?: string; icon: React.ReactNode }[] = [
       </Glyph>
     ),
   },
+  {
+    label: "Devices",
+    dot: C.green,
+    icon: (
+      <Glyph size={13} sw={1.7}>
+        <rect x="2" y="3" width="20" height="14" rx="2" />
+        <path d="M8 21h8" />
+        <path d="M12 17v4" />
+      </Glyph>
+    ),
+  },
+  {
+    label: "Actions",
+    icon: (
+      <Glyph size={13} sw={1.7}>
+        <path d="M12 8V4H8" />
+        <rect x="4" y="8" width="16" height="12" rx="2" />
+        <path d="M2 14h2" />
+        <path d="M20 14h2" />
+        <path d="M15 13v2" />
+        <path d="M9 13v2" />
+      </Glyph>
+    ),
+  },
+  {
+    label: "Automations",
+    icon: (
+      <Glyph size={13} sw={1.7}>
+        <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
+      </Glyph>
+    ),
+  },
+  {
+    label: "Reviews",
+    dot: C.green,
+    icon: (
+      <Glyph size={13}>
+        <circle cx="18" cy="18" r="3" />
+        <circle cx="6" cy="6" r="3" />
+        <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+        <path d="M6 9v12" />
+      </Glyph>
+    ),
+  },
 ]
 
 const WebNavRow: React.FC<{
   icon: React.ReactNode
   label: string
-  badge?: string
-}> = ({ icon, label, badge }) => (
+  dot?: string
+}> = ({ icon, label, dot }) => (
   <div
     style={{
       display: "flex",
@@ -343,8 +364,16 @@ const WebNavRow: React.FC<{
   >
     {icon}
     <span style={{ flex: 1, fontSize: 12 }}>{label}</span>
-    {badge ? (
-      <span style={{ fontSize: 10.5, color: C.dim }}>{badge}</span>
+    {dot ? (
+      <span
+        style={{
+          width: 5,
+          height: 5,
+          flexShrink: 0,
+          borderRadius: 999,
+          backgroundColor: dot,
+        }}
+      />
     ) : null}
   </div>
 )
@@ -545,7 +574,7 @@ export const WebBrowserMock: React.FC = () => (
             key={row.label}
             icon={row.icon}
             label={row.label}
-            badge={row.badge}
+            dot={row.dot}
           />
         ))}
         <div

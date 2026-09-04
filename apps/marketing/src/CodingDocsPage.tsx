@@ -115,6 +115,25 @@ export function CodingDocsPage() {
               drives Exponential itself: updating issue status, posting
               comments, and opening the PR, all as tools.
             </p>
+            <h3>Agent accounts and usage</h3>
+            <p>
+              Each machine reports, read-only, which account every installed
+              agent CLI is signed in to and how much of its rate-limit window
+              is spent — never the credential itself. You see it on the
+              machine&apos;s <strong>Device settings</strong> (a{` `}
+              <strong>Login</strong> or <strong>Switch account</strong> pill
+              plus usage cards inside each agent&apos;s tab) and, mid-run,
+              from the session&apos;s <strong>…</strong> menu →{` `}
+              <strong>Usage</strong>: a <strong>Current session</strong> group
+              and the weekly windows (<strong>All models</strong> and, where
+              the agent reports one, a per-model card).
+            </p>
+            <p>
+              A signed-out agent on a remote machine can be signed in from any
+              client: the machine runs the agent&apos;s own login flow and its
+              code and link come back as an ordinary answerable card, so a
+              headless server never needs a browser or a keyboard.
+            </p>
           </DocsSection>
 
           {/* ── 03 Start coding ── */}
@@ -141,14 +160,30 @@ export function CodingDocsPage() {
 
             <ul>
               <li>
-                An <strong>agent tab strip</strong>:{` `}
+                Three tabs — <strong>Issues</strong>,{` `}
+                <strong>Actions</strong> and <strong>Chat</strong> — on every
+                client. Issues codes an issue, Actions runs one of the{` `}
+                <a href="/docs/actions/">team&apos;s saved prompts</a>, and
+                Chat takes a free <strong>Prompt</strong> plus a{` `}
+                <strong>Repository</strong> and starts an agent session with
+                no issue attached, in its own worktree.
+              </li>
+              <li>
+                An <strong>agent picker</strong>:{` `}
                 <strong>Claude Code</strong>, <strong>Codex</strong> or{` `}
-                <strong>pi</strong>. The strip narrows to the CLIs the app
-                finds installed.
+                <strong>pi</strong>. An agent you are not signed in to is
+                dimmed.
               </li>
               <li>
                 A <strong>searchable multi-issue picker</strong>. Check one
                 issue for a single run, two or more for a batch.
+              </li>
+              <li>
+                A <strong>Device</strong> picker when you have more than one
+                machine — your desktops and any{` `}
+                <a href="/docs/cli/#daemon">CLI daemon</a>, plus servers
+                teammates shared with the team. One is your{` `}
+                <strong>Default device</strong> and is preselected.
               </li>
               <li>
                 <strong>Model</strong> and <strong>Effort</strong> pickers, per
@@ -156,21 +191,30 @@ export function CodingDocsPage() {
                 vocabulary (Codex calls it Reasoning, pi calls it Thinking).
               </li>
               <li>
-                <strong>Dynamic workflows (ultracode)</strong>, Claude only.
-                Lets the run organize its own workflow; it takes over the
-                effort setting.
+                <strong>Ultracode</strong>, Claude only. Lets the run organize
+                its own workflow; it takes over the effort setting.
               </li>
               <li>
                 <strong>Plan mode</strong>, Claude and pi. It proposes a plan
                 you approve before it touches code — in the terminal, or from
                 the plan card in the session view on web and mobile.
               </li>
+              <li>
+                <strong>Resume previous session</strong>, offered when the
+                issue already has a recorded run to continue. It relaunches
+                that exact transcript, with the agent it was recorded on.
+              </li>
             </ul>
+
+            <DocShot
+              view="start-coding-chat"
+              caption="The launcher's Chat tab: a free prompt on a repository, with the same agent options"
+            />
             <p>
               Defaults are <strong>per agent, not per mode</strong>: single and
               batch runs prefill identically. Out of the box that&apos;s{` `}
               <strong>plan mode on</strong> and <strong>ultracode off</strong>.
-              Change them under <strong>Settings → Agents</strong> on the
+              Change them under <strong>Settings → This device → Agents</strong> on the
               desktop, per agent, and every future run starts from your values.
               Permissions are not a setting: every run hands Claude and Codex a
               full bypass, and plan mode still asks you to approve the plan
@@ -178,9 +222,11 @@ export function CodingDocsPage() {
               repository.
             </p>
             <p>
-              The same dialog has an <strong>Actions</strong> tab: the
-              team&apos;s saved prompts, run with the same agent, model and
-              effort pickers. See <a href="/docs/actions/">Actions</a>.
+              Which branch a run starts from is resolved, never assumed: a{` `}
+              board&apos;s own <strong>Branch</strong> pin wins, then the
+              team&apos;s per-repository default-branch override, then
+              GitHub&apos;s. A batch whose issues would resolve to different
+              base branches is refused.
             </p>
           </DocsSection>
 
@@ -268,10 +314,46 @@ export function CodingDocsPage() {
             </p>
             <p>
               While a session runs, your other devices see it live: the{` `}
-              <strong>Agents</strong> view on web and mobile shows the running
+              <strong>Devices</strong> view on web and mobile shows the running
               session with a live activity feed, and you can{` `}
               <strong>send steer messages</strong> from your phone. The agent
-              picks them up mid-run.
+              picks them up mid-run. The desktop IDE shows the same thing in
+              reverse: sessions running on your <em>other</em> machines,
+              including a CLI daemon, appear as chips beside its own terminal
+              tabs and open the same watch-and-steer view.
+            </p>
+            <p>
+              What the composer takes:
+            </p>
+            <ul>
+              <li>
+                Plain text, and up to <strong>four images</strong> per message
+                (attach, or paste and drop on the web) — on every kind of run,
+                chat and action runs included.
+              </li>
+              <li>
+                Agent <strong>slash commands</strong>, from a{` `}
+                <code>/</code> typeahead filtered to what the session&apos;s
+                agent supports. There are exactly two:{` `}
+                <code>/compact</code> (&ldquo;Compact the conversation
+                context&rdquo;, optionally with instructions) and{` `}
+                <code>/clear</code> (&ldquo;Start a fresh conversation
+                (context is discarded)&rdquo;, behind a confirm — the worktree
+                files are kept). While the agent folds its context the view
+                shows a <strong>Compacting context…</strong> strip, and a{` `}
+                <strong>Context compacted</strong> marker stays in the
+                transcript.
+              </li>
+              <li>
+                Answers to the agent&apos;s questions, its permission prompts
+                and its plan card — all answerable remotely, not just at the
+                desk.
+              </li>
+            </ul>
+            <p>
+              A session whose host machine goes offline reads{` `}
+              <strong>Paused</strong> rather than spinning; the agent picks up
+              where it left off when the machine comes back.
             </p>
             <p>
               A run you started makes no report. When the agent finishes its
@@ -282,10 +364,11 @@ export function CodingDocsPage() {
               view.
             </p>
             <p>
-              Runs an automation started are the ones that{` `}
-              <strong>report back</strong>: a one-paragraph summary and an
-              outcome (done, blocked, or no changes) that show on the session.
-              Those runs end on that report.
+              Runs an <a href="/docs/actions/#automations">automation</a>{` `}
+              started are the ones that <strong>report back</strong>: a
+              one-paragraph summary that shows on the run. Those runs end on
+              that report, and the Automations tab&apos;s{` `}
+              <strong>Recent automated runs</strong> keeps them.
             </p>
 
             <DocShot
@@ -301,18 +384,29 @@ export function CodingDocsPage() {
             <p>You never have to leave the IDE to land the work:</p>
             <ul>
               <li>
-                The issue&apos;s <strong>Changes</strong> tab shows the
-                branch&apos;s full diff against the default branch,
-                side-by-side.
+                A session&apos;s pinned <strong>Latest changes</strong> bar
+                shows the branch&apos;s diff against its base, side-by-side,
+                with <strong>Merge</strong> right next to it.
               </li>
               <li>
-                The <strong>Reviews</strong> list in the sidebar collects the
+                The <strong>Reviews</strong> list in the rail collects the
                 team&apos;s open PRs, across every board. Open one, read the
                 diff, and <strong>merge from right there</strong>. The linked
-                issues complete on merge. A merge that hits conflicts offers
-                the <a href="/docs/actions/">Fix merge conflicts</a> action.
+                issues complete on merge. When a merge fails on conflicts,{` `}
+                <strong>Fix conflicts</strong> replaces{` `}
+                <strong>Merge</strong> in place and hands the PR to the{` `}
+                <a href="/docs/actions/#builtins">Fix merge conflicts</a>{` `}
+                builtin.
               </li>
             </ul>
+            <p>
+              Merging a PR also <strong>ends the live coding sessions</strong>
+              {` `}on its issues — except the session that merged its own pull
+              request, which always keeps running. Teams that would rather
+              keep every session alive turn the switch off under{` `}
+              <a href="/docs/issues/#branches-prs">Team settings → Statuses</a>
+              .
+            </p>
             <p>
               Prefer GitHub&apos;s review UI? The PR is a completely normal
               pull request. Review and merge it there and the issue completes
@@ -322,7 +416,7 @@ export function CodingDocsPage() {
             <DocShot
               view="review-diff"
               platform="desktop"
-              caption="The Reviews queue with a PR's diff open beside it"
+              caption="A PR's diff in the desktop IDE, with Merge in its header"
             />
           </DocsSection>
 
@@ -340,19 +434,36 @@ export function CodingDocsPage() {
             <DocShot
               view="source-control"
               platform="desktop"
-              caption="Source control: the trunk's history, its graph and the working tree"
+              caption="Source Control: the trunk's history, its graph and the working tree"
             />
 
             <p>
-              The editor is <strong>read-only</strong> by design: changes
-              arrive as pull requests, not local commits. The{` `}
-              <strong>files rail</strong> browses the trunk,{` `}
-              <strong>Source control</strong> walks its commit history and
-              renders any commit&apos;s diff side-by-side, and an issue&apos;s
-              {` `}
-              <strong>Changes</strong> tab diffs its branch against the default
-              branch. The one write affordance is an escape hatch: discard
-              local changes and hard-reset to the remote, behind a confirm.
+              The editor itself is <strong>view-only</strong> by design:
+              changes arrive as pull requests, not local commits. The{` `}
+              <strong>Files</strong> rail browses the trunk, and{` `}
+              <strong>Source Control</strong> walks the commit history and
+              renders any commit&apos;s diff side-by-side. It holds the two
+              write affordances, both behind a confirm:{` `}
+              <strong>Commit &amp; push local changes</strong> for the odd
+              tweak that shouldn&apos;t wait for a PR, and{` `}
+              <strong>Discard changes &amp; reset…</strong> as the escape
+              hatch back to the remote.
+            </p>
+            <p>
+              The history is drawn as a real <strong>graph</strong>: a kept{` `}
+              <code>exp/…</code> PR branch renders as its own lane and curves
+              back into the trunk at the squash commit that landed it. The
+              Files tree has a <strong>worktree switcher</strong> on top, so
+              you can browse a run&apos;s branch — its tree, its git status
+              and its diffs — without leaving the trunk view, and{` `}
+              <strong>Settings → This device → Worktrees</strong> prunes the
+              ones whose work has landed.
+            </p>
+            <p>
+              The terminal dock is ordinary too. Its <strong>+</strong>{` `}
+              opens a plain <strong>New shell</strong>, or one of the agents
+              as a steerable <a href="/docs/actions/#builtins">chat</a>{` `}
+              session with its own worktree.
             </p>
           </DocsSection>
         </DocsLayout>

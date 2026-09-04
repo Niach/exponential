@@ -1,9 +1,11 @@
 /* ─── The labelled left rail (EXP-282/285/525) — 164px, glass wash, full
-   window height. Order: titlebar strip (traffic lights + collapse toggle) ·
-   Search · divider · Inbox / Reviews / Actions / Support · divider · Boards
-   group · divider · Files / Source Control · Getting started · account row. ─── */
+   window height. Order (sidebar.rs, EXP-699/686/706 — the mobile tab-bar
+   order): titlebar strip (traffic lights + collapse toggle) · Search ·
+   divider · Inbox / Support / Devices / Actions / Automations / Reviews ·
+   divider · Boards group · divider · Files / Source Control · Getting
+   started · account row. ─── */
 import type { ReactNode } from "react"
-import { PROJECT, REVIEWS } from "./data"
+import { INBOX_ITEMS, PROJECT, REVIEWS } from "./data"
 import { useIde } from "./state"
 import {
   IcBot,
@@ -14,12 +16,14 @@ import {
   IcInbox,
   IcLifeBuoy,
   IcMegaphone,
+  IcMonitor,
   IcPanelLeftClose,
   IcPlus,
   IcKanban,
   IcSearch,
   IcSettings,
   IcSparkles,
+  IcZap,
   IcAlert,
   type IdeIcon,
 } from "./icons"
@@ -66,9 +70,11 @@ function RailRow({
 }
 
 export function Rail() {
-  const { tool, setTool, openSourceControl, interactive, goneReviews } = useIde()
+  const { tool, setTool, openSourceControl, interactive, goneReviews, inboxRead } =
+    useIde()
   const on = (fn: () => void) => (interactive ? fn : undefined)
   const openReviews = REVIEWS.filter((r) => !goneReviews.has(r.issueId)).length
+  const unreadInbox = INBOX_ITEMS.some((n) => n.unread && !inboxRead.has(n.id))
   return (
     <div className="ide-rail">
       <div className="ide-rail-strip">
@@ -88,8 +94,16 @@ export function Rail() {
         Icon={IcInbox}
         label="Inbox"
         active={tool === `inbox`}
+        /* `inbox_badge` is a PRIMARY dot, not the review green. */
+        badge={unreadInbox ? <span className="ide-rail-dot is-primary" /> : undefined}
         onClick={on(() => setTool(`inbox`))}
       />
+      <RailRow Icon={IcLifeBuoy} label="Support" />
+      {/* EXP-686: Devices · Actions · Automations, the three surfaces the
+          old Agents entry bundled. The dot is `agents.running`. */}
+      <RailRow Icon={IcMonitor} label="Devices" badge={<span className="ide-rail-dot" />} />
+      <RailRow Icon={IcBot} label="Actions" />
+      <RailRow Icon={IcZap} label="Automations" />
       <RailRow
         Icon={IcGitPullRequest}
         label="Reviews"
@@ -97,8 +111,6 @@ export function Rail() {
         badge={openReviews > 0 ? <span className="ide-rail-dot" /> : undefined}
         onClick={on(() => setTool(`reviews`))}
       />
-      <RailRow Icon={IcBot} label="Actions" />
-      <RailRow Icon={IcLifeBuoy} label="Support" />
       <div className="ide-rail-div" />
       <div className="ide-rail-grouphead">
         <span>Boards</span>

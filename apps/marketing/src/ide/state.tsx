@@ -7,7 +7,7 @@ export type Tool =
   | `files`
   | `source-control`
   | `inbox`
-  | `my-issues`
+  /* EXP-706: a rail SCREEN, not a docked tool window. */
   | `reviews`
 export type IdeView = `board` | `issue` | `files` | `source-control`
 

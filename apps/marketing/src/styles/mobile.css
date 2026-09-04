@@ -917,19 +917,26 @@ button.mob-backbtn {
 
 /* ─── Start-coding sheet (mss-*) — the iOS recreation (EXP-471) ───
    Traced off shots/start-coding/ios.webp, the captured
-   apps/ios/.../Session/StartCodingSheet. EVERY length here is an iOS POINT:
-   `.mss-screen` is the phone's own 414pt-wide canvas and `.mss-phone` scales
-   the whole thing down with ONE transform, so the recreation stays
-   measurable against the store shot (17pt body, 15pt subheadline, 12pt mono
-   identifiers, 49pt form rows, cards inset 18.5pt) instead of drifting into
-   hand-tuned marketing px. Change `--mss-scale` to resize; never the values
-   below. Fills are the app's own glass tokens: white .05 form rows, white
-   .10 capsule containers, white .12 selected segments. */
+   apps/ios/.../Session/StartCodingSheet inside ExpUI's `GlassSheetChrome`.
+   EVERY length here is an iOS POINT: `.mss-screen` is the phone's own 414pt-
+   wide canvas and `.mss-phone` scales the whole thing down with ONE
+   transform, so the recreation stays measurable against the store shot
+   (17pt body, 15pt subheadline, 12pt mono identifiers, 49pt picker rows,
+   57pt toggle rows, cards inset 18.5pt at radius 24.5pt) instead of drifting
+   into hand-tuned marketing px. Change `--mss-scale` to resize; never the
+   values below.
+
+   Fills and strokes are the SHARED glass tokens (packages/design-tokens →
+   ExpUI GlassTokens): fillSection .039 (segmented capsule), fillRow .051
+   (cards), fillCard .059 (toggle track), fillActive .149 (selected segment),
+   strokeSection .078, strokeCard .102. The sheet surface is the opaque
+   `glass.backgroundBottom` #18181b — flat, no gradient and no material
+   (GlassSheetTokens.background). */
 
 .mss-phone {
   --mss-scale: 0.66;
   width: calc(414px * var(--mss-scale));
-  height: calc(759px * var(--mss-scale));
+  height: calc(696px * var(--mss-scale));
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 24px;
@@ -938,12 +945,14 @@ button.mob-backbtn {
 }
 
 .mss-screen {
+  display: flex;
+  flex-direction: column;
   width: 414px;
-  height: 759px;
+  height: 696px;
   transform: scale(var(--mss-scale));
   transform-origin: top left;
-  /* AppBackground: the zinc-950 → zinc-900 page gradient. */
-  background: linear-gradient(180deg, #0e0e11 0%, #1a1a1c 100%);
+  /* GlassSheetTokens.background — opaque #18181b, no blur. */
+  background: #18181b;
   color: #fff;
   font-family: var(--font-ui);
   font-size: 17px;
@@ -954,46 +963,36 @@ button.mob-backbtn {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ── Top bar: Cancel + Start coding, no title (EXP-211) ── */
-.mss-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 19px 18.5px 0;
-}
-
-.mss-pill {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  height: 39.5px;
-  padding: 0 16px;
+/* ── The system drag indicator. EXP-687: a sheet has NO bar buttons — a
+      swipe down cancels and the ONE confirm is pinned to the bottom. ── */
+.mss-grabber {
+  width: 36px;
+  height: 5px;
+  margin: 5px auto 0;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.07);
-  color: #fff;
-  font-size: 17px;
+  background: rgba(255, 255, 255, 0.3);
+  flex: none;
 }
 
-.mss-pill.is-start {
-  font-weight: 600;
-}
-
-/* ── Glass segmented capsules: the Issues|Actions|Chat tabs and the agent
-      strip are the SAME control (GlassSegmentedControl). ── */
+/* ── Glass segmented capsules: the Issues|Actions|Chat tabs (the free-
+      standing `.capsule` style) and the agent strip (`.embedded`, the first
+      ROW of the options card — no fill, no border of its own). ── */
 .mss-seg {
   display: flex;
-  gap: 4px;
-  height: 38.5px;
-  margin: 48.5px 18.5px 0;
-  padding: 4px;
+  height: 34.5px;
+  margin: 30.5px 18.5px 0;
+  padding: 3px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.078);
+  background: rgba(255, 255, 255, 0.039);
+  flex: none;
 }
 
-.mss-seg.is-agents {
-  margin-top: 16.5px;
+.mss-agents {
+  display: flex;
+  align-items: center;
+  height: 47.5px;
+  padding: 0 8px;
 }
 
 .mss-segbtn {
@@ -1002,16 +1001,23 @@ button.mob-backbtn {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  height: 100%;
   border-radius: 999px;
   font-size: 15px;
-  color: rgba(255, 255, 255, 0.85);
+  /* EXP-698: the weight is CONSTANT across segments — only the opacity
+     moves. A semibold/regular swap re-flowed the strip on every tap. */
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
   white-space: nowrap;
 }
 
+.mss-agents .mss-segbtn {
+  height: 28px;
+}
+
 .mss-segbtn.is-active {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.149);
   color: #fff;
-  font-weight: 600;
 }
 
 .mss-segbtn svg {
@@ -1021,39 +1027,42 @@ button.mob-backbtn {
 /* ── Section header + grouped cards ── */
 .mss-header {
   height: 22px;
-  margin: 24.5px 0 0 39px;
+  margin: 33.5px 0 0 39px;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 22px;
   letter-spacing: -0.015em;
-  color: rgba(255, 255, 255, 0.66);
+  color: rgba(255, 255, 255, 0.7);
+  flex: none;
 }
 
 .mss-card {
-  margin: 10px 18.5px 0;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.05);
+  margin: 8.5px 18.5px 0;
+  border-radius: 24.5px;
+  background: rgba(255, 255, 255, 0.051);
+  flex: none;
 }
 
 .mss-card + .mss-card {
-  margin-top: 11px;
-}
-
-.mss-seg + .mss-card {
-  margin-top: 16.5px;
+  margin-top: 14.5px;
 }
 
 .mss-sep {
   height: 1px;
-  margin: 0 19.5px;
+  margin: 0 19px 0 18.5px;
   background: rgba(255, 255, 255, 0.1);
+}
+
+/* The agent strip's own 8pt row insets push its hairline further in. */
+.mss-sep.is-agents {
+  margin-left: 34.5px;
 }
 
 .mss-row {
   display: flex;
   align-items: center;
-  height: 49px;
-  padding-left: 19.5px;
+  height: 48px;
+  padding-left: 18.5px;
 }
 
 .mss-rowlabel {
@@ -1064,40 +1073,44 @@ button.mob-backbtn {
   padding-right: 19.5px;
 }
 
+/* A 31pt switch makes the toggle rows taller than the picker ones. */
 .mss-row.is-toggle {
-  padding-right: 17px;
+  height: 57px;
+  padding-right: 19px;
 }
 
 .mss-value {
-  color: rgba(255, 255, 255, 0.82);
+  color: rgba(255, 255, 255, 0.7);
   white-space: nowrap;
 }
 
 .mss-chev {
-  margin-left: 8.5px;
+  margin-left: 8px;
   color: rgba(255, 255, 255, 0.5);
   flex: none;
 }
 
-/* iOS 26 switch: a wide capsule knob riding a light track. */
+/* GlassToggleStyle, off: UISwitch geometry (51×31, 27pt thumb, 2pt inset)
+   over the glass fill + hairline, with a mutedForeground thumb. */
 .mss-toggle {
   position: relative;
-  width: 60.5px;
-  height: 27px;
+  width: 51px;
+  height: 31px;
   border-radius: 999px;
-  background: #64636a;
+  border: 1px solid rgba(255, 255, 255, 0.102);
+  background: rgba(255, 255, 255, 0.059);
   flex: none;
 }
 
 .mss-toggle::after {
   content: "";
   position: absolute;
-  left: 3px;
-  top: 2.25px;
-  width: 34.5px;
-  height: 22.5px;
+  left: 2px;
+  top: 2px;
+  width: 27px;
+  height: 27px;
   border-radius: 999px;
-  background: #fff;
+  background: #a1a1a1;
 }
 
 /* ── Issue picker: inline search + checkbox rows ── */
@@ -1129,7 +1142,7 @@ button.mob-backbtn {
 
 /* Selection must be unmissable (EXP-241): glyph swap plus a tinted row. */
 .mss-irow.is-checked {
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .mss-check {
@@ -1163,6 +1176,29 @@ button.mob-backbtn {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* ── The ONE pinned confirm (GlassSubmitButton): solid `primary` #e5e5e5
+      with `primaryForeground` #171717 content, radius 10, 14pt v-padding,
+      on an opaque floor inset 16pt / 10pt (GlassSheetTokens). ── */
+.mss-action {
+  margin-top: auto;
+  padding: 10px 16px;
+  background: #18181b;
+  flex: none;
+}
+
+.mss-submit {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 45.5px;
+  border-radius: 10px;
+  background: #e5e5e5;
+  color: #171717;
+  font-size: 17px;
+  font-weight: 500;
 }
 
 /* Narrow phones: the 273px sheet would crowd a 320px viewport's gutters. */

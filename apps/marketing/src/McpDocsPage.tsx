@@ -36,7 +36,7 @@ const TOOL_GROUPS: {
       { name: `exponential_boards_list`, desc: `List boards in one team or across all your teams.` },
       { name: `exponential_boards_get`, desc: `Get a single board.` },
       { name: `exponential_boards_create`, desc: `Create a board (optionally repo-backed).` },
-      { name: `exponential_boards_update`, desc: `Update name, color, or icon.` },
+      { name: `exponential_boards_update`, desc: `Update name, color, icon, or the board's default branch.` },
       { name: `exponential_boards_delete`, desc: `Move a board to the 48-hour trash (owner only).` },
       { name: `exponential_boards_set_repository`, desc: `Point a board at a different registered repository.` },
     ],
@@ -44,16 +44,25 @@ const TOOL_GROUPS: {
   {
     heading: `Issues`,
     tools: [
-      { name: `exponential_issues_list`, desc: `List and filter issues by board, status, priority, assignee, due dates, or title search.` },
+      { name: `exponential_issues_list`, desc: `List and filter issues: boards, statusId / statusCategory, priority, assignee, labels (any, all, or unlabeled), comment activity, created/updated ranges, title search — each with an exclude twin — plus sort (a "-" prefix descends).` },
       { name: `exponential_issues_get`, desc: `Get one issue with labels and recent comments, by UUID or identifier ("EXP-42").` },
-      { name: `exponential_issues_create`, desc: `Create an issue.` },
+      { name: `exponential_issues_create`, desc: `Create an issue. Pass statusId for a custom status.` },
       { name: `exponential_issues_update`, desc: `Update an issue's fields. Pass only what changes.` },
       { name: `exponential_issues_delete`, desc: `Permanently delete an issue and everything attached to it.` },
       { name: `exponential_issues_update_status`, desc: `Set status during a coding run (PR events move it to the team's configured statuses).` },
-      { name: `exponential_pr_open`, desc: `Open + link the pull request server-side for one issue, or a whole batch via issueIds + head.` },
-      { name: `exponential_pr_merge`, desc: `Squash-merge an issue's linked PR (or a whole batch) through the GitHub App. No gh, no token.` },
+      { name: `exponential_pr_open`, desc: `Open + link the pull request server-side: issueId for one, issueIds + head for a batch, or repositoryId + head for a chore PR that links nothing.` },
+      { name: `exponential_pr_merge`, desc: `Squash-merge through the GitHub App (no gh, no token): issueId, issueIds, or repositoryId + prNumber. endSessions overrides the team's end-sessions-on-merge setting for this call.` },
       { name: `exponential_pr_retarget`, desc: `Repoint an open PR's base branch, the fix for a stacked PR whose parent already merged.` },
       { name: `exponential_issues_pr_files`, desc: `List the linked PR's changed files with patches and add/delete counts.` },
+    ],
+  },
+  {
+    heading: `Statuses`,
+    tools: [
+      { name: `exponential_statuses_list`, desc: `List a team's issue statuses with id, name, category and color — the ids you pass as statusId.` },
+      { name: `exponential_statuses_create`, desc: `Create a custom status in a category (never duplicate; started allows at most four).` },
+      { name: `exponential_statuses_update`, desc: `Rename or recolor a custom status. Builtins are locked.` },
+      { name: `exponential_statuses_delete`, desc: `Delete a custom status; issues still on it need a reassignToId replacement.` },
     ],
   },
   {
@@ -110,6 +119,47 @@ const TOOL_GROUPS: {
       { name: `exponential_actions_create`, desc: `Create an action with markdown instructions and an optional repository (owner only).` },
       { name: `exponential_actions_update`, desc: `Update an action (owner only).` },
       { name: `exponential_actions_delete`, desc: `Delete an action (owner only).` },
+    ],
+  },
+  {
+    heading: `Automations`,
+    tools: [
+      { name: `exponential_automations_list`, desc: `List a team's automations: which action runs on which device, its trigger, its launch agent, and whether it is enabled.` },
+      { name: `exponential_automations_create`, desc: `Bind an action to a device and a trigger — schedule (daily/weekly/monthly + minuteOfDay) or issue event with optional filters (owner only).` },
+      { name: `exponential_automations_update`, desc: `Change an automation's trigger, device or launch options (owner only).` },
+      { name: `exponential_automations_toggle`, desc: `Enable or disable one without touching the rest. Enabling needs every action input optional.` },
+      { name: `exponential_automations_delete`, desc: `Delete an automation. Past runs keep their history.` },
+    ],
+  },
+  {
+    heading: `Coding sessions & devices`,
+    tools: [
+      { name: `exponential_devices_list`, desc: `List your machines (desktop app or CLI daemon) plus servers shared with the team, with their online state and the agents each can run.` },
+      { name: `exponential_sessions_start`, desc: `Start a run on an ONLINE device: an issue, a batch of issues, an action, or a resume. Offline devices are refused — starts are live, never queued.` },
+      { name: `exponential_sessions_list`, desc: `List coding sessions newest first, with status, subject, branch, device, and an ended run's summary.` },
+      { name: `exponential_sessions_get`, desc: `Get one session; poll it after a start to follow running → in review → ended.` },
+      { name: `exponential_sessions_message`, desc: `Send text into a live session you own or host — it arrives as user input to that agent.` },
+      { name: `exponential_sessions_kill`, desc: `Abort a live session you own or host. Never your own run.` },
+      { name: `exponential_sessions_end`, desc: `A run's own close-out summary. Registered only inside an unattended (automation- or agent-started) run.` },
+      { name: `exponential_sessions_ask_parent`, desc: `Registered only in a run another run started: ask the starting run a question and end your turn; its answer arrives as a user message.` },
+    ],
+  },
+  {
+    heading: `Helpdesk`,
+    tools: [
+      { name: `exponential_helpdesk_threads_list`, desc: `List a team's support tickets, newest activity first, with an unread flag.` },
+      { name: `exponential_helpdesk_threads_get`, desc: `Get one ticket with its full conversation and any escalated issue.` },
+      { name: `exponential_helpdesk_reply`, desc: `Post a public reply the reporter sees and is emailed.` },
+      { name: `exponential_helpdesk_note`, desc: `Add an internal note: team-only, never emailed.` },
+      { name: `exponential_helpdesk_close`, desc: `Resolve a ticket; the transcript stays readable.` },
+      { name: `exponential_helpdesk_reopen`, desc: `Reopen a resolved ticket.` },
+      { name: `exponential_helpdesk_escalate`, desc: `File an issue from a ticket and link the two.` },
+    ],
+  },
+  {
+    heading: `Bug reports`,
+    tools: [
+      { name: `exponential_report_bug`, desc: `File a bug about Exponential itself with its developers. Never for the caller's own project. Cloud only.` },
     ],
   },
   {
@@ -289,8 +339,20 @@ npx mcp-remote ${LINKS.app.mcp}
             <p>
               What a connected client can do, grouped by area. Every call is
               confined to the OAuth grant&apos;s scope (or the API key&apos;s
-              membership).
+              membership). Every list tool paginates (50 by default, 200 at
+              most), and issue parameters take an identifier
+              (&quot;EXP-42&quot;) wherever they take a UUID.
             </p>
+            <DocsCallout kind="note" title="Some tools only exist in context">
+              The <code>exponential_helpdesk_*</code> tools register only when
+              a team you have full access to has the helpdesk on;{` `}
+              <code>exponential_sessions_end</code> and{` `}
+              <code>exponential_sessions_ask_parent</code> only inside an
+              agent run the launcher started; and{` `}
+              <code>exponential_report_bug</code> only on the cloud. Ask the
+              server&apos;s own <code>tools/list</code> for the exact set your
+              client sees.
+            </DocsCallout>
             {TOOL_GROUPS.map((group) => (
               <div key={group.heading}>
                 <h3>{group.heading}</h3>
@@ -340,6 +402,28 @@ npx mcp-remote ${LINKS.app.mcp}
               In Review; merging completes them all. This is exactly what a
               {` `}
               <a href="/docs/coding/#batch-runs">batch coding run</a> does.
+            </p>
+
+            <h3>A pull request with no issue behind it</h3>
+            <p>
+              Some work never gets filed: a dependency bump, a typo sweep. Pass
+              {` `}
+              <code>repositoryId</code> + <code>head</code> to{` `}
+              <code>exponential_pr_open</code> (and{` `}
+              <code>repositoryId</code> + <code>prNumber</code> to{` `}
+              <code>exponential_pr_merge</code>) and you get an ordinary pull
+              request with nothing linked, moved, or notified.
+            </p>
+
+            <h3>Start a run on one of your machines, from chat</h3>
+            <p>
+              &quot;Have my build box take EXP-42.&quot; The client calls{` `}
+              <code>exponential_devices_list</code> to find an online machine
+              that runs the agent you want, then{` `}
+              <code>exponential_sessions_start</code>, and follows the run
+              with <code>exponential_sessions_get</code>. Steer it mid-run
+              with <code>exponential_sessions_message</code>. Details in{` `}
+              <a href="/docs/cli/#daemon">CLI &amp; daemon</a>.
             </p>
           </DocsSection>
         </DocsLayout>

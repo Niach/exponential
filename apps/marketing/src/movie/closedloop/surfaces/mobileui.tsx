@@ -122,10 +122,11 @@ export const MPriorityIcon: React.FC<{
 )
 
 // ── The floating glass tab bar (icon-only) + detached compose circle ─────────
-// Real MobileTabBar: Issues (list) · My Work (inbox) · Support (life-buoy,
-// helpdesk teams) · Agents (bot) · Reviews (git-pull-request) · Search — no
-// text labels; active = white glyph on a white-12% circle; the square-pen
-// compose circle floats detached right.
+// Real MobileTabBar (EXP-686/699 order): Issues (list) · My Work (inbox) ·
+// Support (life-buoy, helpdesk teams) · Devices (monitor) · Actions (bot) ·
+// Reviews (git-pull-request). Search is NOT a tab (EXP-686 moved it into the
+// board nav bar). No text labels; active = white glyph on a white-12% circle;
+// the square-pen compose circle floats detached right.
 const TAB_ICONS: { id: string; node: React.ReactNode }[] = [
   {
     id: "issues",
@@ -163,7 +164,17 @@ const TAB_ICONS: { id: string; node: React.ReactNode }[] = [
     ),
   },
   {
-    id: "agents",
+    id: "devices",
+    node: (
+      <Glyph size={15}>
+        <rect x="2" y="3" width="20" height="14" rx="2" />
+        <path d="M8 21h8" />
+        <path d="M12 17v4" />
+      </Glyph>
+    ),
+  },
+  {
+    id: "actions",
     node: (
       <Glyph size={15}>
         <path d="M12 8V4H8" />
@@ -183,15 +194,6 @@ const TAB_ICONS: { id: string; node: React.ReactNode }[] = [
         <circle cx="18" cy="18" r="3" />
         <path d="M13 6h3a2 2 0 0 1 2 2v7" />
         <path d="M6 9v12" />
-      </Glyph>
-    ),
-  },
-  {
-    id: "search",
-    node: (
-      <Glyph size={15}>
-        <circle cx="11" cy="11" r="8" />
-        <path d="m21 21-4.3-4.3" />
       </Glyph>
     ),
   },
@@ -243,7 +245,8 @@ export const MobileTabBar: React.FC<{
                 width: 6,
                 height: 6,
                 borderRadius: 999,
-                backgroundColor: id === "agents" ? C.green : C.primary,
+                backgroundColor:
+                  id === "devices" || id === "reviews" ? C.green : C.primary,
               }}
             />
           ) : null}
@@ -450,18 +453,25 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({
 
   return (
     <div style={{ position: "absolute", inset: 0, fontFamily: UI_FONT }}>
-      {/* nav bar: board name + chevrons-up-down combobox, filter + gear right */}
+      {/* nav bar (shots/board/ios.webp + IssuesHomeView `switcherControl`):
+          the board switcher is a LEADING Md glass pill — board glyph tinted
+          with the board color, the name, then the chevrons-up-down expander —
+          and search · filter · settings share ONE trailing glass capsule
+          (EXP-686 moved Search out of the tab bar into this row). */}
       <div
         style={{
           position: "absolute",
-          top: 44,
-          left: 0,
-          right: 0,
-          height: 30,
+          top: 42,
+          left: 12,
+          height: 34,
+          boxSizing: "border-box",
           display: "flex",
           alignItems: "center",
-          justifyContent: "center",
-          gap: 6,
+          gap: 7,
+          padding: "0 12px",
+          borderRadius: 999,
+          backgroundColor: C.fillCard,
+          border: `1px solid rgba(255,255,255,0.06)`,
         }}
       >
         <span style={{ color: "#818cf8", display: "flex" }}>
@@ -470,17 +480,16 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({
             <path d="m8 6-6 6 6 6" />
           </Glyph>
         </span>
-        <span style={{ fontSize: 16, fontWeight: 600, color: C.text }}>
+        <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>
           {boardName}
         </span>
-        <span style={{ color: C.dim, display: "flex" }}>
-          <Glyph size={11} sw={2.4}>
+        <span style={{ color: C.muted, display: "flex" }}>
+          <Glyph size={12} sw={2.2}>
             <path d="m7 15 5 5 5-5" />
             <path d="m7 9 5-5 5 5" />
           </Glyph>
         </span>
       </div>
-      {/* filter + settings share ONE trailing glass capsule (like the app) */}
       <div
         style={{
           position: "absolute",
@@ -490,14 +499,18 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({
           boxSizing: "border-box",
           display: "flex",
           alignItems: "center",
-          gap: 14,
-          padding: "0 14px",
+          gap: 13,
+          padding: "0 13px",
           borderRadius: 999,
           backgroundColor: C.fillCard,
           border: `1px solid rgba(255,255,255,0.06)`,
           color: C.muted,
         }}
       >
+        <Glyph size={15} sw={2}>
+          <circle cx="11" cy="11" r="8" />
+          <path d="m21 21-4.3-4.3" />
+        </Glyph>
         <Glyph size={15} sw={2}>
           <path d="M10 5h11" />
           <path d="M13 12h8" />

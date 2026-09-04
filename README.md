@@ -22,7 +22,9 @@
 - **Boards backed by a GitHub repo**: one issue, one branch, one PR, tracked on the issue. Or one combined PR for a batch.
 - **Start coding**: hand an issue to Claude Code, Codex, or pi from the desktop app. It plans, codes in a worktree, and opens the PR.
 - **Live steer**: watch and redirect a running session from your phone.
-- **Feedback widget**: a script tag for your site, bug reports with annotated screenshots land as issues.
+- **Actions & automations**: reusable team prompts, run on demand or on a schedule or an issue event, on your own machines.
+- **Headless CLI**: `exponential` turns any Linux or macOS box into an always-on agent machine your team starts runs on.
+- **Feedback widget & helpdesk**: a script tag for your site; bug reports with annotated screenshots land as issues, support requests as email tickets in a shared inbox.
 - **MCP server** at `/api/mcp` for Claude Code, Codex, Cursor, or any MCP client.
 
 ## Self-host

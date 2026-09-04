@@ -26,9 +26,10 @@ import {
   IcChevUp,
   IcCircleX,
   IcEllipsis,
-  IcGitPullRequest,
+  IcGitMerge,
   IcImage,
   IcLink,
+  IcMonitor,
   IcPaperclip,
   IcPlay,
   IcSmile,
@@ -96,6 +97,27 @@ function ActivityRow({ item }: { item: ActivityItem }) {
         <div className="ide-comment-body">{item.body}</div>
       </div>
     </div>
+  )
+}
+
+/* pr_merge::two_click — Merge PR arms, Confirm merge fires (danger). */
+function MergePrButton({
+  armed,
+  arm,
+}: {
+  armed: boolean
+  arm: (on: boolean) => void
+}) {
+  const { interactive } = useIde()
+  return (
+    <button
+      className={`ide-mergepr${armed ? ` is-armed` : ``}${interactive ? ` is-click` : ``}`}
+      type="button"
+      onClick={interactive ? () => arm(!armed) : undefined}
+    >
+      <IcGitMerge size={11} />
+      {armed ? `Confirm merge` : `Merge PR`}
+    </button>
   )
 }
 
@@ -178,6 +200,7 @@ export function IssueDetail({ issueId }: { issueId: string }) {
   const { interactive, coding, codingTarget } = useIde()
   const issue = getIssue(issueId)
   const [subscribed, setSubscribed] = useState(true)
+  const [armed, setArmed] = useState(false)
   const [draft, setDraft] = useState(``)
   const [extraComments, setExtraComments] = useState<ActivityItem[]>([])
 
@@ -239,14 +262,34 @@ export function IssueDetail({ issueId }: { issueId: string }) {
           <div className="ide-issue-chiprow">
             <PropertyTray issue={issue} />
           </div>
-          {codingHere && (
+          {/* issue_header::agent_row (EXP-698): the coding-now CARD on its own
+              full-width line, and the Merge-PR capsule as a TRAILING action
+              INSIDE it whenever both show — one tray holds the run and
+              everything to do about it. With no live session the merge
+              control falls back to its own row. */}
+          {codingHere ? (
             <div className="ide-issue-agentrow">
               <span className="ide-nowpill">
                 <span className="ide-nowdot" />
-                Danny Strähhuber coding now · Danny&apos;s MacBook Pro
+                Coding now
               </span>
+              <span className="ide-nowcaption">
+                Danny Strähhuber · Danny&apos;s MacBook Pro
+              </span>
+              <div className="ide-flex1" />
+              {/* An own run gets the primary "Watch" pill — NAV_DEVICES
+                  (monitor), never an eye. */}
+              <button className="ide-btn-primary ide-nowwatch" type="button">
+                <IcMonitor size={11} />
+                Watch
+              </button>
+              {review && <MergePrButton armed={armed} arm={setArmed} />}
             </div>
-          )}
+          ) : review ? (
+            <div className="ide-issue-agentrow is-bare">
+              <MergePrButton armed={armed} arm={setArmed} />
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="ide-issue-body">
@@ -263,14 +306,6 @@ export function IssueDetail({ issueId }: { issueId: string }) {
               <IcPaperclip size={12} />
             </span>
           </div>
-          {review && (
-            <div className="ide-prrow">
-              <IcGitPullRequest size={11} className="ide-c-green" />
-              <span className="ide-prrow-state">Open</span>
-              <span className="ide-prrow-num">{`#${review.prNumber}`}</span>
-              <span className="ide-prrow-branch">{review.branch}</span>
-            </div>
-          )}
         </div>
         <div className="ide-timeline">
           <div className="ide-col">
@@ -281,7 +316,7 @@ export function IssueDetail({ issueId }: { issueId: string }) {
             <div className="ide-composer">
               <input
                 className="ide-composer-input"
-                placeholder="Leave a reply..."
+                placeholder="Leave a reply…"
                 value={draft}
                 readOnly={!interactive}
                 onChange={(e) => setDraft(e.target.value)}
