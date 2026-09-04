@@ -124,7 +124,11 @@ function LabelRow({
             }
           }}
           disabled={busy}
-          className="h-8 flex-1 border-none shadow-none focus-visible:ring-0 px-1"
+          // EXP-719: the row card IS the field's box. The stock Input brings
+          // its own glass fill + radius (EXP-616), which nested a second box
+          // inside every row; strip the fill too, not just the stroke, so
+          // the name reads as row text that happens to be editable.
+          className="h-8 flex-1 rounded-none border-none bg-transparent px-1 shadow-none focus-visible:ring-0 dark:bg-transparent"
         />
         {confirmingDelete ? (
           <div className="flex items-center gap-1">
