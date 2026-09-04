@@ -1043,9 +1043,39 @@ fn attention_reason(trunk: &TrunkState) -> Option<SharedString> {
         );
     }
     if trunk.dirty {
-        return Some("local changes in the working tree. Auto-pull is paused.".into());
+        return Some(
+            format!(
+                "local changes in the working tree ({}). Auto-pull is paused.",
+                dirty_paths_label(&trunk.dirty_paths)
+            )
+            .into(),
+        );
     }
     None
+}
+
+/// How many changed paths the dirty tooltip spells out before "+N more".
+const DIRTY_TOOLTIP_PATHS: usize = 3;
+
+/// FEED-22: the dirty tooltip names WHAT is uncommitted, so a user can tell
+/// Claude Code's `.claude/` agent-worktree debris (or any other untracked
+/// junk) from real edits without opening Source Control. Sorted paths, the
+/// first few verbatim, the rest folded into a count.
+fn dirty_paths_label(paths: &[String]) -> String {
+    if paths.is_empty() {
+        return "untracked or modified files".to_string();
+    }
+    let mut label = paths
+        .iter()
+        .take(DIRTY_TOOLTIP_PATHS)
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let rest = paths.len().saturating_sub(DIRTY_TOOLTIP_PATHS);
+    if rest > 0 {
+        label.push_str(&format!(" +{rest} more"));
+    }
+    label
 }
 
 /// The "synced Xm ago" pair: the short form + the tooltip sentence.
@@ -1380,6 +1410,7 @@ mod tests {
             syncing: false,
             dirty,
             dirty_files: u32::from(dirty),
+            dirty_paths: if dirty { vec!["src/app.rs".to_string()] } else { Vec::new() },
             has_upstream: true,
         }
     }
@@ -1433,7 +1464,7 @@ mod tests {
         );
         assert_eq!(
             attention_reason(&trunk("master", 0, true)).as_deref(),
-            Some("local changes in the working tree. Auto-pull is paused.")
+            Some("local changes in the working tree (src/app.rs). Auto-pull is paused.")
         );
         // A detached HEAD parks the autopull forever and used to show NOTHING.
         assert_eq!(
@@ -1449,6 +1480,35 @@ mod tests {
             })
             .as_deref(),
             Some("a rebase/merge is paused with conflicts")
+        );
+    }
+
+    /// FEED-22: the dirty tooltip spells out the paths (a `.claude/` entry
+    /// is recognisable as agent-worktree debris, not an edit), folding a
+    /// long list into a count.
+    #[test]
+    fn dirty_tooltip_names_the_paths() {
+        let paths = |list: &[&str]| list.iter().map(|p| p.to_string()).collect::<Vec<_>>();
+        assert_eq!(dirty_paths_label(&paths(&[".claude/"])), ".claude/");
+        assert_eq!(
+            dirty_paths_label(&paths(&[".claude/", "src/a.rs", "src/b.rs"])),
+            ".claude/, src/a.rs, src/b.rs"
+        );
+        assert_eq!(
+            dirty_paths_label(&paths(&[".claude/", "src/a.rs", "src/b.rs", "src/c.rs", "x"])),
+            ".claude/, src/a.rs, src/b.rs +2 more"
+        );
+        // A dirty flag without paths (older callers) still reads sensibly.
+        assert_eq!(dirty_paths_label(&[]), "untracked or modified files");
+        let mut state = TrunkState { dirty_paths: paths(&[".claude/"]), ..trunk("master", 0, true) };
+        assert_eq!(
+            attention_reason(&state).as_deref(),
+            Some("local changes in the working tree (.claude/). Auto-pull is paused.")
+        );
+        state.dirty_paths.clear();
+        assert_eq!(
+            attention_reason(&state).as_deref(),
+            Some("local changes in the working tree (untracked or modified files). Auto-pull is paused.")
         );
     }
 

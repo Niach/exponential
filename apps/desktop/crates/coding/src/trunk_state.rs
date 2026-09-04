@@ -31,6 +31,10 @@ pub struct TrunkState {
     /// Changed-path count behind `dirty` (the EXP-509 uncommitted-row label;
     /// porcelain entries deduped by path, so an `MM` file counts once).
     pub dirty_files: u32,
+    /// The distinct changed paths behind `dirty_files`, sorted (FEED-22: the
+    /// rail tooltip names them so `.claude/` debris is recognisable as
+    /// not-an-edit).
+    pub dirty_paths: Vec<String>,
     /// The checked-out branch tracks an upstream (`# branch.upstream`).
     pub has_upstream: bool,
 }
@@ -47,6 +51,7 @@ impl TrunkState {
             syncing: false,
             dirty: false,
             dirty_files: 0,
+            dirty_paths: Vec::new(),
             has_upstream: false,
         }
     }
@@ -89,7 +94,7 @@ pub fn read(clone: &Path) -> Result<TrunkState, GitError> {
 fn compose(status: StatusSummary, conflict: Option<ConflictState>) -> TrunkState {
     // Distinct paths, not porcelain entries — an `MM` file (staged + unstaged
     // change) emits two entries but is ONE changed file to the user.
-    let mut paths: Vec<&str> = status.changes.iter().map(|c| c.path.as_str()).collect();
+    let mut paths: Vec<String> = status.changes.into_iter().map(|c| c.path).collect();
     paths.sort_unstable();
     paths.dedup();
     let dirty_files = paths.len() as u32;
@@ -101,6 +106,7 @@ fn compose(status: StatusSummary, conflict: Option<ConflictState>) -> TrunkState
         syncing: false,
         dirty: dirty_files > 0,
         dirty_files,
+        dirty_paths: paths,
         has_upstream: status.upstream.is_some(),
     }
 }
@@ -154,6 +160,7 @@ mod tests {
         assert!(!state.syncing); // caller owns the in-flight flag
         assert!(state.dirty); // one Modified change
         assert_eq!(state.dirty_files, 1);
+        assert_eq!(state.dirty_paths, vec!["src/app.rs".to_string()]);
         assert!(state.has_upstream);
 
         let clean_state = compose(clean("main", 0, 0), None);
@@ -167,7 +174,9 @@ mod tests {
             status: FileStatus::Modified,
             staged: true,
         });
-        assert_eq!(compose(both, None).dirty_files, 1);
+        let both = compose(both, None);
+        assert_eq!(both.dirty_files, 1);
+        assert_eq!(both.dirty_paths, vec!["src/app.rs".to_string()]);
 
         let unpublished = compose(
             StatusSummary { upstream: None, ..clean("feature", 0, 0) },

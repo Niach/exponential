@@ -190,6 +190,23 @@ pub fn validate_branch_arg(branch: &str, op: &str) -> Result<(), GitError> {
     Ok(())
 }
 
+/// FEED-22: where Claude Code parks the worktrees its Agent tool creates
+/// with `isolation: "worktree"` — INSIDE the checkout it runs in, so on the
+/// trunk clone they surface as `?? .claude/` and light the "uncommitted
+/// files" indicator although nothing edited the trunk. Excluded via the
+/// clone's `.git/info/exclude` ([`ensure_trunk_excludes`]), which the common
+/// git dir shares with every linked session worktree. Only the `worktrees/`
+/// subdir: a repo may legitimately commit `.claude/` (commands, settings).
+pub const CLAUDE_WORKTREES_DIR: &str = ".claude/worktrees/";
+
+/// The clone-wide local excludes every trunk clone carries, independent of
+/// any launch: applied by [`crate::clone_manager::ensure`] on clone + reuse
+/// and again by the launcher's seed-file excludes. Best-effort like
+/// [`ensure_local_excludes`] — a bare/odd layout only skips the write.
+pub fn ensure_trunk_excludes(clone: &Path) -> std::io::Result<()> {
+    ensure_local_excludes(clone, &[CLAUDE_WORKTREES_DIR])
+}
+
 /// `<clone>.worktrees/` — sibling of the clone dir (§7.1 layout).
 pub fn worktrees_dir(clone: &Path) -> PathBuf {
     let name = clone
@@ -1346,6 +1363,53 @@ mod tests {
             .unwrap();
         assert!(status.status.success());
         String::from_utf8_lossy(&status.stdout).into_owned()
+    }
+
+    /// FEED-22: a Claude Code agent worktree under `<clone>/.claude/worktrees/`
+    /// must not dirty the trunk — or any linked session worktree, which
+    /// shares the common `info/exclude`.
+    #[test]
+    fn trunk_excludes_hide_claude_agent_worktrees_from_status() {
+        let dir = temp_dir("claude-worktrees");
+        let origin = seed_origin(&dir.0);
+        let clone = dir.0.join("clone");
+        git(
+            &dir.0,
+            &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+
+        ensure_trunk_excludes(&clone).unwrap();
+        ensure_trunk_excludes(&clone).unwrap(); // idempotent on reuse
+        let exclude = fs::read_to_string(clone.join(".git/info/exclude")).unwrap();
+        assert_eq!(exclude.matches(CLAUDE_WORKTREES_DIR).count(), 1);
+
+        // What Claude Code's `isolation: "worktree"` does: a real linked
+        // worktree at `<clone>/.claude/worktrees/agent-<id>`.
+        let agent = clone.join(".claude/worktrees/agent-abc123");
+        fs::create_dir_all(clone.join(".claude/worktrees")).unwrap();
+        git(
+            &clone,
+            &["worktree", "add", "--quiet", "-b", "agent-abc123", agent.to_str().unwrap()],
+        );
+        assert!(agent.join(".git").exists());
+        assert_eq!(git_status(&clone), "", "trunk dirtied by the agent worktree");
+
+        // A session worktree of the same clone is covered by the shared
+        // common git dir — the agent nests its worktrees there too.
+        let session = dir.0.join("clone.worktrees").join("exp-FEED-22");
+        fs::create_dir_all(session.parent().unwrap()).unwrap();
+        git(
+            &clone,
+            &["worktree", "add", "--quiet", "-b", "exp/FEED-22", session.to_str().unwrap()],
+        );
+        fs::create_dir_all(session.join(".claude/worktrees/agent-def456")).unwrap();
+        fs::write(session.join(".claude/worktrees/agent-def456/.git"), "gitdir: x").unwrap();
+        assert_eq!(git_status(&session), "", "session worktree dirtied");
+
+        // Only the worktrees subdir is hidden: a new `.claude/` config file
+        // still shows up for the user to commit.
+        fs::write(clone.join(".claude/settings.json"), "{}").unwrap();
+        assert_eq!(git_status(&clone).trim(), "?? .claude/");
     }
 
     #[test]
