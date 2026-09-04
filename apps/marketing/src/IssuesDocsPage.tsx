@@ -66,15 +66,38 @@ export function IssuesDocsPage() {
               filters show as removable pills under the bar.
             </p>
             <p>
-              Need to move many issues at once? <strong>Bulk select</strong>
-              {` `}
-              rows and change status or priority, add labels, or hand the
-              whole selection to an agent as a{` `}
+              Need to move many issues at once? Click the checkbox gutter to{` `}
+              <strong>bulk select</strong> rows, and the bar in the filter row
+              sets <strong>status</strong>, <strong>priority</strong>,{` `}
+              <strong>assignee</strong> and <strong>labels</strong>, deletes
+              the selection, or hands the whole thing to an agent as a{` `}
               <a href="/docs/coding/#batch-runs">batch coding run</a>.
             </p>
+            <h3>Archiving and deleting a board</h3>
             <p>
-              Deleting a board is a <strong>48-hour soft delete</strong>. An
-              owner can restore it from the trash until the purge sweep runs.
+              Owners get two ways to put a board away, both under{` `}
+              <strong>Team settings → Boards</strong>:
+            </p>
+            <ul>
+              <li>
+                <strong>Archive board</strong> hides it and all of its issues
+                from the whole team — sidebar, search, pickers, every issue
+                list — without deleting anything. Archived boards collect in
+                an <strong>Archived boards</strong> card, and{` `}
+                <strong>Unarchive</strong> brings one back exactly as it was.
+                There is no time limit.
+              </li>
+              <li>
+                <strong>Move to trash</strong> is a{` `}
+                <strong>48-hour soft delete</strong>. The board sits in the{` `}
+                <strong>Trash</strong> card with the time left on it, and{` `}
+                <strong>Restore</strong> works until the purge sweep runs and
+                deletes it (and its attachments) for good.
+              </li>
+            </ul>
+            <p>
+              Either way the board&apos;s prefix stays reserved, so nothing
+              renumbers behind you.
             </p>
           </DocsSection>
 
@@ -100,8 +123,15 @@ export function IssuesDocsPage() {
               <code>completed</code> stamps the completion timestamp, and{` `}
               <code>duplicate</code> points at the issue it duplicates. A custom
               status needs a name, a color and a category;{` `}
-              <code>started</code> caps at four.
+              <code>started</code> caps at four. No builtin lives in{` `}
+              <code>unstarted</code> — it starts empty on every team and reads
+              &ldquo;No statuses yet.&rdquo; until you add one.
             </p>
+
+            <DocShot
+              view="settings-statuses"
+              caption="Team settings → Statuses: the six categories, the locked builtins, and a custom status"
+            />
             <p>
               Priorities are <strong>Urgent</strong>, <strong>High</strong>,
               {` `}
@@ -128,8 +158,8 @@ export function IssuesDocsPage() {
               <li>
                 <strong>Blocks</strong>: headings H1–H3, bullet and ordered
                 lists, task lists (<code>- [ ]</code> / <code>- [x]</code>,
-                checkable from any client), blockquotes, and fenced code
-                blocks.
+                checkable from any client), blockquotes, tables, and fenced
+                code blocks.
               </li>
               <li>
                 <strong>Links and images</strong>: paste or drop an image
@@ -138,6 +168,28 @@ export function IssuesDocsPage() {
               </li>
             </ul>
             <DocsCode language="markdown">{TASK_LIST_SNIPPET}</DocsCode>
+            <h3>Tables</h3>
+            <p>
+              Tables render as a real grid and are edited in place. On the web
+              and in the desktop IDE, hovering a table reveals a{` `}
+              <strong>+</strong> on each axis to append a row or column, and
+              clicking a row or column head opens its menu:{` `}
+              <strong>Insert column left / right</strong>,{` `}
+              <strong>Move column left / right</strong>,{` `}
+              <strong>Delete column</strong> (and the row equivalents), plus{` `}
+              <strong>Delete table</strong>. On a phone you edit cells
+              directly, and <strong>Delete table</strong> is on the keyboard
+              bar. Tables live at the top level of a document: one nested in a
+              list item or a quote is lifted out when the text round-trips.
+            </p>
+            <h3>Emoji</h3>
+            <p>
+              An emoji picker sits on the toolbar and the comment composer,
+              and typing <code>:</code> opens the same catalog as a
+              typeahead, with your recents first. Emoji are inserted as plain
+              unicode, never as a <code>:shortcode:</code>, so they read the
+              same everywhere the markdown ends up.
+            </p>
             <DocsCallout kind="note" title="Deliberately not supported">
               Underline has no GFM representation, so it doesn&apos;t exist
               here. What you write must survive a round-trip through plain
@@ -179,10 +231,18 @@ export function IssuesDocsPage() {
 
             <p>
               The <strong>activity timeline</strong> interleaves comments with
-              events: status changes, label changes, assignments, PR opened,
-              PR merged. <strong>Subscribe</strong> to any issue to get its
-              notifications. Commenting, being assigned, or being mentioned
-              subscribes you automatically.
+              events: issue created, status changes, label changes,
+              assignments, priority changes, PR opened, PR merged — each led
+              by its own icon. <strong>Subscribe</strong> to any issue to get
+              its notifications. Commenting, being assigned, or being
+              mentioned subscribes you automatically.
+            </p>
+            <p>
+              Comments carry <strong>attachments</strong>, not just markdown:{` `}
+              <strong>Add image</strong> and <strong>Attach files</strong> in
+              the composer upload on send, images render as previews under the
+              comment body and other files as chips, and editing a comment
+              adds or removes them.
             </p>
           </DocsSection>
 
@@ -199,7 +259,14 @@ export function IssuesDocsPage() {
 
             <p>
               On iOS and Android the same events arrive as{` `}
-              <strong>push notifications</strong> the moment they happen.
+              <strong>push notifications</strong> the moment they happen. The
+              desktop app can raise real <strong>OS notifications</strong> for
+              them too: its own{` `}
+              <strong>Settings → Notifications</strong> pane has a{` `}
+              <strong>Desktop notifications</strong> switch, per machine, and
+              the per-type switches below it apply to those as well. Nothing
+              notifies you about your own actions, or about a PR your own
+              agent opened.
             </p>
             <h3>The daily email digest</h3>
             <p>
@@ -210,7 +277,7 @@ export function IssuesDocsPage() {
               comes.
             </p>
             <p>
-              Tune it under <strong>Account → Notifications</strong>: per-type
+              Tune it under <strong>Settings → Notifications</strong>: per-type
               preferences, the send hour, and an <strong>hourly</strong>{` `}
               cadence if once a day is too slow. Every digest carries a
               one-click unsubscribe.
@@ -226,6 +293,18 @@ export function IssuesDocsPage() {
               <code>exp/EXP-42</code>) and one linked pull request. The PR
               state (open, merged) is tracked on the issue automatically.
             </p>
+            <h3>The base branch</h3>
+            <p>
+              A board picks the branch its work starts from. The board create
+              and settings forms have one <strong>Repository</strong> select
+              (<strong>No repository</strong>, the connected repos, or{` `}
+              <strong>Connect another repository…</strong>) and a{` `}
+              <strong>Branch</strong> picker under it. The repository&apos;s
+              own default is tagged, and picking it clears the pin. Without a
+              board pin, the team&apos;s per-repository default-branch
+              override applies, and without that, GitHub&apos;s default —
+              resolved live, never assumed.
+            </p>
             <h3>PR automation</h3>
             <p>
               What a PR event does to the issue is a per-team setting:{` `}
@@ -236,6 +315,14 @@ export function IssuesDocsPage() {
               <strong>Done</strong>. Point either event at any of your
               team&apos;s statuses instead, or set it to{` `}
               <strong>Do nothing</strong> and move issues by hand.
+            </p>
+            <p>
+              The same card carries one more switch,{` `}
+              <strong>&ldquo;When a pull request merges, end its coding
+              sessions&rdquo;</strong>, on by default. Turn it off and a merge
+              leaves live <a href="/docs/coding/">coding sessions</a> running.
+              Either way, the session that merged its own pull request always
+              keeps running.
             </p>
             <p>
               The one exception:{` `}

@@ -1,6 +1,7 @@
 /* ─── Small lucide wrapper for the IDE recreation (14px default, product stroke) ─── */
 import type { ComponentType, CSSProperties } from "react"
 import {
+  ArrowUpRight,
   Bell,
   Bot,
   ChevronsLeftRight,
@@ -37,6 +38,7 @@ import {
   CircleX,
   Code,
   File,
+  FlaskConical,
   Folder,
   FolderOpen,
   GitMerge,
@@ -55,6 +57,8 @@ import {
   ListTodo,
   MessageSquare,
   Minus,
+  Monitor,
+  Package,
   Play,
   Plus,
   RefreshCw,
@@ -74,6 +78,7 @@ import {
   User,
   UserPlus,
   X,
+  Zap,
   type LucideProps,
 } from "lucide-react"
 
@@ -157,6 +162,14 @@ export const IcBot = wrap(Bot)
 export const IcLifeBuoy = wrap(LifeBuoy)
 export const IcSparkles = wrap(Sparkles)
 export const IcPanelLeftClose = wrap(PanelLeftClose)
+/* nav-devices = monitor, nav-automations = zap (packages/icons/icons.json) */
+export const IcMonitor = wrap(Monitor)
+export const IcZap = wrap(Zap)
+/* ui-undock = arrow-up-right — the dock's "Open in new window" */
+export const IcArrowUpRight = wrap(ArrowUpRight)
+/* Curated action glyphs the seeded team actions carry (boardIcon set). */
+export const IcPackage = wrap(Package)
+export const IcFlask = wrap(FlaskConical)
 export const IcTrash = wrap(Trash2)
 export const IcEllipsis = wrap(Ellipsis)
 export const IcExternalLink = wrap(ExternalLink)

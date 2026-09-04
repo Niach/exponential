@@ -27,7 +27,7 @@ import {
 } from "./state"
 import { Topbar } from "./Topbar"
 import { Rail } from "./Rail"
-import { SidebarPanel } from "./Sidebar"
+import { ReviewsScreen, SidebarPanel } from "./Sidebar"
 import { IssueDetail } from "./IssueDetail"
 import { FileTab } from "./Files"
 import { ScTab } from "./SourceControl"
@@ -76,6 +76,15 @@ function EmptyState() {
    otherwise. Only issues get a tab chip in the titlebar. */
 function CenterArea() {
   const { tool, tabs, active } = useIde()
+  /* EXP-706: Reviews is a rail SCREEN — it replaces the tool window and the
+     center together, exactly like Devices/Actions/Automations. */
+  if (tool === `reviews`) {
+    return (
+      <div className="ide-center">
+        <ReviewsScreen />
+      </div>
+    )
+  }
   if (tool === `files`) {
     return (
       <div className="ide-center">
@@ -302,7 +311,7 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
           <div className="ide-main">
             <Topbar />
             <div className="ide-main-top">
-              <SidebarPanel />
+              {tool !== `reviews` && <SidebarPanel />}
               <CenterArea />
             </div>
             <TerminalDock />

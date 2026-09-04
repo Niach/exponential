@@ -17,6 +17,7 @@ import {
   IcLifeBuoy,
   IcLock,
   IcMail,
+  IcReopen,
   IcSend,
   IcStickyNote,
   IcSupportOpen,
@@ -71,7 +72,7 @@ export function SupportChatHead({ thread }: { thread: SupportThread }) {
         <div className="web-sup-issuetitle">{thread.title}</div>
       </div>
       <button className="web-outlinebtn" type="button">
-        <IcCheck size={ICON_3} />
+        {thread.resolved ? <IcReopen size={ICON_3} /> : <IcCheck size={ICON_3} />}
         {thread.resolved ? `Reopen ticket` : `Close ticket`}
       </button>
     </div>
@@ -170,13 +171,20 @@ export function SupportThreadRow({
       className={`web-sup-row${selected ? ` is-selected` : ``}${interactive ? ` is-click` : ``}`}
       onClick={interactive ? onClick : undefined}
     >
+      {/* EXP-715: the ticket SUBJECT leads on every client; the reporter and
+          the latest public message sit under it. The stamp keeps its own
+          6rem slot and the unread dot its 8px one, so rows line up. */}
       <span className="web-sup-row1">
-        <span className="web-sup-name">{thread.reporterName}</span>
+        <span className={`web-sup-subject${unread ? ` is-unread` : ``}`}>
+          {thread.title}
+        </span>
         <span className="web-sup-time">{thread.lastSeen}</span>
-        {unread && <span className="web-sup-dot" />}
+        <span className="web-sup-dotslot">
+          {unread && <span className="web-sup-dot" />}
+        </span>
       </span>
       <span className="web-sup-preview">
-        {thread.messages[thread.messages.length - 1]?.body}
+        {`${thread.reporterName} · ${thread.messages[thread.messages.length - 1]?.body ?? ``}`}
       </span>
     </button>
   )
@@ -208,28 +216,31 @@ export function SupportComposer({
   }
   return (
     <div className="web-sup-composer">
-      <div className="web-sup-modes">
-        <button
-          type="button"
-          className={`web-modepill${mode === `reply` ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
-          onClick={interactive ? () => setMode?.(`reply`) : undefined}
-        >
-          <IcMail size={ICON_3} />
-          Reply
-        </button>
-        <button
-          type="button"
-          className={`web-modepill is-note${mode === `note` ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
-          onClick={interactive ? () => setMode?.(`note`) : undefined}
-        >
-          <IcStickyNote size={ICON_3} />
-          Internal note
-        </button>
-      </div>
-      <div className="web-sup-inputrow">
+      {/* EXP-698: the ONE composer card (composer.tsx) — the Reply/Note toggle
+          is its LEADING row, the field sits inside it, and the round submit
+          glyph closes the tool row. Note mode tints only the hairline. */}
+      <div className={`web-sup-card${mode === `note` ? ` is-note` : ``}`}>
+        <div className="web-sup-modes">
+          <button
+            type="button"
+            className={`web-modepill${mode === `reply` ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
+            onClick={interactive ? () => setMode?.(`reply`) : undefined}
+          >
+            <IcMail size={ICON_3} />
+            Reply
+          </button>
+          <button
+            type="button"
+            className={`web-modepill is-note${mode === `note` ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
+            onClick={interactive ? () => setMode?.(`note`) : undefined}
+          >
+            <IcStickyNote size={ICON_3} />
+            Internal note
+          </button>
+        </div>
         <textarea
-          className={`web-sup-input${mode === `note` ? ` is-note` : ``}`}
-          rows={1}
+          className="web-sup-input"
+          rows={2}
           placeholder={
             mode === `reply`
               ? `Reply to ${reporterName}… (emailed to them)`
@@ -240,15 +251,18 @@ export function SupportComposer({
           onChange={(e) => setDraft?.(e.target.value)}
           onKeyDown={interactive ? onComposerKey : undefined}
         />
-        <button
-          className={`web-sup-send${interactive && draft.trim() ? ` is-click` : ``}`}
-          type="button"
-          disabled={!draft.trim()}
-          onClick={interactive ? onSend : undefined}
-          title={mode === `reply` ? `Send reply` : `Save note`}
-        >
-          <IcSend size={ICON_4} />
-        </button>
+        <div className="web-sup-inputrow">
+          <button
+            className={`web-sup-send${interactive && draft.trim() ? ` is-click` : ``}`}
+            type="button"
+            disabled={!draft.trim()}
+            onClick={interactive ? onSend : undefined}
+            title={mode === `reply` ? `Send reply` : `Save note`}
+            aria-label={mode === `reply` ? `Send reply` : `Save note`}
+          >
+            <IcSend size={27.75} />
+          </button>
+        </div>
       </div>
     </div>
   )

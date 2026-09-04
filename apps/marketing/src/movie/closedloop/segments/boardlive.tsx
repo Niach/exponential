@@ -2,9 +2,11 @@
 // EXP-385): multiplayer vibecoding. Opens FULLY COMPOSED — local frame 0 is
 // the checked-in poster frame (bun run movie:poster): the whole IDE with
 // EXP-151 open in Backlog and the phone beside it showing the SAME board in
-// the real mobile app. A presence facepile pops into the titlebar, Mara's
-// colored remote cursor drags EXP-149 Backlog → In Progress, the list regroups
-// with her AND the push banner drops ("Mara changed EXP-149 to In Progress"),
+// the real mobile app. EXP-149 moves Backlog → In Progress UNDER the local
+// user — the way a teammate's change actually arrives: no presence facepile
+// and no remote cursor (the product ships neither; there is no presence shape),
+// just the row regrouping live AND the push banner dropping with the real
+// notification copy ("Mara changed EXP-149 to In Progress"),
 // a teammate's live edit flashes onto EXP-150. ONE static framing with a
 // slow push — the camera never jumps (EXP-388). All beats are LOCAL frames.
 
@@ -15,7 +17,6 @@ import {
   Camera,
   Caption,
   CursorLayer,
-  RemoteCursor,
   WindowChassis,
   shotKeys,
   type CamKey,
@@ -43,10 +44,8 @@ import {
   COPY,
   LIVE_EDIT_ID,
   NEW_ISSUE_ID,
-  PRESENCE_USERS,
   PUSH_NOTIFICATION,
   REMOTE_DRAG_ID,
-  REMOTE_USER,
 } from "../fixtures"
 import { OVERLAP, SEGMENT_DURATIONS } from "../timeline"
 import {
@@ -113,17 +112,6 @@ const CAMERA_KEYS_PT: CamKey[] = shotKeys([
 // AFTER it, EXP-149 lands at 274 (under EXP-148) and EXP-150 rises to 134;
 // everything from h:in-progress down is unmoved. Cursor Ys are row centers
 // (top + 14).
-const REMOTE_KEYS: CursorKey[] = [
-  { f: B.remoteIn, x: 250, y: 150 },
-  { f: 44, x: 360, y: 148 }, // EXP-149, still in Backlog
-  { f: B.dragFrom, x: 360, y: 148 },
-  { f: B.dragTo, x: 360, y: 288 }, // dropped under EXP-148 in In Progress
-  { f: 92, x: 360, y: 288 },
-  { f: 118, x: 430, y: 344 }, // idles over EXP-144 in Done
-  { f: 150, x: 430, y: 344 },
-  { f: B.remoteOut, x: 120, y: 250 },
-]
-
 const LOCAL_KEYS: CursorKey[] = [
   { f: 0, x: 900, y: 420 },
   { f: 52, x: 900, y: 420 },
@@ -184,12 +172,7 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
       <AbsoluteFill>
         <Camera keys={portrait ? CAMERA_KEYS_PT : CAMERA_KEYS} frame={frame}>
           <WindowChassis>
-            <TitleBar
-              frame={frame}
-              tabs={[TAB_151]}
-              activeId="exp151"
-              presence={{ users: PRESENCE_USERS, at: B.presenceAt }}
-            />
+            <TitleBar frame={frame} tabs={[TAB_151]} activeId="exp151" />
             <ExpandedRail
               frame={frame}
               active="board"
@@ -234,17 +217,6 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
 
             <DockCollapsedStrip frame={frame} count={1} />
 
-            {/* Mara's remote cursor drags the row; the local cursor moves at
-                the same time — simultaneity is the story. */}
-            <RemoteCursor
-              keys={REMOTE_KEYS}
-              clicks={[B.dragPress]}
-              frame={frame}
-              from={B.remoteIn}
-              to={B.remoteOut}
-              name={REMOTE_USER.name}
-              color={REMOTE_USER.color}
-            />
             {/* to reaches into the cross-fade overrun (EXP-482) so the
                 cursor doesn't pop off while the clip is still opaque */}
             <CursorLayer

@@ -1,8 +1,11 @@
 // closedloop/segments/reviewmerge.tsx — clip 3 (235f, refocused by EXP-388):
-// ONE surface, one framing. The rail sits on Reviews, the PR's diff paints
-// into the PrDiff center screen (the screen Reviews rows open — the old
-// Changes tab is gone), and the two-stage merge runs ON the review row
-// (Merge → Confirm merge → Merging…). The phone beside the window shows the
+// ONE surface, one framing. The PR's diff paints into the PrDiff center
+// screen (the screen Reviews rows open — the old Changes tab is gone) beside
+// the board's issue list, exactly as shots/review-diff/desktop.webp frames it;
+// the rail's Reviews entry carries its green open-PR dot. EXP-706 retired the
+// docked Reviews TOOL window (Reviews is a tab-less full-page screen now), so
+// the two-stage merge runs where the product puts it: the diff header's own
+// merge cluster (Merge → Confirm merge → Merging…). The phone beside the window shows the
 // REAL mobile issue detail: its coding/PR card flips "Ready for review" →
 // "Merged" and the status chip lands on Done as the merge completes.
 // PORTRAIT (FEED-20): the phone IS the clip — it shows the mobile Review
@@ -12,7 +15,7 @@
 
 import React from "react"
 import { AbsoluteFill, interpolate } from "remotion"
-import { PAGE_FONT, WIN } from "../../ships/theme"
+import { C, PAGE_FONT, WIN } from "../../ships/theme"
 import {
   Camera,
   Caption,
@@ -23,10 +26,9 @@ import {
   type CursorKey,
 } from "../../ships/rig"
 import {
-  ReviewsTool,
+  BoardActions,
+  BoardTool,
   SidebarPane,
-  reviewsMergeCenter,
-  type MergeState,
 } from "../../ships/surfaces/board"
 import {
   DockCollapsedStrip,
@@ -34,19 +36,23 @@ import {
   TitleBar,
   type ChromeTab,
 } from "../../ships/surfaces/chrome"
-import { PrDiffPane } from "../../ships/surfaces/diffview"
+import {
+  PrDiffPane,
+  prDiffMergeCenter,
+  type PrMergeState,
+} from "../../ships/surfaces/diffview"
 import { PhoneChassis } from "../surfaces/steerphone"
 import { IssueScreen } from "../surfaces/mobileui"
 import { ReviewPhoneScreen } from "../surfaces/reviewphone"
 import {
   CL,
+  CL_BOARD,
   CL_DIFF_FILES,
   CL_DIFF_ROWS,
   CL_FILE_STATS,
   CL_ISSUE,
   CL_LABELS,
   CL_PR_HEAD,
-  CL_REVIEW_ROW,
   COPY,
   NEW_ISSUE_ID,
   PHONE_START,
@@ -98,10 +104,15 @@ const CAMERA_KEYS_PT: CamKey[] = shotKeys([
 ])
 
 // ── Cursor ────────────────────────────────────────────────────────────────────
-// Derived from the Reviews card metrics (EXP-471 restyle) so the pointer keeps
+// Derived from the PrDiff header cluster (EXP-706) so the pointer keeps
 // landing on the capsule as it morphs Merge → Confirm merge.
-const MERGE_BTN = reviewsMergeCenter(`rest`)
-const CONFIRM_BTN = reviewsMergeCenter(`confirm`)
+const MERGE_BTN = prDiffMergeCenter(CENTER_X, CONTENT_TOP, CENTER_W, `rest`)
+const CONFIRM_BTN = prDiffMergeCenter(
+  CENTER_X,
+  CONTENT_TOP,
+  CENTER_W,
+  `confirm`
+)
 
 const CURSOR_KEYS: CursorKey[] = [
   { f: 74, x: 900, y: 400 },
@@ -134,7 +145,7 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
   const heroStatus =
     frame >= B.mergedAt ? ("done" as const) : ("in_progress" as const)
 
-  const mergeState: MergeState =
+  const mergeState: PrMergeState =
     frame < B.confirmAt
       ? "rest"
       : frame < B.mergingAt
@@ -148,13 +159,6 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
       : mergeState === "merging"
         ? B.mergingAt
         : undefined
-  const rowFade = interpolate(
-    frame,
-    [B.rowFadeFrom, B.rowFadeTo],
-    [0, 1],
-    CLAMP_EASE
-  )
-
   const phoneRise = interpolate(frame, [4, 18], [0, 1], CLAMP_EASE)
 
   return (
@@ -169,22 +173,26 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
             />
             <ExpandedRail
               frame={frame}
-              active="reviews"
+              active="board"
+              dots={["reviews"]}
+              dotColor={C.green}
               boardName={CL.project}
               userName={CL.user}
               userInitial={CL.initials}
             />
 
-            {/* sidebar: reviews — the merge runs on the row */}
-            <SidebarPane bottomInset={dockH}>
-              <ReviewsTool
+            {/* sidebar: the board's issue list — the PrDiff is a CENTER
+                screen, so the list pane behind it stays put (EXP-706) */}
+            <SidebarPane actions={<BoardActions />} bottomInset={dockH}>
+              <BoardTool
                 frame={frame}
-                mergeState={mergeState}
-                morphAt={mergeMorphAt}
-                hover={frame >= B.mergeHover && frame < B.confirmAt}
-                rowFade={rowFade}
-                row={CL_REVIEW_ROW}
-                project={CL.project}
+                rows={CL_BOARD}
+                overrides={{
+                  [NEW_ISSUE_ID]: {
+                    status: frame >= B.mergedAt ? "done" : "in_progress",
+                  },
+                }}
+                selectedId={NEW_ISSUE_ID}
               />
             </SidebarPane>
 
@@ -208,6 +216,9 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
                 files={CL_DIFF_FILES}
                 rows={CL_DIFF_ROWS}
                 fileStats={CL_FILE_STATS}
+                mergeState={mergeState}
+                mergeMorphAt={mergeMorphAt}
+                mergeHover={frame >= B.mergeHover && frame < B.confirmAt}
               />
             </div>
 

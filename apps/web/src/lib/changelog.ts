@@ -43,6 +43,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Mobile**: comment @mentions render as member pills on iOS, review diffs scroll sideways under a compact per-file header, empty boards show an icon with a hint, and the settings, action and start-coding sheets follow each platform's idioms.
 - **Desktop**: every dialog shares the same input focus ring, traffic lights and danger-zone chrome; the search palette grows with its results; support inbox rows show the ticket subject.
 - **Web**: the mobile issue sheet lists properties as rows with a proper header, the storage table shows uploader and date as it widens, and the widget editor preview no longer clips.
+- **One settings look**: team, account and machine settings drop the boxes inside boxes for one grouped glass list, with a single section header style and round icon buttons for every row action, on web, the desktop app and iOS.
 - **Android**: search results show their group counts.`,
   },
   {
@@ -147,6 +148,18 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Latest changes is the whole branch**: it used to show only what the agent had not committed yet, so it emptied out the moment it committed. It now shows everything the branch changes.`,
   },
   {
+    id: `2026-08-devices-actions-automations`,
+    date: `2026-08-30`,
+    title: `Devices, Actions and Automations split up`,
+    summary: `The Agents surface becomes three: Devices for your machines, Actions for what you run, Automations for what runs itself.`,
+    body: `- **Three entries**: the sidebar and the desktop rail list Devices, Actions and Automations separately instead of folding them into one Agents page. Agents is now Devices, and it keeps the live-session dot.
+- **On phones**: Devices and Actions are their own tabs on iOS, Android and the mobile web, and Search moved out of the bottom bar into the board header next to Filter.
+- **Suggestions live in Getting started**: on a desktop viewport the ready-made action ideas moved into Getting started as a "Suggested actions" tab, reachable from the lightbulb next to New action and New automation. Their buttons now say Use.
+- **Fix merge conflicts is not a card**: the builtin is hidden from the actions list. It still starts from Reviews and over the agent tools.
+- **Runs report a summary**: a finished run's self-reported Done, Blocked or No changes outcome is gone on every client; the agent's written summary is what a run leaves behind, rendered as markdown, and a live row simply says Running.
+- **One list of finished runs**: the Automations tab's "Recent automated runs" is now the only place finished runs are listed.`,
+  },
+  {
     id: `2026-08-offline-and-conflicts`,
     date: `2026-08-29`,
     title: `Honest offline handling`,
@@ -154,7 +167,9 @@ export const CHANGELOG: ChangelogEntry[] = [
     body: `- **Offline banner**: the web app and Android now show the same "showing cached data" banner iOS and the desktop already had, with a Retry button. Your boards keep working from what is already synced.
 - **Plain language**: a failed action used to surface whatever the browser or the OS said, things like "Failed to fetch" or "Unable to resolve host". Every client now says "You're offline. Check your connection and try again." instead.
 - **Faster catch up after sleep**: the desktop app notices when the machine has been asleep and restarts its sync straight away, with a small spinner next to your account while it catches up, so you can tell stale data from live data.
-- **Fix conflicts when it helps**: the recovery run is now offered only for a real merge conflict. A stale base branch, a branch protection rule or a dropped connection no longer hand you a button that cannot fix them.`,
+- **Fix conflicts when it helps**: the recovery run is now offered only for a real merge conflict. A stale base branch, a branch protection rule or a dropped connection no longer hand you a button that cannot fix them.
+- **Screenshot after a delay**: the feedback widget's capture button gains an Off, 3s and 5s hold with a countdown, so a reporter can open a menu or a popup and still catch it in the shot.
+- **More agent tools**: agents reach the rest of the product over MCP now that tools are looked up on demand: custom statuses, coding sessions (list, start, kill), your machines, automations, and helpdesk threads on teams that have the helpdesk turned on.`,
   },
   {
     id: `2026-08-agent-usage-and-accounts`,
@@ -288,6 +303,14 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Your agent's work counts as yours**: filing an issue mid-session and having your agent implement it no longer notifies you about the resulting pull request, even when nothing can name who opened it.
 - **Shared machines**: the owner of a machine hosting someone else's coding session no longer gets notified about that session's pull requests.
 - **No more doubles**: a pull request event can no longer produce two inbox rows when the two paths that report it disagree about who acted.`,
+  },
+  {
+    id: `2026-08-mobile-issue-list-cards`,
+    date: `2026-08-23`,
+    title: `Calmer issue lists on a phone`,
+    summary: `The tinted, pinned status bands on mobile issue lists are gone, and the mobile web list now looks like the native apps.`,
+    body: `- **Plain headers**: the status-tinted band the iOS and Android lists picked up last week reads as heavy on a phone. The header is an ordinary row again, on the app background, and it scrolls with its group instead of sticking under the navigation bar.
+- **Mobile web matches the apps**: below the desktop breakpoint the issue list is the natives' stack of rounded glass cards in a 16px gutter, with the identifier, label color dots, the assignee avatar on multi-member teams and a chevron. Desktop and the desktop IDE keep their pinned tinted headers and table rows.`,
   },
   {
     id: `2026-08-mobile-lists-create-polish`,
@@ -560,7 +583,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: `2026-08-08`,
     title: `Statuses read the same everywhere`,
     summary: `Issue lists now group statuses in the order your settings page lays them out, on web, desktop, iOS, and Android.`,
-    body: `- **One status order**: issue lists group by status in the same order the statuses settings page shows, starting with Backlog and Todo instead of the started statuses.
+    body: `- **One status order**: issue lists group by status in the same order the statuses settings page shows, starting with the unstarted statuses instead of the started ones.
 - **Everywhere at once**: lists, status pickers, and the settings page all read the same top to bottom, on all four apps.`,
   },
   {

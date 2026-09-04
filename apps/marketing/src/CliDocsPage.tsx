@@ -25,7 +25,7 @@ const COMMANDS: { name: string; desc: string }[] = [
   { name: `exponential status`, desc: `Account, device id, daemon state, installed agents, and git in one summary.` },
   { name: `exponential doctor`, desc: `Check git and the three agent CLIs, and say what's missing.` },
   { name: `exponential code <ISSUE> [--agent claude|codex|pi] [--model <m>] [--effort <e>] [--plan] [--detach]`, desc: `Start a coding session for an issue, by identifier ("EXP-42") or id.` },
-  { name: `exponential run <action> [--team <id>] [--input k=v ...]`, desc: `Run a team action by name or id — the same agent flags apply.` },
+  { name: `exponential run <action> [--team <id>] [--input k=v ...] [--agent <a>] [--model <m>] [--effort <e>] [--plan] [--detach]`, desc: `Run a team action by name or id — the same agent flags apply.` },
   { name: `exponential daemon [--foreground] [--label <name>]`, desc: `Run the remote-start daemon in this terminal.` },
   { name: `exponential daemon install | uninstall | status`, desc: `Manage the systemd user unit (Linux) or launchd agent (macOS).` },
   { name: `exponential update`, desc: `Self-update from the latest CLI release.` },
@@ -187,12 +187,13 @@ exponential daemon install
             </DocsCallout>
             <p>
               The machine then shows up under{` `}
-              <strong>Agents → My machines</strong> in the web app, with its
+              <strong>Devices → My machines</strong> in the web app, with its
               online state and the agents it has installed. Start a coding
               session or an <a href="/docs/actions/">action</a> there and
               pick that machine, and it runs on it exactly like it would on
               the desktop app: the same launcher, the same live activity
-              feed, the same steering from web, iOS, or Android. Batch runs
+              feed, the same steering from web, iOS, or Android. Batch runs,
+              chat runs, <a href="/docs/actions/#automations">automations</a>{` `}
               and the built-in <em>Fix merge conflicts</em> action work too.
             </p>
             <p>
@@ -210,8 +211,43 @@ exponential daemon install
               your account, with your own agent subscription and your own
               GitHub access. A machine with no agent CLI installed registers
               as offline until you install one; the daemon notices without a
-              restart.
+              restart. A start aimed at a machine that is offline is refused
+              on the spot rather than queued.
             </p>
+            <h3>Running it from a phone</h3>
+            <p>
+              Everything you would set at the desk is on the machine&apos;s
+              row and in its <strong>Device settings</strong>, from any client:
+            </p>
+            <ul>
+              <li>
+                Its <strong>Name</strong>, whether it is your{` `}
+                <strong>Default device</strong> (preselected in every picker,
+                marked with a star in the list), and which team it is{` `}
+                <strong>Shared with</strong> — teammates can then start runs
+                on it. Withdrawing the share ends their running sessions.
+              </li>
+              <li>
+                Its launch defaults: <strong>Default agent</strong>, and per
+                agent the <strong>Model</strong>, effort,{` `}
+                <strong>Ultracode</strong> and <strong>Plan mode</strong>{` `}
+                a run starts with.
+              </li>
+              <li>
+                Each agent&apos;s <strong>account</strong> and rate-limit{` `}
+                <strong>usage</strong>. <strong>Login</strong> /{` `}
+                <strong>Switch account</strong> runs the agent&apos;s own
+                sign-in on the machine and hands you back the code and link
+                as an answerable card, so a headless box never needs a browser
+                on it.
+              </li>
+              <li>
+                Its <strong>Worktrees</strong>, with{` `}
+                <strong>Prune merged worktrees</strong> and{` `}
+                <strong>Remove worktree</strong>; both are queued and run when
+                the machine is next online.
+              </li>
+            </ul>
           </DocsSection>
 
           {/* ── 05 Updating ── */}
@@ -223,8 +259,11 @@ exponential update
             <p>
               It checks the latest CLI release, verifies the download against
               the release checksums, and replaces the running binary in
-              place. If your instance has stopped supporting the version
-              you&apos;re on, every command says so and points here.
+              place. It also restarts an idle service-managed daemon onto the
+              new build. If your instance has stopped supporting the version
+              you&apos;re on, every command says so and points here — and a
+              daemon that gets locked out this way updates itself right away
+              rather than waiting for its next scheduled check.
             </p>
             <p>
               You rarely need it, though: on its first run the CLI asks
@@ -232,10 +271,10 @@ exponential update
               auto-update on, commands check once a day and restart
               themselves on the new build, and the daemon updates on its own
               schedule, waiting until no session is running before it
-              restarts. Each machine&apos;s row on the Agents page also shows
+              restarts. Each machine&apos;s row on the Devices page also shows
               its version with an Update button that asks the daemon to
               update right away — while sessions are still running the row
-              reads &quot;Update queued&quot; and the update applies as soon
+              reads &quot;Queued&quot; and the update applies as soon
               as the last one closes. The stored choice is{` `}
               <code>cliAutoUpdate</code> in settings.json.
             </p>

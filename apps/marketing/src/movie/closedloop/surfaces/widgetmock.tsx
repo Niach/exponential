@@ -34,7 +34,10 @@ export const PANEL_RECT = { x: 1168, y: 422, w: 380, h: 482 } as const
 const PAD = 16
 const INNER_W = PANEL_RECT.w - 2 * PAD // 348
 const HEADER_H = 44
-const SHOT = { x: PAD, y: 60, w: INNER_W, h: 170 }
+const SHOT = { x: PAD, y: 60, w: INNER_W, h: 138 }
+// `.exp-images` — the always-present "Add image" dashed pill under the shot
+// (packages/widget/src/ui/Panel.tsx; pictures can also be dropped or pasted).
+const ADD_IMAGE = { y: 206, h: 28 }
 const TITLE_INPUT = { x: PAD, y: 260, w: INNER_W, h: 36 }
 const DETAILS_INPUT = { x: PAD, y: 326, w: INNER_W, h: 64 }
 const SEND = { x: PAD, y: 404, w: INNER_W, h: 38 }
@@ -195,7 +198,11 @@ export const WidgetPanel: React.FC<WidgetPanelProps> = ({
           padding: "0 16px",
         }}
       >
-        <span style={{ fontSize: 14, fontWeight: 600, color: W.fg }}>{REPORT.panelTitle}</span>
+        {/* `viewTitles` (Panel.tsx): the header flips once the submission
+            lands — "Send feedback" → "Feedback sent". */}
+        <span style={{ fontSize: 14, fontWeight: 600, color: W.fg }}>
+          {successT > 0.5 ? REPORT.sentTitle : REPORT.panelTitle}
+        </span>
         <span style={{ color: W.muted, display: "flex" }}>
           <XIcon size={13} />
         </span>
@@ -251,9 +258,9 @@ export const WidgetPanel: React.FC<WidgetPanelProps> = ({
               />
             </svg>
           ) : null}
-          {/* Annotate / Retake chips */}
+          {/* Annotate / Retake / Remove chips (.exp-shot-actions) */}
           <div style={{ position: "absolute", top: 6, right: 6, display: "flex", gap: 6 }}>
-            {["Annotate", "Retake"].map((chip) => (
+            {["Annotate", "Retake", "Remove"].map((chip) => (
               <span
                 key={chip}
                 style={{
@@ -270,6 +277,37 @@ export const WidgetPanel: React.FC<WidgetPanelProps> = ({
               </span>
             ))}
           </div>
+        </div>
+
+        {/* the Add-image row (.exp-add-image) */}
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: ADD_IMAGE.y,
+            height: ADD_IMAGE.h,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <span
+            style={{
+              height: ADD_IMAGE.h,
+              boxSizing: "border-box",
+              display: "flex",
+              alignItems: "center",
+              padding: "0 10px",
+              borderRadius: 8,
+              border: `1px dashed ${W.border}`,
+              fontSize: 11.5,
+              fontWeight: 500,
+              color: W.muted,
+            }}
+          >
+            Add image
+          </span>
         </div>
 
         {/* Title */}

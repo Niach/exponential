@@ -62,7 +62,10 @@ function NotificationList() {
                     {n.title}
                   </span>
                   <span className="web-notif-time">{n.time}</span>
-                  {unread && <span className="web-notif-dot" />}
+                  {/* The dot keeps its 8px slot whether or not it is lit. */}
+                  <span className="web-notif-dotslot">
+                    {unread && <span className="web-notif-dot" />}
+                  </span>
                 </span>
                 <span className="web-notif-sentence">{n.sentence}</span>
               </span>

@@ -336,8 +336,8 @@ GITHUB_APP_CLIENT_SECRET=<oauth client secret>
             </p>
             <DocsCallout kind="note" title="If the App loses repo access">
               Drop a repo from the installation on GitHub and{` `}
-              <strong>Team settings → Repositories</strong> flags it with a{` `}
-              <strong>&quot;lost access&quot;</strong> warning and a re-grant
+              <em>Team settings → Repositories</em> flags it with a{` `}
+              <em>&quot;lost access&quot;</em> warning and a re-grant
               link; coding-session token minting fails with a
               clear message instead of handing out a broken token.
             </DocsCallout>
@@ -481,7 +481,7 @@ docker run -d \\
               app signs the short-lived tickets clients present, the relay
               verifies them. Without it the relay answers <code>503</code> on
               everything but <code>/healthz</code>, and the web app treats the
-              subsystem as off unless <strong>both</strong>{` `}
+              subsystem as off unless <em>both</em>{` `}
               <code>STEER_RELAY_URL</code> and <code>STEER_RELAY_SECRET</code>
               {` `}
               are set.
@@ -629,9 +629,17 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
                 <code>true</code> so the first account works; flip to{` `}
                 <code>false</code> once onboarded.
               </EnvVar>
+              <EnvVar name="AUTH_RATE_LIMIT_ENABLED">
+                Better Auth&apos;s limiter on <code>/api/auth/*</code>{` `}
+                (200/min, get-session 600/min). On in production builds, off
+                in dev. Set <code>false</code> only when a proxy in front
+                already rate-limits those routes.
+              </EnvVar>
               <EnvVar name="INITIAL_ADMIN_EMAILS">
                 Comma-separated emails auto-promoted to instance admin at
-                startup.
+                startup — the only way to reach the admin console (users,
+                teams, and the instance-wide Performance and Email pages).
+                Set it before your first sign-in.
               </EnvVar>
               <EnvVar name="OIDC_PROVIDERS">
                 JSON array of OIDC provider configs (Authentik, Keycloak,
@@ -644,6 +652,28 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
               </EnvVar>
               <EnvVar name="GOOGLE_LOGIN_ENABLED">
                 Show Google sign-in button (default: <code>false</code>).
+              </EnvVar>
+              <EnvVar name="APPLE_CLIENT_ID">
+                Sign in with Apple: the Apple <em>Services ID</em> (not the
+                app bundle id), with{` `}
+                <code>{`\${APP_URL}/api/auth/callback/apple`}</code>{` `}
+                registered as a Return URL.
+              </EnvVar>
+              <EnvVar name="APPLE_PRIVATE_KEY">
+                The Sign-in-with-Apple <code>.p8</code> key, base64-encoded.
+                The server mints a fresh ES256 client secret from it at every
+                boot (Apple caps a hand-made one at six months). Needs{` `}
+                <code>APPLE_KEY_ID</code> and <code>APPLE_TEAM_ID</code>{` `}
+                alongside.
+              </EnvVar>
+              <EnvVar name="APPLE_CLIENT_SECRET">
+                A pre-minted client secret instead, if you would rather rotate
+                it yourself. It wins over the <code>.p8</code> path.
+              </EnvVar>
+              <EnvVar name="APPLE_LOGIN_ENABLED">
+                Show the Apple sign-in button (default: <code>false</code>).
+                Add <code>APPLE_APP_BUNDLE_IDENTIFIER</code> only if the iOS
+                app exchanges a native Apple token directly.
               </EnvVar>
               <EnvVar name="GITHUB_APP_ID">
                 GitHub App numeric ID, required to connect repositories (coding
@@ -671,6 +701,12 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
               <EnvVar name="GITHUB_POLLING">
                 Set to <code>true</code> to poll for PR merges instead, for
                 servers behind NAT that webhooks can&apos;t reach.
+              </EnvVar>
+              <EnvVar name="GITHUB_TOKEN">
+                Optional personal access token, used <strong>only</strong> for
+                public-repo reads (PR diffs, the Reviews queue) on repos the
+                GitHub App is not installed on. It lifts GitHub&apos;s
+                anonymous 60 requests/hour per IP to 5000. No scopes needed.
               </EnvVar>
               <EnvVar name="SMTP_HOST">
                 SMTP server for all outgoing mail (self-host transport). Unset
@@ -706,6 +742,15 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
               <EnvVar name="EMAIL_REPLY_TO">
                 Monitored default Reply-To on every outbound email.
               </EnvVar>
+              <EnvVar name="SES_WEBHOOK_SECRET">
+                Secret in the SES bounce/complaint webhook URL{` `}
+                (<code>
+                  {`\${APP_URL}/api/webhooks/ses?secret=…`}
+                </code>
+                , subscribed from an SNS topic on the identity&apos;s Bounce +
+                Complaint notifications; the route auto-confirms). Unset ⇒ the
+                webhook answers <code>503</code> and bounce tracking is off.
+              </EnvVar>
               <EnvVar name="STEER_RELAY_URL">
                 Steer relay WebSocket URL (e.g.{` `}
                 <code>wss://issues.example.com/steer</code> — Caddy serves the
@@ -721,6 +766,15 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
                 either missing the web app reports the subsystem as disabled,
                 and a secretless relay answers <code>503</code>.
               </EnvVar>
+              <EnvVar name="STEER_RELAY_INTERNAL_URL">
+                Where the <em>web container</em> reaches the relay for its own
+                server-to-server calls (device lists, remote start, kill). The
+                shipped compose defaults it to{` `}
+                <code>http://steer-relay:4002</code> so those calls stay
+                in-network — home routers often lack hairpin NAT, which would
+                otherwise break remote start while phones and desktops connect
+                fine. Only override it when the relay lives elsewhere.
+              </EnvVar>
               <EnvVar name="PUSH_RELAY_URL">
                 Push relay URL. Only meaningful with self-built mobile apps,
                 see <a href="#push">Push notifications</a>.
@@ -729,6 +783,34 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
                 Shared secret between the web app and the push relay (sent as
                 the <code>x-relay-secret</code> header). Must match the relay
                 process&apos;s env.
+              </EnvVar>
+              <EnvVar name="CLIENT_MIN_VERSION_ANDROID">
+                Minimum client version, one var per platform —{` `}
+                <code>_ANDROID</code>, <code>_IOS</code>,{` `}
+                <code>_DESKTOP</code>, <code>_CLI</code>. A client below the
+                floor gets HTTP <code>426</code> and a blocking update screen
+                instead of mystery failures. Always the{` `}
+                <strong>marketing version</strong> (never an Android
+                versionCode or an iOS build number). Unset ⇒ the gate is off.
+                Raise them at every upgrade to the versions the release notes
+                name.
+              </EnvVar>
+              <EnvVar name="CLIENT_LATEST_VERSION_ANDROID">
+                The version a gated client is told to update to, same four
+                suffixes. Informational only — it blocks nothing.
+              </EnvVar>
+              <EnvVar name="WIDGET_RATE_LIMIT_PER_IP_HOURLY">
+                Token buckets on the public widget endpoints, all optional. The
+                {` `}
+                <code>PER_IP</code>/<code>IP_BURST</code> pair (60/5) bounds
+                submissions per address; <code>PER_KEY</code>/
+                <code>KEY_BURST</code> (60/10) bounds them per widget, and is
+                self-host-only; <code>PER_RECIPIENT</code>/
+                <code>RECIPIENT_BURST</code> (6/3) bounds the confirmation mail
+                a support submission sends to a typed-in address. The anonymous
+                config read has its own far more generous{` `}
+                <code>WIDGET_CONFIG_RATE_LIMIT_PER_IP_HOURLY</code>/
+                <code>…_IP_BURST</code> (600/60).
               </EnvVar>
             </dl>
           </DocsSection>
@@ -748,10 +830,24 @@ docker compose pull && docker compose up -d
               By default (<code>IMAGE_TAG</code> unset ⇒ <code>latest</code>)
               this tracks upstream <code>master</code>. To move deliberately
               instead, pin a release in <code>.env</code> (e.g.{` `}
-              <code>IMAGE_TAG=0.18.13</code> from the{` `}
+              <code>IMAGE_TAG=0.18.55</code> from the{` `}
               <a href={`${LINKS.github.repo}/tags`}>release tags</a>) and bump
               it when you choose; the same tag applies to the steer relay
               image.
+            </p>
+            <p>
+              At every upgrade, also raise the{` `}
+              <a href="#environment">
+                <code>CLIENT_MIN_VERSION_*</code>
+              </a>
+              {` `}
+              floors to the versions the release notes name (and the{` `}
+              <code>CLIENT_LATEST_VERSION_*</code> hints alongside), then{` `}
+              <code>docker compose up -d</code> again. The reverse matters
+              too: an app updated from the stores or the desktop
+              self-updater expects a server at least as new as the release it
+              shipped with, so upgrade the server before, or with, the
+              clients.
             </p>
           </DocsSection>
 

@@ -83,7 +83,7 @@ export function ScTab() {
           View changes
         </button>
         <button className="ide-btn-outline" type="button">
-          Discard changes &amp; reset...
+          Discard changes &amp; reset…
         </button>
       </div>
       {showDiff ? (

@@ -4,8 +4,11 @@
 //   · a pager row ("9 / 17" + prev/next) with copy-link · subscribe · delete right
 //   · the big title
 //   · ONE bordered PROPERTIES PILL BAR (status · priority · assignee · label ·
-//     due · board) with the light "▷ Start coding" pill at its trailing end
-//   · the green-outlined "<user> coding now · <device>" banner while a session runs
+//     due · board · origin — issue_header.rs `chip_row`) with the light
+//     "▷ Start coding" pill at its trailing end
+//   · that launcher becomes "● Coding… / ⊗ Stop" while a LOCAL run is up
+//     (coding_flow.rs); EXP-698 suppresses the synced coding-now CARD for a
+//     local run, so this pane never draws one
 //   · the markdown description, then the emoji / image / attach affordance row
 //   · a full-bleed hairline, "Activity (n)", the event rows + comments, and the
 //     "Leave a reply..." composer.
@@ -28,7 +31,6 @@ const CLAMP_EASE = { ...CLAMP, easing: EASE } as const
 
 // Contract-sanctioned literals for this surface (matched on the ref shot).
 const DESC_FG = "#d4d4d4" // body paragraph color per contract
-const GREEN_BORDER = "rgba(34,197,94,0.4)" // coding-now banner border
 const PRIMARY_BG = "#ededed" // the light Start coding / New Issue pill
 const PRIMARY_FG = "#18181b"
 
@@ -147,6 +149,13 @@ const IcCode: React.FC<IconProps> = (p) => (
     <path d="m8 6-6 6 6 6" />
   </Svg>
 )
+// EXP-496 origin chip: `MessageSquare` for a widget-filed issue.
+const IcMessageSquare: React.FC<IconProps> = (p) => (
+  <Svg {...p}>
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+  </Svg>
+)
+
 const IcLink: React.FC<IconProps> = (p) => (
   <Svg {...p} sw={1.8}>
     <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
@@ -257,17 +266,30 @@ const activityIconFor = (text: string): React.FC<IconProps> => {
   return IcCircleDot
 }
 
-// One property in the pill bar: a colored glyph + its value.
+// One property chip in the tray: `glass_pill` at the Sm rung (24px capsule,
+// hairline stroke) carrying a colored glyph + its value (pickers.rs
+// `chip_button` / surface.rs `glass_pill`).
 const Prop: React.FC<{
   Icon: React.FC<IconProps>
   color?: string
   children: React.ReactNode
 }> = ({ Icon, color = C.muted, children }) => (
-  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-    <Icon size={14} style={{ color }} />
+  <div
+    style={{
+      height: 24,
+      boxSizing: "border-box",
+      display: "flex",
+      alignItems: "center",
+      gap: 5,
+      padding: "0 8px",
+      borderRadius: 999,
+      border: `1px solid ${C.strokeCard}`,
+    }}
+  >
+    <Icon size={13} style={{ color }} />
     <span
       style={{
-        fontSize: 12.5,
+        fontSize: 12,
         color: C.text,
         whiteSpace: "nowrap",
       }}
@@ -299,6 +321,8 @@ export type DetailIssueContent = {
   due?: string
   project?: string
   projectColor?: string
+  /** EXP-496 origin chip label — `Feedback widget` / `Agent`, else none. */
+  origin?: string
 }
 
 const HERO_ISSUE: DetailIssueContent = {
@@ -327,9 +351,6 @@ export type IssueDetailPaneProps = {
   priority?: Priority
   /** Issue content (title/description/activity/properties). Default: the ships HERO. */
   issue?: DetailIssueContent
-  /** Who is coding, for the banner (defaults to the issue's assignee). */
-  codingUser?: string
-  codingDevice?: string
   width?: number
   height?: number
 }
@@ -341,8 +362,6 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
   status = "backlog",
   priority = "high",
   issue = HERO_ISSUE,
-  codingUser,
-  codingDevice = IDENTITY.device,
   width = DEFAULT_W,
   height = DEFAULT_H,
 }) => {
@@ -384,7 +403,6 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
     marginLeft: PAD_X,
     width: Math.min(PROSE_W, colW),
   }
-  const bannerH = 24
 
   return (
     <div
@@ -470,12 +488,16 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
         <div
           style={{
             marginTop: 10,
-            height: 40,
+            minHeight: 40,
             boxSizing: "border-box",
             display: "flex",
             alignItems: "center",
-            gap: 22,
-            padding: "0 7px 0 14px",
+            // EXP-601: the chips WRAP inside the tray (`flex_wrap` over a
+            // definite width) rather than pushing the launcher off the edge.
+            flexWrap: "wrap",
+            columnGap: 5,
+            rowGap: 8,
+            padding: "6px 7px 6px 14px",
             borderRadius: 12,
             border: `1px solid ${C.strokeCard}`,
           }}
@@ -497,7 +519,49 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
           <Prop Icon={IcCode} color={issue.projectColor ?? "#818cf8"}>
             {issue.project ?? IDENTITY.project}
           </Prop>
-          <div style={{ flex: 1 }} />
+          {/* EXP-496 origin chip — a widget-filed issue always carries it
+              (issue_header.rs `origin_chip`), right after the Board chip. */}
+          {issue.origin ? (
+            <Prop Icon={IcMessageSquare}>{issue.origin}</Prop>
+          ) : null}
+          {/* EXP-601: the action floats on the tray's right edge (`ml_auto`),
+              keeping its distance from the chips even after they wrap. */}
+          <div
+            style={{
+              marginLeft: "auto",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+          {/* EXP-698 / coding_flow.rs: a LOCAL run turns the launcher into a
+              content-sized status dot + label beside Stop — and suppresses the
+              synced coding-now card, which would only double it. */}
+          {codingActive ? (
+            <div
+              style={{
+                flex: "none",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12,
+                color: C.muted,
+                opacity: bannerT,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  flex: "none",
+                  borderRadius: 999,
+                  backgroundColor: C.green,
+                }}
+              />
+              Coding…
+            </div>
+          ) : null}
           <div
             style={{
               height: 26,
@@ -528,38 +592,8 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
               </>
             )}
           </div>
-        </div>
-
-        {/* the green coding-now banner (springs in with the session) */}
-        {bannerT > 0.01 ? (
-          <div
-            style={{
-              marginTop: 10,
-              height: bannerH,
-              boxSizing: "border-box",
-              display: "flex",
-              alignItems: "center",
-              gap: 9,
-              padding: "0 12px",
-              borderRadius: 8,
-              border: `1px solid ${GREEN_BORDER}`,
-              opacity: bannerT,
-            }}
-          >
-            <span
-              style={{
-                width: 6,
-                height: 6,
-                flex: "none",
-                borderRadius: 999,
-                backgroundColor: C.green,
-              }}
-            />
-            <span style={{ fontSize: 12, color: C.text, whiteSpace: "nowrap" }}>
-              {`${codingUser ?? issue.assigneeName ?? IDENTITY.user} coding now · ${codingDevice}`}
-            </span>
           </div>
-        ) : null}
+        </div>
 
       </div>
 
@@ -567,7 +601,7 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
       <div style={prose}>
         <div
           style={{
-            marginTop: bannerT > 0.01 ? 14 : 14 + bannerH + 10,
+            marginTop: 14,
             display: "flex",
             flexDirection: "column",
             gap: 12,

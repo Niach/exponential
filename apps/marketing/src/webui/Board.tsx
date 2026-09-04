@@ -4,11 +4,25 @@
    [checkbox | priority | id | status | title | labels | assignee | due],
    sticky status-washed group headers). The strip along the bottom is the
    agent dock (agent-dock/agent-dock.tsx): one tab per live coding session. */
-import { GROUP_ORDER, ISSUES, MY_ISSUE_IDS, STATUS_LABEL, type Issue } from "../ide/data"
+import {
+  getIssue,
+  GROUP_ORDER,
+  ISSUES,
+  MY_ISSUE_IDS,
+  STATUS_LABEL,
+  type Issue,
+} from "../ide/data"
 import { useWeb } from "./state"
 import { LabelPill, PriorityGlyph, StatusGlyph, WebAvatar } from "./bits"
 import { AGENT_SESSIONS, WEB_GROUP_ORDER } from "./data"
-import { ICON_3, ICON_35, IcCalendar, IcChevRight, IcFilter } from "./icons"
+import {
+  ICON_3,
+  ICON_35,
+  IcCalendar,
+  IcChevRight,
+  IcClose,
+  IcFilter,
+} from "./icons"
 
 /* The demo board's status groups in the app's display order. GROUP_ORDER
    (ide/data) supplies the labels; contract displayOrder supplies the order. */
@@ -110,8 +124,9 @@ export function WebFilterBar() {
   )
 }
 
-/* Agent dock (agent-dock.tsx): a h-9 glass strip of session tabs, each a
-   pinging green dot + the identifier + the device that runs it. */
+/* Agent dock (agent-dock.tsx): a h-9 glass strip of RichTab session tabs
+   (rich-tab.tsx) — a pinging green dot, the mono identifier, the truncating
+   issue title, the device as a trailing muted badge, and a close glyph. */
 export function WebAgentDock() {
   if (AGENT_SESSIONS.length === 0) return null
   return (
@@ -120,7 +135,11 @@ export function WebAgentDock() {
         <span className="web-dock-tab" key={s.issueId}>
           <span className="web-dock-dot" />
           <span className="web-dock-id">{s.issueId}</span>
+          <span className="web-dock-title">{getIssue(s.issueId).title}</span>
           <span className="web-dock-device">{` · ${s.device}`}</span>
+          <span className="web-dock-close">
+            <IcClose size={ICON_3} />
+          </span>
         </span>
       ))}
     </div>

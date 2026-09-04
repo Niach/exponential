@@ -32,14 +32,15 @@ import {
   IcChevRight,
   IcChevUp,
   IcCode,
+  IcDevices,
+  IcHash,
   IcImage,
   IcLink2,
   IcPaperclip,
-  IcSend,
   IcSmile,
+  IcSubmit,
   IcTag,
   IcTrash,
-  IcWatch,
 } from "./icons"
 
 function Description({ issueId }: { issueId: string }) {
@@ -92,7 +93,9 @@ function EventRow({ actor, text, value, time }: {
   actor: string
   text: string
   value?: string
-  time: string
+  /* Only the "created the issue" line carries a stamp — comment-rows/event.tsx
+     prints no time on a status/assignee/label/PR row. */
+  time?: string
 }) {
   const status = value ? STATUS_BY_LABEL[value] : undefined
   return (
@@ -106,7 +109,8 @@ function EventRow({ actor, text, value, time }: {
       </span>
       <span className="web-event-text">
         <b>{actor}</b> {text}
-        {value && <b>{value}</b>} · {time}
+        {value && <b>{value}</b>}
+        {time && ` · ${time}`}
       </span>
     </div>
   )
@@ -117,9 +121,9 @@ function ActivityRow({ item }: { item: ActivityItem }) {
     /* The fixture text is one sentence: "<actor> changed status to <value>". */
     const m = /^(.+?) (changed status to )(.+)$/.exec(item.text)
     return m ? (
-      <EventRow actor={m[1]} text={m[2]} value={m[3]} time={item.time} />
+      <EventRow actor={m[1]} text={m[2]} value={m[3]} />
     ) : (
-      <EventRow actor={``} text={item.text} time={item.time} />
+      <EventRow actor={``} text={item.text} />
     )
   }
   return (
@@ -233,7 +237,7 @@ export function WebIssueDetail({ issueId }: { issueId: string }) {
             <IcChevDown size={ICON_4} />
           </button>
           <span className="web-vrule" />
-          <button className="web-icbtn is-click" type="button" title="Copy link to issue">
+          <button className="web-icbtn is-glass is-click" type="button" title="Copy link to issue">
             <IcLink2 size={ICON_4} />
           </button>
           <button
@@ -244,7 +248,7 @@ export function WebIssueDetail({ issueId }: { issueId: string }) {
             {subscribed ? <IcBell size={ICON_3} /> : <IcBellOff size={ICON_3} />}
             {subscribed ? `Subscribed` : `Subscribe`}
           </button>
-          <button className="web-icbtn is-click" type="button" title="Delete issue">
+          <button className="web-icbtn is-glass is-click" type="button" title="Delete issue">
             <IcTrash size={ICON_4} />
           </button>
         </div>
@@ -279,8 +283,14 @@ export function WebIssueDetail({ issueId }: { issueId: string }) {
                 <span className="web-codingwho">
                   {`${WEB_USER.name} · ${session.device}`}
                 </span>
-                <button className="web-outlinebtn is-click" type="button">
-                  <IcWatch size={ICON_4} />
+                {/* Pill mode="action" primary — the accent fill for the one
+                    call to action in the row; the glyph is `nav-devices`
+                    (issue-coding-rows.tsx), never a raw eye. */}
+                <button
+                  className="web-outlinebtn is-primary is-click"
+                  type="button"
+                >
+                  <IcDevices size={ICON_3} />
                   Watch
                 </button>
               </div>
@@ -288,7 +298,7 @@ export function WebIssueDetail({ issueId }: { issueId: string }) {
           )}
 
           <div className="web-timeline">
-            <div className="web-timeline-head">{`Activity (${activity.length + extra.length + 1})`}</div>
+            <div className="web-timeline-head">{`Activity (${activity.length + extra.length})`}</div>
             <EventRow actor={WEB_USER.name} text="created the issue" time="3 days ago" />
             {activity.map((item, i) => (
               <ActivityRow key={i} item={item} />
@@ -309,7 +319,7 @@ export function WebIssueDetail({ issueId }: { issueId: string }) {
                 onKeyDown={
                   interactive
                     ? (e) => {
-                        if (e.key === `Enter` && !e.shiftKey) {
+                        if (e.key === `Enter` && (e.metaKey || e.ctrlKey)) {
                           e.preventDefault()
                           submit()
                         }
@@ -319,13 +329,16 @@ export function WebIssueDetail({ issueId }: { issueId: string }) {
               />
               <div className="web-composer-foot">
                 <span className="web-editrail-btn">
-                  <IcSmile size={ICON_4} />
-                </span>
-                <span className="web-editrail-btn">
                   <IcImage size={ICON_4} />
                 </span>
                 <span className="web-editrail-btn">
                   <IcPaperclip size={ICON_4} />
+                </span>
+                <span className="web-editrail-btn">
+                  <IcHash size={ICON_4} />
+                </span>
+                <span className="web-editrail-btn">
+                  <IcSmile size={ICON_4} />
                 </span>
                 <button
                   className={`web-send${interactive && draft.trim() ? ` is-click` : ``}`}
@@ -333,8 +346,9 @@ export function WebIssueDetail({ issueId }: { issueId: string }) {
                   disabled={!draft.trim()}
                   onClick={interactive ? submit : undefined}
                   title="Send comment"
+                  aria-label="Send comment"
                 >
-                  <IcSend size={ICON_35} />
+                  <IcSubmit size={27.75} />
                 </button>
               </div>
             </div>

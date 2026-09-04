@@ -59,7 +59,7 @@ export function WidgetDocsPage() {
           <DocsSection id="install" num="01" label="Install">
             <h2>Install</h2>
             <p>
-              Create a widget in <strong>Team settings → Widget</strong>{` `}
+              Create a widget in <strong>Team settings → Feedback widget</strong>{` `}
               (team owners only; every plan includes at least one). Each
               config gets a public <code>expw_</code> key, a{` `}
               <strong>domain allowlist</strong> (submissions are only accepted
@@ -83,6 +83,13 @@ export function WidgetDocsPage() {
               ID. The domain allowlist plus server-side rate limits are what
               gate submissions, so no secret ever has to live in the page.
             </DocsCallout>
+            <p>
+              On the cloud, a Free team takes <strong>60 submissions an
+              hour</strong> across all its widgets (settings shows the bar
+              and the upgrade link); the Team plan is unlimited. Self-hosted
+              has no plan ceiling at all — only the per-IP abuse buckets,
+              which apply everywhere.
+            </p>
           </DocsSection>
 
           {/* ── 02 JS API ── */}
@@ -90,13 +97,35 @@ export function WidgetDocsPage() {
             <h2>JS API</h2>
             <p>
               The snippet exposes <code>window.ExponentialWidget</code> with
-              seven calls:
+              eight calls:
             </p>
             <DocsCode language="js">{`
 // Call this once to boot the widget with your public key.
 // Optional init overrides: theme ("dark" | "light" | "auto"),
-// position, color, label, showButton, zIndex.
+// launcher, color, label, showButton, zIndex, host.
 ExponentialWidget.init({ key: "expw_YOUR_KEY" });
+
+// Every init option, in full:
+ExponentialWidget.init({
+  key: "expw_YOUR_KEY",
+  // Where the launcher sits, per device (desktop / mobile split at a
+  // 767px viewport). mode: "fab" (floating pill) or "tab" (edge square);
+  // position: top|middle|bottom - left|right. Defaults: desktop
+  // fab bottom-right, mobile tab middle-right. Whatever you set here
+  // wins over the widget's configured launcher.
+  launcher: {
+    desktop: { mode: "fab", position: "bottom-right" },
+    mobile: { mode: "tab", position: "middle-right" },
+  },
+  color: "#7c5cff",   // accent for the button and primary actions
+  label: "Feedback",  // "" renders an icon-only button
+  showButton: true,   // false = headless, see below
+  zIndex: 2147483000,
+  theme: "auto",
+  // Only for a self-hosted instance whose loader you serve from a
+  // different origin than the API. Defaults to the loader's own origin.
+  host: "https://issues.example.com",
+});
 
 // Attach your signed-in user, so reports arrive with a
 // real reporter (and helpdesk replies reach their inbox).
@@ -136,6 +165,13 @@ ExponentialWidget.submit({ title: "Broken button" });
               <code>submit</code> runs fire-and-forget; call it after load,
               e.g. from a click handler, to get its Promise.)
             </p>
+            <DocsCallout kind="note" title="position is legacy">
+              The old <code>position</code> option (
+              <code>&quot;bottom-right&quot;</code> /{` `}
+              <code>&quot;bottom-left&quot;</code>) still works on its own, but
+              it is ignored entirely once <code>launcher</code> is present.
+              New installs should use <code>launcher</code>.
+            </DocsCallout>
           </DocsSection>
 
           {/* ── 03 Form fields ── */}
@@ -144,7 +180,7 @@ ExponentialWidget.submit({ title: "Broken button" });
             <p>
               The feedback form always asks for a title and details. Everything
               else is configured per widget in{` `}
-              <strong>Team settings → Widget</strong>:
+              <strong>Team settings → Feedback widget</strong>:
             </p>
             <ul>
               <li>
@@ -173,11 +209,24 @@ ExponentialWidget.submit({ title: "Broken button" });
               </li>
               <li>
                 <strong>Appearance</strong>: dark (default), light, or
-                match-the-visitor&apos;s-system theme, plus accent, background
-                and text color overrides — all with a live preview in
-                settings.
+                match-the-visitor&apos;s-system theme, plus an accent color
+                — both with a live preview in settings.
+              </li>
+              <li>
+                <strong>Launcher</strong>: the button&apos;s shape and corner,
+                set separately for <strong>desktop</strong> and{` `}
+                <strong>mobile</strong> — a floating pill or an edge tab, in
+                any of six positions — plus its <strong>Icon</strong> and{` `}
+                <strong>Button label</strong>. The snippet&apos;s{` `}
+                <code>launcher</code> option overrides all of it per install.
               </li>
             </ul>
+            <p>
+              The settings dialog splits these across{` `}
+              <strong>General</strong>, <strong>Form</strong> and{` `}
+              <strong>Appearance</strong> tabs, with the real panel previewed
+              beside them.
+            </p>
             <p>
               Visitors attached via <code>identify()</code> skip the email and
               name fields. Their identity rides along invisibly. Support mode
@@ -204,6 +253,8 @@ const result = await ExponentialWidget.submit({
   name: "dani",                     // overrides identify()
   customData: { page: "checkout" }, // merged over setCustomData()
   screenshot: myBlob,               // optional: you capture it
+  images: [pictureBlob],            // up to 3 extra pictures, 10 MB each
+  labels: ["<label-id>"],           // ids from the widget's configured labels
 });
 
 if (result.ok) {
@@ -227,6 +278,11 @@ await ExponentialWidget.submit({
               <code>Blob</code> (PNG, JPEG, or WebP) and it&apos;s attached
               like a panel screenshot. Server-side validation (required fields,
               modes, rate limits) applies exactly as it does to the panel.
+            </p>
+            <p>
+              Not going fully headless? <code>setLauncherHidden(true)</code>{` `}
+              hides just the button while your own UI covers its corner, and{` `}
+              <code>open()</code> still brings the real panel up.
             </p>
           </DocsSection>
 
@@ -256,17 +312,20 @@ await ExponentialWidget.submit({
             </p>
             <p>
               Menus, dropdowns and popups that close on click can be captured
-              too: the small segment next to <strong>Take screenshot</strong>{" "}
-              holds the shot for <strong>3 or 5 seconds</strong> with a
+              too: the delay chip next to <strong>Take screenshot</strong>{" "}
+              cycles <strong>Off</strong> → <strong>3s</strong> →{` `}
+              <strong>5s</strong> and holds the shot for that long, with a
               countdown in the launcher&apos;s corner, so the visitor can open
               whatever should be in the picture first. On desktop the
               countdown starts once the share dialog is confirmed.
             </p>
             <p>
               Before submitting, the visitor can <strong>annotate</strong> the
-              screenshot in a full-screen editor: rectangles, arrows, and
-              freehand lines, with undo. Annotations are flattened into the
-              image on submit.
+              screenshot in a full-screen editor: <strong>Rectangle</strong>,
+              {` `}
+              <strong>Arrow</strong>, <strong>Free line</strong> and{` `}
+              <strong>Crop</strong>, with undo. Annotations are flattened into
+              the image on submit.
             </p>
             <DocsCallout kind="tip" title="Capture never blocks a report">
               If capture fails on an exotic page, the report still submits,

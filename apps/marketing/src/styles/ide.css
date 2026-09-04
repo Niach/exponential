@@ -149,13 +149,6 @@
   background: var(--g-fill-row);
   color: var(--ide-fg);
 }
-.ide-ghost {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--ide-muted);
-  font-size: var(--f-xs);
-}
 
 /* Buttons — web control metrics (controls.rs): sm = h32 px12 capsule. */
 .ide-btn-primary,
@@ -275,6 +268,10 @@
   flex: none;
   border-radius: 999px;
   background: #22c55e;
+}
+/* sidebar.rs `inbox_badge` is a PRIMARY dot; only Devices/Reviews are green. */
+.ide-rail-dot.is-primary {
+  background: var(--ide-primary);
 }
 .ide-rail-div {
   height: 1px;
@@ -517,6 +514,42 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* sidebar::tool_tab_strip — h30, px_2, gap_1, LEFT-aligned small select
+   pills; the trailing action rides the strip absolutely. */
+.ide-tooltabs {
+  position: relative;
+  flex: none;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 3.25px;
+  padding: 0 6.5px;
+}
+.ide-tooltab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4.875px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: var(--f-xs);
+  color: var(--ide-muted);
+}
+.ide-tooltab.is-active {
+  border-color: var(--g-stroke-active);
+  background: var(--g-fill-active);
+  color: var(--ide-fg);
+}
+.ide-tooltabs-trailing {
+  position: absolute;
+  right: 6.5px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
 }
 
 /* filter_bar.rs: px_4 py_2, 44px min-height, trigger right-aligned. */
@@ -786,23 +819,73 @@
   display: inline-flex;
 }
 
+/* issue_detail::coding_now_card (EXP-698) — a full-width glass TRAY holding
+   the state badge, the identity caption and the Watch action. */
 .ide-issue-agentrow {
-  padding: 0 16px 6.5px;
-}
-/* issue_detail::coding_now_pill — full-width capsule, tone-tinted hairline. */
-.ide-nowpill {
-  width: 100%;
+  margin: 0 16px 6.5px;
   display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 5px 5px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--g-stroke-section);
+  background: var(--g-fill-section);
+}
+.ide-nowpill {
+  flex: none;
+  display: inline-flex;
   align-items: center;
   gap: 4.875px;
   height: 22px;
-  padding: 0 6.5px;
+  padding: 0 8px;
   border-radius: 999px;
   border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #22c55e;
   font-size: var(--f-xs);
   white-space: nowrap;
+}
+.ide-nowcaption {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--f-sm);
+  color: var(--ide-muted);
+}
+.ide-nowwatch {
+  flex: none;
+  height: 22px;
+  gap: 4.875px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: var(--f-xs);
+}
+/* The tray keeps its shell only around a card; a lone merge control sits
+   bare on the header's own row. */
+.ide-issue-agentrow.is-bare {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+/* issue_header::merge_button — the ONE Sm glass capsule. */
+.ide-mergepr {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4.875px;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--g-stroke-card);
+  background: var(--g-fill-card);
+  color: var(--ide-fg);
+  font-size: var(--f-xs);
+}
+.ide-mergepr.is-armed {
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #ef4444;
 }
 .ide-nowdot {
   width: 4.875px;
@@ -859,27 +942,6 @@
 .ide-attachrail .ide-icbtn {
   width: 20px;
   height: 20px;
-}
-.ide-prrow {
-  display: flex;
-  align-items: center;
-  gap: 4.875px;
-  margin: 9.75px 16px 0;
-  padding: 4px 8px;
-  border-radius: 10px;
-  border: 1px solid var(--g-stroke-row);
-  background: var(--g-fill-row);
-  font-size: var(--f-xs);
-  width: fit-content;
-}
-.ide-prrow-state {
-  color: #22c55e;
-  font-weight: 500;
-}
-.ide-prrow-num,
-.ide-prrow-branch {
-  font-family: var(--ide-mono);
-  color: var(--ide-muted);
 }
 
 /* timeline.rs — Activity section, re-centred to the reading column. */
@@ -991,6 +1053,7 @@
 .ide-inbox-row.is-read {
   color: var(--ide-muted);
 }
+/* The activity glyph is BARE — no badge chip behind it (sidebar.rs). */
 .ide-inbox-badge {
   width: 18px;
   height: 18px;
@@ -998,8 +1061,6 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
-  background: var(--g-fill-card);
   color: var(--ide-muted);
 }
 .ide-inbox-main {
@@ -1040,40 +1101,50 @@
   font-size: var(--f-xs);
   color: var(--ide-dim);
 }
+/* The unread dot is the white PRIMARY (web `bg-primary`), never a hue. */
 .ide-inbox-dot {
   width: 5px;
   height: 5px;
   border-radius: 999px;
-  background: #3b82f6;
+  background: var(--ide-primary);
 }
-.ide-reviews-group {
+/* EXP-706: Reviews is a full-page screen — screens.rs centers their content
+   in a max-w column (screenshot: ~930px of the 1440 window). */
+.ide-reviews-screen {
   flex: 1;
   min-height: 0;
-  padding: 0 8px;
+  overflow: hidden;
+  padding: 26px 0;
+}
+.ide-reviews-group {
+  width: 745px;
+  max-width: 100%;
+  margin: 0 auto;
 }
 .ide-reviews-project {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 6px 4px;
-  font-size: var(--f-xs);
-  color: var(--ide-muted);
+  padding: 0 4px 8px;
+  font-size: var(--f-md);
+  color: var(--ide-fg);
 }
-.ide-proj-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  flex: none;
+.ide-reviews-project-name {
+  font-weight: 500;
+}
+.ide-reviews-project-count {
+  font-size: var(--f-sm);
+  color: var(--ide-muted);
 }
 .ide-review-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px;
-  border-radius: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
   border: 1px solid var(--g-stroke-row);
   background: var(--g-fill-row);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   transition: opacity 0.25s ease;
 }
 .ide-review-row.is-merged {
@@ -1085,8 +1156,11 @@
 }
 .ide-review-line1 {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
+}
+.ide-review-icon {
+  flex: none;
 }
 .ide-review-id {
   font-family: var(--ide-mono);
@@ -1102,7 +1176,9 @@
 .ide-review-sub {
   font-family: var(--ide-mono);
   font-size: var(--f-xs);
-  color: var(--ide-dim);
+  color: var(--ide-muted);
+  /* pl_5 under the row's leading glyph */
+  padding-left: 16.25px;
   margin-top: 2px;
 }
 .ide-review-mergedtag {
@@ -1110,17 +1186,35 @@
   color: #3b82f6;
 }
 .ide-reviews-empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   padding: 16px;
+}
+.ide-reviews-empty-title {
+  font-size: var(--f-md);
+  color: var(--ide-fg);
+}
+.ide-reviews-empty-sub {
   font-size: var(--f-sm);
-  color: var(--ide-dim);
+  color: var(--ide-muted);
 }
 .ide-review-mergebtn {
-  height: 24px;
-  padding: 0 8px;
+  height: 26px;
+  gap: 4px;
+  padding: 0 10px;
   border-radius: 999px;
   border: 1px solid var(--g-stroke-card);
-  font-size: var(--f-xs);
+  font-size: var(--f-sm);
   flex: none;
+}
+/* pr_merge::two_click: the armed second press is the danger button. */
+.ide-review-mergebtn.is-danger {
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #ef4444;
 }
 .ide-btn-sm {
   height: 24px;
@@ -1442,22 +1536,8 @@
 
 /* ─────────────────────────── Terminal dock ──────────────────────────────── */
 
-/* terminal_dock::render_collapsed_strip — h29, px_3, gap_2, top hairline. */
-.ide-dock-strip {
-  flex: none;
-  height: 29px;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 6.5px;
-  padding: 0 9.75px;
-  border-top: 1px solid var(--g-border);
-  color: var(--ide-muted);
-  font-size: var(--f-xs);
-}
-.ide-dock-strip:hover {
-  color: var(--ide-fg);
-}
+/* terminal_dock::render_strip — ONE h29 strip, open or collapsed, pinned to
+   the panel's bottom edge; the content grows UPWARD out of it (EXP-688). */
 .ide-dock {
   flex: none;
   height: 320px;
@@ -1466,13 +1546,31 @@
   border-top: 1px solid var(--g-border);
   background: #18181b;
 }
+.ide-dock.is-collapsed {
+  height: 29px;
+  background: none;
+}
 .ide-dock-tabs {
   flex: none;
-  height: 30px;
+  height: 29px;
   display: flex;
   align-items: center;
   gap: 3.25px;
-  padding: 0 8px;
+  padding: 0 9.75px;
+  border-top: 1px solid var(--g-border);
+}
+.ide-dock.is-collapsed .ide-dock-tabs {
+  border-top: 0;
+}
+.ide-dock-glyph {
+  display: inline-flex;
+  flex: none;
+  color: var(--ide-muted);
+  margin-right: 3.25px;
+}
+.ide-dock-name {
+  font-size: var(--f-sm);
+  color: var(--ide-muted);
 }
 .ide-dock-tab {
   display: inline-flex;
@@ -1735,81 +1833,8 @@
   font-size: var(--f-xs);
   color: var(--ide-muted);
 }
-.ide-dlg-noresults {
-  padding: 10px;
-  font-size: var(--f-sm);
-  color: var(--ide-dim);
-}
-.ide-agentstrip {
-  height: 36px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  padding: 3px;
-  border-radius: 999px;
-  border: 1px solid var(--g-stroke-section);
-  background: var(--g-fill-section);
-  color: var(--ide-muted);
-}
-.ide-agenttab {
-  flex: 1;
-  height: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4.875px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  font-size: var(--f-sm);
-  font-weight: 500;
-}
-.ide-agenttab.is-active {
-  background: var(--g-fill-active);
-  border-color: var(--g-stroke-active);
-  color: var(--ide-fg);
-}
-.ide-dlg-fields {
-  display: flex;
-  gap: 12px;
-}
-.ide-dlg-field {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-.ide-dlg-fieldlabel {
-  font-size: var(--f-xs);
-  color: var(--ide-muted);
-}
-.ide-dlg-select {
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid var(--g-stroke-card);
-  background: var(--g-fill-section);
-  font-size: var(--f-sm);
-}
-.ide-dlg-select.is-disabled {
-  color: var(--ide-dim);
-}
-.ide-dlg-checks {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.ide-dlg-checkrow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 24px;
-  font-size: var(--f-sm);
-}
+/* The checklist's checkbox — the ONE checkbox left in the dialog (the
+   launch options are switches since EXP-694). */
 .ide-checkbox {
   width: 14px;
   height: 14px;
@@ -1825,15 +1850,200 @@
   background: var(--ide-primary);
   border-color: var(--ide-primary);
 }
+.ide-dlg-noresults {
+  padding: 10px;
+  font-size: var(--f-sm);
+  color: var(--ide-dim);
+}
+/* launch_options::AgentDefaultsGroup (EXP-694/698) — ONE hairline-divided
+   glass group: the agent tabs row, Model, the agent's effort concept, then
+   the capability-gated switches. No loose controls, no checkboxes. */
+.ide-group-card {
+  flex: none;
+  border-radius: 12px;
+  border: 1px solid var(--g-stroke-section);
+  background: var(--g-fill-section);
+  overflow: hidden;
+}
+.ide-grouprow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  font-size: var(--f-sm);
+}
+.ide-grouprow + .ide-grouprow,
+.ide-agentstrip + .ide-grouprow {
+  border-top: 1px solid var(--g-stroke-row);
+}
+.ide-grouprow-label {
+  flex: none;
+}
+.ide-grouprow-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--f-sm);
+  color: var(--ide-fg);
+}
+.ide-grouprow-select.is-disabled {
+  color: var(--ide-dim);
+}
+/* gpui_component Switch — 28×16 track, 12px knob. */
+.ide-switch {
+  width: 28px;
+  height: 16px;
+  flex: none;
+  position: relative;
+  border-radius: 999px;
+  background: var(--g-fill-active);
+}
+.ide-switch.is-on {
+  background: var(--ide-primary);
+}
+.ide-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #18181b;
+  transition: transform 0.15s ease;
+}
+.ide-switch.is-on .ide-switch-knob {
+  transform: translateX(12px);
+  background: #fff;
+}
+/* The agent tabs are the group's FIRST row — pills on the row rhythm, not a
+   free-floating capsule. */
+.ide-agentstrip {
+  height: 36px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 3.25px;
+  padding: 0 4px;
+  color: var(--ide-muted);
+}
+.ide-agenttab {
+  flex: 1;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4.875px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: var(--f-sm);
+  font-weight: 500;
+}
+.ide-agenttab.is-active {
+  background: var(--g-fill-active);
+  border-color: var(--g-stroke-active);
+  color: var(--ide-fg);
+}
+/* launch_options::labeled_field — caption over the control. */
+.ide-dlg-labeled {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.ide-dlg-fieldlabel {
+  font-size: var(--f-xs);
+  color: var(--ide-muted);
+}
+.ide-dlg-bigselect {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--g-stroke-card);
+  background: var(--g-fill-section);
+  font-size: var(--f-sm);
+  text-align: center;
+}
+.ide-dlg-textarea {
+  height: 132px;
+  resize: none;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--g-stroke-card);
+  background: var(--g-fill-section);
+  font: inherit;
+  font-size: var(--f-sm);
+  color: var(--ide-fg);
+}
+.ide-dlg-textarea::placeholder {
+  color: var(--ide-muted);
+}
+/* The Actions tab's picked-one-of-many list (EXP-721: the selection marker
+   LEADS the row, then the action's curated glyph, then name over description). */
+.ide-dlg-actionlist {
+  flex: none;
+  max-height: 210px;
+  overflow: hidden;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--g-stroke-card);
+  background: var(--g-fill-section);
+}
+.ide-dlg-action {
+  display: flex;
+  align-items: flex-start;
+  gap: 6.5px;
+  padding: 5px 4.875px;
+  border-radius: 8px;
+}
+.ide-dlg-action.is-click:hover {
+  background: var(--g-fill-row);
+}
+.ide-radio {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  margin-top: 2px;
+  border-radius: 999px;
+  border: 1px solid var(--g-stroke-active);
+}
+.ide-radio.is-on {
+  border-width: 4px;
+  border-color: var(--ide-primary);
+}
+.ide-dlg-action-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ide-dlg-action-name {
+  font-size: var(--f-sm);
+  font-weight: 500;
+}
+.ide-dlg-action-desc {
+  font-size: var(--f-xs);
+  color: var(--ide-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ide-dlg-hint {
   font-size: var(--f-xs);
+  color: var(--ide-muted);
+}
+/* The action bar's left slot: the ONE blocker message. */
+.ide-dlg-blocker {
+  font-size: var(--f-sm);
   color: var(--ide-muted);
 }
 .ide-dlg-actions {
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 10px;
   padding: 13px 20px;
   border-top: 1px solid var(--g-stroke-row);

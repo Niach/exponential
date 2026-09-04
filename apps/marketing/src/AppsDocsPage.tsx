@@ -75,6 +75,15 @@ export function AppsDocsPage() {
               swaps in place; hit <strong>Restart to update</strong> when
               it&apos;s ready. No package manager, no manual downloads.
             </p>
+            <h3>System notifications</h3>
+            <p>
+              The desktop app raises real macOS, Windows and XDG
+              notifications when something lands in your inbox, coalescing a
+              burst into one toast and staying quiet while the window is
+              already focused. It is per machine:{` `}
+              <strong>Settings → Notifications → Desktop notifications</strong>
+              , with the per-type switches below it applying to those too.
+            </p>
           </DocsSection>
 
           {/* ── 02 Mobile ── */}
@@ -100,23 +109,30 @@ export function AppsDocsPage() {
                 inbox. Present only while the helpdesk is enabled.
               </li>
               <li>
-                <strong>Agents</strong>: running coding sessions with a live
-                terminal feed and steering, plus the team&apos;s{` `}
-                <a href="/docs/actions/">actions</a>.
+                <strong>Devices</strong>: your machines and the coding
+                sessions running on them, with a live activity feed and
+                steering.
+              </li>
+              <li>
+                <strong>Actions</strong>: the team&apos;s{` `}
+                <a href="/docs/actions/">actions</a>, its automations, and the
+                suggestions to start from.
               </li>
               <li>
                 <strong>Reviews</strong>: every issue with an open PR, with a
                 one-click merge.
               </li>
-              <li>
-                <strong>Search</strong>: find any issue across your teams.
-              </li>
             </ul>
             <p>
-              The compose button floats over every tab. Capture an issue the
-              moment you think of it. Full onboarding runs on mobile too:
-              create boards, connect GitHub, and manage repos without ever
-              opening a laptop.
+              The round button beside the tab pill is{` `}
+              <strong>New issue</strong> — or <strong>Start chat</strong>{` `}
+              on the Devices and Actions surfaces, which opens the launcher on
+              its <a href="/docs/coding/#start-coding">Chat</a> tab. Search
+              sits in the board header next to <strong>Filter</strong>. Select
+              issues and the bulk bar takes the tab bar&apos;s place, with
+              status, priority, assignee, labels and delete on it. Full
+              onboarding runs on mobile too: create boards, connect GitHub,
+              and manage repos without ever opening a laptop.
             </p>
 
             <div className="docs-shot-row">
@@ -133,7 +149,7 @@ export function AppsDocsPage() {
               (assignments, comments, mentions, PR opened / merged) arrives as
               a push notification the moment it happens. Tapping one deep-links
               straight to the issue. Notification preferences from{` `}
-              <strong>Account → Notifications</strong> apply to push too.
+              <strong>Settings → Notifications</strong> apply to push too.
             </p>
             <DocsCallout kind="note" title="Push on self-hosted">
               The cloud has push wired up out of the box. The App Store / Play
@@ -152,12 +168,26 @@ export function AppsDocsPage() {
             <h2>Steer from anywhere</h2>
             <p>
               A coding session started on your desktop doesn&apos;t chain you
-              to the desk. The <strong>Agents</strong> tab (and the matching
+              to the desk. The <strong>Devices</strong> tab (and the matching
               view on web) shows every running session with a{` `}
-              <strong>live terminal feed</strong>. Watch the agent work in
+              <strong>live activity feed</strong>. Watch the agent work in
               real time, and <strong>send steer messages</strong> mid-run:
               answer its question, veto an approach, add a constraint you
               forgot.
+            </p>
+            <p>
+              You can also start one from here: the launcher&apos;s{` `}
+              <strong>Issues</strong>, <strong>Actions</strong> and{` `}
+              <strong>Chat</strong> tabs, its device and agent pickers, and
+              the <code>/</code> slash commands in the composer are the same
+              on the phone as on the desktop. The session&apos;s{` `}
+              <strong>…</strong> menu holds <strong>Usage</strong> (how much
+              of the agent&apos;s limits this run and this week have spent)
+              and <strong>Kill session</strong>, and a PR that is open puts a
+              {` `}
+              <strong>Merge</strong> pill next to{` `}
+              <strong>Latest changes</strong> — replaced by{` `}
+              <strong>Fix conflicts</strong> if the merge hits conflicts.
             </p>
             <p>
               The full flow (starting runs, plan mode, batches, review) is

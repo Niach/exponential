@@ -70,7 +70,8 @@ export function GettingStartedDocsPage() {
             <h2>Sign up &amp; your team</h2>
             <p>
               Sign in at <a href={LINKS.app.login}>app.exponential.at</a>{` `}
-              with Google. Your account is created on first sign-in, with no
+              with <strong>Google</strong> or <strong>Apple</strong>. Your
+              account is created on first sign-in, with no
               separate registration step. On first launch you either create
               a team (pick a name, you become its owner) or join an existing
               one by pasting an invite link.
@@ -83,7 +84,7 @@ export function GettingStartedDocsPage() {
             </p>
             <DocsCallout kind="note" title="Self-hosting?">
               A self-hosted instance chooses its own sign-in methods:
-              email/password, Google, or any OIDC provider (Authentik,
+              email/password, Google, Apple, or any OIDC provider (Authentik,
               Keycloak, Zitadel, …). See the{` `}
               <a href="/docs/self-host/">self-host docs</a>.
             </DocsCallout>
@@ -98,9 +99,11 @@ export function GettingStartedDocsPage() {
             </p>
             <h3>Name and prefix</h3>
             <p>
-              The <strong>prefix</strong> is a short uppercase code that
-              numbers every issue on the board. Prefix <code>EXP</code>{` `}
-              gives you <code>EXP-1</code>, <code>EXP-2</code>, and so on.
+              The <strong>prefix</strong> is a short uppercase code —{` `}
+              <strong>one to four</strong> letters or digits, starting with a
+              letter, unique in the team — that numbers every issue on the
+              board. Prefix <code>EXP</code> gives you <code>EXP-1</code>,{` `}
+              <code>EXP-2</code>, and so on.
               Those identifiers follow the issue everywhere: branch names (
               <code>exp/EXP-42</code>), PR titles, and{` `}
               <code>#EXP-42</code> references in comments.
@@ -113,7 +116,10 @@ export function GettingStartedDocsPage() {
               {` `}
               <strong>GitHub repository</strong> (during creation or any time
               later) and the board gains the coding loop: coding sessions,
-              branches, and pull requests.
+              branches, and pull requests. A <strong>Branch</strong> picker
+              under the repository select pins the branch this board&apos;s
+              work starts from; leave it on the repository&apos;s own default
+              and it follows that.
             </p>
             <DocsCallout kind="tip" title="Coding gates on the repo">
               Any board with a connected repository can run coding sessions. A
@@ -152,6 +158,17 @@ export function GettingStartedDocsPage() {
               </li>
             </ol>
             <p>
+              Connecting is <strong>per person</strong>: every member links
+              their own GitHub account and shares the repositories they can
+              reach, and each row says <strong>Shared by</strong> whom. So a
+              teammate&apos;s repos appear without you needing their access,
+              and when someone leaves an owner can{` `}
+              <strong>Disconnect</strong> their account without touching
+              anyone else&apos;s. Whoever shared a repository (and any owner)
+              can remove it or pin its <strong>default branch</strong>,
+              independent of GitHub&apos;s.
+            </p>
+            <p>
               A board backed by a repository gets the full coding loop:
               {` `}
               <strong>Start coding</strong> on any issue, automatic{` `}
@@ -173,9 +190,12 @@ export function GettingStartedDocsPage() {
             </p>
             <p>
               Roles are <strong>owner</strong> and <strong>member</strong>.
-              Owners manage the team: settings, members, repositories,
-              widgets, billing, board deletion. Every member can edit issues,
-              triage feedback, manage comments, and edit statuses and labels.
+              Owners manage the team: general settings, members and invites,
+              storage, widgets, billing, boards (including archiving and
+              deleting them), actions and{` `}
+              <a href="/docs/actions/#automations">automations</a>. Every
+              member can edit issues, triage feedback, manage comments,
+              connect repositories, run actions, and edit statuses and labels.
               There is no read-only seat.
             </p>
           </DocsSection>
@@ -215,6 +235,17 @@ export function GettingStartedDocsPage() {
           {/* ── 06 Where to next ── */}
           <DocsSection id="next" num="06" label="Where to next">
             <h2>Where to next</h2>
+            <p>
+              The app keeps its own version of this page:{` `}
+              <strong>Getting started</strong>, in the sidebar footer on
+              desktop and inline under an empty board on the phone. It walks
+              the same ground — get the desktop app, connect a GitHub repo,
+              invite your team, create a board, start coding with an agent,
+              create an action, set up a server, set up the feedback widget,
+              enable the helpdesk, connect your tools via MCP — and each entry
+              disappears on its own once it is done, with the whole checklist
+              going away when it is complete. There is nothing to dismiss.
+            </p>
             <div className="docs-cards">
               {NEXT_CARDS.map((card) => (
                 <a key={card.path} className="docs-card" href={card.path}>

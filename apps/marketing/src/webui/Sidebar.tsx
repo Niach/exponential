@@ -2,22 +2,25 @@
    Mirrors apps/web components/team/sidebar.tsx on the shadcn sidebar
    primitive: a 16rem (296px) transparent rail divided from the main pane by
    one hairline. Header = team switcher + icon-only Search and New-issue
-   actions (EXP-449). Nav = Inbox / Reviews / Agents / Support with capsule
-   count badges. Then the Boards group, and a footer with Getting started and
-   the user row + settings gear. */
+   actions (EXP-449). Nav = Inbox / Support / Devices / Actions / Automations /
+   Reviews, badged with DOTS, never counts (EXP-699). Then the Boards group,
+   and a footer with Getting started and the user row + settings gear. */
 import { INBOX_ITEMS, REVIEWS } from "../ide/data"
 import { useWeb, type WebNav } from "./state"
 import {
   AGENTS_RUNNING,
+  SUPPORT_THREADS,
   WEB_PROJECTS,
   WEB_USER,
   type DemoProjectIcon,
 } from "./data"
 import {
   ICON_4,
-  IcAgents,
+  IcActions,
+  IcAutomations,
   IcCode,
   IcCompose,
+  IcDevices,
   IcInbox,
   IcKanban,
   IcMegaphone,
@@ -37,22 +40,23 @@ const boardIcon: Record<DemoProjectIcon, WebIcon> = {
   megaphone: IcMegaphone,
 }
 
-/* SidebarMenuButton: h-8, rounded-full, p-2, gap-2, text-sm. The badge is a
-   sibling absolutely positioned at right-1, so the label truncates against
-   the rail edge, not against the count. */
+/* SidebarMenuButton: h-8, rounded-full, p-2, gap-2, text-sm. EXP-699: the
+   badge is a DOT, never a count — a sibling absolutely positioned at right-2,
+   so the label truncates against the rail edge. */
 function NavItem({
   icon,
   label,
   active,
   onClick,
-  badge,
+  dot,
   muted,
 }: {
   icon: React.ReactNode
   label: string
   active?: boolean
   onClick?: () => void
-  badge?: number
+  /* `primary` (unread) or `green` (something live) — the app's two dot tints. */
+  dot?: `primary` | `green`
   muted?: boolean
 }) {
   const { interactive } = useWeb()
@@ -67,20 +71,22 @@ function NavItem({
         {icon}
         <span className="web-nav-label">{label}</span>
       </button>
-      {badge !== undefined && badge > 0 && (
-        <span className="web-nav-badge">{badge}</span>
-      )}
+      {dot && <span className={`web-nav-dot is-${dot}`} />}
     </div>
   )
 }
 
 export function WebSidebar() {
-  const { nav, setNav, closeIssue, inboxRead } = useWeb()
+  const { nav, setNav, closeIssue, inboxRead, threadRead } = useWeb()
 
   const unread = INBOX_ITEMS.filter((n) => n.unread && !inboxRead.has(n.id)).length
-  /* DISTINCT open PRs, like the real ReviewsCountBadge (a batch PR linked to
-     several issues counts once). */
-  const reviewCount = new Set(REVIEWS.map((r) => r.prNumber)).size
+  /* DISTINCT open PRs, like the real ReviewsOpenBadge (a batch PR linked to
+     several issues counts once) — only its presence lights the dot. */
+  const hasOpenPrs = new Set(REVIEWS.map((r) => r.prNumber)).size > 0
+  /* Unread helpdesk activity in THIS team, like SupportUnreadBadge. */
+  const supportUnread = SUPPORT_THREADS.some(
+    (t) => t.unread && !threadRead.has(t.id)
+  )
 
   const go = (target: WebNav) => () => {
     setNav(target)
@@ -109,29 +115,38 @@ export function WebSidebar() {
       <div className="web-side-rule" />
 
       <div className="web-side-scroll">
+        {/* EXP-699/EXP-686 nav order: Inbox, Support, then the three surfaces
+            the old Agents entry bundled (Devices, Actions, Automations), then
+            Reviews. Badges are dots: primary for unread, green for live. */}
         <div className="web-side-group">
           <NavItem
             icon={<IcInbox size={ICON_4} />}
             label="Inbox"
             active={nav === `inbox`}
             onClick={go(`inbox`)}
-            badge={unread}
-          />
-          <NavItem
-            icon={<IcReviews size={ICON_4} />}
-            label="Reviews"
-            badge={reviewCount}
-          />
-          <NavItem
-            icon={<IcAgents size={ICON_4} />}
-            label="Agents"
-            badge={AGENTS_RUNNING}
+            dot={unread > 0 ? `primary` : undefined}
           />
           <NavItem
             icon={<IcSupport size={ICON_4} />}
             label="Support"
             active={nav === `support`}
             onClick={go(`support`)}
+            dot={supportUnread ? `primary` : undefined}
+          />
+          <NavItem
+            icon={<IcDevices size={ICON_4} />}
+            label="Devices"
+            dot={AGENTS_RUNNING > 0 ? `green` : undefined}
+          />
+          <NavItem icon={<IcActions size={ICON_4} />} label="Actions" />
+          <NavItem
+            icon={<IcAutomations size={ICON_4} />}
+            label="Automations"
+          />
+          <NavItem
+            icon={<IcReviews size={ICON_4} />}
+            label="Reviews"
+            dot={hasOpenPrs ? `green` : undefined}
           />
         </div>
 

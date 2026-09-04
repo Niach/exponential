@@ -1,12 +1,15 @@
 // closedloop/surfaces/startphone.tsx — the remote-start phone (EXP-388,
 // matched to the shipping mobile UI): the REAL issue detail screen for
-// EXP-151 underneath, and the REAL StartCodingSheet over it — the Cancel /
-// Start coding capsule toolbar, the Issues|Actions|Chat glass segmented
-// control, the "Issues" section with its inline search row and the checkbox
+// EXP-151 underneath, and the REAL StartCodingSheet over it — a full-height
+// GlassSheetChrome with NO bar buttons (EXP-687: the confirm is the ONE
+// pinned button and a swipe down cancels, so the sheet opens on its grabber),
+// the Issues|Actions|Chat glass segmented control, the "Issues" section with its inline search row and the checkbox
 // issue rows (EXP-151 checked and pinned first), the agent capsule strip
 // (Claude Code · Codex · pi), the Model + Effort picker rows and the
-// launch toggles. One desktop online = no Device row (like the app); after
-// the start the "Start sent to MacBook Pro" capsule toast confirms.
+// launch toggles, and the pinned full-width `GlassSubmitButton` ("Start
+// coding", primary fill #e5e5e5 on primaryForeground text). One desktop
+// online = no Device row (like the app); after the start the "Start sent to
+// MacBook Pro" capsule toast confirms.
 //
 // EVERY number in the sheet is authored in iOS POINTS on the 414pt canvas and
 // scaled ONCE through `pt()` — the same measurements the marketing page's
@@ -61,6 +64,12 @@ const G = {
   segLabel: "rgba(255,255,255,0.85)",
   track: "#64636a",
 } as const
+
+// DesignTokens.Palette.primary / primaryForeground — the submit button's fill
+// and text (generated in ExpUI's DesignTokens.generated.swift).
+const PRIMARY_FILL = "#e5e5e5"
+const PRIMARY_FG = "#171717"
+
 
 const Spinner: React.FC<{ frame: number; size?: number }> = ({
   frame,
@@ -329,9 +338,10 @@ const IssueRow: React.FC<{ issue: SheetIssue; checked: boolean }> = ({
 )
 
 // ── Sheet layout (sheet-local Ys, all derived — nothing hand-placed) ─────────
-const Y_TOPBAR = pt(19)
-const PILL_H = pt(39.5)
-const Y_TABS = Y_TOPBAR + PILL_H + pt(48.5)
+// EXP-687 killed the bar buttons, so the sheet starts on its grabber and the
+// segmented control is the first content row (shots/start-coding/ios.webp).
+const Y_GRABBER = pt(6)
+const Y_TABS = pt(43)
 const Y_HEADER = Y_TABS + SEG_H + pt(24.5)
 const HEADER_H = pt(22)
 const Y_PICKER = Y_HEADER + HEADER_H + pt(10)
@@ -393,21 +403,6 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
       ? 0
       : spring({ frame: frame - toastAt, fps: 30, config: SETTLE })
 
-  const pill = (bold: boolean): React.CSSProperties => ({
-    height: PILL_H,
-    boxSizing: "border-box",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: pt(6),
-    padding: `0 ${pt(16)}px`,
-    borderRadius: 999,
-    backgroundColor: G.pillBg,
-    border: `1px solid ${G.pillStroke}`,
-    fontSize: pt(17),
-    fontWeight: bold ? 600 : 400,
-    color: C.text,
-  })
-
   return (
     <PhoneChassis glass={glass}>
       {/* the REAL mobile issue detail underneath */}
@@ -462,29 +457,19 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
             overflow: "hidden",
           }}
         >
-          {/* toolbar: glass capsule Cancel left · Start coding right */}
+          {/* the sheet grabber — the only chrome above the content */}
           <div
             style={{
               position: "absolute",
-              left: SEG_INSET,
-              right: SEG_INSET,
-              top: Y_TOPBAR,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
+              left: "50%",
+              top: Y_GRABBER,
+              width: pt(36),
+              height: pt(5),
+              borderRadius: 999,
+              translate: "-50% 0px",
+              backgroundColor: "rgba(255,255,255,0.22)",
             }}
-          >
-            <span style={pill(false)}>{PHONE_START.cancel}</span>
-            <span
-              style={{
-                ...pill(true),
-                scale: String(1 - 0.05 * startPress),
-              }}
-            >
-              {starting ? <Spinner frame={frame} /> : null}
-              {PHONE_START.confirm}
-            </span>
-          </div>
+          />
 
           {/* subject: Issues | Actions | Chat */}
           <SegControl top={Y_TABS} items={TABS} activeId="issues" />
@@ -564,6 +549,33 @@ export const StartPhone: React.FC<StartPhoneProps> = ({
               )
             )}
           </Card>
+
+          {/* the ONE pinned action (ExpUI GlassSubmitButton): full width at
+              the sheet's floor, `primary` fill with `primaryForeground` text
+              and no hairline — never a toolbar button (EXP-687). */}
+          <div
+            style={{
+              position: "absolute",
+              left: pt(16),
+              right: pt(16),
+              bottom: pt(30),
+              height: pt(48),
+              boxSizing: "border-box",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: pt(8),
+              borderRadius: pt(10),
+              backgroundColor: PRIMARY_FILL,
+              color: PRIMARY_FG,
+              fontSize: pt(17),
+              fontWeight: 500,
+              scale: String(1 - 0.02 * startPress),
+            }}
+          >
+            {starting ? <Spinner frame={frame} /> : null}
+            {PHONE_START.confirm}
+          </div>
         </div>
       ) : null}
 
