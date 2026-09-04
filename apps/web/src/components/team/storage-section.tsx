@@ -205,9 +205,19 @@ export function TeamStorageSection({
         ) : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No attachments yet.</p>
         ) : (
-          // IDE-parity flex rows (EXP-316) — the old fixed table overflowed
-          // the settings column and clipped the status + delete controls.
-          <ul className="flex flex-col gap-2">
+          // IDE-parity rows (EXP-316) — the old fixed table overflowed the
+          // settings column and clipped the status + delete controls.
+          // EXP-718: in a wide enough list every cell but the filename is a
+          // definite width (the desktop's STORAGE_COL_* ladder), so size/
+          // issue/author/date/status stack in straight columns instead of
+          // zig-zagging around each row's own content; author and date join
+          // as the list widens. In a narrow one the same cells STACK under a
+          // full-width filename, so a phone never truncates the name to
+          // "imag…" while three trailing chips keep their full width. The
+          // thresholds are CONTAINER queries on the list: the settings column
+          // is ~450px at the `md` viewport (sidebar), so viewport breakpoints
+          // overflowed the ladder exactly where the tab strip turns into it.
+          <ul className="@container flex flex-col gap-2">
             {rows.map((row) => {
               const Icon = getAttachmentIcon(row.contentType)
               const issue = issuesById.get(row.issueId)
@@ -226,56 +236,66 @@ export function TeamStorageSection({
                 >
                   <li>
                     <Icon className="size-4 shrink-0 text-muted-foreground" />
-                    {row.isImage ? (
-                      <button
-                        type="button"
-                        className="min-w-0 flex-1 cursor-pointer truncate text-left text-sm hover:underline"
-                        title={`Preview ${row.filename}`}
-                        onClick={() => setPreviewRow(row)}
-                      >
-                        {row.filename}
-                      </button>
-                    ) : (
-                      <span
-                        className="min-w-0 flex-1 truncate text-sm"
-                        title={row.filename}
-                      >
-                        {row.filename}
-                      </span>
-                    )}
-                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                      {formatAttachmentSize(row.sizeBytes)}
-                    </span>
-                    {issue && boardSlug && (
-                      <Pill mode="action" asChild className="font-mono">
-                        <Link
-                          to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
-                          params={{
-                            teamSlug,
-                            boardSlug,
-                            issueIdentifier: issue.identifier,
-                          }}
-                          title={issue.title}
+                    {/* Stacked when narrow; `@lg:contents` flattens the stack
+                        so the cells become the row's own flex items. */}
+                    <div className="flex min-w-0 flex-1 flex-col gap-1 @lg:contents">
+                      {row.isImage ? (
+                        <button
+                          type="button"
+                          className="min-w-0 cursor-pointer truncate text-left text-sm hover:underline @lg:flex-1"
+                          title={`Preview ${row.filename}`}
+                          onClick={() => setPreviewRow(row)}
                         >
-                          #{issue.identifier}
-                        </Link>
-                      </Pill>
-                    )}
-                    <span className="hidden w-28 shrink-0 truncate text-xs text-muted-foreground sm:inline">
-                      {uploader?.name || uploader?.email || `—`}
-                    </span>
-                    <span className="hidden shrink-0 text-xs text-muted-foreground md:inline">
-                      {formatDate(row.createdAt)}
-                    </span>
-                    <span className="shrink-0">
-                      {!row.isImage ? (
-                        <Pill>File</Pill>
-                      ) : row.referenced ? (
-                        <Pill>In use</Pill>
+                          {row.filename}
+                        </button>
                       ) : (
-                        <Pill>Unreferenced</Pill>
+                        <span
+                          className="min-w-0 truncate text-sm @lg:flex-1"
+                          title={row.filename}
+                        >
+                          {row.filename}
+                        </span>
                       )}
-                    </span>
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground @lg:contents">
+                        <span className="shrink-0 tabular-nums @lg:w-20">
+                          {formatAttachmentSize(row.sizeBytes)}
+                        </span>
+                        <span className="flex shrink-0 @lg:w-24">
+                          {issue && boardSlug ? (
+                            <Pill mode="action" asChild className="font-mono">
+                              <Link
+                                to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+                                params={{
+                                  teamSlug,
+                                  boardSlug,
+                                  issueIdentifier: issue.identifier,
+                                }}
+                                title={issue.title}
+                              >
+                                #{issue.identifier}
+                              </Link>
+                            </Pill>
+                          ) : (
+                            <span className="@max-lg:hidden">—</span>
+                          )}
+                        </span>
+                        <span className="min-w-0 truncate @lg:hidden @lg:w-28 @2xl:inline">
+                          {uploader?.name || uploader?.email || `—`}
+                        </span>
+                        <span className="shrink-0 whitespace-nowrap @lg:hidden @lg:w-24 @3xl:inline">
+                          {formatDate(row.createdAt)}
+                        </span>
+                        <span className="flex shrink-0 @lg:w-26">
+                          {!row.isImage ? (
+                            <Pill>File</Pill>
+                          ) : row.referenced ? (
+                            <Pill>In use</Pill>
+                          ) : (
+                            <Pill>Unreferenced</Pill>
+                          )}
+                        </span>
+                      </div>
+                    </div>
                     <Button
                       variant="glass"
                       size="icon-sm"

@@ -444,8 +444,14 @@ export function WidgetConfigDialog({
             snippet is public; restrict it to your domains.
           </DialogDescription>
         </DialogHeader>
-        <DialogBody>
-          <Tabs defaultValue="general">
+        {/* EXP-718: from `sm` up the body is a column so the Appearance tab
+            can hand the two panes their OWN scroll — the whole-panel preview
+            is taller than the height-capped dialog, and letting the body
+            scroll it cut the pane mid-field behind the footer. General and
+            Form keep scrolling the body (their content overflows the
+            bounded tabs box); the mobile sheet stacks and scrolls as before. */}
+        <DialogBody className="sm:flex sm:flex-col">
+          <Tabs defaultValue="general" className="sm:min-h-0 sm:flex-1">
             <TabsList className="w-full sm:w-auto">
               <TabsTrigger value="general">General</TabsTrigger>
               <TabsTrigger value="form">Form</TabsTrigger>
@@ -712,9 +718,14 @@ export function WidgetConfigDialog({
               )}
             </TabsContent>
 
-            <TabsContent value="appearance" className="mt-2">
-              <div className="grid gap-4 sm:grid-cols-2 sm:gap-x-6">
-                <div className="space-y-4">
+            <TabsContent
+              value="appearance"
+              className="mt-2 sm:flex sm:min-h-0 sm:flex-col"
+            >
+              <div className="grid gap-4 sm:min-h-0 sm:flex-1 sm:grid-cols-2 sm:grid-rows-[minmax(0,1fr)] sm:gap-x-6">
+                {/* The knobs column scrolls on its own; the 4px inset keeps
+                    focus rings inside the scroll box. */}
+                <div className="space-y-4 sm:-m-1 sm:min-h-0 sm:overflow-y-auto sm:p-1">
                   <div className="space-y-2">
                     <Label>Theme</Label>
                     <Select
@@ -858,7 +869,7 @@ export function WidgetConfigDialog({
                     </p>
                   </div>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 sm:min-h-0 sm:overflow-y-auto sm:pr-1">
                   <span className="text-xs text-muted-foreground">
                     Launcher preview (
                     {launcherDevice === `desktop` ? `desktop` : `mobile`}) —
