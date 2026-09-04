@@ -237,9 +237,16 @@ export function SupportInbox({
                     type="button"
                     onClick={() => setSelectedId(thread.id)}
                   >
+                    {/* EXP-715: the ticket SUBJECT leads (every client); the
+                        reporter + latest public message sit under it. */}
                     <div className="flex items-center gap-2">
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                        {reporterLabel(thread)}
+                      <span
+                        className={cn(
+                          `min-w-0 flex-1 truncate text-sm`,
+                          thread.unread && `font-medium`
+                        )}
+                      >
+                        {thread.title}
                       </span>
                       {/* EXP-698: fixed trailing columns — the stamp is
                           right-aligned in its own slot and the unread dot
@@ -260,7 +267,9 @@ export function SupportInbox({
                       </span>
                     </div>
                     <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                      {thread.lastMessage?.body ?? thread.title}
+                      {thread.lastMessage?.body
+                        ? `${reporterLabel(thread)} · ${thread.lastMessage.body}`
+                        : reporterLabel(thread)}
                     </p>
                   </button>
                 </GlassRow>
