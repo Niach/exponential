@@ -620,6 +620,45 @@ pub(crate) fn server_install_snippet(cx: &gpui::App) -> String {
     format!("curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE={origin} sh")
 }
 
+/// The install one-liner in its copyable box (EXP-725 — extracted so the
+/// Add-device dialog and the onboarding wizard's devices step render the SAME
+/// box). The clipboard gets the ONE-LINE command; the box shows it wrapped
+/// over two lines so the snippet never needs a horizontal scroll.
+pub(crate) fn server_install_snippet_box(
+    id: impl Into<gpui::ElementId>,
+    cx: &gpui::App,
+) -> impl IntoElement {
+    let origin = server_install_origin(cx);
+    let snippet = server_install_snippet(cx);
+    let line_two = SharedString::from(format!("  EXP_INSTANCE={origin} sh"));
+    div()
+        .relative()
+        .p_2()
+        .pr_8()
+        .rounded(px(theme::tokens::radius::SM))
+        .border_1()
+        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+        .text_xs()
+        .font_family(theme::terminal::FONT_FAMILY)
+        .text_color(cx.theme().foreground)
+        .child(
+            gpui_component::v_flex()
+                .child("curl -fsSL https://exponential.at/install.sh |")
+                .child(line_two),
+        )
+        .child(
+            div().absolute().top_1().right_1().child(
+                crate::controls::glass_icon_button(id, Icon::new(registry::UI_COPY), cx)
+                    .tooltip("Copy install command")
+                    .on_click(move |_, window, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(snippet.clone()));
+                        window
+                            .push_notification(Notification::success("Copied install command"), cx);
+                    }),
+            ),
+        )
+}
+
 /// The "Add device" dialog (EXP-697, one spec with the web twin): the desktop
 /// app first — it is what actually runs coding sessions — then the install
 /// one-liner for the headless `exponential` CLI as the always-on-server path.
@@ -629,11 +668,6 @@ pub(crate) fn server_install_snippet(cx: &gpui::App) -> String {
 /// `buildServerInstallSnippet` shape exactly. Shared (EXP-470): opened from
 /// this section's band and from the Getting-started page's server card.
 pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
-    let origin = server_install_origin(cx);
-    // The clipboard gets the ONE-LINE command; the box shows it wrapped over
-    // two lines so the snippet never needs a horizontal scroll.
-    let snippet = server_install_snippet(cx);
-    let line_two = SharedString::from(format!("  EXP_INSTANCE={origin} sh"));
     let spec = AlertSpec::new(
         "Add device",
         "To run coding sessions, install the desktop app.",
@@ -642,8 +676,6 @@ pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
     .without_cancel()
     .height(px(320.))
     .content(move |_, cx| {
-        let snippet = snippet.clone();
-        let foreground = cx.theme().foreground;
         gpui_component::v_flex()
             .gap_3()
             .child(
@@ -664,42 +696,7 @@ pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
                     .text_color(cx.theme().muted_foreground)
                     .child("Or install the Exponential CLI on a server:"),
             )
-            .child(
-                div()
-                    .relative()
-                    .p_2()
-                    .pr_8()
-                    .rounded(px(theme::tokens::radius::SM))
-                    .border_1()
-                    .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                    .text_xs()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .text_color(foreground)
-                    .child(
-                        gpui_component::v_flex()
-                            .child("curl -fsSL https://exponential.at/install.sh |")
-                            .child(line_two.clone()),
-                    )
-                    .child(
-                        div().absolute().top_1().right_1().child(
-                            crate::controls::glass_icon_button(
-                                "add-device-copy",
-                                Icon::new(registry::UI_COPY),
-                                cx,
-                            )
-                                .tooltip("Copy install command")
-                                .on_click(move |_, window, cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(
-                                        snippet.clone(),
-                                    ));
-                                    window.push_notification(
-                                        Notification::success("Copied install command"),
-                                        cx,
-                                    );
-                                }),
-                        ),
-                    ),
-            )
+            .child(server_install_snippet_box("add-device-copy", cx))
             .into_any_element()
     });
     native_dialog::open_alert(window, cx, spec);

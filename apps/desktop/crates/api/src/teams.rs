@@ -7,6 +7,7 @@
 //! - `teams.create({name, iconUrl?})` → `{team, txId}`
 //! - `teams.update({teamId, name?, iconUrl?})` → `{team, txId}` (EXP-707)
 //! - `teams.delete({teamId})` → `{ok, txId}`
+//! - `teams.inviteCapacity({teamId})` → `{remaining}` (query, EXP-725)
 //! - `teamMembers.updateRole({memberId, role})` → `{member}`
 //! - `teamMembers.remove({memberId})` → `{ok}` (also "Leave team")
 //! - `teamInvites.create({teamId, role, email?})` → `{invite, token, emailDelivered}`
@@ -105,6 +106,30 @@ pub fn teams_delete(trpc: &TrpcClient, team_id: &str) -> Result<OkTxOutput, ApiE
         team_id: &'a str,
     }
     trpc.mutation("teams.delete", &Input { team_id })
+}
+
+/// `teams.inviteCapacity` — query (EXP-725, the onboarding invite step). How
+/// many MORE people the team may invite on its plan, PENDING invites already
+/// counted; `None` = unlimited (self-hosted, paid, comped). Any member may
+/// ask — the wizard uses it to REMOVE the invite control on a full free tier
+/// rather than let the mint fail.
+pub fn teams_invite_capacity(
+    trpc: &TrpcClient,
+    team_id: &str,
+) -> Result<Option<u32>, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        team_id: &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Output {
+        /// An ABSENT key reads the same as an explicit `null`: unlimited.
+        #[serde(default)]
+        remaining: Option<u32>,
+    }
+    let out: Output = trpc.query_with_input("teams.inviteCapacity", &Input { team_id })?;
+    Ok(out.remaining)
 }
 
 // ---------------------------------------------------------------------------
@@ -391,6 +416,35 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request
             .ends_with(r#"{"teamId":"w-1","role":"member","email":"jo@example.com"}"#));
+    }
+
+    /// EXP-725: the wizard's invite step asks BEFORE offering the control —
+    /// `null` (or a missing key) is unlimited, a number is what is left after
+    /// pending invites, and the call is a plain GET query.
+    #[test]
+    fn invite_capacity_decodes_unlimited_and_a_remainder() {
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"remaining":null}}}"#);
+        assert_eq!(teams_invite_capacity(&client(&base), "w-1").unwrap(), None);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.starts_with(
+                "GET /api/trpc/teams.inviteCapacity?input=%7B%22teamId%22%3A%22w-1%22%7D HTTP/1.1"
+            ),
+            "unexpected request line: {}",
+            request.lines().next().unwrap_or_default()
+        );
+
+        let (base, _captured) =
+            one_shot_server(200, r#"{"result":{"data":{"remaining":2}}}"#);
+        assert_eq!(
+            teams_invite_capacity(&client(&base), "w-1").unwrap(),
+            Some(2)
+        );
+
+        // A server that omits the key entirely still means unlimited.
+        let (base, _captured) = one_shot_server(200, r#"{"result":{"data":{}}}"#);
+        assert_eq!(teams_invite_capacity(&client(&base), "w-1").unwrap(), None);
     }
 
     #[test]

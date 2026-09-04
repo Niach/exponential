@@ -61,6 +61,7 @@ mod github_connect;
 mod icons;
 mod image_preview;
 mod inbox;
+mod invite_link;
 pub mod issue_detail;
 mod issue_files;
 mod issue_header;

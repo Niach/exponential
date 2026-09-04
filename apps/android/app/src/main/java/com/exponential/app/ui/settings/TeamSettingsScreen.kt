@@ -59,6 +59,7 @@ import com.exponential.app.ui.components.BoardRepoField
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.InviteLinkCard
 import com.exponential.app.ui.components.GlassPillDefaults
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
@@ -239,8 +240,9 @@ fun TeamSettingsScreen(
         containerColor = Color.Transparent,
     ) { padding ->
         // One scrolling sectioned screen (iOS TeamSettingsView parity):
-        // Boards → Repositories → Members → Labels → Danger. Inviting members
-        // is a web-only flow (EXP-216) — the app never offers it.
+        // Boards → Repositories → Members → Labels → Danger. Members carries
+        // the invite-link creator (EXP-725), owner-only and absent at the seat
+        // cap.
         Column(
             modifier = Modifier
                 .padding(padding)
@@ -913,6 +915,14 @@ private fun MembersSection(
                     }
                 }
             }
+        }
+        // EXP-725: minting an invite link is owner-only server-side, and the
+        // card REMOVES itself once the team is at its seat cap — it never
+        // degrades into a disabled control or an explanation (store billing
+        // policy, EXP-216).
+        val teamId = state.team?.id
+        if (isOwner && teamId != null) {
+            InviteLinkCard(teamId = teamId)
         }
     }
 }

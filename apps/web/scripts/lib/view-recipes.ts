@@ -140,6 +140,39 @@ async function recipeOpenOnboardingJoin(page: Page): Promise<void> {
   await page.locator(`#onb-invite-link`).waitFor({ timeout: 15_000 })
 }
 
+/**
+ * EXP-725: the wizard's invite step. Runs as the STARTER (owns a board-less
+ * team): the route's `?step=invite` search param is the capture hook that
+ * starts a resumed wizard past the board step, so nothing is ever created.
+ * Waits for the generate button — that proves `teams.inviteCapacity` answered
+ * and the control is visible, which is the state the shot documents.
+ */
+async function recipeOpenOnboardingInvite(page: Page, ctx: RecipeCtx): Promise<void> {
+  await page.goto(`${ctx.baseUrl}/onboarding?step=invite`)
+  const generate = page.getByTestId(`invite-generate`)
+  if (!(await appears(generate, 20_000))) {
+    throw new Error(
+      `no invite step on /onboarding?step=invite — capture this view as the ` +
+        `STARTER (auth: "starter"), the seeded owner of a board-less team`
+    )
+  }
+}
+
+/**
+ * The last wizard step, same identity and hook (`?step=devices`). The install
+ * one-liner is the view, so the wait is on its EXP_INSTANCE line.
+ */
+async function recipeOpenOnboardingDevices(page: Page, ctx: RecipeCtx): Promise<void> {
+  await page.goto(`${ctx.baseUrl}/onboarding?step=devices`)
+  const snippet = page.getByText(/EXP_INSTANCE=/)
+  if (!(await appears(snippet, 20_000))) {
+    throw new Error(
+      `no devices step on /onboarding?step=devices — capture this view as the ` +
+        `STARTER (auth: "starter"), the seeded owner of a board-less team`
+    )
+  }
+}
+
 // ----------------------------------------------------------------- issues
 
 /**
@@ -669,6 +702,8 @@ async function recipeOpenGettingStarted(page: Page): Promise<void> {
 export const RECIPES: Record<string, Recipe> = {
   openOnboardingCreateTeam: recipeOpenOnboardingCreateTeam,
   openOnboardingJoin: recipeOpenOnboardingJoin,
+  openOnboardingInvite: recipeOpenOnboardingInvite,
+  openOnboardingDevices: recipeOpenOnboardingDevices,
   openFilterPopover: recipeOpenFilterPopover,
   scrollToComments: recipeScrollToComments,
   openCreateIssue: recipeOpenCreateIssue,

@@ -25,6 +25,15 @@ data class DeleteTeamInput(val teamId: String)
 @Serializable
 data class DeleteBoardInput(val boardId: String)
 
+// EXP-725: how many more people this team may invite — pending invites count.
+// `remaining` is null for an UNLIMITED team (self-hosted, or a paid/comp
+// tier), which is not the same as 0. Any member may ask.
+@Serializable
+data class InviteCapacityInput(val teamId: String)
+
+@Serializable
+data class InviteCapacityResult(val remaining: Int? = null)
+
 @Serializable
 private object EmptyInput
 
@@ -51,6 +60,16 @@ class TeamsApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = CreateTeamInput.serializer(),
             outputSerializer = CreateTeamResult.serializer(),
         ).team
+
+    /** Free invite seats left, or null when the team has no cap (EXP-725). */
+    suspend fun inviteCapacity(accountId: String, teamId: String): Int? =
+        trpc.query(
+            accountId,
+            path = "teams.inviteCapacity",
+            input = InviteCapacityInput(teamId),
+            inputSerializer = InviteCapacityInput.serializer(),
+            outputSerializer = InviteCapacityResult.serializer(),
+        ).remaining
 
     suspend fun delete(accountId: String, teamId: String) {
         trpc.mutationUnit(

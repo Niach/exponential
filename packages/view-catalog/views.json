@@ -276,11 +276,77 @@
       }
     },
     {
+      "id": "onboarding-invite",
+      "group": "auth",
+      "title": "Onboarding · Invite teammates",
+      "blurb": "Step 3 of the first-run wizard, right after the first board: mint an invite link to share, or skip. The phones show the control only while the team has free seats.",
+      "order": 5,
+      "web": {
+        "route": "/onboarding",
+        "anchor": {
+          "text": "Invite your teammates",
+          "timeoutMs": 30000
+        },
+        "auth": "starter",
+        "recipe": "openOnboardingInvite",
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_onboarding-invite",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_onboarding-invite",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "onboarding",
+          "value": "invite"
+        },
+        "anchorDelayMs": 800
+      }
+    },
+    {
+      "id": "onboarding-devices",
+      "group": "auth",
+      "title": "Onboarding · Set up devices",
+      "blurb": "The last wizard step: get the desktop app, copy the server install command and sign the agents in on the machines that show up. Skippable; the checklist keeps whatever was skipped.",
+      "order": 6,
+      "web": {
+        "route": "/onboarding",
+        "anchor": {
+          "text": "Set up your devices",
+          "timeoutMs": 30000
+        },
+        "auth": "starter",
+        "recipe": "openOnboardingDevices",
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_onboarding-devices",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_onboarding-devices",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "onboarding",
+          "value": "devices"
+        },
+        "anchorDelayMs": 800
+      }
+    },
+    {
       "id": "invite-accept",
       "group": "auth",
       "title": "Accept an invite",
       "blurb": "The landing page a teammate opens from an invite link, with the team they were invited to and the accept button.",
-      "order": 5,
+      "order": 7,
       "notes": {
         "ios": "InviteAcceptView accepts the invite the moment it appears (spinner → “Welcome!”): there is no landing card to photograph, and pressing on would burn the seeded token.",
         "android": "Android does render the landing card, but the styleguide lane is a side-by-side comparison — a shot that exists on one native platform only has nothing to sit next to, so this stays web + desktop."

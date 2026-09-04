@@ -34,6 +34,17 @@ public enum WebLinks {
         return URL(string: "\(base)/t/\(team)/boards/\(board)/issues/\(id)")
     }
 
+    /// `{base}/invite/{token}` — the shareable form of the token
+    /// `teamInvites.create` mints (EXP-725). The exact inverse of
+    /// `extractInviteToken`, so a link the app hands out pastes back into its
+    /// own join field.
+    public static func invite(instanceUrl: String?, token: String) -> URL? {
+        guard let base = normalizedBase(instanceUrl) else { return nil }
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return URL(string: "\(base)/invite/\(encode(trimmed))")
+    }
+
     private static func encode(_ segment: String) -> String {
         segment.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? segment
     }

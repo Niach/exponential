@@ -109,18 +109,26 @@ const fakeDb: FakeDb = {
 // keep Postgres out of the test.
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 
+const assertTeamMember = vi.fn(async () => ({ role: `member` }))
 vi.mock(`@/lib/team-membership`, () => ({
+  assertTeamMember: (...args: unknown[]) =>
+    assertTeamMember(...(args as [])),
   assertTeamOwner: vi.fn(async () => ({ role: `owner` })),
   getTeamMember: vi.fn(async () => null),
 }))
 
 const assertCanCreateTeam = vi.fn(async () => {})
 const assertCanUseHelpdesk = vi.fn(async () => {})
+const getInviteCapacity = vi.fn(async () => ({
+  remaining: 2 as number | null,
+}))
 vi.mock(`@/lib/billing`, () => ({
   assertCanCreateTeam: (...args: unknown[]) =>
     assertCanCreateTeam(...(args as [])),
   assertCanUseHelpdesk: (...args: unknown[]) =>
     assertCanUseHelpdesk(...(args as [])),
+  getInviteCapacity: (...args: unknown[]) =>
+    getInviteCapacity(...(args as [])),
 }))
 
 // REV2-10: enabling the helpdesk without a mail transport accepts tickets
@@ -220,6 +228,25 @@ describe(`teams.create — open to every user (EXP-188)`, () => {
       `cap`
     )
     expect(inserts).toHaveLength(0)
+  })
+})
+
+describe(`teams.inviteCapacity — member-readable seat headroom (EXP-725)`, () => {
+  it(`asserts membership (any role) and relays the billing answer verbatim`, async () => {
+    getInviteCapacity.mockResolvedValueOnce({ remaining: null })
+    const result = await caller().inviteCapacity({ teamId: WS })
+    expect(assertTeamMember).toHaveBeenCalledWith(`user-a`, WS)
+    expect(getInviteCapacity).toHaveBeenCalledWith(WS)
+    expect(result).toEqual({ remaining: null })
+  })
+
+  it(`a non-member is refused before billing is consulted`, async () => {
+    assertTeamMember.mockRejectedValueOnce(new Error(`not a member`))
+    getInviteCapacity.mockClear()
+    await expect(caller().inviteCapacity({ teamId: WS })).rejects.toThrow(
+      `not a member`
+    )
+    expect(getInviteCapacity).not.toHaveBeenCalled()
   })
 })
 

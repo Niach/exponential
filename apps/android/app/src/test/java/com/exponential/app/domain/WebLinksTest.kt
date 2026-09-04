@@ -63,6 +63,26 @@ class WebLinksTest {
         assertEquals("tok123", WebLinks.extractInviteToken("  tok123  "))
     }
 
+    // EXP-725: the invite-link creator mints the link the join flows parse —
+    // one shape, both directions.
+    @Test
+    fun inviteLinkRoundTripsThroughExtraction() {
+        val minted = WebLinks.invite("https://app.exponential.at/", "tok123")
+        assertEquals("https://app.exponential.at/invite/tok123", minted)
+        assertEquals("tok123", WebLinks.extractInviteToken(minted!!))
+        assertEquals(WebLinks.Parsed.Invite("tok123"), WebLinks.parsePath(URI(minted).path))
+    }
+
+    // No instance URL means no link a teammate could open — the creator shows
+    // nothing rather than handing over a bare path.
+    @Test
+    fun inviteLinkNeedsBothAnInstanceAndAToken() {
+        assertNull(WebLinks.invite(null, "tok123"))
+        assertNull(WebLinks.invite("", "tok123"))
+        assertNull(WebLinks.invite("   ", "tok123"))
+        assertNull(WebLinks.invite("https://app.exponential.at", "  "))
+    }
+
     @Test
     fun rejectsUnextractableInviteInput() {
         assertNull(WebLinks.extractInviteToken(""))

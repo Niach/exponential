@@ -4,13 +4,17 @@ import SwiftUI
 
 struct TeamMembersSection: View {
     let accountId: String
+    let teamId: String
     let members: [TeamMemberEntity]
     let users: [UserEntity]
     let currentUserId: String?
     let membersApi: TeamMembersApi
     // Owner-only controls (role change / remove) are HIDDEN for non-owners —
-    // full web parity, not greyed. Self-leave stays for anyone. Inviting
-    // members is a web-only flow (EXP-216) — the app never offers it.
+    // full web parity, not greyed. Self-leave stays for anyone. Inviting is
+    // owner-only too (EXP-725): owners get the invite-LINK creator under the
+    // rows — and only while the team has free seats, since a seat cap must
+    // never surface purchase copy in an App Store build (3.1.1). Emailed
+    // invites stay web-only.
     var isOwner: Bool = false
 
     @State private var confirm: MemberConfirm?
@@ -39,6 +43,10 @@ struct TeamMembersSection: View {
                 Text(actionError)
                     .font(.caption)
                     .foregroundStyle(.red.opacity(0.8))
+            }
+
+            if isOwner {
+                InviteLinkCreator(accountId: accountId, teamId: teamId)
             }
         }
         .alert(confirmTitle, isPresented: Binding(

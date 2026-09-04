@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-guided-first-run`,
+    date: `2026-09-04`,
+    title: `A guided first run on every platform`,
+    summary: `Creating a team now walks through the first board, inviting teammates and setting up devices, in the same order on web, desktop, iOS and Android.`,
+    body: `- **Same steps everywhere**: name the team, create the first board, invite teammates, set up devices; the four steps and their wording match on every client.
+- **Invite right after the board**: mint an invite link as soon as the team exists and copy or share it; the phones offer it only while the team has free seats.
+- **Devices in the wizard**: download the desktop app, copy the server install command and sign your coding agents in on the machines that show up; skipped steps stay on the getting-started checklist.
+- **Mobile team settings**: owners can now create invite links from the Members section on iOS and Android.`,
+  },
+  {
     id: `2026-09-polish-on-every-client`,
     date: `2026-09-04`,
     title: `Polish on every client`,

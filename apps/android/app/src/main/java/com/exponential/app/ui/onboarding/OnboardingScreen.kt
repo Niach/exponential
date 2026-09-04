@@ -29,38 +29,52 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.ui.components.GlassSubmitButton
+import com.exponential.app.ui.components.InviteLinkCard
+import com.exponential.app.ui.components.InviteLinkViewModel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.LocalReduceMotion
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassCard
 
-// First-run onboarding, following the shared iOS/Android spec (EXP-188):
-//   1. Welcome — app name + one-line value prop + "Get started".
-//   2. Team — resolving spinner, then create-or-join when the account has no
+// First-run onboarding. EXP-725 made the four product steps identical on every
+// client (team -> board -> invite -> devices); the phones wrap them in a
+// welcome page and a done page:
+//   0. Welcome — app name + one-line value prop + "Get started".
+//   1. Team — resolving spinner, then create-or-join when the account has no
 //      team (signups no longer get one). Creating advances; joining via a
 //      pasted invite link completes onboarding and exits the wizard.
-//   3. Create your first board — board name + optional repository picker
+//   2. Create your first board — board name + optional repository picker
 //      (with inline GitHub connect when nothing is installed yet).
-//   4. Done — drops into the app.
-// One primary action per step; completing the create marks onboarding done
-// server-side (see OnboardingViewModel), the done step just navigates.
+//   3. Invite your teammates — the shared invite-link creator. SKIPPABLE, and
+//      absent entirely at the seat cap (InviteLinkCard owns that rule).
+//   4. Set up your devices — install pointers + the caller's own machines.
+//      SKIPPABLE, and LAST on purpose: finishing it means leaving for another
+//      machine, so nothing may depend on it.
+//   5. Done — drops into the app.
+// One primary action per step; completing the board create marks onboarding
+// done server-side (see OnboardingViewModel), the done step just navigates.
+// Copy for steps 2-5 lives in OnboardingCopy (drift-gated against web).
 @Composable
 fun OnboardingScreen(
     onDone: () -> Unit,
     viewModel: OnboardingViewModel = hiltViewModel(),
 ) {
     val accountId by viewModel.accountId.collectAsStateWithLifecycle()
+    val instanceUrl by viewModel.instanceUrl.collectAsStateWithLifecycle()
     val teamId by viewModel.teamId.collectAsStateWithLifecycle()
     val preparing by viewModel.preparing.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
@@ -84,7 +98,17 @@ fun OnboardingScreen(
     LaunchedEffect(done) { if (done) onDone() }
     // The team step is a pass-through once a team resolves (existing membership
     // or a successful create) — advance straight to the board step.
-    LaunchedEffect(step, teamId) { if (step == 1 && teamId != null) step = 2 }
+    LaunchedEffect(step, teamId) {
+        if (step == 1 && teamId != null) {
+            // Capture-only (see OnboardingTestHooks): the screenshot lane can
+            // photograph the later steps without creating a team or a board.
+            step = when (OnboardingTestHooks.startStep) {
+                "invite" -> 3
+                "devices" -> 4
+                else -> 2
+            }
+        }
+    }
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(
@@ -129,7 +153,6 @@ fun OnboardingScreen(
                         createError = teamCreateError,
                         joinError = teamJoinError,
                         onRetry = { viewModel.prepare() },
-                        onSignOut = { viewModel.signOut() },
                         onCreateTeam = { viewModel.createTeam(it) },
                         onJoinTeam = { viewModel.joinTeam(it) },
                     )
@@ -139,11 +162,15 @@ fun OnboardingScreen(
                         preparing = preparing,
                         error = error,
                         onRetry = { viewModel.prepare() },
-                        onSignOut = { viewModel.signOut() },
                         onCreated = { boardId ->
                             viewModel.onBoardCreated(boardId)
                             step = 3
                         },
+                    )
+                    3 -> InviteStep(teamId = teamId, onContinue = { step = 4 })
+                    4 -> OnboardingDevicesStep(
+                        instanceOrigin = instanceUrl,
+                        onContinue = { step = 5 },
                     )
                     else -> DoneStep(onFinish = {
                         viewModel.finish()
@@ -151,11 +178,75 @@ fun OnboardingScreen(
                     })
                 }
             }
+
+            // EXP-725: the escape hatch is PERSISTENT, not an error-path
+            // afterthought. This route replaces the back stack and hides the
+            // bottom bar, so an account the server refuses (a deleted user
+            // 401s everything) previously had no way out from any step that
+            // happened not to be showing an error.
+            Spacer(Modifier.height(24.dp))
+            TextButton(
+                onClick = { viewModel.signOut() },
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                ),
+            ) {
+                Text(OnboardingCopy.SIGN_OUT)
+            }
         }
     }
 }
 
-// Step 1 — Welcome: app name + one-line value prop, one primary action.
+// Step 3 — Invite your teammates: the shared creator, one trailing action.
+// The button is a SKIP until a link exists, because nothing has been done yet;
+// once one is minted it reads Continue. At the seat cap InviteLinkCard renders
+// nothing at all and the step is just its header plus Skip (store policy —
+// no hint, no pointer at the web).
+@Composable
+private fun InviteStep(teamId: String?, onContinue: () -> Unit) {
+    var linkMinted by remember { mutableStateOf(false) }
+    Column(
+        modifier = Modifier
+            .widthIn(max = 460.dp)
+            .fillMaxWidth()
+            .testTag("onboarding-invite-step"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            OnboardingCopy.INVITE_TITLE,
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            OnboardingCopy.INVITE_SUBTITLE,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(28.dp))
+        if (teamId != null) {
+            val inviteViewModel = hiltViewModel<InviteLinkViewModel>(key = "invite-link:$teamId")
+            LaunchedEffect(teamId) { inviteViewModel.bind(teamId) }
+            val inviteState by inviteViewModel.state.collectAsStateWithLifecycle()
+            LaunchedEffect(inviteState.inviteUrl) {
+                if (inviteState.inviteUrl != null) linkMinted = true
+            }
+            InviteLinkCard(
+                state = inviteState,
+                onGenerate = inviteViewModel::generate,
+            )
+            Spacer(Modifier.height(28.dp))
+        }
+        GlassSubmitButton(
+            label = if (linkMinted) OnboardingCopy.CONTINUE else OnboardingCopy.SKIP,
+            onClick = onContinue,
+        )
+    }
+}
+
+// Step 0 — Welcome: app name + one-line value prop, one primary action.
 @Composable
 private fun WelcomeStep(onContinue: () -> Unit) {
     Column(
@@ -194,7 +285,7 @@ private fun WelcomeStep(onContinue: () -> Unit) {
     }
 }
 
-// Step 2 — Team (EXP-188): while getDefault resolves, a spinner; an account
+// Step 1 — Team (EXP-188): while getDefault resolves, a spinner; an account
 // with a team auto-advances (the screen's LaunchedEffect); otherwise the
 // create-or-join choice. Joining exits the wizard via the done flow.
 @Composable
@@ -206,7 +297,6 @@ private fun TeamStep(
     createError: String?,
     joinError: String?,
     onRetry: () -> Unit,
-    onSignOut: () -> Unit,
     onCreateTeam: (String) -> Unit,
     onJoinTeam: (String) -> Unit,
 ) {
@@ -238,8 +328,7 @@ private fun TeamStep(
                     textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.height(12.dp))
-                TextButton(onClick = onRetry) { Text("Retry") }
-                SignOutEscapeHatch(onSignOut = onSignOut)
+                TextButton(onClick = onRetry) { Text(OnboardingCopy.RETRY) }
             }
             preparing || !needsChoice -> {
                 Column(
@@ -272,23 +361,7 @@ private fun TeamStep(
     }
 }
 
-// The wizard's only way out (this route replaces the back stack and hides the
-// bottom bar): a rejected session — a deleted account, a revoked token — 401s
-// every request, so Retry can never succeed. Secondary to Retry, since a
-// transient failure is the common case.
-@Composable
-private fun SignOutEscapeHatch(onSignOut: () -> Unit) {
-    TextButton(
-        onClick = onSignOut,
-        colors = ButtonDefaults.textButtonColors(
-            contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        ),
-    ) {
-        Text("Sign out")
-    }
-}
-
-// Step 3 — Create your first board: name + optional repository (with inline
+// Step 2 — Create your first board: name + optional repository (with inline
 // GitHub connect inside the picker when no installation exists yet).
 @Composable
 private fun CreateBoardStep(
@@ -297,7 +370,6 @@ private fun CreateBoardStep(
     preparing: Boolean,
     error: String?,
     onRetry: () -> Unit,
-    onSignOut: () -> Unit,
     onCreated: (String) -> Unit,
 ) {
     Column(
@@ -305,14 +377,14 @@ private fun CreateBoardStep(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            "Create your first board",
+            OnboardingCopy.BOARD_TITLE,
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            "Name your board. Connecting a GitHub repository is optional.",
+            OnboardingCopy.BOARD_SUBTITLE,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             textAlign = TextAlign.Center,
@@ -329,8 +401,7 @@ private fun CreateBoardStep(
                         textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(12.dp))
-                    TextButton(onClick = onRetry) { Text("Retry") }
-                    SignOutEscapeHatch(onSignOut = onSignOut)
+                    TextButton(onClick = onRetry) { Text(OnboardingCopy.RETRY) }
                 } else {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
@@ -358,7 +429,7 @@ private fun CreateBoardStep(
     }
 }
 
-// Step 4 — Done: confirmation, one action that drops into the app.
+// Step 5 — Done: confirmation, one action that drops into the app.
 @Composable
 private fun DoneStep(onFinish: () -> Unit) {
     Column(
@@ -378,21 +449,19 @@ private fun DoneStep(onFinish: () -> Unit) {
         }
         Spacer(Modifier.height(24.dp))
         Text(
-            "You're all set",
+            OnboardingCopy.DONE_TITLE,
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            "Your board is ready.",
+            OnboardingCopy.DONE_BODY,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(32.dp))
-        Button(onClick = onFinish, modifier = Modifier.fillMaxWidth()) {
-            Text("Start tracking issues")
-        }
+        GlassSubmitButton(label = OnboardingCopy.DONE_BUTTON, onClick = onFinish)
     }
 }

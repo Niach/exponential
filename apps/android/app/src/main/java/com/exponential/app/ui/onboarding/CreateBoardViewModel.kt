@@ -8,6 +8,7 @@ import com.exponential.app.data.api.BoardsApi
 import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.api.TeamsApi
+import com.exponential.app.data.api.isPlanLimitError
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -158,13 +159,15 @@ class CreateBoardViewModel @Inject constructor(
                 // "…reconnect GitHub in team settings → Repositories…" is
                 // itself the actionable instruction.
                 val message = trpcErrorMessage(err, err.message ?: "Failed to create board")
-                val looksLikeLimit = message.contains("limit", ignoreCase = true) ||
-                    message.contains("plan", ignoreCase = true) ||
-                    message.contains("upgrade", ignoreCase = true)
+                // EXP-725: the server's own classification (PRECONDITION_FAILED
+                // + the shared plan-limit prefix, captured at the throw site),
+                // not a substring sniff for "limit"/"plan"/"upgrade" on copy
+                // the app already neutralised.
+                val isLimit = isPlanLimitError(err)
                 _state.value = _state.value.copy(
                     submitting = false,
-                    error = if (looksLikeLimit) null else message,
-                    limitError = if (looksLikeLimit) message else null,
+                    error = if (isLimit) null else message,
+                    limitError = if (isLimit) message else null,
                 )
             }
         }

@@ -65,6 +65,7 @@ struct TeamSettingsView: View {
                     // EXP-216)
                     TeamMembersSection(
                         accountId: accountId,
+                        teamId: teamId,
                         members: members,
                         users: users,
                         currentUserId: deps.auth.userId,

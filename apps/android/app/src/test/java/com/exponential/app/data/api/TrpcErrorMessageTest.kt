@@ -143,6 +143,57 @@ class TrpcErrorMessageTest {
         assertFalse(isConflictError(null))
     }
 
+    // EXP-725: the invite-link creator has to tell a plan cap from every other
+    // refusal, and the message it renders deliberately no longer says which it
+    // was — so the flag is decided at the throw site off the RAW body: the
+    // shared prefix AND the PRECONDITION_FAILED code, never one alone.
+    @Test
+    fun planLimitFlagNeedsBothThePrefixAndTheCode() {
+        val cap = trpcBody("Your plan allows up to 3 seats. Add seats or upgrade to invite more teammates.")
+        assertTrue(trpcErrorInfoFromBody(cap).isPlanLimit)
+        assertEquals(PLAN_LIMIT_NEUTRAL_MESSAGE, trpcErrorInfoFromBody(cap).message)
+        assertEquals("PRECONDITION_FAILED", trpcErrorInfoFromBody(cap).code)
+
+        // The prefix under a different code is not the billing gate.
+        val wrongCode = trpcBody(
+            "Your plan allows up to 3 seats. Add seats or upgrade to invite more teammates.",
+            code = "FORBIDDEN",
+        )
+        assertFalse(trpcErrorInfoFromBody(wrongCode).isPlanLimit)
+
+        // …and an ordinary precondition failure is not one either.
+        val ordinary = trpcBody("No repository linked to this board")
+        assertFalse(trpcErrorInfoFromBody(ordinary).isPlanLimit)
+    }
+
+    // The nested `{error:{json:{…}}}` envelope carries the code in the same
+    // place; the flag must survive it.
+    @Test
+    fun planLimitFlagSurvivesTheNestedJsonEnvelope() {
+        val body = """{"error": {"json": {"message": "Your plan allows up to 3 seats. Upgrade to invite more.",""" +
+            """ "data": {"code": "PRECONDITION_FAILED"}}}}"""
+        val info = trpcErrorInfoFromBody(body)
+        assertTrue(info.isPlanLimit)
+        assertEquals(PLAN_LIMIT_NEUTRAL_MESSAGE, info.message)
+    }
+
+    @Test
+    fun isPlanLimitErrorOnlyFiresForAFlaggedTrpcException() {
+        assertTrue(
+            isPlanLimitError(
+                TrpcException(
+                    PLAN_LIMIT_NEUTRAL_MESSAGE,
+                    HttpStatusCode.PreconditionFailed,
+                    code = "PRECONDITION_FAILED",
+                    isPlanLimit = true,
+                )
+            )
+        )
+        assertFalse(isPlanLimitError(TrpcException("No repository linked to this board")))
+        assertFalse(isPlanLimitError(java.net.UnknownHostException("offline")))
+        assertFalse(isPlanLimitError(null))
+    }
+
     // Not even a 412 that quotes the conflict wording counts.
     @Test
     fun preconditionFailedQuotingTheConflictSentenceIsNotAConflict() {

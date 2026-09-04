@@ -15,6 +15,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
+import com.exponential.app.ui.onboarding.OnboardingTestHooks
 import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -46,7 +47,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_machine-settings · sg_action-create · sg_automations-list ·
  *   sg_automations · sg_action-suggestions · sg_reviews ·
  *   sg_support-thread · sg_settings-root · sg_settings-team ·
- *   sg_settings-account · sg_onboarding
+ *   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
+ *   sg_onboarding-devices
  *
  * EXP-642 reshuffled the front of the set: the old `sg_instance-picker` shot IS
  * the cloud chooser a first-run user meets, so it took over the `sg_sign-in`
@@ -534,6 +536,62 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText("Create team"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_onboarding")
+
+        // --- Onboarding, the two later steps (EXP-725). Reaching them for
+        // real means creating a team AND a board, which would mutate the
+        // shared seed, so the wizard's capture seam presets the step instead
+        // (OnboardingTestHooks — inert outside this process) and the lane
+        // signs in as the STARTER: the seed's third identity, who owns a
+        // board-less team and never finished the wizard (a board would let
+        // the server backfill the flag). The newcomer above
+        // is a member of nothing, and the invite + devices steps both need a
+        // team to exist.
+        OnboardingTestHooks.startStep = "invite"
+        // The wizard's persistent escape hatch (every step carries it now) —
+        // signing the newcomer out frees the login flow to bring the starter
+        // in beside the still-signed-in demo account.
+        composeRule.onAllNodes(hasText("Sign out")).onFirst().performClick()
+        // Where that lands depends on what else holds a token. Invalidating
+        // the ACTIVE row's session keeps the row and flips AppNavHost's
+        // `needsAuth`, so the usual outcome is the login form for the same
+        // instance; the instance picker shows when no account is left at
+        // all, and the demo user's app when the router fell back to them —
+        // the servers list then adds one the same way as above.
+        when {
+            flow.waitForOptional(hasTestTag("login-email-field"), NAV_TIMEOUT) -> Unit
+            flow.waitForOptional(hasText(ScreenshotFlow.SELF_HOST_LINK), NAV_TIMEOUT) ->
+                flow.chooseInstance(instanceUrl)
+            else -> {
+                composeRule.onNode(hasContentDescription("Issues")).performClick()
+                flow.waitFor(hasContentDescription("Settings"), NAV_TIMEOUT)
+                composeRule.onNode(hasContentDescription("Settings")).performClick()
+                flow.waitFor(hasText("Servers", ignoreCase = true), NAV_TIMEOUT)
+                composeRule.onAllNodes(hasText("Add server")).onFirst().performClick()
+                flow.chooseInstance(instanceUrl)
+            }
+        }
+        flow.awaitLoginScreen()
+        flow.submitLogin(ScreenshotFlow.STARTER_EMAIL, ScreenshotFlow.STARTER_PASSWORD)
+        // The welcome page is step 0 for everyone; the preset only takes
+        // effect once the team step has resolved a team.
+        if (flow.waitForOptional(hasText("Get started"), SYNC_TIMEOUT)) {
+            composeRule.onAllNodes(hasText("Get started")).onFirst().performClick()
+        }
+
+        // --- Invite step: header + the invite-link creator, before a link is
+        // minted (generating one would leave a live invite in the seed).
+        flow.waitFor(hasTestTag("onboarding-invite-step"), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag("invite-generate"), SYNC_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_onboarding-invite")
+
+        // --- Devices step: the two install cards plus "Your devices". The
+        // starter has no machine of their own, so this photographs the empty
+        // state, which is what a first-run user actually sees.
+        composeRule.onAllNodes(hasText("Skip for now")).onFirst().performClick()
+        flow.waitFor(hasTestTag("onboarding-devices-step"), NAV_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_onboarding-devices")
 
         finished = true
     }

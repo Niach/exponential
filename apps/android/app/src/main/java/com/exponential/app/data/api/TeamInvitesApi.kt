@@ -5,9 +5,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
 
-// Accept-only surface: inviting members is a web-only flow (EXP-216 — the
-// store builds must never reach the seat-cap billing copy), but invite LINKS
-// still open in the app, so previewing + accepting stays.
+// Invite links: mint (EXP-725), preview and accept. Creating one is owner-only
+// server-side and the app only OFFERS it while the team has free seats — at
+// the cap the control is removed entirely, so a store build never renders the
+// seat-cap billing copy (EXP-216).
 
 @Serializable
 data class AcceptInviteInput(val token: String)
@@ -34,8 +35,29 @@ data class InvitePreview(
 @Serializable
 data class GetByTokenResult(val invite: InvitePreview)
 
+// `role` always rides explicitly rather than leaning on the server default —
+// the wire shape is the contract, and a member invite is what every client
+// mints. The result also carries the invite row and `emailDelivered`; only the
+// token is decoded here (the app never types an address into the invite).
+@Serializable
+data class CreateInviteInput(val teamId: String, val role: String = "member")
+
+@Serializable
+data class CreateInviteResult(val token: String)
+
 @Singleton
 class TeamInvitesApi @Inject constructor(private val trpc: TrpcClient) {
+
+    /** Mint a shareable invite link token (owner-only server-side). */
+    suspend fun create(accountId: String, teamId: String): String =
+        trpc.mutation(
+            accountId,
+            path = "teamInvites.create",
+            input = CreateInviteInput(teamId),
+            inputSerializer = CreateInviteInput.serializer(),
+            outputSerializer = CreateInviteResult.serializer(),
+        ).token
+
     suspend fun accept(accountId: String, token: String): AcceptInviteResult =
         trpc.mutation(
             accountId,

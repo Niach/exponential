@@ -55,6 +55,8 @@ import {
   DEMO_PASSWORD,
   NEWCOMER_EMAIL,
   NEWCOMER_PASSWORD,
+  STARTER_EMAIL,
+  STARTER_PASSWORD,
 } from "../../../apps/web/scripts/screenshot-demo.ts"
 import { luminanceVariance } from "./encode.ts"
 import { missingPlaceholder, resolveDriveValue, type DemoIds } from "./ids.ts"
@@ -200,6 +202,16 @@ export async function screenRecordingAllowed(): Promise<
 }
 
 /**
+ * Which seeded identity a wizard drive signs in as (EXP-725): the team
+ * sub-pages need an account with NO team, the invite and devices steps one
+ * whose team exists but has no board (the wizard resumes past the team step).
+ */
+function onboardingIdentity(drive: DesktopDrive): `newcomer` | `starter` {
+  if (drive.kind !== `onboarding`) return `newcomer`
+  return drive.value === `invite` || drive.value === `devices` ? `starter` : `newcomer`
+}
+
+/**
  * Sign a capture identity in and return a session token for `EXP_DEV_TOKEN`.
  *
  * Defaults to the demo user; the onboarding drives pass the NEWCOMER instead,
@@ -272,8 +284,9 @@ export function driveEnv(
   // the app signed out, and `captureOne` gets there via `signedOut`.
   if (drive.kind === `login`) return { env: {} }
   // The wizard is not a screen the shell routes to — it renders INSTEAD of the
-  // shell, for an account with no team. `captureOne` supplies the rest of that
-  // shape (newcomer token, scratch data dir, no EXP_SKIP_ONBOARDING).
+  // shell, for an account that has not finished onboarding. `captureOne`
+  // supplies the rest of that shape (wizard identity token, scratch data dir,
+  // no EXP_SKIP_ONBOARDING).
   if (drive.kind === `onboarding`) return { env: { EXP_DEV_ONBOARDING: drive.value } }
   const value = resolveDriveValue(drive.value, ids)
   if (value === undefined) {
@@ -412,9 +425,11 @@ export async function captureDesktop(
     )
   }
   // Minted on first use, and only if an onboarding view is in scope: most runs
-  // never touch the wizard, and a lane that does not need the newcomer should
-  // not fail because the seed predates it.
-  let newcomerToken: string | undefined
+  // never touch the wizard, and a lane that does not need them should not
+  // fail because the seed predates it. Two wizard identities (EXP-725): the
+  // team-less NEWCOMER for the team sub-pages, the STARTER (owner of a
+  // board-less team) for the invite and devices steps the wizard resumes at.
+  const wizardTokens: Partial<Record<`newcomer` | `starter`, string>> = {}
 
   try {
    for (const view of views) {
@@ -446,15 +461,28 @@ export async function captureDesktop(
       continue
     }
 
-    if (onboarding && newcomerToken === undefined) {
+    const wizardIdentity = onboarding ? onboardingIdentity(desktop.drive) : undefined
+    if (wizardIdentity && wizardTokens[wizardIdentity] === undefined) {
+      const [email, password] =
+        wizardIdentity === `starter`
+          ? [STARTER_EMAIL, STARTER_PASSWORD]
+          : [NEWCOMER_EMAIL, NEWCOMER_PASSWORD]
       try {
-        newcomerToken = await mintSessionToken(baseUrl, NEWCOMER_EMAIL, NEWCOMER_PASSWORD)
+        wizardTokens[wizardIdentity] = await mintSessionToken(baseUrl, email, password)
       } catch (error) {
-        const reason = `no ${NEWCOMER_EMAIL} session: ${error instanceof Error ? error.message : String(error)}`
+        const reason = `no ${email} session: ${error instanceof Error ? error.message : String(error)}`
         shots.push({ viewId: view.id, state: `skipped`, reason })
         console.log(`[desktop] ${view.id}: skipped — ${reason}`)
         continue
       }
+    }
+
+    // EXP-725: the wizard's devices step lists the account's OWN machines, and
+    // every wizard launch before this one registered a ghost on its scratch
+    // data dir (same hostname, so identical rows). Prune first, so the shot
+    // shows exactly one machine — the one this launch registers.
+    if (desktop.drive.kind === `onboarding` && desktop.drive.value === `devices`) {
+      await pruneStrayDevices()
     }
 
     try {
@@ -463,7 +491,7 @@ export async function captureDesktop(
         binary,
         processName,
         baseUrl,
-        token: onboarding ? newcomerToken! : token,
+        token: wizardIdentity ? wizardTokens[wizardIdentity]! : token,
         teamId: options.ids.teamId,
         dataDir:
           signedOut || onboarding
@@ -563,10 +591,10 @@ interface CaptureOneOptions {
    */
   signedOut?: boolean
   /**
-   * The first-run wizard: signed in as the newcomer, but WITHOUT
-   * `EXP_SKIP_ONBOARDING` (which would render the shell instead) and without
-   * `EXP_DEV_TEAM` (the newcomer is in no team, and a team id it cannot see
-   * would be silently dropped anyway).
+   * The first-run wizard: signed in as the newcomer or the starter, but
+   * WITHOUT `EXP_SKIP_ONBOARDING` (which would render the shell instead) and
+   * without `EXP_DEV_TEAM` (the newcomer is in no team, and the starter's
+   * team is the wizard's to resolve, not a screen to open).
    */
   onboarding?: boolean
 }
