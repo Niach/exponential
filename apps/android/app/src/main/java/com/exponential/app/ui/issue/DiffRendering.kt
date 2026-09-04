@@ -1,5 +1,7 @@
 package com.exponential.app.ui.issue
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
@@ -11,11 +13,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.exponential.app.ui.theme.Motion
 
 // Shared unified-diff rendering primitives (iOS DiffRendering.swift parity):
 // +/−/@@ line coloring + tinted line backgrounds, used by the issue Changes
@@ -111,11 +123,13 @@ fun PatchLines(
 ) {
     val truncated = lines.size > maxLines
     val shown = if (truncated) lines.subList(0, maxLines) else lines
+    val scrollState = rememberScrollState()
     Column(modifier = modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
+                .trailingScrollFade(scrollState)
+                .horizontalScroll(scrollState),
         ) {
             SelectionContainer {
                 Column(modifier = Modifier.width(IntrinsicSize.Max)) {
@@ -147,4 +161,51 @@ fun PatchLines(
             )
         }
     }
+}
+
+/**
+ * Wide enough to dissolve a few characters, narrow enough to leave the line
+ * readable — the horizontal twin of the steer feed's top fade (iOS
+ * `DiffPatchBlock.trailingFadeWidth` parity).
+ */
+private val TrailingFadeWidth: Dp = 36.dp
+
+/**
+ * EXP-722: a scroller with no scrollbar has NO affordance at rest — a line cut
+ * flush at the block's edge reads as truncated, not as "more to the right". So
+ * the trailing edge FADES while [state] can still scroll forward and turns
+ * crisp once the reader has panned to the end. Drawn as an alpha mask
+ * (DstIn over an offscreen layer), not a painted gradient: the block sits on
+ * translucent glass over the page gradient, so no single colour would match
+ * what is behind it. Reduce Motion snaps the edge instead of dissolving it.
+ *
+ * Goes BEFORE [horizontalScroll] in the chain so the layer wraps the clipped,
+ * scrolled content.
+ */
+@Composable
+private fun Modifier.trailingScrollFade(state: ScrollState): Modifier {
+    val strength by animateFloatAsState(
+        targetValue = if (state.canScrollForward) 1f else 0f,
+        animationSpec = Motion.fast(),
+        label = "diff-trailing-fade",
+    )
+    return this
+        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            if (strength > 0f) {
+                val fadeWidth = TrailingFadeWidth.toPx()
+                val left = size.width - fadeWidth
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(Color.Black, Color.Black.copy(alpha = 1f - strength)),
+                        startX = left,
+                        endX = size.width,
+                    ),
+                    topLeft = Offset(left, 0f),
+                    size = Size(fadeWidth, size.height),
+                    blendMode = BlendMode.DstIn,
+                )
+            }
+        }
 }
