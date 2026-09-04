@@ -141,25 +141,21 @@ struct AutomationTriggerForm: View {
 
     @ViewBuilder
     var body: some View {
-        // The capsule rides its own card-less section: sharing the rows'
-        // section painted the card behind it and clipped its bottom edge;
-        // zero insets keep it flush with the grouped cards' margins.
+        // EXP-721 (EXP-698 r4 parity): the Schedule / On event tabs are the
+        // FIRST ROW of the trigger card — the embedded strip the agent card
+        // wears — not a capsule under a "Trigger" heading. Web, desktop and
+        // Android already read this way. No footer note about the machine's
+        // own clock (EXP-615): the "Runs on" row already names the machine the
+        // schedule belongs to.
         Section {
             GlassSegmentedControl(
                 options: ["schedule", "event"],
                 selection: draft.kind,
                 label: { $0 == "schedule" ? "Schedule" : "On event" },
+                style: .embedded,
                 onSelect: { draft.kind = $0 }
             )
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets())
-            .listRowSeparator(.hidden)
-        } header: {
-            GlassSectionHeader("Trigger")
-        }
-        // No footer note about the machine's own clock (EXP-615) — the "Runs
-        // on" row already names the machine the schedule belongs to.
-        Section {
+            .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
             if draft.kind == "schedule" {
                 scheduleRows
             } else {
