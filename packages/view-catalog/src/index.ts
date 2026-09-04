@@ -93,10 +93,15 @@ export interface Anchor {
  *                 membership, `onboardingCompletedAt` NULL. The only way to
  *                 photograph `/onboarding` and `/invite/$token`, which the
  *                 demo user is redirected away from.
+ *   - `starter`   the seeded third identity (EXP-725): verified, OWNER of one
+ *                 board-less team, `onboardingCompletedAt` NULL. Signing in
+ *                 resumes the wizard past the team step, which is how the
+ *                 invite and devices steps are photographed without ever
+ *                 creating a board (a board would complete onboarding).
  *
  * Omitted, it is derived from the route (`/auth/*` → anonymous, else demo).
  */
-export type WebIdentity = `demo` | `anonymous` | `newcomer`
+export type WebIdentity = `demo` | `anonymous` | `newcomer` | `starter`
 
 /** How a browser reaches the view. */
 export interface WebCapture {
@@ -137,17 +142,23 @@ export interface NativeCapture {
  *                 after the state it needs resolves.
  *   - `login`   → launch with NO injected session on a throwaway data dir: the
  *                 only way to reach the pre-login surfaces.
- *   - `onboarding` → `EXP_DEV_ONBOARDING` (`choice` | `create` | `join`): the
- *                 first-run wizard, launched as the team-less NEWCOMER on its
- *                 own data dir and without `EXP_SKIP_ONBOARDING`. A drive of
+ *   - `onboarding` → `EXP_DEV_ONBOARDING` (`choice` | `create` | `join` |
+ *                 `invite` | `devices`): the first-run wizard, launched on its
+ *                 own data dir and without `EXP_SKIP_ONBOARDING`. The three
+ *                 team sub-pages run as the team-less NEWCOMER; `invite` and
+ *                 `devices` (EXP-725) as the STARTER, who owns a board-less
+ *                 team, so the wizard resumes past the team step. A drive of
  *                 its own rather than a `screen` value because the wizard is
- *                 what renders INSTEAD of the shell, and only for an identity
+ *                 what renders INSTEAD of the shell, and only for identities
  *                 the other drives never use.
  *   - `manual`  → no automated path; the note says why.
  */
 export type DesktopDrive =
   | { kind: `screen` | `tool` | `settings` | `dialog`; value: string }
-  | { kind: `onboarding`; value: `choice` | `create` | `join` }
+  | {
+      kind: `onboarding`
+      value: `choice` | `create` | `join` | `invite` | `devices`
+    }
   | { kind: `login` }
   | { kind: `manual` }
 

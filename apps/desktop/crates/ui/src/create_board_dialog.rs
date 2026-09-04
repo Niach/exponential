@@ -451,11 +451,13 @@ impl CreateBoardDialogView {
                         queries::await_row_visible(&boards, &board_id, window).await;
                     }
                     let _ = this.update_in(window, |view, window, cx| {
-                        // The server just completed onboarding — mirror the
-                        // stamp locally (EXP-367; warm starts never re-fetch
-                        // the session).
-                        crate::onboarding::stamp_local_onboarding(cx);
                         if view.embedded {
+                            // EXP-725: the LOCAL stamp is deliberately NOT
+                            // made here — the wizard still has its invite and
+                            // devices steps to run, and the stamp is what
+                            // ends it. (The server-side complete above already
+                            // fired, exactly like the web wizard.)
+                            //
                             // The wizard host advances on the event; scope
                             // this window to the new board so the app lands
                             // on it once the wizard finishes.
@@ -464,6 +466,10 @@ impl CreateBoardDialogView {
                             cx.emit(BoardCreated);
                             cx.notify();
                         } else {
+                            // The server just completed onboarding — mirror
+                            // the stamp locally (EXP-367; warm starts never
+                            // re-fetch the session).
+                            crate::onboarding::stamp_local_onboarding(cx);
                             native_dialog::close_then(window, cx, move |window, cx| {
                                 // Scope the opener to the new board and surface
                                 // its (empty) issue list in the sidebar.

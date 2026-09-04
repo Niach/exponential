@@ -68,7 +68,7 @@ export function buildServerInstallSnippet(origin: string): string {
 
 /** The icon-only copy control living INSIDE the install-snippet box
  * (EXP-697 — the add-device dialog, shared layout with the IDE's). */
-function CopyIconButton({ text }: { text: string }) {
+export function CopyIconButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   return (
     <Button
@@ -95,7 +95,7 @@ function CopyIconButton({ text }: { text: string }) {
 // The row's second line (native `deviceStatusLine` parity): a live dot +
 // "Online" (amber + the signed-out agents when nothing is runnable, EXP-409),
 // or the last-seen caption for offline machines.
-function DeviceStatusLine({
+export function DeviceStatusLine({
   online,
   signInNeeded,
   unauthed,

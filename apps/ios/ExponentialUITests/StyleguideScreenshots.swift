@@ -22,7 +22,14 @@ import XCTest
 ///   sg_machine-settings · sg_action-create · sg_automations-list ·
 ///   sg_automations · sg_action-suggestions · sg_reviews ·
 ///   sg_support-thread · sg_settings-root · sg_settings-team ·
-///   sg_settings-account · sg_onboarding
+///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
+///   sg_onboarding-devices
+///
+/// EXP-725 added `sg_onboarding-invite` + `sg_onboarding-devices`: the wizard
+/// runs the same four steps on every client now, and the last two need a
+/// RESOLVED team, which the newcomer has not got. They are captured as the
+/// starter identity, relaunched with `-uiTestingOnboardingStep invite` so the
+/// wizard parks on step 3 without anything being submitted.
 ///
 /// EXP-698 r5 added `sg_onboarding-create-team`: the board switcher grew a
 /// "New team" row (and a per-team "Create board" one), so the create-or-join
@@ -653,6 +660,58 @@ final class StyleguideScreenshots: XCTestCase {
             "The team step never rendered its Create card"
         )
         snapshot("sg_onboarding", settle: 2)
+
+        // ── sg_onboarding-invite / sg_onboarding-devices ─────────────────────
+        // The wizard's last two steps (EXP-725) need a RESOLVED team, which
+        // the newcomer has not got — creating one would mutate the seed. The
+        // starter identity owns one and is still un-onboarded, so signing in
+        // as them and relaunching with `-uiTestingOnboardingStep invite`
+        // parks the wizard on step 3. NOTHING is submitted here either: no
+        // invite is minted, no board is created.
+        //
+        // The wizard's persistent "Sign out" (EXP-725) is the way off the
+        // newcomer's session — the root becomes the LoginView for the same
+        // instance, exactly as the ServerDetail sign-out above did.
+        app.buttons["Sign out"].firstMatch.tap()
+        submitLogin(
+            app,
+            email: ScreenshotSeed.starterEmail,
+            password: ScreenshotSeed.starterPassword
+        )
+
+        // The keychain account survives the relaunch, so the app boots
+        // straight back into the wizard — with the capture hook armed.
+        app.terminate()
+        app.launchArguments += ["-uiTestingOnboardingStep", "invite"]
+        app.launch()
+
+        let starterGetStarted = app.buttons["Get started"]
+        XCTAssertTrue(
+            starterGetStarted.waitForExistence(timeout: 90),
+            "The onboarding wizard never appeared for \(ScreenshotSeed.starterEmail) — reseed with `bun run seed:screenshots`"
+        )
+        starterGetStarted.tap()
+
+        let inviteStep = app.otherElements["onboarding-invite-step"]
+        XCTAssertTrue(
+            inviteStep.waitForExistence(timeout: 60),
+            "The wizard never parked on its invite step — is -uiTestingOnboardingStep wired?"
+        )
+        // Gate on the real control, not just the container: at the seat cap
+        // the creator renders NOTHING (App Store 3.1.1) and the shot would be
+        // a blank styleguide page.
+        XCTAssertTrue(
+            app.buttons["invite-generate"].waitForExistence(timeout: 30),
+            "The invite step never rendered its Generate button — is the starter team over its seat cap?"
+        )
+        snapshot("sg_onboarding-invite", settle: 2)
+
+        app.buttons["Skip for now"].firstMatch.tap()
+        XCTAssertTrue(
+            app.otherElements["onboarding-devices-step"].waitForExistence(timeout: 30),
+            "The wizard never reached its devices step"
+        )
+        snapshot("sg_onboarding-devices", settle: 2)
 
         finished = true
     }

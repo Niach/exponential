@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm"
+import { and, desc, eq, gt, gte, inArray, isNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   teamMembers,
@@ -7,6 +7,7 @@ import {
   attachments,
   sessionAttachments,
   creem_subscriptions,
+  teamInvites,
   widgetConfigs,
   widgetSubmissions,
 } from "@/db/schema"
@@ -272,12 +273,9 @@ export type TeamUsage = {
 export async function getTeamUsage(
   teamId: string
 ): Promise<TeamUsage> {
-  const [[memberCount], [storageSum], [sessionStorageSum], [widgetCount]] =
+  const [memberCount, [storageSum], [sessionStorageSum], [widgetCount]] =
     await Promise.all([
-      db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(teamMembers)
-        .where(eq(teamMembers.teamId, teamId)),
+      countTeamMembers(teamId),
       db
         .select({
           totalBytes: sql<string>`coalesce(sum(${attachments.sizeBytes}), 0)::bigint`,
@@ -302,7 +300,7 @@ export async function getTeamUsage(
     Number(storageSum.totalBytes) + Number(sessionStorageSum.totalBytes)
 
   return {
-    members: memberCount.count,
+    members: memberCount,
     storageMb: Math.round((totalBytes / (1024 * 1024)) * 10) / 10,
     widgetConfigs: widgetCount.count,
   }
@@ -379,6 +377,66 @@ export async function assertCanInviteMember(
   ])
 
   assertSeatAvailable(usage.members, limits.seats)
+}
+
+// EXP-725: invite CAPACITY, the read-only sibling of assertCanInviteMember.
+// The natives gate their invite control on it (App Store 3.1.1: the control
+// is removed at the cap, never explained), so no plan vocabulary leaves here:
+// `remaining` is a bare count, `null` = unlimited (JSON cannot carry
+// Infinity). Unlike the gate it counts PENDING invites too, so two owners
+// minting in parallel converge on "hidden" before a seat is actually taken.
+export type InviteCapacity = { remaining: number | null }
+
+// Pending = unaccepted AND unexpired. Expired rows are dead weight the accept
+// path rejects anyway, so they must not hold a seat.
+export async function countPendingInvites(teamId: string): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(teamInvites)
+    .where(
+      and(
+        eq(teamInvites.teamId, teamId),
+        isNull(teamInvites.acceptedAt),
+        gt(teamInvites.expiresAt, new Date())
+      )
+    )
+  return row?.count ?? 0
+}
+
+// Lean member count: this runs on every members/invites shape change on the
+// natives, so it must not drag getTeamUsage's storage sums along.
+export async function countTeamMembers(teamId: string): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(teamMembers)
+    .where(eq(teamMembers.teamId, teamId))
+  return row?.count ?? 0
+}
+
+// Pure, exported for unit tests. Non-finite seats (comp floor, unlimited)
+// → null; otherwise clamped at zero so an over-seat team reads as "none",
+// never negative.
+export function resolveInviteCapacity(
+  seats: number,
+  members: number,
+  pending: number
+): number | null {
+  if (!Number.isFinite(seats)) return null
+  return Math.max(0, seats - members - pending)
+}
+
+export async function getInviteCapacity(
+  teamId: string
+): Promise<InviteCapacity> {
+  if (!isCloudInstance()) return { remaining: null }
+
+  const [{ limits }, members, pending] = await Promise.all([
+    getTeamPlan(teamId),
+    countTeamMembers(teamId),
+    countPendingInvites(teamId),
+  ])
+
+  return { remaining: resolveInviteCapacity(limits.seats, members, pending) }
 }
 
 // Pure widget gate: every tier may create widgets, capped at the tier's

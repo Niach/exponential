@@ -2,7 +2,6 @@ import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import {
   ArrowLeft,
-  FolderKanban,
   Github,
   Link as LinkIcon,
   Plus,
@@ -12,11 +11,11 @@ import {
 } from "lucide-react"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import { trpc } from "@/lib/trpc-client"
+import { conceptIcon } from "@/lib/icons.generated"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { useCreateBoard } from "@/hooks/use-create-board"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
-import { GlassGroup } from "@/components/ui/glass-rows"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ColorSwatchGrid } from "@/components/ui/color-swatch-grid"
@@ -27,18 +26,35 @@ import {
   useGithubConnectShortcut,
 } from "@/components/github-repo-picker"
 import { derivePrefix } from "@/lib/board"
+import { ONBOARDING_COPY } from "@/components/onboarding/onboarding-copy"
+import { StepCard } from "@/components/onboarding/step-card"
+import { InviteStep } from "@/components/onboarding/invite-step"
+import { DevicesStep } from "@/components/onboarding/devices-step"
+
+const BoardsIcon = conceptIcon(`nav-boards`)
 
 // Onboarding (EXP-188): signups get no team anymore, so the wizard is a
-// step machine — choice → create-team | join → board. `initialTeam` (resolved
-// by the route via teams.getDefault) skips straight to the board step: the
-// resumed-onboarding case (team exists but onboarding never completed). The
-// join path leaves the wizard entirely — accepting an invite marks onboarding
-// complete server-side, so invited users never see the board step.
+// step machine. EXP-725 made it the SAME four steps on every client:
+// choice → create-team | join → board → invite → devices. `initialTeam`
+// (resolved by the route via teams.getDefault) skips straight to the board
+// step: the resumed-onboarding case (team exists but onboarding never
+// completed). The join path leaves the wizard entirely — accepting an invite
+// marks onboarding complete server-side, so invited users never see the rest.
+// The board step stamps completion (as before); invite and devices continue
+// client-side, are skippable, and the getting-started checklist covers
+// whatever was skipped after a reload.
+type WizardTeam = { id: string; slug: string }
 type WizardStep =
   | { kind: `choice` }
   | { kind: `create-team` }
   | { kind: `join` }
-  | { kind: `board`; team: { id: string; slug: string } }
+  | { kind: `board`; team: WizardTeam }
+  | { kind: `invite`; team: WizardTeam }
+  | { kind: `devices`; team: WizardTeam }
+
+/** Steps a resumed wizard may be told to start at (`?step=`, the shots
+ * pipeline's capture hook — see routes/_authenticated/onboarding.tsx). */
+export type WizardEntryStep = `invite` | `devices`
 
 // Accepts a full invite link (…/invite/<token>) or a bare 64-hex token —
 // the form teamInvites.create mints (randomBytes(32).toString("hex")).
@@ -53,12 +69,15 @@ export function extractInviteToken(input: string): string | null {
 
 export function OnboardingWizard({
   initialTeam,
+  initialStep,
 }: {
-  initialTeam: { id: string; slug: string } | null
+  initialTeam: WizardTeam | null
+  initialStep?: WizardEntryStep
 }) {
+  const navigate = useNavigate()
   const [step, setStep] = useState<WizardStep>(
     initialTeam
-      ? { kind: `board`, team: initialTeam }
+      ? { kind: initialStep ?? `board`, team: initialTeam }
       : { kind: `choice` }
   )
 
@@ -81,7 +100,27 @@ export function OnboardingWizard({
           <JoinStep onBack={() => setStep({ kind: `choice` })} />
         )}
         {step.kind === `board` && (
-          <BoardStep teamId={step.team.id} teamSlug={step.team.slug} />
+          <BoardStep
+            teamId={step.team.id}
+            onCreated={() => setStep({ kind: `invite`, team: step.team })}
+          />
+        )}
+        {step.kind === `invite` && (
+          <InviteStep
+            teamId={step.team.id}
+            onNext={() => setStep({ kind: `devices`, team: step.team })}
+          />
+        )}
+        {step.kind === `devices` && (
+          <DevicesStep
+            teamId={step.team.id}
+            onNext={() =>
+              void navigate({
+                to: `/t/$teamSlug`,
+                params: { teamSlug: step.team.slug },
+              })
+            }
+          />
         )}
       </div>
     </div>
@@ -96,17 +135,11 @@ function ChoiceStep({
   onJoin: () => void
 }) {
   return (
-    <GlassGroup>
-      <div className="flex flex-col gap-1.5 p-6 text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-          <Users className="size-6 text-primary" />
-        </div>
-        <h2 className="text-xl font-semibold">Welcome to Exponential</h2>
-        <p className="text-sm text-muted-foreground">
-          Teams hold your boards and teammates. Create your own, or join one
-          you&apos;ve been invited to.
-        </p>
-      </div>
+    <StepCard
+      icon={Users}
+      title="Welcome to Exponential"
+      subtitle="Teams hold your boards and teammates. Create your own, or join one you've been invited to."
+    >
       <div className="space-y-3 p-6">
         <Button
           variant="outline"
@@ -135,7 +168,7 @@ function ChoiceStep({
           </span>
         </Button>
       </div>
-    </GlassGroup>
+    </StepCard>
   )
 }
 
@@ -179,16 +212,11 @@ function CreateTeamStep({
   }
 
   return (
-    <GlassGroup>
-      <div className="flex flex-col gap-1.5 p-6 text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-          <Users className="size-6 text-primary" />
-        </div>
-        <h2 className="text-xl font-semibold">Create a team</h2>
-        <p className="text-sm text-muted-foreground">
-          Name your team. You can rename it and invite teammates later.
-        </p>
-      </div>
+    <StepCard
+      icon={Users}
+      title="Create a team"
+      subtitle="Name your team. You can rename it and invite teammates later."
+    >
       <div className="p-6">
         <form onSubmit={handleCreate} className="space-y-4">
           <div className="space-y-2">
@@ -225,7 +253,7 @@ function CreateTeamStep({
           </div>
         </form>
       </div>
-    </GlassGroup>
+    </StepCard>
   )
 }
 
@@ -250,17 +278,11 @@ function JoinStep({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <GlassGroup>
-      <div className="flex flex-col gap-1.5 p-6 text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-          <LinkIcon className="size-6 text-primary" />
-        </div>
-        <h2 className="text-xl font-semibold">Join a team</h2>
-        <p className="text-sm text-muted-foreground">
-          Ask a teammate for an invite link (team settings → Members), then
-          paste it below.
-        </p>
-      </div>
+    <StepCard
+      icon={LinkIcon}
+      title="Join a team"
+      subtitle="Ask a teammate for an invite link (team settings → Members), then paste it below."
+    >
       <div className="p-6">
         <form onSubmit={handleContinue} className="space-y-4">
           <div className="space-y-2">
@@ -294,21 +316,21 @@ function JoinStep({ onBack }: { onBack: () => void }) {
           </div>
         </form>
       </div>
-    </GlassGroup>
+    </StepCard>
   )
 }
 
 // One form — name/prefix/icon/color and an optional repository. A repository
 // is never required, which is what makes onboarding possible on instances
-// without a GitHub App.
+// without a GitHub App. Creating the board stamps onboarding complete
+// (server-side, once); the wizard then continues to the invite step.
 function BoardStep({
   teamId,
-  teamSlug,
+  onCreated,
 }: {
   teamId: string
-  teamSlug: string
+  onCreated: () => void
 }) {
-  const navigate = useNavigate()
   const { createBoard } = useCreateBoard()
   const [name, setName] = useState(``)
   const [prefix, setPrefix] = useState(``)
@@ -350,7 +372,7 @@ function BoardStep({
     })
     if (result.ok) {
       await trpc.onboarding.complete.mutate()
-      navigate({ to: `/t/$teamSlug`, params: { teamSlug } })
+      onCreated()
       return
     }
     if (result.error.kind === `planLimit`) {
@@ -362,17 +384,11 @@ function BoardStep({
   }
 
   return (
-    <GlassGroup>
-      <div className="flex flex-col gap-1.5 p-6 text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-          <FolderKanban className="size-6 text-primary" />
-        </div>
-        <h2 className="text-xl font-semibold">Create your first board</h2>
-        <p className="text-sm text-muted-foreground">
-          Boards hold your issues. Connect a GitHub repository to code on them.
-          Everything can be changed later.
-        </p>
-      </div>
+    <StepCard
+      icon={BoardsIcon}
+      title={ONBOARDING_COPY.board.title}
+      subtitle={ONBOARDING_COPY.board.subtitle}
+    >
       <div className="space-y-4 p-6">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
           <div className="space-y-2">
@@ -466,10 +482,10 @@ function BoardStep({
 
         <div className="flex justify-end">
           <Button onClick={() => void handleCreate()} disabled={!canCreate}>
-            {saving ? `Creating…` : `Create board`}
+            {saving ? `Creating…` : ONBOARDING_COPY.board.create}
           </Button>
         </div>
       </div>
-    </GlassGroup>
+    </StepCard>
   )
 }

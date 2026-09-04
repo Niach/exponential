@@ -171,9 +171,8 @@ struct GettingStartedCards: View {
     }
 
     private func copyInstallSnippet() {
-        let instanceUrl = deps.auth.accounts.first { $0.id == accountId }?.instanceUrl
-        guard let origin = WebLinks.normalizedBase(instanceUrl) else { return }
-        Platform.copyToPasteboard(AppConstants.serverInstallSnippet(origin: origin))
+        // EXP-725: shared with the wizard's devices step.
+        guard ServerInstallSnippet.copy(accountId: accountId, auth: deps.auth) else { return }
         copiedInstall = true
         Task {
             try? await Task.sleep(for: .seconds(2))

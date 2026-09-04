@@ -51,6 +51,8 @@ import {
   getUserPlan,
   getTeamUsage,
   assertCanInviteMember,
+  getInviteCapacity,
+  resolveInviteCapacity,
   assertCanCreateWidget,
   assertCanUseHelpdesk,
   assertHelpdeskUsable,
@@ -406,6 +408,70 @@ describe(`assertCanInviteMember — seat gate wired to team usage`, () => {
   it(`self-hosted never gates invites`, async () => {
     cloud.value = false
     await expect(assertCanInviteMember(WS)).resolves.toBeUndefined()
+  })
+})
+
+describe(`resolveInviteCapacity — pure seat arithmetic (EXP-725)`, () => {
+  it(`is null for non-finite seats (comp floor / unlimited)`, () => {
+    expect(resolveInviteCapacity(Infinity, 40, 3)).toBeNull()
+  })
+
+  it(`subtracts members AND pending invites`, () => {
+    expect(resolveInviteCapacity(3, 1, 0)).toBe(2)
+    expect(resolveInviteCapacity(3, 1, 2)).toBe(0)
+    expect(resolveInviteCapacity(5, 2, 1)).toBe(2)
+  })
+
+  it(`clamps an over-seat team at zero, never negative`, () => {
+    expect(resolveInviteCapacity(3, 3, 1)).toBe(0)
+    expect(resolveInviteCapacity(1, 4, 0)).toBe(0)
+  })
+})
+
+describe(`getInviteCapacity — read-only capacity for the invite control`, () => {
+  function seed(
+    sub: unknown[],
+    members: number,
+    pending: number,
+    compTier: string | null = null
+  ) {
+    // Promise.all([getTeamPlan, countTeamMembers, countPendingInvites]) issues
+    // its selects in argument order: sub, comp tier, members, pending.
+    selectResults.push(sub)
+    selectResults.push([{ compTier }])
+    selectResults.push([{ count: members }])
+    selectResults.push([{ count: pending }])
+  }
+
+  it(`self-hosted is unlimited and never touches the db`, async () => {
+    cloud.value = false
+    await expect(getInviteCapacity(WS)).resolves.toEqual({ remaining: null })
+    expect(selectResults).toHaveLength(0)
+  })
+
+  it(`free: 3 seats minus the owner leaves 2`, async () => {
+    seed([], 1, 0)
+    await expect(getInviteCapacity(WS)).resolves.toEqual({ remaining: 2 })
+  })
+
+  it(`pending invites hold seats before anyone accepts`, async () => {
+    seed([], 1, 2)
+    await expect(getInviteCapacity(WS)).resolves.toEqual({ remaining: 0 })
+  })
+
+  it(`an over-seat team reads as zero, not negative`, async () => {
+    seed([], 3, 1)
+    await expect(getInviteCapacity(WS)).resolves.toEqual({ remaining: 0 })
+  })
+
+  it(`a comped team is unlimited`, async () => {
+    seed([], 25, 4, `team`)
+    await expect(getInviteCapacity(WS)).resolves.toEqual({ remaining: null })
+  })
+
+  it(`purchased seats: 5 seats, 2 members, 1 pending → 2`, async () => {
+    seed([{ productId: TEAM_ID, seats: 5 }], 2, 1)
+    await expect(getInviteCapacity(WS)).resolves.toEqual({ remaining: 2 })
   })
 })
 

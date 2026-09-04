@@ -41,6 +41,8 @@ import {
   DEMO_PASSWORD,
   NEWCOMER_EMAIL,
   NEWCOMER_PASSWORD,
+  STARTER_EMAIL,
+  STARTER_PASSWORD,
 } from "./screenshot-demo"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -84,6 +86,13 @@ const CREDENTIALS: Record<Exclude<WebIdentity, `anonymous`>, Credentials> = {
   newcomer: {
     email: NEWCOMER_EMAIL,
     password: NEWCOMER_PASSWORD,
+    landing: `**/onboarding**`,
+  },
+  // EXP-725: owns a board-less team, so the flag is still NULL and the wizard
+  // resumes (past the team step) — same landing.
+  starter: {
+    email: STARTER_EMAIL,
+    password: STARTER_PASSWORD,
     landing: `**/onboarding**`,
   },
 }

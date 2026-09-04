@@ -24,6 +24,15 @@ enum ScreenshotSeed {
     static let newcomerEmail = "newcomer@exponential.at"
     static let newcomerPassword = "screenshots-newcomer"
 
+    /// The seed's THIRD identity (EXP-725): verified, OWNER of a team, with a
+    /// null `onboardingCompletedAt` — the only way to photograph the wizard's
+    /// invite and devices steps, which both need a RESOLVED team. The
+    /// newcomer cannot reach them without creating one (which would mutate
+    /// the seed). Keep in lockstep with
+    /// `apps/web/scripts/screenshot-demo.ts` (STARTER_EMAIL / STARTER_PASSWORD).
+    static let starterEmail = "starter@exponential.at"
+    static let starterPassword = "screenshots-starter"
+
     /// The instance URL defaults to http://localhost:5173 and can be overridden
     /// with the SNAPSHOT_INSTANCE_URL environment variable (bridged through
     /// TEST_RUNNER_SNAPSHOT_INSTANCE_URL by the Snapfile — xcodebuild only
@@ -171,6 +180,14 @@ extension XCTestCase {
 
         let urlField = app.textFields["instance-url-field"]
         let selfHostLink = app.buttons["instance-self-host-link"]
+        // EXP-725: a retry after the starter block leaves the keychain
+        // account parked on the first-run WIZARD, which is neither the
+        // instance picker nor the main UI. Its persistent "Sign out" is the
+        // way back to the login flow this helper expects.
+        let wizardSignOut = app.buttons["Sign out"]
+        if app.buttons["Get started"].waitForExistence(timeout: 5), wizardSignOut.exists {
+            wizardSignOut.firstMatch.tap()
+        }
         if awaitLaunchStage(app) == .alreadySignedIn {
             dismissSavePasswordSheet(timeout: 2)
             return .alreadySignedIn

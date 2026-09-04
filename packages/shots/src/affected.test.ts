@@ -196,8 +196,13 @@ describe(`native attribution`, () => {
       `apps/android/app/src/main/java/com/exponential/app/ui/onboarding/OnboardingScreen.kt`
     )
     // `OnboardingScreen` names the `onboarding` view; the directory family adds
-    // the sibling create-team step the same screen renders (EXP-698).
-    expect(nativeViews(result, `android`).sort()).toEqual([`onboarding`, `onboarding-create-team`])
+    // the sibling steps the same screen renders (EXP-698, EXP-725).
+    expect(nativeViews(result, `android`).sort()).toEqual([
+      `onboarding`,
+      `onboarding-create-team`,
+      `onboarding-devices`,
+      `onboarding-invite`,
+    ])
     expect(nativeViews(result, `ios`)).toEqual([])
   })
 

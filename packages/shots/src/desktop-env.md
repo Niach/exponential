@@ -17,7 +17,7 @@ are documented for users.
 | `EXP_DATA_DIR` | absolute path | **New.** Move the whole app data dir (`accounts.json`, per-account sync SQLite, `settings.json`). `EXP_DEV_SERVER`+`EXP_DEV_TOKEN` PERSIST the injected account, so a capture run without this rewrites the developer's real signed-in state. Always set it for captures. |
 | `EXP_SKIP_ONBOARDING` | `1` | Never render the first-run wizard. Every capture sets it EXCEPT the `onboarding` drives, which are the wizard. |
 | `EXP_DEV_LOGIN` | `cloud` \| `self-hosted` | **New.** Which state the signed-out login card starts in: the cloud one (OIDC buttons over the password form) or the self-hosted one (the Server URL field revealed). Anything else is ignored. Only meaningful with NO injected session. |
-| `EXP_DEV_ONBOARDING` | `choice` \| `create` \| `join` | **New.** Which sub-page of the wizard's Team step to open. Needs an account with no team (the seed's newcomer) and NO `EXP_SKIP_ONBOARDING` — with either missing the shell renders instead. |
+| `EXP_DEV_ONBOARDING` | `choice` \| `create` \| `join` \| `invite` \| `devices` | **New.** Which page of the wizard to open. `choice`/`create`/`join` are the Team step's sub-pages and need an account with no team (the seed's newcomer). `invite` and `devices` (EXP-725) are the post-board tail: they force the wizard past the Board step and resolve their team from the account's first one, so they need the STARTER identity (one board-less team) — `devices` additionally presets the invite step as done. All of them need NO `EXP_SKIP_ONBOARDING`; with it, or with the wrong identity, the shell renders instead. |
 
 ## Where the app opens
 

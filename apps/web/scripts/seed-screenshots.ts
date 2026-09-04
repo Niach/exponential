@@ -82,6 +82,11 @@ import {
   NEWCOMER_EMAIL,
   NEWCOMER_NAME,
   NEWCOMER_PASSWORD,
+  STARTER_EMAIL,
+  STARTER_NAME,
+  STARTER_PASSWORD,
+  STARTER_TEAM_NAME,
+  STARTER_TEAM_SLUG,
   SUPPORT_REPORTER_THREAD_TITLE,
   TEAM_SLUG,
 } from "./screenshot-demo"
@@ -197,6 +202,52 @@ async function ensureNewcomerUser(): Promise<string> {
   return row.id
 }
 
+/**
+ * The STARTER (EXP-725): like the newcomer, but the owner of ONE board-less
+ * team, so the wizard resumes past the team step — the invite and devices
+ * steps' capture identity. No boards (a board would complete onboarding), no
+ * invites (they take seats and the invite shot must show the control), no
+ * devices (the prune script clears what a desktop launch registers).
+ */
+async function ensureStarterUser(): Promise<string> {
+  await auth.api.signUpEmail({
+    body: {
+      name: STARTER_NAME,
+      email: STARTER_EMAIL,
+      password: STARTER_PASSWORD,
+    },
+  })
+  const [row] = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, STARTER_EMAIL))
+    .limit(1)
+  if (!row) throw new Error(`starter user missing after signUpEmail`)
+  await db
+    .update(users)
+    .set({ emailVerified: true, onboardingCompletedAt: null })
+    .where(eq(users.id, row.id))
+  // Whatever signUpEmail created, plus a stale seed's team: the slug is
+  // unique, so the leftover must go before the fresh insert.
+  const owned = await db
+    .select({ teamId: teamMembers.teamId })
+    .from(teamMembers)
+    .where(eq(teamMembers.userId, row.id))
+  for (const { teamId } of owned) {
+    await db.delete(boards).where(eq(boards.teamId, teamId))
+    await db.delete(teams).where(eq(teams.id, teamId))
+  }
+  await db.delete(teams).where(eq(teams.slug, STARTER_TEAM_SLUG))
+  const [team] = await db
+    .insert(teams)
+    .values({ name: STARTER_TEAM_NAME, slug: STARTER_TEAM_SLUG })
+    .returning({ id: teams.id })
+  await db
+    .insert(teamMembers)
+    .values({ teamId: team!.id, userId: row.id, role: `owner` })
+  return row.id
+}
+
 async function ensureTeammates(): Promise<Record<string, string>> {
   const ids: Record<string, string> = {}
   for (const mate of TEAMMATES) {
@@ -268,7 +319,15 @@ async function teardown() {
   // Recreate the demo users each run (fresh ids ⇒ fresh user-scoped shapes —
   // see the header). Drop teams where a demo user is the sole member
   // first (their auto-created personal teams would otherwise pile up).
-  const emails = [DEMO_EMAIL, NEWCOMER_EMAIL, ...TEAMMATES.map((m) => m.email)]
+  // The starter's team goes by slug too: the sole-member rule below misses a
+  // member-less leftover, and the unique slug would then collide on reseed.
+  await db.delete(teams).where(eq(teams.slug, STARTER_TEAM_SLUG))
+  const emails = [
+    DEMO_EMAIL,
+    NEWCOMER_EMAIL,
+    STARTER_EMAIL,
+    ...TEAMMATES.map((m) => m.email),
+  ]
   const demoUsers = await db
     .select({ id: users.id })
     .from(users)
@@ -294,6 +353,7 @@ async function main() {
   await teardown()
   const demoId = await ensureDemoUser()
   await ensureNewcomerUser()
+  await ensureStarterUser()
   const mates = await ensureTeammates()
   const mira = mates[`demo-mira`]
   const jonas = mates[`demo-jonas`]
@@ -1375,6 +1435,7 @@ Seeded screenshot demo data:
   boards      3 live + 1 archived + 1 trashed (48h pending deletion)
   login       ${DEMO_EMAIL} / ${DEMO_PASSWORD}
   newcomer    ${NEWCOMER_EMAIL} / ${NEWCOMER_PASSWORD} (no team — onboarding + invite views)
+  starter     ${STARTER_EMAIL} / ${STARTER_PASSWORD} (owns ${STARTER_TEAM_NAME}, no board — the wizard's invite + devices steps)
   invite      /invite/${DEMO_INVITE_TOKEN} (+ 2 more pending invites)
   showcase    ${showcase.identifier ?? `APP-5`} (markdown + ${4} comments incl. @mention + #issue ref)
   inbox       5 notifications (3 unread)

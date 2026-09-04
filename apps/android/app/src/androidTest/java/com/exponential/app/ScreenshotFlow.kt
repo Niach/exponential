@@ -52,6 +52,19 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
         const val NEWCOMER_EMAIL = "newcomer@exponential.at"
         const val NEWCOMER_PASSWORD = "screenshots-newcomer"
 
+        /**
+         * The seed's THIRD identity (EXP-725): verified, owner of a BOARD-LESS
+         * team of one, and still a null `onboardingCompletedAt` (a board would
+         * let the server backfill the flag and the wizard would never resume)
+         * — the only account that can be dropped on the wizard's invite and
+         * devices steps, which both need a team to exist. The newcomer above has none, so signing in as THEM lands on
+         * the team step and stays there.
+         *
+         * Keep in lockstep with `apps/web/scripts/screenshot-demo.ts`.
+         */
+        const val STARTER_EMAIL = "starter@exponential.at"
+        const val STARTER_PASSWORD = "screenshots-starter"
+
         /** APP-5 — the seeded showcase issue (description + the only comment thread). */
         const val SHOWCASE_ISSUE_TITLE = "Reduce cold start below 800 ms"
 

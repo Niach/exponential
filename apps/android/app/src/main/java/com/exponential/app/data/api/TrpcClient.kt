@@ -29,7 +29,19 @@ import kotlinx.serialization.json.jsonObject
  * TrpcClient sanitizes at the throw site (EXP-219) and raw response bodies
  * only go to logcat.
  */
-class TrpcException(message: String, val status: HttpStatusCode? = null) : RuntimeException(message)
+class TrpcException(
+    message: String,
+    val status: HttpStatusCode? = null,
+    /** The server's tRPC error code (`error.data.code`), when the body carried one. */
+    val code: String? = null,
+    /**
+     * EXP-725: this failure IS the server's plan cap, decided on the RAW body
+     * (code + message prefix) before the message was neutralised — the only
+     * honest way to tell a cap apart from an ordinary refusal, since the
+     * rendered text deliberately no longer says so.
+     */
+    val isPlanLimit: Boolean = false,
+) : RuntimeException(message)
 
 /**
  * Prefix every plan-limit throw in the server's lib/billing.ts uses — kept in
@@ -142,19 +154,61 @@ fun trpcErrorMessage(error: Throwable, fallback: String): String {
  * billing gate with its native twin — the server's wording is written for the
  * web, where billing lives. Null when nothing extractable.
  */
-fun trpcUserMessageFromBody(body: String): String? {
-    val message = runCatching {
+fun trpcUserMessageFromBody(body: String): String? = trpcErrorInfoFromBody(body).message
+
+/**
+ * What a tRPC error body says, BEFORE and AFTER sanitization: the presentable
+ * [message] (see [trpcUserMessageFromBody]), the server's `error.data.code`,
+ * and whether this was the plan cap.
+ */
+data class TrpcErrorInfo(
+    val message: String?,
+    val code: String?,
+    val isPlanLimit: Boolean,
+)
+
+/**
+ * Parse a tRPC error body (`{"error":{"message":…,"data":{"code":…}}}`,
+ * tolerating the nested `error.json` payload) into its presentable message,
+ * its code, and the plan-cap flag.
+ *
+ * The flag is the ONLY thing that survives the EXP-216 neutralization: the
+ * rendered copy must not hint at billing, but a caller still has to know a
+ * refusal was a cap (the invite creator REMOVES itself, rather than printing
+ * anything). It is decided on the raw pair — the server throws every cap as
+ * PRECONDITION_FAILED with the shared prefix — never on the rewritten text.
+ */
+fun trpcErrorInfoFromBody(body: String): TrpcErrorInfo {
+    val payload = runCatching {
         val err = Json.parseToJsonElement(body).jsonObject["error"]?.jsonObject
-        val payload = (err?.get("json") as? JsonObject) ?: err
-        (payload?.get("message") as? JsonPrimitive)?.contentOrNull
+        (err?.get("json") as? JsonObject) ?: err
     }.getOrNull()
-    if (message.isNullOrBlank()) return null
-    return when {
-        message.startsWith(PLAN_LIMIT_MESSAGE_PREFIX) -> PLAN_LIMIT_NEUTRAL_MESSAGE
-        message.startsWith(TEAM_DELETE_SUBSCRIPTION_MESSAGE_PREFIX) -> TEAM_DELETE_SUBSCRIPTION_MESSAGE
-        else -> message
+    val raw = (payload?.get("message") as? JsonPrimitive)?.contentOrNull
+    val code = runCatching {
+        val data = (payload?.get("data") as? JsonObject)
+        (data?.get("code") as? JsonPrimitive)?.contentOrNull
+    }.getOrNull()
+    if (raw.isNullOrBlank()) return TrpcErrorInfo(message = null, code = code, isPlanLimit = false)
+    val message = when {
+        raw.startsWith(PLAN_LIMIT_MESSAGE_PREFIX) -> PLAN_LIMIT_NEUTRAL_MESSAGE
+        raw.startsWith(TEAM_DELETE_SUBSCRIPTION_MESSAGE_PREFIX) -> TEAM_DELETE_SUBSCRIPTION_MESSAGE
+        else -> raw
     }
+    return TrpcErrorInfo(
+        message = message,
+        code = code,
+        isPlanLimit = code == "PRECONDITION_FAILED" && raw.startsWith(PLAN_LIMIT_MESSAGE_PREFIX),
+    )
 }
+
+/**
+ * Whether [error] is the server's plan cap. Classified at the throw site off
+ * the raw body (see [trpcErrorInfoFromBody]) — never by sniffing the rendered
+ * message for "limit"/"plan"/"upgrade", which matched ordinary refusals too
+ * (a board create's "No repository linked to this plan-… " style text) and
+ * missed caps whose neutral copy no longer carries the words.
+ */
+fun isPlanLimitError(error: Throwable?): Boolean = (error as? TrpcException)?.isPlanLimit == true
 
 @Singleton
 class TrpcClient @Inject constructor(
@@ -202,9 +256,12 @@ class TrpcClient @Inject constructor(
                 statusCode = response.status.value,
                 tokenPresented = token != null,
             )
+            val info = trpcErrorInfoFromBody(text)
             throw TrpcException(
-                trpcUserMessageFromBody(text) ?: "Request failed (HTTP ${response.status.value})",
+                info.message ?: "Request failed (HTTP ${response.status.value})",
                 response.status,
+                code = info.code,
+                isPlanLimit = info.isPlanLimit,
             )
         }
         return decodePayload(path, text, outputSerializer)
@@ -257,9 +314,12 @@ class TrpcClient @Inject constructor(
                 statusCode = response.status.value,
                 tokenPresented = token != null,
             )
+            val info = trpcErrorInfoFromBody(text)
             throw TrpcException(
-                trpcUserMessageFromBody(text) ?: "Request failed (HTTP ${response.status.value})",
+                info.message ?: "Request failed (HTTP ${response.status.value})",
                 response.status,
+                code = info.code,
+                isPlanLimit = info.isPlanLimit,
             )
         }
         return decodePayload(path, text, outputSerializer)

@@ -56,6 +56,25 @@ public struct DeleteBoardInput: Encodable, Sendable {
     }
 }
 
+public struct TeamIdInput: Encodable, Sendable {
+    public let teamId: String
+
+    public init(teamId: String) {
+        self.teamId = teamId
+    }
+}
+
+/// `teams.inviteCapacity` — seats left for new members, pending invites
+/// already counted. `nil` = unlimited (self-hosted, or a plan with no seat
+/// ceiling).
+public struct InviteCapacityResult: Decodable, Sendable {
+    public let remaining: Int?
+
+    public init(remaining: Int?) {
+        self.remaining = remaining
+    }
+}
+
 public final class TeamsApi: Sendable {
     private let trpc: TrpcClient
 
@@ -70,6 +89,19 @@ public final class TeamsApi: Sendable {
     public func getDefault(accountId: String) async throws -> TeamResult? {
         let result: GetDefaultResult = try await trpc.query(accountId: accountId, path: "teams.getDefault")
         return result.team
+    }
+
+    /// Seats left for new members (EXP-725), any member may ask. nil =
+    /// unlimited. The invite control renders ONLY while this is non-zero — at
+    /// the cap the app removes it entirely instead of naming a seat limit
+    /// (App Store 3.1.1).
+    public func inviteCapacity(accountId: String, teamId: String) async throws -> Int? {
+        let result: InviteCapacityResult = try await trpc.query(
+            accountId: accountId,
+            path: "teams.inviteCapacity",
+            input: TeamIdInput(teamId: teamId)
+        )
+        return result.remaining
     }
 
     public func create(accountId: String, name: String, iconUrl: String? = nil) async throws -> TeamResult {

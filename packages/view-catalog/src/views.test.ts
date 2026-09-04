@@ -75,6 +75,8 @@ const PINNED_RECIPES = [
   `openStartCodingChat`,
   `openOnboardingCreateTeam`,
   `openOnboardingJoin`,
+  `openOnboardingInvite`,
+  `openOnboardingDevices`,
   `openBoardBulkEdit`,
   `openBoardSwitcher`,
   `openIssuePropertiesMobile`,
@@ -122,7 +124,7 @@ const anchorSchema = z
 const webCaptureSchema = z.strictObject({
   route: z.string().startsWith(`/`),
   anchor: anchorSchema,
-  auth: z.enum([`demo`, `anonymous`, `newcomer`]).optional(),
+  auth: z.enum([`demo`, `anonymous`, `newcomer`, `starter`]).optional(),
   recipe: z.string().min(1).optional(),
   settleMs: z.number().int().nonnegative().optional(),
   fullPage: z.boolean().optional(),
@@ -141,7 +143,7 @@ const desktopCaptureSchema = z.strictObject({
     }),
     z.strictObject({
       kind: z.literal(`onboarding`),
-      value: z.enum([`choice`, `create`, `join`]),
+      value: z.enum([`choice`, `create`, `join`, `invite`, `devices`]),
     }),
     z.strictObject({ kind: z.enum([`login`, `manual`]) }),
   ]),

@@ -18,6 +18,18 @@ object WebLinks {
         identifier: String,
     ): String = "${base.trimEnd('/')}/t/$teamSlug/boards/$boardSlug/issues/$identifier"
 
+    /**
+     * The shareable link for an invite token (EXP-725), or null when the
+     * account has no resolved instance URL — a bare `/invite/<token>` path is
+     * not something a teammate can open, so the creator simply shows nothing
+     * rather than handing over a broken link. Inverse of [extractInviteToken].
+     */
+    fun invite(instanceUrl: String?, token: String): String? {
+        val base = instanceUrl?.trim()?.trimEnd('/').orEmpty()
+        if (base.isEmpty() || token.isBlank()) return null
+        return "$base/invite/$token"
+    }
+
     /** A web-app URL the native app can render (EXP-92 App Links). */
     sealed interface Parsed {
         data class IssueRef(

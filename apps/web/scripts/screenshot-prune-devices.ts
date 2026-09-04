@@ -23,6 +23,7 @@ import {
   DEMO_EMAIL,
   DEMO_SERVER_DEVICE_ID,
   NEWCOMER_EMAIL,
+  STARTER_EMAIL,
 } from "./screenshot-demo"
 
 /** The machines the SEED owns. Everything else on either user is debris. */
@@ -36,7 +37,7 @@ const SEEDED = [DEMO_DEVICE_ID, DEMO_SERVER_DEVICE_ID]
  * accumulating a machine per run — invisible in every shot until the day the
  * wizard's Tools step or a join flow renders a device list.
  */
-const CAPTURE_IDENTITIES = [DEMO_EMAIL, NEWCOMER_EMAIL]
+const CAPTURE_IDENTITIES = [DEMO_EMAIL, NEWCOMER_EMAIL, STARTER_EMAIL]
 
 async function main() {
   const owners = await db

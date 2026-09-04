@@ -16,12 +16,14 @@ import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { recordConversionEvent } from "@/lib/conversion/events"
 import { randomBytes } from "crypto"
 import {
+  assertTeamMember,
   assertTeamOwner,
   getTeamMember,
 } from "@/lib/team-membership"
 import {
   assertCanCreateTeam,
   assertCanUseHelpdesk,
+  getInviteCapacity,
 } from "@/lib/billing"
 import { assertTeamDeletableBilling } from "@/lib/billing/billing-handover"
 
@@ -135,6 +137,17 @@ export const teamsRouter = router({
         properties: { teamId: result.team.id },
       })
       return result
+    }),
+
+  // EXP-725: how many more invites the team can mint right now, for the
+  // onboarding invite step and the natives' members section (they REMOVE the
+  // control at zero, App Store 3.1.1). Any member may ask; `null` = unlimited.
+  // Pending invites count, so parallel senders converge (lib/billing.ts).
+  inviteCapacity: authedProcedure
+    .input(z.object({ teamId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await assertTeamMember(ctx.session.user.id, input.teamId)
+      return await getInviteCapacity(input.teamId)
     }),
 
   // Teams are always private — there are no visibility flags here.

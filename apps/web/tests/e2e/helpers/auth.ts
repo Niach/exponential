@@ -73,8 +73,9 @@ export async function loginUser(
   ])
 }
 
-// Drives the post-signup onboarding wizard (EXP-188): create-or-join choice
-// → team name → first board, ending on the new team's page.
+// Drives the post-signup onboarding wizard (EXP-188, reordered in EXP-725):
+// create-or-join choice → team name → first board → invite (skipped) →
+// devices (skipped), ending on the new team's page.
 export async function createTeamThroughOnboarding(
   page: Page,
   teamName: string,
@@ -88,9 +89,19 @@ export async function createTeamThroughOnboarding(
 
   await expect(page.getByLabel(`Board name`)).toBeVisible()
   await page.getByLabel(`Board name`).fill(boardName)
+  await page.getByRole(`button`, { name: `Create board` }).click()
+
+  await expect(
+    page.getByRole(`heading`, { name: `Invite your teammates` })
+  ).toBeVisible()
+  await page.getByRole(`button`, { name: `Skip for now`, exact: true }).click()
+
+  await expect(
+    page.getByRole(`heading`, { name: `Set up your devices` })
+  ).toBeVisible()
   await Promise.all([
     expect(page).toHaveURL(/\/t\/[^/]+/),
-    page.getByRole(`button`, { name: `Create board` }).click(),
+    page.getByRole(`button`, { name: `Skip for now`, exact: true }).click(),
   ])
 }
 

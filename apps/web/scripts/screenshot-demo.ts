@@ -67,6 +67,23 @@ export const NEWCOMER_EMAIL = `newcomer@exponential.at`
 export const NEWCOMER_PASSWORD = `screenshots-newcomer`
 export const NEWCOMER_NAME = `Jordan Reyes`
 
+/**
+ * The STARTER (EXP-725): the third seeded identity, verified and the OWNER of
+ * exactly one team that has NO boards, invites or devices, with
+ * `onboardingCompletedAt` NULL. The flag stays NULL on its own — the lazy
+ * backfill in lib/auth/onboarding.ts only stamps it once a board exists — so
+ * signing in resumes the first-run wizard past the team step, which is how
+ * the invite and devices steps are photographed on every lane (`?step=` on
+ * the web, `EXP_DEV_ONBOARDING=invite|devices` on the desktop, the natives'
+ * test hooks). Nothing is ever submitted as this identity: a board would
+ * complete onboarding, an invite would take a seat.
+ */
+export const STARTER_EMAIL = `starter@exponential.at`
+export const STARTER_PASSWORD = `screenshots-starter`
+export const STARTER_NAME = `Sam Okafor`
+export const STARTER_TEAM_NAME = `Bluebird Labs`
+export const STARTER_TEAM_SLUG = `bluebird-labs`
+
 /** The unconsumed invite the `invite-accept` view is captured on. */
 export const DEMO_INVITE_TOKEN = `screenshots-demo-invite`
 

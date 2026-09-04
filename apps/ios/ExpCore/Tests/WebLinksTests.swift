@@ -82,4 +82,21 @@ final class WebLinksTests: XCTestCase {
         XCTAssertNil(WebLinks.extractInviteToken("   "))
         XCTAssertNil(WebLinks.extractInviteToken("https://x/invite/"))
     }
+
+    // EXP-725: the invite creator mints `{base}/invite/{token}` — and what it
+    // hands out must paste straight back into the join field.
+    func testInviteLinkRoundTripsThroughTheTokenExtractor() throws {
+        let minted = try XCTUnwrap(
+            WebLinks.invite(instanceUrl: "https://app.exponential.at/", token: "tok123")
+        )
+        XCTAssertEqual(minted.absoluteString, "https://app.exponential.at/invite/tok123")
+        XCTAssertEqual(WebLinks.extractInviteToken(minted.absoluteString), "tok123")
+        XCTAssertEqual(WebLinks.parse(minted), .invite(token: "tok123"))
+    }
+
+    func testInviteLinkNeedsBothABaseAndAToken() {
+        XCTAssertNil(WebLinks.invite(instanceUrl: nil, token: "tok123"))
+        XCTAssertNil(WebLinks.invite(instanceUrl: "   ", token: "tok123"))
+        XCTAssertNil(WebLinks.invite(instanceUrl: "https://app.exponential.at", token: " "))
+    }
 }
