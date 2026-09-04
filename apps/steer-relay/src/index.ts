@@ -318,8 +318,6 @@ app.post(`/start`, async (c) => {
     effort: asString(body?.effort),
     ultracode: asBoolean(body?.ultracode),
     planMode: asBoolean(body?.planMode),
-    // EXP-690: a retired `skipPermissions` in the body is read by nobody —
-    // old callers keep sending it and the frame simply never carries it.
     resume: asBoolean(body?.resume),
   }
   const result = hub.startSession(userId, deviceId, subject, options)

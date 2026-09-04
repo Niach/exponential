@@ -18,7 +18,8 @@
 //! identity + the multi-question stepper on [`ActivityEvent::Question`], the
 //! `question_resolved` / `answer_ack` / `subagent` / `permission` kinds, the
 //! publisher-only [`ClientFrame::ActivityReset`], and the semantic
-//! [`ServerFrame::Answer`] that replaces blind keystroke replay.
+//! [`ServerFrame::Answer`] that replaced blind keystroke replay — EXP-730:
+//! the ONLY answer path there is now.
 //!
 //! ## Roles and directions (EXP-696)
 //!
@@ -215,8 +216,10 @@ pub enum ActivityEvent {
     /// `tool_use_id` (plan = the id itself; ask question `i` (0-based) =
     /// `<id>#<i>`; the review/submit step = `<askId>#submit`). Re-emitting the
     /// SAME id REPLACES that card in place — the options may grow later (a
-    /// "Type something" choice only the TUI grid reveals). An id-less
-    /// question is the legacy keystroke-only path (old desktop).
+    /// "Type something" choice only the TUI grid reveals). `id` stays
+    /// `Option` so decoding an old publisher's frame never fails, but an
+    /// id-less question is READ-ONLY on every client (EXP-730 retired the
+    /// blind-keystroke answer path the desktop kept for it).
     #[serde(rename_all = "camelCase")]
     Question {
         text: String,

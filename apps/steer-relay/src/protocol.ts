@@ -48,10 +48,10 @@ export const inputFrame = z.object({
   data: z.string().max(8 * 1024),
 })
 
-// Semantic answer to a `question` activity event (EXP-249). Replaces blind
-// digit keystrokes: the client names the question it is answering, the
-// publisher maps `keys` onto whatever the TUI currently shows. Gated exactly
-// like `input` — any joined viewer (tickets are minted owner-only, EXP-312).
+// Semantic answer to a `question` activity event (EXP-249): the client names
+// the question it is answering, the publisher maps `keys` onto whatever the
+// TUI currently shows. Gated exactly like `input` — any joined viewer
+// (tickets are minted owner-only, EXP-312).
 export const answerFrame = z.object({
   t: z.literal(`answer`),
   questionId: z.string().max(128),
@@ -79,7 +79,7 @@ export const byeFrame = z.object({
 //   tool:              tool-call headline     { kind, name, detail?, subagentId? }
 //   diff:              worktree unified diff  { kind, diff }  (latest replaces prior)
 //   user_message:      a human turn           { kind, text }
-//   question:          interactive question   { kind, text, options[], id?, askId?, … }
+//   question:          interactive question   { kind, text, options[], id, askId?, … }
 //   question_resolved: retire a question card { kind, id?, askId?, answers?, dismissed? }
 //   answer_ack:        injection confirmed    { kind, id, askId? }
 //   subagent:          subagent lifecycle     { kind, id, agentType, status }
@@ -87,8 +87,8 @@ export const byeFrame = z.object({
 //   compaction:        context compaction     { kind, phase, trigger? }  (started|ended)
 export const questionOptionSchema = z.object({
   label: z.string().max(256),
-  // The raw keystroke a steering client sends to pick the option (also the
-  // `keys` member of the semantic answer frame).
+  // The `keys` member of the answer frame that picks this option — the
+  // publisher turns it into whatever its TUI expects.
   key: z.string().min(1).max(8),
   description: z.string().max(1024).optional(),
   // EXP-513: claude's synthetic free-text row ("Type something.") — clients
@@ -144,11 +144,12 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     // render a dedicated "Plan ready" card. Presentation-only; absent on
     // AskUserQuestion events and on frames from older desktops.
     planMode: z.boolean().optional(),
-    // Stable identity (EXP-249), derived from the claude tool_use_id. Present
-    // ⇒ answerable via the semantic `answer` frame and re-emittable (same id
-    // ⇒ clients REPLACE the card in place). Absent ⇒ old desktop, legacy
-    // keystroke path.
-    id: z.string().max(128).optional(),
+    // Stable identity (EXP-249), derived from the agent's tool call id
+    // (claude `<tool_use_id>#<index>`, codex `<call_id>#<index>`, synthetic
+    // for transcript-born cards). The `answer` frame names it, and a re-emit
+    // with the same id REPLACES the card in place. Required since EXP-730:
+    // every publisher >= 0.14.31 stamps one.
+    id: z.string().min(1).max(128),
     // Groups the steps of one multi-question ask. An askId question WITHOUT
     // index/total is that ask's final review/submit step.
     askId: z.string().max(128).optional(),
@@ -235,9 +236,8 @@ export type ClientFrame = z.infer<typeof clientFrame>
 
 /** Launch options a remote start may carry (EXP-149; `agent` is EXP-201).
  * All optional — an absent field means "desktop settings default" (plan mode
- * OFF; absent agent = claude). EXP-690 retired `skipPermissions`: every
- * launch bypasses the agent's permission prompts, and an old caller's key is
- * dropped here instead of forwarded.
+ * OFF; absent agent = claude). Every launch bypasses the agent's permission
+ * prompts (EXP-690); there is no per-run switch.
  * `startedBy` (EXP-432): the requesting teammate's userId on a start
  * targeting a SHARED server device — pure pass-through attribution the
  * daemon echoes into codingSessions.start; absent on own-device starts. */

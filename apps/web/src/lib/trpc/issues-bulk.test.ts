@@ -332,16 +332,29 @@ describe(`issues.bulkUpdate`, () => {
     expect(updates[0]!.set.completedAt).toBeNull()
   })
 
-  // EXP-685: `todo` is retired, but a stale client (or an old agent script)
-  // may still send it. The input schema normalizes it BEFORE the write, so
-  // the retired token never reaches a row.
-  it(`normalizes the retired 'todo' status token to backlog`, async () => {
+  // EXP-685 retired `todo`; since EXP-730 no shipped client sends it, so the
+  // input schema rejects it outright instead of normalizing (nothing ever
+  // reaches a row).
+  it(`rejects the retired 'todo' status token`, async () => {
     seedEligible([issueRow(ID_A, { status: `in_progress` })])
 
-    await caller.bulkUpdate({ issueIds: [ID_A], status: `todo` as never })
+    const error = await rejectionOf(
+      caller.bulkUpdate({ issueIds: [ID_A], status: `todo` as never })
+    )
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(updates).toHaveLength(0)
+  })
 
-    expect(updates).toHaveLength(1)
-    expect(updates[0]!.set.status).toBe(`backlog`)
+  // EXP-707's `ids` alias went with the 0.14.24/0.14.31 floors (EXP-730):
+  // only `issueIds` is accepted now.
+  it(`rejects the retired ids key`, async () => {
+    const error = await rejectionOf(
+      caller.bulkUpdate({ ids: [ID_A], status: `done` } as never)
+    )
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(select).not.toHaveBeenCalled()
   })
 
   it(`bulk assign validates the assignee once and only notifies actual changes`, async () => {
@@ -391,7 +404,7 @@ describe(`issues.bulkUpdate`, () => {
     seedEligible(ids.map((id) => issueRow(id, { assigneeId: `other` })))
 
     const result = await caller.bulkUpdate({
-      ids,
+      issueIds: ids,
       status: `done`,
       assigneeId: `victim`,
     })
@@ -411,7 +424,7 @@ describe(`issues.bulkUpdate`, () => {
     const ids = Array.from({ length: 26 }, (_, i) => uuid(i + 1))
     seedEligible([issueRow(ID_A), issueRow(ID_B)])
 
-    const result = await caller.bulkUpdate({ ids, status: `done` })
+    const result = await caller.bulkUpdate({ issueIds: ids, status: `done` })
 
     expect(result.updated).toBe(2)
     expect(h.fireAndForgetStatusChangeNotify).toHaveBeenCalledTimes(2)
@@ -530,26 +543,16 @@ describe(`issues.bulkDelete`, () => {
     ])
   })
 
-  // EXP-707 transitional alias: desktop 0.14.28 in the wild still posts
-  // `ids`, so the rename cannot be hard until the desktop floor reaches
-  // 0.14.29. Same XOR contract as bulkUpdate's alias.
-  it(`accepts the deprecated ids alias`, async () => {
-    selectQueue.push([{ id: ID_A, teamId: WS }])
-
-    const result = await caller.bulkDelete({ ids: [ID_A] })
-
-    expect(result).toEqual({ txId: 77, deleted: 1 })
-    expect(collectParams(deletes[0]!.where)).toEqual([ID_A])
-  })
-
-  it(`rejects passing both issueIds and ids, and passing neither`, async () => {
-    const both = await rejectionOf(
-      caller.bulkDelete({ issueIds: [ID_A], ids: [ID_A] })
+  // EXP-707's `ids` alias went with the desktop 0.14.31 floor (EXP-730):
+  // only `issueIds` is accepted now.
+  it(`rejects the retired ids key`, async () => {
+    const legacy = await rejectionOf(
+      caller.bulkDelete({ ids: [ID_A] } as never)
     )
-    expect(both).toBeInstanceOf(TRPCError)
-    expect((both as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(legacy).toBeInstanceOf(TRPCError)
+    expect((legacy as TRPCError).code).toBe(`BAD_REQUEST`)
 
-    const neither = await rejectionOf(caller.bulkDelete({}))
+    const neither = await rejectionOf(caller.bulkDelete({} as never))
     expect(neither).toBeInstanceOf(TRPCError)
     expect((neither as TRPCError).code).toBe(`BAD_REQUEST`)
 

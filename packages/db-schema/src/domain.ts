@@ -2,8 +2,8 @@ import { z } from "zod"
 
 // `todo` (the builtin "Todo" status) was retired by EXP-685: migration 0091
 // moved every issue to Backlog and only the PG type keeps the orphan label
-// (see schema.ts issueStatusEnum). Servers normalize the retired token via
-// RETIRED_ISSUE_STATUS_ALIASES; clients treat it as an unknown wire value.
+// (see schema.ts issueStatusEnum). Every input schema rejects the token;
+// clients treat it as an unknown wire value.
 export const issueStatusValues = [
   `backlog`,
   `in_progress`,
@@ -73,20 +73,6 @@ export const CATEGORY_ANCHOR: Record<IssueStatusCategory, IssueStatus> = {
   completed: `done`,
   cancelled: `cancelled`,
   duplicate: `duplicate`,
-}
-
-// Retired enum tokens a stale client or agent may still send, and the live
-// value each one means now (EXP-685). Server input schemas accept them and
-// normalize BEFORE any write; nothing ever persists a retired token.
-export const RETIRED_ISSUE_STATUS_ALIASES: Record<string, IssueStatus> = {
-  todo: `backlog`,
-}
-
-export function normalizeIssueStatus(value: string): IssueStatus {
-  return (
-    RETIRED_ISSUE_STATUS_ALIASES[value] ??
-    (value as IssueStatus)
-  )
 }
 
 // The 6 locked builtin statuses every team is seeded with — the local
@@ -412,14 +398,6 @@ export type SupportMessageVisibility =
   (typeof supportMessageVisibilityValues)[number]
 
 export const issueStatusSchema = z.enum(issueStatusValues)
-// Mutation INPUT form: also accepts the retired tokens a stale client may
-// still send (EXP-685) and normalizes them — never used for reads/outputs.
-export const issueStatusInputSchema = z
-  .enum([
-    ...issueStatusValues,
-    ...Object.keys(RETIRED_ISSUE_STATUS_ALIASES),
-  ] as [string, ...string[]])
-  .transform((value) => normalizeIssueStatus(value))
 export const issueStatusCategorySchema = z.enum(issueStatusCategoryValues)
 export const issuePrioritySchema = z.enum(issuePriorityValues)
 export const issueSourceSchema = z.enum(issueSourceValues)

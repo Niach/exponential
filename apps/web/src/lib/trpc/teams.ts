@@ -154,27 +154,17 @@ export const teamsRouter = router({
   // `helpdeskEnabled` is the team-level helpdesk switch (owner-only like
   // every field on this procedure; ENABLING is plan-gated, disabling is
   // always allowed).
-  // EXP-707: the subject param is `teamId` like teams.delete (was `id`).
-  // `id` is a TRANSITIONAL alias (exactly one of the two, normalized here) —
-  // remove once desktop min >= 0.14.29 (EXP-707 rename; desktop 0.14.28 sends
-  // the old key).
   update: authedProcedure
     .input(
-      z
-        .object({
-          teamId: z.string().uuid().optional(),
-          id: z.string().uuid().optional(),
-          name: z.string().min(1).max(255).optional(),
-          iconUrl: z.string().url().max(2048).nullable().optional(),
-          helpdeskEnabled: z.boolean().optional(),
-        })
-        .refine((i) => (i.teamId === undefined) !== (i.id === undefined), {
-          message: `Pass teamId (or the deprecated id), not both`,
-        })
+      z.object({
+        teamId: z.string().uuid(),
+        name: z.string().min(1).max(255).optional(),
+        iconUrl: z.string().url().max(2048).nullable().optional(),
+        helpdeskEnabled: z.boolean().optional(),
+      })
     )
     .mutation(async ({ ctx, input }) => {
-      const { teamId: teamIdInput, id: legacyTeamId, ...updates } = input
-      const id = (teamIdInput ?? legacyTeamId)!
+      const { teamId: id, ...updates } = input
       await assertTeamOwner(ctx.session.user.id, id)
 
       if (updates.helpdeskEnabled === true) {

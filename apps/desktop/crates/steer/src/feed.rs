@@ -202,13 +202,14 @@ pub struct QuestionCard {
     pub dismissed: bool,
 }
 
-/// The key a card's answer state is tracked under: the wire question id when
-/// the desktop publishes one, else the local feed id (web `answerKey`).
-pub fn answer_key(item: &FeedItem) -> String {
-    match item.question().and_then(|card| card.question_id.as_deref()) {
-        Some(id) => id.to_string(),
-        None => format!("#{}", item.id),
-    }
+/// The key a card's answer state is tracked under: its wire question id (web
+/// `answerKey`).
+///
+/// `None` for an id-less card — EXP-730 retired the blind-keystroke answer
+/// path, so such a card is read-only and can never carry answer state.
+pub fn answer_key(item: &FeedItem) -> Option<String> {
+    item.question()
+        .and_then(|card| card.question_id.clone())
 }
 
 // ---------------------------------------------------------------------------
@@ -474,7 +475,7 @@ impl SteerFeed {
             .items
             .iter()
             .filter(|item| item.question().is_some_and(|card| card.resolved))
-            .map(answer_key)
+            .filter_map(answer_key)
             .filter(|key| self.answers.contains_key(key))
             .collect();
         for key in stale {
@@ -785,7 +786,7 @@ impl SteerFeed {
     fn carries_question(&self, key: &str) -> bool {
         self.items
             .iter()
-            .any(|item| item.question().is_some() && answer_key(item) == key)
+            .any(|item| answer_key(item).is_some_and(|id| id == key))
     }
 
     // ── Projections ────────────────────────────────────────────────────────
@@ -816,54 +817,21 @@ fn non_blank(value: Option<String>) -> Option<String> {
 
 /// Ids of the `question` items still answerable.
 ///
-/// Protocol v2 cards (a wire `question_id`) are IDENTITY-scoped: they stay
-/// answerable until an explicit `question_resolved` retires them, no matter
-/// what flushes in behind them.
-///
-/// Legacy cards keep the EXP-174 heuristic: the TRAILING consecutive question
-/// run (a multi-question batch lands back-to-back and the TUI auto-advances in
-/// order), PLUS any plan-approval card with no resolution signal after it —
-/// plan questions are published from the live terminal grid the moment the
-/// picker appears while the transcript tail lags, so tool rows and narration
-/// flush in BEHIND a picker that is still on screen. Only a newer question
-/// proves a plan picker resolved — a human message does NOT (steering mid-plan
-/// leaves the picker up).
+/// Every card carries a wire `question_id` (EXP-730: publishers stamp one on
+/// every card), and those are IDENTITY-scoped — they stay answerable until an
+/// explicit `question_resolved` retires them, no matter what flushes in behind
+/// them. An id-less card is NOT answerable: the blind-keystroke path it used
+/// (and the EXP-174 trailing-run heuristic that fed it) is gone, so it renders
+/// read-only, exactly as on web and Android.
 pub fn active_question_ids(items: &[FeedItem]) -> HashSet<FeedItemId> {
-    let mut ids = HashSet::new();
-    for item in items {
-        if let Some(card) = item.question() {
-            if card.question_id.is_some() && !card.resolved {
-                ids.insert(item.id);
-            }
-        }
-    }
-    // Still inside the trailing consecutive question run.
-    let mut trailing = true;
-    // A resolution signal lies after the current position.
-    let mut retired = false;
-    for item in items.iter().rev() {
-        match item.question() {
-            Some(card) => {
-                if card.resolved || card.question_id.is_some() {
-                    // An answered/dismissed card is itself a resolution signal
-                    // (it proves the TUI moved past it), as is any newer
-                    // question.
-                    trailing = false;
-                    retired = true;
-                } else {
-                    if trailing || (card.plan_mode && !retired) {
-                        ids.insert(item.id);
-                    }
-                    retired = true;
-                }
-            }
-            None => trailing = false,
-        }
-        if retired && !trailing {
-            break;
-        }
-    }
-    ids
+    items
+        .iter()
+        .filter(|item| {
+            item.question()
+                .is_some_and(|card| card.question_id.is_some() && !card.resolved)
+        })
+        .map(|item| item.id)
+        .collect()
 }
 
 /// A render row over the flat feed: one item, a run of ≥2 CONSECUTIVE plain
@@ -1468,7 +1436,7 @@ mod tests {
     fn an_answer_locks_its_card_until_the_ack_or_the_timeout() {
         let mut feed = SteerFeed::new();
         feed.apply(question(Some("q1"), "Which?"));
-        let key = answer_key(&feed.items()[0]);
+        let key = answer_key(&feed.items()[0]).unwrap();
         assert!(!feed.is_answer_locked(&key));
 
         feed.note_answer_sent(&key, vec!["1".into()], vec!["Yes".into()]);
@@ -1492,7 +1460,7 @@ mod tests {
     fn a_missing_ack_re_enables_the_card() {
         let mut feed = SteerFeed::new();
         feed.apply(question(Some("q1"), "Which?"));
-        let key = answer_key(&feed.items()[0]);
+        let key = answer_key(&feed.items()[0]).unwrap();
         feed.note_answer_sent(&key, vec!["1".into()], vec!["Yes".into()]);
         feed.fail_answer(&key);
         assert_eq!(feed.answer_state(&key).unwrap().status, AnswerStatus::Error);
@@ -1503,7 +1471,7 @@ mod tests {
     fn a_resolution_drops_the_lock_so_a_stale_deadline_cannot_reopen_it() {
         let mut feed = SteerFeed::new();
         feed.apply(question(Some("q1"), "Which?"));
-        let key = answer_key(&feed.items()[0]);
+        let key = answer_key(&feed.items()[0]).unwrap();
         feed.note_answer_sent(&key, vec!["1".into()], vec!["Yes".into()]);
         feed.apply(ActivityEvent::QuestionResolved {
             id: Some("q1".into()),
@@ -1518,11 +1486,14 @@ mod tests {
     }
 
     #[test]
-    fn a_legacy_card_is_keyed_by_its_local_id() {
+    fn an_id_less_card_is_not_answerable() {
+        // EXP-730: no wire id, no answer key and no active id — the card
+        // renders read-only instead of falling back to raw keystrokes.
         let mut feed = SteerFeed::new();
-        feed.apply(question(None, "Legacy"));
+        feed.apply(question(None, "Id-less"));
         let item = &feed.items()[0];
-        assert_eq!(answer_key(item), format!("#{}", item.id));
+        assert_eq!(answer_key(item), None);
+        assert!(feed.active_question_ids().is_empty());
     }
 
     // ── EXP-656 staged replay ──────────────────────────────────────────────
@@ -1634,7 +1605,7 @@ mod tests {
     fn an_in_flight_answer_lock_survives_the_swap() {
         let mut feed = SteerFeed::new();
         feed.apply(question(Some("q1"), "Which?"));
-        let key = answer_key(&feed.items()[0]);
+        let key = answer_key(&feed.items()[0]).unwrap();
         feed.note_answer_sent(&key, vec!["1".into()], vec!["Yes".into()]);
 
         // The reconnect replays the card as UNANSWERED — the tap must stand.
@@ -1649,7 +1620,7 @@ mod tests {
     fn a_lock_for_a_card_the_replay_dropped_is_not_carried() {
         let mut feed = SteerFeed::new();
         feed.apply(question(Some("q1"), "Which?"));
-        let key = answer_key(&feed.items()[0]);
+        let key = answer_key(&feed.items()[0]).unwrap();
         feed.note_answer_sent(&key, vec!["1".into()], vec!["Yes".into()]);
         feed.apply_reset();
         feed.apply(ActivityEvent::narration("the card aged out"));
@@ -1817,14 +1788,14 @@ mod tests {
     }
 
     #[test]
-    fn a_legacy_plan_card_survives_prose_behind_it_but_not_a_newer_question() {
+    fn a_plan_card_survives_prose_behind_it_until_it_resolves() {
         let mut feed = SteerFeed::new();
         feed.apply(ActivityEvent::Question {
             text: "The plan".into(),
             options: vec![QuestionOption::new("Approve", "1")],
             multi_select: None,
             plan_mode: Some(true),
-            id: None,
+            id: Some("plan-1".into()),
             ask_id: None,
             index: None,
             total: None,
@@ -1833,16 +1804,23 @@ mod tests {
         });
         let plan_id = feed.items()[0].id;
         // The transcript tail lags the live grid: rows flush in BEHIND a
-        // picker that is still on screen.
+        // picker that is still on screen — and a newer question no longer
+        // retires it either, only its own resolution does.
         feed.apply(ActivityEvent::tool("Read", None));
         feed.apply(ActivityEvent::narration("prose"));
-        assert!(feed.active_question_ids().contains(&plan_id));
-
-        // Only a NEWER question proves the picker resolved.
-        feed.apply(question(None, "Something else"));
+        feed.apply(question(Some("q2"), "Something else"));
         let newer_id = feed.items().last().unwrap().id;
         let active = feed.active_question_ids();
+        assert!(active.contains(&plan_id));
         assert!(active.contains(&newer_id));
-        assert!(!active.contains(&plan_id));
+
+        feed.apply(ActivityEvent::QuestionResolved {
+            id: Some("plan-1".into()),
+            ask_id: None,
+            answers: Some(vec!["Approve".into()]),
+            dismissed: None,
+            at: None,
+        });
+        assert!(!feed.active_question_ids().contains(&plan_id));
     }
 }

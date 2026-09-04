@@ -51,15 +51,6 @@
 // that sends the old key is retired by a version floor; until then the
 // procedure accepts the legacy key OR the new one (exactly one required,
 // normalized in the handler) and carries a comment naming its removal
-// trigger.
-//
-// Drop after the next iOS AND Android releases:
-//   issues.bulkUpdate `ids`                             -> `issueIds`
-//   steer.mintTicket/killSession `codingSessionId`      -> `sessionId`
-//
-// Drop once desktop min >= 0.14.29 (EXP-707 rename; desktop 0.14.28 sends
-// the old key):
-//   boards.update `id`                                  -> `boardId`
-//   teams.update `id`                                   -> `teamId`
-//   issues.bulkDelete `ids`                             -> `issueIds`
+// trigger. None are open right now (the EXP-707 set went with the
+// 0.14.24/0.14.26/0.14.31 floors, EXP-730).
 export {}

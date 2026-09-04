@@ -950,9 +950,9 @@ export interface DeviceLaunchDefaults {
 // strict schema 400'd the whole register — leaving the machine invisible
 // with no self-heal path (the update request is consumed on register).
 // `clampLaunchDefaults` strips the nulls; stored copies stay null-free.
-// The schema is plain `z.object` (strip mode) on purpose: EXP-690 retired the
-// per-agent `skipPermissions` key and old clients keep sending it, so an
-// incoming copy is silently dropped instead of rejected.
+// Plain `z.object` (strip mode) on purpose — never `.strict()`: an unknown
+// key from a newer or older client is dropped, not a reason to 400 the
+// register.
 export const deviceLaunchDefaultsSchema = z.object({
   defaultAgent: z.string().min(1).max(32).nullish(),
   agents: z
