@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-polish-on-every-client`,
+    date: `2026-09-04`,
+    title: `Polish on every client`,
+    summary: `Mentions render as pills on iOS, review diffs scroll on phones, desktop dialogs share one chrome, and merges can leave sessions running.`,
+    body: `- **Merge without closing**: a new team setting under Statuses decides whether merging a pull request ends the live coding sessions on it; agents can also pass \`endSessions\` per merge.
+- **Mobile**: comment @mentions render as member pills on iOS, review diffs scroll sideways under a compact per-file header, empty boards show an icon with a hint, and the settings, action and start-coding sheets follow each platform's idioms.
+- **Desktop**: every dialog shares the same input focus ring, traffic lights and danger-zone chrome; the search palette grows with its results; support inbox rows show the ticket subject.
+- **Web**: the mobile issue sheet lists properties as rows with a proper header, the storage table shows uploader and date as it widens, and the widget editor preview no longer clips.
+- **Android**: search results show their group counts.`,
+  },
+  {
     id: `2026-09-steering-slash-commands`,
     date: `2026-09-03`,
     title: `Slash commands and compaction in steering`,

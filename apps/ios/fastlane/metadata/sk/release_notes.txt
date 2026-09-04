@@ -1,5 +1,12 @@
+- Tabuľky: píšte tabuľky v úlohách aj komentároch, vrátane zarovnania stĺpcov; bunky upravíte v telefóne a dlhým stlačením zmažete celú tabuľku
+- Riadenie: napíšte „/“ a spustite vstavané príkazy agenta ako /compact a /clear, a sledujte, ako agent zhusťuje svoj kontext namiesto hádania
+- Komentáre zobrazujú @mentions ako menovky členov namiesto holej adresy
+- Boardy: každý board si môže v nastaveniach boardu nastaviť vlastnú predvolenú vetvu; kódovacie relácie štartujú z nej
+- Diffy v Reviews sa posúvajú do strán a majú kompaktnú hlavičku pri každom súbore
+- Prázdne boardy ukazujú ikonu, titulok a nápovedu
+- Panely nastavení, akcií a spustenia kódovania lepšie dodržiavajú zvyklosti platformy
+- Osviežený sklenený vzhľad v zoznamoch, paneloch aj ovládacích prvkoch
 - Todo a Backlog sú teraz jeden zoznam: všetko z Todo je teraz v Backlogu
-- Panely a menu majú jednotný vzhľad v celej aplikácii
 - Editor zachováva vaše zámerné prázdne riadky, rovnako na každej platforme
 - Agenti vždy bežia bez otázok na povolenia; prepínač zmizol
 - Jeden výber agenta: agent, model, úsilie, režim plánu, účet a využitie na jednej karte

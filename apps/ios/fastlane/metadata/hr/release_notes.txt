@@ -1,5 +1,12 @@
+- Tablice: pišite tablice u zadacima i komentarima, uz poravnanje stupaca; ćelije uredite na telefonu, a dugim pritiskom obrišite cijelu tablicu
+- Upravljanje: upišite „/“ za ugrađene naredbe agenta poput /compact i /clear te gledajte kako agent sažima svoj kontekst umjesto da nagađa
+- Komentari prikazuju @mentions kao pločice članova umjesto gole adrese
+- Boardovi: svaki board može u postavkama boarda postaviti vlastitu zadanu granu; sesije kodiranja kreću od nje
+- Diffovi u Reviews klize bočno, uz kompaktno zaglavlje po datoteci
+- Prazni boardovi prikazuju ikonu, naslov i savjet
+- Listovi postavki, akcija i pokretanja kodiranja bliže prate konvencije platforme
+- Osvježen stakleni izgled u popisima, listovima i kontrolama
 - Todo i Backlog sada su jedna lista: sve iz Todo sada je u Backlogu
-- Listovi i izbornici dijele jedinstven izgled u cijeloj aplikaciji
 - Uređivač čuva vaše namjerne prazne retke, identično na svakoj platformi
 - Agenti se uvijek izvode bez upita za dozvole; prekidač je uklonjen
 - Jedan odabir agenta: agent, model, trud, način plana, račun i potrošnja na jednoj kartici

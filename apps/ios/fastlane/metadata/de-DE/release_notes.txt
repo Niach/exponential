@@ -1,5 +1,12 @@
+- Tabellen: schreibe Tabellen in Issues und Kommentaren, samt Spaltenausrichtung; Zellen bearbeitest du am Handy, langes Drücken löscht eine ganze Tabelle
+- Steuerung: tippe „/“ für die eingebauten Befehle des Agents wie /compact und /clear, und sieh zu, wie der Agent seinen Kontext verdichtet statt zu raten
+- Kommentare zeigen @mentions als Mitglieder-Chips statt der rohen Adresse
+- Boards: jedes Board kann in den Board-Einstellungen seinen eigenen Standard-Branch setzen; Coding-Sessions starten von dort
+- Review-Diffs scrollen zur Seite, mit kompakter Kopfzeile pro Datei
+- Leere Boards zeigen ein Icon, einen Titel und einen Hinweis
+- Sheets für Einstellungen, Actions und Start-Coding folgen den Plattform-Idiomen genauer
+- Ein aufgefrischter Glas-Look in Listen, Sheets und Bedienelementen
 - Todo und Backlog sind jetzt eine Liste: alles aus Todo liegt nun im Backlog
-- Sheets und Menüs haben ein einheitliches Erscheinungsbild in der ganzen App
 - Der Editor erhält deine bewussten Leerzeilen, identisch auf jeder Plattform
 - Agents laufen immer ohne Berechtigungsabfragen; der Schalter ist weg
 - Ein Agent-Picker: Agent, Modell, Aufwand, Planmodus, Konto und Nutzung in einer einzigen Karte

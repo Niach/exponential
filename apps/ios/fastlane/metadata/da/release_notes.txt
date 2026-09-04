@@ -1,5 +1,12 @@
+- Tabeller: skriv tabeller i issues og kommentarer, med kolonnejustering; rediger celler på din telefon, og tryk længe for at slette en hel tabel
+- Styring: skriv "/" for at køre agentens indbyggede kommandoer som /compact og /clear, og se agenten komprimere sin kontekst i stedet for at gætte
+- Kommentarer viser @mentions som medlemschips i stedet for den rå adresse
+- Boards: hvert board kan sætte sin egen standardbranch i board-indstillingerne; kodesessioner starter derfra
+- Review-diffs scroller til siden, med en kompakt header pr. fil
+- Tomme boards viser et ikon, en titel og et hint
+- Ark til indstillinger, handlinger og start af kodning følger platformens idiomer tættere
+- Et opfrisket glaslook på tværs af lister, ark og kontroller
 - Todo og Backlog er nu én liste: alt fra Todo ligger nu i Backlog
-- Ark og menuer deler ét ensartet udseende i hele appen
 - Editoren bevarer dine bevidste tomme linjer, identisk på alle platforme
 - Agenter kører altid uden tilladelsesspørgsmål; kontakten er væk
 - Én agentvælger: agent, model, indsats, plantilstand, konto og forbrug i ét enkelt kort

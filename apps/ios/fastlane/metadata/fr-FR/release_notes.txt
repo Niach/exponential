@@ -1,5 +1,12 @@
+- Tableaux : écrivez des tableaux dans les issues et les commentaires, avec alignement des colonnes ; modifiez les cellules sur votre téléphone et appuyez longuement pour supprimer un tableau entier
+- Pilotage : tapez « / » pour lancer les commandes intégrées de l'agent comme /compact et /clear, et voyez l'agent compacter son contexte au lieu de deviner
+- Les commentaires affichent les @mentions sous forme de pastilles de membre plutôt que l'adresse brute
+- Boards : chaque board peut définir sa propre branche par défaut dans les réglages du board ; les sessions de code démarrent depuis elle
+- Les diffs de Reviews défilent latéralement, avec un en-tête compact par fichier
+- Les boards vides affichent une icône, un titre et une indication
+- Les feuilles de réglages, d'actions et de démarrage de code suivent de plus près les usages de la plateforme
+- Un look verre rafraîchi dans les listes, les feuilles et les contrôles
 - Todo et Backlog ne font plus qu'une liste : tout ce qui était dans Todo se trouve dans le Backlog
-- Les feuilles et menus partagent un style uniforme dans toute l'app
 - L'éditeur conserve vos lignes vides intentionnelles, à l'identique sur chaque plateforme
 - Les agents s'exécutent toujours sans demandes d'autorisation ; le réglage a disparu
 - Un seul sélecteur d'agent : agent, modèle, effort, mode plan, compte et utilisation dans une seule carte
