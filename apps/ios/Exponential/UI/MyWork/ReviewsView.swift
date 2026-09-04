@@ -27,6 +27,9 @@ struct ReviewsListContent: View {
     @Environment(\.openURL) private var openURL
     @State private var viewModel: ReviewsViewModel?
     @State private var mergeTarget: ReviewEntry?
+    /// EXP-734: the agent run whose OWN pull request a merge confirm is
+    /// pending for — its own alert, because the copy names no issues.
+    @State private var runMergeTarget: RunReviewEntry?
     /// Merge failures keyed by `ReviewEntry.id` — rendered INLINE under the
     /// failing row (EXP-323). An alert made the reason modal and gave the
     /// conflict-recovery run nowhere to live. Each failure also records whether
@@ -50,13 +53,16 @@ struct ReviewsListContent: View {
 
     var body: some View {
         let groups = viewModel?.groups(teamId: teamState.activeTeam?.id) ?? []
+        // EXP-734: agent runs parking their OWN pull request belong to no
+        // board, so they get their own section after the board groups.
+        let runs = viewModel?.runEntries(teamId: teamState.activeTeam?.id) ?? []
         Group {
             if viewModel == nil {
                 Color.clear
-            } else if groups.isEmpty {
+            } else if groups.isEmpty && runs.isEmpty {
                 emptyState
             } else {
-                reviewList(groups)
+                reviewList(groups, runs: runs)
             }
         }
         .task(id: accountId) {
@@ -121,6 +127,22 @@ struct ReviewsListContent: View {
         } message: { entry in
             Text(mergeMessage(entry))
         }
+        // EXP-734: a run's own pull request completes no issue, so it confirms
+        // with its own copy.
+        .alert(
+            "Merge pull request?",
+            isPresented: Binding(
+                get: { runMergeTarget != nil },
+                set: { if !$0 { runMergeTarget = nil } }
+            ),
+            presenting: runMergeTarget
+        ) { entry in
+            Button("Merge") { merge(run: entry) }
+            Button("Cancel", role: .cancel) { runMergeTarget = nil }
+        } message: { entry in
+            let pr = entry.prNumber.map { "#\($0)" } ?? "this pull request"
+            Text("Squash-merges PR \(pr) via the GitHub App. Any live coding session for it closes.")
+        }
     }
 
     private var emptyState: some View {
@@ -137,7 +159,7 @@ struct ReviewsListContent: View {
     }
 
     @ViewBuilder
-    private func reviewList(_ groups: [ReviewGroup]) -> some View {
+    private func reviewList(_ groups: [ReviewGroup], runs: [RunReviewEntry]) -> some View {
         List {
             ForEach(groups) { group in
                 Section {
@@ -149,6 +171,23 @@ struct ReviewsListContent: View {
                     }
                 } header: {
                     boardHeader(board: group.board, count: group.entries.count)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
+                        .listRowBackground(Color.clear)
+                }
+            }
+
+            // EXP-734: the runs' own pull requests, last — they belong to no
+            // board, so they cannot ride a board section.
+            if !runs.isEmpty {
+                Section {
+                    ForEach(runs) { entry in
+                        runEntryRow(entry)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
+                    }
+                } header: {
+                    runsHeader(count: runs.count)
                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
                         .listRowBackground(Color.clear)
                 }
@@ -186,6 +225,145 @@ struct ReviewsListContent: View {
         .padding(.vertical, 6)
         .padding(.horizontal, 8)
         .textCase(nil)
+    }
+
+    /// EXP-734: the "Agent runs" section header — same shape as a board
+    /// header, with the Actions glyph instead of a board's.
+    @ViewBuilder
+    private func runsHeader(count: Int) -> some View {
+        HStack(spacing: 8) {
+            AppIcon(AppIcons.navActions, size: 13)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+
+            Text("Agent runs")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+
+            Text("\(count)")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+
+            Spacer()
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .textCase(nil)
+    }
+
+    /// EXP-734: one agent run's own pull request. There is no issue and no
+    /// diff screen behind it, so the row opens the PR on GitHub; Merge lives
+    /// on the swipe and in the context menu, like the issue rows'.
+    @ViewBuilder
+    private func runEntryRow(_ entry: RunReviewEntry) -> some View {
+        let key = runKey(entry)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 10) {
+                AppIcon(AppIcons.prOpen, size: AppIcon.Size.small)
+                    .foregroundStyle(IssueStatus.inReview.color)
+                    .frame(width: 16)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        if let prNumber = entry.prNumber {
+                            Text("#\(prNumber)")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        }
+                        Text(entry.title)
+                            .font(.subheadline)
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                    }
+
+                    if let branch = entry.branch, !branch.isEmpty {
+                        Text(branch)
+                            .font(.caption.monospaced())
+                            .lineLimit(1)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                GlassPill("Merge") {
+                    if merging.contains(key) {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        AppIcon(AppIcons.prMerged, size: GlassPillTokens.glyphSm)
+                    }
+                }
+                .contentShape(Capsule())
+                .onTapGesture {
+                    guard !merging.contains(key) else { return }
+                    runMergeTarget = entry
+                }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Merge pull request")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .glassRow()
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if let url = entry.prUrl.flatMap(URL.init(string:)) { openURL(url) }
+            }
+            .swipeActions(edge: .trailing) {
+                Button { runMergeTarget = entry } label: {
+                    Label("Merge", appIcon: AppIcons.prMerged)
+                }
+                .tint(DesignTokens.Semantic.green)
+            }
+            .contextMenu {
+                Button {
+                    runMergeTarget = entry
+                } label: {
+                    Label("Merge PR", appIcon: AppIcons.prMerged)
+                }
+                if let url = entry.prUrl.flatMap(URL.init(string:)) {
+                    Button {
+                        openURL(url)
+                    } label: {
+                        Label("Open PR on GitHub", appIcon: AppIcons.uiExternalLink)
+                    }
+                }
+            }
+
+            if let failure = mergeErrors[key] {
+                Text(failure.message)
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Semantic.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .glassCard()
+            }
+        }
+    }
+
+    /// Merge/error state shares one keyspace with the issue entries, so a run
+    /// key is namespaced.
+    private func runKey(_ entry: RunReviewEntry) -> String { "run:\(entry.id)" }
+
+    /// EXP-734: merging a run's OWN pull request. No local surgery: the server
+    /// flips the session row's `pr_state` (and ends the run), and both land
+    /// here through sync.
+    private func merge(run entry: RunReviewEntry) {
+        runMergeTarget = nil
+        let key = runKey(entry)
+        let sessionId = entry.session.id
+        mergeErrors[key] = nil
+        merging.insert(key)
+        Task {
+            do {
+                try await deps.codingSessionsApi.mergePr(
+                    accountId: accountId, sessionId: sessionId
+                )
+            } catch {
+                mergeErrors[key] = MergeFailure(error: error)
+            }
+            merging.remove(key)
+        }
     }
 
     @ViewBuilder

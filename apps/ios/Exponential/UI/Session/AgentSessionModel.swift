@@ -128,6 +128,10 @@ final class AgentSessionModel {
     /// representative issue of the batch PR its branch names (EXP-535). Nil
     /// for action runs and whenever there is nothing to merge through.
     private(set) var mergeIssue: IssueEntity?
+    /// EXP-734: WHAT the Merge pill merges — `mergeIssue`'s PR, or (an action
+    /// or chat run that opened its own issue-less PR) this session row's own.
+    /// Nil whenever there is nothing to merge.
+    private(set) var mergeTarget: MergeTarget?
     /// Kill-switch failure (EXP-268), surfaced as an inline banner — cleared
     /// on each attempt. Success needs no local state: the synced row flips to
     /// `ended` and the view already reacts.
@@ -218,9 +222,10 @@ final class AgentSessionModel {
     /// EXP-678: whether the Merge pill shows — merging always ends the run too
     /// (EXP-498), so it only offers while there IS an open PR on a session
     /// this screen still considers live. The button then vanishes on its own
-    /// when the merged `pr_state` and the ended row sync back.
+    /// when the merged `pr_state` and the ended row sync back. EXP-734: that
+    /// PR may be the run's OWN issue-less one, so the target decides.
     var canMerge: Bool {
-        mergeIssue?.prState == DomainContract.prStateOpen && !isOver
+        mergeTarget != nil && !isOver
     }
 
     /// Recompute the cached projections (ids of the still-answerable question
@@ -773,7 +778,9 @@ final class AgentSessionModel {
                         // EXP-678: a batch run's Merge target only appears
                         // once THIS row flips to in_review (the pr_open
                         // transaction), long after its issue rows landed.
-                        self.rebuildMergeIssue()
+                        // EXP-734: an action or chat run's own PR is stamped
+                        // on THIS row too, so its pill lives or dies here.
+                        self.rebuildMergeTarget()
                     }
                     // The sequence only finishes cleanly on cancellation.
                     return
@@ -866,7 +873,9 @@ final class AgentSessionModel {
     /// Watch whatever the Merge pill would merge through. WHICH query that is
     /// is decided once, off the row the model was constructed with: a
     /// session's `issue_id` and `action_name` never change over its life.
-    /// Action runs merge nothing (EXP-253) — they observe nothing at all.
+    /// EXP-734: an action run observes no issue rows — its own PR rides the
+    /// SESSION row, so the session observation's `rebuildMergeTarget` is the
+    /// only input it needs.
     private func startObservingMergeIssue() {
         guard mergeObservationTask == nil else { return }
         guard let session else { return }
@@ -884,6 +893,7 @@ final class AgentSessionModel {
                         for try await row in observation.values(in: pool) {
                             guard let self else { return }
                             self.mergeIssue = row
+                            self.rebuildMergeTarget()
                         }
                         return
                     } catch is CancellationError {
@@ -907,7 +917,7 @@ final class AgentSessionModel {
                             guard let self else { return }
                             self.mergeIssueRows = issues
                             self.mergeBoardRows = boards
-                            self.rebuildMergeIssue()
+                            self.rebuildMergeTarget()
                         }
                         return
                     } catch is CancellationError {
@@ -920,24 +930,35 @@ final class AgentSessionModel {
         }
     }
 
-    /// Re-derive a BATCH run's merge target. Two inputs move independently —
-    /// the issue/board rows and the session's own status (the pr_open
-    /// transaction flips it to in_review) — so both observers call this.
-    /// Issue-linked and action runs never route through here.
-    private func rebuildMergeIssue() {
-        guard let session, session.issueId == nil, session.actionName == nil else { return }
-        guard session.status == DomainContract.codingSessionStatusInReview else {
-            mergeIssue = nil
+    /// Re-derive what the Merge pill merges. Several inputs move
+    /// independently — the observed issue row, a batch run's issue/board rows,
+    /// and the session's own row (the pr_open transaction flips its status,
+    /// and EXP-734 stamps an issue-less run's own PR right onto it) — so every
+    /// observer calls this.
+    private func rebuildMergeTarget() {
+        guard let session else {
+            mergeTarget = nil
             return
         }
-        // Issues don't sync `team_id` — the team's synced board ids are the
-        // scope, same as AgentsViewModel's rebuild.
-        let teamBoardIds = Set(mergeBoardRows.filter { $0.teamId == session.teamId }.map(\.id))
-        mergeIssue = BatchPrResolution.resolve(
-            sessionBranch: session.branch,
-            openBatchPrs: BatchPrResolution.openBatchPrs(
+        var openBatchPrs: [IssueEntity] = []
+        // A batch run carries no issue linkage: its PR resolves client-side
+        // off the team's open batch PRs (EXP-535/545). A chat run runs through
+        // the same arm and simply matches nothing.
+        if session.issueId == nil, session.actionName == nil {
+            // Issues don't sync `team_id` — the team's synced board ids are
+            // the scope, same as AgentsViewModel's rebuild.
+            let teamBoardIds = Set(mergeBoardRows.filter { $0.teamId == session.teamId }.map(\.id))
+            openBatchPrs = BatchPrResolution.openBatchPrs(
                 issues: mergeIssueRows, teamBoardIds: teamBoardIds
             )
+            mergeIssue = session.status == DomainContract.codingSessionStatusInReview
+                ? BatchPrResolution.resolve(
+                    sessionBranch: session.branch, openBatchPrs: openBatchPrs
+                )
+                : nil
+        }
+        mergeTarget = MergeTargetResolution.resolve(
+            session: session, issue: mergeIssue, openBatchPrs: openBatchPrs
         )
     }
 

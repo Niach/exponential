@@ -23,6 +23,19 @@ struct ReviewEntry: Identifiable {
     var identifiers: [String] { issues.compactMap { $0.identifier } }
 }
 
+/// EXP-734: one AGENT RUN's own open pull request — the chore PR an action or
+/// chat run opened through `exponential_pr_open({repositoryId, head})`, which
+/// links no issue at all and so appears in no board group.
+struct RunReviewEntry: Identifiable {
+    let session: CodingSessionEntity
+    /// The run's own name: its action, or "Chat" for a chat run.
+    let title: String
+    var id: String { session.id }
+    var prUrl: String? { session.prUrl }
+    var prNumber: Int? { session.prNumber }
+    var branch: String? { session.branch }
+}
+
 /// One board's review entries — Reviews groups by board like the other
 /// cross-board lists group by status.
 struct ReviewGroup: Identifiable {
@@ -39,12 +52,16 @@ struct ReviewGroup: Identifiable {
 final class ReviewsViewModel {
     var issues: [IssueEntity] = []
     var boards: [BoardEntity] = []
+    /// EXP-734: issue-less runs whose OWN pull request is open — the chore PRs
+    /// no board group can ever show.
+    var runSessions: [CodingSessionEntity] = []
 
     private let accountId: String
     private let db: DatabaseManager
 
     private var issueTask: Task<Void, Never>?
     private var boardTask: Task<Void, Never>?
+    private var sessionTask: Task<Void, Never>?
 
     init(accountId: String, db: DatabaseManager) {
         self.accountId = accountId
@@ -81,6 +98,22 @@ final class ReviewsViewModel {
                 }
             } catch {}
         }
+
+        // EXP-734: an action or chat run's own PR links no issue, so it can
+        // only be found on the session row the server stamped it on.
+        let sessionObservation = ValueObservation.tracking { db in
+            try CodingSessionEntity
+                .filter(Column("issue_id") == nil)
+                .filter(Column("pr_state") == DomainContract.prStateOpen)
+                .fetchAll(db)
+        }
+        sessionTask = Task { [weak self] in
+            do {
+                for try await sessions in sessionObservation.values(in: pool) {
+                    self?.runSessions = sessions
+                }
+            } catch {}
+        }
     }
 
     func stopObserving() {
@@ -88,6 +121,8 @@ final class ReviewsViewModel {
         issueTask = nil
         boardTask?.cancel()
         boardTask = nil
+        sessionTask?.cancel()
+        sessionTask = nil
     }
 
     /// Review entries grouped by board, scoped to `teamId`. Entries
@@ -132,6 +167,31 @@ final class ReviewsViewModel {
                 }
                 return ReviewGroup(board: board, entries: ordered)
             }
+    }
+
+    /// EXP-734: the team's agent runs parking their OWN open pull request, one
+    /// entry per distinct prUrl (newest run wins), newest first. Sessions carry
+    /// `team_id`, so no board scope is needed.
+    func runEntries(teamId: String?) -> [RunReviewEntry] {
+        guard let teamId else { return [] }
+        var byPrUrl: [String: CodingSessionEntity] = [:]
+        for session in runSessions where session.teamId == teamId {
+            guard session.hasOpenPr, let prUrl = session.prUrl else { continue }
+            if let current = byPrUrl[prUrl], Self.newerFirst(current, session) { continue }
+            byPrUrl[prUrl] = session
+        }
+        return byPrUrl.values
+            .sorted { Self.newerFirst($0, $1) }
+            .map {
+                RunReviewEntry(session: $0, title: $0.actionName ?? "Chat")
+            }
+    }
+
+    /// Newest-first by `startedAt`, id as the deterministic tie-break — the
+    /// issue rule applied to session rows.
+    private static func newerFirst(_ a: CodingSessionEntity, _ b: CodingSessionEntity) -> Bool {
+        if a.startedAt != b.startedAt { return a.startedAt > b.startedAt }
+        return a.id > b.id
     }
 
     /// Newest-first by `createdAt` (Postgres wire text compares chronologically,

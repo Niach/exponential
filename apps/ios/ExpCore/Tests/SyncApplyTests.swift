@@ -301,6 +301,60 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertNil(row.agent)
     }
 
+    // EXP-734: an action or chat run's OWN pull request rides the
+    // coding-sessions shape. It must round-trip into the v26 columns, and
+    // `pr_number` arrives as Postgres TEXT off the wire.
+    func testCodingSessionInsertPersistsOwnPr() async throws {
+        let session = CodingSessionEntity(
+            id: "cs5", issueId: nil, teamId: "ws1", userId: "u1",
+            deviceLabel: "macbook", deviceId: "dev-1", status: "running",
+            actionName: "Refresh screenshots",
+            startedAt: "2026-09-04T09:00:00Z", endedAt: nil,
+            createdAt: "2026-09-04T09:00:00Z", updatedAt: "2026-09-04T09:05:00Z",
+            prUrl: "https://github.com/acme/repo/pull/12", prNumber: 12, prState: "open"
+        )
+        let message = ShapeMessage<CodingSessionEntity>.insert(
+            key: #""public"."coding_sessions"/"cs5""#, value: session
+        )
+        try await applyBatch(
+            messages: [message], name: "coding-sessions", table: "coding_sessions", pool: pool
+        )
+        let stored = try await pool.read { try CodingSessionEntity.fetchOne($0, key: "cs5") }
+        XCTAssertEqual(stored?.prUrl, "https://github.com/acme/repo/pull/12")
+        XCTAssertEqual(stored?.prNumber, 12)
+        XCTAssertEqual(stored?.prState, "open")
+        XCTAssertEqual(stored?.hasOpenPr, true)
+    }
+
+    func testCodingSessionDecodesWirePrNumberAndDefaultsNil() throws {
+        let json = """
+            {"id":"cs6","issue_id":null,"team_id":"ws1","user_id":"u1",
+             "device_label":"macbook","status":"running",
+             "pr_url":"https://github.com/acme/repo/pull/12","pr_number":"12",
+             "pr_state":"open",
+             "started_at":"2026-09-04T09:00:00Z","ended_at":null,
+             "created_at":"2026-09-04T09:00:00Z","updated_at":"2026-09-04T09:00:00Z"}
+            """
+        let row = try JSONDecoder().decode(CodingSessionEntity.self, from: Data(json.utf8))
+        XCTAssertEqual(row.prNumber, 12)
+        XCTAssertEqual(row.prState, "open")
+        XCTAssertTrue(row.hasOpenPr)
+
+        // A pre-EXP-734 snapshot omits all three keys — nil, never a throw
+        // (which would brick the shape).
+        let older = """
+            {"id":"cs7","issue_id":null,"team_id":"ws1","user_id":"u1",
+             "device_label":"macbook","status":"running",
+             "started_at":"2026-09-04T09:00:00Z","ended_at":null,
+             "created_at":"2026-09-04T09:00:00Z","updated_at":"2026-09-04T09:00:00Z"}
+            """
+        let bare = try JSONDecoder().decode(CodingSessionEntity.self, from: Data(older.utf8))
+        XCTAssertNil(bare.prUrl)
+        XCTAssertNil(bare.prNumber)
+        XCTAssertNil(bare.prState)
+        XCTAssertFalse(bare.hasOpenPr)
+    }
+
     func testSupportReplyNotificationInsertPersistsTeamId() async throws {
         // The notifications shape now carries team_id — set on issue-less
         // support_reply rows (the helpdesk ticket's team). An inserted row must

@@ -218,7 +218,13 @@ struct AgentSessionView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Merges the pull request, completes every linked issue, and closes the coding session.")
+            // EXP-734: this run's OWN pull request links no issue, so
+            // promising completed issues would be a lie.
+            if case .session = model?.mergeTarget {
+                Text("Merges this run's pull request and closes the coding session.")
+            } else {
+                Text("Merges the pull request, completes every linked issue, and closes the coding session.")
+            }
         }
         // EXP-724: `/clear` discards the conversation, so confirm rows
         // confirm before the frames go out. Copy is byte-identical ×4.
@@ -399,8 +405,11 @@ struct AgentSessionView: View {
     /// Line 1's dot, by the Agents-list rule (EXP-194/EXP-214), narrowed by
     /// the live phase — the row alone cannot know the socket is down.
     private var headerState: CodingSessionDisplayState {
-        CodingSessionDisplayState.of(
-            session: model?.session ?? session, prState: headerIssue?.prState
+        let row = model?.session ?? session
+        // EXP-734: a run that opened its own issue-less PR carries the state
+        // on its OWN row.
+        return CodingSessionDisplayState.of(
+            session: row, prState: headerIssue?.prState ?? row.prState
         )
     }
 
@@ -1116,22 +1125,34 @@ struct AgentSessionView: View {
     /// Only a REAL content conflict (EXP-533) gets the run — every other
     /// refusal (stale head, branch protection, a misconfigured GitHub App) is
     /// something no rebase can fix. The run rebases the PR's branch, so one
-    /// must be recorded on the issue behind the merge.
+    /// must be recorded on the issue behind the merge. EXP-734: the builtin
+    /// takes an ISSUE-linked PR, so a run's own issue-less PR gets no recovery
+    /// offer (the caption still names the refusal).
     private var canFixConflicts: Bool {
-        steerEnabled
+        guard case .issue = model?.mergeTarget else { return false }
+        return steerEnabled
             && mergeFailure?.isConflict == true
             && !(model?.mergeIssue?.branch ?? "").isEmpty
     }
 
     /// Merge the session's PR. No local surgery on success: the server ends
     /// the session and flips `pr_state`, and both land here through sync.
+    /// EXP-734: an action or chat run's PR links no issue, so it merges
+    /// through the session row the server stamped it on.
     private func merge(_ model: AgentSessionModel) {
-        guard let issueId = model.mergeIssue?.id else { return }
+        guard let target = model.mergeTarget else { return }
         mergeFailure = nil
         merging = true
         Task {
             do {
-                try await deps.issuesApi.mergePr(accountId: accountId, issueId: issueId)
+                switch target {
+                case let .issue(issueId):
+                    try await deps.issuesApi.mergePr(accountId: accountId, issueId: issueId)
+                case let .session(sessionId):
+                    try await deps.codingSessionsApi.mergePr(
+                        accountId: accountId, sessionId: sessionId
+                    )
+                }
             } catch {
                 mergeFailure = MergeFailure(error: error)
             }

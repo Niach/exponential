@@ -50,6 +50,9 @@ final class AppDependencies: @unchecked Sendable {
     let steerApi: SteerApi
     // The caller's registered machines (EXP-403) — polled, never synced.
     let devicesApi: DevicesApi
+    // EXP-734: merging a run's OWN pull request (the issue-less chore PR an
+    // action or chat run opened) — the session rows themselves stay synced.
+    let codingSessionsApi: CodingSessionsApi
     // Team action prompts (EXP-253) — tRPC-only, view + run on mobile.
     let actionsApi: ActionsApi
     // Automations (EXP-583) — synced for reads, owner-gated tRPC for writes.
@@ -158,6 +161,7 @@ final class AppDependencies: @unchecked Sendable {
         self.repositoriesApi = RepositoriesApi(trpc: trpc)
         self.steerApi = SteerApi(trpc: trpc)
         self.devicesApi = DevicesApi(trpc: trpc)
+        self.codingSessionsApi = CodingSessionsApi(trpc: trpc)
         self.actionsApi = ActionsApi(trpc: trpc)
         self.automationsApi = AutomationsApi(trpc: trpc)
         self.widgetsApi = WidgetsApi(trpc: trpc)
