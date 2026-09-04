@@ -61,6 +61,11 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_events FOR EA
     AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at
     AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
   EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_relations FOR EACH ROW
+  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
+    AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at
+    AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
+  EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON coding_sessions FOR EACH ROW
   WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
     AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at
@@ -221,6 +226,12 @@ CREATE OR REPLACE TRIGGER populate_issue_event_team_id
   BEFORE INSERT ON issue_events
   FOR EACH ROW EXECUTE FUNCTION populate_issue_child_team_id();
 
+-- issue_relations (EXP-736, the 20th shape): scoped by the SOURCE issue
+-- (`issue_id`), so the shared function applies unchanged.
+CREATE OR REPLACE TRIGGER populate_issue_relation_team_id
+  BEFORE INSERT ON issue_relations
+  FOR EACH ROW EXECUTE FUNCTION populate_issue_child_team_id();
+
 -- 6. coding_sessions (the live "coding now" record, the 14th synced shape):
 --    team_id denormalized from issue→board via the shared
 --    populate_issue_child_team_id, so its Electric shape filter stays
@@ -301,6 +312,10 @@ CREATE OR REPLACE TRIGGER populate_issue_label_board_id
   BEFORE INSERT OR UPDATE OF board_id ON issue_labels
   FOR EACH ROW EXECUTE FUNCTION populate_issue_child_board_id();
 
+CREATE OR REPLACE TRIGGER populate_issue_relation_board_id
+  BEFORE INSERT OR UPDATE OF board_id ON issue_relations
+  FOR EACH ROW EXECUTE FUNCTION populate_issue_child_board_id();
+
 CREATE OR REPLACE TRIGGER populate_notification_board_id
   BEFORE INSERT OR UPDATE OF board_id ON notifications
   FOR EACH ROW EXECUTE FUNCTION populate_issue_child_board_id();
@@ -360,6 +375,8 @@ BEGIN
     WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
   UPDATE issue_labels SET board_deleted_at = NEW.deleted_at
     WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
+  UPDATE issue_relations SET board_deleted_at = NEW.deleted_at
+    WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
   UPDATE issue_subscribers SET board_deleted_at = NEW.deleted_at
     WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
   UPDATE issue_events SET board_deleted_at = NEW.deleted_at
@@ -396,6 +413,8 @@ BEGIN
   UPDATE attachments SET board_archived_at = NEW.archived_at
     WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
   UPDATE issue_labels SET board_archived_at = NEW.archived_at
+    WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
+  UPDATE issue_relations SET board_archived_at = NEW.archived_at
     WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
   UPDATE issue_subscribers SET board_archived_at = NEW.archived_at
     WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;

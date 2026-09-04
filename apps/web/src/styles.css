@@ -59,6 +59,7 @@ html {
   --color-glass-section: var(--glass-fill-section);
   --color-glass-row: var(--glass-fill-row);
   --color-glass-card: var(--glass-fill-card);
+  --color-glass-panel: var(--glass-fill-panel);
   --color-glass-active: var(--glass-fill-active);
   --color-glass-stroke: var(--glass-stroke-row);
   --color-glass-stroke-section: var(--glass-stroke-section);
@@ -142,17 +143,18 @@ html {
      identical in :root and .dark). --glass-* mirror tokens.json verbatim.
      EXP-594 retired the indigo --brand accent: solid accent fills use
      --primary, selections use the glass fills/strokes. */
-  --glass-background-top: #09090B;
-  --glass-background-bottom: #18181B;
+  --glass-background-top: #050507;
+  --glass-background-bottom: #111114;
   --glass-fill-section: oklch(1 0 0 / 4%);
   --glass-fill-row: oklch(1 0 0 / 5%);
   --glass-fill-card: oklch(1 0 0 / 6%);
-  --glass-fill-active: oklch(1 0 0 / 15%);
+  --glass-fill-panel: oklch(1 0 0 / 4%);
+  --glass-fill-active: oklch(1 0 0 / 9%);
   --glass-stroke-row: oklch(1 0 0 / 6%);
   --glass-stroke-section: oklch(1 0 0 / 8%);
   --glass-stroke-card: oklch(1 0 0 / 10%);
   --glass-stroke-strong: oklch(1 0 0 / 12%);
-  --glass-stroke-active: oklch(1 0 0 / 20%);
+  --glass-stroke-active: oklch(1 0 0 / 14%);
   /* EXP-698 r3: inline-code tint of the agent chat feeds — tokens.json `semantic.code*`. */
   --code-text: #8AB4F8;
   --code-fill: #8AB4F81F;
@@ -225,17 +227,18 @@ html {
   --hljs-addition: oklch(0.72 0.14 145);
   /* EXP-269 glass tokens — see the :root copy. This block is the one
      design-tokens.test.ts parity-checks against tokens.json. */
-  --glass-background-top: #09090B;
-  --glass-background-bottom: #18181B;
+  --glass-background-top: #050507;
+  --glass-background-bottom: #111114;
   --glass-fill-section: oklch(1 0 0 / 4%);
   --glass-fill-row: oklch(1 0 0 / 5%);
   --glass-fill-card: oklch(1 0 0 / 6%);
-  --glass-fill-active: oklch(1 0 0 / 15%);
+  --glass-fill-panel: oklch(1 0 0 / 4%);
+  --glass-fill-active: oklch(1 0 0 / 9%);
   --glass-stroke-row: oklch(1 0 0 / 6%);
   --glass-stroke-section: oklch(1 0 0 / 8%);
   --glass-stroke-card: oklch(1 0 0 / 10%);
   --glass-stroke-strong: oklch(1 0 0 / 12%);
-  --glass-stroke-active: oklch(1 0 0 / 20%);
+  --glass-stroke-active: oklch(1 0 0 / 14%);
   /* EXP-698 r3: inline-code tint of the agent chat feeds — tokens.json `semantic.code*`. */
   --code-text: #8AB4F8;
   --code-fill: #8AB4F81F;

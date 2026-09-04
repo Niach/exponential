@@ -60,17 +60,18 @@ public enum DesignTokens {
     // Glass surfaces (EXP-269) — read through ExpUI GlassTokens.swift; the
     // styleguide Components group renders the same values (EXP-698).
     public enum Glass {
-        public static let backgroundTop: Color = Color(red: 0.0353, green: 0.0353, blue: 0.0431, opacity: 1.0000)
-        public static let backgroundBottom: Color = Color(red: 0.0941, green: 0.0941, blue: 0.1059, opacity: 1.0000)
+        public static let backgroundTop: Color = Color(red: 0.0196, green: 0.0196, blue: 0.0275, opacity: 1.0000)
+        public static let backgroundBottom: Color = Color(red: 0.0667, green: 0.0667, blue: 0.0784, opacity: 1.0000)
         public static let fillSection: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0392)
         public static let fillRow: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0510)
         public static let fillCard: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0588)
-        public static let fillActive: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1490)
+        public static let fillPanel: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0392)
+        public static let fillActive: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0902)
         public static let strokeRow: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0588)
         public static let strokeSection: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.0784)
         public static let strokeCard: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1020)
         public static let strokeStrong: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1216)
-        public static let strokeActive: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.2000)
+        public static let strokeActive: Color = Color(red: 1.0000, green: 1.0000, blue: 1.0000, opacity: 0.1412)
     }
 
     // Corner radii (px ≡ pt), matching the web rounded-* scale.

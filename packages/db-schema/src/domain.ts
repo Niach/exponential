@@ -390,7 +390,41 @@ export const issueEventTypeValues = [
   // so filters never need a join. `priority_changed` renders normally.
   `created`,
   `priority_changed`,
+  // EXP-736 relation edges; one row per SIDE (both issues get a line).
+  // Payload: { type, relatedIssueId, relatedIdentifier, direction, source }.
+  `relation_added`,
+  `relation_removed`,
 ] as const
+
+// EXP-736 issue relations (issue_relations.type, pg enum). ONE row per pair,
+// stored in the CANONICAL direction: `blocks` = issue blocks related,
+// `parent` = issue is parent of related, `duplicate` = issue is the duplicate
+// and related the canonical (mirrors issues.duplicateOfId, dual-written),
+// `related` = symmetric, normalized so issue_id < related_issue_id. Clients
+// render the inverse label when they sit on the related side.
+export const issueRelationTypeValues = [
+  `blocks`,
+  `parent`,
+  `duplicate`,
+  `related`,
+] as const
+
+// Who created the row: `user` = an explicit pick (never auto-removed),
+// `reference` = derived from a `#IDENT` token in the description or a
+// comment (delta-removed once the token is gone from every text).
+export const issueRelationSourceValues = [`user`, `reference`] as const
+
+// Per-side display labels; byte-locked against contract.json
+// forwardLabels/inverseLabels on every client.
+export const ISSUE_RELATION_LABELS: Record<
+  (typeof issueRelationTypeValues)[number],
+  { forward: string; inverse: string }
+> = {
+  blocks: { forward: `blocks`, inverse: `blocked by` },
+  parent: { forward: `parent of`, inverse: `sub-issue of` },
+  duplicate: { forward: `duplicate of`, inverse: `duplicated by` },
+  related: { forward: `related to`, inverse: `related to` },
+}
 
 export type IssueStatus = (typeof issueStatusValues)[number]
 export type IssuePriority = (typeof issuePriorityValues)[number]
@@ -435,6 +469,10 @@ export const prStateSchema = z.enum(prStateValues)
 export const codingSessionStatusSchema = z.enum(codingSessionStatusValues)
 export const subscriberSourceSchema = z.enum(subscriberSourceValues)
 export const issueEventTypeSchema = z.enum(issueEventTypeValues)
+export const issueRelationTypeSchema = z.enum(issueRelationTypeValues)
+export const issueRelationSourceSchema = z.enum(issueRelationSourceValues)
+export type IssueRelationType = (typeof issueRelationTypeValues)[number]
+export type IssueRelationSource = (typeof issueRelationSourceValues)[number]
 export const startedReasonSchema = z.enum(startedReasonValues)
 export const codingSessionEndedBySchema = z.enum(codingSessionEndedByValues)
 export const codingSessionSummarySchema = z

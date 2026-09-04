@@ -106,6 +106,7 @@ public enum AppIcons {
         "arrow-right",
         "arrow-up-right",
         "at-sign",
+        "ban",
         "bell",
         "bell-off",
         "bold",
@@ -133,6 +134,7 @@ public enum AppIcons {
         "circle-dashed",
         "circle-dot",
         "circle-question-mark",
+        "circle-slash",
         "circle-user",
         "circle-x",
         "clipboard-list",
@@ -142,6 +144,7 @@ public enum AppIcons {
         "coffee",
         "compass",
         "copy",
+        "corner-down-right",
         "cpu",
         "credit-card",
         "crown",
@@ -184,11 +187,13 @@ public enum AppIcons {
         "life-buoy",
         "lightbulb",
         "link",
+        "link-2",
         "list",
         "list-checks",
         "list-filter",
         "list-ordered",
         "list-todo",
+        "list-tree",
         "loader-circle",
         "lock",
         "log-in",
@@ -369,6 +374,10 @@ public enum AppIcons {
     public static let eventLabelRemoved: String = "tag"
     /// Concept `event-priority-changed`.
     public static let eventPriorityChanged: String = "signal-high"
+    /// Concept `event-relation-added`.
+    public static let eventRelationAdded: String = "link"
+    /// Concept `event-relation-removed`.
+    public static let eventRelationRemoved: String = "unlink"
     /// Concept `event-status-changed`.
     public static let eventStatusChanged: String = "circle-dot"
     /// Concept `nav-account`.
@@ -459,10 +468,26 @@ public enum AppIcons {
     public static let priorityNone: String = "minus"
     /// Concept `priority-urgent`.
     public static let priorityUrgent: String = "triangle-alert"
+    /// Concept `relation-blocked-by`.
+    public static let relationBlockedBy: String = "circle-slash"
+    /// Concept `relation-blocks`.
+    public static let relationBlocks: String = "ban"
+    /// Concept `relation-duplicate`.
+    public static let relationDuplicate: String = "copy"
+    /// Concept `relation-parent`.
+    public static let relationParent: String = "list-tree"
+    /// Concept `relation-related`.
+    public static let relationRelated: String = "link"
+    /// Concept `relation-section`.
+    public static let relationSection: String = "link-2"
+    /// Concept `relation-sub-issue`.
+    public static let relationSubIssue: String = "corner-down-right"
     /// Concept `run-resume`.
     public static let runResume: String = "rotate-ccw"
     /// Concept `sc-push`.
     public static let scPush: String = "upload"
+    /// Concept `session-shell`.
+    public static let sessionShell: String = "terminal"
     /// Concept `settings-about`.
     public static let settingsAbout: String = "info"
     /// Concept `settings-account`.

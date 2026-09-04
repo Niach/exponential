@@ -44,6 +44,8 @@ interface Contract {
   device: { onlineWindowSeconds: number }
   subscriberSource: Section
   issueEventType: Section
+  issueRelationType: Section & { forwardLabels: string[]; inverseLabels: string[] }
+  issueRelationSource: Section
   codingAgent: Section
   codingModel: Section
   codingEffort: Section
@@ -230,6 +232,10 @@ ${swiftStringArray("codingSessionStatusValues", contract.codingSessionStatus.val
 ${swiftStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
 ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
+${swiftStringArray("issueRelationTypeValues", contract.issueRelationType.values)}
+${swiftStringArray("issueRelationTypeForwardLabels", contract.issueRelationType.forwardLabels)}
+${swiftStringArray("issueRelationTypeInverseLabels", contract.issueRelationType.inverseLabels)}
+${swiftStringArray("issueRelationSourceValues", contract.issueRelationSource.values)}
 ${swiftStringArray("codingAgentValues", contract.codingAgent.values)}
 ${swiftStringArray("codingModelValues", contract.codingModel.values)}
 ${swiftStringArray("codingEffortValues", contract.codingEffort.values)}
@@ -268,6 +274,8 @@ ${swiftNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
 ${swiftNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
 ${swiftNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${swiftNamedValues("issueEventType", contract.issueEventType.values)}
+${swiftNamedValues("issueRelationType", contract.issueRelationType.values)}
+${swiftNamedValues("issueRelationSource", contract.issueRelationSource.values)}
 }
 `
 
@@ -295,6 +303,10 @@ ${kotlinStringArray("codingSessionStatusValues", contract.codingSessionStatus.va
 ${kotlinStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
 ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
+${kotlinStringArray("issueRelationTypeValues", contract.issueRelationType.values)}
+${kotlinStringArray("issueRelationTypeForwardLabels", contract.issueRelationType.forwardLabels)}
+${kotlinStringArray("issueRelationTypeInverseLabels", contract.issueRelationType.inverseLabels)}
+${kotlinStringArray("issueRelationSourceValues", contract.issueRelationSource.values)}
 ${kotlinStringArray("codingAgentValues", contract.codingAgent.values)}
 ${kotlinStringArray("codingModelValues", contract.codingModel.values)}
 ${kotlinStringArray("codingEffortValues", contract.codingEffort.values)}
@@ -333,6 +345,8 @@ ${kotlinNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
 ${kotlinNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
 ${kotlinNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${kotlinNamedValues("issueEventType", contract.issueEventType.values)}
+${kotlinNamedValues("issueRelationType", contract.issueRelationType.values)}
+${kotlinNamedValues("issueRelationSource", contract.issueRelationSource.values)}
 }
 `
 
@@ -362,6 +376,10 @@ ${rustStrSlice("codingSessionStatusValues", contract.codingSessionStatus.values)
 ${rustStrSlice("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
 ${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
 ${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}
+${rustStrSlice("issueRelationTypeValues", contract.issueRelationType.values)}
+${rustStrSlice("issueRelationTypeForwardLabels", contract.issueRelationType.forwardLabels)}
+${rustStrSlice("issueRelationTypeInverseLabels", contract.issueRelationType.inverseLabels)}
+${rustStrSlice("issueRelationSourceValues", contract.issueRelationSource.values)}
 ${rustStrSlice("codingAgentValues", contract.codingAgent.values)}
 ${rustStrSlice("codingModelValues", contract.codingModel.values)}
 ${rustStrSlice("codingEffortValues", contract.codingEffort.values)}
@@ -400,6 +418,8 @@ ${rustNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
 ${rustNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
 ${rustNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${rustNamedValues("issueEventType", contract.issueEventType.values)}
+${rustNamedValues("issueRelationType", contract.issueRelationType.values)}
+${rustNamedValues("issueRelationSource", contract.issueRelationSource.values)}
 `
 
 const swiftPath = join(

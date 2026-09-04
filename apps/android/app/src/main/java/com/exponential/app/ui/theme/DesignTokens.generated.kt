@@ -66,17 +66,18 @@ object DesignTokens {
     // Glass surfaces (EXP-269) — read through the ui/theme/Glass.kt GlassTokens
     // aliases; the styleguide Components group renders the same values (EXP-698).
     object Glass {
-        val BackgroundTop: Color = Color(0xFF09090B)
-        val BackgroundBottom: Color = Color(0xFF18181B)
+        val BackgroundTop: Color = Color(0xFF050507)
+        val BackgroundBottom: Color = Color(0xFF111114)
         val FillSection: Color = Color(0x0AFFFFFF)
         val FillRow: Color = Color(0x0DFFFFFF)
         val FillCard: Color = Color(0x0FFFFFFF)
-        val FillActive: Color = Color(0x26FFFFFF)
+        val FillPanel: Color = Color(0x0AFFFFFF)
+        val FillActive: Color = Color(0x17FFFFFF)
         val StrokeRow: Color = Color(0x0FFFFFFF)
         val StrokeSection: Color = Color(0x14FFFFFF)
         val StrokeCard: Color = Color(0x1AFFFFFF)
         val StrokeStrong: Color = Color(0x1FFFFFFF)
-        val StrokeActive: Color = Color(0x33FFFFFF)
+        val StrokeActive: Color = Color(0x24FFFFFF)
     }
 
     // Corner radii (px ≡ dp), matching the web rounded-* scale.

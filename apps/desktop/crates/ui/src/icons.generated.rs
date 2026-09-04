@@ -111,6 +111,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "arrow-right" => ExpIcon::ArrowRight,
         "arrow-up-right" => ExpIcon::ArrowUpRight,
         "at-sign" => ExpIcon::AtSign,
+        "ban" => ExpIcon::Ban,
         "bell" => ExpIcon::Bell,
         "bell-off" => ExpIcon::BellOff,
         "bold" => ExpIcon::Bold,
@@ -138,6 +139,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "circle-dashed" => ExpIcon::CircleDashed,
         "circle-dot" => ExpIcon::CircleDot,
         "circle-question-mark" => ExpIcon::CircleQuestionMark,
+        "circle-slash" => ExpIcon::CircleSlash,
         "circle-user" => ExpIcon::CircleUser,
         "circle-x" => ExpIcon::CircleX,
         "clipboard-list" => ExpIcon::ClipboardList,
@@ -147,6 +149,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "coffee" => ExpIcon::Coffee,
         "compass" => ExpIcon::Compass,
         "copy" => ExpIcon::Copy,
+        "corner-down-right" => ExpIcon::CornerDownRight,
         "cpu" => ExpIcon::Cpu,
         "credit-card" => ExpIcon::CreditCard,
         "crown" => ExpIcon::Crown,
@@ -189,11 +192,13 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "life-buoy" => ExpIcon::LifeBuoy,
         "lightbulb" => ExpIcon::Lightbulb,
         "link" => ExpIcon::Link,
+        "link-2" => ExpIcon::Link2,
         "list" => ExpIcon::List,
         "list-checks" => ExpIcon::ListChecks,
         "list-filter" => ExpIcon::ListFilter,
         "list-ordered" => ExpIcon::ListOrdered,
         "list-todo" => ExpIcon::ListTodo,
+        "list-tree" => ExpIcon::ListTree,
         "loader-circle" => ExpIcon::LoaderCircle,
         "lock" => ExpIcon::Lock,
         "log-in" => ExpIcon::LogIn,
@@ -371,6 +376,10 @@ pub const EVENT_LABEL_ADDED: ExpIcon = ExpIcon::Tag;
 pub const EVENT_LABEL_REMOVED: ExpIcon = ExpIcon::Tag;
 /// Registry concept `event-priority-changed` -> Lucide `signal-high`.
 pub const EVENT_PRIORITY_CHANGED: ExpIcon = ExpIcon::SignalHigh;
+/// Registry concept `event-relation-added` -> Lucide `link`.
+pub const EVENT_RELATION_ADDED: ExpIcon = ExpIcon::Link;
+/// Registry concept `event-relation-removed` -> Lucide `unlink`.
+pub const EVENT_RELATION_REMOVED: ExpIcon = ExpIcon::Unlink;
 /// Registry concept `event-status-changed` -> Lucide `circle-dot`.
 pub const EVENT_STATUS_CHANGED: ExpIcon = ExpIcon::CircleDot;
 /// Registry concept `nav-account` -> Lucide `circle-user`.
@@ -461,10 +470,26 @@ pub const PRIORITY_MEDIUM: ExpIcon = ExpIcon::SignalMedium;
 pub const PRIORITY_NONE: ExpIcon = ExpIcon::Minus;
 /// Registry concept `priority-urgent` -> Lucide `triangle-alert`.
 pub const PRIORITY_URGENT: ExpIcon = ExpIcon::TriangleAlert;
+/// Registry concept `relation-blocked-by` -> Lucide `circle-slash`.
+pub const RELATION_BLOCKED_BY: ExpIcon = ExpIcon::CircleSlash;
+/// Registry concept `relation-blocks` -> Lucide `ban`.
+pub const RELATION_BLOCKS: ExpIcon = ExpIcon::Ban;
+/// Registry concept `relation-duplicate` -> Lucide `copy`.
+pub const RELATION_DUPLICATE: ExpIcon = ExpIcon::Copy;
+/// Registry concept `relation-parent` -> Lucide `list-tree`.
+pub const RELATION_PARENT: ExpIcon = ExpIcon::ListTree;
+/// Registry concept `relation-related` -> Lucide `link`.
+pub const RELATION_RELATED: ExpIcon = ExpIcon::Link;
+/// Registry concept `relation-section` -> Lucide `link-2`.
+pub const RELATION_SECTION: ExpIcon = ExpIcon::Link2;
+/// Registry concept `relation-sub-issue` -> Lucide `corner-down-right`.
+pub const RELATION_SUB_ISSUE: ExpIcon = ExpIcon::CornerDownRight;
 /// Registry concept `run-resume` -> Lucide `rotate-ccw`.
 pub const RUN_RESUME: ExpIcon = ExpIcon::RotateCcw;
 /// Registry concept `sc-push` -> Lucide `upload`.
 pub const SC_PUSH: ExpIcon = ExpIcon::Upload;
+/// Registry concept `session-shell` -> Lucide `terminal`.
+pub const SESSION_SHELL: ExpIcon = ExpIcon::Terminal;
 /// Registry concept `settings-about` -> Lucide `info`.
 pub const SETTINGS_ABOUT: ExpIcon = ExpIcon::Info;
 /// Registry concept `settings-account` -> Lucide `circle-user`.

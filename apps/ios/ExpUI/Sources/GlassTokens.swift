@@ -25,6 +25,9 @@ public enum GlassTokens {
     public static let fillRow: Color = DesignTokens.Glass.fillRow
     /// A bordered panel, a pill, a circle button, a chip.
     public static let fillCard: Color = DesignTokens.Glass.fillCard
+    /// The cutout main panel's wash over the page gradient (EXP-723; web +
+    /// desktop paint it, phones stay full-bleed under the tab bar).
+    public static let fillPanel: Color = DesignTokens.Glass.fillPanel
     /// Selected / pressed: the one bright fill.
     public static let fillActive: Color = DesignTokens.Glass.fillActive
 

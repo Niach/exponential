@@ -87,6 +87,7 @@
     "nav-files": "folder",
     "nav-source-control": "git-merge",
     "nav-terminal": "square-terminal",
+    "session-shell": "terminal",
     "nav-rail-collapse": "panel-left-close",
     "nav-rail-expand": "panel-left-open",
 
@@ -162,6 +163,16 @@
     "event-label-removed": "tag",
     "event-board-moved": "move",
     "event-priority-changed": "signal-high",
+    "event-relation-added": "link",
+    "event-relation-removed": "unlink",
+
+    "relation-section": "link-2",
+    "relation-blocks": "ban",
+    "relation-blocked-by": "circle-slash",
+    "relation-parent": "list-tree",
+    "relation-sub-issue": "corner-down-right",
+    "relation-duplicate": "copy",
+    "relation-related": "link",
 
     "action-automation": "zap",
     "action-suggestion": "lightbulb",

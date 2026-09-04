@@ -24,7 +24,11 @@ public enum DomainContract {
     public static let codingSessionStatusValues: [String] = ["running", "in_review", "ended"]
     public static let codingSessionEndedByValues: [String] = ["agent", "user", "client", "merge", "system"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
-    public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed"]
+    public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed"]
+    public static let issueRelationTypeValues: [String] = ["blocks", "parent", "duplicate", "related"]
+    public static let issueRelationTypeForwardLabels: [String] = ["blocks", "parent of", "duplicate of", "related to"]
+    public static let issueRelationTypeInverseLabels: [String] = ["blocked by", "sub-issue of", "duplicated by", "related to"]
+    public static let issueRelationSourceValues: [String] = ["user", "reference"]
     public static let codingAgentValues: [String] = ["claude", "codex", "pi"]
     public static let codingModelValues: [String] = ["fable", "opus", "sonnet"]
     public static let codingEffortValues: [String] = ["low", "medium", "high", "xhigh", "max"]
@@ -100,4 +104,12 @@ public enum DomainContract {
     public static let issueEventTypeBoardMoved: String = "board_moved"
     public static let issueEventTypeCreated: String = "created"
     public static let issueEventTypePriorityChanged: String = "priority_changed"
+    public static let issueEventTypeRelationAdded: String = "relation_added"
+    public static let issueEventTypeRelationRemoved: String = "relation_removed"
+    public static let issueRelationTypeBlocks: String = "blocks"
+    public static let issueRelationTypeParent: String = "parent"
+    public static let issueRelationTypeDuplicate: String = "duplicate"
+    public static let issueRelationTypeRelated: String = "related"
+    public static let issueRelationSourceUser: String = "user"
+    public static let issueRelationSourceReference: String = "reference"
 }
