@@ -86,6 +86,10 @@ gpui = { workspace = true, features = ["test-support"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
 cocoa = "0.26"
+# EXP-716 macos_window: top-anchored window resize for the content-sized
+# search palette (gpui's `resize` is `setContentSize:`, bottom-anchored).
+# raw-window-handle is gpui's own window-handle vocabulary — no new weight.
+raw-window-handle = "0.6"
 
 # EXP-450 x11_dialog_type: restamp `_NET_WM_WINDOW_TYPE` on a resizable dialog
 # so the WM stops treating our `WM_TRANSIENT_FOR` window as an unmaximizable

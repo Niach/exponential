@@ -5,8 +5,12 @@
 //! finder + a `git grep` full-text pass alongside the issue results.
 //!
 //! Desktop renders the web component's desktop branch only (§4.9 — no
-//! mobile bottom sheet): a centered `Dialog` at ~15% from the top with a
-//! borderless search input and the result rows. When a repo/worktree is open
+//! mobile bottom sheet): a `Dialog` anchored 15% from the opener's top with a
+//! borderless search input and the result rows. EXP-716: the window is SIZED
+//! TO ITS CONTENT — it opens at the empty-state height and grows downward
+//! (top edge pinned, [`native_dialog::resize_dialog_keeping_top`]) as rows
+//! land, up to the web's `max-h-[60vh]` cap, instead of standing as a fixed
+//! 60vh tower around a single hit. When a repo/worktree is open
 //! the results split into three labelled sections — **Issues**, **Files**
 //! (fuzzy filename match), and **In files** (`git grep` matches with a
 //! file:line preview); picking a row navigates to the issue detail or opens
@@ -40,8 +44,8 @@ use std::time::Duration;
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, size, App, AppContext as _, Entity, FontWeight,
-    InteractiveElement as _, IntoElement, KeyBinding, ParentElement, Render, SharedString, Styled,
-    Task, Window, WindowId,
+    InteractiveElement as _, IntoElement, KeyBinding, ParentElement, Pixels, Render, SharedString,
+    Styled, Task, Window, WindowId,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -110,6 +114,23 @@ const ROW_HEIGHT: f32 = 54.;
 /// once and assumes the rest match).
 const HEADER_HEIGHT: f32 = 26.;
 
+/// The query row (web cmdk `h-14` wrapper class), border included.
+const INPUT_ROW_HEIGHT: f32 = 52.;
+
+/// EXP-716: the empty state (pre-query hint / "No results") is a FIXED-height
+/// block so the palette's opening size is deterministic and the two empty
+/// variants never resize the window against each other.
+const EMPTY_HEIGHT: f32 = 132.;
+
+/// Web `sm:top-[15%]`: the palette's top edge as a fraction of the opener's
+/// height. With the 60vh cap the window bottoms out at 75% of the opener.
+const TOP_ANCHOR: f32 = 0.15;
+
+/// Web `sm:max-h-[60vh]`, with EXP-415's absolute cap for very tall screens.
+fn max_palette_height(window: &Window) -> Pixels {
+    (window.viewport_size().height * 0.6).min(px(640.))
+}
+
 // ---------------------------------------------------------------------------
 // Section indices (the delegate's fixed 3-section layout when a repo is open)
 // ---------------------------------------------------------------------------
@@ -158,13 +179,18 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
     let repo_resolver = repo_resolver_for_window(window, cx);
     let window_id = window.window_handle().window_id();
 
-    // Web caps at max-h-[60vh] but SHRINKS to content; a native window is a
-    // fixed box, so an uncapped 60vh reads as a mostly-empty tower on very
-    // large screens (EXP-415) — keep a generous web-proportioned cap.
-    let height = (window.viewport_size().height * 0.6).min(px(640.));
+    // Web caps at max-h-[60vh] and SHRINKS to content. EXP-716: so does the
+    // native window now — it opens at the empty-state height and
+    // `SearchSheetView::fit_to_content` grows it toward this cap as results
+    // land (EXP-415's absolute cap keeps very tall screens from a tower).
+    let max_height = max_palette_height(window);
+    let height = px(INPUT_ROW_HEIGHT + EMPTY_HEIGHT)
+        + native_dialog::chromeless_vertical_chrome(None);
     // EXP-285: chromeless — macOS traffic lights would overlap the search
     // input of a palette.
-    let spec = DialogSpec::new("Search", size(px(DIALOG_WIDTH), height)).chromeless();
+    let spec = DialogSpec::new("Search", size(px(DIALOG_WIDTH), height))
+        .chromeless()
+        .anchor_top(TOP_ANCHOR);
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         // EXP-525: the List is NOT `searchable` — the web has no "Search"
         // title row, a taller borderless input and no clear-✕, none of which
@@ -194,7 +220,7 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
             input.update(cx, |state, cx| state.set_value(query.clone(), window, cx));
             list.update(cx, |list, cx| list.set_query(&query, window, cx));
         }
-        let view = cx.new(|cx| SearchSheetView::new(list, input, window, cx));
+        let view = cx.new(|cx| SearchSheetView::new(list, input, max_height, window, cx));
         DialogContent::new(view).padless()
     });
 }
@@ -206,16 +232,26 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
 struct SearchSheetView {
     list: Entity<ListState<SearchDelegate>>,
     input: Entity<InputState>,
-    _input_subscription: gpui::Subscription,
+    /// EXP-716: the height cap the window grows toward — web `max-h-[60vh]`,
+    /// computed from the OPENER's viewport at open time.
+    max_height: Pixels,
+    /// The last window height `fit_to_content` asked for, so an in-flight
+    /// resize (the viewport follows a frame later) is not re-requested.
+    last_requested_height: Option<Pixels>,
+    _subscriptions: Vec<gpui::Subscription>,
 }
 
 impl SearchSheetView {
     fn new(
         list: Entity<ListState<SearchDelegate>>,
         input: Entity<InputState>,
+        max_height: Pixels,
         _window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
+        // EXP-716: results land on the ListState (its own notify); the view
+        // must re-render on each to refit the window around them.
+        let list_observer = cx.observe(&list, |_, _, cx| cx.notify());
         let subscription = cx.subscribe_in(
             &input,
             _window,
@@ -232,8 +268,29 @@ impl SearchSheetView {
         Self {
             list,
             input,
-            _input_subscription: subscription,
+            max_height,
+            last_requested_height: None,
+            _subscriptions: vec![list_observer, subscription],
         }
+    }
+
+    /// EXP-716: size the window to the query row + the list's content (its
+    /// rows are fixed-height, so the height is exact) + the window's own
+    /// chrome, capped at [`Self::max_height`]. Runs at render time; the
+    /// resize itself is deferred and top-anchored, so the palette extends
+    /// downward like a dropdown and shrinks back when a query narrows.
+    fn fit_to_content(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let content = self.list.read(cx).delegate().content_height();
+        let chrome = native_dialog::chromeless_vertical_chrome(Some(window));
+        let target = (px(INPUT_ROW_HEIGHT) + content + chrome).min(self.max_height);
+        let current = window.viewport_size();
+        if (target - current.height).abs() <= px(1.)
+            || self.last_requested_height == Some(target)
+        {
+            return;
+        }
+        self.last_requested_height = Some(target);
+        native_dialog::resize_dialog_keeping_top(window, cx, size(current.width, target));
     }
 
     /// Every selectable row, flattened across the delegate's sections in
@@ -319,6 +376,7 @@ impl SearchSheetView {
 
 impl Render for SearchSheetView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        self.fit_to_content(window, cx);
         let max_h = window.viewport_size().height;
         let muted = cx.theme().muted_foreground;
         v_flex()
@@ -330,7 +388,7 @@ impl Render for SearchSheetView {
                 // leading search glyph, hairline below.
                 h_flex()
                     .flex_shrink_0()
-                    .h(px(52.))
+                    .h(px(INPUT_ROW_HEIGHT))
                     .px_4()
                     .gap_2()
                     .items_center()
@@ -455,6 +513,28 @@ impl SearchDelegate {
             content_truncated: false,
             selected: None,
         }
+    }
+
+    /// EXP-716: the exact height the List renders for the current results —
+    /// every row is [`ROW_HEIGHT`], every non-empty section carries one
+    /// [`HEADER_HEIGHT`] header when the labelled sections are on (the List
+    /// emits no header for an empty section), and no results at all render
+    /// the fixed [`EMPTY_HEIGHT`] block.
+    fn content_height(&self) -> Pixels {
+        let labelled = self.local_sections_visible();
+        let sections = if labelled { 3 } else { 1 };
+        let counts = [
+            self.issue_hits.len(),
+            self.file_hits.len(),
+            self.content_hits.len(),
+        ];
+        let rows: usize = counts[..sections].iter().sum();
+        if rows == 0 {
+            return px(EMPTY_HEIGHT);
+        }
+        let headers = counts[..sections].iter().filter(|n| **n > 0).count();
+        let header_height = if labelled { HEADER_HEIGHT } else { 0. };
+        px(rows as f32 * ROW_HEIGHT + headers as f32 * header_height)
     }
 
     /// Whether the three labelled sections (Issues / Files / In files) are in
@@ -1048,10 +1128,12 @@ impl ListDelegate for SearchDelegate {
         _window: &mut Window,
         cx: &mut gpui::Context<ListState<Self>>,
     ) -> impl IntoElement {
+        // EXP-716: fixed height — see `EMPTY_HEIGHT`.
         let empty = v_flex()
+            .h(px(EMPTY_HEIGHT))
             .items_center()
             .justify_center()
-            .p_12()
+            .px_12()
             .gap_3()
             .text_color(cx.theme().muted_foreground);
         if self.query.is_empty() {

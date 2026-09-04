@@ -106,7 +106,7 @@ fun SearchScreen(
                 ) {
                     state.groups.forEach { group ->
                         item(key = "board-${group.board.id}") {
-                            BoardHeader(board = group.board)
+                            BoardHeader(board = group.board, count = group.issues.size)
                         }
                         items(group.issues, key = { it.id }) { issue ->
                             IssueRow(
@@ -123,8 +123,11 @@ fun SearchScreen(
     }
 }
 
+// Board group header: glyph + name + result count — the count is what iOS
+// (`boardHeader(_:count:)`) and desktop show, styled like the issue list's
+// StatusHeader count (EXP-716).
 @Composable
-private fun BoardHeader(board: BoardEntity) {
+private fun BoardHeader(board: BoardEntity, count: Int) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -137,6 +140,12 @@ private fun BoardHeader(board: BoardEntity) {
             board.name,
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            count.toString(),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
     }
 }

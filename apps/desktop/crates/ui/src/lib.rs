@@ -75,6 +75,7 @@ mod device_sync;
 mod machines;
 #[cfg(target_os = "macos")]
 pub mod macos_blur;
+mod macos_window;
 pub mod markdown;
 mod mention_input;
 mod wysiwyg;

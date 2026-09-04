@@ -86,6 +86,27 @@ pub(crate) fn frame_horizontal_chrome(window: &Window) -> Pixels {
     side(tiling.left) + side(tiling.right)
 }
 
+/// Vertical counterpart of [`frame_horizontal_chrome`]: the shadow padding
+/// plus the 1px border the Linux CSD frame takes off the top and bottom of
+/// the viewport (EXP-716: a window sized to its content must add it back).
+pub(crate) fn frame_vertical_chrome(window: &Window) -> Pixels {
+    let Decorations::Client { tiling } = window.window_decorations() else {
+        return px(0.0);
+    };
+    let side = |tiled: bool| if tiled { px(0.0) } else { SHADOW_SIZE + BORDER_SIZE };
+    side(tiling.top) + side(tiling.bottom)
+}
+
+/// [`frame_vertical_chrome`] for a window that does not exist yet: the
+/// untiled Linux CSD frame (shadow + border, top and bottom), zero elsewhere.
+pub(crate) fn untiled_frame_vertical_chrome() -> Pixels {
+    if cfg!(target_os = "linux") {
+        (SHADOW_SIZE + BORDER_SIZE) * 2.
+    } else {
+        px(0.0)
+    }
+}
+
 /// Apply [`frame_radii`] to a layer that paints to ALL FOUR window edges —
 /// the full-size page-gradient background every `window_frame()` host puts
 /// directly inside the frame. A no-op off Linux CSD (all radii zero).
