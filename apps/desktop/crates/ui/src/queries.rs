@@ -812,6 +812,46 @@ pub fn review_groups(cx: &App, team_id: &str) -> Vec<ReviewGroup> {
     groups
 }
 
+/// EXP-734: the Reviews page's "Agent runs" block — runs whose pull request
+/// links NO issue (an action or chat run's chore PR, opened through MCP
+/// `exponential_pr_open({repositoryId, head})`). Nothing else surfaces them:
+/// no issue row carries the PR, and `repositories.openPulls` deliberately
+/// excludes them server-side, so this synced read is the only listing.
+pub fn review_runs(cx: &App, team_id: &str) -> Vec<domain::rows::CodingSession> {
+    review_runs_from(
+        Store::global(cx).collections().coding_sessions.read(cx).iter(),
+        team_id,
+    )
+}
+
+/// Pure core of [`review_runs`]: this team's issue-less runs with an OPEN PR
+/// of their own, deduped by `pr_url` (a resumed run can leave two rows on one
+/// PR — the NEWEST wins, like `review_groups`' representative), newest first.
+pub(crate) fn review_runs_from<'a>(
+    sessions: impl Iterator<Item = &'a domain::rows::CodingSession>,
+    team_id: &str,
+) -> Vec<domain::rows::CodingSession> {
+    let mut rows: Vec<domain::rows::CodingSession> = sessions
+        .filter(|session| {
+            session.team_id.as_deref() == Some(team_id)
+                // Issue-linked runs (single AND batch) merge through their
+                // issue(s) and already render in the board groups above.
+                && session.issue_id.is_none()
+                && session.has_open_pr()
+        })
+        .cloned()
+        .collect();
+    // Newest first (ISO strings from one source compare lexicographically,
+    // None last) — the dedupe below then keeps the newest row per PR.
+    rows.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    let mut seen: HashSet<String> = HashSet::new();
+    rows.retain(|row| match row.pr_url.as_deref() {
+        Some(url) => seen.insert(url.to_string()),
+        None => true,
+    });
+    rows
+}
+
 /// The Reviews page's unlinked-PR sections: keep only repos that have
 /// open pulls (the server returns every team repo, unreachable ones with
 /// an empty list — an empty section is noise, web parity).
@@ -1867,6 +1907,45 @@ mod tests {
         remove_merged_pull(&mut repos, "repo-1", 99);
         assert_eq!(repos[0].pulls.len(), 1);
         assert_eq!(repos[1].pulls.len(), 1);
+    }
+
+    /// EXP-734: the "Agent runs" block lists this team's ISSUE-LESS runs with
+    /// an open PR of their own, newest first and one row per PR.
+    #[test]
+    fn review_runs_from_lists_only_this_teams_issueless_open_prs() {
+        let run = |id: &str,
+                   team: &str,
+                   issue_id: Option<&str>,
+                   pr_url: Option<&str>,
+                   pr_state: Option<&str>,
+                   created_at: &str|
+         -> domain::rows::CodingSession {
+            serde_json::from_value(json!({
+                "id": id, "team_id": team, "issue_id": issue_id,
+                "status": "in_review", "action_id": "act-1",
+                "pr_url": pr_url, "pr_number": "12", "pr_state": pr_state,
+                "created_at": created_at,
+            }))
+            .unwrap()
+        };
+        let newest = run("cs-new", "t-1", None, Some("pr/1"), Some("open"), "2026-09-04T10:00:00Z");
+        // Same PR, older row (a resumed run) — deduped away.
+        let older = run("cs-old", "t-1", None, Some("pr/1"), Some("open"), "2026-09-01T10:00:00Z");
+        let second = run("cs-2", "t-1", None, Some("pr/2"), Some("open"), "2026-09-02T10:00:00Z");
+        // Excluded: another team, an issue-linked run, a merged PR, no PR.
+        let other_team = run("cs-x", "t-2", None, Some("pr/9"), Some("open"), "2026-09-03T10:00:00Z");
+        let issue_run = run("cs-i", "t-1", Some("i-1"), Some("pr/3"), Some("open"), "2026-09-03T10:00:00Z");
+        let merged = run("cs-m", "t-1", None, Some("pr/4"), Some("merged"), "2026-09-03T10:00:00Z");
+        let prless = run("cs-p", "t-1", None, None, None, "2026-09-03T10:00:00Z");
+
+        let rows = review_runs_from(
+            [&older, &second, &newest, &other_team, &issue_run, &merged, &prless].into_iter(),
+            "t-1",
+        );
+        assert_eq!(
+            rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+            ["cs-new", "cs-2"]
+        );
     }
 
     fn issue(pr_state: Option<&str>) -> domain::rows::Issue {

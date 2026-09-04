@@ -379,6 +379,14 @@ pub const SHAPES: [ShapeSpec; 19] = [
             // OWN pull request, which is how the steer viewer's Merge pill
             // finds a target. Heals onto existing store tables like the rest.
             "branch",
+            // EXP-734: the run's OWN chore pull request (action/chat runs
+            // whose PR links no issue). Nothing else on any client can find
+            // that PR — no issue row carries it — so dropping these silently
+            // kills Merge and the Reviews "Agent runs" block for every one of
+            // them. Heals onto existing store tables like the rest.
+            "pr_url",
+            "pr_number",
+            "pr_state",
             // EXP-530 automation attribution: `action_id`/`action_name` scope
             // a run to its action (name snapshotted — outlives a deleted
             // row), `started_reason` (`schedule`/`event`, NULL = manual)
@@ -652,6 +660,17 @@ mod tests {
         // batch session.
         let spec = shape_by_name("coding_sessions").unwrap();
         assert!(spec.columns.contains(&"branch"));
+    }
+
+    #[test]
+    fn coding_sessions_sync_the_runs_own_chore_pr() {
+        // EXP-734: an action/chat run's PR links NO issue, so the session row
+        // is the only place it lives — dropping any of these silently kills
+        // the run's Merge pill and its Reviews "Agent runs" row.
+        let spec = shape_by_name("coding_sessions").unwrap();
+        for column in ["pr_url", "pr_number", "pr_state"] {
+            assert!(spec.columns.contains(&column), "coding_sessions needs {column}");
+        }
     }
 
     #[test]

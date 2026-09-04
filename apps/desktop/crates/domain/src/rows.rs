@@ -484,6 +484,18 @@ pub struct CodingSession {
     /// representative open-PR issue through it.
     #[serde(default)]
     pub branch: Option<String>,
+    /// EXP-734: the run's OWN pull request — populated only when the PR links
+    /// no issue at all (an action or chat run that opened a chore PR through
+    /// MCP `exponential_pr_open({repositoryId, head})`). Issue and batch runs
+    /// keep their PR on the issue row(s), so these stay `None` there.
+    /// `pr_number` arrives TEXT-stored on the wire like every integer column.
+    #[serde(default)]
+    pub pr_url: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub pr_number: Option<i64>,
+    /// `open` / `merged` / `closed` — raw wire value (contract `pr_state`).
+    #[serde(default)]
+    pub pr_state: Option<String>,
     /// EXP-583: the `automations` row that fired this run; `None` on manual
     /// runs (and on rows written before automations became their own entity).
     #[serde(default)]
@@ -512,6 +524,17 @@ pub struct CodingSession {
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
+}
+
+impl CodingSession {
+    /// EXP-734: does this run carry an OPEN pull request of its OWN (a chore
+    /// PR that links no issue)? The Merge affordance on an action/chat run
+    /// gates on exactly this — `pr_state` leaving `open` is what settles the
+    /// merge, so a merged/closed row must never look mergeable again.
+    pub fn has_open_pr(&self) -> bool {
+        self.pr_state.as_deref() == Some("open")
+            && self.pr_url.as_deref().is_some_and(|url| !url.is_empty())
+    }
 }
 
 /// `actions` shape row (EXP-268) — the body-less list projection: the ≤64KB
@@ -926,6 +949,59 @@ mod tests {
         assert_eq!(manual.action_name, None);
         assert_eq!(manual.started_reason, None);
         assert_eq!(manual.automation_id, None);
+    }
+
+    #[test]
+    fn coding_session_hydrates_its_own_chore_pr() {
+        // EXP-734: an action/chat run's own PR rides the SESSION row (no
+        // issue links it). `pr_number` arrives TEXT-stored like every int.
+        let session: CodingSession = serde_json::from_value(json!({
+            "id": "cs-1",
+            "team_id": "t-1",
+            "status": "in_review",
+            "action_id": "act-1",
+            "branch": "exp/chat-a1b2c3d4",
+            "pr_url": "https://github.com/o/r/pull/12",
+            "pr_number": "12",
+            "pr_state": "open",
+        }))
+        .unwrap();
+        assert_eq!(session.pr_number, Some(12));
+        assert_eq!(session.pr_state.as_deref(), Some("open"));
+        assert!(session.has_open_pr());
+
+        // A merged run is NOT mergeable any more — the flip off `open` is
+        // exactly what settles the Merge affordance.
+        let merged: CodingSession = serde_json::from_value(json!({
+            "id": "cs-2",
+            "status": "ended",
+            "pr_url": "https://github.com/o/r/pull/12",
+            "pr_number": 12,
+            "pr_state": "merged",
+        }))
+        .unwrap();
+        assert_eq!(merged.pr_number, Some(12));
+        assert!(!merged.has_open_pr());
+
+        // Pre-column rows (and every issue/batch run) degrade to None.
+        let issue_run: CodingSession = serde_json::from_value(json!({
+            "id": "cs-3",
+            "status": "running",
+        }))
+        .unwrap();
+        assert_eq!(issue_run.pr_url, None);
+        assert_eq!(issue_run.pr_number, None);
+        assert_eq!(issue_run.pr_state, None);
+        assert!(!issue_run.has_open_pr());
+
+        // A state with no url is not a PR anyone can merge.
+        let urlless: CodingSession = serde_json::from_value(json!({
+            "id": "cs-4",
+            "status": "running",
+            "pr_state": "open",
+        }))
+        .unwrap();
+        assert!(!urlless.has_open_pr());
     }
 
     #[test]
