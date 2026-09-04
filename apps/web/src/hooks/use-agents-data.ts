@@ -16,6 +16,61 @@ import {
   type SessionDevice,
 } from "@/lib/session-device"
 
+/** EXP-734: what a run's Merge control acts on. An issue-scoped run merges
+ * through its issue; a batch run through the representative issue of its ONE
+ * PR (EXP-535); an issue-LESS run (action or chat) that opened a chore PR
+ * (EXP-626) merges through the SESSION row itself, which now carries
+ * prUrl/prNumber/prState. */
+export type SessionMergeTarget =
+  | { kind: `issue`; issue: Issue }
+  | { kind: `session`; session: CodingSession }
+
+/** The props both merge paths hand `SessionMergeButton` — one shape so the
+ * three call sites (Agents row, steering strip, dock) never re-derive it. */
+export interface SessionMergeTargetProps {
+  issueId?: string
+  sessionId?: string
+  prState: string | null
+  prNumber: number | null
+  branch: string | null
+  teamId: string | null
+  updatedAt: string | Date | null
+}
+
+export function mergeTargetProps(
+  target: SessionMergeTarget
+): SessionMergeTargetProps {
+  if (target.kind === `issue`) {
+    const { issue } = target
+    return {
+      issueId: issue.id,
+      prState: issue.prState,
+      prNumber: issue.prNumber,
+      branch: issue.branch,
+      teamId: issue.teamId,
+      updatedAt: issue.updatedAt,
+    }
+  }
+  const { session } = target
+  return {
+    sessionId: session.id,
+    prState: session.prState,
+    prNumber: session.prNumber,
+    branch: session.branch,
+    teamId: session.teamId,
+    updatedAt: session.updatedAt,
+  }
+}
+
+/** The PR state a row renders by: the linked issue's, else the run's own
+ * chore PR (EXP-734). */
+export function rowPrState(
+  session: CodingSession,
+  issue: Issue | undefined
+): string | null {
+  return issue?.prState ?? session.prState
+}
+
 export interface AgentSessionRow {
   session: CodingSession
   /** May be undefined while the issue row is still syncing. */
@@ -23,11 +78,11 @@ export interface AgentSessionRow {
   board: Board | undefined
   /** May be undefined while the user row is still syncing — render via displayUserName. */
   user: User | undefined
-  /** EXP-535: a batch session's resolved open PR, as a representative linked
-   * issue (merging through it merges the ONE batch PR — Reviews pattern).
-   * Set only on issueless batch rows in review whose OWN PR (matched by the
-   * stamped session branch, EXP-545) is open and unambiguous. */
-  batchPrIssue: Issue | undefined
+  /** EXP-734: what the row's Merge control acts on — the linked issue, a
+   * batch run's resolved representative issue (EXP-535, matched by the
+   * stamped session branch EXP-545), or the run row itself once it stamped
+   * its own issue-less chore PR. Absent = no PR to merge. */
+  mergeTarget: SessionMergeTarget | undefined
   /** EXP-549/550: the host machine as the synced devices row knows it (the
    * RENAMED label, live online-ness) — falls back to the row's snapshot. */
   device: SessionDevice
@@ -172,26 +227,40 @@ export function useAgentsData(
       return matches.length === 1 ? matches[0] : undefined
     }
 
+    // EXP-734: issue run → the issue; batch run in review → its resolved
+    // representative issue (EXP-535); anything else that stamped its OWN
+    // chore PR (action and chat runs, EXP-626) → the session row.
+    const resolveMergeTarget = (
+      session: CodingSession,
+      issue: Issue | undefined
+    ): SessionMergeTarget | undefined => {
+      if (session.issueId) {
+        return issue ? { kind: `issue`, issue } : undefined
+      }
+      const isBatch = session.actionName == null
+      if (isBatch && session.status === `in_review`) {
+        const batchIssue = resolveBatchPr(session.branch)
+        if (batchIssue) return { kind: `issue`, issue: batchIssue }
+      }
+      if (session.prUrl && session.prNumber != null) {
+        return { kind: `session`, session }
+      }
+      return undefined
+    }
+
     const toRow = (session: CodingSession): AgentSessionRow => {
       // Batch-scoped sessions carry no issue — render issueless.
       const issue = session.issueId ? issueMap.get(session.issueId) : undefined
-      // EXP-535: an issueless, actionless batch run whose PR is open
-      // (status in_review — flipped in the pr_open transaction) gets the
-      // resolved batch PR for its Merge button.
-      const isBatch = !session.issueId && session.actionName == null
       const device = resolveSessionDevice(session, devices, now)
       return {
         session,
         issue,
         board: issue ? boardMap.get(issue.boardId) : undefined,
         user: userMap.get(session.userId),
-        batchPrIssue:
-          isBatch && session.status === `in_review`
-            ? resolveBatchPr(session.branch)
-            : undefined,
+        mergeTarget: resolveMergeTarget(session, issue),
         device,
         paused: sessionIsPaused(
-          sessionDisplayState(session, issue?.prState),
+          sessionDisplayState(session, rowPrState(session, issue)),
           device
         ),
       }

@@ -18,6 +18,10 @@ final class AgentsViewModel {
         /// pattern). Set only on issueless batch rows in review with an
         /// UNAMBIGUOUS match.
         let batchPrIssue: IssueEntity?
+        /// EXP-734: what this row's Merge button merges through — the issue's
+        /// PR (issue and batch runs) or the run's OWN issue-less PR (an action
+        /// or chat run that opened one). Nil when there is nothing to merge.
+        let mergeTarget: MergeTarget?
         /// EXP-549/550: the host machine as it presents right now — the LIVE
         /// devices row's label (a rename never rewrites the session's
         /// snapshot) plus whether that machine stopped heartbeating, which
@@ -353,15 +357,22 @@ final class AgentsViewModel {
             // for its Merge button (EXP-535).
             .map { session in
                 let isBatch = session.issueId == nil && session.actionName == nil
+                let issue = session.issueId.flatMap { issuesById[$0] }
                 return Row(
                     session: session,
-                    issue: session.issueId.flatMap { issuesById[$0] },
+                    issue: issue,
                     batchPrIssue: isBatch
                         && session.status == DomainContract.codingSessionStatusInReview
                         ? BatchPrResolution.resolve(
                             sessionBranch: session.branch,
                             openBatchPrs: openBatchPrs
                         ) : nil,
+                    // EXP-734: one rule for every merge surface — an action or
+                    // chat run's PR links no issue, so it merges through the
+                    // session row the server stamped it on.
+                    mergeTarget: MergeTargetResolution.resolve(
+                        session: session, issue: issue, openBatchPrs: openBatchPrs
+                    ),
                     device: SessionDevicePresentation.resolve(
                         session: session, devices: deviceRows, now: now, devicesFresh: fresh
                     )

@@ -20,7 +20,10 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // "Running" or the summary is the whole story), plus `agent` for EXP-484
 // (which agent CLI runs the
 // session, so clients can name it and pair it with the host device's usage
-// windows) — each a ONE-TIME shape-identity rotation (benign: small table,
+// windows), and `pr_url`/`pr_number`/`pr_state` for EXP-734 (the chore PR an
+// action or chat run opened with no issue to link — every client's Merge
+// shortcut and Reviews queue key on the run; issue/batch rows still read the
+// issue) — each a ONE-TIME shape-identity rotation (benign: small table,
 // full resync; land in one deploy).
 // `merged_own_pr` stays OUT: server-only like `host_user_id` (nothing on a
 // client acts on it; only the merge-driven end paths read it), and so does
@@ -44,6 +47,9 @@ const CODING_SESSION_COLUMNS = [
   `agent`,
   `status`,
   `branch`,
+  `pr_url`,
+  `pr_number`,
+  `pr_state`,
   `summary`,
   `ended_by`,
   `resumed_from_id`,

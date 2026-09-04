@@ -727,9 +727,21 @@ export const codingSessions = pgTable(
     // `in_review`, so clients tie a batch session's Merge shortcut to ITS
     // OWN PR instead of "the team's sole open batch PR" (which could target
     // a teammate's PR once the session's own PR closed unmerged). NULL on
-    // issue-scoped sessions (the issue row carries the branch), on action
-    // rows, and on batch rows whose PR isn't open yet.
+    // issue-scoped sessions (the issue row carries the branch) and on batch
+    // rows whose PR isn't open yet; action and chat rows carry their run
+    // branch from the start (EXP-637) and the chore pr_open re-stamps it.
     branch: varchar(`branch`, { length: 255 }),
+    // EXP-734: the pull request an issue-LESS run opened — the chore PR of an
+    // action or chat run (`exponential_pr_open({ repositoryId, head })`,
+    // EXP-626). Populated ONLY for PRs that link no issue; issue-scoped and
+    // batch rows keep reading the issue row(s) (prUrl/prNumber/prState
+    // there). Synced, so every client's Merge shortcut and Reviews queue key
+    // on the run itself; `applySessionPrState` (pr-sync) keeps `pr_state` in
+    // step on every merge/close/reopen path (merge helper, webhook, poller)
+    // and ends the run on merge like every other path.
+    prUrl: text(`pr_url`),
+    prNumber: integer(`pr_number`),
+    prState: prStateEnum(`pr_state`),
     // EXP-637 close-out (all synced): the agent's own account of the run,
     // written ONCE by the `exponential_sessions_end` MCP tool (the calling
     // session is identified by the launcher-injected `X-Exp-Session-Id`

@@ -998,7 +998,12 @@ impl TerminalDockPanel {
                 );
                 let display = crate::queries::coding_session_display(
                     session,
-                    issue.and_then(|issue| issue.pr_state.as_deref()),
+                    // EXP-734: an issue-less run (action/chat) carries its own
+                    // PR state on the row — without the fallback its chip
+                    // would stay "Coding…" after the PR merged.
+                    issue
+                        .and_then(|issue| issue.pr_state.as_deref())
+                        .or(session.pr_state.as_deref()),
                 );
                 let paused = crate::queries::session_is_paused(display, &presentation);
                 RemoteChip {
@@ -1744,13 +1749,14 @@ impl TerminalDockPanel {
     fn tab_merge_button(
         &self,
         tab: TabId,
-        merge: &MergeTabMeta,
+        merge: &MergeTarget,
         merge_state: &Entity<crate::pr_merge::MergeState>,
         cx: &gpui::Context<Self>,
     ) -> gpui::AnyElement {
+        let key = merge.key();
         let (armed, merging) = {
             let state = merge_state.read(cx);
-            (state.armed(&merge.issue_id), state.merging(&merge.issue_id))
+            (state.armed(&key), state.merging(&key))
         };
         // EXP-484: one button per dock (the toolbar renders the ACTIVE tab
         // only), so the id no longer carries a strip index.
@@ -1768,16 +1774,14 @@ impl TerminalDockPanel {
                 .ghost().cursor_pointer()
                 .icon(ExpIcon::GitMerge)
                 .label("Merge")
-                .tooltip("Merge: completes every linked issue and closes this coding session");
+                .tooltip(merge.tooltip());
         }
-        let issue_id = merge.issue_id.clone();
+        let target = merge.clone();
         let button = button.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
             cx.stop_propagation();
             let handle = window.window_handle();
             let outcome = crate::pr_merge::two_click(
-                crate::pr_merge::MergeOp::MergeIssuePr {
-                    issue_id: issue_id.clone(),
-                },
+                target.op(),
                 Some(Box::new(move |cx: &mut App| {
                     let _ = handle.update(cx, |_, window, cx| {
                         // EXP-706: Reviews is a full-page screen now, not a
@@ -2495,13 +2499,14 @@ impl TerminalDockPanel {
     /// the session on merge anyway (EXP-498).
     fn steer_merge_button(
         &self,
-        merge: &MergeTabMeta,
+        merge: &MergeTarget,
         merge_state: &Entity<crate::pr_merge::MergeState>,
         cx: &gpui::Context<Self>,
     ) -> gpui::AnyElement {
+        let key = merge.key();
         let (armed, merging) = {
             let state = merge_state.read(cx);
-            (state.armed(&merge.issue_id), state.merging(&merge.issue_id))
+            (state.armed(&key), state.merging(&key))
         };
         let mut button = Button::new("merge-steer-session-changes").xsmall();
         if merging {
@@ -2523,17 +2528,15 @@ impl TerminalDockPanel {
                 .cursor_pointer()
                 .icon(ExpIcon::GitMerge)
                 .label("Merge")
-                .tooltip("Merge: completes every linked issue and closes this coding session");
+                .tooltip(merge.tooltip());
         }
-        let issue_id = merge.issue_id.clone();
+        let target = merge.clone();
         button
             .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                 cx.stop_propagation();
                 let handle = window.window_handle();
                 crate::pr_merge::two_click(
-                    crate::pr_merge::MergeOp::MergeIssuePr {
-                        issue_id: issue_id.clone(),
-                    },
+                    target.op(),
                     Some(Box::new(move |cx: &mut App| {
                         let _ = handle.update(cx, |_, window, cx| {
                             crate::navigation::navigate(
@@ -2880,11 +2883,53 @@ fn changes_totals(files: &[coding::scm::DiffFile]) -> (u32, u32) {
     })
 }
 
-/// The tab's merge affordance (EXP-498): the representative synced issue
-/// with an open PR — `issues.mergePr` on it fans out to every issue sharing
-/// the prUrl, so any batch sibling merges the whole PR.
-struct MergeTabMeta {
-    issue_id: String,
+/// What the session's Merge pill acts on. An ISSUE target (EXP-498) is the
+/// representative synced issue with an open PR — `issues.mergePr` on it fans
+/// out to every issue sharing the prUrl, so any batch sibling merges the whole
+/// PR. A SESSION target (EXP-734) is a run whose PR links NO issue at all (an
+/// action or chat run's chore PR) — it lives on the `coding_sessions` row and
+/// merges through `codingSessions.mergePr`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum MergeTarget {
+    Issue { issue_id: String },
+    Session { session_id: String },
+}
+
+impl MergeTarget {
+    /// The shared two-click arm/in-flight key for this target.
+    fn key(&self) -> String {
+        match self {
+            MergeTarget::Issue { issue_id } => issue_id.clone(),
+            MergeTarget::Session { session_id } => {
+                crate::pr_merge::session_merge_key(session_id)
+            }
+        }
+    }
+
+    /// The op the confirmed click fires.
+    fn op(&self) -> crate::pr_merge::MergeOp {
+        match self {
+            MergeTarget::Issue { issue_id } => crate::pr_merge::MergeOp::MergeIssuePr {
+                issue_id: issue_id.clone(),
+            },
+            MergeTarget::Session { session_id } => crate::pr_merge::MergeOp::MergeSessionPr {
+                session_id: session_id.clone(),
+            },
+        }
+    }
+
+    /// The button's resting tooltip — an issue merge completes the linked
+    /// issues, a run's own PR has none to complete.
+    fn tooltip(&self) -> &'static str {
+        match self {
+            MergeTarget::Issue { .. } => {
+                "Merge: completes every linked issue and closes this coding session"
+            }
+            MergeTarget::Session { .. } => {
+                "Merge: merges this run's pull request and closes the session"
+            }
+        }
+    }
 }
 
 /// Measured width of one tab chip, for the EXP-497 overflow partition —
@@ -2987,58 +3032,93 @@ fn issue_tab_meta(tab_id: TabId, cx: &App) -> Option<IssueTabMeta> {
     })
 }
 
-/// Resolve a tab's merge affordance (EXP-498): the representative synced
-/// open-PR issue for the tab's session. Issue sessions match their own
-/// issue; batch sessions match any synced issue on the session's branch
-/// (the batch PR links every one of them to the same prUrl, so any sibling
-/// is a valid merge target). Action/shell tabs never merge.
-fn merge_tab_meta(tab_id: TabId, cx: &App) -> Option<MergeTabMeta> {
+/// The ONE merge-target rule every session surface applies (EXP-498 /
+/// EXP-734), pure so both the local-tab and the steer arm can be tested
+/// against it:
+///
+/// 1. an ISSUE-linked run merges its OWN issue, when that issue's PR is open;
+/// 2. otherwise a BATCH run resolves the representative open-PR issue through
+///    the head branch `pr_open` stamped on it (every batch sibling shares the
+///    one prUrl, so any of them merges the whole PR);
+/// 3. otherwise (EXP-734) an ACTION or CHAT run merges its OWN chore PR off
+///    the `coding_sessions` row — no issue links it, so nothing else can.
+///
+/// `row` is the synced session row (absent while a just-started run has not
+/// synced yet — then only the issue/branch rules can fire).
+fn merge_target_for_run<'a>(
+    issue_id: Option<&str>,
+    branch: &str,
+    row: Option<&domain::rows::CodingSession>,
+    issues: impl Iterator<Item = &'a domain::rows::Issue>,
+) -> Option<MergeTarget> {
+    let issues: Vec<&domain::rows::Issue> = issues.collect();
+    if let Some(issue_id) = issue_id {
+        if let Some(issue) = issues
+            .iter()
+            .copied()
+            .find(|issue| issue.id == issue_id && issue_has_open_pr(issue))
+        {
+            return Some(MergeTarget::Issue {
+                issue_id: issue.id.clone(),
+            });
+        }
+    }
+    if let Some(issue) = open_pr_issue_on_branch(branch, issues.into_iter()) {
+        return Some(MergeTarget::Issue {
+            issue_id: issue.id.clone(),
+        });
+    }
+    let row = row?;
+    row.has_open_pr().then(|| MergeTarget::Session {
+        session_id: row.id.clone(),
+    })
+}
+
+/// Resolve a tab's merge affordance: the [`merge_target_for_run`] rules over
+/// the LOCAL session behind the tab, with its synced `coding_sessions` row
+/// looked up by the row id the launcher recorded (EXP-734 — an action or chat
+/// run's own chore PR lives there and nowhere else).
+fn merge_tab_meta(tab_id: TabId, cx: &App) -> Option<MergeTarget> {
     let sessions = crate::coding_flow::LocalSessions::global_ref(cx)?;
     let sessions = sessions.read(cx);
     let session = sessions.session_for_tab(tab_id)?;
     let store = sync::Store::try_global(cx)?;
-    let issues = store.collections().issues.read(cx);
+    let collections = store.collections();
+    let issues = collections.issues.read(cx);
+    let rows = collections.coding_sessions.read(cx);
     let issue_id = match &session.subject {
-        crate::coding_flow::SessionSubject::Issue(issue_id) => {
-            let issue = issues.get(issue_id)?;
-            issue_has_open_pr(issue).then(|| issue.id.clone())?
-        }
-        crate::coding_flow::SessionSubject::Batch(_) => {
-            open_pr_issue_on_branch(&session.branch, issues.iter())?
-                .id
-                .clone()
-        }
-        crate::coding_flow::SessionSubject::Action(_) => return None,
+        crate::coding_flow::SessionSubject::Issue(issue_id) => Some(issue_id.as_str()),
+        // Batch and action/chat runs carry no issue of their own — the branch
+        // and the session row answer for them.
+        crate::coding_flow::SessionSubject::Batch(_)
+        | crate::coding_flow::SessionSubject::Action(_) => None,
     };
-    Some(MergeTabMeta { issue_id })
+    merge_target_for_run(
+        issue_id,
+        &session.branch,
+        rows.get(&session.session_id),
+        issues.iter(),
+    )
 }
 
-/// EXP-698 — [`merge_tab_meta`]'s twin for a REMOTE run: the merge target of
-/// a synced `coding_sessions` row, with no local session to consult. The two
-/// rules are the same ones every client applies (iOS `AgentSessionModel.
-/// mergeIssue`, web `use-agents-data`): an issue-linked run merges its OWN
-/// issue, a BATCH run resolves the representative open-PR issue through the
-/// head branch `pr_open` stamped on the row (EXP-545), and an action run
-/// merges nothing.
+/// EXP-698 — [`merge_tab_meta`]'s twin for a REMOTE run: the merge target of a
+/// synced `coding_sessions` row, with no local session to consult. Same
+/// [`merge_target_for_run`] rules every client applies (iOS
+/// `AgentSessionModel.mergeTarget`, web `use-agents-data`) — including
+/// EXP-734's third one, which is why an ACTION or CHAT run is no longer turned
+/// away here: its own chore PR is right on the row.
 fn merge_meta_for_session(
     session: &domain::rows::CodingSession,
     cx: &App,
-) -> Option<MergeTabMeta> {
-    if session.action_id.is_some() {
-        return None;
-    }
+) -> Option<MergeTarget> {
     let store = sync::Store::try_global(cx)?;
     let issues = store.collections().issues.read(cx);
-    let issue_id = match session.issue_id.as_deref() {
-        Some(issue_id) => {
-            let issue = issues.get(issue_id)?;
-            issue_has_open_pr(issue).then(|| issue.id.clone())?
-        }
-        None => open_pr_issue_on_branch(session.branch.as_deref().unwrap_or_default(), issues.iter())?
-            .id
-            .clone(),
-    };
-    Some(MergeTabMeta { issue_id })
+    merge_target_for_run(
+        session.issue_id.as_deref(),
+        session.branch.as_deref().unwrap_or_default(),
+        Some(session),
+        issues.iter(),
+    )
 }
 
 fn issue_has_open_pr(issue: &domain::rows::Issue) -> bool {
@@ -3573,6 +3653,88 @@ mod tests {
         .is_none());
         // Trunk/scratch sessions record no branch — never a merge target.
         assert!(open_pr_issue_on_branch("", [&open].into_iter()).is_none());
+    }
+
+    /// EXP-734: the ONE merge-target rule. An action/chat run carries its own
+    /// chore PR on the SESSION row (no issue links it); an issue run still
+    /// prefers its own issue; a run whose PR already merged offers nothing.
+    #[test]
+    fn merge_target_for_run_falls_back_to_the_runs_own_pr() {
+        let issue = |id: &str, branch: Option<&str>, pr_state: Option<&str>| -> domain::rows::Issue {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "board_id": "b-1", "number": 1,
+                "identifier": "EXP-1", "title": "t", "status": "in_review",
+                "branch": branch, "pr_state": pr_state,
+            }))
+            .unwrap()
+        };
+        let row = |pr_state: Option<&str>| -> domain::rows::CodingSession {
+            serde_json::from_value(serde_json::json!({
+                "id": "cs-1", "team_id": "t-1", "status": "in_review",
+                "action_id": "act-1", "branch": "exp/chat-a1b2c3d4",
+                "pr_url": "https://github.com/o/r/pull/12",
+                "pr_number": "12", "pr_state": pr_state,
+            }))
+            .unwrap()
+        };
+        let linked = issue("i-1", Some("exp/EXP-1"), Some("open"));
+
+        // Action/chat run with an OPEN chore PR → the session itself.
+        let open_row = row(Some("open"));
+        assert_eq!(
+            merge_target_for_run(None, "exp/chat-a1b2c3d4", Some(&open_row), std::iter::empty()),
+            Some(MergeTarget::Session {
+                session_id: "cs-1".to_string()
+            })
+        );
+        // …and its key/op route to `codingSessions.mergePr`, never an issue.
+        let target = MergeTarget::Session {
+            session_id: "cs-1".to_string(),
+        };
+        assert_eq!(target.key(), "session:cs-1");
+        assert!(matches!(
+            target.op(),
+            crate::pr_merge::MergeOp::MergeSessionPr { .. }
+        ));
+
+        // An ISSUE run prefers its own issue even with a row in hand.
+        assert_eq!(
+            merge_target_for_run(
+                Some("i-1"),
+                "exp/EXP-1",
+                Some(&open_row),
+                [&linked].into_iter()
+            ),
+            Some(MergeTarget::Issue {
+                issue_id: "i-1".to_string()
+            })
+        );
+
+        // A BATCH run still resolves through its branch (no issue, no row PR).
+        let batch_issue = issue("i-2", Some("exp/batch-a1b2c3d4"), Some("open"));
+        let plain_row = row(None);
+        assert_eq!(
+            merge_target_for_run(
+                None,
+                "exp/batch-a1b2c3d4",
+                Some(&plain_row),
+                [&batch_issue].into_iter()
+            ),
+            Some(MergeTarget::Issue {
+                issue_id: "i-2".to_string()
+            })
+        );
+
+        // A merged (or absent) run PR is not a merge target.
+        let merged_row = row(Some("merged"));
+        assert_eq!(
+            merge_target_for_run(None, "exp/chat-a1b2c3d4", Some(&merged_row), std::iter::empty()),
+            None
+        );
+        assert_eq!(
+            merge_target_for_run(None, "exp/chat-a1b2c3d4", None, std::iter::empty()),
+            None
+        );
     }
 
     /// A real pre-EXP-301 `window-0.json`: an OPEN bottom dock whose panel

@@ -188,4 +188,112 @@ class CodingSessionEntityDecodeTest {
         assertTrue(entity.summary!!.contains("\n\n- bullet \"quoted\""))
         assertTrue(entity.summary!!.endsWith("✅ done"))
     }
+
+    // EXP-734: the run's OWN chore PR — pr_url / pr_number / pr_state on the
+    // session row (an action or chat run whose PR links no issue).
+    @Test
+    fun `the EXP-734 pr columns decode from snake_case`() {
+        val row = """
+            {
+              "id": "sess-1",
+              "team_id": "team-1",
+              "user_id": "user-1",
+              "status": "in_review",
+              "action_name": "Refresh screenshots",
+              "pr_url": "https://github.com/acme/app/pull/12",
+              "pr_number": 12,
+              "pr_state": "open",
+              "started_at": "2026-09-04 10:00:00+00",
+              "created_at": "2026-09-04 10:00:00+00",
+              "updated_at": "2026-09-04 10:20:00+00"
+            }
+        """.trimIndent()
+        val entity = json.decodeFromString(CodingSessionEntity.serializer(), row)
+        assertEquals("https://github.com/acme/app/pull/12", entity.prUrl)
+        assertEquals(12, entity.prNumber)
+        assertEquals("open", entity.prState)
+    }
+
+    @Test
+    fun `the EXP-734 pr columns decode from camelCase too`() {
+        val row = """
+            {
+              "id": "sess-1",
+              "teamId": "team-1",
+              "userId": "user-1",
+              "status": "in_review",
+              "prUrl": "https://github.com/acme/app/pull/12",
+              "prNumber": 12,
+              "prState": "merged",
+              "startedAt": "2026-09-04T10:00:00Z",
+              "createdAt": "2026-09-04T10:00:00Z",
+              "updatedAt": "2026-09-04T10:20:00Z"
+            }
+        """.trimIndent()
+        val entity = json.decodeFromString(CodingSessionEntity.serializer(), row)
+        assertEquals("https://github.com/acme/app/pull/12", entity.prUrl)
+        assertEquals(12, entity.prNumber)
+        assertEquals("merged", entity.prState)
+    }
+
+    /** Postgres TEXT form of an integer column — the desktop decodes every
+     *  integer through a tolerant helper for exactly this reason, and a throw
+     *  here would DROP the whole row (blanking the Agents tab). */
+    @Test
+    fun `a string-form pr_number decodes to an int`() {
+        val row = """
+            {
+              "id": "sess-1",
+              "team_id": "team-1",
+              "user_id": "user-1",
+              "status": "in_review",
+              "pr_number": "12",
+              "started_at": "2026-09-04 10:00:00+00",
+              "created_at": "2026-09-04 10:00:00+00",
+              "updated_at": "2026-09-04 10:00:00+00"
+            }
+        """.trimIndent()
+        val entity = json.decodeFromString(CodingSessionEntity.serializer(), row)
+        assertEquals(12, entity.prNumber)
+    }
+
+    /** An old server, or an issue/batch run: none of the three keys, or all
+     *  three explicitly null. Both must decode with everything null. */
+    @Test
+    fun `absent and null pr columns default to null`() {
+        val bare = """
+            {
+              "id": "sess-1",
+              "team_id": "team-1",
+              "user_id": "user-1",
+              "status": "running",
+              "started_at": "2026-09-04 10:00:00+00",
+              "created_at": "2026-09-04 10:00:00+00",
+              "updated_at": "2026-09-04 10:00:00+00"
+            }
+        """.trimIndent()
+        val entity = json.decodeFromString(CodingSessionEntity.serializer(), bare)
+        assertNull(entity.prUrl)
+        assertNull(entity.prNumber)
+        assertNull(entity.prState)
+
+        val nulled = """
+            {
+              "id": "sess-1",
+              "team_id": "team-1",
+              "user_id": "user-1",
+              "status": "running",
+              "pr_url": null,
+              "pr_number": null,
+              "pr_state": null,
+              "started_at": "2026-09-04 10:00:00+00",
+              "created_at": "2026-09-04 10:00:00+00",
+              "updated_at": "2026-09-04 10:00:00+00"
+            }
+        """.trimIndent()
+        val nullEntity = json.decodeFromString(CodingSessionEntity.serializer(), nulled)
+        assertNull(nullEntity.prUrl)
+        assertNull(nullEntity.prNumber)
+        assertNull(nullEntity.prState)
+    }
 }

@@ -202,9 +202,13 @@ import androidx.room.RoomDatabase
     //      base + PR target), NULL = follow the backing repo's default. New
     //      column on the boards shape allowlist; destructive fallback wipes +
     //      resyncs so every board row arrives carrying it.
+    // v45 (EXP-734): coding_sessions.pr_url / pr_number / pr_state — a run's
+    //      OWN chore PR (an action or chat run whose PR links no issue). New
+    //      columns on the coding-sessions shape allowlist; destructive
+    //      fallback wipes + resyncs so every session row arrives carrying them.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 44,
+    version = 45,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

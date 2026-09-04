@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
+import com.exponential.app.data.api.CodingSessionsApi
 import com.exponential.app.data.api.DeviceLatestVersions
 import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.IssuesApi
@@ -27,9 +28,11 @@ import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
+import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.StartedRunKey
 import com.exponential.app.domain.StartedRunMatch
+import com.exponential.app.domain.resolveMergeTarget
 import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
@@ -74,6 +77,10 @@ data class AgentRow(
     // issue (merging through it merges the ONE batch PR — Reviews pattern).
     // Set only on issueless batch rows in review with an UNAMBIGUOUS match.
     val batchPrIssue: IssueEntity? = null,
+    // EXP-734: what this row's Merge control acts on — an issue (its own, or a
+    // batch PR's representative) or, for an action/chat run that opened a PR
+    // of its own, the SESSION. Null = nothing to merge.
+    val mergeTarget: MergeTarget? = null,
 )
 
 data class AgentsState(
@@ -92,6 +99,7 @@ class AgentsViewModel @Inject constructor(
     private val steerApi: SteerApi,
     private val devicesApi: DevicesApi,
     private val issuesApi: IssuesApi,
+    private val codingSessionsApi: CodingSessionsApi,
     private val selection: TeamSelection,
     stats: SyncStats,
 ) : ViewModel() {
@@ -387,8 +395,9 @@ class AgentsViewModel @Inject constructor(
 
     // ── Merge (EXP-498: merging always closes the session) ──────────────────
     // The server merges AND ends the session, so the row drops off this list
-    // on its own once the `ended` flip syncs. Keyed by issue id: several rows
-    // can be in flight at once.
+    // on its own once the `ended` flip syncs. Keyed by MergeTarget.key
+    // (EXP-734: an issue id, or `session:<id>` for a run's own PR): several
+    // rows can be in flight at once.
     private val _merging = MutableStateFlow<Set<String>>(emptySet())
     val merging: StateFlow<Set<String>> = _merging
 
@@ -399,15 +408,24 @@ class AgentsViewModel @Inject constructor(
 
     /**
      * Squash-merge the row's PR — the server always ends its coding session
-     * too (EXP-498). For a batch PR the server resolves [issueId] to ALL
-     * linked issues and completes them together.
+     * too (EXP-498). A [MergeTarget.Issue] merges through the issue (for a
+     * batch PR the server resolves it to ALL linked issues and completes them
+     * together); a [MergeTarget.Session] merges the run's OWN issueless PR
+     * (EXP-734), which completes nothing and only closes the run.
      */
-    fun merge(issueId: String) {
+    fun merge(target: MergeTarget) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            _mergeErrors.value = _mergeErrors.value - issueId
-            _merging.value = _merging.value + issueId
-            runCatching { issuesApi.mergePr(accountId, issueId) }
+            val key = target.key
+            _mergeErrors.value = _mergeErrors.value - key
+            _merging.value = _merging.value + key
+            runCatching {
+                when (target) {
+                    is MergeTarget.Issue -> issuesApi.mergePr(accountId, target.issueId)
+                    is MergeTarget.Session ->
+                        codingSessionsApi.mergePr(accountId, target.sessionId)
+                }
+            }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
                     // Conflicts, branch protection and GitHub App errors are the
@@ -415,9 +433,9 @@ class AgentsViewModel @Inject constructor(
                     // as Reviews and the issue Changes tab, and the same
                     // conflict-only gate on the recovery run (EXP-533).
                     _mergeErrors.value = _mergeErrors.value +
-                        (issueId to MergeFailure.from(t, "The pull request could not be merged"))
+                        (key to MergeFailure.from(t, "The pull request could not be merged"))
                 }
-            _merging.value = _merging.value - issueId
+            _merging.value = _merging.value - key
         }
     }
 }
@@ -467,15 +485,20 @@ fun agentRows(
     // issueId is null for batch multi-issue sessions — those rows render
     // without an issue link.
     return live.map { session ->
+        val issue = session.issueId?.let(issuesById::get)
+        val batchPrIssue = if (session.isBatchInReview) {
+            resolveBatchPrIssue(batchPrReps, session.branch)
+        } else {
+            null
+        }
         AgentRow(
             session = session,
-            issue = session.issueId?.let(issuesById::get),
+            issue = issue,
             device = resolveSessionDevice(session, devices, nowMs, devicesFresh),
-            batchPrIssue = if (session.isBatchInReview) {
-                resolveBatchPrIssue(batchPrReps, session.branch)
-            } else {
-                null
-            },
+            batchPrIssue = batchPrIssue,
+            // EXP-734: an action or chat run can carry a PR of its OWN (one
+            // that links no issue), merged through codingSessions.mergePr.
+            mergeTarget = resolveMergeTarget(session, issue, batchPrIssue),
         )
     }
 }

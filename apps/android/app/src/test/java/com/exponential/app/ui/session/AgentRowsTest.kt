@@ -3,6 +3,7 @@ package com.exponential.app.ui.session
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.domain.MergeTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -28,6 +29,10 @@ class AgentRowsTest {
         endedBy: String? = null,
         endedAt: String? = null,
         startedAt: String = "2026-07-17T09:00:00Z",
+        actionName: String? = null,
+        prUrl: String? = null,
+        prNumber: Int? = null,
+        prState: String? = null,
     ) = CodingSessionEntity(
         id = id,
         issueId = issueId,
@@ -37,6 +42,10 @@ class AgentRowsTest {
         branch = branch,
         endedBy = endedBy,
         endedAt = endedAt,
+        actionName = actionName,
+        prUrl = prUrl,
+        prNumber = prNumber,
+        prState = prState,
         startedAt = startedAt,
         createdAt = startedAt,
         updatedAt = updatedAt,
@@ -317,5 +326,127 @@ class AgentRowsTest {
             teamId = "team-1",
         )
         assertNull(resolveBatchPrIssue(reps, "exp/batch-abcd1234"))
+    }
+
+    // ── EXP-734: a run's OWN pull request (an action or chat run whose PR
+    // links no issue) merges through the SESSION, not through an issue ──────
+
+    @Test
+    fun `an action run with its own open PR merges through the session`() {
+        val rows = agentRows(
+            sessions = listOf(
+                session(
+                    "action-run",
+                    userId = "me",
+                    issueId = null,
+                    status = "in_review",
+                    actionName = "Refresh screenshots",
+                    branch = "exp/refresh-shots-1a2b3c4d",
+                    prUrl = "https://github.com/o/r/pull/7",
+                    prNumber = 7,
+                    prState = "open",
+                ),
+            ),
+            issues = emptyList(),
+            boards = listOf(board("board-1")),
+            currentUserId = "me",
+            teamId = "team-1",
+            nowMs = nowMs,
+        )
+        assertEquals(MergeTarget.Session("action-run"), rows.single().mergeTarget)
+        assertEquals("session:action-run", rows.single().mergeTarget?.key)
+    }
+
+    @Test
+    fun `a chat run with its own open PR merges through the session`() {
+        val rows = agentRows(
+            sessions = listOf(
+                session(
+                    "chat-run",
+                    userId = "me",
+                    issueId = null,
+                    branch = "exp/chat-1a2b3c4d",
+                    prUrl = "https://github.com/o/r/pull/8",
+                    prNumber = 8,
+                    prState = "open",
+                ),
+            ),
+            issues = emptyList(),
+            boards = listOf(board("board-1")),
+            currentUserId = "me",
+            teamId = "team-1",
+            nowMs = nowMs,
+        )
+        assertEquals(MergeTarget.Session("chat-run"), rows.single().mergeTarget)
+    }
+
+    @Test
+    fun `an issue run keeps merging through its issue`() {
+        val rows = agentRows(
+            sessions = listOf(session("mine", userId = "me")),
+            issues = listOf(
+                issue("issue-1", prUrl = "https://github.com/o/r/pull/1", prState = "open"),
+            ),
+            boards = listOf(board("board-1")),
+            currentUserId = "me",
+            teamId = "team-1",
+            nowMs = nowMs,
+        )
+        assertEquals(MergeTarget.Issue("issue-1"), rows.single().mergeTarget)
+    }
+
+    @Test
+    fun `a batch row still merges through its resolved representative issue`() {
+        val rows = agentRows(
+            sessions = listOf(
+                session(
+                    "reviewing",
+                    userId = "me",
+                    issueId = null,
+                    status = "in_review",
+                    branch = "exp/batch-abcd1234",
+                ),
+            ),
+            issues = listOf(
+                issue("a", prUrl = "https://github.com/o/r/pull/1", prState = "open", branch = "exp/batch-abcd1234"),
+            ),
+            boards = listOf(board("board-1")),
+            currentUserId = "me",
+            teamId = "team-1",
+            nowMs = nowMs,
+        )
+        assertEquals(MergeTarget.Issue("a"), rows.single().mergeTarget)
+    }
+
+    @Test
+    fun `a run whose own PR is already merged has nothing to merge`() {
+        val rows = agentRows(
+            sessions = listOf(
+                session(
+                    "action-run",
+                    userId = "me",
+                    issueId = null,
+                    status = "in_review",
+                    actionName = "Refresh screenshots",
+                    prUrl = "https://github.com/o/r/pull/7",
+                    prNumber = 7,
+                    prState = "merged",
+                ),
+                // No PR at all — the common issueless action run.
+                session("no-pr", userId = "me", issueId = null, actionName = "Refresh screenshots"),
+                // An issue run whose PR closed unmerged.
+                session("issue-run", userId = "me"),
+            ),
+            issues = listOf(
+                issue("issue-1", prUrl = "https://github.com/o/r/pull/2", prState = "closed"),
+            ),
+            boards = listOf(board("board-1")),
+            currentUserId = "me",
+            teamId = "team-1",
+            nowMs = nowMs,
+        )
+        assertNull(rows.single { it.session.id == "action-run" }.mergeTarget)
+        assertNull(rows.single { it.session.id == "no-pr" }.mergeTarget)
+        assertNull(rows.single { it.session.id == "issue-run" }.mergeTarget)
     }
 }

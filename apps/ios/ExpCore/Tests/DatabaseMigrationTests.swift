@@ -96,7 +96,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v19_coding_session_device_id", "v20_automations",
              "v21_device_is_default", "v22_coding_session_outcome",
              "v23_agent_status", "v24_drop_coding_session_outcome",
-             "v25_board_default_branch"]
+             "v25_board_default_branch", "v26_coding_session_pr"]
         )
     }
 
@@ -119,7 +119,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v19_coding_session_device_id", "v20_automations",
              "v21_device_is_default", "v22_coding_session_outcome",
              "v23_agent_status", "v24_drop_coding_session_outcome",
-             "v25_board_default_branch"]
+             "v25_board_default_branch", "v26_coding_session_pr"]
         )
     }
 
@@ -170,7 +170,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v19_coding_session_device_id", "v20_automations",
              "v21_device_is_default", "v22_coding_session_outcome",
              "v23_agent_status", "v24_drop_coding_session_outcome",
-             "v25_board_default_branch"]
+             "v25_board_default_branch", "v26_coding_session_pr"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -241,7 +241,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v19_coding_session_device_id", "v20_automations",
              "v21_device_is_default", "v22_coding_session_outcome",
              "v23_agent_status", "v24_drop_coding_session_outcome",
-             "v25_board_default_branch"]
+             "v25_board_default_branch", "v26_coding_session_pr"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1047,6 +1047,50 @@ final class DatabaseMigrationTests: XCTestCase {
                 db,
                 sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
                     + "AND \"is_live\" = 0 FROM \"electric_offsets\" WHERE \"shape\" = 'boards'"
+            )
+        }
+        XCTAssertEqual(reset, true)
+    }
+
+    // v26 (EXP-734): a run parks its OWN pull request — the three PR columns
+    // ride the coding-sessions shape. A store created before they existed must
+    // gain all three via the guarded ALTERs and get the coding-sessions offset
+    // reset (the shape key is 'coding-sessions' WITH A DASH), or the sync apply
+    // path would keep dropping the wire columns the local schema lacks.
+    func testCodingSessionPrColumnsAddedToExistingStore() throws {
+        let pool = try makePool("session-pr-columns")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v25_board_default_branch")
+        try pool.write { db in
+            // Model the pre-v26 state: today's v1 create already declares the
+            // columns, which is exactly the overlap the guarded ALTERs tolerate.
+            for column in ["pr_url", "pr_number", "pr_state"] {
+                if try db.columns(in: "coding_sessions").contains(where: { $0.name == column }) {
+                    try db.alter(table: "coding_sessions") { t in
+                        t.drop(column: column)
+                    }
+                }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('coding-sessions', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let columns = try pool.read { db in try db.columns(in: "coding_sessions") }
+        for name in ["pr_url", "pr_number", "pr_state"] {
+            let added = columns.first { $0.name == name }
+            XCTAssertNotNil(added, "missing column \(name)")
+            XCTAssertFalse(added?.isNotNull ?? true)
+        }
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" "
+                    + "WHERE \"shape\" = 'coding-sessions'"
             )
         }
         XCTAssertEqual(reset, true)

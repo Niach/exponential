@@ -189,6 +189,95 @@ export const codingSessionsRouter = router({
       return { session: session ?? null }
     }),
 
+  // EXP-734: squash-merge the chore PR a run opened for itself — the
+  // issue-less PR of an action or chat run, stamped on the row by the MCP
+  // pr_open chore path (`pr_url/pr_number/pr_state`). The symmetric
+  // counterpart of issues.mergePr for a PR that has no issue to merge
+  // through: member-gated via the run's team (every member reviews),
+  // idempotent for an already-merged PR (the webhook may beat the client),
+  // and the GitHub call + session-state echo ride the helper
+  // repositories.mergePull shares (`mergeRepositoryPull`). The repo is
+  // resolved from the stored url, never from a board: a run has none.
+  mergePr: authedProcedure
+    .input(
+      z.object({
+        sessionId: z.string().uuid(),
+        // EXP-711: per-merge override of the team's end-sessions-on-merge
+        // setting, like issues.mergePr.
+        endSessions: z.boolean().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
+      const [session] = await ctx.db
+        .select({
+          id: codingSessions.id,
+          teamId: codingSessions.teamId,
+          issueId: codingSessions.issueId,
+          prUrl: codingSessions.prUrl,
+          prNumber: codingSessions.prNumber,
+          prState: codingSessions.prState,
+        })
+        .from(codingSessions)
+        .where(eq(codingSessions.id, input.sessionId))
+        .limit(1)
+      if (!session) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
+      }
+      await assertTeamMember(ctx.session.user.id, session.teamId)
+      if (session.issueId) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `This run works on an issue. Merge its pull request through the issue.`,
+        })
+      }
+      if (!session.prUrl || session.prNumber == null) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `This run has no pull request`,
+        })
+      }
+      // Lazy imports keep this router leaf-light (its tests run against a
+      // bare fake db); both modules open the db connection at module scope.
+      const { applySessionPrState, repoFromPrUrl } = await import(
+        `@/lib/integrations/pr-sync`
+      )
+      if (session.prState === `merged`) {
+        // Already merged (the webhook beat us) — idempotent for the PR;
+        // merge always closes (EXP-498), so re-run the end sweep.
+        await applySessionPrState({
+          prUrl: session.prUrl,
+          state: `merged`,
+          endSessions: input.endSessions,
+        })
+        return { merged: true }
+      }
+      if (session.prState !== `open`) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `The pull request is ${session.prState ?? `not open`}. Only open pull requests can be merged.`,
+        })
+      }
+      const repoFullName = repoFromPrUrl(session.prUrl)
+      if (!repoFullName) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `The run's pull request URL is not a GitHub PR URL`,
+        })
+      }
+      const { loadRepositoryByFullName, mergeRepositoryPull } = await import(
+        `@/lib/trpc/repositories`
+      )
+      const repo = await loadRepositoryByFullName(session.teamId, repoFullName)
+      return mergeRepositoryPull({
+        repo,
+        prNumber: session.prNumber,
+        prUrl: session.prUrl,
+        userId: ctx.session.user.id,
+        viaAgent: ctx.viaMcp === true,
+        endSessions: input.endSessions,
+      })
+    }),
+
   // EXP-403: the CLI daemon's REV2-24 one-session-per-issue probe — the
   // desktop reads its synced coding_sessions collection for this; the
   // headless daemon has no sync and asks the server instead. "Live" mirrors

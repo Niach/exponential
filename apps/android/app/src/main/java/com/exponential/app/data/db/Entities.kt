@@ -296,6 +296,20 @@ data class CodingSessionEntity(
     // joins on it — an action can carry several automations now, so the
     // action_id link no longer identifies which one ran.
     @ColumnInfo(name = "automation_id") @SerialName("automation_id") @JsonNames("automationId") val automationId: String? = null,
+    // EXP-734: the run's OWN pull request. Populated only when the PR links no
+    // issue — an action or chat run (issue_id NULL) that opened one via MCP
+    // `exponential_pr_open({repositoryId, head})`. Issue and batch runs keep
+    // their PR on the issue row(s), so these stay NULL there and the merge
+    // shortcut goes on resolving through the issue (MergeTarget). The server
+    // flips pr_state to `merged` after a merge, so a client settles one by
+    // watching this row rather than writing anything locally.
+    @ColumnInfo(name = "pr_url") @SerialName("pr_url") @JsonNames("prUrl") val prUrl: String? = null,
+    @ColumnInfo(name = "pr_number")
+    @SerialName("pr_number")
+    @JsonNames("prNumber")
+    @Serializable(with = PgIntSerializer::class)
+    val prNumber: Int? = null,
+    @ColumnInfo(name = "pr_state") @SerialName("pr_state") @JsonNames("prState") val prState: String? = null,
     @ColumnInfo(name = "started_at") @SerialName("started_at") @JsonNames("startedAt") val startedAt: String,
     @ColumnInfo(name = "ended_at") @SerialName("ended_at") @JsonNames("endedAt") val endedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,

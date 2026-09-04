@@ -10,6 +10,16 @@ let mockRows: Array<{
   teamId: string
 }> = []
 let capturedWhere: unknown = null
+// EXP-734: the second lane polls the chore PRs on coding_sessions rows
+// (a join-less select) — the stub answers it from mockSessionRows.
+let mockSessionRows: Array<{
+  sessionId: string
+  prUrl: string | null
+  prNumber: number | null
+  prState: string | null
+  teamId: string
+}> = []
+let capturedSessionWhere: unknown = null
 vi.mock(`@/db/connection`, () => ({
   db: {
     select: () => ({
@@ -20,6 +30,10 @@ vi.mock(`@/db/connection`, () => ({
             return Promise.resolve(mockRows)
           },
         }),
+        where: (clause: unknown) => {
+          capturedSessionWhere = clause
+          return Promise.resolve(mockSessionRows)
+        },
       }),
     }),
   },
@@ -32,6 +46,7 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrMergeState: vi.fn(),
   applyPrClosedState: vi.fn(),
   applyPrReopenedState: vi.fn(),
+  applySessionPrState: vi.fn(),
 }))
 
 import { fetchPullState } from "@/lib/integrations/github-pr"
@@ -39,6 +54,7 @@ import {
   applyPrClosedState,
   applyPrMergeState,
   applyPrReopenedState,
+  applySessionPrState,
 } from "@/lib/integrations/pr-sync"
 import {
   CLOSED_PR_RECHECK_WINDOW_MS,
@@ -126,7 +142,46 @@ describe(`runPrPollPass`, () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockRows = []
+    mockSessionRows = []
     capturedWhere = null
+    capturedSessionWhere = null
+  })
+
+  // EXP-734: the chore PR of an action/chat run lives on its session row.
+  it(`polls session-owned PRs with the same transitions and window`, async () => {
+    const now = new Date(`2026-09-04T12:00:00Z`)
+    mockSessionRows = [
+      { sessionId: `s1`, prUrl: PR_URL, prNumber: 7, prState: `open`, teamId: `t1` },
+    ]
+    vi.mocked(fetchPullState).mockResolvedValue({
+      state: `closed`,
+      merged: true,
+      mergedBy: null,
+    })
+    await runPrPollPass(now)
+    const params = sqlParams(capturedSessionWhere)
+    expect(params).toContain(`open`)
+    expect(params).toContain(`closed`)
+    expect(params).toContainEqual(
+      new Date(now.getTime() - CLOSED_PR_RECHECK_WINDOW_MS)
+    )
+    expect(applySessionPrState).toHaveBeenCalledWith({
+      prUrl: PR_URL,
+      state: `merged`,
+    })
+    expect(applyPrMergeState).not.toHaveBeenCalled()
+
+    vi.mocked(applySessionPrState).mockClear()
+    vi.mocked(fetchPullState).mockResolvedValue({
+      state: `closed`,
+      merged: false,
+      mergedBy: null,
+    })
+    await runPrPollPass(now)
+    expect(applySessionPrState).toHaveBeenCalledWith({
+      prUrl: PR_URL,
+      state: `closed`,
+    })
   })
 
   it(`keeps recently-closed PRs in the fetch set within a bounded window`, async () => {

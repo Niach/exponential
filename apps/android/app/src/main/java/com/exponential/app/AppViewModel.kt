@@ -314,16 +314,23 @@ class AppViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     // True while the active team has any open pull request — the Reviews
-    // tab's green "stuff to do" dot (EXP-214). Same query the Reviews screen
-    // lists (team-scoped, open PRs only, trashed filtered).
+    // tab's green "stuff to do" dot (EXP-214). Same queries the Reviews screen
+    // lists (team-scoped, open PRs only, trashed filtered) — including, since
+    // EXP-734, the issueless RUNS whose own PR is open.
     @OptIn(ExperimentalCoroutinesApi::class)
     val reviewsOpen: StateFlow<Boolean> = combine(
         accountDatabaseFlow(auth, databaseHolder),
         teamSelection.selectedId,
     ) { db, teamId -> db to teamId }
         .flatMapLatest { (db, teamId) ->
-            if (db == null || teamId == null) flowOf(false)
-            else db.issueDao().observeOpenPrsByTeam(teamId).map { it.isNotEmpty() }
+            if (db == null || teamId == null) {
+                flowOf(false)
+            } else {
+                combine(
+                    db.issueDao().observeOpenPrsByTeam(teamId),
+                    db.codingSessionDao().observeOpenPrRunsByTeam(teamId),
+                ) { issues, runs -> issues.isNotEmpty() || runs.isNotEmpty() }
+            }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 

@@ -5,6 +5,7 @@ import { SessionMergeButton } from "@/components/session-merge-button"
 
 const mockState = vi.hoisted(() => ({
   mergeMutate: vi.fn(),
+  sessionMergeMutate: vi.fn(),
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -12,6 +13,11 @@ vi.mock(`@/lib/trpc-client`, () => ({
     issues: {
       mergePr: {
         mutate: mockState.mergeMutate,
+      },
+    },
+    codingSessions: {
+      mergePr: {
+        mutate: mockState.sessionMergeMutate,
       },
     },
   },
@@ -51,6 +57,8 @@ describe(`SessionMergeButton`, () => {
   beforeEach(() => {
     mockState.mergeMutate.mockReset()
     mockState.mergeMutate.mockResolvedValue({ merged: true })
+    mockState.sessionMergeMutate.mockReset()
+    mockState.sessionMergeMutate.mockResolvedValue({ merged: true })
   })
 
   it(`renders nothing unless the PR is open`, () => {
@@ -179,7 +187,7 @@ describe(`SessionMergeButton`, () => {
         prState="open"
         prNumber={7}
         issueId="i1"
-        issueUpdatedAt="2026-09-01T10:00:00.000Z"
+        updatedAt="2026-09-01T10:00:00.000Z"
         label="Merge"
         branch="exp/MET-12"
         teamId="t1"
@@ -197,7 +205,7 @@ describe(`SessionMergeButton`, () => {
         prState="open"
         prNumber={7}
         issueId="i1"
-        issueUpdatedAt="2026-09-01T10:05:00.000Z"
+        updatedAt="2026-09-01T10:05:00.000Z"
         label="Merge"
         branch="exp/MET-12"
         teamId="t1"
@@ -214,6 +222,49 @@ describe(`SessionMergeButton`, () => {
     expect(
       screen.getByRole(`button`, { name: `Merge pull request` })
     ).toBeTruthy()
+  })
+
+  // EXP-734: a run's OWN chore PR merges through the session, and the
+  // recovery run cannot take it (the builtin action needs a representative
+  // issue), so a conflict only reports itself.
+  it(`a session target calls codingSessions.mergePr and never swaps to Fix conflicts on a CONFLICT error`, async () => {
+    mockState.sessionMergeMutate.mockRejectedValue(conflictError())
+    render(
+      <SessionMergeButton
+        prState="open"
+        prNumber={7}
+        sessionId="s1"
+        label="Merge"
+        branch="exp/chat-abcd1234"
+        teamId="t1"
+        currentUserId="u1"
+        steerEnabled
+      />
+    )
+
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
+    expect(
+      screen.getByText(/The run's coding session closes unless the team/)
+    ).toBeTruthy()
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
+
+    await waitFor(() =>
+      expect(mockState.sessionMergeMutate).toHaveBeenCalledWith(
+        { sessionId: `s1` },
+        { context: { skipErrorToast: true } }
+      )
+    )
+    expect(mockState.mergeMutate).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>(`button`, {
+          name: `Merge pull request`,
+        }).disabled
+      ).toBe(false)
+    )
+    expect(
+      screen.queryByRole(`button`, { name: `Fix merge conflicts` })
+    ).toBeNull()
   })
 
   it(`keeps the plain Merge button when the caller wired no recovery run`, async () => {

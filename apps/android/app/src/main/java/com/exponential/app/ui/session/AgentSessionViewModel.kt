@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentUsage
+import com.exponential.app.data.api.CodingSessionsApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
@@ -30,10 +31,12 @@ import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
+import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.SlashCommand
 import com.exponential.app.domain.SlashCommands
+import com.exponential.app.domain.resolveMergeTarget
 import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.ui.issue.StartIssueOption
 import com.exponential.app.ui.markdown.AttachmentDims
@@ -73,6 +76,7 @@ class AgentSessionViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val steerApi: SteerApi,
     private val issuesApi: IssuesApi,
+    private val codingSessionsApi: CodingSessionsApi,
     private val store: SteerConnectionStore,
     private val steerLaunch: SteerLaunchDelegate,
     stats: SyncStats,
@@ -271,8 +275,9 @@ class AgentSessionViewModel @Inject constructor(
      * EXP-678: the issue whose PR the Merge pill above the composer merges —
      * this run's own issue, or, for an issueless batch run in review, the
      * batch PR's representative issue resolved client-side (EXP-535: batch
-     * sessions carry no issue linkage, only the branch). An action run merges
-     * nothing, so [isBatchInReview] excludes it and the pill stays hidden.
+     * sessions carry no issue linkage, only the branch). An action or chat run
+     * has no issue at all — since EXP-734 it merges its OWN recorded PR
+     * instead, which [mergeTarget] resolves from the session row.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     val mergeIssue: StateFlow<IssueEntity?> = session
@@ -295,6 +300,22 @@ class AgentSessionViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /**
+     * EXP-734: what the Merge pill actually merges — the run's issue (or a
+     * batch PR's representative), or the SESSION itself for an action / chat
+     * run that opened a PR of its own. Null = nothing to merge, and the pill
+     * stays hidden.
+     */
+    val mergeTarget: StateFlow<MergeTarget?> = combine(session, mergeIssue) { row, issue ->
+        row?.let {
+            resolveMergeTarget(
+                it,
+                issue = if (it.issueId != null) issue else null,
+                batchPrIssue = if (it.issueId == null) issue else null,
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     private val _merging = MutableStateFlow(false)
     val merging: StateFlow<Boolean> = _merging
 
@@ -308,17 +329,24 @@ class AgentSessionViewModel @Inject constructor(
     val mergeError: StateFlow<MergeFailure?> = _mergeError
 
     /**
-     * Squash-merge [mergeIssue]'s PR. The server merges AND ends this session
+     * Squash-merge [mergeTarget]'s PR. The server merges AND ends this session
      * (EXP-498), so there is nothing to change locally: the row flips to
-     * `ended` and the PR to `merged` via Electric, and the screen reacts.
+     * `ended` and the PR to `merged` via Electric, and the screen reacts —
+     * for a run's OWN PR that flip lands on the session row itself (EXP-734).
      */
     fun merge() {
-        val issueId = mergeIssue.value?.id ?: return
+        val target = mergeTarget.value ?: return
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _mergeError.value = null
             _merging.value = true
-            runCatching { issuesApi.mergePr(accountId, issueId) }
+            runCatching {
+                when (target) {
+                    is MergeTarget.Issue -> issuesApi.mergePr(accountId, target.issueId)
+                    is MergeTarget.Session ->
+                        codingSessionsApi.mergePr(accountId, target.sessionId)
+                }
+            }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
                     // Conflicts, branch protection and GitHub App errors are the

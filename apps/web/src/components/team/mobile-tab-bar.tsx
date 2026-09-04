@@ -94,8 +94,14 @@ function SupportDot({ teamId }: { teamId?: string }) {
 // Review green (EXP-214): open PRs are "stuff to do", colored like the
 // in_review issue status. green-500/yellow-400 match the natives'
 // semantic tokens (EXP-699).
-function ReviewsDot({ boards }: { boards: Board[] | undefined }) {
-  const count = useReviewsOpenPrCount(boards)
+function ReviewsDot({
+  boards,
+  teamId,
+}: {
+  boards: Board[] | undefined
+  teamId?: string
+}) {
+  const count = useReviewsOpenPrCount(boards, teamId)
   if (count === 0) return null
   return <TabDot className="bg-green-500" />
 }
@@ -255,7 +261,7 @@ export function MobileTabBar({
           className={tabClass(onReviews)}
         >
           <NavReviewsIcon className="size-5" />
-          <ReviewsDot boards={boards} />
+          <ReviewsDot boards={boards} teamId={team?.id} />
         </Link>
       </nav>
       {/* EXP-631: the Devices tab's FAB slot starts a chat instead of an

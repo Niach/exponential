@@ -14,9 +14,12 @@ import { useNow } from "@/hooks/use-now"
 
 // Open-PR count across the team's boards, matching the Reviews page's
 // entry count: DISTINCT PRs, so a batch PR linked to several issues counts
-// once (EXP-131).
+// once (EXP-131). EXP-734: plus the run PRs that link no issue at all — an
+// action or chat run stamps its own prUrl on the session row, and Reviews
+// lists those under "Agent runs".
 export function useReviewsOpenPrCount(
-  boards: Board[] | undefined
+  boards: Board[] | undefined,
+  teamId?: string
 ): number {
   const boardIds = useMemo(
     () => (boards ?? []).map((board) => board.id),
@@ -36,13 +39,33 @@ export function useReviewsOpenPrCount(
         : undefined,
     [boardIds.join(`,`)]
   )
+  const { data: sessionData } = useLiveQuery(
+    (query) =>
+      teamId
+        ? query
+            .from({ sessions: codingSessionCollection })
+            .where(({ sessions }) =>
+              and(
+                eq(sessions.teamId, teamId),
+                eq(sessions.prState, `open`)
+              )
+            )
+        : undefined,
+    [teamId]
+  )
   return useMemo(() => {
+    // One key space: a run PR's url can never sit on an issue row, and
+    // keying both on prUrl dedupes either way.
     const keys = new Set<string>()
     for (const issue of data ?? []) {
       keys.add(issue.prUrl ?? issue.id)
     }
+    for (const session of (sessionData ?? []) as CodingSession[]) {
+      if (session.issueId != null || !session.prUrl) continue
+      keys.add(session.prUrl)
+    }
     return keys.size
-  }, [data])
+  }, [data, sessionData])
 }
 
 // Live count of the signed-in user's OWN live coding sessions in the team —

@@ -1325,9 +1325,14 @@ impl Render for RailView {
         // EXP-282: the labelled-rail switch (persisted per install).
         let expanded = self.shared.read(cx).rail_expanded;
         let accent = board_accent(&self.nav, cx);
-        // Reviews badge: any open issue-linked PR in the active team.
+        // Reviews badge: any open issue-linked PR in the active team — plus
+        // (EXP-734) any agent run holding a chore PR of its OWN, which no
+        // issue row can account for.
         let has_reviews = active_team_id(&self.nav, cx)
-            .map(|id| !queries::review_issues(cx, &id).is_empty())
+            .map(|id| {
+                !queries::review_issues(cx, &id).is_empty()
+                    || !queries::review_runs(cx, &id).is_empty()
+            })
             .unwrap_or(false);
         // Inbox badge (EXP-699): any unread renderable notification — the
         // primary-tinted dot the mobile tab bars show.

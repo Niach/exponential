@@ -70,6 +70,9 @@ impl ReviewsView {
             subscriptions.push(cx.observe(&collections.issues, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&collections.boards, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&collections.teams, |_, _, cx| cx.notify()));
+            // EXP-734: the "Agent runs" block is a live read over the synced
+            // `coding_sessions` rows (a run's own chore PR lives there).
+            subscriptions.push(cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()));
         }
         // EXP-325: the rows' merge arm/spinner/error live in the shared
         // app-global merge state (any surface can drive them).
@@ -445,6 +448,159 @@ impl ReviewsView {
             .into_any_element()
     }
 
+    /// EXP-734 — one "Agent runs" row: an action or chat run holding a pull
+    /// request of its OWN (nothing links it to an issue, so neither the board
+    /// groups above nor the `repositories.openPulls` fetch below can carry
+    /// it). Shaped like [`Self::pull_row`]: `#N` + the run's name with a
+    /// trailing Merge, the branch as the sub-line, an error caption. Merging
+    /// goes through `codingSessions.mergePr` and is ECHO-settled on the
+    /// session row's `pr_state` — no local removal, unlike an unlinked pull.
+    /// Clicking the row opens the PR on GitHub; there is no local detail
+    /// behind it either.
+    fn run_row(
+        &self,
+        run: &domain::rows::CodingSession,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let fg = theme.foreground;
+        let muted = theme.muted_foreground;
+        let danger = theme.danger;
+        let row_hover = theme.list_active.opacity(0.5);
+        let pr_green = theme::tokens::GREEN.to_hsla();
+
+        let key = crate::pr_merge::session_merge_key(&run.id);
+        let (merging, armed, error) = {
+            let state = MergeState::global(cx);
+            let state = state.read(cx);
+            (state.merging(&key), state.armed(&key), state.error(&key))
+        };
+
+        let number = match run.pr_number {
+            Some(number) => format!("#{number}"),
+            None => String::new(),
+        };
+        // A chat run has no action behind it — web/mobile label it "Chat".
+        let title = run
+            .action_name
+            .clone()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| "Chat".to_string());
+        let sub = run
+            .branch
+            .clone()
+            .filter(|branch| !branch.is_empty());
+
+        let merge_button = {
+            let mut button = Button::new(SharedString::from(format!("run-merge-{}", run.id)))
+                .web_sm()
+                .outline()
+                .cursor_pointer();
+            if merging {
+                button = button.label("Merging…").loading(true).disabled(true);
+            } else if armed {
+                button = button.label("Confirm merge").danger().cursor_pointer();
+            } else {
+                button = button.icon(Icon::new(registry::PR_MERGED)).label("Merge");
+            }
+            let session_id = run.id.clone();
+            button.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                // Echo-settled: the row leaves this list when its synced
+                // `pr_state` flips off `open` — nothing is removed locally.
+                crate::pr_merge::two_click(
+                    MergeOp::MergeSessionPr {
+                        session_id: session_id.clone(),
+                    },
+                    None,
+                    None,
+                    cx,
+                );
+            }))
+        };
+
+        let url = run.pr_url.clone().unwrap_or_default();
+        crate::surface::glass_row_card()
+            .id(SharedString::from(format!("run-{}", run.id)))
+            .flex()
+            .flex_row()
+            .items_center()
+            .w_full()
+            .min_w_0()
+            .px_3()
+            .py_2p5()
+            .gap_2()
+            .hover(move |this| this.bg(row_hover))
+            .cursor_pointer()
+            .on_click(cx.listener(move |_, _, _, cx| {
+                MergeState::disarm(cx);
+                if !url.is_empty() {
+                    crate::settings::open_url(cx, url.clone());
+                }
+            }))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap_0p5()
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .min_w_0()
+                            .items_center()
+                            .gap_1p5()
+                            .child(
+                                Icon::from(ExpIcon::GitPullRequest)
+                                    .xsmall()
+                                    .flex_shrink_0()
+                                    .text_color(pr_green),
+                            )
+                            .when(!number.is_empty(), |this| {
+                                this.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .text_xs()
+                                        .text_color(muted)
+                                        .font_family(theme::terminal::FONT_FAMILY)
+                                        .child(SharedString::from(number.clone())),
+                                )
+                            })
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_xs()
+                                    .truncate()
+                                    .text_color(fg)
+                                    .child(SharedString::from(title)),
+                            ),
+                    )
+                    .when_some(sub, |this, branch| {
+                        this.child(
+                            div()
+                                .pl_5()
+                                .text_xs()
+                                .truncate()
+                                .font_family(theme::terminal::FONT_FAMILY)
+                                .text_color(muted)
+                                .child(SharedString::from(branch)),
+                        )
+                    })
+                    .when_some(error, |this, message| {
+                        this.child(
+                            div()
+                                .pl_5()
+                                .text_xs()
+                                .truncate()
+                                .text_color(danger)
+                                .child(SharedString::from(message)),
+                        )
+                    }),
+            )
+            .child(merge_button)
+            .into_any_element()
+    }
+
     /// One unlinked-PR row: `#N` + title with a trailing Merge button
     /// (disabled for drafts — GitHub refuses those), sub-line `branch → base`,
     /// optional Draft pill and error caption. Clicking the row opens the PR on
@@ -620,6 +776,13 @@ impl Render for ReviewsView {
             .as_deref()
             .map(|id| queries::review_groups(cx, id))
             .unwrap_or_default();
+        // EXP-734: runs holding a PR of their own — no issue links them, and
+        // the server excludes them from `repositories.openPulls`, so this
+        // synced read is the only place they surface.
+        let runs = team_id
+            .as_deref()
+            .map(|id| queries::review_runs(cx, id))
+            .unwrap_or_default();
         let pull_repos: Vec<api::repositories::OpenPullsRepo> = self
             .open_pulls
             .as_ref()
@@ -652,7 +815,7 @@ impl Render for ReviewsView {
                 .child(Skeleton::new().h_3p5().w_40())
                 .child(Skeleton::new().h_3p5().w_48())
                 .child(Skeleton::new().h_3p5().w_32())
-        } else if groups.is_empty() && pull_repos.is_empty() {
+        } else if groups.is_empty() && runs.is_empty() && pull_repos.is_empty() {
             // EXP-525: the web `EmptyState` (icon disc + title + description).
             v_flex().min_w_0().child(crate::controls::empty_state(
                 Icon::from(ExpIcon::GitPullRequest),
@@ -700,6 +863,52 @@ impl Render for ReviewsView {
                 );
                 for entry in &group.entries {
                     block = block.child(self.review_row(entry, cx));
+                }
+                children.push(block.into_any_element());
+            }
+            // EXP-734: between the board groups and the external pulls — a
+            // run's own PR is the team's work (unlike an outside contributor's
+            // branch), but it completes no issue, so it gets its own block.
+            if !runs.is_empty() {
+                let mut block = v_flex().min_w_0().gap_2().pb_2().child(
+                    h_flex()
+                        .min_w_0()
+                        .px_1()
+                        .pt_1()
+                        .gap_1p5()
+                        .items_center()
+                        .child(
+                            Icon::new(registry::UI_AGENT_SOURCE)
+                                .xsmall()
+                                .flex_shrink_0()
+                                .text_color(heading_fg.opacity(0.7)),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .text_sm()
+                                .truncate()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(heading_fg.opacity(0.7))
+                                .child("Agent runs"),
+                        )
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_xs()
+                                .text_color(heading_fg.opacity(0.5))
+                                .child(SharedString::from(format!("{}", runs.len()))),
+                        )
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_xs()
+                                .text_color(muted.opacity(0.8))
+                                .child("not linked to an issue"),
+                        ),
+                );
+                for run in &runs {
+                    block = block.child(self.run_row(run, cx));
                 }
                 children.push(block.into_any_element());
             }

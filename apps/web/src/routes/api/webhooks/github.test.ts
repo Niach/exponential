@@ -89,6 +89,7 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrReopenedState: vi.fn(async () => {}),
   findIssueIdByBranch: vi.fn(async () => null),
   endSessionsOnMergedBranch: vi.fn(async () => {}),
+  applySessionPrState: vi.fn(async () => ({ endedSessionIds: [] })),
 }))
 // EXP-617: the resolver itself (bot filter, id-over-login rule) is covered in
 // github-identity.test.ts — here we only assert WHICH actor the webhook hands
@@ -305,6 +306,38 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
       `exp/batch-a1b2c3d4`,
       undefined
     )
+    // EXP-734: the run's own PR row (pr_url on coding_sessions) is flipped
+    // to merged on the same delivery, with no override to carry.
+    expect(prSyncMock.applySessionPrState).toHaveBeenCalledWith({
+      prUrl: HTML_URL,
+      state: `merged`,
+    })
+  })
+
+  it(`closed / reopened flip the session-PR state alongside the issues (EXP-734)`, async () => {
+    h.selectQueue.push([])
+    await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        pullRequestPayload({ action: `closed`, merged: false })
+      ),
+    })
+    expect(prSyncMock.applySessionPrState).toHaveBeenCalledWith({
+      prUrl: HTML_URL,
+      state: `closed`,
+    })
+
+    h.selectQueue.push([])
+    await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        pullRequestPayload({ action: `reopened` })
+      ),
+    })
+    expect(prSyncMock.applySessionPrState).toHaveBeenCalledWith({
+      prUrl: HTML_URL,
+      state: `open`,
+    })
   })
 
   it(`opened out-of-band links every resolved issue`, async () => {

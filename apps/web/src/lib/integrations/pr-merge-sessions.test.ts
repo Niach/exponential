@@ -25,6 +25,18 @@ const h = vi.hoisted(() => ({
 
 function fakeTx() {
   return {
+    // EXP-734: applySessionPrState reads the live rows to end INSIDE its
+    // transaction — same recorder as the db-level select.
+    select: () => {
+      const chain = {
+        innerJoin: () => chain,
+        where: (where: unknown) => {
+          h.selectWheres.push(where)
+          return Promise.resolve(h.selectRows)
+        },
+      }
+      return { from: () => chain }
+    },
     update: () => ({
       set: (set: Record<string, unknown>) => ({
         where: (where: unknown) => ({
@@ -63,6 +75,7 @@ vi.mock(`@/lib/steer-child-messages`, () => ({
 }))
 
 import {
+  applySessionPrState,
   endLiveIssueSessionsInTx,
   endMergedPrSessions,
   endSessionsOnMergedBranch,
@@ -311,5 +324,127 @@ describe(`endSessionsOnMergedBranch`, () => {
     await endSessionsOnMergedBranch(`org/repo`, BRANCH, true)
     expect(whereShape(h.selectWheres[0])).toEqual([`col:full_name`, `org/repo`])
     expect(h.updates).toHaveLength(1)
+  })
+})
+
+// EXP-734: a run's own chore PR lives on its session row. The writer flips
+// `pr_state` along the PR lifecycle and, on a merge, ends the live rows on
+// that PR the way every other merge path does.
+describe(`applySessionPrState`, () => {
+  const PR_URL = `https://github.com/org/repo/pull/12`
+
+  it(`flips the row to merged, ends the live runs on the PR and relays one kill each`, async () => {
+    h.selectRows = [{ id: `sess-1` }]
+    h.returning = [{ id: `sess-1` }]
+
+    const result = await applySessionPrState({ prUrl: PR_URL, state: `merged` })
+
+    expect(result).toEqual({ endedSessionIds: [`sess-1`] })
+    expect(h.updates).toHaveLength(2)
+    // The state flip addresses only issue-less rows on the url and never
+    // re-applies a terminal merge.
+    expect(h.updates[0]!.set).toMatchObject({ prState: `merged` })
+    expect(whereShape(h.updates[0]!.where)).toEqual([
+      `col:pr_url`,
+      PR_URL,
+      `col:issue_id`,
+      `col:pr_state`,
+      `col:pr_state`,
+      `merged`,
+    ])
+    // The end candidates: live, not the self-merge spare, team still ends
+    // sessions on merge (no override).
+    expect(whereShape(h.selectWheres[0])).toEqual([
+      `col:pr_url`,
+      PR_URL,
+      `col:issue_id`,
+      `col:status`,
+      `running`,
+      `in_review`,
+      `col:merged_own_pr`,
+      false,
+      `col:end_sessions_on_merge`,
+      true,
+    ])
+    expect(h.updates[1]!.set).toMatchObject({
+      status: `ended`,
+      endedAt: expect.any(Date),
+      endedBy: `merge`,
+      updatedAt: expect.any(Date),
+    })
+    expect(whereShape(h.updates[1]!.where)).toEqual([
+      `col:id`,
+      `sess-1`,
+      `col:status`,
+      `running`,
+      `in_review`,
+    ])
+    expect(h.relayPostKill).toHaveBeenCalledTimes(1)
+    expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), `sess-1`)
+    expect(h.notifyParentOfChildEnd).toHaveBeenCalledWith(
+      expect.anything(),
+      `sess-1`,
+      { summary: null, endedBy: `merge` }
+    )
+  })
+
+  it(`ends nothing when no live row sits on the PR (idempotent re-run)`, async () => {
+    h.selectRows = []
+    const result = await applySessionPrState({ prUrl: PR_URL, state: `merged` })
+    expect(result).toEqual({ endedSessionIds: [] })
+    expect(h.updates).toHaveLength(1)
+    expect(h.relayPostKill).not.toHaveBeenCalled()
+  })
+
+  // EXP-711: the merger's per-call override.
+  it(`honours the endSessions override either way`, async () => {
+    await applySessionPrState({ prUrl: PR_URL, state: `merged`, endSessions: false })
+    expect(h.updates).toHaveLength(1)
+    expect(h.selectWheres).toHaveLength(0)
+
+    h.selectRows = [{ id: `sess-1` }]
+    h.returning = [{ id: `sess-1` }]
+    await applySessionPrState({ prUrl: PR_URL, state: `merged`, endSessions: true })
+    expect(whereShape(h.selectWheres[0])).toEqual([
+      `col:pr_url`,
+      PR_URL,
+      `col:issue_id`,
+      `col:status`,
+      `running`,
+      `in_review`,
+      `col:merged_own_pr`,
+      false,
+    ])
+    expect(h.updates).toHaveLength(3)
+  })
+
+  it(`closed and open flip the state only, along the open⇄closed lifecycle`, async () => {
+    await applySessionPrState({ prUrl: PR_URL, state: `closed` })
+    expect(h.updates).toHaveLength(1)
+    expect(h.updates[0]!.set).toMatchObject({ prState: `closed` })
+    expect(whereShape(h.updates[0]!.where)).toEqual([
+      `col:pr_url`,
+      PR_URL,
+      `col:issue_id`,
+      `col:pr_state`,
+      `open`,
+    ])
+
+    await applySessionPrState({ prUrl: PR_URL, state: `open` })
+    expect(h.updates).toHaveLength(2)
+    expect(whereShape(h.updates[1]!.where)).toEqual([
+      `col:pr_url`,
+      PR_URL,
+      `col:issue_id`,
+      `col:pr_state`,
+      `closed`,
+    ])
+    expect(h.selectWheres).toHaveLength(0)
+    expect(h.relayPostKill).not.toHaveBeenCalled()
+  })
+
+  it(`is a no-op for a blank url`, async () => {
+    await applySessionPrState({ prUrl: ``, state: `merged` })
+    expect(h.updates).toHaveLength(0)
   })
 })

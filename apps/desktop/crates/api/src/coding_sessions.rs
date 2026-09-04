@@ -71,6 +71,15 @@ pub struct CodingSession {
     pub ended_by: Option<String>,
     #[serde(default)]
     pub summary: Option<String>,
+    /// EXP-734: the run's OWN chore pull request (an action/chat run whose PR
+    /// links no issue). All `None` on issue/batch rows — their PR lives on
+    /// the issue(s) — and on pre-EXP-734 servers.
+    #[serde(default)]
+    pub pr_url: Option<String>,
+    #[serde(default)]
+    pub pr_number: Option<i64>,
+    #[serde(default)]
+    pub pr_state: Option<String>,
     #[serde(default)]
     pub started_at: Option<String>,
     #[serde(default)]
@@ -423,6 +432,28 @@ pub fn start_action(
         },
     )?;
     Ok(envelope.session)
+}
+
+/// `codingSessions.mergePr` — EXP-734: squash-merge the pull request a run
+/// opened for ITSELF (an action or chat run whose PR links no issue), through
+/// the same GitHub-App path as [`crate::issues::merge_pr`]. Guard failures
+/// (no PR on the row, PR not open, GitHub-side rejection) surface as
+/// [`ApiError::Http`] with the server's user-facing message.
+///
+/// The server flips the row's `pr_state` to `merged` — and ends the run
+/// unless the team keeps sessions alive on merge — so clients settle the
+/// merge off the Electric echo, never off this return. Blocking; background
+/// executor only (§3.5).
+pub fn merge_pr(
+    trpc: &TrpcClient,
+    session_id: &str,
+) -> Result<crate::issues::MergeResult, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        session_id: &'a str,
+    }
+    trpc.mutation("codingSessions.mergePr", &Input { session_id })
 }
 
 /// `codingSessions.end` — mutation, idempotent server-side.
@@ -1100,5 +1131,51 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/codingSessions.end HTTP/1.1"));
         assert!(request.ends_with(r#"{"id":"sess-1"}"#));
+    }
+
+    /// EXP-734: a run's own chore PR merges by SESSION id — the input carries
+    /// nothing else (the server owns the end-sessions policy).
+    #[test]
+    fn merge_pr_posts_the_session_id_and_decodes_the_result() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"merged":true}}}"#);
+        let out = merge_pr(&client(&base), "sess-1").unwrap();
+        assert!(out.merged);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/codingSessions.mergePr HTTP/1.1"));
+        assert!(request.ends_with(r#"{"sessionId":"sess-1"}"#));
+    }
+
+    /// Guard failures read like `issues.mergePr`'s — PRECONDITION_FAILED with
+    /// the user-facing message the surfaces caption verbatim.
+    #[test]
+    fn merge_pr_guard_failure_surfaces_the_server_message() {
+        let (base, _captured) = one_shot_server(
+            412,
+            r#"{"error":{"message":"This session has no linked pull request","code":-32603,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
+        );
+        match merge_pr(&client(&base), "sess-1") {
+            Err(ApiError::Http { status, message }) => {
+                assert_eq!(status, 412);
+                assert!(message.contains("no linked pull request"));
+            }
+            other => panic!("expected Http error, got {other:?}"),
+        }
+    }
+
+    /// The tRPC mirror decodes the run's own PR fields (JSON numbers here —
+    /// only the Electric wire TEXT-stores integers).
+    #[test]
+    fn session_decodes_its_own_chore_pr() {
+        let (base, _captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-1","status":"in_review","prUrl":"https://github.com/o/r/pull/12","prNumber":12,"prState":"open"}}}}"#,
+        );
+        let session = end(&client(&base), "sess-1").unwrap();
+        assert_eq!(session.pr_number, Some(12));
+        assert_eq!(session.pr_state.as_deref(), Some("open"));
+        assert_eq!(
+            session.pr_url.as_deref(),
+            Some("https://github.com/o/r/pull/12")
+        );
     }
 }

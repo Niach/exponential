@@ -1939,6 +1939,10 @@ describe(`exponential_pr_open — repositoryId path`, () => {
       status: `in_review`,
       branch: `exp/chat-1a2b3c4d`,
       needsInput: false,
+      // EXP-734: the run IS the link — the PR lands on the session row.
+      prUrl: `https://github.com/acme/app/pull/9`,
+      prNumber: 9,
+      prState: `open`,
     })
     const { sql, params } = new PgDialect().sqlToQuery(
       updates[0]!.where as never
@@ -2449,7 +2453,7 @@ describe(`exponential_sessions_list`, () => {
     for (const column of SERVER_ONLY_SESSION_COLUMNS) {
       expect(projection).not.toContain(column)
     }
-    for (const column of [`id`, `issueId`, `issueIdentifier`, `summary`, `endedBy`, `branch`, `deviceId`]) {
+    for (const column of [`id`, `issueId`, `issueIdentifier`, `summary`, `endedBy`, `branch`, `deviceId`, `prUrl`, `prNumber`, `prState`]) {
       expect(projection).toContain(column)
     }
 

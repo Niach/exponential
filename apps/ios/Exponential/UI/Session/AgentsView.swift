@@ -59,7 +59,7 @@ struct AgentsView: View {
     // the confirm target, the in-flight rows, and the per-row failure caption
     // (inline like the Reviews rows, EXP-323 — never a modal the tab bar can
     // cover).
-    @State private var mergeTarget: MergeTarget?
+    @State private var mergeConfirm: MergeConfirmTarget?
     @State private var merging: Set<String> = []
     @State private var mergeErrors: [String: MergeFailure] = [:]
     // "Fix conflicts" (EXP-486, Reviews parity EXP-323): a refused merge is
@@ -76,11 +76,12 @@ struct AgentsView: View {
     @State private var canEditActions = false
 
     /// The row a merge confirm is pending for. Only the ids are captured —
-    /// the alert copy is fixed, and the row itself may re-sync underneath
-    /// the alert.
-    private struct MergeTarget: Identifiable {
+    /// the row itself may re-sync underneath the alert. EXP-734: the target
+    /// says WHICH mutation merges it (the issue's PR, or the run's own
+    /// issue-less one) and picks the alert's copy.
+    private struct MergeConfirmTarget: Identifiable {
         let rowId: String
-        let issueId: String
+        let target: MergeTarget
         var id: String { rowId }
     }
 
@@ -265,15 +266,22 @@ struct AgentsView: View {
         .alert(
             "Merge pull request?",
             isPresented: Binding(
-                get: { mergeTarget != nil },
-                set: { if !$0 { mergeTarget = nil } }
+                get: { mergeConfirm != nil },
+                set: { if !$0 { mergeConfirm = nil } }
             ),
-            presenting: mergeTarget
-        ) { target in
-            Button("Merge", role: .destructive) { merge(target) }
-            Button("Cancel", role: .cancel) { mergeTarget = nil }
-        } message: { _ in
-            Text("Merges the pull request, completes every linked issue, and closes the coding session.")
+            presenting: mergeConfirm
+        ) { confirm in
+            Button("Merge", role: .destructive) { merge(confirm) }
+            Button("Cancel", role: .cancel) { mergeConfirm = nil }
+        } message: { confirm in
+            // EXP-734: a run's OWN pull request links no issue, so promising
+            // completed issues would be a lie.
+            switch confirm.target {
+            case .issue:
+                Text("Merges the pull request, completes every linked issue, and closes the coding session.")
+            case .session:
+                Text("Merges this run's pull request and closes the coding session.")
+            }
         }
     }
 
@@ -756,9 +764,7 @@ struct AgentsView: View {
             // batch rows merge through their resolved PR's representative
             // issue — same button, same server call (the server resolves a
             // batch PR to EVERY linked issue by exact pr_url).
-            if let prIssue = row.issue ?? row.batchPrIssue,
-                prIssue.prState == DomainContract.prStateOpen
-            {
+            if let target = row.mergeTarget {
                 if merging.contains(row.id) {
                     ProgressView()
                         .controlSize(.mini)
@@ -767,7 +773,7 @@ struct AgentsView: View {
                         .accessibilityLabel("Merging")
                 } else {
                     CircleIconButton(AppIcons.prMerged, accessibilityLabel: "Merge") {
-                        mergeTarget = MergeTarget(rowId: row.id, issueId: prIssue.id)
+                        mergeConfirm = MergeConfirmTarget(rowId: row.id, target: target)
                     }
                 }
             }
@@ -911,20 +917,30 @@ struct AgentsView: View {
     /// No local list surgery: the server flips the row to `ended`, which drops
     /// it out of the live query through sync. A refusal (conflicts, branch
     /// protection) captions THIS row.
-    private func merge(_ target: MergeTarget) {
-        mergeTarget = nil
-        mergeErrors[target.rowId] = nil
-        merging.insert(target.rowId)
+    private func merge(_ confirm: MergeConfirmTarget) {
+        mergeConfirm = nil
+        mergeErrors[confirm.rowId] = nil
+        merging.insert(confirm.rowId)
         Task {
             do {
-                try await deps.issuesApi.mergePr(
-                    accountId: accountId,
-                    issueId: target.issueId
-                )
+                // EXP-734: an action or chat run's PR links no issue — it
+                // merges through the session row the server stamped it on.
+                switch confirm.target {
+                case let .issue(issueId):
+                    try await deps.issuesApi.mergePr(
+                        accountId: accountId,
+                        issueId: issueId
+                    )
+                case let .session(sessionId):
+                    try await deps.codingSessionsApi.mergePr(
+                        accountId: accountId,
+                        sessionId: sessionId
+                    )
+                }
             } catch {
-                mergeErrors[target.rowId] = MergeFailure(error: error)
+                mergeErrors[confirm.rowId] = MergeFailure(error: error)
             }
-            merging.remove(target.rowId)
+            merging.remove(confirm.rowId)
         }
     }
 
@@ -934,8 +950,10 @@ struct AgentsView: View {
         // pulsing-green "Coding now": review green, done blue (once the PR
         // merges), needs-input amber while the agent waits on a picker
         // (EXP-194/EXP-214).
+        // EXP-734: a run that opened its own issue-less PR carries the state
+        // on its OWN row — otherwise a merged chore PR still read "review".
         let state = CodingSessionDisplayState.of(
-            session: row.session, prState: row.issue?.prState
+            session: row.session, prState: row.issue?.prState ?? row.session.prState
         )
         // EXP-550: the host machine stopped heartbeating (lid closed) — the
         // run is PAUSED, not ended, and resumes when the machine returns. A

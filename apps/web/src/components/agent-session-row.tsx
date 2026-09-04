@@ -3,7 +3,11 @@ import { Link } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { ChevronDown, LoaderCircle } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
-import type { AgentSessionRow } from "@/hooks/use-agents-data"
+import {
+  mergeTargetProps,
+  rowPrState,
+  type AgentSessionRow,
+} from "@/hooks/use-agents-data"
 import type { CodingSession, SyncedAction } from "@/db/schema"
 import {
   sessionDisplayState,
@@ -118,10 +122,11 @@ export function SessionRow({
   const { session, issue, board } = row
   const isAction = session.actionName != null
   const isBatch = !session.issueId
-  // EXP-535: batch rows merge through their resolved PR's representative
-  // issue (use-agents-data) — same button, same server call as issue rows.
-  const prIssue = issue ?? row.batchPrIssue
-  const displayState = sessionDisplayState(session, issue?.prState)
+  // EXP-535/EXP-734: batch rows merge through their resolved PR's
+  // representative issue, an issue-less run through its own chore PR row
+  // (use-agents-data) — same button either way.
+  const mergeTarget = row.mergeTarget
+  const displayState = sessionDisplayState(session, rowPrState(session, issue))
   // EXP-549/550: the host machine per the synced devices row — its RENAMED
   // label, and greyed-out "Paused" while it is offline (the agent is parked,
   // not gone; it resumes when the machine comes back).
@@ -197,14 +202,9 @@ export function SessionRow({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        {prIssue && (
+        {mergeTarget && (
           <SessionMergeButton
-            prState={prIssue.prState}
-            prNumber={prIssue.prNumber}
-            issueId={prIssue.id}
-            issueUpdatedAt={prIssue.updatedAt}
-            branch={prIssue.branch}
-            teamId={prIssue.teamId}
+            {...mergeTargetProps(mergeTarget)}
             currentUserId={currentUserId}
             steerEnabled={steerEnabled}
           />

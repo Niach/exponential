@@ -268,6 +268,9 @@ struct MainNavigator: View {
     // EXP-214: open-PR issues — the Reviews tab's green dot, scoped to the
     // active team via `reviewsOpen`.
     @State private var observedOpenPrIssues: [IssueEntity] = []
+    // EXP-734: issue-less runs parking their OWN open PR — they light the same
+    // dot, and no board can ever carry them.
+    @State private var observedOpenPrSessions: [CodingSessionEntity] = []
     // Raw observed running-session rows — cached so the liveness ticker can
     // recompute `agentsRunning` between sync deltas (EXP-153).
     @State private var observedSessions: [CodingSessionEntity] = []
@@ -495,7 +498,11 @@ struct MainNavigator: View {
         let teamBoardIds = Set(
             teamState.boards.filter { $0.teamId == teamId }.map(\.id)
         )
-        return observedOpenPrIssues.contains { teamBoardIds.contains($0.boardId) }
+        if observedOpenPrIssues.contains(where: { teamBoardIds.contains($0.boardId) }) {
+            return true
+        }
+        // EXP-734: a run's own chore PR belongs to the team, not a board.
+        return observedOpenPrSessions.contains { $0.teamId == teamId && $0.hasOpenPr }
     }
 
     private var isOnMyWork: Bool {
@@ -799,7 +806,26 @@ struct MainNavigator: View {
                 }
             } catch {}
         }
-        observationTasks = [wsTask, projTask, notifTask, sessionTask, livenessTask, openPrTask]
+        // EXP-734: an action or chat run's own PR links no issue — it lives on
+        // the session row, and lights the same dot (the Reviews screen lists
+        // it in its own section).
+        let openPrSessionObs = ValueObservation.tracking { db in
+            try CodingSessionEntity
+                .filter(Column("issue_id") == nil)
+                .filter(Column("pr_state") == DomainContract.prStateOpen)
+                .fetchAll(db)
+        }
+        let openPrSessionTask = Task { @MainActor in
+            do {
+                for try await sessions in openPrSessionObs.values(in: pool) {
+                    observedOpenPrSessions = sessions
+                }
+            } catch {}
+        }
+        observationTasks = [
+            wsTask, projTask, notifTask, sessionTask, livenessTask, openPrTask,
+            openPrSessionTask,
+        ]
     }
 
     /// The Agents tab's dots, from the cached own sessions: live in the ACTIVE

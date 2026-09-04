@@ -111,6 +111,7 @@ import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.COMPACTED_LABEL
 import com.exponential.app.domain.COMPACTING_LABEL
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.insertImageMarker
 import com.exponential.app.domain.SteerMessageSegment
@@ -237,6 +238,9 @@ fun AgentSessionScreen(
     // EXP-678: the issue whose open PR the Merge pill above the composer
     // merges — null for a run with nothing to merge (see the VM).
     val mergeIssue by viewModel.mergeIssue.collectAsStateWithLifecycle()
+    // EXP-734: an action or chat run merges its OWN PR (no issue), so the
+    // pill gates on the resolved target, not on an issue's prState.
+    val mergeTarget by viewModel.mergeTarget.collectAsStateWithLifecycle()
     val merging by viewModel.merging.collectAsStateWithLifecycle()
     val mergeError by viewModel.mergeError.collectAsStateWithLifecycle()
     // EXP-706: a conflict-refused merge swaps the bar's pill for the builtin
@@ -609,16 +613,20 @@ fun AgentSessionScreen(
                 // merge ends the session server-side (EXP-498), so it retires
                 // itself.
                 val diff = latestDiff
-                val canMerge = mergeIssue?.prState == DomainContract.prStateOpen &&
+                val canMerge = mergeTarget != null &&
                     !sessionEnded && phase !is AgentPhase.Ended
                 // EXP-706: a REAL conflict on a PR whose branch we recorded
                 // (EXP-533's rule) REPLACES the Merge pill with the recovery
                 // run — one slot, one thing that can move the PR forward.
-                val canFixConflicts = canMerge && canOfferFixConflicts(
-                    mergeError,
-                    mergeIssue?.branch,
-                    steerEnabled = steerLaunchEnabled == true,
-                )
+                // EXP-734: the recovery run takes an issue-linked PR, so it is
+                // offered for an ISSUE target only.
+                val canFixConflicts = canMerge &&
+                    mergeTarget is MergeTarget.Issue &&
+                    canOfferFixConflicts(
+                        mergeError,
+                        mergeIssue?.branch,
+                        steerEnabled = steerLaunchEnabled == true,
+                    )
                 val barVisible = diff != null || canMerge
                 // A retired bar owes the feed its height back.
                 LaunchedEffect(barVisible) { if (!barVisible) barHeightPx = 0 }
@@ -1086,7 +1094,16 @@ fun AgentSessionScreen(
             onDismissRequest = { mergeConfirmOpen = false },
             title = { Text("Merge pull request?") },
             text = {
-                Text("Merges the pull request, completes every linked issue, and closes the coding session.")
+                Text(
+                    // EXP-734: a run's own PR completes no issue at all.
+                    when (mergeTarget) {
+                        is MergeTarget.Session ->
+                            "Merges this run's pull request and closes the coding session."
+                        else ->
+                            "Merges the pull request, completes every linked issue, " +
+                                "and closes the coding session."
+                    },
+                )
             },
             confirmButton = {
                 TextButton(

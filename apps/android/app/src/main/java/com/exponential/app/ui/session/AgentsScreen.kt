@@ -47,6 +47,7 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
+import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.codingSessionDisplayState
@@ -142,8 +143,9 @@ fun AgentsScreen(
     var removeTarget by remember { mutableStateOf<SteerDevice?>(null) }
 
     // The row whose merge is awaiting confirmation (EXP-498: merging always
-    // closes the session).
-    var mergeTarget by remember { mutableStateOf<AgentRow?>(null) }
+    // closes the session). Named for the ROW, not the target — EXP-734 gave
+    // the merge itself a MergeTarget (issue or session) the row carries.
+    var mergeConfirmRow by remember { mutableStateOf<AgentRow?>(null) }
 
     // The issue whose "Fix conflicts" sheet is open (EXP-486, Reviews parity
     // EXP-323): a refused merge is usually a conflict, so the failing row's
@@ -261,6 +263,10 @@ fun AgentsScreen(
                             // — the server resolves a batch PR to ALL linked
                             // issues (Reviews pattern).
                             val mergeIssue = row.issue ?: row.batchPrIssue
+                            // EXP-734: only an issue target can be handed to
+                            // the "Fix merge conflicts" run (its input IS an
+                            // issue-linked PR); a run's own PR has no issue.
+                            val issueMergeTarget = row.mergeTarget as? MergeTarget.Issue
                             // EXP-694 (S6): the trailing control names what the
                             // run is about — an issue's identifier, or the
                             // action/automation's own glyph. A chat or batch
@@ -283,9 +289,11 @@ fun AgentsScreen(
                                 session = row.session,
                                 issue = row.issue,
                                 device = row.device,
-                                mergeIssue = mergeIssue,
-                                merging = mergeIssue?.id in merging,
-                                failure = mergeIssue?.id?.let(mergeErrors::get),
+                                // EXP-734: what Merge acts on — the issue, or
+                                // (an action/chat run's own PR) the session.
+                                mergeTarget = row.mergeTarget,
+                                merging = row.mergeTarget?.key in merging,
+                                failure = row.mergeTarget?.key?.let(mergeErrors::get),
                                 onClick = {
                                     // Every listed row is the caller's own
                                     // (EXP-312), so steer availability alone
@@ -317,17 +325,23 @@ fun AgentsScreen(
                                         row.session.actionId?.let { editActionId = it }
                                     }
                                 },
-                                onMerge = { mergeTarget = row },
+                                onMerge = { mergeConfirmRow = row },
                                 // A REAL conflict only (EXP-533); the recovery
                                 // run rebases the PR's branch, so it needs one
                                 // recorded — the same gate as the Reviews rows
                                 // (EXP-323), plus a reachable machine to run on.
-                                canFixConflicts = canOfferFixConflicts(
-                                    mergeIssue?.id?.let(mergeErrors::get),
-                                    mergeIssue?.branch,
-                                    steerEnabled = steerOn,
-                                ),
-                                onFixConflicts = { fixTargetIssueId = mergeIssue?.id },
+                                // EXP-734: only an ISSUE target can be
+                                // rebased by the recovery run — it takes the
+                                // PR's representative issue as its input.
+                                canFixConflicts = issueMergeTarget != null &&
+                                    canOfferFixConflicts(
+                                        mergeErrors[issueMergeTarget.key],
+                                        mergeIssue?.branch,
+                                        steerEnabled = steerOn,
+                                    ),
+                                onFixConflicts = {
+                                    fixTargetIssueId = issueMergeTarget?.issueId
+                                },
                             )
                         }
                     }
@@ -450,25 +464,35 @@ fun AgentsScreen(
 
     // EXP-498: merging always closes the session too, so the merge is
     // confirm-gated — same shape as the Reviews dialog.
-    mergeTarget?.let { row ->
-        // EXP-535: a batch row merges through its resolved representative issue.
-        val issueId = (row.issue ?: row.batchPrIssue)?.id
+    mergeConfirmRow?.let { row ->
+        // EXP-535: a batch row merges through its resolved representative
+        // issue. EXP-734: an action or chat run merges its OWN PR, which
+        // completes no issue at all — so the copy follows the target.
+        val target = row.mergeTarget
         AlertDialog(
-            onDismissRequest = { mergeTarget = null },
+            onDismissRequest = { mergeConfirmRow = null },
             title = { Text("Merge pull request?") },
             text = {
-                Text("Merges the pull request, completes every linked issue, and closes the coding session.")
+                Text(
+                    when (target) {
+                        is MergeTarget.Session ->
+                            "Merges this run's pull request and closes the coding session."
+                        else ->
+                            "Merges the pull request, completes every linked issue, " +
+                                "and closes the coding session."
+                    },
+                )
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        issueId?.let(viewModel::merge)
-                        mergeTarget = null
+                        target?.let(viewModel::merge)
+                        mergeConfirmRow = null
                     },
                 ) { Text("Merge") }
             },
             dismissButton = {
-                TextButton(onClick = { mergeTarget = null }) { Text("Cancel") }
+                TextButton(onClick = { mergeConfirmRow = null }) { Text("Cancel") }
             },
         )
     }
@@ -768,10 +792,11 @@ private fun AgentSessionRow(
     // EXP-549/550: the host machine resolved against its live devices row —
     // the current label, and offline = the run is paused until it returns.
     device: SessionDevicePresentation,
-    // EXP-535: the issue the merge shortcut acts through — the linked issue,
-    // or a batch row's client-resolved representative (AgentRow.batchPrIssue).
+    // EXP-734: what the merge shortcut acts on — the linked issue, a batch
+    // row's client-resolved representative (EXP-535), or, for an action/chat
+    // run that opened a PR of its own, the SESSION. Null = nothing to merge.
     // The label/status rendering keeps reading [issue] alone.
-    mergeIssue: IssueEntity?,
+    mergeTarget: MergeTarget?,
     merging: Boolean,
     failure: MergeFailure?,
     onClick: () -> Unit,
@@ -789,12 +814,13 @@ private fun AgentSessionRow(
     canFixConflicts: Boolean,
     onFixConflicts: () -> Unit,
 ) {
-    val state = codingSessionDisplayState(session, issue?.prState)
-    // The merge shortcut only shows while the PR is still open — for a batch
-    // row (no linked issue) that is the resolved representative's PR
-    // (EXP-535); an already-merged PR, or a batch row with no unambiguous
-    // resolution, has nothing to merge.
-    val canMerge = mergeIssue?.prState == DomainContract.prStateOpen
+    // EXP-734: an issueless run carries its own PR state, so "in review with
+    // a merged PR" reads as Done there too.
+    val state = codingSessionDisplayState(session, issue?.prState ?: session.prState)
+    // The merge shortcut only shows while there IS something open to merge —
+    // the linked issue's PR, a batch row's resolved representative (EXP-535),
+    // or the run's own issueless PR (EXP-734).
+    val canMerge = mergeTarget != null
     // EXP-550: the machine went away (lid closed) — the run is not lost and
     // not ended, it continues when the machine comes back. Grey, never a live
     // dot.

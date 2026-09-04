@@ -407,6 +407,20 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     public let endedAt: String?
     public let createdAt: String
     public let updatedAt: String
+    // EXP-734: the run's OWN pull request — stamped only when the PR links no
+    // issue at all (an action or chat run that opened one through MCP
+    // `exponential_pr_open({repositoryId, head})`). Issue and batch runs keep
+    // their PR on the issue row(s), so these stay NULL there. `prNumber`
+    // arrives as Postgres text off the wire (IssueEntity.prNumber precedent).
+    public let prUrl: String?
+    public let prNumber: Int?
+    public let prState: String?
+
+    /// EXP-734: the run parks its own mergeable PR. The Merge affordances gate
+    /// on this when there is no issue to merge through.
+    public var hasOpenPr: Bool {
+        prState == DomainContract.prStateOpen && !(prUrl ?? "").isEmpty
+    }
 
     public init(
         id: String,
@@ -430,7 +444,10 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         startedAt: String,
         endedAt: String?,
         createdAt: String,
-        updatedAt: String
+        updatedAt: String,
+        prUrl: String? = nil,
+        prNumber: Int? = nil,
+        prState: String? = nil
     ) {
         self.id = id
         self.issueId = issueId
@@ -454,6 +471,9 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.endedAt = endedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.prUrl = prUrl
+        self.prNumber = prNumber
+        self.prState = prState
     }
 
     enum CodingKeys: String, CodingKey {
@@ -475,6 +495,9 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case endedAt = "ended_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case prUrl = "pr_url"
+        case prNumber = "pr_number"
+        case prState = "pr_state"
     }
 }
 
@@ -513,6 +536,11 @@ extension CodingSessionEntity: Codable {
         endedAt = try c.decodeIfPresent(String.self, forKey: .endedAt)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
+        // EXP-734: pre-EXP-734 snapshots omit these three — decode
+        // permissively. `pr_number` rides the wire as Postgres text.
+        prUrl = try c.decodeIfPresent(String.self, forKey: .prUrl)
+        prNumber = try c.decodeWireInt(forKey: .prNumber)
+        prState = try c.decodeIfPresent(String.self, forKey: .prState)
     }
 }
 

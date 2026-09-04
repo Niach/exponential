@@ -239,6 +239,16 @@ interface CodingSessionDao {
     @Query("SELECT * FROM coding_sessions WHERE status IN (:statuses) ORDER BY started_at DESC")
     fun observeByStatuses(statuses: List<String>): Flow<List<CodingSessionEntity>>
 
+    // EXP-734: the team's runs with an OPEN pull request of their OWN — an
+    // action or chat run (issue_id NULL) whose PR links no issue, so nothing
+    // in the issues table can represent it in Reviews. Newest first; the
+    // client still collapses by pr_url (a resumed run can share one).
+    @Query(
+        "SELECT * FROM coding_sessions WHERE team_id = :teamId " +
+            "AND issue_id IS NULL AND pr_state = 'open' ORDER BY started_at DESC"
+    )
+    fun observeOpenPrRunsByTeam(teamId: String): Flow<List<CodingSessionEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: CodingSessionEntity)
 

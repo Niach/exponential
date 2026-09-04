@@ -13,6 +13,7 @@ import {
   applyPrMergeState,
   applyPrOpenedState,
   applyPrReopenedState,
+  applySessionPrState,
   endSessionsOnMergedBranch,
   findIssueIdByBranch,
 } from "@/lib/integrations/pr-sync"
@@ -318,6 +319,15 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       // EXP-711: the claim also carries the merger's per-call
       // `endSessions` override, so the echo of an in-app merge honours it.
       const endSessions = claim?.endSessions
+      // EXP-734: a run's own chore PR lives on its session row — flip it to
+      // merged and end the run there (idempotent against the in-app merge
+      // helper that already did so); the branch sweep below still covers
+      // rows parked by a pre-column server.
+      await applySessionPrState({
+        prUrl: htmlUrl,
+        state: `merged`,
+        ...(endSessions !== undefined ? { endSessions } : {}),
+      })
       if (issueIds.length === 0 && repoFullName && headRef) {
         await endSessionsOnMergedBranch(repoFullName, headRef, endSessions)
         return jsonResponse(200, { ok: true })
@@ -352,6 +362,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       for (const issueId of issueIds) {
         await applyPrClosedState({ issueId, prUrl: htmlUrl })
       }
+      await applySessionPrState({ prUrl: htmlUrl, state: `closed` })
       return jsonResponse(200, { ok: true })
     }
 
@@ -365,6 +376,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       for (const issueId of issueIds) {
         await applyPrReopenedState({ issueId, prUrl: htmlUrl })
       }
+      await applySessionPrState({ prUrl: htmlUrl, state: `open` })
       return jsonResponse(200, { ok: true })
     }
 

@@ -410,6 +410,11 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("summary", .text)
                 t.column("ended_by", .text)
                 t.column("resumed_from_id", .text)
+                // EXP-734: the run's OWN pull request — stamped only when the
+                // PR links no issue (an action or chat run's chore PR).
+                t.column("pr_url", .text)
+                t.column("pr_number", .integer)
+                t.column("pr_state", .text)
                 t.column("started_at", .text).notNull()
                 t.column("ended_at", .text)
                 t.column("created_at", .text).notNull()
@@ -1180,6 +1185,42 @@ public final class DatabaseManager: @unchecked Sendable {
                     UPDATE "electric_offsets"
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'boards'
+                    """)
+            }
+        }
+
+        // v26 (EXP-734): a run parks its OWN pull request — `pr_url`,
+        // `pr_number`, `pr_state` ride the coding-sessions shape, populated
+        // only for runs whose PR links no issue (action + chat runs that
+        // opened one through `exponential_pr_open({repositoryId, head})`).
+        // Guarded additive ALTERs so an older store converges on the schema a
+        // fresh install gets from the v1 create above, then the
+        // coding-sessions offset resets so already-synced rows re-arrive
+        // carrying the columns (the v17 precedent; the shape key is
+        // 'coding-sessions' WITH A DASH — the proxy route name).
+        migrator.registerMigration("v26_coding_session_pr") { db in
+            guard try db.tableExists("coding_sessions") else { return }
+            let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+            if !existing.contains("pr_url") {
+                try db.alter(table: "coding_sessions") { t in
+                    t.add(column: "pr_url", .text)
+                }
+            }
+            if !existing.contains("pr_number") {
+                try db.alter(table: "coding_sessions") { t in
+                    t.add(column: "pr_number", .integer)
+                }
+            }
+            if !existing.contains("pr_state") {
+                try db.alter(table: "coding_sessions") { t in
+                    t.add(column: "pr_state", .text)
+                }
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'coding-sessions'
                     """)
             }
         }

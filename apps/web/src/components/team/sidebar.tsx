@@ -110,8 +110,14 @@ function SupportUnreadBadge({ teamId }: { teamId?: string }) {
 }
 
 // Any open PR across the team's boards.
-function ReviewsOpenBadge({ boards }: { boards: Board[] | undefined }) {
-  const count = useReviewsOpenPrCount(boards)
+function ReviewsOpenBadge({
+  boards,
+  teamId,
+}: {
+  boards: Board[] | undefined
+  teamId?: string
+}) {
+  const count = useReviewsOpenPrCount(boards, teamId)
   if (count === 0) return null
   return <NavDot className="bg-green-500" />
 }
@@ -371,7 +377,7 @@ export function TeamSidebar({
                           <span>Reviews</span>
                         </Link>
                       </SidebarMenuButton>
-                      <ReviewsOpenBadge boards={boards} />
+                      <ReviewsOpenBadge boards={boards} teamId={team?.id} />
                     </SidebarMenuItem>
                   </SidebarMenu>
                 </SidebarGroupContent>
