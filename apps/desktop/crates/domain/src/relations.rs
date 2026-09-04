@@ -107,9 +107,13 @@ pub fn icon_name(kind: &str, inverse: bool) -> &'static str {
 /// The timeline phrase of a `relation_added`/`relation_removed` event, byte-
 /// identical to the web `relationEventPhrase`. Payload:
 /// `{type, relatedIssueId, relatedIdentifier, direction: forward|inverse,
-/// source}`. Returns `None` for any other event type, and for a payload with
-/// no identifier to name (the row then renders nothing, like an unknown event
-/// type — never a dangling "marked as blocks").
+/// source}`. Returns `None` ONLY for another event type.
+///
+/// Both degrade paths mirror the web (and iOS `EventPhrases`), because an old
+/// row or a hard-deleted counterpart must still read as something: an
+/// unknown/missing `type` reads as the symmetric `related` (never the
+/// row-caption "linked to" fallback [`label`] keeps), and a missing identifier
+/// is named "an issue".
 pub fn event_phrase(event_type: &str, payload: &serde_json::Value) -> Option<String> {
     let added = match event_type {
         contract::ISSUE_EVENT_TYPE_RELATION_ADDED => true,
@@ -120,14 +124,16 @@ pub fn event_phrase(event_type: &str, payload: &serde_json::Value) -> Option<Str
         .get("relatedIdentifier")
         .and_then(|value| value.as_str())
         .map(str::trim)
-        .filter(|identifier| !identifier.is_empty())?;
+        .filter(|identifier| !identifier.is_empty())
+        .unwrap_or("an issue");
     let kind = payload
         .get("type")
         .and_then(|value| value.as_str())
         .unwrap_or_default();
     let inverse = payload.get("direction").and_then(|value| value.as_str()) == Some("inverse");
 
-    if kind == contract::ISSUE_RELATION_TYPE_RELATED {
+    let known = contract::ISSUE_RELATION_TYPE_VALUES.contains(&kind);
+    if !known || kind == contract::ISSUE_RELATION_TYPE_RELATED {
         let verb = if added { "added" } else { "removed" };
         return Some(format!("{verb} related issue {identifier}"));
     }
@@ -246,13 +252,57 @@ mod tests {
             "marked as blocked by EXP-3"
         );
 
-        // Other event types and identifier-less payloads render nothing.
+        // Only another event type renders nothing.
         assert!(event_phrase("status_changed", &payload).is_none());
-        assert!(event_phrase("relation_added", &json!({ "type": "blocks" })).is_none());
-        assert!(event_phrase(
-            "relation_added",
-            &json!({ "type": "blocks", "relatedIdentifier": "" })
-        )
-        .is_none());
+
+        // Degrade paths, byte-identical to the web:
+        // a missing/blank identifier is named "an issue"...
+        assert_eq!(
+            event_phrase("relation_added", &json!({ "type": "blocks" })).unwrap(),
+            "marked as blocks an issue"
+        );
+        assert_eq!(
+            event_phrase(
+                "relation_added",
+                &json!({ "type": "blocks", "relatedIdentifier": "" })
+            )
+            .unwrap(),
+            "marked as blocks an issue"
+        );
+        assert_eq!(
+            event_phrase(
+                "relation_added",
+                &json!({ "type": "blocks", "direction": "inverse" })
+            )
+            .unwrap(),
+            "marked as blocked by an issue"
+        );
+        // ...and an unknown or missing type reads as the symmetric `related`,
+        // never the "linked to" row-caption fallback.
+        assert_eq!(
+            event_phrase(
+                "relation_added",
+                &json!({ "type": "something_new", "relatedIdentifier": "EXP-3" })
+            )
+            .unwrap(),
+            "added related issue EXP-3"
+        );
+        assert_eq!(
+            event_phrase(
+                "relation_removed",
+                &json!({ "type": "something_new", "relatedIdentifier": "EXP-3" })
+            )
+            .unwrap(),
+            "removed related issue EXP-3"
+        );
+        assert_eq!(
+            event_phrase("relation_added", &json!({ "relatedIdentifier": "EXP-3" })).unwrap(),
+            "added related issue EXP-3"
+        );
+        // The web's `relationEventPhrase('relation_added', {})`.
+        assert_eq!(
+            event_phrase("relation_added", &json!({})).unwrap(),
+            "added related issue an issue"
+        );
     }
 }

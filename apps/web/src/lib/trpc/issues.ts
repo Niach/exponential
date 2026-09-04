@@ -739,6 +739,12 @@ export const issuesRouter = router({
           // excludeCommentId ⇒ the DESCRIPTION is the slot being replaced, so
           // the survivor scan reads nextText plus the comments rather than
           // the (still unwritten) stored description.
+          //
+          // `description: null` CLEARS the description (the column rides the
+          // `{...updates}` spread; the guard above only keeps the canonical
+          // rewrite from replacing that NULL with an empty string), so the
+          // empty nextText is the truth and every reference the description
+          // held is correctly orphaned.
           await syncReferenceRelations(tx, {
             issueId: id,
             teamId: issueContext.teamId,

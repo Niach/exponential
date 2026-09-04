@@ -240,10 +240,27 @@ class EventPhrasesTest {
         )
     }
 
+    // EXP-736: a thin relation payload still phrases — the web
+    // `relationEventPhrase` degrades, it never falls back to the bare verb:
+    // an unknown/missing type reads as the symmetric `related`, a missing
+    // counterpart is named "an issue".
     @Test
-    fun relationEventsWithoutPayloadFallBackToTheVerb() {
-        assertEquals("added a relation", phrase(event("relation_added", null)))
-        assertEquals("removed a relation", phrase(event("relation_removed", null)))
+    fun relationEventsWithoutPayloadDegradeLikeTheWeb() {
+        assertEquals("added related issue an issue", phrase(event("relation_added", null)))
+        assertEquals("removed related issue an issue", phrase(event("relation_removed", null)))
+        assertEquals(
+            "marked as blocked by an issue",
+            phrase(event("relation_added", """{"type":"blocks","direction":"inverse"}""")),
+        )
+        assertEquals(
+            "added related issue EXP-3",
+            phrase(
+                event(
+                    "relation_added",
+                    """{"type":"mentioned","relatedIdentifier":"EXP-3","direction":"inverse"}""",
+                ),
+            ),
+        )
     }
 
     // ── EXP-595: timeline glyphs (web `EventRow` / desktop `EventGlyph` parity) ──

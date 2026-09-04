@@ -1809,15 +1809,42 @@ mod tests {
         .unwrap();
         assert_eq!(phrase, "added related issue EXP-12");
 
-        // A relation payload with no identifier to name renders nothing.
-        assert!(event_phrase(
+        // A relation payload with no identifier still renders — it names
+        // "an issue", exactly like the web `relationEventPhrase`.
+        let (_, phrase, _) = event_phrase(
             &event("relation_added", json!({ "type": "blocks" })),
             &users,
             &labels,
             &boards,
             &[],
         )
-        .is_none());
+        .unwrap();
+        assert_eq!(phrase, "marked as blocks an issue");
+
+        // An unknown type reads as the symmetric `related` (web fallback).
+        let (_, phrase, _) = event_phrase(
+            &event(
+                "relation_added",
+                json!({ "type": "something_new", "relatedIdentifier": "EXP-3" }),
+            ),
+            &users,
+            &labels,
+            &boards,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(phrase, "added related issue EXP-3");
+
+        // A payload-less relation row degrades to both fallbacks at once.
+        let (_, phrase, _) = event_phrase(
+            &event("relation_removed", json!({})),
+            &users,
+            &labels,
+            &boards,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(phrase, "removed related issue an issue");
 
         // Unknown event type renders nothing (web returns null).
         assert!(event_phrase(

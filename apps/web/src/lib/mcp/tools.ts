@@ -1084,12 +1084,20 @@ export function registerExponentialTools(
           .where(eq(comments.issueId, id))
           .orderBy(desc(comments.createdAt))
           .limit(commentsLimit ?? 50)
+        // EXP-736: both sides of the relation graph, folded to this issue's
+        // point of view (direction + otherIdentifier). loadIssueRelations
+        // already drops rows whose far board is trashed or archived; a
+        // grant-confined token additionally sees only the boards its consent
+        // named, so the far side is filtered here rather than leaking an
+        // identifier from a board this connection was never granted.
+        const relations = (await loadIssueRelations(db, id)).filter(
+          (relation) =>
+            isBoardGranted(access, relation.otherBoardId, relation.otherTeamId)
+        )
         return ok({
           ...issue,
           labelIds: labelRows.map((r) => r.labelId),
-          // EXP-736: both sides of the relation graph, folded to this issue's
-          // point of view (direction + otherIdentifier).
-          relations: await loadIssueRelations(db, id),
+          relations,
           recentComments,
         })
       } catch (e) {
@@ -1539,8 +1547,13 @@ export function registerExponentialTools(
           access
         )
         if (!access.full) {
-          const ctxIssue = await getIssueTeamContext(issueId)
-          assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
+          // BOTH sides, exactly like _add: unlinking mutates the far issue's
+          // graph too, so a token granted only one of the two boards must not
+          // reach through the row to the other.
+          for (const id of [issueId, relatedIssueId]) {
+            const ctxIssue = await getIssueTeamContext(id)
+            assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
+          }
         }
         const canonical = canonicalizeRelation(issueId, relatedIssueId, type)
         const [row] = await db

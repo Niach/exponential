@@ -5,7 +5,14 @@ import {
   type IssueRelationSource,
   type IssueRelationType,
 } from "@exp/db-schema/domain"
-import { comments, issueRelations, issues, type IssueRelation } from "@/db/schema"
+import {
+  boards,
+  comments,
+  issueRelations,
+  issues,
+  type IssueRelation,
+} from "@/db/schema"
+import { boardVisible } from "@/lib/board-visibility"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { resolveIssueRefs } from "@/lib/integrations/mentions"
 import { extractIssueRefs } from "@/lib/issue-refs"
@@ -291,6 +298,14 @@ export async function deleteRelationInTx(
  * lifecycle automation and the status-deletion reassignment — the last two
  * clear it through applyStatusDerivations when an issue moves off
  * `duplicate`.
+ *
+ * Deliberately RECONCILING rather than delta-driven: it compares the mirror to
+ * the column's ACTUAL next state on every call, never to the previous value.
+ * A `previous === next` short-circuit would make a missing row (a link written
+ * before EXP-736 and only backfilled by 0099, a row lost to a repointed
+ * canonical) permanently unrepairable — the one write that could heal it is
+ * exactly the write that looks like a no-op. Both halves are idempotent, so
+ * the redundant calls cost one indexed lookup and record no events.
  */
 export async function syncDuplicateMirror(
   tx: Tx,
@@ -298,38 +313,43 @@ export async function syncDuplicateMirror(
     issueId: string
     teamId: string
     actorUserId: string | null
+    /** The value the column held. Kept for the call-site contract (and what
+     * the router tests read); the reconcile above deliberately does NOT
+     * branch on it. */
     previousDuplicateOfId: string | null
     nextDuplicateOfId: string | null
   }
 ): Promise<void> {
   const { issueId, teamId, actorUserId } = args
-  if (args.previousDuplicateOfId === args.nextDuplicateOfId) return
+  const next = args.nextDuplicateOfId
 
-  if (args.previousDuplicateOfId != null) {
-    // By (issue, type) rather than the exact pair: the canonical issue may
-    // have been repointed, and an issue is a duplicate of at most one.
-    const stale = await tx
-      .delete(issueRelations)
-      .where(
-        and(
-          eq(issueRelations.issueId, issueId),
-          eq(issueRelations.type, `duplicate`)
-        )
+  // By (issue, type) rather than the exact pair: the canonical issue may have
+  // been repointed, and an issue is a duplicate of at most one. Anything
+  // pointing somewhere other than `next` is stale by definition.
+  const stale = await tx
+    .delete(issueRelations)
+    .where(
+      and(
+        eq(issueRelations.issueId, issueId),
+        eq(issueRelations.type, `duplicate`),
+        ...(next != null ? [ne(issueRelations.relatedIssueId, next)] : [])
       )
-      .returning()
-    for (const row of stale) {
-      await recordRelationEvents(tx, {
-        row,
-        kind: `relation_removed`,
-        actorUserId,
-      })
-    }
+    )
+    .returning()
+  for (const row of stale) {
+    await recordRelationEvents(tx, {
+      row,
+      kind: `relation_removed`,
+      actorUserId,
+    })
   }
 
-  if (args.nextDuplicateOfId != null) {
+  if (next != null) {
+    // No-op when the row already stands (and no event with it); writes the
+    // missing mirror when it does not.
     await insertRelationInTx(tx, {
       issueId,
-      relatedIssueId: args.nextDuplicateOfId,
+      relatedIssueId: next,
       type: `duplicate`,
       source: `user`,
       teamId,
@@ -448,12 +468,25 @@ export interface IssueRelationView {
   direction: RelationDirection
   otherIssueId: string
   otherIdentifier: string
+  /** The far issue's board — the caller's grant/permission check reads it
+   * (MCP confines a token to the boards its grant names). */
+  otherBoardId: string
+  /** The far issue's team, for the same reason. */
+  otherTeamId: string
 }
 
 /**
  * BOTH sides of one issue's relation graph, folded to that issue's point of
  * view. The catch-up read behind `issues.get` and the MCP issue tool — the
  * continuous delivery path is the `issue_relations` shape.
+ *
+ * The far issue's board is joined through `boardVisible()`: a relation whose
+ * other side sits on a trashed or archived board is DROPPED, exactly as the
+ * shape's `board_deleted_at`/`board_archived_at` mirrors drop it. Without the
+ * predicate this read is the one place a hidden board's identifiers leak.
+ * Membership is NOT re-checked here — every caller has already resolved access
+ * to the subject issue's team, and a relation may only be written within one
+ * team.
  */
 export async function loadIssueRelations(
   db: Db | Tx,
@@ -469,6 +502,8 @@ export async function loadIssueRelations(
       relatedIssueId: issueRelations.relatedIssueId,
       otherId: other.id,
       otherIdentifier: other.identifier,
+      otherBoardId: other.boardId,
+      otherTeamId: other.teamId,
     })
     .from(issueRelations)
     .innerJoin(
@@ -478,10 +513,14 @@ export async function loadIssueRelations(
         sql`case when ${issueRelations.issueId} = ${issueId} then ${issueRelations.relatedIssueId} else ${issueRelations.issueId} end`
       )
     )
+    .innerJoin(boards, eq(boards.id, other.boardId))
     .where(
-      or(
-        eq(issueRelations.issueId, issueId),
-        eq(issueRelations.relatedIssueId, issueId)
+      and(
+        or(
+          eq(issueRelations.issueId, issueId),
+          eq(issueRelations.relatedIssueId, issueId)
+        ),
+        boardVisible()
       )
     )
 
@@ -494,5 +533,7 @@ export async function loadIssueRelations(
     direction: row.issueId === issueId ? (`forward` as const) : (`inverse` as const),
     otherIssueId: row.otherId,
     otherIdentifier: row.otherIdentifier,
+    otherBoardId: row.otherBoardId,
+    otherTeamId: row.otherTeamId,
   }))
 }

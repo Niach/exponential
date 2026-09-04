@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { MAIN_PANEL_CLASS } from "@/components/team/app-shell"
+import {
+  MAIN_OUTLET_CLASS,
+  MAIN_PANEL_CLASS,
+} from "@/components/team/app-shell"
 
 const TOKENS = MAIN_PANEL_CLASS.split(/\s+/).filter((token) => token.length > 0)
 
@@ -67,5 +70,34 @@ describe(`MAIN_PANEL_CLASS`, () => {
     expect(MAIN_PANEL_CLASS).toContain(`md:m-[10px]`)
     expect(MAIN_PANEL_CLASS).toContain(`md:h-[calc(100dvh-20px)]`)
     expect(MAIN_PANEL_CLASS).toContain(`md:min-h-0`)
+  })
+})
+
+describe(`MAIN_OUTLET_CLASS`, () => {
+  const OUTLET_TOKENS = MAIN_OUTLET_CLASS.split(/\s+/).filter(
+    (token) => token.length > 0
+  )
+
+  // The panel clips at a definite height from `md` up, so the window never
+  // scrolls there. Without a scroller on the Outlet wrapper every route that
+  // relies on page scroll (all of settings/*) is cut off at the panel's bottom
+  // edge.
+  it(`is the panel's scrollport from md up`, () => {
+    expect(OUTLET_TOKENS).toContain(`md:overflow-y-auto`)
+  })
+
+  // A phone scrolls the window, and the panel column grows with the page —
+  // a scroller there would trap the content in a nested viewport.
+  it(`leaves the phone layout on window scroll`, () => {
+    expect(OUTLET_TOKENS).not.toContain(`overflow-y-auto`)
+  })
+
+  // A definite-height, min-sized flex child: this is what lets a route with
+  // its own `h-full` scroller fill the wrapper exactly instead of
+  // double-scrolling it, and keeps a wide table from widening the page.
+  it(`stays a min-sized flex child`, () => {
+    expect(OUTLET_TOKENS).toContain(`flex-1`)
+    expect(OUTLET_TOKENS).toContain(`min-h-0`)
+    expect(OUTLET_TOKENS).toContain(`min-w-0`)
   })
 })

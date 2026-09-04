@@ -49,11 +49,18 @@ type RelationSide = `${IssueRelationType}:${RelationDirection}`
 
 // One ordered table: the picker entries, the row glyphs, the group labels and
 // the sort order all read off it, so a new relation type is one edit here.
-const RELATION_SIDES: Array<{
+export const RELATION_SIDES: Array<{
   side: RelationSide
   type: IssueRelationType
   direction: RelationDirection
   icon: ReturnType<typeof conceptIcon>
+  /** The "Add relation" MENU wording, byte-identical to the natives'
+   * picker (iOS `RelationPick.all`, Android `RELATION_PICKS`, desktop
+   * `relation_picks`). It is NOT derived from the contract label: `blocks`
+   * reads as "Blocking" in a picker ("Blocks…" states a fact about a row that
+   * does not exist yet), while the row caption keeps the contract wording.
+   * Null on a side that is not offered. */
+  pickLabel: string | null
   /** Offered in the "Add relation" menu. `duplicated by` is not: it would
    * mark the OTHER issue as a duplicate, which belongs on that issue. */
   pickable: boolean
@@ -63,6 +70,7 @@ const RELATION_SIDES: Array<{
     type: `parent`,
     direction: `forward`,
     icon: RelationParentIcon,
+    pickLabel: `Parent of`,
     pickable: true,
   },
   {
@@ -70,6 +78,7 @@ const RELATION_SIDES: Array<{
     type: `parent`,
     direction: `inverse`,
     icon: RelationSubIssueIcon,
+    pickLabel: `Sub-issue of`,
     pickable: true,
   },
   {
@@ -77,6 +86,7 @@ const RELATION_SIDES: Array<{
     type: `blocks`,
     direction: `forward`,
     icon: RelationBlocksIcon,
+    pickLabel: `Blocking`,
     pickable: true,
   },
   {
@@ -84,6 +94,7 @@ const RELATION_SIDES: Array<{
     type: `blocks`,
     direction: `inverse`,
     icon: RelationBlockedByIcon,
+    pickLabel: `Blocked by`,
     pickable: true,
   },
   {
@@ -91,6 +102,7 @@ const RELATION_SIDES: Array<{
     type: `duplicate`,
     direction: `forward`,
     icon: RelationDuplicateIcon,
+    pickLabel: `Duplicate of`,
     pickable: true,
   },
   {
@@ -98,6 +110,7 @@ const RELATION_SIDES: Array<{
     type: `duplicate`,
     direction: `inverse`,
     icon: RelationDuplicateIcon,
+    pickLabel: null,
     pickable: false,
   },
   {
@@ -105,6 +118,7 @@ const RELATION_SIDES: Array<{
     type: `related`,
     direction: `forward`,
     icon: RelationRelatedIcon,
+    pickLabel: `Related to`,
     pickable: true,
   },
   {
@@ -112,6 +126,7 @@ const RELATION_SIDES: Array<{
     type: `related`,
     direction: `inverse`,
     icon: RelationRelatedIcon,
+    pickLabel: null,
     pickable: false,
   },
 ]
@@ -123,14 +138,25 @@ const SIDE_BY_KEY = new Map(
   RELATION_SIDES.map((entry) => [entry.side, entry])
 )
 
-/** "blocked by" → "Blocked by" — the label table stays lowercase so the
- * activity phrases read as sentences. */
-function sideLabel(
+/** The ROW caption: the contract label verbatim, lowercase, exactly as iOS
+ * (`Text(relation.label)`) and Android (`"${relation.label} · IDENT"`) read
+ * it. The picker wording is a separate string — see `pickLabel`. */
+export function rowLabel(
   type: IssueRelationType,
   direction: RelationDirection
 ): string {
-  const label = relationLabel(type, direction)
-  return label.charAt(0).toUpperCase() + label.slice(1)
+  return relationLabel(type, direction)
+}
+
+/** The menu/dialog wording for one side, from the table above. */
+export function pickLabel(
+  type: IssueRelationType,
+  direction: RelationDirection
+): string {
+  return (
+    SIDE_BY_KEY.get(`${type}:${direction}`)?.pickLabel ??
+    relationLabel(type, direction)
+  )
 }
 
 export interface IssueRelationRow {
@@ -232,7 +258,7 @@ export function IssueRelationsList({
               {row.other.title}
             </span>
             <span className="shrink-0 text-xs text-muted-foreground">
-              {sideLabel(row.type, row.direction)}
+              {rowLabel(row.type, row.direction)}
             </span>
             {!readOnly && (
               <Button
@@ -317,7 +343,7 @@ export function IssueRelationsAdd({
                 }}
               >
                 <Icon />
-                {sideLabel(entry.type, entry.direction)}
+                {pickLabel(entry.type, entry.direction)}
               </DropdownMenuItem>
             )
           })}
@@ -333,7 +359,7 @@ export function IssueRelationsAdd({
         excludeIssueIds={[issueId]}
         title={
           pending
-            ? `${sideLabel(pending.type, pending.direction)}…`
+            ? `${pickLabel(pending.type, pending.direction)}…`
             : `Select issue`
         }
         placeholder="Search issues…"

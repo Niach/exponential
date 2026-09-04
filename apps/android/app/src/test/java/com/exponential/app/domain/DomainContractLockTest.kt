@@ -134,10 +134,29 @@ class DomainContractLockTest {
             "marked as sub-issue of EXP-3",
             relationEventPhrase(added = true, type = "parent", identifier = "EXP-3", direction = "inverse"),
         )
-        // Too thin to phrase: the caller falls back to the bare verb.
+        // Too thin to phrase richly: both degrade paths mirror the web
+        // `relationEventPhrase` — a missing counterpart is named "an issue",
+        // an unknown/missing type reads as the symmetric `related`.
         assertEquals(
-            null,
+            "marked as blocks an issue",
             relationEventPhrase(added = true, type = "blocks", identifier = null, direction = "forward"),
+        )
+        assertEquals(
+            "marked as blocked by an issue",
+            relationEventPhrase(added = true, type = "blocks", identifier = "  ", direction = "inverse"),
+        )
+        assertEquals(
+            "added related issue EXP-3",
+            relationEventPhrase(added = true, type = "mentioned", identifier = "EXP-3", direction = "inverse"),
+        )
+        assertEquals(
+            "removed related issue EXP-3",
+            relationEventPhrase(added = false, type = null, identifier = "EXP-3", direction = "forward"),
+        )
+        // The web's `relationEventPhrase('relation_added', {})`.
+        assertEquals(
+            "added related issue an issue",
+            relationEventPhrase(added = true, type = null, identifier = null, direction = null),
         )
     }
 

@@ -14,7 +14,10 @@ import { SidebarProvider } from "@/components/ui/sidebar"
 import { TeamMobileTopbar } from "@/components/team/mobile-topbar"
 import { MobileTabBar } from "@/components/team/mobile-tab-bar"
 import { TeamSidebar } from "@/components/team/sidebar"
-import { MAIN_PANEL_CLASS } from "@/components/team/app-shell"
+import {
+  MAIN_OUTLET_CLASS,
+  MAIN_PANEL_CLASS,
+} from "@/components/team/app-shell"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { OfflineBanner } from "@/components/offline-banner"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
@@ -195,7 +198,7 @@ function TeamLayout() {
                   measured height (agent-dock.tsx) for a page that owns a
                   viewport-sized scroller of its own and therefore really does
                   run under the panel. */}
-              <div className="flex-1 min-h-0 min-w-0 overflow-x-clip">
+              <div className={MAIN_OUTLET_CLASS}>
                 <Outlet />
               </div>
               {team && user && (

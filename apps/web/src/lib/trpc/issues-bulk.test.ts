@@ -78,6 +78,14 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
 vi.mock(`@/lib/integrations/subscriptions`, () => ({
   ensureSubscribed: h.ensureSubscribed,
 }))
+// EXP-736: relation writes ride the same transaction (the duplicate mirror
+// reconciles on every update). Stubbed so the select/delete bookkeeping this
+// file asserts stays the BULK path's own.
+vi.mock(`@/lib/issue-relations`, () => ({
+  syncDuplicateMirror: vi.fn(async () => undefined),
+  syncReferenceRelations: vi.fn(async () => undefined),
+  loadIssueRelations: vi.fn(async () => []),
+}))
 vi.mock(`@/lib/integrations/activity`, () => ({
   recordIssueEvent: h.recordIssueEvent,
 }))

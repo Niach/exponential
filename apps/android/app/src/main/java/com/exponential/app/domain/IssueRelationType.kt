@@ -83,20 +83,24 @@ fun relationIcon(type: IssueRelationType?, inverse: Boolean): ImageVector =
  * The phrase a `relation_added` / `relation_removed` timeline event reads,
  * byte-identical on all four clients: `related` names the act ("added related
  * issue EXP-12"), every other type names the resulting state ("marked as
- * blocked by EXP-3"). Null when the payload is too thin to phrase — the caller
- * falls back to the bare verb.
+ * blocked by EXP-3").
+ *
+ * A thin payload never drops the row — it degrades exactly as the web
+ * `relationEventPhrase` does, because an old row or a hard-deleted counterpart
+ * must still read as something: an unknown/missing [type] reads as the
+ * symmetric `related`, and a missing [identifier] is named "an issue".
  */
 fun relationEventPhrase(
     added: Boolean,
     type: String?,
     identifier: String?,
     direction: String?,
-): String? {
-    if (identifier.isNullOrBlank()) return null
-    val relation = IssueRelationType.fromWire(type) ?: return null
-    if (relation == IssueRelationType.Related) {
-        return if (added) "added related issue $identifier" else "removed related issue $identifier"
+): String {
+    val named = identifier?.takeIf { it.isNotBlank() } ?: "an issue"
+    val relation = IssueRelationType.fromWire(type)
+    if (relation == null || relation == IssueRelationType.Related) {
+        return if (added) "added related issue $named" else "removed related issue $named"
     }
     val label = relation.label(inverse = direction == RELATION_DIRECTION_INVERSE)
-    return if (added) "marked as $label $identifier" else "no longer $label $identifier"
+    return if (added) "marked as $label $named" else "no longer $label $named"
 }

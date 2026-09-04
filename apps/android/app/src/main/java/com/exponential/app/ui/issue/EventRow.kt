@@ -199,13 +199,14 @@ internal fun eventPhrase(
             "changed priority from ${priorityLabel(field("from"))} to ${priorityLabel(field("to"))}"
         // EXP-736: the wording is contract-shared (relationEventPhrase) —
         // `related` names the act, every other type the resulting state, read
-        // from the payload's own SIDE of the edge.
+        // from the payload's own SIDE of the edge. It phrases a thin payload
+        // too (web parity), so there is no bare-verb fallback here.
         "relation_added", "relation_removed" -> relationEventPhrase(
             added = event.type == "relation_added",
             type = field("type"),
             identifier = field("relatedIdentifier"),
             direction = field("direction"),
-        ) ?: eventVerb(event.type)
+        )
         else -> eventVerb(event.type)
     }
 }
