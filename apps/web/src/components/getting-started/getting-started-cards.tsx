@@ -163,7 +163,9 @@ export function GettingStartedCards({
             {GETTING_STARTED_COPY.desktop.action}
           </a>
         </Button>
-        <Button size="sm" variant="ghost" asChild>
+        {/* EXP-714: an outline pill like "Read the docs" — the ghost variant
+            read as bare text next to the primary download button. */}
+        <Button size="sm" variant="outline" asChild>
           <a href={DESKTOP_RELEASES_URL} target="_blank" rel="noreferrer">
             All platforms
           </a>
