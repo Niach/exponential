@@ -687,6 +687,13 @@
       "when": 1788461819094,
       "tag": "0097_board_default_branch",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1788513493176,
+      "tag": "0098_dapper_steel_serpent",
+      "breakpoints": true
     }
   ]
 }

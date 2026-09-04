@@ -3,7 +3,13 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import type { db } from "@/db/connection"
 import { router, authedProcedure } from "@/lib/trpc"
-import { issues, boards, repositories, users } from "@/db/schema"
+import {
+  codingSessions,
+  issues,
+  boards,
+  repositories,
+  users,
+} from "@/db/schema"
 import { assertTeamMember, getIssueTeamContext } from "@/lib/team-membership"
 import {
   claimPrMerge,
@@ -436,6 +442,133 @@ async function resolveGatedRepoToken(repo: {
   return resolved.token
 }
 
+// The repo row `codingSessions.mergePr` needs (EXP-734): a run's chore PR
+// names its repo only through the stored `pr_url`, so resolve the team's row
+// by full name — never archived (a retired repo takes no writes), the same
+// projection `loadRepository` returns. Authorization stays with the caller.
+export async function loadRepositoryByFullName(
+  teamId: string,
+  fullName: string
+): Promise<Awaited<ReturnType<typeof loadRepository>>> {
+  const { db } = await import(`@/db/connection`)
+  const [repo] = await db
+    .select({
+      id: repositories.id,
+      teamId: repositories.teamId,
+      fullName: repositories.fullName,
+      defaultBranch: repositories.defaultBranch,
+      defaultBranchOverride: repositories.defaultBranchOverride,
+      installationId: repositories.installationId,
+      inaccessibleAt: repositories.inaccessibleAt,
+      sharedByUserId: repositories.sharedByUserId,
+      archivedAt: repositories.archivedAt,
+    })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.teamId, teamId),
+        eq(repositories.fullName, fullName),
+        isNull(repositories.archivedAt)
+      )
+    )
+    .limit(1)
+  if (!repo) {
+    throw new TRPCError({
+      code: `NOT_FOUND`,
+      message: `${fullName} is not a repository of this team`,
+    })
+  }
+  return repo
+}
+
+// Squash-merge a pull request that links NO issue, shared by
+// `repositories.mergePull` (repositoryId + prNumber: Reviews' external
+// group, the MCP chore `pr_merge`) and `codingSessions.mergePr` (EXP-734:
+// a run's own chore PR). Same trust model as installationToken: the team's
+// ownership of the repo row plus the installation link-gate authorizes the
+// merge; the CALLER has already checked membership. After GitHub accepts the
+// merge the session-PR state is written right here (`applySessionPrState`:
+// pr_state → merged + the merge-driven end of the run), so a self-hosted
+// instance with no inbound webhook still echoes the merge to every client;
+// the webhook's later delivery degrades to a no-op.
+export async function mergeRepositoryPull(opts: {
+  repo: Awaited<ReturnType<typeof loadRepository>>
+  prNumber: number
+  userId: string
+  viaAgent: boolean
+  endSessions?: boolean
+  // The stored PR url when the caller has one (the session path); otherwise
+  // derived from the repo's current full name.
+  prUrl?: string
+}): Promise<{ merged: true }> {
+  const { repo, prNumber } = opts
+  if (!githubAppConfigured()) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `GitHub App is not configured on this instance`,
+    })
+  }
+  const token = await resolveGatedRepoToken(repo)
+  if (!token) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (team settings → Repositories), then retry.`,
+    })
+  }
+
+  // EXP-494: even an "unlinked" PR's `closed` webhook can resolve an
+  // issue via the branch parse — claim the initiator so that fan-out is
+  // attributed to (and excludes) the merging member instead of going out
+  // anonymously.
+  claimPrMerge(repo.fullName, prNumber, {
+    userId: opts.userId,
+    viaAgent: opts.viaAgent,
+    endSessions: opts.endSessions,
+  })
+  try {
+    await mergePullRequest({
+      repo: repo.fullName,
+      prNumber,
+      token,
+    })
+  } catch (err) {
+    releasePrMergeClaim(repo.fullName, prNumber)
+    if (err instanceof GitHubMergeError) {
+      // "Not mergeable" is misleading on a stacked PR whose base is stale
+      // (EXP-324) — diagnose the base's real state; degrade to GitHub's
+      // message when the diagnosis can't run (same treatment as
+      // issues.mergePr, same conflict signal, EXP-533).
+      let diagnosis = null
+      if (isNotMergeable(err)) {
+        const defaultBranch =
+          effectiveDefaultBranch(repo) ??
+          (await resolveRepoDefaultBranchCached(repo.fullName))
+        diagnosis = defaultBranch
+          ? await diagnoseUnmergeablePr({
+              repo: repo.fullName,
+              prNumber,
+              token,
+              defaultBranch,
+            })
+          : null
+      }
+      throw prMergeFailureError(err, diagnosis)
+    }
+    throw err
+  }
+
+  // Lazy like `loadRepository`'s db import: pr-sync opens the db connection
+  // at module scope, which the router tests never want.
+  const { applySessionPrState } = await import(`@/lib/integrations/pr-sync`)
+  await applySessionPrState({
+    prUrl: opts.prUrl ?? `https://github.com/${repo.fullName}/pull/${prNumber}`,
+    state: `merged`,
+    endSessions: opts.endSessions,
+  })
+  openPullsCache.delete(repo.teamId)
+  return { merged: true }
+}
+
 export const repositoriesRouter = router({
   // Member-readable: the team's repos + the boards each one backs (for the
   // settings "in use by" chips and mobile pickers).
@@ -560,8 +693,19 @@ export const repositoriesRouter = router({
         .from(issues)
         .innerJoin(boards, eq(boards.id, issues.boardId))
         .where(and(eq(boards.teamId, input.teamId), isNotNull(issues.prUrl)))
+      // EXP-734: so are the chore PRs of action/chat runs — their session
+      // rows carry them and the Reviews "Agent runs" group renders those.
+      const sessionRows = await ctx.db
+        .select({ prUrl: codingSessions.prUrl })
+        .from(codingSessions)
+        .where(
+          and(
+            eq(codingSessions.teamId, input.teamId),
+            isNotNull(codingSessions.prUrl)
+          )
+        )
       const linkedUrls = new Set(
-        linkedRows.map((row) => row.prUrl).filter(Boolean)
+        [...linkedRows, ...sessionRows].map((row) => row.prUrl).filter(Boolean)
       )
 
       const results = await Promise.all(
@@ -606,25 +750,9 @@ export const repositoriesRouter = router({
     .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
       const repo = await loadRepository(input.repositoryId)
       await assertRepoCapability(ctx.session.user.id, repo.teamId)
-      if (!githubAppConfigured()) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `GitHub App is not configured on this instance`,
-        })
-      }
-      const token = await resolveGatedRepoToken(repo)
-      if (!token) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (team settings → Repositories), then retry.`,
-        })
-      }
-
-      // EXP-494: even an "unlinked" PR's `closed` webhook can resolve an
-      // issue via the branch parse — claim the initiator so that fan-out is
-      // attributed to (and excludes) the merging member instead of going out
-      // anonymously.
-      claimPrMerge(repo.fullName, input.prNumber, {
+      return mergeRepositoryPull({
+        repo,
+        prNumber: input.prNumber,
         userId: ctx.session.user.id,
         // EXP-626: reachable from the MCP `exponential_pr_merge` tool now
         // (a chore PR with no issue), so the claim records agent-mediation
@@ -632,40 +760,6 @@ export const repositoriesRouter = router({
         viaAgent: ctx.viaMcp === true,
         endSessions: input.endSessions,
       })
-      try {
-        await mergePullRequest({
-          repo: repo.fullName,
-          prNumber: input.prNumber,
-          token,
-        })
-      } catch (err) {
-        releasePrMergeClaim(repo.fullName, input.prNumber)
-        if (err instanceof GitHubMergeError) {
-          // "Not mergeable" is misleading on a stacked PR whose base is stale
-          // (EXP-324) — diagnose the base's real state; degrade to GitHub's
-          // message when the diagnosis can't run (same treatment as
-          // issues.mergePr, same conflict signal, EXP-533).
-          let diagnosis = null
-          if (isNotMergeable(err)) {
-            const defaultBranch =
-              effectiveDefaultBranch(repo) ??
-              (await resolveRepoDefaultBranchCached(repo.fullName))
-            diagnosis = defaultBranch
-              ? await diagnoseUnmergeablePr({
-                  repo: repo.fullName,
-                  prNumber: input.prNumber,
-                  token,
-                  defaultBranch,
-                })
-              : null
-          }
-          throw prMergeFailureError(err, diagnosis)
-        }
-        throw err
-      }
-
-      openPullsCache.delete(repo.teamId)
-      return { merged: true }
     }),
 
   // Any member: register a repo THEIR OWN GitHub connection grants (EXP-557 —

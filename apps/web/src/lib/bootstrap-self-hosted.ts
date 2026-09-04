@@ -1,6 +1,6 @@
 import { and, eq, gte, isNotNull, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issues, boards } from "@/db/schema"
+import { issues, boards, codingSessions } from "@/db/schema"
 import type { PullState } from "@/lib/integrations/github-pr"
 import { fetchPullState, resolveRepoToken } from "@/lib/integrations/github-pr"
 import { resolveAppUserForGithubActor } from "@/lib/integrations/github-identity"
@@ -8,6 +8,7 @@ import {
   applyPrClosedState,
   applyPrMergeState,
   applyPrReopenedState,
+  applySessionPrState,
 } from "@/lib/integrations/pr-sync"
 
 const POLL_INTERVAL_MS = 3 * 60 * 1000 // every 3 minutes
@@ -136,6 +137,61 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
       } catch (err) {
         // One repo failing must not abort the batch.
         console.error(`[pr-merge-poll] issue ${row.issueId}:`, err)
+      }
+    }
+
+    // EXP-734: the chore PRs of action/chat runs live on their session rows,
+    // not on any issue — poll them the same way (same transitions, same
+    // recheck window) so a self-hosted run's own PR merges and ends it.
+    const sessionRows = await db
+      .select({
+        sessionId: codingSessions.id,
+        prUrl: codingSessions.prUrl,
+        prNumber: codingSessions.prNumber,
+        prState: codingSessions.prState,
+        teamId: codingSessions.teamId,
+      })
+      .from(codingSessions)
+      .where(
+        and(
+          isNull(codingSessions.issueId),
+          isNotNull(codingSessions.prNumber),
+          isNotNull(codingSessions.prUrl),
+          or(
+            eq(codingSessions.prState, `open`),
+            and(
+              eq(codingSessions.prState, `closed`),
+              gte(codingSessions.updatedAt, closedCutoff)
+            )
+          )
+        )
+      )
+    for (const row of sessionRows) {
+      if (!row.prUrl || row.prNumber == null) continue
+      try {
+        const repo = parseRepoFromPrUrl(row.prUrl)
+        if (!repo) continue
+        let state = pullStates.get(row.prUrl)
+        if (!state) {
+          const token = await resolveRepoToken({ teamId: row.teamId, repo })
+          state = await fetchPullState(repo, row.prNumber, token)
+          pullStates.set(row.prUrl, state)
+        }
+        switch (decidePrPollAction(row.prState, state)) {
+          case `merge`:
+            await applySessionPrState({ prUrl: row.prUrl, state: `merged` })
+            break
+          case `close`:
+            await applySessionPrState({ prUrl: row.prUrl, state: `closed` })
+            break
+          case `reopen`:
+            await applySessionPrState({ prUrl: row.prUrl, state: `open` })
+            break
+          case `none`:
+            break
+        }
+      } catch (err) {
+        console.error(`[pr-merge-poll] session ${row.sessionId}:`, err)
       }
     }
   } catch (err) {

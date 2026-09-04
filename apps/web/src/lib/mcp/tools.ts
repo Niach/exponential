@@ -290,6 +290,15 @@ function assertHelpdeskEnabled(enabled: boolean) {
 // `merged_own_pr` are server-only and stay out; the board mirrors are
 // WHERE-only. `acked_at` (EXP-701) is server-only too but IS returned here —
 // orchestrating agents are exactly who needs the device's pickup ack.
+// `owner/repo` out of a GitHub PR URL (EXP-734: the chore pr_merge own-PR
+// test compares the run's stamped PR with the repo it is asked to merge in).
+// A deliberate twin of the pr-sync/issues.ts helper: this module's tests
+// mock pr-sync wholesale.
+function repoFromPrUrl(prUrl: string): string | null {
+  const match = prUrl.match(/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)
+  return match ? match[1] : null
+}
+
 const sessionColumns = {
   id: codingSessions.id,
   issueId: codingSessions.issueId,
@@ -307,6 +316,9 @@ const sessionColumns = {
   agent: codingSessions.agent,
   status: codingSessions.status,
   branch: codingSessions.branch,
+  prUrl: codingSessions.prUrl,
+  prNumber: codingSessions.prNumber,
+  prState: codingSessions.prState,
   summary: codingSessions.summary,
   endedBy: codingSessions.endedBy,
   resumedFromId: codingSessions.resumedFromId,
@@ -477,6 +489,10 @@ export function registerExponentialTools(
     // when a merge it stamped for fails.
     issueId: string | null
     branch: string | null
+    // EXP-734: the chore PR the run opened (null on issue/batch rows and on
+    // rows parked by a pre-column server) — the direct own-PR test.
+    prUrl: string | null
+    prNumber: number | null
     status: string
     needsInput: boolean
     mergedOwnPr: boolean
@@ -488,6 +504,8 @@ export function registerExponentialTools(
         teamId: codingSessions.teamId,
         issueId: codingSessions.issueId,
         branch: codingSessions.branch,
+        prUrl: codingSessions.prUrl,
+        prNumber: codingSessions.prNumber,
         status: codingSessions.status,
         needsInput: codingSessions.needsInput,
         mergedOwnPr: codingSessions.mergedOwnPr,
@@ -504,6 +522,8 @@ export function registerExponentialTools(
       teamId: row.teamId,
       issueId: row.issueId ?? null,
       branch: row.branch ?? null,
+      prUrl: row.prUrl ?? null,
+      prNumber: row.prNumber ?? null,
       status: row.status,
       needsInput: Boolean(row.needsInput),
       mergedOwnPr: Boolean(row.mergedOwnPr),
@@ -517,11 +537,16 @@ export function registerExponentialTools(
   // over the caller's issue-less running rows — two concurrent batch runs by
   // one user in one team were indistinguishable to it). `needsInput` resets
   // with the flip like the per-issue path (EXP-531).
+  // EXP-734: the chore path also hands over the PR it just opened — the
+  // session row is the ONLY home for an issue-less PR, so `pr_url/pr_number/
+  // pr_state` land next to the branch; issue and batch callers pass nothing
+  // (their issue rows carry the PR).
   async function parkSessionInReview(
     tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
     opts: {
       callerSessionId: string | null
       headBranch: string
+      pr?: { url: string; number: number }
     }
   ): Promise<void> {
     if (!opts.callerSessionId) return
@@ -532,6 +557,13 @@ export function registerExponentialTools(
         branch: opts.headBranch,
         needsInput: false,
         updatedAt: new Date(),
+        ...(opts.pr
+          ? {
+              prUrl: opts.pr.url,
+              prNumber: opts.pr.number,
+              prState: `open` as const,
+            }
+          : {}),
       })
       .where(
         and(
@@ -1744,12 +1776,14 @@ export function registerExponentialTools(
           )
         }
 
-        // EXP-626: the issue-LESS chore PR. Nothing is linked and nothing
-        // moves — no issue events, no PR-open status flip, no notifications,
-        // no agent-activity note (there is no issue to note against). The
-        // only side effect beyond the PR itself is parking the CALLING
-        // session in `in_review`, and that needs the session header — there
-        // is no batch heuristic to fall back on here.
+        // EXP-626: the issue-LESS chore PR. Nothing is linked to an issue and
+        // nothing moves — no issue events, no PR-open status flip, no
+        // notifications, no agent-activity note (there is no issue to note
+        // against). The only side effect beyond the PR itself is parking the
+        // CALLING session in `in_review` with the PR stamped on it (EXP-734:
+        // the run IS the link — clients merge and review it off the row),
+        // and that needs the session header — there is no batch heuristic
+        // to fall back on here.
         if (repositoryId) {
           const repo = await loadRepositoryForTeam(repositoryId)
           assertTeamFullyGranted(access, repo.teamId)
@@ -1799,6 +1833,7 @@ export function registerExponentialTools(
               await parkSessionInReview(tx, {
                 callerSessionId: callerSession.id,
                 headBranch: head!,
+                pr: { url: createdPr.url, number: createdPr.number },
               })
             })
           }
@@ -2106,21 +2141,29 @@ export function registerExponentialTools(
           // ends. So read the PR's head ref from GitHub and stamp only when
           // it IS the caller's branch. A lookup that cannot answer leaves the
           // stamp off: being ended by a merge is recoverable, a run that
-          // never ends is not.
+          // never ends is not. EXP-734: a row parked by pr_open carries the
+          // PR itself, so the stamped url + number answer directly and the
+          // GitHub lookup is only the fallback for pre-column rows.
           let ownChorePr = false
           if (stampable && !stampable.issueId && stampable.branch) {
             try {
               const choreRepo = await loadRepositoryForTeam(repositoryId)
               await resolveTeamAccess(user.id, choreRepo.teamId)
-              const resolvedRepo = await resolveRepoInstallationTokenInfo(
-                choreRepo.fullName
-              )
-              const pull = await getPullRequest(
-                choreRepo.fullName,
-                prNumber!,
-                resolvedRepo?.token
-              )
-              ownChorePr = pull.headRef === stampable.branch
+              if (stampable.prUrl && stampable.prNumber != null) {
+                ownChorePr =
+                  stampable.prNumber === prNumber &&
+                  repoFromPrUrl(stampable.prUrl) === choreRepo.fullName
+              } else {
+                const resolvedRepo = await resolveRepoInstallationTokenInfo(
+                  choreRepo.fullName
+                )
+                const pull = await getPullRequest(
+                  choreRepo.fullName,
+                  prNumber!,
+                  resolvedRepo?.token
+                )
+                ownChorePr = pull.headRef === stampable.branch
+              }
             } catch {
               ownChorePr = false
             }

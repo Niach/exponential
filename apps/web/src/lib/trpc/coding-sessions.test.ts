@@ -15,6 +15,10 @@ const h = vi.hoisted(() => ({
   assertTeamMember: vi.fn(
     async (..._args: unknown[]) => ({ role: `member` }) as unknown
   ),
+  // EXP-734: mergePr's lazily imported collaborators.
+  applySessionPrState: vi.fn(async () => ({ endedSessionIds: [] })),
+  loadRepositoryByFullName: vi.fn(async () => ({ id: `repo-1`, fullName: `acme/app` })),
+  mergeRepositoryPull: vi.fn(async () => ({ merged: true as const })),
   getIssueTeamContext: vi.fn(async () => ({
     issueId: `issue-1`,
     boardId: `proj-1`,
@@ -30,6 +34,16 @@ vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 vi.mock(`@/lib/team-membership`, () => ({
   assertTeamMember: h.assertTeamMember,
   getIssueTeamContext: h.getIssueTeamContext,
+}))
+
+vi.mock(`@/lib/integrations/pr-sync`, () => ({
+  applySessionPrState: h.applySessionPrState,
+  repoFromPrUrl: (url: string) =>
+    url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)?.[1] ?? null,
+}))
+vi.mock(`@/lib/trpc/repositories`, () => ({
+  loadRepositoryByFullName: h.loadRepositoryByFullName,
+  mergeRepositoryPull: h.mergeRepositoryPull,
 }))
 
 // EXP-700: `end` tells a live parent about a vanished agent-started child;
@@ -148,6 +162,81 @@ beforeEach(() => {
     teamId: `ws-issue`,
   })
   vi.mocked(notifyParentOfChildEnd).mockClear()
+  h.applySessionPrState.mockClear()
+  h.loadRepositoryByFullName.mockClear()
+  h.mergeRepositoryPull.mockClear()
+})
+
+// EXP-734: a run's own chore PR merges through the session row.
+describe(`codingSessions.mergePr`, () => {
+  const PR_URL = `https://github.com/acme/app/pull/12`
+  function sessionRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+      issueId: null,
+      prUrl: PR_URL,
+      prNumber: 12,
+      prState: `open`,
+      ...overrides,
+    }
+  }
+
+  it(`merges an open run PR through the shared helper after the member check`, async () => {
+    selectResults.push([sessionRow()])
+    const result = await caller.mergePr({ sessionId: SESSION_ID, endSessions: false })
+    expect(result).toEqual({ merged: true })
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM_ID)
+    expect(h.loadRepositoryByFullName).toHaveBeenCalledWith(TEAM_ID, `acme/app`)
+    expect(h.mergeRepositoryPull).toHaveBeenCalledWith({
+      repo: { id: `repo-1`, fullName: `acme/app` },
+      prNumber: 12,
+      prUrl: PR_URL,
+      userId: `actor`,
+      viaAgent: false,
+      endSessions: false,
+    })
+    expect(h.applySessionPrState).not.toHaveBeenCalled()
+  })
+
+  it(`is idempotent for an already-merged PR: re-runs the end sweep, merges nothing`, async () => {
+    selectResults.push([sessionRow({ prState: `merged` })])
+    const result = await caller.mergePr({ sessionId: SESSION_ID })
+    expect(result).toEqual({ merged: true })
+    expect(h.applySessionPrState).toHaveBeenCalledWith({
+      prUrl: PR_URL,
+      state: `merged`,
+      endSessions: undefined,
+    })
+    expect(h.mergeRepositoryPull).not.toHaveBeenCalled()
+  })
+
+  it(`refuses an issue run, a run without a PR, a closed PR and a non-member`, async () => {
+    selectResults.push([sessionRow({ issueId: ISSUE_ID })])
+    let err = (await rejectionOf(caller.mergePr({ sessionId: SESSION_ID }))) as TRPCError
+    expect(err.code).toBe(`PRECONDITION_FAILED`)
+    expect(err.message).toContain(`through the issue`)
+
+    selectResults.push([sessionRow({ prUrl: null, prNumber: null, prState: null })])
+    err = (await rejectionOf(caller.mergePr({ sessionId: SESSION_ID }))) as TRPCError
+    expect(err.code).toBe(`PRECONDITION_FAILED`)
+    expect(err.message).toContain(`no pull request`)
+
+    selectResults.push([sessionRow({ prState: `closed` })])
+    err = (await rejectionOf(caller.mergePr({ sessionId: SESSION_ID }))) as TRPCError
+    expect(err.code).toBe(`PRECONDITION_FAILED`)
+    expect(err.message).toContain(`closed`)
+
+    h.assertTeamMember.mockRejectedValueOnce(new TRPCError({ code: `FORBIDDEN` }))
+    selectResults.push([sessionRow()])
+    err = (await rejectionOf(caller.mergePr({ sessionId: SESSION_ID }))) as TRPCError
+    expect(err.code).toBe(`FORBIDDEN`)
+
+    selectResults.push([])
+    err = (await rejectionOf(caller.mergePr({ sessionId: SESSION_ID }))) as TRPCError
+    expect(err.code).toBe(`NOT_FOUND`)
+    expect(h.mergeRepositoryPull).not.toHaveBeenCalled()
+  })
 })
 
 describe(`codingSessions.start — exactly-one-subject refine`, () => {

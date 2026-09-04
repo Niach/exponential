@@ -33,8 +33,8 @@ import {
 // Extract `owner/repo` from a GitHub PR URL. Deliberately a duplicate of the
 // identical helper in lib/trpc/issues.ts — importing the router from here
 // would be circular, and several router tests mock this module's other
-// import targets wholesale.
-function repoFromPrUrl(prUrl: string): string | null {
+// import targets wholesale. Exported for codingSessions.mergePr (EXP-734).
+export function repoFromPrUrl(prUrl: string): string | null {
   const match = prUrl.match(/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)
   return match ? match[1] : null
 }
@@ -820,6 +820,84 @@ export async function endSessionsOnMergedBranch(
   })
 
   await tearDownEndedSessions(endedSessionIds)
+}
+
+// EXP-734: the session-PR state writer. An action/chat run's chore PR lives
+// on its `coding_sessions` row (`pr_url/pr_number/pr_state`, stamped by the
+// MCP pr_open chore path) — the issue-side writers above never see it. This
+// is the ONE place that keeps the row in step with GitHub on every path (the
+// shared merge helper, the webhook's closed/reopened legs, the self-hosted
+// poller): flip `pr_state` along the same open⇄closed / →merged lifecycle
+// as `applyPrStateFlip` (merged is terminal, so a racing duplicate degrades
+// to a no-op), and on a merge END the live runs sitting on the PR like every
+// other merge path does — the team's `endSessionsOnMerge` decides unless the
+// merger's per-call `endSessions` override (EXP-711) says otherwise, and the
+// `merged_own_pr` spare keeps the run that merged its own PR alive. Only
+// issue-less rows are addressed: an issue run's PR state is the issue's.
+export async function applySessionPrState(opts: {
+  prUrl: string
+  state: `open` | `closed` | `merged`
+  endSessions?: boolean
+}): Promise<{ endedSessionIds: string[] }> {
+  if (!opts.prUrl) return { endedSessionIds: [] }
+  const endedSessionIds = await db.transaction(async (tx) => {
+    const txId = await generateTxId(tx)
+    void txId
+
+    const fromState =
+      opts.state === `merged`
+        ? or(isNull(codingSessions.prState), ne(codingSessions.prState, `merged`))
+        : eq(codingSessions.prState, opts.state === `closed` ? `open` : `closed`)
+    await tx
+      .update(codingSessions)
+      .set({ prState: opts.state, updatedAt: new Date() })
+      .where(
+        and(
+          eq(codingSessions.prUrl, opts.prUrl),
+          isNull(codingSessions.issueId),
+          fromState
+        )
+      )
+      .returning({ id: codingSessions.id })
+
+    if (opts.state !== `merged` || opts.endSessions === false) return []
+    const live = await tx
+      .select({ id: codingSessions.id })
+      .from(codingSessions)
+      .innerJoin(teams, eq(teams.id, codingSessions.teamId))
+      .where(
+        and(
+          eq(codingSessions.prUrl, opts.prUrl),
+          isNull(codingSessions.issueId),
+          inArray(codingSessions.status, [`running`, `in_review`]),
+          eq(codingSessions.mergedOwnPr, false),
+          ...(opts.endSessions === true
+            ? []
+            : [eq(teams.endSessionsOnMerge, true)])
+        )
+      )
+    const targetIds = live.map((row) => row.id)
+    if (targetIds.length === 0) return []
+    const ended = await tx
+      .update(codingSessions)
+      .set({
+        status: `ended`,
+        endedAt: new Date(),
+        endedBy: `merge`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          inArray(codingSessions.id, targetIds),
+          inArray(codingSessions.status, [`running`, `in_review`])
+        )
+      )
+      .returning({ id: codingSessions.id })
+    return ended.map((row) => row.id)
+  })
+
+  await tearDownEndedSessions(endedSessionIds)
+  return { endedSessionIds }
 }
 
 // Retarget every open PR based on a just-merged PR's head branch onto the
