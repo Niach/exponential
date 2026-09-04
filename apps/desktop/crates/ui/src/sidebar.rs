@@ -2558,8 +2558,9 @@ impl SidebarPanel {
             .into_any_element()
     }
 
-    /// One Support row: title, reporter + relative time, an unread dot while
-    /// the reporter spoke last. Click opens the thread screen.
+    /// One Support row (EXP-715): the ticket SUBJECT leads (the iOS/Android
+    /// row), reporter + latest-message preview under, relative time and an
+    /// unread dot on the subject line. Click opens the thread screen.
     fn support_row(
         &self,
         thread: &api::helpdesk::SupportThreadSummary,
@@ -2580,35 +2581,35 @@ impl SidebarPanel {
             Some(Screen::SupportThread { thread_id }) if thread_id == thread.id
         );
         let unread = thread.unread;
-        let reporter: SharedString = thread
+        let title: SharedString = thread.title.clone().into();
+        let reporter: String = thread
             .reporter_name
             .clone()
             .filter(|name| !name.trim().is_empty())
             .or_else(|| thread.reporter_email.clone())
-            .unwrap_or_else(|| "Reporter".to_string())
-            .into();
+            .unwrap_or_else(|| "Reporter".to_string());
         let time: SharedString = thread
             .updated_at
             .as_deref()
             .map(crate::inbox::relative_time)
             .unwrap_or_default()
             .into();
-        // One-line latest-PUBLIC-message preview (web/iOS/Android row
-        // parity); newlines collapse so `truncate` sees a single line.
-        // Blank bodies fall back to the thread subject.
+        // One-line latest-PUBLIC-message preview, prefixed by the reporter
+        // (the Android `reporter · body` line); newlines collapse so
+        // `truncate` sees a single line. A blank body leaves the reporter
+        // alone — the subject already sits on line one.
         let preview: SharedString = thread
             .last_message
             .as_ref()
             .and_then(|message| message.body.as_deref())
             .map(|body| body.split_whitespace().collect::<Vec<_>>().join(" "))
             .filter(|body| !body.is_empty())
-            .unwrap_or_else(|| thread.title.clone())
+            .map(|body| format!("{reporter} · {body}"))
+            .unwrap_or(reporter)
             .into();
         let nav_id = thread.id.clone();
         let nav_title = thread.title.clone();
 
-        // EXP-525: the web list row — reporter name + time + unread dot on
-        // line one, preview under (`support-inbox.tsx`).
         crate::surface::glass_row_card()
             .id(SharedString::from(format!("support-{}", thread.id)))
             .flex()
@@ -2639,15 +2640,17 @@ impl SidebarPanel {
                     // `flex_1` + `min_w_0` — without the flex basis the
                     // truncating div collapses and renders ONLY the "…"
                     // (the EXP-175 definite-width chain, again).
+                    // The subject keeps full contrast whether read or not
+                    // (iOS); unread adds weight, like the mobile rows.
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
                             .text_sm()
                             .truncate()
-                            .font_weight(FontWeight::MEDIUM)
+                            .when(unread, |this| this.font_weight(FontWeight::MEDIUM))
                             .text_color(fg)
-                            .child(reporter),
+                            .child(title),
                     )
                     .child(
                         div()

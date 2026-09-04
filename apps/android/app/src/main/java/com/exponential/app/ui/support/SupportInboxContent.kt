@@ -99,11 +99,15 @@ fun SupportInboxContent(
 private fun SupportThreadRowItem(thread: SupportThreadRow, onClick: () -> Unit) {
     val read = !thread.unread
     val reporter = thread.reporterName?.takeIf { it.isNotBlank() } ?: thread.reporterEmail
+    // EXP-715: read rows keep their title at full contrast (iOS) — the
+    // weight drop + the missing dot already mark them. Only a RESOLVED read
+    // row fades, mirroring the iOS `unread || status == open` rule.
+    val faded = read && thread.status != "open"
     Row(
         Modifier
             .fillMaxWidth()
             .testTag("support-thread-row")
-            .alpha(if (read) 0.6f else 1f)
+            .alpha(if (faded) 0.6f else 1f)
             .glassRow()
             .clickable(onClick = onClick)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
