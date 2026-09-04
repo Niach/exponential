@@ -25,6 +25,20 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-relations-and-design-refresh`,
+    date: `2026-09-05`,
+    title: `Issue relations and a design refresh`,
+    summary: `Link issues as parent, sub-issue, blocking, blocked by, duplicate or related, and get a cutout layout, bigger comment images and a quieter activity feed on every client.`,
+    body: `- **Issue relations**: add a relation from the new card under an issue's properties on web and desktop, or from the properties sheet on iOS and Android. Typing #EXP-12 in a description or comment links the two issues as related on its own, and marking a duplicate now shows up there too.
+- **Relations for agents**: the MCP tools can add and remove relations, and an issue's relations come back with it.
+- **Cutout layout**: the content area is a rounded card floating on a darker ground on web and in the desktop app, so both read the same.
+- **Desktop sidebar**: the rail is always open and mirrors the web: team switcher, search and new issue at the top, What's new and Getting started at the bottom, and the account menu holds What's new, About and Sign out.
+- **Desktop terminal dock**: the open dock carries its own header with the window and collapse controls, sits on an opaque card, and the app text is one size bigger.
+- **Bigger comment images**: pictures attached to a comment show at full width on web, desktop, iOS and Android, and open the viewer on tap.
+- **A quieter activity feed**: events read as one muted line with a time, comments sit in a single card, and selected chips are no longer white.
+- **Subscribe button retired**: you follow an issue automatically when you create it, comment, get assigned or are mentioned, so the button is gone from every client.`,
+  },
+  {
     id: `2026-09-merge-agent-run-prs`,
     date: `2026-09-04`,
     title: `Merge from action and chat runs`,
