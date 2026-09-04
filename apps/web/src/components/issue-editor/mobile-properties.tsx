@@ -18,6 +18,11 @@ import { BoardPicker } from "@/components/issue-properties/board-picker"
 import { BoardGlyph } from "@/components/board-glyph"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import {
+  IssueRelationsAdd,
+  IssueRelationsList,
+  useIssueRelations,
+} from "@/components/issue-relations-card"
+import {
   priorities,
   PriorityIcon,
 } from "@/components/issue-properties/priority-dropdown"
@@ -84,6 +89,14 @@ export interface IssueEditorMobilePropertiesProps {
     issueIdentifier?: string | null
     onBoardChange: (boardId: string) => void | Promise<void>
   }
+  /** EXP-736 (the issue detail's phone sheet only): a Relations section after
+   * Labels — the same rows and the same "Add relation" picker the desktop card
+   * shows, minus its own card chrome. Absent on the create form: a new issue
+   * has no id to relate yet. */
+  relations?: {
+    issueId: string
+    readOnly?: boolean
+  }
   disableStatus?: boolean
   disabled?: boolean
   onStatusChange: (status: StatusRowOption) => void | Promise<void>
@@ -108,6 +121,7 @@ export function IssueEditorMobileProperties({
   hideAssignee,
   hideDueDateChip,
   board,
+  relations,
   disableStatus,
   disabled,
   onStatusChange,
@@ -341,6 +355,8 @@ export function IssueEditorMobileProperties({
         </div>
       </div>
 
+      {relations && <MobileRelationsSection {...relations} />}
+
       {/* Android/iOS order: properties card, labels, then the bare
           "Create more" row (no card of its own). */}
       {onCreateMoreChange && (
@@ -353,6 +369,38 @@ export function IssueEditorMobileProperties({
           className="px-4"
         />
       )}
+    </div>
+  )
+}
+
+// The phone's Relations block: the shared list plus the shared picker, in the
+// same header + chips shape the Labels block above uses.
+function MobileRelationsSection({
+  issueId,
+  readOnly = false,
+}: {
+  issueId: string
+  readOnly?: boolean
+}) {
+  const rows = useIssueRelations(issueId)
+  if (readOnly && rows.length === 0) return null
+
+  return (
+    <div className="flex flex-col gap-2">
+      <GlassSectionHeader label="Relations" className="px-4 pb-0" />
+      <div className="flex flex-col gap-1.5 px-4">
+        <IssueRelationsList rows={rows} readOnly={readOnly} />
+        {!readOnly && (
+          <IssueRelationsAdd
+            issueId={issueId}
+            trigger={
+              <Pill size="sm" mode="action" leading={<Plus />} className="self-start">
+                Add relation
+              </Pill>
+            }
+          />
+        )}
+      </div>
     </div>
   )
 }

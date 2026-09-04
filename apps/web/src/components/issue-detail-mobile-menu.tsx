@@ -1,7 +1,6 @@
 import { toast } from "sonner"
 import { useState } from "react"
 import { conceptIcon } from "@/lib/icons.generated"
-import { useIssueSubscription } from "@/components/subscribe-toggle"
 import { BoardPicker } from "@/components/issue-properties/board-picker"
 import { Button } from "@/components/ui/button"
 import {
@@ -24,40 +23,11 @@ import {
 const UiMoreIcon = conceptIcon(`ui-more`)
 const UiShareIcon = conceptIcon(`ui-share`)
 const UiCopyIcon = conceptIcon(`ui-copy`)
-const UiSubscribeIcon = conceptIcon(`ui-subscribe`)
-const UiUnsubscribeIcon = conceptIcon(`ui-unsubscribe`)
 const NavBoardsIcon = conceptIcon(`nav-boards`)
 const UiUndoIcon = conceptIcon(`ui-undo`)
 const UiDeleteIcon = conceptIcon(`ui-delete`)
 
-// Subscribe lives in its own component because the live query behind it is a
-// hook and the item is conditional on a signed-in user.
-function SubscribeItem({
-  issueId,
-  currentUserId,
-}: {
-  issueId: string
-  currentUserId: string
-}) {
-  const { subscribed, busy, toggle } = useIssueSubscription(
-    issueId,
-    currentUserId
-  )
-  return (
-    <DropdownMenuItem
-      disabled={busy}
-      onSelect={() => {
-        void toggle()
-      }}
-    >
-      {subscribed ? <UiUnsubscribeIcon /> : <UiSubscribeIcon />}
-      {subscribed ? `Unsubscribe` : `Subscribe`}
-    </DropdownMenuItem>
-  )
-}
-
 interface IssueDetailMobileMenuProps {
-  issueId: string
   issueTitle: string
   // The canonical issue URL — the same one the desktop copy-link button uses.
   issueUrl: string
@@ -65,7 +35,6 @@ interface IssueDetailMobileMenuProps {
   boardId: string
   issueIdentifier: string
   duplicateOfId: string | null
-  currentUserId: string | null
   readOnly?: boolean
   onDelete: () => void | Promise<void>
   onMoveBoard: (boardId: string) => void | Promise<void>
@@ -73,19 +42,17 @@ interface IssueDetailMobileMenuProps {
 }
 
 // The phone issue-detail overflow menu (EXP-687). The desktop breadcrumb keeps
-// its row of icon buttons; on a phone every one of them — copy link, subscribe,
-// unmark duplicate, delete — collapses into this ONE `…`, matching the iOS and
+// its row of icon buttons; on a phone every one of them — copy link, unmark
+// duplicate, delete — collapses into this ONE `…`, matching the iOS and
 // Android toolbar menus. Only the prev/next switcher stays outside it, because
 // it is navigation rather than an action.
 export function IssueDetailMobileMenu({
-  issueId,
   issueTitle,
   issueUrl,
   teamId,
   boardId,
   issueIdentifier,
   duplicateOfId,
-  currentUserId,
   readOnly = false,
   onDelete,
   onMoveBoard,
@@ -132,9 +99,6 @@ export function IssueDetailMobileMenu({
             {canShare ? <UiShareIcon /> : <UiCopyIcon />}
             {canShare ? `Share` : `Copy link`}
           </DropdownMenuItem>
-          {currentUserId && (
-            <SubscribeItem issueId={issueId} currentUserId={currentUserId} />
-          )}
           {!readOnly && (
             <DropdownMenuItem
               onSelect={() => {

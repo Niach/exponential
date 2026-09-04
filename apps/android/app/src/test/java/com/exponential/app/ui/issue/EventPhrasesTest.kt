@@ -203,6 +203,49 @@ class EventPhrasesTest {
         assertTrue(eventRowVisible("something_new"))
     }
 
+    // ── EXP-736: relation events ────────────────────────────────────────────
+
+    @Test
+    fun relationAddedReadsTheSideSpecificPhrase() {
+        assertEquals(
+            "marked as blocked by EXP-3",
+            phrase(
+                event(
+                    "relation_added",
+                    """{"type":"blocks","relatedIdentifier":"EXP-3","direction":"inverse"}""",
+                ),
+            ),
+        )
+        assertEquals(
+            "no longer parent of EXP-3",
+            phrase(
+                event(
+                    "relation_removed",
+                    """{"type":"parent","relatedIdentifier":"EXP-3","direction":"forward"}""",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun relatedReferencesReadAsAnAddedRelatedIssue() {
+        assertEquals(
+            "added related issue EXP-12",
+            phrase(
+                event(
+                    "relation_added",
+                    """{"type":"related","relatedIdentifier":"EXP-12","direction":"forward","source":"reference"}""",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun relationEventsWithoutPayloadFallBackToTheVerb() {
+        assertEquals("added a relation", phrase(event("relation_added", null)))
+        assertEquals("removed a relation", phrase(event("relation_removed", null)))
+    }
+
     // ── EXP-595: timeline glyphs (web `EventRow` / desktop `EventGlyph` parity) ──
 
     @Test
@@ -216,6 +259,8 @@ class EventPhrasesTest {
         assertSame(ExpIcons.prOpen, plain("pr_opened"))
         assertSame(ExpIcons.prMerged, plain("pr_merged"))
         assertSame(ExpIcons.eventPriorityChanged, plain("priority_changed"))
+        assertSame(ExpIcons.eventRelationAdded, plain("relation_added"))
+        assertSame(ExpIcons.eventRelationRemoved, plain("relation_removed"))
     }
 
     /** EXP-525 parity: the TARGET status's real row wins over the anchor. */

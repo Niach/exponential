@@ -8,6 +8,7 @@ import { teamsRouter } from "@/lib/trpc/teams"
 import { boardsRouter } from "@/lib/trpc/boards"
 import { issuesRouter } from "@/lib/trpc/issues"
 import { issueLabelsRouter } from "@/lib/trpc/issue-labels"
+import { relationsRouter } from "@/lib/trpc/relations"
 import { labelsRouter } from "@/lib/trpc/labels"
 import { statusesRouter } from "@/lib/trpc/statuses"
 import { teamInvitesRouter } from "@/lib/trpc/team-invites"
@@ -39,6 +40,7 @@ export const appRouter = router({
   boards: boardsRouter,
   issues: issuesRouter,
   issueLabels: issueLabelsRouter,
+  relations: relationsRouter,
   labels: labelsRouter,
   statuses: statusesRouter,
   comments: commentsRouter,

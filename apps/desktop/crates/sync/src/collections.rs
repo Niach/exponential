@@ -3,7 +3,7 @@
 //!
 //! Design (§5.8, mirrored from §3.5's threading model):
 //!
-//! * **One `gpui::Entity<Collection<T>>` per shape** (19 entities), all held
+//! * **One `gpui::Entity<Collection<T>>` per shape** (20 entities), all held
 //!   by the global [`Store`]. Separate entities give fine-grained
 //!   `cx.notify()` — an issue update wakes only the issue-list views, not the
 //!   label chips.
@@ -45,8 +45,8 @@ use crate::store::{ShapeStore, StoreError};
 
 use domain::rows::{
     ActionRow, Attachment, AutomationRow, Board, CodingSession, Comment, DeviceRow,
-    DeviceWorktreeRow, Issue, IssueEvent, IssueLabel, IssueStatusRow, IssueSubscriber, Label,
-    Notification, Team, TeamInvite, TeamMember, User,
+    DeviceWorktreeRow, Issue, IssueEvent, IssueLabel, IssueRelation, IssueStatusRow,
+    IssueSubscriber, Label, Notification, Team, TeamInvite, TeamMember, User,
 };
 
 // ---------------------------------------------------------------------------
@@ -154,7 +154,7 @@ pub fn derive_active_health(
 // Per-shape reactive collections
 // ---------------------------------------------------------------------------
 
-/// A typed row hydratable from the store's snake_case JSON objects. The 19
+/// A typed row hydratable from the store's snake_case JSON objects. The 20
 /// impls below bind each `domain::rows` struct to its [`ShapeSpec`].
 pub trait ShapeRow: serde::de::DeserializeOwned + Send + 'static {
     fn spec() -> &'static ShapeSpec;
@@ -193,6 +193,7 @@ id_shape_row!(IssueStatusRow, "issue_statuses");
 id_shape_row!(DeviceRow, "devices");
 id_shape_row!(DeviceWorktreeRow, "device_worktrees");
 id_shape_row!(AutomationRow, "automations");
+id_shape_row!(IssueRelation, "issue_relations");
 
 impl ShapeRow for IssueLabel {
     fn spec() -> &'static ShapeSpec {
@@ -342,7 +343,7 @@ pub fn decode_rows<T: ShapeRow>(maps: Vec<Map<String, Value>>) -> Vec<(RowKey, T
         .collect()
 }
 
-/// The 19 collection entities (§5.8). Cloning is cheap — `Entity` handles.
+/// The 20 collection entities (§5.8). Cloning is cheap — `Entity` handles.
 #[derive(Clone)]
 pub struct Collections {
     pub teams: Entity<Collection<Team>>,
@@ -369,10 +370,13 @@ pub struct Collections {
     /// EXP-583 per-team automations (the 19th shape) — one action + one
     /// device + one trigger, split out of the old `actions.trigger`.
     pub automations: Entity<Collection<AutomationRow>>,
+    /// EXP-736 issue relations (the 20th shape) — blocks / parent /
+    /// duplicate / related, scoped by the SOURCE issue's board.
+    pub issue_relations: Entity<Collection<IssueRelation>>,
 }
 
 /// Run `$body` once per shape with `$entity` bound to that shape's collection
-/// entity — the single dispatch point that keeps the 19-way fan-out in one
+/// entity — the single dispatch point that keeps the 20-way fan-out in one
 /// place.
 macro_rules! for_each_collection {
     ($collections:expr, $entity:ident => $body:expr) => {{
@@ -414,6 +418,8 @@ macro_rules! for_each_collection {
         $body;
         let $entity = &$collections.automations;
         $body;
+        let $entity = &$collections.issue_relations;
+        $body;
     }};
 }
 
@@ -439,6 +445,7 @@ impl Collections {
             devices: cx.new(|_| Collection::new()),
             device_worktrees: cx.new(|_| Collection::new()),
             automations: cx.new(|_| Collection::new()),
+            issue_relations: cx.new(|_| Collection::new()),
         }
     }
 
@@ -478,11 +485,14 @@ impl Collections {
                 apply_to(&self.device_worktrees, keys, full_replace, sqlite, cx)
             }
             "automations" => apply_to(&self.automations, keys, full_replace, sqlite, cx),
+            "issue_relations" => {
+                apply_to(&self.issue_relations, keys, full_replace, sqlite, cx)
+            }
             other => log::warn!("[sync] delta for unknown shape {other}"),
         }
     }
 
-    /// Full hydrate of all 19 collections from SQLite (§5.8 "hydrate typed
+    /// Full hydrate of all 20 collections from SQLite (§5.8 "hydrate typed
     /// in-memory collections from SQLite at startup"). Runs synchronously on
     /// the foreground — deliberately: every batch committed to SQLite has a
     /// matching [`ShapeDelta`] queued behind this call, so a snapshot read
@@ -501,13 +511,13 @@ impl Collections {
     }
 
     fn statuses(&self, cx: &App) -> Vec<ShapeStatus> {
-        let mut out = Vec::with_capacity(19);
+        let mut out = Vec::with_capacity(20);
         for_each_collection!(self, entity => out.push(status_of(entity, cx)));
         out
     }
 
     fn observe_all<V: 'static>(&self, cx: &mut gpui::Context<V>) -> Vec<Subscription> {
-        let mut out = Vec::with_capacity(19);
+        let mut out = Vec::with_capacity(20);
         for_each_collection!(self, entity => {
             out.push(cx.observe(entity, |_, _, cx| cx.notify()))
         });
@@ -601,6 +611,25 @@ impl Collections {
             .cloned()
             .collect();
         sort_issues(&mut out);
+        out
+    }
+
+    /// EXP-736: every relation row touching `issue_id`, from EITHER side —
+    /// the shape syncs rows scoped by the SOURCE issue's board, and a row
+    /// whose `related_issue_id` is this issue is the inverse side of the same
+    /// relation. Callers group by the per-side label and hide rows whose
+    /// other issue has not synced. Insertion order is not meaningful (the
+    /// collection is a map), so rows come back sorted by id for a stable
+    /// render.
+    pub fn relations_for_issue(&self, issue_id: &str, cx: &App) -> Vec<IssueRelation> {
+        let mut out: Vec<IssueRelation> = self
+            .issue_relations
+            .read(cx)
+            .iter()
+            .filter(|row| row.issue_id == issue_id || row.related_issue_id == issue_id)
+            .cloned()
+            .collect();
+        out.sort_by(|a, b| a.id.cmp(&b.id));
         out
     }
 }
@@ -1246,7 +1275,7 @@ mod tests {
 
     #[test]
     fn every_shape_has_a_typed_row_binding() {
-        // The 19 ShapeRow impls cover the registry exactly (a 20th shape
+        // The 20 ShapeRow impls cover the registry exactly (a 21st shape
         // without a typed row would silently never reach the UI).
         let bound = [
             Team::spec().name,
@@ -1268,6 +1297,7 @@ mod tests {
             DeviceRow::spec().name,
             DeviceWorktreeRow::spec().name,
             AutomationRow::spec().name,
+            IssueRelation::spec().name,
         ];
         let registry: Vec<&str> = crate::shapes::SHAPES.iter().map(|s| s.name).collect();
         assert_eq!(bound.len(), registry.len());

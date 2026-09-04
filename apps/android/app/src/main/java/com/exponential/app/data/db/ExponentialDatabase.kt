@@ -11,6 +11,7 @@ import androidx.room.RoomDatabase
         LabelEntity::class,
         IssueStatusEntity::class,
         IssueLabelEntity::class,
+        IssueRelationEntity::class,
         UserEntity::class,
         TeamMemberEntity::class,
         TeamInviteEntity::class,
@@ -206,9 +207,13 @@ import androidx.room.RoomDatabase
     //      OWN chore PR (an action or chat run whose PR links no issue). New
     //      columns on the coding-sessions shape allowlist; destructive
     //      fallback wipes + resyncs so every session row arrives carrying them.
+    // v46 (EXP-736): issue_relations table (the 20th shape) — the directed
+    //      relation edges between issues (blocks / parent / duplicate /
+    //      related, plus the auto-linked #IDENT references). New table, so the
+    //      destructive fallback wipes + resyncs.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 45,
+    version = 46,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {
@@ -218,6 +223,7 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun labelDao(): LabelDao
     abstract fun issueStatusDao(): IssueStatusDao
     abstract fun issueLabelDao(): IssueLabelDao
+    abstract fun issueRelationDao(): IssueRelationDao
     abstract fun userDao(): UserDao
     abstract fun teamMemberDao(): TeamMemberDao
     abstract fun teamInviteDao(): TeamInviteDao

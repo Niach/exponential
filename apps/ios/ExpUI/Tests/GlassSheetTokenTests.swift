@@ -29,14 +29,15 @@ final class GlassSheetTokenTests: XCTestCase {
         XCTAssertEqual(GlassSheetTokens.fittedMaxFraction, 0.85, accuracy: 0.0001)
     }
 
-    // #18181B, OPAQUE and unblurred: a sheet is a surface, not a scrim. The
-    // value is the shared `glass.backgroundBottom` token — never a literal.
+    // #111114, OPAQUE and unblurred: a sheet is a surface, not a scrim. The
+    // value is the shared `glass.backgroundBottom` token — never a literal
+    // (EXP-723 darkened the ground from #18181B, and sheets follow it).
     func testBackgroundIsTheOpaqueSharedGlassBottom() {
         let channels = self.channels(of: GlassSheetTokens.background)
         let tolerance = 1.0 / 255.0
-        XCTAssertEqual(channels.red, 24.0 / 255.0, accuracy: tolerance, "red channel")
-        XCTAssertEqual(channels.green, 24.0 / 255.0, accuracy: tolerance, "green channel")
-        XCTAssertEqual(channels.blue, 27.0 / 255.0, accuracy: tolerance, "blue channel")
+        XCTAssertEqual(channels.red, 17.0 / 255.0, accuracy: tolerance, "red channel")
+        XCTAssertEqual(channels.green, 17.0 / 255.0, accuracy: tolerance, "green channel")
+        XCTAssertEqual(channels.blue, 20.0 / 255.0, accuracy: tolerance, "blue channel")
         XCTAssertEqual(channels.alpha, 1, accuracy: 0.0001, "a sheet's fill is opaque")
     }
 

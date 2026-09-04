@@ -40,7 +40,9 @@ final class AppDependencies: @unchecked Sendable {
     let commentsApi: CommentsApi
     let usersApi: UsersApi
     let notificationsApi: NotificationsApi
-    let subscriptionsApi: SubscriptionsApi
+    // EXP-736: typed issue relations (blocks / parent / duplicate /
+    // related) — writes go through tRPC, the rows arrive over the shape.
+    let relationsApi: RelationsApi
     let onboardingApi: OnboardingApi
     // Server-only repositories registry (not a synced shape) — read + link
     // management in team settings (masterplan §7a).
@@ -156,7 +158,7 @@ final class AppDependencies: @unchecked Sendable {
         self.commentsApi = CommentsApi(trpc: trpc)
         self.usersApi = UsersApi(trpc: trpc)
         self.notificationsApi = NotificationsApi(trpc: trpc)
-        self.subscriptionsApi = SubscriptionsApi(trpc: trpc)
+        self.relationsApi = RelationsApi(trpc: trpc)
         self.onboardingApi = OnboardingApi(trpc: trpc)
         self.repositoriesApi = RepositoriesApi(trpc: trpc)
         self.steerApi = SteerApi(trpc: trpc)

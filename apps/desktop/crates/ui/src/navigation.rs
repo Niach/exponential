@@ -29,8 +29,8 @@ use gpui::{
 use sync::Store;
 
 use crate::actions::{
-    GoBack, OpenInbox, OpenIssue, OpenMyIssues, OpenBoard, OpenSettings,
-    OpenSourceControl, SwitchTeam, SyncNow,
+    GoBack, OpenAbout, OpenInbox, OpenIssue, OpenMyIssues, OpenBoard, OpenSettings,
+    OpenSourceControl, OpenWhatsNew, SwitchTeam, SyncNow,
 };
 
 /// One center TAB (§4.2, reworked): the center pane is tab-based — every
@@ -830,6 +830,24 @@ pub fn init(cx: &mut App) {
         let team_id = action.team_id.clone();
         on_active_window(cx, move |window, cx| {
             switch_team(window, cx, team_id);
+        });
+    });
+    // EXP-723: the rail's account menu is What's new / About / Sign out. Both
+    // of the first two are App-global actions so the keymap can bind them;
+    // the rail's own affordances still call the openers directly (EXP-17).
+    cx.on_action(|_: &OpenWhatsNew, cx| {
+        on_active_window(cx, |window, cx| {
+            crate::changelog::open_whats_new(window, cx);
+        });
+    });
+    cx.on_action(|_: &OpenAbout, cx| {
+        on_active_window(cx, |window, cx| {
+            crate::sidebar::select_settings_section(
+                window,
+                cx,
+                crate::settings::SettingsSection::About,
+            );
+            navigate(window, cx, Screen::Settings);
         });
     });
     cx.on_action(|_: &GoBack, cx| {

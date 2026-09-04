@@ -69,7 +69,10 @@ use crate::icons::registry;
 ///     freed header height changes every persisted pane size.
 /// v8: the in-app titlebar (EXP-269) reserves 34px above the dock area on
 ///     every platform — persisted pane sizes shift again.
-const LAYOUT_VERSION: usize = 8;
+/// v9: EXP-723's cutout panel — the dock area is inset by a 10px margin on
+///     every side (6px under the decoration band) and the terminal dock grew
+///     its own 28px header row, so every persisted pane size shifts once more.
+const LAYOUT_VERSION: usize = 9;
 
 const DOCK_AREA_ID: &str = "exp-workspace";
 
@@ -80,35 +83,16 @@ const SIDEBAR_WIDTH: Pixels = px(crate::sidebar::DEFAULT_DOCK_WIDTH);
 /// Default (closed) terminal-dock height when first opened.
 const TERMINAL_DOCK_HEIGHT: Pixels = px(240.);
 
-/// EXP-303: width of the traffic-light tongue — the sidebar glass extended
-/// into the titlebar strip under the rest of the macOS traffic-light cluster
-/// when the rail is collapsed (the rail is 44px and the lights sit at (9,9)
-/// with 12px buttons and 8px gaps, so the cluster ends at 61px; 44 + 24 = 68
-/// leaves a small gap between the green light and the toggle — EXP-342
-/// tightened this from 34, which read as a too-wide gap).
-const TRAFFIC_TONGUE_W: f32 = 24.;
+/// EXP-723 cutout: the gap between the working panel and the window edges —
+/// the same 10px the web shell uses (`app-shell.ts` `md:m-[10px]`).
+const PANEL_MARGIN: f32 = 10.;
 
-/// EXP-326: the tongue's second half — it now HOSTS the rail expand toggle
-/// (a 24px `small` icon button) instead of the main titlebar. 12px of right
-/// padding keeps the button clear of the 10px corner notch below it.
-const TRAFFIC_TONGUE_TOGGLE_W: f32 = 24. + 12.;
-
-/// Full tongue width, for [`crate::app_title_bar`]'s tab-strip budget.
-pub(crate) const TRAFFIC_TONGUE_TOTAL_W: f32 = TRAFFIC_TONGUE_W + TRAFFIC_TONGUE_TOGGLE_W;
-
-/// Whether this window renders the traffic-light tongue: macOS only, and only
-/// while the native lights are actually over the rail's 44px top strip —
-/// fullscreen hides them, and the expanded rail is wide enough to clear the
-/// cluster on its own. Callers additionally gate on the rail being present
-/// (the tongue is part of the rail column's chrome). EXP-456: in Settings the
-/// rail is replaced by the expanded-rail-width settings nav, which clears the
-/// cluster like the expanded rail — the tongue is rail chrome and goes with it.
-pub(crate) fn traffic_tongue_visible(window: &mut Window, cx: &mut App) -> bool {
-    cfg!(target_os = "macos")
-        && !window.is_fullscreen()
-        && !crate::sidebar::rail_expanded(window, cx)
-        && !window_in_settings(window, cx)
-}
+/// The panel's TOP gap under the 34px decoration band. Tighter than
+/// [`PANEL_MARGIN`] because the band already supplies breathing room above
+/// it; the full margin there reads as a hole. Windows without client chrome
+/// (the Linux server-decoration fallback) have no band and take
+/// [`PANEL_MARGIN`] on all four sides.
+const PANEL_MARGIN_TOP: f32 = 6.;
 
 /// EXP-456: whether this window is in the tab-less Settings mode — the left
 /// column shows the settings nav instead of the rail.
@@ -118,14 +102,13 @@ pub(crate) fn window_in_settings(window: &Window, cx: &mut App) -> bool {
 }
 
 /// EXP-456: the left column's TARGET width — `app_title_bar`'s strip budget
-/// reads this instead of raw `RAIL_W`/`RAIL_EXPANDED_W` (during the swap
-/// animation the target is the width the strip is about to have; a ~200ms
-/// transient under-budget is invisible).
+/// reads this instead of raw `RAIL_W` (during the swap animation the target
+/// is the width the strip is about to have; a ~200ms transient under-budget
+/// is invisible). EXP-723: the rail has ONE width now, so this only ever
+/// distinguishes the settings nav from the rail.
 pub(crate) fn left_column_target_width(window: &mut Window, cx: &mut App) -> f32 {
     if window_in_settings(window, cx) {
         SETTINGS_NAV_WIDTH
-    } else if crate::sidebar::rail_expanded(window, cx) {
-        crate::sidebar::RAIL_EXPANDED_W
     } else {
         crate::sidebar::RAIL_W
     }
@@ -237,130 +220,6 @@ fn left_anim_id(name: &'static str, from: f32, to: f32) -> gpui::ElementId {
     )
 }
 
-/// The tongue element: TRUE sidebar material — a flat sample of the sidebar
-/// ramp's top stop plus the rail's `FILL_SECTION` wash — with a CONVEX
-/// rounded bottom-right corner, so the glass reads as curving around the
-/// lights.
-///
-/// The corner is the hard part: with translucent materials every region must
-/// be painted by exactly one material (stacked glass composites near-opaque
-/// and reads as a different color — the review caught every variant of
-/// this), and the piece OUTSIDE the tongue's convex curve is CONCAVE, which
-/// gpui quads cannot draw (corner radii also clamp to half the quad's min
-/// dimension, so an r×r quad can't even round by r). So the notch is painted
-/// as a PATH via `canvas`: the content hue at a COMPENSATED alpha, chosen so
-/// that composited over the tongue base it lands exactly on the strip's own
-/// content alpha. The base under the notch is the continuous tongue, so the
-/// path's single antialiased arc edge blends tongue↔content with no seam.
-/// The quarter-arc is two quadratic beziers (tangent intersections at
-/// 0°/45°/90°; max deviation ~0.15px at r=10).
-///
-/// Flat top-stop samples everywhere: the strip is ~34px at the very top of
-/// the window, where both ramps' drift is invisible.
-fn traffic_tongue() -> impl IntoElement {
-    let radius = px(10.);
-    // EXP-326: the toggle rides in the tongue whenever the tongue exists —
-    // that is exactly the collapsed-macOS-windowed case, where the 44px rail
-    // strip is buried under the traffic lights and the main titlebar (which
-    // used to host it) has been given over entirely to the tab strip.
-    let toggle = crate::sidebar::rail_toggle_button("tongue-rail-expand", false);
-    let sidebar_top = theme::sidebar_background_gradient_stops().0;
-    let wash = theme::tokens::glass::FILL_SECTION.to_hsla();
-    let content_top = theme::background_gradient_stops().0;
-    // Alpha of the tongue base (wash over ramp top), then the overlay alpha
-    // that composites it up to the content strip's alpha: from
-    // `out = over + under·(1 - over)`. Guarded for the (macOS-only in
-    // practice) fully-opaque case.
-    let under = wash.a + sidebar_top.a * (1. - wash.a);
-    let over = if under >= 1. {
-        1.
-    } else {
-        ((content_top.a - under) / (1. - under)).clamp(0., 1.)
-    };
-    let notch_fill = content_top.opacity(over);
-    div()
-        .w(px(TRAFFIC_TONGUE_TOTAL_W))
-        // Explicit height is load-bearing: the strip row is an `h_flex`
-        // (items-center), and this div's children are all ABSOLUTE — without
-        // a definite height it collapses to 0px and paints nothing (the
-        // tongue region showed the raw window backdrop). 34px = the vendored
-        // TitleBar strip height.
-        .h(px(34.))
-        .flex_shrink_0()
-        .relative()
-        .bg(sidebar_top)
-        .child(
-            div()
-                .absolute()
-                .top_0()
-                .bottom_0()
-                .left_0()
-                .right_0()
-                .bg(wash),
-        )
-        .child(
-            gpui::canvas(
-                |_, _, _| (),
-                move |bounds, _, window, _| {
-                    let r = bounds.size.width.min(bounds.size.height);
-                    let o = bounds.origin;
-                    let at = |x: f32, y: f32| gpui::point(o.x + r * x, o.y + r * y);
-                    // Notch: from the arc's top end, along the tongue's convex
-                    // arc to its left end, then out to the corner and close —
-                    // the region between the curve and the strip. Built with
-                    // the lyon-backed PathBuilder: the raw scene Path fans its
-                    // fill triangles from the start vertex and rendered this
-                    // concave shape as a straight-edged triangle.
-                    let mut builder = gpui::PathBuilder::fill();
-                    builder.move_to(at(1., 0.));
-                    builder.arc_to(gpui::point(r, r), px(0.), false, true, at(0., 1.));
-                    builder.line_to(at(1., 1.));
-                    builder.close();
-                    if let Ok(path) = builder.build() {
-                        window.paint_path(path, notch_fill);
-                    }
-                },
-            )
-            .absolute()
-            .right_0()
-            .bottom_0()
-            .w(radius)
-            .h(radius),
-        )
-        .child(
-            // EXP-303: the strip's bottom hairline (the TitleBar's
-            // `border_b`, same STROKE_ROW token) continues through the notch
-            // until it meets the curve — without this it stopped at the
-            // strip's left edge and left a small gap beside the corner. Not
-            // the full notch width: within the hairline's 1px bottom band the
-            // arc sits ~3-4px in from the notch's left edge (x = √(2r−1) from
-            // the tongue side), so a full-width line overshot into the glass.
-            div()
-                .absolute()
-                .right_0()
-                .bottom_0()
-                .w(px(7.))
-                .h(px(1.))
-                .bg(theme::tokens::glass::STROKE_ROW.to_hsla()),
-        )
-        .child(
-            // Absolute like every other layer here (see the height comment
-            // above) — and `interactive` so pressing the toggle can't start a
-            // window drag, exactly as in the titlebar.
-            div()
-                .absolute()
-                .top_0()
-                .bottom_0()
-                .left_0()
-                .right_0()
-                .flex()
-                .items_center()
-                .justify_end()
-                .pr(px(12.))
-                .child(crate::app_title_bar::interactive(toggle)),
-        )
-}
-
 /// Debounce for persisting layout changes (`DockEvent::LayoutChanged` fires on
 /// every drag tick).
 const SAVE_DEBOUNCE: Duration = Duration::from_secs(2);
@@ -385,10 +244,6 @@ pub struct Shell {
     /// EXP-456: the rail ⇄ settings-nav swap transition state.
     left_anim: LeftColumnAnim,
     _left_anim_task: Option<Task<()>>,
-    /// EXP-456: the rail was transiently expanded on settings entry (it was
-    /// collapsed) — recollapse it when settings close, without ever touching
-    /// the persisted preference.
-    restore_rail_collapsed: bool,
     /// The functional Phase-2 login surface — rendered INSTEAD of the dock
     /// whenever the session machine is not `Synced` (§5: a dead token routes
     /// to login, never an empty board).
@@ -455,12 +310,6 @@ impl Shell {
         let update_state = UpdateState::global(cx);
         cx.observe(&update_state, |_, _, cx| cx.notify()).detach();
 
-        // EXP-303: the traffic-light tongue follows the rail's expanded
-        // state — the Shell renders the tongue segment itself now, so it
-        // must re-render when the toggle flips (the rail and titlebar
-        // observe this entity on their own).
-        let rail_shared = crate::sidebar::rail_shared_for_window(window, cx);
-        cx.observe(&rail_shared, |_, _, cx| cx.notify()).detach();
         shared.update(cx, |state, cx| {
             state.windows_open += 1;
             cx.notify();
@@ -619,11 +468,7 @@ impl Shell {
         // that opens straight into settings (EXP_DEV_SCREEN=settings) shows
         // no spurious entry animation.
         let in_settings = window_in_settings(window, cx);
-        let rail_w = if crate::sidebar::rail_expanded(window, cx) {
-            crate::sidebar::RAIL_EXPANDED_W
-        } else {
-            crate::sidebar::RAIL_W
-        };
+        let rail_w = crate::sidebar::RAIL_W;
         let left_anim = LeftColumnAnim::new(
             in_settings,
             if in_settings { SETTINGS_NAV_WIDTH } else { rail_w },
@@ -637,7 +482,6 @@ impl Shell {
             settings_nav,
             left_anim,
             _left_anim_task: None,
-            restore_rail_collapsed: false,
             login,
             onboarding,
             ordinal,
@@ -654,60 +498,30 @@ impl Shell {
 
     /// EXP-456: reconcile the left column's swap state with the active
     /// screen. Called at the top of every render — retargets the transition
-    /// when settings open/close, handles the transient rail expansion for a
-    /// collapsed rail, and schedules the settle timer that unmounts the
-    /// outgoing child (the upstream `gpui_component::sidebar` recipe).
+    /// when settings open/close and schedules the settle timer that unmounts
+    /// the outgoing child (the upstream `gpui_component::sidebar` recipe).
     fn sync_left_column(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let in_settings = window_in_settings(window, cx);
-        // Entering settings from a COLLAPSED rail: expand it transiently so
-        // the swap reads as expand-then-slide (user decision on EXP-456);
-        // the flag recollapses it on the way out. Never persisted.
-        if in_settings
-            && !self.left_anim.settings
-            && !crate::sidebar::rail_expanded(window, cx)
-        {
-            crate::sidebar::set_rail_expanded_transient(window, cx, true);
-            self.restore_rail_collapsed = true;
-        }
         let target = left_column_target_width(window, cx);
-        let rail_w = if crate::sidebar::rail_expanded(window, cx) {
-            crate::sidebar::RAIL_EXPANDED_W
-        } else {
-            crate::sidebar::RAIL_W
-        };
-        if let Some(epoch) = self.left_anim.retarget(in_settings, target, rail_w) {
-            // Settle after the transition: unmount the outgoing child (so its
-            // controls leave the hit-test/tab order) and restore a transient
-            // rail expansion. Dropping a superseded task cancels its timer;
-            // the epoch guards against a stale one that already fired.
+        if let Some(epoch) =
+            self.left_anim
+                .retarget(in_settings, target, crate::sidebar::RAIL_W)
+        {
+            // Settle after the transition: unmount the outgoing child so its
+            // controls leave the hit-test/tab order. Dropping a superseded
+            // task cancels its timer; the epoch guards against a stale one
+            // that already fired.
             self._left_anim_task = Some(cx.spawn_in(window, async move |this, window| {
                 window
                     .background_executor()
                     .timer(LEFT_COL_ANIM_DURATION)
                     .await;
-                _ = this.update_in(window, move |this, window, cx| {
+                _ = this.update_in(window, move |this, _window, cx| {
                     if this.left_anim.finish(epoch) {
-                        this.restore_rail_after_settings(window, cx);
                         cx.notify();
                     }
                 });
             }));
-        } else if !in_settings && !self.left_anim.swapping && !self.left_anim.width_only {
-            // Settings closed without a swap animation (session surface
-            // change, races) — restore the preference immediately. EXP-523:
-            // also skipped while a rail WIDTH animation runs, or a toggle
-            // started on the way out of settings would recollapse the rail
-            // underneath its own animation.
-            self.restore_rail_after_settings(window, cx);
-        }
-    }
-
-    /// EXP-456: recollapse a transiently-expanded rail once settings are
-    /// gone (no-op unless the entry expansion actually happened).
-    fn restore_rail_after_settings(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if !self.left_anim.settings && self.restore_rail_collapsed {
-            self.restore_rail_collapsed = false;
-            crate::sidebar::set_rail_expanded_transient(window, cx, false);
         }
     }
 
@@ -716,13 +530,15 @@ impl Shell {
     /// clip.
     ///
     /// EXP-303: the COLUMN paints the one sidebar-alpha ramp and the
-    /// window's left frame corners; the children only add solid washes on
-    /// top (a solid quad over one gradient — the combination that provably
-    /// composites). Same look as EXP-293's rail, different layering: the
-    /// Shell root no longer paints a full-window base ramp, because a second
-    /// translucent GRADIENT stacked on it never composited to the intended
-    /// alpha — the content read fully opaque at any top-up value (the
-    /// EXP-293 "not verified visually" gap).
+    /// window's left frame corners. The Shell root paints no full-window base
+    /// ramp, because a second translucent GRADIENT stacked on it never
+    /// composited to the intended alpha — the content read fully opaque at
+    /// any top-up value (the EXP-293 "not verified visually" gap).
+    ///
+    /// EXP-723: the children now add NOTHING on top. The rail dropped its
+    /// `FILL_SECTION` wash so the brightness step belongs to the cutout panel
+    /// on the content side; a wash here would make the sidebar read brighter
+    /// than the panel and undo the cutout.
     fn render_left_column(
         &self,
         window: &mut Window,
@@ -1101,78 +917,73 @@ impl Render for Shell {
                 // nav while `Screen::Settings` is up (animated swap). The
                 // EXP-303 material rules live on `render_left_column`.
                 .child(self.render_left_column(window, cx))
-                .child(
+                .child({
+                    // EXP-723's cutout: the RIGHT column paints the content
+                    // ground edge to edge (decoration band included) and the
+                    // app's working surface floats on it as a rounded card
+                    // inset by `PANEL_MARGIN`. The margin and the band are the
+                    // only places the ground shows through.
+                    let radii = crate::window_frame::frame_radii(window);
                     v_flex()
                         .flex_1()
                         .min_w_0()
                         .h_full()
-                        // EXP-303: the titlebar strip and the body below paint
-                        // their own single-layer content material (never
-                        // stacked gradients), so the traffic-light tongue can
-                        // be carved OUT of the strip: the tongue must be the
-                        // TRUE sidebar material, not wash stacked over the
-                        // content gradient — stacked glass passes less
-                        // backdrop and reads as a different color than the
-                        // rail (the review caught exactly that).
+                        // EXP-303/EXP-723: ONE gradient for the whole column
+                        // — never a second translucent layer stacked on it
+                        // (that never composited to the intended alpha).
+                        .bg(theme::background_gradient())
+                        // EXP-269 corners: this column reaches the window's
+                        // right edge top and bottom (rectangular content mask
+                        // — it must round itself).
+                        .rounded_tr(radii.top_right)
+                        .rounded_br(radii.bottom_right)
                         .when(client_chrome, |col| {
-                            let tongue = traffic_tongue_visible(window, cx);
                             // EXP-525: pin the decoration band to a COMPUTED
                             // definite width (the same budget terms as
                             // `app_title_bar`'s `strip_available`). Under
                             // gpui's stray fit-content passes (the EXP-492
                             // class — see `screens::pinned_panel_root`) a
                             // `flex_1` band has no definite width and
-                            // collapses to fit-content: New Issue + the
-                            // window controls hug the rail. The tab-less
-                            // Actions page idles on exactly such a frame.
-                            let tongue_w = if tongue { TRAFFIC_TONGUE_TOTAL_W } else { 0. };
+                            // collapses to fit-content: the window controls
+                            // hug the rail. The tab-less Actions page idles on
+                            // exactly such a frame.
                             let band_w = (window.viewport_size().width
                                 - crate::window_frame::frame_horizontal_chrome(window)
-                                - px(left_column_target_width(window, cx) + tongue_w))
+                                - px(left_column_target_width(window, cx)))
                             .max(px(160.));
                             col.child(
-                                h_flex()
-                                    .flex_shrink_0()
-                                    .when(tongue, |row| row.child(traffic_tongue()))
-                                    .child(
-                                        div()
-                                            .w(band_w)
-                                            // Flat sample of the content
-                                            // ramp's top stop — the strip is
-                                            // ~34px at the very top of the
-                                            // window, where the ramp's drift
-                                            // is invisible.
-                                            .bg(theme::background_gradient_stops().0)
-                                            // EXP-269 corners, top-right: this
-                                            // segment reaches the window's
-                                            // right edge (rectangular content
-                                            // mask — must round itself).
-                                            .rounded_tr(
-                                                crate::window_frame::frame_radii(window).top_right,
-                                            )
-                                            .child(self.title_bar.clone()),
-                                    ),
+                                h_flex().flex_shrink_0().child(
+                                    // EXP-723: NO fill of its own — the band
+                                    // is bare ground above the panel, which is
+                                    // what makes the panel read as a cutout.
+                                    div().w(band_w).child(self.title_bar.clone()),
+                                ),
                             )
                         })
                         .child(
-                            // EXP-303: the content body paints ONE gradient at
-                            // `theme::glass_content_alpha()` — the EXP-290
-                            // single-layer mechanism that demonstrably frosted
-                            // the main content. The banner, list, tabs, detail
-                            // sidebar and terminal dock all sit bare on it.
+                            // The panel: a solid-ish wash inside a hairline,
+                            // holding the banners and the dock area.
                             v_flex()
                                 .flex_1()
                                 .min_h_0()
-                                .bg(theme::background_gradient())
-                                // EXP-269 corners, bottom-right (see above).
-                                .rounded_br(
-                                    crate::window_frame::frame_radii(window).bottom_right,
-                                )
+                                .min_w_0()
+                                .mt(px(if client_chrome {
+                                    PANEL_MARGIN_TOP
+                                } else {
+                                    PANEL_MARGIN
+                                }))
+                                .mx(px(PANEL_MARGIN))
+                                .mb(px(PANEL_MARGIN))
+                                .rounded(px(theme::tokens::radius::LG))
+                                .border_1()
+                                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                                .bg(theme::tokens::glass::FILL_PANEL.to_hsla())
+                                .overflow_hidden()
                                 .children(self.render_update_banner(cx))
                                 .children(self.render_offline_banner(cx))
                                 .child(div().flex_1().min_h_0().child(self.dock_area.clone())),
-                        ),
-                )
+                        )
+                })
                 .into_any_element(),
             // No rail here, so the whole window is content: one content-alpha
             // gradient on all four corners (EXP-303 single-layer rule).
@@ -1210,13 +1021,24 @@ impl Render for Shell {
                 // (`window_frame::frame_radii`).
                 crate::window_frame::round_to_frame(div(), window)
                     .size_full()
-                    // EXP-303: the root paints NO page gradient — each region
-                    // (rail column / content column, see `body` above) paints
-                    // its own single-layer ramp at its own alpha. Stacking a
-                    // second translucent gradient over a full-window base never
-                    // composited to the intended alpha (the content stayed
-                    // opaque at any top-up value), so the base+top-up layering
-                    // EXP-293 introduced is gone.
+                    // EXP-303/EXP-723: the root paints NO page gradient, and
+                    // no region ever stacks two. There are exactly three
+                    // layers left, each painted once:
+                    //   1. the RAIL column — the sidebar-alpha ramp
+                    //      (`render_left_column`); the rail view itself paints
+                    //      nothing on top of it.
+                    //   2. the CONTENT column — the content-alpha ramp, the
+                    //      "ground" the cutout floats on. It is visible in the
+                    //      34px decoration band and in the panel's margins.
+                    //   3. the PANEL — a SOLID wash (`glass::FILL_PANEL`)
+                    //      inside a `strokeCard` hairline, holding the banners
+                    //      and the dock.
+                    // Stacking a second translucent gradient over a
+                    // full-window base never composited to the intended alpha
+                    // (the content stayed opaque at any top-up value), which
+                    // is why the base+top-up layering EXP-293 introduced is
+                    // gone and why the panel's wash is a flat fill, not a
+                    // second ramp.
                     .text_color(cx.theme().foreground)
                     .child(body)
                     .children(sheet_layer)
@@ -1279,6 +1101,11 @@ impl Shell {
             .px_3()
             .border_b_1()
             .border_color(cx.theme().border)
+            // EXP-723: a banner is the FIRST child of the cutout panel, so it
+            // sits in the panel's two top corners — and gpui's content mask is
+            // rectangular, so its fill has to round itself or it squares them
+            // off inside the panel's own arc.
+            .rounded_t(px(theme::tokens::radius::LG))
             .bg(cx.theme().info.opacity(0.14))
             .child(Icon::new(registry::UI_INFO).size_4().text_color(cx.theme().info))
             .child(div().flex_1().text_sm().child(label));
@@ -1375,6 +1202,10 @@ impl Shell {
                 .px_3()
                 .border_b_1()
                 .border_color(cx.theme().border)
+                // EXP-723: rounds the cutout panel's top corners itself — see
+                // `render_update_banner` (the two stack, and whichever is
+                // first is the one that shows).
+                .rounded_t(px(theme::tokens::radius::LG))
                 .bg(cx.theme().warning.opacity(0.14))
                 .child(
                     Icon::new(registry::UI_OFFLINE)
@@ -1866,7 +1697,7 @@ fn log_layout(message: &str) {
 mod tests {
     use super::*;
     use crate::settings::SETTINGS_NAV_WIDTH;
-    use crate::sidebar::{RAIL_EXPANDED_W, RAIL_W};
+    use crate::sidebar::RAIL_W;
 
     /// EXP-698 round 7: only a Board Issues tool, on a real board, whose
     /// SYNCED issue set is empty, takes the whole center. Every other fact
@@ -1888,31 +1719,34 @@ mod tests {
 
     #[test]
     fn retarget_into_settings_starts_swap_and_bumps_epoch() {
-        let mut anim = LeftColumnAnim::new(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W);
-        let epoch = anim.retarget(true, SETTINGS_NAV_WIDTH, RAIL_EXPANDED_W);
+        let mut anim = LeftColumnAnim::new(false, RAIL_W, RAIL_W);
+        let epoch = anim.retarget(true, SETTINGS_NAV_WIDTH, RAIL_W);
         assert_eq!(epoch, Some(1));
         assert!(anim.swapping);
-        assert_eq!(anim.from, RAIL_EXPANDED_W);
+        assert_eq!(anim.from, RAIL_W);
         assert_eq!(anim.to, SETTINGS_NAV_WIDTH);
         assert!(anim.settings);
     }
 
+    /// EXP-523's same-occupant WIDTH animation. EXP-723 removed the rail
+    /// collapse, so nothing in the app drives this path today — but the state
+    /// machine still has to handle a width change without mounting both
+    /// children, which is why the widths here are literals rather than the
+    /// (now single) rail constant.
     #[test]
     fn same_occupant_animates_the_width_without_swapping() {
-        // EXP-523: the rail expand/collapse toggle animates too now — a
-        // WIDTH animation, not a swap, so only one child is ever mounted.
-        let mut anim = LeftColumnAnim::new(false, RAIL_W, RAIL_W);
-        assert_eq!(anim.retarget(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W), Some(1));
+        let mut anim = LeftColumnAnim::new(false, 44., 44.);
+        assert_eq!(anim.retarget(false, 208., 208.), Some(1));
         assert!(!anim.swapping, "same occupant must not mount both children");
         assert!(anim.width_only);
-        assert_eq!(anim.from, RAIL_W, "it must start where the rail actually was");
-        assert_eq!(anim.to, RAIL_EXPANDED_W);
-        assert_eq!(anim.rail_w, RAIL_EXPANDED_W);
+        assert_eq!(anim.from, 44., "it must start where the rail actually was");
+        assert_eq!(anim.to, 208.);
+        assert_eq!(anim.rail_w, 208.);
 
         // `sync_left_column` runs `retarget` on EVERY render — an unchanged
         // target must stay a no-op, or the animation restarts every frame and
         // the rail never arrives.
-        assert_eq!(anim.retarget(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W), None);
+        assert_eq!(anim.retarget(false, 208., 208.), None);
         assert_eq!(anim.epoch, 1);
 
         assert!(anim.finish(1));
@@ -1921,36 +1755,11 @@ mod tests {
     }
 
     #[test]
-    fn a_rail_toggle_during_a_settings_swap_is_absorbed() {
-        // Retargeting here would restart the swap from the wrong geometry —
-        // the strip is mid-slide with both children mounted.
-        let mut anim = LeftColumnAnim::new(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W);
-        let epoch = anim.retarget(true, SETTINGS_NAV_WIDTH, RAIL_EXPANDED_W).unwrap();
-        assert_eq!(anim.retarget(true, SETTINGS_NAV_WIDTH, RAIL_W), None);
-        assert!(anim.swapping);
-        assert!(!anim.width_only);
-        assert!(anim.finish(epoch));
-    }
-
-    #[test]
-    fn a_reversed_rail_toggle_restarts_from_the_previous_target() {
-        // Same bounded-jump rule as the swap: the id encodes from -> to, so a
-        // mid-flight reversal restarts cleanly rather than accumulating.
-        let mut anim = LeftColumnAnim::new(false, RAIL_W, RAIL_W);
-        anim.retarget(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W).unwrap();
-        let second = anim.retarget(false, RAIL_W, RAIL_W).unwrap();
-        assert_eq!(anim.from, RAIL_EXPANDED_W);
-        assert_eq!(anim.to, RAIL_W);
-        assert!(anim.width_only);
-        assert_eq!(second, 2);
-    }
-
-    #[test]
     fn finish_ignores_stale_epochs() {
-        let mut anim = LeftColumnAnim::new(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W);
-        let first = anim.retarget(true, SETTINGS_NAV_WIDTH, RAIL_EXPANDED_W).unwrap();
+        let mut anim = LeftColumnAnim::new(false, RAIL_W, RAIL_W);
+        let first = anim.retarget(true, SETTINGS_NAV_WIDTH, RAIL_W).unwrap();
         // Mid-flight reversal: the new swap replaces the old one.
-        let second = anim.retarget(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W).unwrap();
+        let second = anim.retarget(false, RAIL_W, RAIL_W).unwrap();
         assert_ne!(first, second);
         // The superseded timer fires anyway (cancellation raced) — no-op.
         assert!(!anim.finish(first));
@@ -1961,28 +1770,17 @@ mod tests {
         assert_eq!(anim.from, anim.to);
     }
 
+    /// Upstream sidebar rule: a retarget restarts from the prior TARGET (the
+    /// animation ids restart the transition, so the visual jump is bounded by
+    /// one swap). Literal widths so the assertion stays meaningful now that
+    /// the rail and the settings nav are the same width.
     #[test]
     fn midflight_reversal_jumps_from_the_previous_target() {
-        // Upstream sidebar rule: a retarget restarts from the prior TARGET
-        // (the animation ids restart the transition, so the visual jump is
-        // bounded by one 200ms swap).
-        let mut anim = LeftColumnAnim::new(false, RAIL_W, RAIL_W);
-        anim.retarget(true, SETTINGS_NAV_WIDTH, RAIL_EXPANDED_W).unwrap();
-        anim.retarget(false, RAIL_EXPANDED_W, RAIL_EXPANDED_W).unwrap();
-        assert_eq!(anim.from, SETTINGS_NAV_WIDTH);
-        assert_eq!(anim.to, RAIL_EXPANDED_W);
+        let mut anim = LeftColumnAnim::new(false, 208., 208.);
+        anim.retarget(true, 164., 208.).unwrap();
+        anim.retarget(false, 208., 208.).unwrap();
+        assert_eq!(anim.from, 164.);
+        assert_eq!(anim.to, 208.);
         assert!(!anim.settings);
-    }
-
-    #[test]
-    fn collapsed_entry_swaps_with_the_expanded_rail_in_the_strip() {
-        // Entering settings from a collapsed rail: the Shell transiently
-        // expands it first, so the strip's rail box is the EXPANDED width
-        // while the clip grows from the collapsed width.
-        let mut anim = LeftColumnAnim::new(false, RAIL_W, RAIL_W);
-        anim.retarget(true, SETTINGS_NAV_WIDTH, RAIL_EXPANDED_W).unwrap();
-        assert_eq!(anim.from, RAIL_W);
-        assert_eq!(anim.to, SETTINGS_NAV_WIDTH);
-        assert_eq!(anim.rail_w, RAIL_EXPANDED_W);
     }
 }

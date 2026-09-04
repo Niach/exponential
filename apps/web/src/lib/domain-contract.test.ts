@@ -20,6 +20,9 @@ import {
   codingSessionEndedByValues,
   subscriberSourceValues,
   issueEventTypeValues,
+  issueRelationTypeValues,
+  issueRelationSourceValues,
+  ISSUE_RELATION_LABELS,
   issueStatusOrder,
   CODING_SESSION_STALE_HOURS,
   actionInputTypeValues,
@@ -182,6 +185,24 @@ describe(`domain-contract parity`, () => {
     expect([...issueEventTypeValues]).toEqual([
       ...contract.issueEventType.values,
     ])
+  })
+
+  // EXP-736: the relation vocabulary AND both label halves — every client
+  // renders its side's label from the generated contract, so a reordered
+  // values list or a reworded label would silently desync four UIs.
+  it(`issue relation types, sources and labels match the contract`, () => {
+    expect([...issueRelationTypeValues]).toEqual([
+      ...contract.issueRelationType.values,
+    ])
+    expect([...issueRelationSourceValues]).toEqual([
+      ...contract.issueRelationSource.values,
+    ])
+    expect(
+      issueRelationTypeValues.map((type) => ISSUE_RELATION_LABELS[type].forward)
+    ).toEqual([...contract.issueRelationType.forwardLabels])
+    expect(
+      issueRelationTypeValues.map((type) => ISSUE_RELATION_LABELS[type].inverse)
+    ).toEqual([...contract.issueRelationType.inverseLabels])
   })
 
   it(`action input types + limits + builtin id match the contract (EXP-257)`, () => {

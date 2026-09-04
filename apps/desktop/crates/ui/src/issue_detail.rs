@@ -4,10 +4,11 @@
 //! Layout (EXP-417 — the right sidebar is gone on every client): the
 //! duplicate-of banner, then a FIXED header — the
 //! [`crate::issue_header::IssueHeader`]'s top row (switcher · copy link ·
-//! subscribe · `…`), the borderless title input (save-on-blur), its chip row
-//! and agent row — over the ONE scrolling body: description + files rail +
-//! timeline. EXP-568 retired the pinned formatting toolbar that used to close
-//! the header; formatting rides a selection-triggered floating rail instead.
+//! `…` · delete), the borderless title input (save-on-blur), its chip row
+//! and agent row — over the ONE scrolling body: the EXP-736 relations card,
+//! description, files rail and timeline. EXP-568 retired the pinned
+//! formatting toolbar that used to close the header; formatting rides a
+//! selection-triggered floating rail instead.
 //!
 //! **Description editor seam (§4.5).** The from-scratch GFM block editor
 //! lands concurrently in `markdown_editor.rs`; this file must not depend on
@@ -305,6 +306,9 @@ impl IssueDetailView {
         subscriptions.push(cx.observe(&collections.devices, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&collections.attachments, |_, _, cx| cx.notify()));
+        // EXP-736: the relations card lives in this view's body — a relation
+        // added on another client (or the duplicate mirror) must re-render it.
+        subscriptions.push(cx.observe(&collections.issue_relations, |_, _, cx| cx.notify()));
 
         Self {
             issue_id: None,
@@ -1647,6 +1651,10 @@ impl IssueDetailView {
             // EXP-426: breathing room under the header's border — the
             // embedded editor deliberately carries no insets of its own.
             .pt_2()
+            // EXP-736: the relations card is the FIRST thing under the fixed
+            // chip tray — web mounts it the same way, directly beneath the
+            // properties band and above the description.
+            .children(crate::issue_relations::render_relations_card(issue, cx))
             .child(self.render_description(issue, window, cx))
             // EXP-297: the files rail sits under the description and above
             // the timeline — inline images stay in the description itself.
@@ -1822,33 +1830,72 @@ pub(crate) fn apply_status_selection(
 
 /// Open the shared duplicate-picker dialog for `issue_id`. `pub(crate)` — the
 /// §4.6 shared-`IssuePicker` rule: both the detail actions menu and the row
-/// `ContextMenu`'s "Mark as duplicate…" item open this same overlay.
+/// `ContextMenu`'s "Mark as duplicate…" item open this same overlay. A thin
+/// wrapper over [`open_issue_picker`] since EXP-736 gave the relations card
+/// the same two-stage pick.
 pub(crate) fn open_duplicate_picker(issue_id: String, window: &mut Window, cx: &mut App) {
-    // EXP-285: trimmed 480 → 420.
-    let spec = crate::native_dialog::DialogSpec::new(
+    let marked_id = issue_id.clone();
+    open_issue_picker(
+        issue_id,
         "Mark as duplicate",
-        gpui::size(px(480.), px(420.)),
+        "Search the canonical issue…",
+        Rc::new(move |canonical_id, _window, cx| {
+            // The server sets status='duplicate' atomically with the link.
+            set_duplicate_of(marked_id.clone(), Some(canonical_id), cx);
+        }),
+        window,
+        cx,
     );
+}
+
+/// Open the shared issue picker: a searchable list of the excluded issue's
+/// TEAM, minus the issue itself, in a native dialog titled `title`. `on_pick`
+/// receives the chosen issue's id and owns the mutation (duplicate link,
+/// relation create — EXP-736), the dialog closes itself either way.
+pub(crate) fn open_issue_picker(
+    exclude_issue_id: String,
+    title: impl Into<SharedString>,
+    placeholder: impl Into<SharedString>,
+    on_pick: crate::pickers::OnPick<String>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    // EXP-285: trimmed 480 → 420.
+    let spec = crate::native_dialog::DialogSpec::new(title, gpui::size(px(480.), px(420.)));
+    let placeholder = placeholder.into();
     crate::native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
-        let picker = cx.new(|cx| DuplicatePicker::new(issue_id, window, cx));
+        let picker = cx.new(|cx| {
+            IssuePicker::new(
+                exclude_issue_id.clone(),
+                placeholder.clone(),
+                on_pick.clone(),
+                window,
+                cx,
+            )
+        });
         crate::native_dialog::DialogContent::new(picker)
     });
 }
 
 /// Searchable issue list over the synced `issues` collection, confined to the
-/// marked issue's team and excluding the issue itself. Picking commits
-/// `duplicate_of_id` and closes the dialog.
-struct DuplicatePicker {
+/// excluded issue's team and excluding the issue itself. Picking runs the
+/// host's `on_pick` and closes the dialog.
+struct IssuePicker {
     exclude_issue_id: String,
+    on_pick: crate::pickers::OnPick<String>,
     search: Entity<InputState>,
     _subscriptions: Vec<Subscription>,
 }
 
-impl DuplicatePicker {
-    fn new(exclude_issue_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let search = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Search the canonical issue…")
-        });
+impl IssuePicker {
+    fn new(
+        exclude_issue_id: String,
+        placeholder: SharedString,
+        on_pick: crate::pickers::OnPick<String>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Self {
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
         let mut subscriptions = vec![cx.subscribe(
             &search,
             |_, _, event: &InputEvent, cx| {
@@ -1864,6 +1911,7 @@ impl DuplicatePicker {
 
         Self {
             exclude_issue_id,
+            on_pick,
             search,
             _subscriptions: subscriptions,
         }
@@ -1907,16 +1955,13 @@ impl DuplicatePicker {
         issues
     }
 
-    fn pick(&self, canonical_id: String, window: &mut Window, cx: &mut App) {
-        let mut input = api::issues::IssuesUpdateInput::new(self.exclude_issue_id.clone());
-        // The server sets status='duplicate' atomically with the link.
-        input.duplicate_of_id = api::Patch::Set(canonical_id);
-        spawn_issue_update(cx, input);
+    fn pick(&self, picked_id: String, window: &mut Window, cx: &mut App) {
+        (self.on_pick)(picked_id, window, cx);
         crate::native_dialog::close_dialog_window(window, cx);
     }
 }
 
-impl Render for DuplicatePicker {
+impl Render for IssuePicker {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let issues = self.matches(cx);
 
@@ -1935,7 +1980,7 @@ impl Render for DuplicatePicker {
             let issue_id = issue.id.clone();
             list = list.child(
                 h_flex()
-                    .id(SharedString::from(format!("dup-pick-{}", issue.id)))
+                    .id(SharedString::from(format!("issue-pick-{}", issue.id)))
                     .w_full()
                     .px_2()
                     .py_1p5()
@@ -1975,7 +2020,7 @@ impl Render for DuplicatePicker {
             .child(glass_input(&self.search, window, cx).web_input_sm())
             .child(
                 div()
-                    .id("dup-pick-scroll")
+                    .id("issue-pick-scroll")
                     .w_full()
                     .max_h(px(320.))
                     .overflow_y_scroll()
@@ -1987,22 +2032,6 @@ impl Render for DuplicatePicker {
 // ---------------------------------------------------------------------------
 // Small pieces
 // ---------------------------------------------------------------------------
-
-/// Live subscribe state off the `issue_subscribers` shape (web
-/// `SubscribeToggle` query: row for (issue, me) and NOT unsubscribed).
-/// `pub(crate)` — the issue header's subscribe toggle reads it (EXP-277).
-pub(crate) fn is_subscribed(issue_id: &str, user_id: &str, cx: &App) -> bool {
-    Store::global(cx)
-        .collections()
-        .issue_subscribers
-        .read(cx)
-        .iter()
-        .any(|subscriber| {
-            subscriber.issue_id == issue_id
-                && subscriber.user_id.as_deref() == Some(user_id)
-                && subscriber.unsubscribed != Some(true)
-        })
-}
 
 /// The issue's full web URL — `{instance}/t/{team}/boards/{board}/issues/{id}`
 /// (the web copy-link button's exact shape). `None` while signed out or before

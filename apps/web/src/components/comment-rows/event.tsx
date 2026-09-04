@@ -1,9 +1,12 @@
 import type { IssueEvent, Label, Board, User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
 import { conceptIcon } from "@/lib/icons.generated"
+import { relationEventParts } from "@/lib/issue-relations"
+import { useIssueRefs } from "@/components/issue-ref-provider"
 import { StatusIcon } from "@/components/issue-properties/status-dropdown"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import { TimelineRow } from "@/components/comment-rows/timeline-row"
+import { relativeTime } from "./format"
 
 // EXP-317: timeline glyphs come from the shared registry, so a status change
 // (or a board move) looks the same here as it does in the desktop IDE.
@@ -14,6 +17,8 @@ const BoardMovedIcon = conceptIcon(`event-board-moved`)
 const PrOpenedIcon = conceptIcon(`pr-open`)
 const PrMergedIcon = conceptIcon(`pr-merged`)
 const PriorityChangedIcon = conceptIcon(`event-priority-changed`)
+const RelationAddedIcon = conceptIcon(`event-relation-added`)
+const RelationRemovedIcon = conceptIcon(`event-relation-removed`)
 
 // Priority wire values render capitalized ("urgent" → "Urgent"); anything
 // unexpected falls back to the raw string.
@@ -107,9 +112,11 @@ export function EventRow({
   lineBelow?: boolean
 }) {
   const { resolve: resolveStatus } = useTeamStatusesContext()
+  const issueRefs = useIssueRefs()
   const actor = event.actorUserId ? userMap.get(event.actorUserId) : undefined
   const actorName = displayUserName(actor, event.actorUserId)
   const payload = (event.payload ?? {}) as Record<string, unknown>
+  const when = relativeTime(event.createdAt)
 
   let Icon = StatusChangedIcon
   // A resolved status row wins over the generic glyph, so the timeline shows
@@ -223,6 +230,39 @@ export function EventRow({
       )
       break
     }
+    // EXP-736: one phrase table (lib/issue-relations.ts) drives web, IDE and
+    // both natives. The identifier is a pill that navigates when the far issue
+    // is still visible; a stale or cross-team one stays plain text.
+    case `relation_added`:
+    case `relation_removed`: {
+      Icon =
+        event.type === `relation_added` ? RelationAddedIcon : RelationRemovedIcon
+      const { prefix, identifier } = relationEventParts(event.type, payload)
+      const resolved = identifier ? issueRefs?.resolve(identifier) : null
+      text = (
+        <>
+          {prefix}{` `}
+          {identifier ? (
+            resolved ? (
+              <button
+                type="button"
+                className="font-mono font-medium text-foreground hover:underline"
+                onClick={() => issueRefs?.open(identifier)}
+              >
+                {`#${identifier}`}
+              </button>
+            ) : (
+              <span className="font-mono font-medium text-foreground">
+                {`#${identifier}`}
+              </span>
+            )
+          ) : (
+            <span className="font-medium text-foreground">an issue</span>
+          )}
+        </>
+      )
+      break
+    }
     // EXP-530: `created` rows are the automation-trigger substrate — the
     // issue header already shows creation, so the timeline suppresses them
     // on every client.
@@ -248,6 +288,10 @@ export function EventRow({
         <span className="truncate">
           <span className="font-medium text-foreground">{actorName}</span>{` `}
           {text}
+          {/* EXP-723: every event line ends in its own relative time, the way
+              the synthesized creation row already did — a feed where only one
+              line is dated reads as a bug. Desktop `timeline.rs` mirrors it. */}
+          {when ? ` · ${when}` : ``}
         </span>
       </div>
     </TimelineRow>

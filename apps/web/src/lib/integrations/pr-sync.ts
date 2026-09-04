@@ -17,6 +17,7 @@ import {
 import { applyStatusDerivations } from "@/lib/status-derivations"
 import { generateTxId } from "@/lib/trpc"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import { syncDuplicateMirror } from "@/lib/issue-relations"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
 import { getSteerRelayConfig, relayPostKill } from "@/lib/steer"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
@@ -338,11 +339,25 @@ export async function applyPrLifecycleStatusInTx(
   // category must NOT stamp completedAt, and a redundant terminal write must
   // not clobber the original completion time.
   const setValues: Record<string, unknown> = { ...plan }
+  const previousDuplicateOfId = fromRow?.duplicateOfId ?? null
   applyStatusDerivations(setValues, {
     status: opts.currentStatus,
-    duplicateOfId: fromRow?.duplicateOfId ?? null,
+    duplicateOfId: previousDuplicateOfId,
   })
   await tx.update(issues).set(setValues).where(eq(issues.id, opts.issueId))
+
+  // EXP-736: an automation move off 'duplicate' clears duplicate_of_id above,
+  // so the mirrored issue_relations row has to go with it.
+  await syncDuplicateMirror(tx, {
+    issueId: opts.issueId,
+    teamId: opts.teamId,
+    actorUserId: opts.actorUserId,
+    previousDuplicateOfId,
+    nextDuplicateOfId:
+      setValues.duplicateOfId === undefined
+        ? previousDuplicateOfId
+        : (setValues.duplicateOfId as string | null),
+  })
 
   await recordIssueEvent(tx, {
     issueId: opts.issueId,

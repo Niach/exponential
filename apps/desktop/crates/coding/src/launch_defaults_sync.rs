@@ -253,7 +253,7 @@ mod tests {
         let base = defaults_fingerprint(&settings);
         assert_eq!(base, defaults_fingerprint(&settings), "stable");
         // A non-launcher field must not move it.
-        settings.rail_expanded = Some(true);
+        settings.changelog_seen_id = Some("x".into());
         settings.terminal_shell = Some("/bin/fish".into());
         assert_eq!(base, defaults_fingerprint(&settings));
         // A launch-default field must.

@@ -97,6 +97,11 @@ const DOCK_SLIDE_DURATION: Duration = theme::motion::STANDARD;
 /// `open == false`. The slide's closed endpoint.
 const DOCK_STRIP_H: f32 = 29.;
 
+/// EXP-723: height of the OPEN dock's own header row — the web dock's shape,
+/// carrying the window/collapse controls above the content while the bottom
+/// strip keeps the tabs alone.
+const DOCK_HEADER_H: f32 = 28.;
+
 /// EXP-688: how often the Latest-changes bar re-reads the branch diff. The
 /// same 3s cadence the steer emitter's `DiffSnapshots` publishes on. While
 /// there is nothing to read (collapsed dock, no session tab) the loop idles
@@ -1281,14 +1286,14 @@ impl TerminalDockPanel {
     /// tabs sit where the web dock's do and expanding grows the content
     /// UPWARD out of them instead of pushing them down.
     ///
-    /// Leading terminal glyph (plus the word "Terminal" only when there are
-    /// no tabs to name it), then one chip per VISIBLE session (EXP-65:
-    /// undocked tabs render in their own windows) with the `+` right after
-    /// the last one, then the right cluster: "Open in new window" for the
-    /// ACTIVE tab and the open/close chevron. Clicking the strip's empty
-    /// space toggles the dock; a chip click activates its tab (and expands a
-    /// collapsed dock) — chip/button handlers stop propagation so their
-    /// clicks never fall through to the toggle.
+    /// TABS, and nothing else (EXP-723): one chip per VISIBLE session (EXP-65:
+    /// undocked tabs render in their own windows) with the `+` right after the
+    /// last one. An EMPTY strip names itself instead — the terminal glyph plus
+    /// the word "Terminal", since no chip is there to. The window/collapse
+    /// controls moved up into [`Self::render_dock_header`]. Clicking the
+    /// strip's empty space toggles the dock; a chip click activates its tab
+    /// (and expands a collapsed dock) — chip/button handlers stop propagation
+    /// so their clicks never fall through to the toggle.
     ///
     /// EXP-497: chips that don't fit collapse into a trailing "+N" dropdown —
     /// the center strip's EXP-288 treatment (the scrolled chips this replaces
@@ -1458,12 +1463,6 @@ impl TerminalDockPanel {
             Some(slide) => slide.opening,
             None => !collapsed,
         };
-        // "Open in new window" undocks a LOCAL tab; a steered session has no
-        // terminal grid to pop out, so the button disables on a steer chip.
-        let active_tab = match entries.get(selected_ix) {
-            Some(StripEntry::Local(meta)) => Some(meta.id),
-            _ => None,
-        };
 
         // Clicking the strip's empty space toggles the dock — the whole
         // strip is the toggle (chip/button handlers stop propagation).
@@ -1506,6 +1505,10 @@ impl TerminalDockPanel {
             .border_t_1()
             .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
             .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+            // EXP-723: the strip IS the panel's bottom edge (the dock root
+            // above rounds the same corners for the open case) — gpui's
+            // content mask is rectangular, so it has to round itself.
+            .rounded_b(px(theme::tokens::radius::LG))
             .cursor_pointer()
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 if showing {
@@ -1519,18 +1522,20 @@ impl TerminalDockPanel {
                     this.focus_visible_content(window, cx);
                 }
             }))
-            .child(
-                h_flex()
-                    .flex_shrink_0()
-                    .gap_1p5()
-                    .items_center()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(Icon::new(registry::NAV_TERMINAL).xsmall())
-                    // The word only when no chip names the dock.
-                    .when(entries.is_empty(), |this| {
-                        this.child(div().text_xs().child("Terminal"))
-                    }),
-            )
+            .when(entries.is_empty(), |strip| {
+                // EXP-723: the label is the EMPTY strip's whole content — with
+                // chips present they name the dock themselves, and the glyph
+                // only stole width from them.
+                strip.child(
+                    h_flex()
+                        .flex_shrink_0()
+                        .gap_1p5()
+                        .items_center()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(Icon::new(registry::NAV_TERMINAL).xsmall())
+                        .child(div().text_xs().child("Terminal")),
+                )
+            })
             .child(
                 // EXP-497: chips never scroll — non-fitting tabs fold into
                 // the "+N" dropdown (partition above). `overflow_x_hidden`
@@ -1553,52 +1558,60 @@ impl TerminalDockPanel {
                     // the plain shell (cmd-t unchanged).
                     .child(self.new_tab_menu(cx)),
             )
+    }
+
+    /// EXP-723: the OPEN dock's header row — web parity (`dock-header` in the
+    /// styleguide). The controls that used to sit at the right end of the
+    /// bottom strip live here instead, above the content: the strip is tabs
+    /// (and the `+`) and nothing else now, so a chip can run the full width.
+    ///
+    /// Rendered INSIDE the sliding content, so it rides the open/close
+    /// animation with the terminal rather than appearing before it.
+    ///
+    /// `active_tab` is the id of the selected LOCAL tab; `None` for a steered
+    /// session (no terminal grid to pop out) or an empty dock.
+    fn render_dock_header(
+        &self,
+        active_tab: Option<TabId>,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        h_flex()
+            .h(px(DOCK_HEADER_H))
+            .flex_shrink_0()
+            .px_2()
+            .gap_0p5()
+            .items_center()
+            .border_b_1()
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            .child(div().flex_1().min_w_0())
+            // EXP-688: undock is ONE button on the ACTIVE tab (it used to be
+            // a hover affordance on every chip).
             .child(
-                h_flex()
-                    .flex_shrink_0()
-                    .gap_0p5()
-                    .items_center()
-                    // EXP-688: undock is one strip button on the ACTIVE tab
-                    // (it used to be a hover affordance on every chip).
-                    .child(
-                        Button::new("undock-active-terminal-tab")
-                            .ghost().cursor_pointer()
-                            .xsmall()
-                            .icon(ExpIcon::ExternalLink)
-                            .tooltip("Open in new window")
-                            .disabled(active_tab.is_none())
-                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                cx.stop_propagation();
-                                if let Some(id) = active_tab {
-                                    this.undock_tab(id, window, cx);
-                                }
-                            })),
-                    )
-                    .child(
-                        Button::new("toggle-terminal-dock")
-                            .ghost().cursor_pointer()
-                            .xsmall()
-                            .icon(if showing {
-                                registry::UI_CHEVRON_DOWN
-                            } else {
-                                registry::UI_CHEVRON_UP
-                            })
-                            .tooltip(if showing {
-                                "Hide terminal"
-                            } else {
-                                "Show terminal"
-                            })
-                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                cx.stop_propagation();
-                                if showing {
-                                    this.collapse_dock(window, cx);
-                                } else {
-                                    this.expand_dock(window, cx);
-                                    this.focus_visible_content(window, cx);
-                                }
-                            })),
-                    ),
+                Button::new("undock-active-terminal-tab")
+                    .ghost().cursor_pointer()
+                    .xsmall()
+                    .icon(registry::UI_UNDOCK)
+                    .tooltip("Open in new window")
+                    .disabled(active_tab.is_none())
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        if let Some(id) = active_tab {
+                            this.undock_tab(id, window, cx);
+                        }
+                    })),
             )
+            .child(
+                Button::new("collapse-terminal-dock")
+                    .ghost().cursor_pointer()
+                    .xsmall()
+                    .icon(registry::UI_CHEVRON_DOWN)
+                    .tooltip("Hide terminal")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        this.collapse_dock(window, cx);
+                    })),
+            )
+            .into_any_element()
     }
 
     /// One LOCAL terminal tab's chip (EXP-325/EXP-497) — extracted from
@@ -1626,7 +1639,16 @@ impl TerminalDockPanel {
                 tab.identifier = Some(issue.identifier.clone());
                 tab.title = issue.title.clone();
             }
-            None => tab.title = Some(meta.title.clone()),
+            // EXP-723: a plain shell chip gets the terminal glyph too — a
+            // chip carrying only a title read as a nameless tab next to the
+            // issue chips' status glyphs. `session-shell` (Lucide `terminal`)
+            // is the LOCAL-shell concept; `nav-terminal` stays the dock's own
+            // navigation glyph.
+            None => {
+                tab.status =
+                    crate::surface::RichTabStatus::Glyph(Icon::new(registry::SESSION_SHELL));
+                tab.title = Some(meta.title.clone());
+            }
         }
         tab.badge = meta.exit_code.map(|code| {
             let color = if code == 0 {
@@ -1957,7 +1979,7 @@ impl TerminalDockPanel {
                 let shell_panel = panel.clone();
                 menu.item(
                     PopupMenuItem::new("New shell")
-                        .icon(Icon::new(registry::NAV_TERMINAL))
+                        .icon(Icon::new(registry::SESSION_SHELL))
                         .on_click(move |_, window, cx| {
                             let Some(panel) = shell_panel.upgrade() else {
                                 return;
@@ -2724,7 +2746,7 @@ impl TerminalDockPanel {
                     .child(
                         empty_dock_card(
                             "terminal-empty-shell",
-                            Icon::new(registry::NAV_TERMINAL),
+                            Icon::new(registry::SESSION_SHELL),
                             "New shell",
                             cx,
                         )
@@ -2980,10 +3002,19 @@ fn measure_tab_chip_width(meta: &TabMeta, window: &Window) -> f32 {
                 );
             }
         }
-        None => children.push(
-            crate::screens::measure_text(window, &meta.title, base_font.clone(), gpui::rems(0.875))
+        None => {
+            // EXP-723: shell chips carry the `session-shell` glyph too.
+            children.push(LEAD_ICON_REMS * rem);
+            children.push(
+                crate::screens::measure_text(
+                    window,
+                    &meta.title,
+                    base_font.clone(),
+                    gpui::rems(0.875),
+                )
                 .min(TITLE_MAX_W),
-        ),
+            );
+        }
     }
 
     // EXP-698: the exit badge is a `rich_tab` CHILD now (the builder renders
@@ -3495,6 +3526,9 @@ impl Render for TerminalDockPanel {
         // rendered for the whole slide. On open the flip happens up front,
         // so this is already false on frame 1.
         let collapsed = self.dock_collapsed(cx) && self.dock_slide.is_none();
+        // The selected LOCAL tab, mirroring `render_strip`'s entry indexing
+        // (locals first, then the remote steer chips).
+        let entries_active_tab = metas.get(selected_ix).map(|meta| meta.id);
         let root = div()
             .id("terminal-dock-clip")
             .key_context(KEY_CONTEXT)
@@ -3505,12 +3539,38 @@ impl Render for TerminalDockPanel {
             .on_action(cx.listener(Self::on_prev_tab))
             .relative()
             .size_full()
-            .overflow_hidden();
+            .overflow_hidden()
+            // EXP-723: the dock is an OPAQUE card at the bottom of the cutout
+            // panel, not a translucent band on the page gradient — with the
+            // panel's own wash behind it the old glass read as a smudge
+            // rather than a separate surface. `popover` is the theme's opaque
+            // overlay ground; the hairline is the seam to the content above.
+            .bg(cx.theme().popover)
+            // The seam to the content above. Only while OPEN: collapsed, the
+            // strip IS the whole dock and carries the same hairline one pixel
+            // lower, which would read as a 2px double rule.
+            .when(!collapsed, |root| {
+                root.border_t_1()
+                    .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+            })
+            // The dock sits in the panel's BOTTOM corners and gpui's content
+            // mask is rectangular, so it has to round itself (the strip below
+            // does the same, for the collapsed case and for its own fill).
+            .rounded_b(px(theme::tokens::radius::LG));
 
+        // "Open in new window" undocks a LOCAL tab; a steered session has no
+        // terminal grid to pop out, so the header's button disables on one.
+        let header_active_tab = match entries_active_tab {
+            Some(id) if active_steer.is_none() => Some(id),
+            _ => None,
+        };
         let content: Option<AnyElement> = if collapsed {
             None
         } else {
-            let body = v_flex().w_full().overflow_hidden();
+            let body = v_flex()
+                .w_full()
+                .overflow_hidden()
+                .child(self.render_dock_header(header_active_tab, cx));
             Some(match (active_steer, active_view) {
                 // EXP-696: a steered session owns the whole content area —
                 // no exit strip (there is no local child to exit).

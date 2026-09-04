@@ -14,6 +14,7 @@ import { SidebarProvider } from "@/components/ui/sidebar"
 import { TeamMobileTopbar } from "@/components/team/mobile-topbar"
 import { MobileTabBar } from "@/components/team/mobile-tab-bar"
 import { TeamSidebar } from "@/components/team/sidebar"
+import { MAIN_PANEL_CLASS } from "@/components/team/app-shell"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { OfflineBanner } from "@/components/offline-banner"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
@@ -164,11 +165,14 @@ function TeamLayout() {
               onOpenSearch={() => setSearchOpen(true)}
             />
 
-            {/* `min-w-0` on both the flex child and the content wrapper is
-                what keeps ANY wide descendant from widening the whole page
-                (flex children default to min-width:auto); `overflow-x-clip`
-                contains stragglers inside the content region. */}
-            <main className="flex-1 flex flex-col min-h-screen min-w-0">
+            {/* EXP-723: the content column is the CUTOUT panel — a rounded
+                card floating on the page gradient from `md` up, full-bleed on
+                phones. `min-w-0` on both the flex child and the content
+                wrapper is what keeps ANY wide descendant from widening the
+                whole page (flex children default to min-width:auto);
+                `overflow-x-clip` contains stragglers inside the content
+                region. */}
+            <main className={MAIN_PANEL_CLASS}>
               {/* EXP-533: above the mobile topbar (which is `md:hidden` and
                   hides itself on detail routes), so the "showing cached data"
                   notice is the first thing in the content column on every
@@ -179,14 +183,18 @@ function TeamLayout() {
                 team={team}
                 boards={boards}
               />
-              {/* EXP-698: NO dock inset here. The dock below is `sticky
-                  bottom-0` AND the last in-flow child of `main`, so the
-                  content column already ends at the dock's top edge —
-                  reserving `--dock-h` on top of that opens a second, empty
-                  dock-sized gap (up to 85vh with the panel dragged open).
-                  The dock still publishes the measured height (agent-dock.tsx)
-                  for a page that owns a viewport-sized scroller of its own and
-                  therefore really does run under the panel. */}
+              {/* EXP-698 / EXP-723: NO dock inset here, on either breakpoint.
+                  From `md` up the panel is a DEFINITE-height flex column
+                  (`h-[calc(100dvh-20px)]`), so the dock is simply its last
+                  child and this wrapper takes what is left — `sticky bottom-0`
+                  on the dock only ever matters on phones, where the column
+                  grows with the page. Either way the content already ends at
+                  the dock's top edge, and reserving `--dock-h` on top of that
+                  would open a second, empty dock-sized gap (up to 85vh with
+                  the panel dragged open). The dock still publishes the
+                  measured height (agent-dock.tsx) for a page that owns a
+                  viewport-sized scroller of its own and therefore really does
+                  run under the panel. */}
               <div className="flex-1 min-h-0 min-w-0 overflow-x-clip">
                 <Outlet />
               </div>

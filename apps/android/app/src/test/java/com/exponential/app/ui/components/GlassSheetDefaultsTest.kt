@@ -10,8 +10,9 @@ import org.junit.Test
 
 /**
  * EXP-687: every bottom sheet on every mobile client renders the SAME shell —
- * opaque #18181B, a drag handle, a left title, one pinned bottom button, and a
- * fitted height capped at 85 % of the screen. iOS pins the twin numbers in
+ * opaque #111114 (the gradient's darker EXP-723 bottom stop), a drag handle, a
+ * left title, one pinned bottom button, and a fitted height capped at 85 % of
+ * the screen. iOS pins the twin numbers in
  * `GlassSheetTokenTests`; these are the values Android must not drift from.
  */
 class GlassSheetDefaultsTest {
@@ -21,7 +22,7 @@ class GlassSheetDefaultsTest {
         // A sheet continues the app gradient where it ends, so it takes the
         // gradient's BOTTOM stop — opaque, because Compose can't blur.
         assertEquals(GlassTokens.BackgroundBottom, GlassSheetDefaults.ContainerColor)
-        assertEquals(Color(0xFF18181B), GlassSheetDefaults.ContainerColor)
+        assertEquals(Color(0xFF111114), GlassSheetDefaults.ContainerColor)
         assertEquals(1f, GlassSheetDefaults.ContainerColor.alpha)
     }
 

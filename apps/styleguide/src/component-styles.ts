@@ -35,6 +35,14 @@ export const componentStyles = `
 .cmp-row-shell .value { flex: none; text-align: right; color: var(--fg-70); }
 .cmp-row-shell .chevron { flex: none; display: inline-flex; width: 14px; height: 14px; color: var(--fg-50); }
 .cmp-row-shell .chevron .glyph { width: 14px; height: 14px; }
+
+/* relations-card (EXP-736): one row per link inside a group. */
+.cmp-relation-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; font-size: 14px; min-width: 0; }
+.cmp-relation-row .dot { flex: none; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--ok); }
+.cmp-relation-row .caption { flex: none; font-size: 12px; color: var(--fg-50); }
+.cmp-relation-row .id { flex: none; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; color: var(--fg-70); }
+.cmp-relation-row .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-relation-row .trailing { flex: none; display: flex; align-items: center; }
 .cmp-row-shell .trailing { flex: none; display: flex; align-items: center; gap: 8px; }
 .cmp-row-shell input.value {
   min-width: 0;
@@ -325,6 +333,162 @@ export const componentStyles = `
 /* Inside a group the ROW is the chrome, exactly as for the input row. */
 .cmp-textarea.borderless { padding: 0; border-color: transparent; background: none; min-height: 60px; }
 .cmp-row-shell .cmp-textarea { flex: 1; min-width: 0; }
+
+/* ------------------------------------------------------------- app shell */
+/* EXP-723, the CUTOUT. Three parts: the ground (the page gradient), a nav
+   column sitting straight on it with no fill of its own, and the content as a
+   card inset 10 on every side. The wash is translucent so the card keeps the
+   same contrast wherever the gradient has got to; overflow hidden is what lets
+   the dock strip take the two bottom corners. */
+.cmp-app-shell {
+  display: flex;
+  height: 300px;
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+}
+.cmp-app-shell .nav {
+  flex: none;
+  width: 132px;
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  padding: 12px 8px;
+}
+.cmp-app-shell .nav .item {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  color: var(--fg-70);
+}
+.cmp-app-shell .nav .item.active { background: var(--active); color: var(--fg); }
+.cmp-app-shell .panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 10px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  overflow: hidden;
+}
+.cmp-app-shell .panel .header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--stroke-soft);
+}
+.cmp-app-shell .panel .header .title { font-size: 13px; font-weight: 500; }
+.cmp-app-shell .panel .content {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 14px 12px;
+}
+.cmp-app-shell .panel .content .line { height: 8px; border-radius: 9999px; background: var(--row); }
+.cmp-app-shell .panel .content .line:nth-child(2) { width: 72%; }
+.cmp-app-shell .panel .content .line:nth-child(3) { width: 46%; }
+/* The dock is the panel's LAST child, not an overlay — which is the whole
+   reason the content column never needs a bottom inset. */
+.cmp-app-shell .panel .dock {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-top: 1px solid var(--stroke);
+  background: var(--popover);
+}
+
+/* ------------------------------------------------------------ dock header */
+/* The open dock's own chrome: window controls on top, tabs below. */
+.cmp-dock-header {
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-lg);
+  background: var(--popover);
+  overflow: hidden;
+}
+.cmp-dock-header .header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  height: 28px;
+  padding: 0 6px;
+}
+.cmp-dock-header .strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-top: 1px solid var(--stroke);
+}
+.cmp-dock-header .tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg-50);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.cmp-dock-header .tool:hover { background: var(--active); color: var(--fg); }
+.cmp-dock-header .tool .glyph { width: 14px; height: 14px; }
+.cmp-app-shell .add, .cmp-dock-header .add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg-50);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.cmp-app-shell .add:hover, .cmp-dock-header .add:hover { background: var(--active); color: var(--fg); }
+.cmp-app-shell .add .glyph, .cmp-dock-header .add .glyph { width: 14px; height: 14px; }
+
+/* ---------------------------------------------------------- comment card */
+/* The avatar rides the timeline gutter; the card holds everything else. The
+   image is a LARGE tile, not a thumbnail: a screenshot you have to open is a
+   screenshot nobody opens. */
+.cmp-comment { display: flex; align-items: flex-start; gap: 10px; }
+.cmp-comment .card {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-xl);
+  background: var(--card);
+}
+.cmp-comment .header { display: flex; align-items: baseline; gap: 8px; }
+.cmp-comment .name { font-size: 14px; font-weight: 500; }
+.cmp-comment .caption { font-size: 12px; color: var(--fg-50); }
+.cmp-comment .text { margin-top: 4px; font-size: 14px; color: var(--fg-90); }
+.cmp-comment .image {
+  margin-top: 8px;
+  aspect-ratio: 16 / 9;
+  max-height: 240px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-lg);
+  background: var(--section);
+}
+.cmp-comment .cmp-pill { margin-top: 8px; }
 
 /* ---------------------------------------------------------------- sheet */
 .cmp-sheet {

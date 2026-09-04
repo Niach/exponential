@@ -250,6 +250,42 @@ fn initials_avatar(user_id: &str, label: &str, size: gpui_component::Size) -> Di
         .child(avatar_text(div(), size).child(initials(label)))
 }
 
+/// The TEAM mark (EXP-723, mirror of web `components/team/team-avatar.tsx`,
+/// iOS `TeamAvatar.swift`, Android `Avatars.kt`): the primary fill under its
+/// foreground, a rounded SQUARE at a quarter of its side, and the team name's
+/// first letter uppercased (`E` when there is no name yet).
+///
+/// Deliberately not a [`user_avatar`]: user discs are hashed-hue circles, so
+/// a single accent square can never be misread as a person. `size` is the
+/// side in px — 28 in the rail header, 20 in its menu (the same ladder the
+/// web component documents).
+pub(crate) fn team_avatar(name: &str, size: f32) -> gpui::AnyElement {
+    let initial = team_initial(name);
+    div()
+        .flex_shrink_0()
+        .size(px(size))
+        .rounded(px(size / 4.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(theme::tokens::PRIMARY.to_hsla())
+        .text_color(theme::tokens::PRIMARY_FOREGROUND.to_hsla())
+        .font_weight(gpui::FontWeight::BOLD)
+        .text_size(px(size * 0.44))
+        .child(gpui::SharedString::from(initial))
+        .into_any_element()
+}
+
+/// [`team_avatar`]'s glyph: the first character of the trimmed name,
+/// uppercased. Split out so the rule is testable without a gpui App.
+fn team_initial(name: &str) -> String {
+    name.trim()
+        .chars()
+        .next()
+        .map(|c| c.to_uppercase().to_string())
+        .unwrap_or_else(|| "E".to_string())
+}
+
 /// One avatar + name row (EXP-426): the ONE shape every user-listing surface
 /// shares — the assignee picker menus (via `pickers::user_menu_item`) and
 /// the `@` autocomplete rows.
@@ -280,7 +316,7 @@ pub fn first_name(name: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{avatar_hue_index, first_name, initials};
+    use super::{avatar_hue_index, first_name, initials, team_initial};
 
     /// EXP-698: the hue hash is a CROSS-CLIENT contract — the same person
     /// wears the same colour on web, iOS, Android and here. These vectors are
@@ -297,6 +333,19 @@ mod tests {
         assert_eq!(avatar_hue_index("7c9e6679-7425-40de-944b-e07fc1f90ae7"), 3);
         assert_eq!(avatar_hue_index("user_01HZY"), 1);
         assert_eq!(avatar_hue_index("ünïcödé"), 2);
+    }
+
+    /// EXP-723: the team mark's glyph rule, mirroring the web component's
+    /// `(name ?? "").trim()[0]?.toUpperCase() ?? "E"`.
+    #[test]
+    fn team_initials_take_the_first_character_uppercased() {
+        assert_eq!(team_initial("Acme Inc"), "A");
+        assert_eq!(team_initial("  spaced out "), "S");
+        assert_eq!(team_initial("überteam"), "Ü");
+        assert_eq!(team_initial("7 Wonders"), "7");
+        // A name-less team (nothing synced yet) falls back to the app letter.
+        assert_eq!(team_initial(""), "E");
+        assert_eq!(team_initial("   "), "E");
     }
 
     /// The modulo above is the palette's length, not a hard-coded 8 — but the

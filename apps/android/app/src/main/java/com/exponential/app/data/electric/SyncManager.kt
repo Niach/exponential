@@ -22,6 +22,7 @@ import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.IssueLabelEntity
+import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.IssueSubscriberEntity
 import com.exponential.app.data.db.LabelEntity
@@ -54,7 +55,7 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 
-/// Multi-account sync orchestrator. Maintains one set of 19 shape jobs per
+/// Multi-account sync orchestrator. Maintains one set of 20 shape jobs per
 /// signed-in account; each pipeline writes to that account's per-account Room
 /// instance (`exponential-<accountId>-v2.db`). Sign-out on one account cancels
 /// just that pipeline; other accounts keep syncing.
@@ -79,7 +80,7 @@ class SyncManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
 
-    /** One account's 19 shape loops, plus the clients a [kick] has to reach. */
+    /** One account's 20 shape loops, plus the clients a [kick] has to reach. */
     private class Pipeline(val jobs: List<Job>, val clients: List<ShapeClient<*>>)
 
     private val pipelines = mutableMapOf<String, Pipeline>()
@@ -89,7 +90,7 @@ class SyncManager @Inject constructor(
     private val _lastKickAt = MutableStateFlow(0L)
     val lastKickAt: StateFlow<Long> = _lastKickAt.asStateFlow()
 
-    // App-lifecycle gate (REV2-38), threaded into every ShapeClient: 19 shape
+    // App-lifecycle gate (REV2-38), threaded into every ShapeClient: 20 shape
     // loops PER signed-in account must not keep long-polling for a process the
     // user can't see (Android caches backgrounded processes and only freezes
     // them ~10min later on 12+, OEM-configurable, never below it). Starts
@@ -107,7 +108,7 @@ class SyncManager @Inject constructor(
     @Volatile private var backgroundedAtMs: Long? = null
 
     // Debounce gate for unforced kicks: foreground + network-available +
-    // several pushes can land within the same second, and 19 shapes each
+    // several pushes can land within the same second, and 20 shapes each
     // dropping a live connection per trigger is a real cost.
     private val lastKickGate = AtomicLong(0L)
 
@@ -223,7 +224,7 @@ class SyncManager @Inject constructor(
      * EXP-656, matching Electric's own client contract (electric-protocol
      * README §4): background cancels the in-flight long-polls AT ONCE — the
      * grace window is gone, because it was a `delay()` on a clock that stops in
-     * deep sleep, so the 19 live polls per account were regularly carried into
+     * deep sleep, so the 20 live polls per account were regularly carried into
      * suspension still "open". ProcessLifecycleOwner already debounces ON_STOP
      * by 700ms, which is all the rotation/config-change cover this needs.
      *
@@ -360,7 +361,7 @@ class SyncManager @Inject constructor(
             for (accountId in signedIn - running) {
                 val db = databaseHolder.database(forAccountId = accountId)
                 pipelines[accountId] = launchPipeline(accountId, db)
-                android.util.Log.i("SyncManager", "Launched shape pipeline (19 shapes) for $accountId")
+                android.util.Log.i("SyncManager", "Launched shape pipeline (20 shapes) for $accountId")
             }
         }
     }
@@ -420,6 +421,7 @@ class SyncManager @Inject constructor(
         val labelDao = db.labelDao()
         val issueStatusDao = db.issueStatusDao()
         val issueLabelDao = db.issueLabelDao()
+        val issueRelationDao = db.issueRelationDao()
         val userDao = db.userDao()
         val teamMemberDao = db.teamMemberDao()
         val teamInviteDao = db.teamInviteDao()
@@ -494,6 +496,16 @@ class SyncManager @Inject constructor(
                 onUpdate = { issueLabelDao.upsert(it) },
                 onDelete = { issueLabelDao.delete(it.issueId, it.labelId) },
                 onRefetch = { issueLabelDao.clear() },
+            ),
+            launchShape(
+                shape = "issue_relations", path = "/api/shapes/issue-relations", tableName = "issue_relations",
+                serializer = IssueRelationEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("issue_relations"),
+                onInsert = { issueRelationDao.upsert(it) },
+                onUpdate = { issueRelationDao.upsert(it) },
+                onDelete = { issueRelationDao.deleteById(it.id) },
+                onRefetch = { issueRelationDao.clear() },
             ),
             launchShape(
                 shape = "users", path = "/api/shapes/users", tableName = "users",
@@ -715,7 +727,7 @@ private const val KICK_DEBOUNCE_MS = 1_000L
 
 // How long backgrounded before the pooled connections count as suspect
 // (EXP-656). A share-sheet hop, the photo picker or a rotation comes back on
-// the SAME warm connection and must not pay for 19 fresh handshakes; anything
+// the SAME warm connection and must not pay for 20 fresh handshakes; anything
 // longer and the radio may well have dropped the sockets without telling
 // OkHttp, which does not health-check a pooled connection before reusing it.
 internal const val CONNECTION_STALE_AFTER_BACKGROUND_MS = 5_000L

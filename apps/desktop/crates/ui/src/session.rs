@@ -70,7 +70,7 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
         base_url: account.instance_url.clone(),
         db_path: api::account_db_path(&auth.data_dir, &account.id),
         token: auth.auth.token_provider_fn(&account.id),
-        // The desktop syncs all 19 shapes; only the CLI daemon subsets.
+        // The desktop syncs all 20 shapes; only the CLI daemon subsets.
         shapes: None,
     };
     match store.connect(config, cx) {

@@ -27,8 +27,10 @@ import { designTokens } from "@exp/design-tokens"
 
 import {
   escapeHtml,
+  svgArrowUpRight,
   svgBell,
   svgCheck,
+  svgChevronDown,
   svgChevronRight,
   svgCircleHelp,
   svgCircleUser,
@@ -174,6 +176,18 @@ function bulkBar(labelled: boolean): string {
     button(svgTag, `Labels`),
     pill(`Start coding`, { size: `md`, glyph: svgPlay, primary: true }),
     button(svgTrash, `Delete`, true),
+    `</div>`,
+  ].join(``)
+}
+
+function relationRow(label: string, id: string, title: string): string {
+  return [
+    `<div class="cmp-relation-row">`,
+    `<span class="dot"></span>`,
+    `<span class="caption">${escapeHtml(label)}</span>`,
+    `<span class="id">${escapeHtml(id)}</span>`,
+    `<span class="title">${escapeHtml(title)}</span>`,
+    `<span class="trailing">${iconButton(svgX)}</span>`,
     `</div>`,
   ].join(``)
 }
@@ -528,6 +542,39 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ].join(``),
   },
   {
+    id: `dock-header`,
+    title: `Dock header`,
+    kind: `Controls`,
+    blurb: `The bottom dock's chrome, in two parts. A 28px header row tops the OPEN panel and carries only the window controls, right-aligned: open in a window, then collapse — 20px ghost glyph buttons, nothing else, because a header that also held tabs would be a second tab strip. Below it the strip holds the rich tabs and the add button; the dock itself is an opaque popover under a card hairline, with the bottom corners rounded to the panel it sits in.`,
+    status: {
+      web: ok(
+        `AgentDock`,
+        `apps/web/src/components/agent-dock/agent-dock.tsx`,
+        `the two header buttons sit on the session view (agent-session.tsx); the strip is the dock's`
+      ),
+      desktop: ok(
+        `TerminalDockPanel::render_dock_header`,
+        `apps/desktop/crates/ui/src/terminal_dock.rs`
+      ),
+      ios: na(`no dock: sessions open full-screen from Agents`),
+      android: na(`no dock: sessions open full-screen from Agents`),
+    },
+    render: () =>
+      [
+        `<div class="cmp-dock-header">`,
+        `<div class="header">`,
+        `<button class="tool" type="button">${svgArrowUpRight}</button>`,
+        `<button class="tool" type="button">${svgChevronDown}</button>`,
+        `</div>`,
+        `<div class="strip">`,
+        richTab({ glyph: svgTerminal, title: `zsh`, id: `1`, active: true }),
+        richTab({ dot: true, title: `Fix the merge queue`, id: `APP-14` }),
+        `<button class="add" type="button">${svgPlus}</button>`,
+        `</div>`,
+        `</div>`,
+      ].join(``),
+  },
+  {
     id: `icon-button`,
     title: `Glass icon button`,
     kind: `Controls`,
@@ -664,6 +711,71 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           inputRow(`Title`, `Fix the merge queue`),
           `<div class="cmp-row-shell"><textarea class="cmp-textarea borderless" rows="3" placeholder="Description"></textarea></div>`
         ),
+        `</div>`,
+      ].join(``),
+  },
+  {
+    id: `app-shell`,
+    title: `App shell`,
+    kind: `Surfaces`,
+    blurb: `The CUTOUT (EXP-723). The window is the page gradient; the navigation column sits directly on it with no fill of its own; the content is a card inset 10 on every side — radius 12, a card hairline, the panel wash, overflow hidden so the dock strip takes the bottom corners. The wash is translucent on purpose: the ground darkens down the page and a solid fill would drift away from it. Phones drop the card entirely and run full-bleed under the tab bar.`,
+    status: {
+      web: ok(`MAIN_PANEL_CLASS`, `apps/web/src/routes/t/$teamSlug/route.tsx`),
+      desktop: ok(
+        `Shell::render`,
+        `apps/desktop/crates/ui/src/shell.rs`,
+        `cutout panel painted by Shell::render, FILL_PANEL over the content ramp`
+      ),
+      ios: na(`phones are full-bleed under the tab bar; no cutout`),
+      android: na(`phones are full-bleed under the tab bar; no cutout`),
+    },
+    render: () =>
+      [
+        `<div class="cmp-app-shell">`,
+        `<div class="nav">`,
+        `<span class="item"><span class="label">Inbox</span></span>`,
+        `<span class="item active"><span class="label">Mobile app</span></span>`,
+        `<span class="item"><span class="label">Reviews</span></span>`,
+        `</div>`,
+        `<div class="panel">`,
+        `<div class="header"><span class="title">Mobile app</span></div>`,
+        `<div class="content"><span class="line"></span><span class="line"></span><span class="line"></span></div>`,
+        `<div class="dock">`,
+        richTab({ glyph: svgTerminal, title: `zsh`, id: `1`, active: true }),
+        richTab({ dot: true, title: `Fix the merge queue`, id: `APP-14` }),
+        `<button class="add" type="button">${svgPlus}</button>`,
+        `</div>`,
+        `</div>`,
+        `</div>`,
+      ].join(``),
+  },
+  {
+    id: `comment-card`,
+    title: `Comment card`,
+    kind: `Surfaces`,
+    blurb: `One comment in the activity feed: the avatar rides the timeline gutter, everything else lives in a radius-16 card of card fill under a card hairline. The header is the author at body size and medium weight, then a muted caption carrying the relative time and, when it applies, "edited". Images attached to the comment are LARGE tiles stacked under the body — full width, capped at 480 tall, radius 12, hairline, reserving their probed aspect ratio — and any other file stays a read-only pill.`,
+    status: {
+      web: ok(`RegularCommentRow`, `apps/web/src/components/comment-rows/regular.tsx`),
+      desktop: ok(`comments::comment_row`, `apps/desktop/crates/ui/src/comments.rs`),
+      ios: ok(
+        `RegularCommentRow`,
+        `apps/ios/Exponential/UI/Issue/CommentThreadView.swift`
+      ),
+      android: ok(
+        `RegularCommentRow`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/issue/RegularCommentRow.kt`
+      ),
+    },
+    render: () =>
+      [
+        `<div class="cmp-comment">`,
+        avatar(`AL`, 3),
+        `<div class="card">`,
+        `<div class="header"><span class="name">Ada Lovelace</span><span class="caption">2 days ago · edited</span></div>`,
+        `<div class="text">Pushed the fix. The strip only reserved height once the image had decoded.</div>`,
+        `<div class="image"></div>`,
+        pill(`trace.txt`, { mode: `readonly`, glyph: svgPaperclip }),
+        `</div>`,
         `</div>`,
       ].join(``),
   },
@@ -994,5 +1106,28 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       }
       return `<div class="cmp-motion">${lines.join(``)}</div>`
     },
+  },
+  {
+    id: `relations-card`,
+    title: `Relations card`,
+    kind: `Grouped list`,
+    blurb: `EXP-736: the issue's relations beneath the properties card (web + desktop) or inside the properties sheet (phones). Section header with the Add relation capsule, then one row per link: status glyph, the per-side label, identifier, title, trailing remove.`,
+    status: {
+      web: ok(`IssueRelationsCard`, `apps/web/src/components/issue-relations-card.tsx`),
+      desktop: ok(`issue_relations::render_relations_card`, `apps/desktop/crates/ui/src/issue_relations.rs`),
+      ios: ok(`IssueRelationsSection`, `apps/ios/Exponential/UI/Issue/Sheets/IssueRelationsSection.swift`, `Lives in the properties sheet, not on the detail page.`),
+      android: ok(`RelationsSection`, `apps/android/app/src/main/java/com/exponential/app/ui/issue/RelationsSection.kt`, `Lives in the properties sheet, not on the detail page.`),
+    },
+    render: () =>
+      [
+        `<div class="cmp-stack">`,
+        sectionHeader(`Relations`, pill(`Add relation`, { glyph: svgPlus })),
+        group(
+          relationRow(`blocked by`, `EXP-612`, `ACP: agent client protocol for the steer channel`),
+          relationRow(`sub-issue of`, `EXP-723`, `desktop to web approaching`),
+          relationRow(`related to`, `EXP-736`, `issue relation`)
+        ),
+        `</div>`,
+      ].join(``),
   },
 ]

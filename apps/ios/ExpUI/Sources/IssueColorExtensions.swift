@@ -42,6 +42,25 @@ extension ResolvedIssueStatus {
     }
 }
 
+// EXP-736: one concept glyph per relation SIDE — "blocks" and "blocked by"
+// are different marks, so the icon takes the same `inverse` the label does.
+extension IssueRelationType {
+    /// Shared-registry icon name (EXP-273) — render through `AppIcon`.
+    public func iconName(inverse: Bool) -> String {
+        switch self {
+        case .blocks: inverse ? AppIcons.relationBlockedBy : AppIcons.relationBlocks
+        case .parent: inverse ? AppIcons.relationSubIssue : AppIcons.relationParent
+        case .duplicate: AppIcons.relationDuplicate
+        case .related: AppIcons.relationRelated
+        }
+    }
+}
+
+extension RelationPick {
+    /// Shared-registry icon name (EXP-273) — render through `AppIcon`.
+    public var iconName: String { type.iconName(inverse: inverse) }
+}
+
 extension IssuePriority {
     /// Shared-registry icon name (EXP-273) — render through `AppIcon`.
     public var iconName: String {

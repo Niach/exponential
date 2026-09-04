@@ -256,7 +256,9 @@ export function IssueTimeline({
         )
       })}
       {!hideComposer && (
-        <div className="mt-2">
+        // EXP-723: the composer needs more air than a feed row does — the rail
+        // stops at the last entry, so a 8px gap read as one more entry.
+        <div className="mt-3">
           <CommentComposer
             issueId={issue.id}
             users={users}

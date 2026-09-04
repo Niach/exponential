@@ -32,8 +32,15 @@ interface CommentAttachmentsProps {
 
 /**
  * EXP-554: a comment's linked attachments (attachments.comment_id), rendered
- * below the body — images as squared previews opening the shared lightbox,
+ * below the body — images as LARGE inline tiles opening the shared lightbox,
  * other files as chips with open/download. Never inlined into the markdown.
+ *
+ * EXP-723: the images used to be 64px squares, which turned every screenshot
+ * into an icon you had to open to read. They are now full-width tiles stacked
+ * vertically (Linear's activity feed), capped at 480px tall and reserving
+ * their aspect ratio from the probed `width`/`height` so the feed doesn't jump
+ * as they decode. The 64px thumb survives only in the pending/edit strips,
+ * where the point IS the list, not the picture.
  */
 export function CommentAttachments({
   attachments,
@@ -78,9 +85,9 @@ export function CommentAttachments({
   )
 
   return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+    <div className="mt-2 flex flex-col items-start gap-2">
       {images.map((row) => (
-        <div key={row.id} className="group/attachment relative">
+        <div key={row.id} className="group/attachment relative max-w-full">
           <button
             type="button"
             aria-label={`View ${row.filename}`}
@@ -91,12 +98,26 @@ export function CommentAttachments({
               src={row.url}
               alt={row.filename}
               loading="lazy"
-              className="size-16 rounded-md border border-border/60 object-cover"
+              // The intrinsic size is what lets the browser reserve the box
+              // before the bytes land; `aspect-ratio` keeps that reservation
+              // correct once `max-h`/`max-w` clamp one side. Rows probed
+              // before EXP-580 carry neither and simply reflow on decode.
+              width={row.width ?? undefined}
+              height={row.height ?? undefined}
+              style={
+                row.width && row.height
+                  ? { aspectRatio: `${row.width} / ${row.height}` }
+                  : undefined
+              }
+              className="block h-auto max-h-[480px] w-auto max-w-full rounded-lg border border-glass-stroke-card bg-glass-section object-contain"
             />
           </button>
           {canModify && removeButton(row)}
         </div>
       ))}
+      {/* Chips keep wrapping in a row of their own — only the images stack. */}
+      {files.length > 0 && (
+      <div className="flex flex-wrap items-center gap-2">
       {files.map((row) => {
         const Icon = getAttachmentIcon(row.contentType)
         return (
@@ -146,6 +167,8 @@ export function CommentAttachments({
           </div>
         )
       })}
+      </div>
+      )}
 
       <ImagePreviewDialog
         open={preview !== null}

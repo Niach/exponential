@@ -15,6 +15,7 @@ import {
   selectSyncedDeviceWorktreeSchema,
   selectIssueEventSchema,
   selectIssueLabelSchema,
+  selectIssueRelationSchema,
   selectIssueSchema,
   selectIssueSubscriberSchema,
   selectIssueStatusRowSchema,
@@ -168,6 +169,18 @@ export const issueLabelCollection = createCollection(
     shapeOptions: shapeOptions(`/api/shapes/issue-labels`),
     schema: selectIssueLabelSchema,
     getKey: (item) => `${item.issueId}:${item.labelId}`,
+  })
+)
+
+// EXP-736: both sides of the relation graph arrive here; the card queries
+// `issueId = me OR relatedIssueId = me` and drops rows whose far issue is not
+// synced.
+export const issueRelationCollection = createCollection(
+  electricCollectionOptions({
+    id: `issue_relations`,
+    shapeOptions: shapeOptions(`/api/shapes/issue-relations`),
+    schema: selectIssueRelationSchema,
+    getKey: (item) => item.id,
   })
 )
 

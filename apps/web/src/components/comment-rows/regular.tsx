@@ -69,13 +69,18 @@ export function RegularCommentRow({
       }
       markerSize={28}
     >
-      <div className="rounded-xl border border-glass-stroke-card bg-glass-card px-3 pt-2 pb-2.5">
-        <div className="flex items-center gap-2 text-xs">
-          <span className="font-medium text-foreground">{name}</span>
-          <span className="text-muted-foreground">
+      <div className="rounded-xl border border-glass-stroke-card bg-glass-card px-3 pt-2.5 pb-3">
+        {/* EXP-723: the name carries the row (body size, medium), the time and
+            the edited marker sit back as separate muted spans — a Linear-style
+            header line rather than one uniform 12px run. */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-foreground">{name}</span>
+          <span className="text-xs text-muted-foreground">
             {relativeTime(comment.createdAt)}
-            {comment.editedAt ? ` · edited` : ``}
           </span>
+          {comment.editedAt && (
+            <span className="text-xs text-muted-foreground">edited</span>
+          )}
           {canModify && !editing && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -117,13 +122,13 @@ export function RegularCommentRow({
         ) : (
           <>
             {bodyText.trim().length > 0 && (
-              <div className="mt-0.5 text-sm text-foreground">
+              <div className="mt-1 text-sm text-foreground">
                 <MarkdownEditor
                   markdown={bodyText}
                   editable={false}
                   onChange={() => {}}
                   // EXP-698: feed-sized markdown everywhere — zero pad and no
-                  // min-height, so the row's own `mt-0.5` is the only spacing.
+                  // min-height, so the row's own `mt-1` is the only spacing.
                   appearance="chat"
                 />
               </div>

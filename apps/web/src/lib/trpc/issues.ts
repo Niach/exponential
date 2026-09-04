@@ -8,6 +8,7 @@ import {
   issueEvents,
   issues,
   issueLabels,
+  issueRelations,
   issueStatuses,
   issueSubscribers,
   labels,
@@ -86,6 +87,11 @@ import {
 import { resolveMentions } from "@/lib/integrations/mentions"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import {
+  loadIssueRelations,
+  syncDuplicateMirror,
+  syncReferenceRelations,
+} from "@/lib/issue-relations"
 
 // Extract `owner/repo` from a GitHub PR URL
 // (https://github.com/owner/repo/pull/123). Returns null if it doesn't match.
@@ -180,6 +186,9 @@ async function finalizeIssueUpdateInTx(
       title: string
       priority: string
       assigneeId: string | null
+      // EXP-736: the from-side of the issue_relations duplicate mirror. Both
+      // callers already read it for applyStatusDerivations.
+      duplicateOfId: string | null
     }
     setValues: Record<string, unknown>
   }
@@ -200,6 +209,17 @@ async function finalizeIssueUpdateInTx(
     // signal "row gone" instead of crashing the whole batch.
     return null
   }
+
+  // EXP-736: the duplicate relation row is a dual-write of duplicate_of_id, so
+  // it is reconciled from the PERSISTED value — a status move off 'duplicate'
+  // clears the column through applyStatusDerivations without ever naming it.
+  await syncDuplicateMirror(tx, {
+    issueId,
+    teamId,
+    actorUserId,
+    previousDuplicateOfId: current.duplicateOfId,
+    nextDuplicateOfId: issue.duplicateOfId,
+  })
 
   let statusChange: StatusChange | null = null
   // Compare the (anchor, statusId) PAIR — a move between two custom statuses
@@ -438,6 +458,19 @@ export const issuesRouter = router({
             source: `mention`,
           })
         }
+
+        // EXP-736: `#IDENT` tokens in the description become `related` rows
+        // with source='reference'. A new issue has no previous text, so this
+        // only ever inserts.
+        await syncReferenceRelations(tx, {
+          issueId: issue.id,
+          teamId: board.teamId,
+          actorUserId: ctx.session.user.id,
+          previousText: ``,
+          nextText: issue.description
+            ? getIssueDescriptionText(issue.description)
+            : ``,
+        })
 
         return { issue, txId, mentionedUserIds }
       })
@@ -701,6 +734,18 @@ export const issuesRouter = router({
               source: `mention`,
             })
           }
+
+          // EXP-736: same delta shape for `#IDENT` references. No
+          // excludeCommentId ⇒ the DESCRIPTION is the slot being replaced, so
+          // the survivor scan reads nextText plus the comments rather than
+          // the (still unwritten) stored description.
+          await syncReferenceRelations(tx, {
+            issueId: id,
+            teamId: issueContext.teamId,
+            actorUserId: ctx.session.user.id,
+            previousText,
+            nextText,
+          })
         }
 
         if (Object.keys(setValues).length === 0) {
@@ -934,6 +979,13 @@ export const issuesRouter = router({
           .update(issueLabels)
           .set({ boardId: input.boardId })
           .where(eq(issueLabels.issueId, input.id))
+        // EXP-736: relation rows are scoped by their SOURCE issue's board, so
+        // only the rows this issue owns move with it (the rows where it is the
+        // related side stay on the other issue's board).
+        await tx
+          .update(issueRelations)
+          .set({ boardId: input.boardId })
+          .where(eq(issueRelations.issueId, input.id))
         await tx
           .update(codingSessions)
           .set({ boardId: input.boardId })
@@ -1877,6 +1929,12 @@ export const issuesRouter = router({
       return {
         issue,
         labelIds: labelRows.map((row) => row.labelId),
+        // EXP-736: BOTH sides of the relation graph in one read, already
+        // folded to this issue's point of view — `direction` says which label
+        // half to render, `otherIssueId`/`otherIdentifier` name the far side.
+        // The issue_relations shape delivers the same rows continuously; this
+        // is the same catch-up fallback the labels above are.
+        relations: await loadIssueRelations(ctx.db, issueId),
         // Top-level, NOT a field of `issue`: clients need it to write the
         // denormalized team_id their local issue_labels rows carry, and it is
         // not part of the synced issue row.

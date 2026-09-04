@@ -60,6 +60,13 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrClosedState: vi.fn(),
   applyPrMergeState: vi.fn(),
 }))
+// EXP-736: the relations read is its own query shape (a self-join); the point
+// this file locks is the ISSUE projection, so stub it out.
+vi.mock(`@/lib/issue-relations`, () => ({
+  loadIssueRelations: vi.fn(async () => []),
+  syncDuplicateMirror: vi.fn(),
+  syncReferenceRelations: vi.fn(),
+}))
 vi.mock(`@/lib/storage/issue-attachments`, () => ({
   canonicalizeMarkdownImageUrls: vi.fn(),
   extractAttachmentIdsFromDescription: vi.fn(),
@@ -181,6 +188,7 @@ describe(`issues.get (EXP-264)`, () => {
     expect(result).toEqual({
       issue: issueRow,
       labelIds: [`l-1`, `l-2`],
+      relations: [],
       teamId: `ws-1`,
     })
   })

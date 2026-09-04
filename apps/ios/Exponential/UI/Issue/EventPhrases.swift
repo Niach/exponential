@@ -17,6 +17,8 @@ func eventVerb(_ type: String) -> String {
     case "pr_opened": return "opened a pull request"
     case "pr_merged": return "merged the pull request"
     case "board_moved": return "moved this to another board"
+    case "relation_added": return "added a relation"
+    case "relation_removed": return "removed a relation"
     default: return type.replacingOccurrences(of: "_", with: " ")
     }
 }
@@ -85,6 +87,8 @@ func eventGlyph(
     case "assignee_changed": return .plain(AppIcons.eventAssigneeChanged)
     case "label_added", "label_removed": return .plain(AppIcons.eventLabelAdded)
     case "board_moved": return .plain(AppIcons.eventBoardMoved)
+    case "relation_added": return .plain(AppIcons.eventRelationAdded)
+    case "relation_removed": return .plain(AppIcons.eventRelationRemoved)
     case "pr_opened": return .plain(AppIcons.prOpen)
     case "pr_merged": return .plain(AppIcons.prMerged)
     case "priority_changed": return .plain(AppIcons.eventPriorityChanged)
@@ -160,6 +164,18 @@ func eventPhrase(
         let fromIdentifier = eventField(event.payload, "fromIdentifier")
             .map { " (\($0))" } ?? ""
         return "moved this from \(fromName)\(fromIdentifier) to \(toName)"
+    case "relation_added", "relation_removed":
+        // EXP-736 — byte-identical to `relationEventParts` on the web: the
+        // payload's `direction` says which SIDE this issue is on, so each of
+        // the two event rows reads from its own end ("blocks" vs "blocked
+        // by"). Both fallbacks mirror the web too — an unknown type reads as
+        // the symmetric `related`, a missing counterpart as "an issue".
+        return IssueRelationType.eventPhrase(
+            type: IssueRelationType.from(eventField(event.payload, "type")) ?? .related,
+            inverse: eventField(event.payload, "direction") == "inverse",
+            identifier: eventField(event.payload, "relatedIdentifier") ?? "an issue",
+            removed: event.type == "relation_removed"
+        )
     default:
         return eventVerb(event.type)
     }

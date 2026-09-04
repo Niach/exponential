@@ -84,8 +84,8 @@ pub(crate) fn editor_theme(cx: &App) -> Arc<MarkdownEditorTheme> {
 
 /// Web-parity type scale (`.tiptap-content` in `apps/web/src/styles.css`),
 /// expressed against the app's rem — which gpui-component pins to
-/// `theme.font_size`, i.e. desktop's 13px compact density rather than web's
-/// 16px root. The vendored defaults are absolute pixels tuned for a
+/// `theme.font_size`, i.e. [`theme::FONT_SIZE_PX`] rather than web's 16px
+/// root. The vendored defaults are absolute pixels tuned for a
 /// full-window 17px editor; left alone they render the description half again
 /// larger than every other surface in the app.
 fn apply_typography(theme: &mut MarkdownEditorTheme, rem: f32) {

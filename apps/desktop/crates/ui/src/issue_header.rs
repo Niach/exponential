@@ -5,7 +5,7 @@
 //! ~12 collection subscriptions) but NOT a view — the detail view interleaves
 //! its rows with the title block it owns itself, so this renders through
 //! three builders called from the host's render: [`IssueHeader::top_row`]
-//! (switcher · copy-link · subscribe · `…`), [`IssueHeader::chip_row`]
+//! (switcher · copy-link · `…` · delete), [`IssueHeader::chip_row`]
 //! (Status · Priority · Assignee · Labels · Due date · Board · Origin) and
 //! [`IssueHeader::agent_row`] (the coding-now card, with Merge PR and Fix
 //! conflicts). The host observes this entity so a builder's `cx.notify()`
@@ -37,7 +37,6 @@ use gpui_component::{
     menu::{DropdownMenu as _, PopupMenuItem},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
-use serde::Serialize;
 use sync::Store;
 
 use domain::board::format_short_date;
@@ -48,7 +47,7 @@ use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::controls::WebControl as _;
 use crate::icons::{option_icon, registry, ExpIcon};
 use crate::pickers::{chip_button, PICKER_MENU_MIN_WIDTH, PICKER_SEARCH_WIDTH};
-use crate::issue_detail::{is_subscribed, issue_web_url, set_duplicate_of, DETAIL_GUTTER};
+use crate::issue_detail::{issue_web_url, set_duplicate_of, DETAIL_GUTTER};
 use crate::issue_list::IssueQuery;
 use crate::navigation::{go_back, replace_screen, Screen};
 use crate::queries;
@@ -82,8 +81,6 @@ pub struct IssueHeader {
     /// The owning window (EXP-426) — resolves the screens panel so the
     /// switcher can follow the ACTIVE TAB's remembered origin list.
     window_id: gpui::WindowId,
-    /// Subscribe-toggle in-flight flag (web `busy`).
-    subscribe_busy: bool,
     /// Copy-link feedback: the toolbar button shows a check for ~1.5s after a
     /// copy (web `linkCopied`). The seq guards the disarm timer against a
     /// re-click racing an older timer (the merge-confirm pattern).
@@ -137,8 +134,7 @@ impl IssueHeader {
             },
         ));
         // The Agent group's coding-now card follows the synced sessions; its
-        // skip-while-local guard follows the local registry. The toolbar's
-        // subscribe toggle follows the issue_subscribers shape (EXP-277).
+        // skip-while-local guard follows the local registry.
         let local_sessions = LocalSessions::global(cx);
         let merge_state = crate::pr_merge::MergeState::global(cx);
         for subscription in [
@@ -151,7 +147,6 @@ impl IssueHeader {
             // EXP-549/550: the card's machine name + paused state come from
             // the devices rows — heartbeats and renames re-render it.
             cx.observe(&collections.devices, |_, _, cx| cx.notify()),
-            cx.observe(&collections.issue_subscribers, |_, _, cx| cx.notify()),
             // EXP-314: a status rename/recolor re-renders the status control.
             cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify()),
             cx.observe(&local_sessions, |_, _, cx| cx.notify()),
@@ -184,7 +179,6 @@ impl IssueHeader {
             label_query,
             board_query,
             rail_shared,
-            subscribe_busy: false,
             link_copied: false,
             link_copied_seq: 0,
             start_coding,
@@ -205,7 +199,6 @@ impl IssueHeader {
         }
         self.issue_id = issue_id;
         // Toolbar state belongs to the PREVIOUS issue (EXP-277).
-        self.subscribe_busy = false;
         self.link_copied = false;
         self.sync_calendars(window, cx);
         cx.notify();
@@ -740,53 +733,6 @@ impl IssueHeader {
 
     // -- EXP-277: the former issue-detail header cluster ---------------------
 
-    fn toggle_subscription(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.subscribe_busy {
-            return;
-        }
-        let Some(issue_id) = self.issue_id.clone() else {
-            return;
-        };
-        let Some(account) = queries::active_account(cx) else {
-            return;
-        };
-        let subscribed = is_subscribed(&issue_id, &account.user_id, cx);
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        self.subscribe_busy = true;
-        cx.notify();
-
-        cx.spawn_in(window, async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    #[derive(Serialize)]
-                    #[serde(rename_all = "camelCase")]
-                    struct SubscriptionInput<'a> {
-                        issue_id: &'a str,
-                    }
-                    let path = if subscribed {
-                        "subscriptions.unsubscribe"
-                    } else {
-                        "subscriptions.subscribe"
-                    };
-                    let out: Result<api::labels::TxOutput, api::ApiError> =
-                        trpc.mutation(path, &SubscriptionInput { issue_id: &issue_id });
-                    out
-                })
-                .await;
-            let _ = this.update_in(cx, |this, _, cx| {
-                this.subscribe_busy = false;
-                if let Err(err) = result {
-                    log::warn!("[ui] subscription toggle failed: {err}");
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
     /// The (query, filters) pair the switcher steps through (EXP-426): the
     /// ACTIVE TAB's remembered origin first — an issue opened from My Issues
     /// keeps stepping My Issues even after the rail moved elsewhere — with
@@ -892,7 +838,7 @@ impl IssueHeader {
                     // EXP-698 round 5: prev/next are NAVIGATION, not actions
                     // — bare ghost glyphs on every client (web
                     // `Button variant="ghost" size="icon-sm"`). The circles
-                    // stay on copy-link / subscribe / trash beside them.
+                    // stay on copy-link / trash beside them.
                     Button::new("issue-switch-prev")
                         .ghost()
                         .web_icon_sm()
@@ -953,38 +899,6 @@ impl IssueHeader {
                 .detach();
                 cx.notify();
             }))
-    }
-
-    /// Web `SubscribeToggle`, icon-only (Bell/BellOff + tooltip), live off
-    /// the `issue_subscribers` shape.
-    fn render_subscribe_toggle(
-        &mut self,
-        issue: &Issue,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let account = queries::active_account(cx);
-        let subscribed = account
-            .as_ref()
-            .map(|account| is_subscribed(&issue.id, &account.user_id, cx))
-            .unwrap_or(false);
-        let icon = if subscribed { ExpIcon::Bell } else { ExpIcon::BellOff };
-        let tint = if subscribed {
-            cx.theme().primary
-        } else {
-            cx.theme().muted_foreground
-        };
-        crate::controls::glass_icon_button(
-            "subscribe-toggle",
-            Icon::from(icon).text_color(tint),
-            cx,
-        )
-            .disabled(self.subscribe_busy || account.is_none())
-            .tooltip(if subscribed {
-                "Subscribed. Click to unsubscribe."
-            } else {
-                "Subscribe to this issue"
-            })
-            .on_click(cx.listener(|this, _, window, cx| this.toggle_subscription(window, cx)))
     }
 
     /// The `…` actions menu, now duplicate-only (EXP-426): Move-to-board
@@ -1052,7 +966,9 @@ impl IssueHeader {
     }
 
     /// EXP-277/EXP-417: the header's top row — switcher left, copy-link ·
-    /// subscribe · unmark-duplicate (when applicable) · delete right.
+    /// unmark-duplicate (when applicable) · delete right. (EXP-723 retired
+    /// the Subscribe toggle on every client; auto-subscription and the
+    /// `issue_subscribers` shape stay.)
     pub(crate) fn top_row(
         &mut self,
         issue: &Issue,
@@ -1068,7 +984,6 @@ impl IssueHeader {
             .children(self.render_switcher(issue, cx))
             .child(div().flex_1().min_w_0())
             .child(self.render_copy_link(issue, cx))
-            .child(self.render_subscribe_toggle(issue, cx))
             .children(self.render_actions_menu(issue, cx))
             .child(self.render_delete_button(issue, cx))
             .into_any_element()

@@ -44,9 +44,9 @@ mod tools;
 /// EXP-282/EXP-456: width of the settings nav column — it REPLACES the RAIL
 /// (the window's leftmost column, rendered by the `Shell`) while a settings
 /// screen is up, so it owns a fixed width like the right detail sidebars
-/// rather than riding the resizable split. EXP-464: exactly the expanded
-/// rail's width, so the swap slides without the column growing or shrinking.
-pub const SETTINGS_NAV_WIDTH: f32 = crate::sidebar::RAIL_EXPANDED_W;
+/// rather than riding the resizable split. EXP-464: exactly the rail's width,
+/// so the swap slides without the column growing or shrinking.
+pub const SETTINGS_NAV_WIDTH: f32 = crate::sidebar::RAIL_W;
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext as _, Entity, FontWeight,
@@ -720,13 +720,9 @@ impl Render for SettingsNavPanel {
 
         // EXP-456: the nav occupies the rail's slot now, so its top 34px sit
         // in the window-decoration band as a drag/zoom region — the rail's
-        // own strip recipe. EXP-464: it also carries the app brand like the
-        // expanded rail — except on windowed macOS, where the native traffic
-        // lights float over its left half (the expanded-rail width clears the
-        // 61px cluster — no tongue needed) and the strip stays pure drag
-        // space.
+        // own strip recipe. EXP-723: pure drag space, like the rail's, since
+        // the app brand went with the logo.
         let client_chrome = crate::app_title_bar::client_chrome(window);
-        let macos_lights = crate::app_title_bar::macos_lights_in_strip(window);
         let top_strip = h_flex()
             .id("settings-nav-titlebar-strip")
             .w_full()
@@ -737,9 +733,6 @@ impl Render for SettingsNavPanel {
             // root; this nav's root has none (rows carry their own margins),
             // so the strip pads itself.
             .px_2()
-            .when(!macos_lights, |strip| {
-                strip.child(crate::app_title_bar::brand(cx))
-            })
             .when(client_chrome, |strip| {
                 strip
                     .window_control_area(WindowControlArea::Drag)

@@ -53,7 +53,7 @@ import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
 import { IssueDetailMobileBar } from "@/components/issue-detail-mobile-bar"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { IssueFilesSection } from "@/components/issue-files-section"
-import { SubscribeToggle } from "@/components/subscribe-toggle"
+import { IssueRelationsCard } from "@/components/issue-relations-card"
 import { IssueDetailMobileMenu } from "@/components/issue-detail-mobile-menu"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
 
@@ -654,6 +654,7 @@ export function IssueDetailView({
       onAssigneeChange={handleAssigneeChange}
       onToggleLabel={handleToggleLabel}
       onDueDateSelect={handleDueDateSelect}
+      relations={{ issueId: issue.id, readOnly }}
     />
   )
 
@@ -677,7 +678,7 @@ export function IssueDetailView({
   // header below — one definition each, two arrangements.
   // EXP-698 r5: bare chevrons — no circle, no fill. The switcher is a pair of
   // glyphs beside the "N / total" counter (IDE parity, `issue_header.rs`);
-  // the copy-link / subscribe / trash trio keeps its circles.
+  // the copy-link / trash duo keeps its circles.
   const switcherButtons = position ? (
     <>
       <IconTooltip label="Previous issue" shortcut="K">
@@ -801,24 +802,18 @@ export function IssueDetailView({
     </DropdownMenu>
   ) : null
 
-  const subscribeToggle = currentUserId ? (
-    <SubscribeToggle issueId={issue.id} currentUserId={currentUserId} />
-  ) : null
-
   const issueUrl = `${typeof window === `undefined` ? `` : window.location.origin}/t/${teamSlug}/boards/${board.slug}/issues/${issue.identifier}`
 
-  // The phone header collapses copy-link / subscribe / unmark / delete into
-  // ONE `…` (EXP-687), the way the iOS and Android toolbars already do.
+  // The phone header collapses copy-link / unmark / delete into ONE `…`
+  // (EXP-687), the way the iOS and Android toolbars already do.
   const mobileMenu = (
     <IssueDetailMobileMenu
-      issueId={issue.id}
       issueTitle={title}
       issueUrl={issueUrl}
       teamId={teamId}
       boardId={issue.boardId}
       issueIdentifier={issue.identifier}
       duplicateOfId={issue.duplicateOfId ?? null}
-      currentUserId={currentUserId}
       readOnly={readOnly}
       onDelete={handleDeleteIssue}
       onMoveBoard={handleBoardChange}
@@ -860,7 +855,6 @@ export function IssueDetailView({
           </>
         )}
         {copyLinkButton}
-        {subscribeToggle}
         {unmarkDuplicateMenu}
         {deleteMenu}
       </div>
@@ -1067,6 +1061,10 @@ export function IssueDetailView({
             </div>
             <div className="mx-auto max-w-3xl">
               {propsBand}
+              {/* EXP-736: relations sit directly beneath the properties band,
+                  in the same gutter and the same glass card chrome. The phone
+                  carries them inside the properties sheet instead. */}
+              <IssueRelationsCard issueId={issue.id} readOnly={readOnly} />
               {/* EXP-698 r4: the "coding now" card sits directly under the
                   properties band — same gutter, same glass chrome — instead of
                   below the description. */}

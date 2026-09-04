@@ -179,18 +179,23 @@ pub(crate) fn comment_row(
         meta.push_str(" · edited");
     }
 
+    // EXP-723: the name reads at the body size (`text_sm`, medium) with the
+    // time and "edited" suffix demoted to a muted `text_xs` beside it — the
+    // web/mobile `RegularCommentRow` header, where the author is the line's
+    // subject and the metadata is an aside.
     let header = h_flex()
         .w_full()
         .gap_2()
         .items_baseline()
-        .text_xs()
         .child(
             div()
+                .text_sm()
                 .font_weight(FontWeight::MEDIUM)
                 .child(SharedString::from(name.clone())),
         )
         .child(
             div()
+                .text_xs()
                 .text_color(cx.theme().muted_foreground)
                 .child(SharedString::from(meta)),
         )
@@ -349,12 +354,14 @@ pub(crate) fn comment_row(
         cx,
     )
     .into_any_element();
+    // EXP-723: 12/10/12 — a touch more air than the EXP-698 card had, so the
+    // header does not sit on the card's own stroke now that it reads larger.
     let bubble = crate::surface::glass_card()
         .w_full()
         .min_w_0()
         .px_3()
-        .pt_2()
-        .pb_2p5()
+        .pt_2p5()
+        .pb_3()
         .child(header)
         .child(body);
     // `pt_1` matches the row's `marker_top`, keeping the bubble's header level

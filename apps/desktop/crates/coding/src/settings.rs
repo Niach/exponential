@@ -55,11 +55,13 @@ pub const DEFAULT_CLAUDE_EFFORT: &str = "";
 /// per-AGENT fields below — issue and batch runs share one default), and
 /// the EXP-484 pinned usage window (EXP-688 renders every window as a card,
 /// so there is nothing left to pin), and the EXP-690 per-agent skip toggles
-/// (every run bypasses permissions now, so there is nothing to persist).
+/// (every run bypasses permissions now, so there is nothing to persist), and
+/// the EXP-282 rail state (EXP-723 removed the collapsible rail — the sidebar
+/// is always expanded, so there is no preference left to hold).
 /// Foreign top-level keys other subsystems own (`launchDefaultsSync`,
 /// `actionAutomations`) ride the merge-save untouched and must never enter
 /// this list.
-const DEAD_KEYS: [&str; 14] = [
+const DEAD_KEYS: [&str; 15] = [
     "usageWindow",
     "subagentModel",
     "subagentEffort",
@@ -74,6 +76,7 @@ const DEAD_KEYS: [&str; 14] = [
     "batchSkipPermissions",
     "claudeSkipPermissions",
     "codexSkipPermissions",
+    "railExpanded",
 ];
 
 /// The resolved coding settings. `repos_root` is stored in its raw
@@ -132,18 +135,18 @@ pub struct Settings {
     /// pi plan-mode default — ON by default like Claude's (EXP-441: pi's
     /// plan mode is the launcher-injected `.exp-pi-plan.ts` extension).
     pub pi_plan_mode: bool,
-    /// EXP-282: whether the ui's left rail renders EXPANDED (labelled rows)
-    /// instead of the 44px icon strip. Not a launcher knob — but this file is
-    /// the app's ONE merge-preserving per-install store, and the rail pref
-    /// belongs next to `lastTeamId`/`lastBoardId`, not in a second file.
-    /// `None` = never toggled → collapsed (the historical rail).
-    pub rail_expanded: Option<bool>,
     /// EXP-288: program name or absolute path of the shell new terminal tabs
-    /// spawn (launched as a login shell on unix). Like `rail_expanded`, not a
-    /// launcher knob — it lives here because this file is the one
-    /// merge-preserving per-install store. `None`/blank = auto (the
-    /// platform's `default_shell()` resolution in the terminal crate).
+    /// spawn (launched as a login shell on unix). Not a launcher knob — it
+    /// lives here because this file is the app's ONE merge-preserving
+    /// per-install store. `None`/blank = auto (the platform's
+    /// `default_shell()` resolution in the terminal crate).
     pub terminal_shell: Option<String>,
+    /// EXP-723: id of the newest `ui::changelog::LATEST` entry the user
+    /// dismissed or opened — the rail's "What's new" card renders only while
+    /// this differs from it (the desktop mirror of the web
+    /// `changelog-seen.ts` per-device key). Per-DEVICE like every other key
+    /// here, never synced. `None` = never seen anything.
+    pub changelog_seen_id: Option<String>,
     /// EXP-551: recently picked BASE emoji unicodes, most recent first (the
     /// picker's "Recent" section). Capped at 24 by the ui writer. Per-DEVICE
     /// like the rail state, never synced. (The EXP-551 `emojiSkinTone` key is
@@ -194,8 +197,8 @@ impl Default for Settings {
             claude_ultracode: false,
             claude_plan_mode: true,
             pi_plan_mode: true,
-            rail_expanded: None,
             terminal_shell: None,
+            changelog_seen_id: None,
             tools_setup_seen: false,
             emoji_recents: Vec::new(),
             os_notifications: true,
@@ -781,8 +784,8 @@ mod tests {
             claude_ultracode: true,
             claude_plan_mode: false,
             pi_plan_mode: false,
-            rail_expanded: Some(true),
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
+            changelog_seen_id: Some("2026-09-relations-and-design-refresh".to_string()),
             tools_setup_seen: true,
             emoji_recents: vec!["🎉".to_string()],
             os_notifications: true,
@@ -797,6 +800,7 @@ mod tests {
         assert!(raw.contains("\"claudeUltracode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudePlanMode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"piPlanMode\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"changelogSeenId\""), "camelCase keys: {raw}");
         assert_eq!(Settings::load(&path), settings);
     }
 
@@ -818,6 +822,26 @@ mod tests {
         settings.save(&path).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
         assert!(!raw.contains("usageWindow"), "{raw}");
+    }
+
+    /// EXP-723: the EXP-282 rail-expanded preference is gone (the sidebar is
+    /// always open). Same contract as the usage window above — an old file
+    /// still loads, and the merge-save scrubs the key instead of carrying it
+    /// forever.
+    #[test]
+    fn the_retired_rail_state_is_scrubbed_on_save() {
+        let dir = TempDir::new("rail-expanded");
+        let path = dir.0.join("settings.json");
+        fs::write(
+            &path,
+            r#"{"claudeModel":"opus","railExpanded":false}"#,
+        )
+        .unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.claude_model, "opus", "the rest still parses");
+        settings.save(&path).unwrap();
+        let raw = fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("railExpanded"), "{raw}");
     }
 
     /// EXP-551: the emoji prefs are hand-editable like every other key —

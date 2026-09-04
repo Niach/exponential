@@ -8,7 +8,7 @@ private let logger = Logger(subsystem: "at.exponential", category: "SyncManager"
 // Web uses @electric-sql/client; iOS and Android implement the same wire
 // format by hand. See packages/electric-protocol/README.md for the contract.
 //
-// Multi-account: each signed-in account runs its own set of 18 shape Tasks in
+// Multi-account: each signed-in account runs its own set of 20 shape Tasks in
 // parallel, each writing to that account's per-account SQLite pool. There is
 // no global active account here — sign-out on one account just cancels its
 // pipeline without affecting any others.
@@ -18,7 +18,7 @@ public final class SyncManager: @unchecked Sendable {
 
     private let lock = NSLock()
     private var pipelines: [String: [Task<Void, Never>]] = [:]
-    // EXP-656: the URLSession each account's 19 shapes share, so a park can
+    // EXP-656: the URLSession each account's 20 shapes share, so a park can
     // `invalidateAndCancel()` it (which is what actually kills the in-flight
     // long-polls and drops their sockets) and a relaunch can invalidate the
     // one it replaces — every restart used to build a new session and leak the
@@ -27,7 +27,7 @@ public final class SyncManager: @unchecked Sendable {
     private var observationTask: Task<Void, Never>?
     // Accounts with a resync in flight — a concurrent second resync would
     // relaunch the pipeline and overwrite `pipelines[accountId]`, orphaning
-    // 18 uncancellable shape Tasks (duplicate long-polls racing the wipe).
+    // 20 uncancellable shape Tasks (duplicate long-polls racing the wipe).
     private var resyncing: Set<String> = []
     // Parked-ness + the last all-account restart stamp, as the pure rule in
     // SyncLifecycle.swift. Lock-guarded like everything else here: the scene
@@ -89,7 +89,7 @@ public final class SyncManager: @unchecked Sendable {
 
     /// Full local resync ("Resync now"): cancel the account's pipeline, purge
     /// any URL-cached shape responses (poisoned-cache guard), wipe every synced
-    /// row + saved offset, then relaunch so all 19 shapes refetch from scratch.
+    /// row + saved offset, then relaunch so all 20 shapes refetch from scratch.
     public func resync(accountId: String) async {
         // Serialize per account: bail if a resync is already running so a
         // double-trigger can never launch a second pipeline over the first.
@@ -140,7 +140,7 @@ public final class SyncManager: @unchecked Sendable {
     /// the iOS analog of the web join gate's hard reload.
     public func restartPipeline(accountId: String, reason: String = "membership change") async {
         // Reuse the resync guard: a concurrent resync/restart would relaunch
-        // the pipeline over this one and orphan 18 uncancellable shape Tasks.
+        // the pipeline over this one and orphan 20 uncancellable shape Tasks.
         let alreadyBusy = lock.withLock { !resyncing.insert(accountId).inserted }
         if alreadyBusy {
             SyncDebug.shared.log("[restart] resync/restart already in flight, ignoring")
@@ -162,7 +162,7 @@ public final class SyncManager: @unchecked Sendable {
 
     /// The scene left the foreground: PARK, immediately (EXP-656). Every
     /// account's shape tasks are cancelled and its session invalidated, so the
-    /// 19 long-polls are torn down instead of being carried into suspension on
+    /// 20 long-polls are torn down instead of being carried into suspension on
     /// sockets the OS then kills silently — the shape of the "stale for 5-10s
     /// after coming back" report, and Electric's own client contract
     /// (packages/electric-protocol/README.md §4).
@@ -225,7 +225,7 @@ public final class SyncManager: @unchecked Sendable {
     private func relaunchAllNow(reason: String) {
         for accountId in auth.accounts.filter({ $0.token != nil }).map(\.id) {
             // A resync/restart in flight owns this account's pipeline and will
-            // launch its own — stepping in would orphan 19 uncancellable tasks.
+            // launch its own — stepping in would orphan 20 uncancellable tasks.
             let busy = lock.withLock { resyncing.contains(accountId) }
             if busy { continue }
             guard let pool = try? db.pool(forAccountId: accountId) else { continue }
@@ -355,11 +355,11 @@ public final class SyncManager: @unchecked Sendable {
     // MARK: - Per-account shape launch
 
     private func launchPipeline(accountId: String, pool: DatabasePool) {
-        logger.info("Launching live shape sync (19 shapes) for account \(accountId, privacy: .public)")
+        logger.info("Launching live shape sync (20 shapes) for account \(accountId, privacy: .public)")
         // A visible "we got past pool open + migrations and started polling"
         // marker in the diagnostics log — the positive counterpart to the
         // fatal path above (§9.1: pipeline launched must never be ambiguous).
-        SyncDebug.shared.log("[pipeline] launched 19 shapes")
+        SyncDebug.shared.log("[pipeline] launched 20 shapes")
         SyncDebug.shared.clearFatal()
 
         let auth = self.auth
@@ -373,8 +373,8 @@ public final class SyncManager: @unchecked Sendable {
             auth.accounts.first { $0.id == accountId }?.token
         }
 
-        // ONE session for all 19 shapes of this account (EXP-304). Per shape it
-        // meant 19 separate connections, so every launch fired 19 simultaneous
+        // ONE session for all 20 shapes of this account (EXP-304). Per shape it
+        // meant 20 separate connections, so every launch fired 20 simultaneous
         // cold DNS lookups + TLS handshakes at the same host — the storm behind
         // "~10s before fresh data shows up". Sharing lets URLSession negotiate
         // HTTP/2 and multiplex them over a single connection. Per ACCOUNT, not
@@ -492,6 +492,13 @@ public final class SyncManager: @unchecked Sendable {
         tasks.append(makeShapeTask(
             name: "automations", path: "/api/shapes/automations", table: "automations",
             type: AutomationEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+        // EXP-736: issue relations — a board-scoped child of the SOURCE issue,
+        // the 20th shape.
+        tasks.append(makeShapeTask(
+            name: "issue-relations", path: "/api/shapes/issue-relations", table: "issue_relations",
+            type: IssueRelationEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
             session: session
         ))
 

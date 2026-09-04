@@ -25,6 +25,8 @@ enum IssuePropertyChild: String, Identifiable {
     case dueDate
     case moveBoard
     case duplicateOf
+    /// EXP-736: the two-stage "Add relation" picker (kind, then issue).
+    case addRelation
 
     var id: String { rawValue }
 }
@@ -427,7 +429,7 @@ struct IssueDetailView: View {
                     issuesApi: deps.issuesApi,
                     attachmentsApi: deps.attachmentsApi,
                     labelsApi: deps.labelsApi,
-                    subscriptionsApi: deps.subscriptionsApi,
+                    relationsApi: deps.relationsApi,
                     steerApi: deps.steerApi,
                     widgetsApi: deps.widgetsApi,
                     auth: deps.auth
@@ -503,12 +505,6 @@ struct IssueDetailView: View {
                     shareTarget = ShareTarget(url: shareURL, text: vm.shareText)
                 }
             }
-            GlassMenuItem(
-                vm.isSubscribed ? "Unsubscribe" : "Subscribe",
-                icon: vm.isSubscribed ? AppIcons.uiUnsubscribe : AppIcons.uiSubscribe
-            ) {
-                Task { await vm.toggleSubscribe() }
-            }
             if vm.permissions.isModerator {
                 // Duplicate = status interception (L27): unmark is the only
                 // duplicate action here; marking happens via the `duplicate`
@@ -569,11 +565,15 @@ struct IssueDetailView: View {
                 assignee: vm.assignee(),
                 labels: vm.teamLabels,
                 assignedIds: vm.assignedLabelIds,
+                relations: vm.relationRows,
                 singleMemberTeam: vm.singleMemberTeam,
                 board: vm.board,
                 hasMoveTargets: !vm.moveTargetBoards.isEmpty,
                 onToggleLabel: { labelId in
                     Task { await vm.toggleLabel(labelId) }
+                },
+                onRemoveRelation: { relation in
+                    Task { await vm.removeRelation(relation) }
                 },
                 activeChild: $propertyChild,
                 onChildDismiss: {
@@ -694,6 +694,13 @@ struct IssueDetailView: View {
                 loadCandidates: { await vm.duplicateCandidates() },
                 onSelect: { canonical in
                     Task { await vm.markDuplicate(of: canonical) }
+                }
+            )
+        case .addRelation:
+            RelationPickerSheet(
+                loadCandidates: { await vm.relationCandidates() },
+                onSelect: { pick, other in
+                    Task { await vm.addRelation(pick, other: other) }
                 }
             )
         }

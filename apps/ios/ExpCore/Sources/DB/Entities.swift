@@ -910,6 +910,61 @@ public struct IssueLabelEntity: Codable, FetchableRecord, PersistableRecord, Sen
     }
 }
 
+// MARK: - IssueRelation
+
+/// EXP-736: a typed link between two issues (blocks / parent / duplicate /
+/// related), synced as the 20th shape. The row is stored in its type's
+/// CANONICAL direction — `issueId` is the forward side — so a screen renders
+/// each row from whichever side it is looking at (see `IssueRelationType`).
+/// `boardId` is the SOURCE issue's board (nullable, like the server column).
+public struct IssueRelationEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "issue_relations"
+
+    public let id: String
+    public let issueId: String
+    public let relatedIssueId: String
+    /// An `IssueRelationType` raw value.
+    public let type: String
+    /// `user` (added by hand) or `reference` (an inline `#IDENTIFIER`).
+    public let source: String
+    public let teamId: String
+    public let boardId: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        issueId: String,
+        relatedIssueId: String,
+        type: String,
+        source: String,
+        teamId: String,
+        boardId: String?,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.issueId = issueId
+        self.relatedIssueId = relatedIssueId
+        self.type = type
+        self.source = source
+        self.teamId = teamId
+        self.boardId = boardId
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, type, source
+        case issueId = "issue_id"
+        case relatedIssueId = "related_issue_id"
+        case teamId = "team_id"
+        case boardId = "board_id"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
 // MARK: - User
 
 public struct UserEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {

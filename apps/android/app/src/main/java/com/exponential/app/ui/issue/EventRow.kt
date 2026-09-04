@@ -21,6 +21,7 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.domain.relationEventPhrase
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
@@ -120,6 +121,8 @@ internal fun eventGlyph(
     "pr_opened" -> EventGlyph.Plain(ExpIcons.prOpen)
     "pr_merged" -> EventGlyph.Plain(ExpIcons.prMerged)
     "priority_changed" -> EventGlyph.Plain(ExpIcons.eventPriorityChanged)
+    "relation_added" -> EventGlyph.Plain(ExpIcons.eventRelationAdded)
+    "relation_removed" -> EventGlyph.Plain(ExpIcons.eventRelationRemoved)
     else -> null
 }
 
@@ -134,6 +137,8 @@ internal fun eventVerb(type: String): String = when (type) {
     "pr_opened" -> "opened a pull request"
     "pr_merged" -> "merged the pull request"
     "board_moved" -> "moved this to another board"
+    "relation_added" -> "added a relation"
+    "relation_removed" -> "removed a relation"
     else -> type.replace('_', ' ')
 }
 
@@ -192,6 +197,15 @@ internal fun eventPhrase(
         // "Urgent"); a missing side reads "None" — mirrors web priorityLabel.
         "priority_changed" ->
             "changed priority from ${priorityLabel(field("from"))} to ${priorityLabel(field("to"))}"
+        // EXP-736: the wording is contract-shared (relationEventPhrase) —
+        // `related` names the act, every other type the resulting state, read
+        // from the payload's own SIDE of the edge.
+        "relation_added", "relation_removed" -> relationEventPhrase(
+            added = event.type == "relation_added",
+            type = field("type"),
+            identifier = field("relatedIdentifier"),
+            direction = field("direction"),
+        ) ?: eventVerb(event.type)
         else -> eventVerb(event.type)
     }
 }

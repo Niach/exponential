@@ -36,6 +36,7 @@ import {
   codingSessions,
   comments,
   issueLabels,
+  issueRelations,
   issues,
   issueStatuses,
   labels,
@@ -49,6 +50,7 @@ import {
 } from "@/db/schema"
 import {
   issuePriorityValues,
+  issueRelationTypeValues,
   issueStatusValues,
   issueStatusCategoryDisplayOrder,
   issueStatusCategoryValues,
@@ -70,6 +72,10 @@ import {
   resolveTeamAccess,
 } from "@/lib/team-membership"
 import { boardVisible } from "@/lib/board-visibility"
+import {
+  canonicalizeRelation,
+  loadIssueRelations,
+} from "@/lib/issue-relations"
 import { resolveIssueReference } from "@/lib/issue-resolver"
 import { issueWireColumns } from "@/lib/issue-columns"
 import { deleteObject, getObject, uploadObject } from "@/lib/storage"
@@ -1081,6 +1087,9 @@ export function registerExponentialTools(
         return ok({
           ...issue,
           labelIds: labelRows.map((r) => r.labelId),
+          // EXP-736: both sides of the relation graph, folded to this issue's
+          // point of view (direction + otherIdentifier).
+          relations: await loadIssueRelations(db, id),
           recentComments,
         })
       } catch (e) {
@@ -1461,6 +1470,102 @@ export function registerExponentialTools(
         }
         await caller(user, request).issueLabels.remove({ issueId, labelId })
         return ok({ ok: true })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Issue ↔ Issue (EXP-736)
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_issue_relations_add`,
+    {
+      description: `Link two issues (UUIDs or identifiers, same team). Stored one way: blocks = issueId blocks relatedIssueId, parent = issueId is the parent, duplicate = issueId duplicates relatedIssueId, related is symmetric. Pass inverse:true to state it the other way round (blocked by / sub-issue of / duplicated by).`,
+      inputSchema: strictInput({
+        issueId: z.string().min(1),
+        relatedIssueId: z.string().min(1),
+        type: z.enum(issueRelationTypeValues),
+        inverse: z.boolean().optional(),
+      }),
+    },
+    async ({ issueId: issueIdInput, relatedIssueId: relatedInput, type, inverse }) => {
+      try {
+        const issueId = await resolveIssueId(issueIdInput, user.id, access)
+        const relatedIssueId = await resolveIssueId(
+          relatedInput,
+          user.id,
+          access
+        )
+        if (!access.full) {
+          for (const id of [issueId, relatedIssueId]) {
+            const ctxIssue = await getIssueTeamContext(id)
+            assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
+          }
+        }
+        const result = await caller(user, request).relations.create({
+          issueId,
+          relatedIssueId,
+          type,
+          inverse,
+        })
+        noteAgentIssueActivity(issueId, user.id)
+        noteAgentIssueActivity(relatedIssueId, user.id)
+        return ok({ ok: true, txId: result.txId })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_issue_relations_remove`,
+    {
+      description: `Unlink two issues. Name the pair in the direction the link is stored (see exponential_issue_relations_add); exponential_issues_get lists them.`,
+      inputSchema: strictInput({
+        issueId: z.string().min(1),
+        relatedIssueId: z.string().min(1),
+        type: z.enum(issueRelationTypeValues),
+      }),
+    },
+    async ({ issueId: issueIdInput, relatedIssueId: relatedInput, type }) => {
+      try {
+        const issueId = await resolveIssueId(issueIdInput, user.id, access)
+        const relatedIssueId = await resolveIssueId(
+          relatedInput,
+          user.id,
+          access
+        )
+        if (!access.full) {
+          const ctxIssue = await getIssueTeamContext(issueId)
+          assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
+        }
+        const canonical = canonicalizeRelation(issueId, relatedIssueId, type)
+        const [row] = await db
+          .select({ id: issueRelations.id })
+          .from(issueRelations)
+          .where(
+            and(
+              eq(issueRelations.issueId, canonical.issueId),
+              eq(issueRelations.relatedIssueId, canonical.relatedIssueId),
+              eq(issueRelations.type, canonical.type)
+            )
+          )
+          .limit(1)
+        if (!row) {
+          throw new TRPCError({
+            code: `NOT_FOUND`,
+            message: `Relation not found`,
+          })
+        }
+        const result = await caller(user, request).relations.delete({
+          id: row.id,
+        })
+        noteAgentIssueActivity(issueId, user.id)
+        noteAgentIssueActivity(relatedIssueId, user.id)
+        return ok({ ok: true, id: row.id, txId: result.txId })
       } catch (e) {
         return err(e)
       }
