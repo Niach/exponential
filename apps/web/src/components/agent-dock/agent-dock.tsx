@@ -3,7 +3,11 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { CodingSession, Issue } from "@/db/schema"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { useTeamBoards } from "@/hooks/use-team-data"
-import { useAgentsData, type AgentSessionRow } from "@/hooks/use-agents-data"
+import {
+  rowPrState,
+  useAgentsData,
+  type AgentSessionRow,
+} from "@/hooks/use-agents-data"
 import {
   AgentSessionView,
   type SessionIdentity,
@@ -192,7 +196,13 @@ export function AgentDock({
       issue,
       board,
       user: undefined,
-      batchPrIssue: undefined,
+      // EXP-734: an issue-less run held open past its live listing still
+      // carries its OWN chore PR on the row — keep its Merge pill.
+      mergeTarget: issue
+        ? { kind: `issue`, issue }
+        : expandedSession.prUrl && expandedSession.prNumber != null
+          ? { kind: `session`, session: expandedSession }
+          : undefined,
       // A row held open past its live listing (ended while expanded): the
       // snapshot label suffices and nothing there is "paused" — the session
       // view resolves the live device itself.
@@ -272,7 +282,7 @@ export function AgentDock({
           session={panelRow.session}
           currentUserId={currentUserId}
           identity={sessionIdentity(panelRow)}
-          prIssue={panelRow.issue ?? panelRow.batchPrIssue}
+          mergeTarget={panelRow.mergeTarget}
           onCollapse={() => dock?.collapseDock()}
         />
       </div>
@@ -349,7 +359,7 @@ export function AgentDock({
               session={panelRow.session}
               currentUserId={currentUserId}
               identity={sessionIdentity(panelRow)}
-              prIssue={panelRow.issue ?? panelRow.batchPrIssue}
+              mergeTarget={panelRow.mergeTarget}
               onCollapse={() => {
                 setFullscreen(false)
                 dock?.collapseDock()
@@ -486,7 +496,7 @@ function tabStatus(row: AgentSessionRow) {
   if (session.status !== `running` && session.status !== `in_review`) {
     return `bg-muted-foreground/40`
   }
-  const state = sessionDisplayState(session, issue?.prState)
+  const state = sessionDisplayState(session, rowPrState(session, issue))
   if (state === `running`) return <RunningDot />
   if (state === `needs_input`) return `bg-amber-500`
   if (state === `done`) return `bg-sky-500`

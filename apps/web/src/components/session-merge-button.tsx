@@ -26,9 +26,16 @@ const UiBranchIcon = conceptIcon(`ui-branch`)
 // and the steering view's glass pill (EXP-678) share it. Merge always closes
 // (EXP-498): merges the PR, completes every linked issue, and ends the
 // session server-side. Spinner held until the Electric echo flips the
-// issue's prState away from `open` (mirrors IssueMergeButton). Renders
+// row's prState away from `open` (mirrors IssueMergeButton). Renders
 // nothing unless there IS an open PR to merge; a batch session passes its
 // resolved representative issue (EXP-535).
+//
+// EXP-734: the target is an issue XOR a session. An issue-LESS run (action or
+// chat) that opened its own chore PR (EXP-626) carries prUrl/prNumber/prState
+// on the SESSION row, so it merges through `codingSessions.mergePr` and
+// settles on the session row's own echo. Recovery ("Fix conflicts") stays
+// issue-only: the builtin action takes a representative ISSUE id, so a run
+// PR's conflict just reports its refusal.
 //
 // EXP-706: when the merge is refused by a REAL conflict (EXP-533) and the
 // caller wired the recovery run (`branch` + `teamId` + `steerEnabled`), this
@@ -37,7 +44,7 @@ const UiBranchIcon = conceptIcon(`ui-branch`)
 // still reaches the user as a toast; nothing is swallowed.
 //
 // A refusal describes ONE snapshot of the pull request, so the swap is
-// deliberately short-lived: a newer `issueUpdatedAt` (the Electric echo of a
+// deliberately short-lived: a newer `updatedAt` (the Electric echo of a
 // re-synced row) drops it, and while it stands a secondary "Retry merge"
 // button keeps the plain merge one click away. Without both, a conflict
 // resolved OUTSIDE the recovery run (a teammate rebases and pushes, GitHub
@@ -46,7 +53,8 @@ export function SessionMergeButton({
   prState,
   prNumber,
   issueId,
-  issueUpdatedAt,
+  sessionId,
+  updatedAt,
   variant = `outline`,
   size = `icon`,
   className,
@@ -58,12 +66,15 @@ export function SessionMergeButton({
 }: {
   prState: string | null
   prNumber: number | null
-  issueId: string
+  /** The issue whose PR this merges. Pass this OR `sessionId`, never both. */
+  issueId?: string
+  /** EXP-734: the run whose OWN chore PR this merges (no linked issue). */
+  sessionId?: string
   /**
-   * The issue row's `updated_at`. A new value means the row was re-synced, so
+   * The target row's `updated_at`. A new value means the row was re-synced, so
    * any stored refusal is about a stale snapshot and is dropped.
    */
-  issueUpdatedAt?: string | Date | null
+  updatedAt?: string | Date | null
   variant?: VariantProps<typeof buttonVariants>[`variant`]
   size?: VariantProps<typeof buttonVariants>[`size`]
   className?: string
@@ -82,9 +93,7 @@ export function SessionMergeButton({
   const [merging, setMerging] = useState(false)
   const [failure, setFailure] = useState<MergeFailure | null>(null)
   const stamp =
-    issueUpdatedAt instanceof Date
-      ? issueUpdatedAt.toISOString()
-      : (issueUpdatedAt ?? null)
+    updatedAt instanceof Date ? updatedAt.toISOString() : (updatedAt ?? null)
 
   useEffect(() => {
     if (prState !== `open`) {
@@ -94,7 +103,7 @@ export function SessionMergeButton({
     }
   }, [prState])
 
-  // A re-synced issue row supersedes the refusal captioned on the old one.
+  // A re-synced row supersedes the refusal captioned on the old one.
   // (A refused merge writes nothing server-side, so this never races its own
   // failure.)
   useEffect(() => {
@@ -102,21 +111,31 @@ export function SessionMergeButton({
   }, [stamp])
 
   if (prState !== `open`) return null
+  // The caller wired neither target — nothing to merge.
+  if (!issueId && !sessionId) return null
 
   // Only a REAL conflict is fixable by the recovery run, and only where the
-  // caller can actually launch one.
+  // caller can actually launch one. The builtin action takes a representative
+  // ISSUE id, so a run's own chore PR (EXP-734) never swaps.
   const canFixConflicts = Boolean(
-    failure?.conflict && branch && teamId && steerEnabled
+    failure?.conflict && issueId && branch && teamId && steerEnabled
   )
 
   const merge = async () => {
     setMerging(true)
     setFailure(null)
     try {
-      await trpc.issues.mergePr.mutate(
-        { issueId },
-        { context: { skipErrorToast: true } }
-      )
+      if (issueId) {
+        await trpc.issues.mergePr.mutate(
+          { issueId },
+          { context: { skipErrorToast: true } }
+        )
+      } else if (sessionId) {
+        await trpc.codingSessions.mergePr.mutate(
+          { sessionId },
+          { context: { skipErrorToast: true } }
+        )
+      }
       setConfirmOpen(false) // keep `merging` until the echo flips prState
     } catch (error) {
       const next = mergeFailure(
@@ -129,7 +148,7 @@ export function SessionMergeButton({
       // The swap is this button's own caption for a conflict; every other
       // refusal has nowhere to live in a row this small, so it keeps the
       // global toast the link would otherwise have shown.
-      if (!(next.conflict && branch && teamId && steerEnabled)) {
+      if (!(next.conflict && issueId && branch && teamId && steerEnabled)) {
         toast.error(`Couldn't merge the pull request`, {
           description: next.message,
         })
@@ -137,7 +156,7 @@ export function SessionMergeButton({
     }
   }
 
-  const showFix = canFixConflicts && teamId
+  const showFix = canFixConflicts && issueId && teamId
 
   return (
     <>
@@ -209,7 +228,9 @@ export function SessionMergeButton({
           <DialogHeader>
             <DialogTitle>Merge pull request?</DialogTitle>
             <DialogDescription>
-              {`Merge PR #${prNumber ?? ``} into the default branch? Every issue linked to it completes, and its coding session closes.`}
+              {issueId
+                ? `Merge PR #${prNumber ?? ``} into the default branch? Every issue linked to it completes, and its coding session closes.`
+                : `Merge PR #${prNumber ?? ``} into the default branch? The run's coding session closes unless the team keeps sessions on merge.`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

@@ -7,7 +7,11 @@ import { useSteerConfig } from "@/components/agent-session"
 import { LaunchDialog } from "@/components/launch-dialog/launch-dialog"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useRemoteStart } from "@/hooks/use-remote-start"
-import { useReviewsData, type ReviewEntry } from "@/hooks/use-reviews-data"
+import {
+  useReviewsData,
+  type ReviewEntry,
+  type SessionReviewEntry,
+} from "@/hooks/use-reviews-data"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -60,6 +64,7 @@ function ReviewsPage() {
   const team = useTeamBySlug(teamSlug)
   const {
     groups,
+    sessionEntries,
     externalGroups,
     count,
     isLoading,
@@ -77,6 +82,11 @@ function ReviewsPage() {
   const [mergingIds, setMergingIds] = useState<Set<string>>(new Set())
   const [externalMergeTarget, setExternalMergeTarget] =
     useState<ExternalMergeTarget | null>(null)
+  // EXP-734: the run PR whose confirm dialog is open. Its spinner is held by
+  // the same `mergingIds` set, keyed on the entry key, and released by the
+  // Electric echo (the session row's prState leaves `open`).
+  const [sessionMergeTarget, setSessionMergeTarget] =
+    useState<SessionReviewEntry | null>(null)
   // A refused merge (conflicts, branch protection, GitHub App errors) captions
   // ITS row, keyed by entry.key (EXP-323) — the global toast is transient and
   // gave the conflict-recovery run nowhere to live.
@@ -97,8 +107,12 @@ function ReviewsPage() {
         map[entry.key] = String(entry.issue.updatedAt ?? ``)
       }
     }
+    // Run PRs stamp their own session row (EXP-734).
+    for (const entry of sessionEntries) {
+      map[entry.key] = String(entry.session.updatedAt ?? ``)
+    }
     return map
-  }, [groups])
+  }, [groups, sessionEntries])
   const stampSignature = Object.entries(stamps)
     .map(([key, value]) => `${key}=${value}`)
     .join(`|`)
@@ -134,8 +148,10 @@ function ReviewsPage() {
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
   // Only a REAL conflict can be fixed by the recovery run (EXP-533), so only a
   // real conflict is worth polling for an online desktop.
-  const hasConflict = Object.values(mergeErrors).some(
-    (failure) => failure.conflict
+  // A run's own PR (EXP-734) has no representative issue, so the recovery run
+  // cannot take it — its refusals never arm the desktop lookup.
+  const hasConflict = Object.entries(mergeErrors).some(
+    ([key, failure]) => failure.conflict && !key.startsWith(`session:`)
   )
   const remote = useRemoteStart({
     enabled: steerEnabled && hasConflict,
@@ -171,6 +187,39 @@ function ReviewsPage() {
         // Captioned on the row instead of toasted: the reason (GitHub's
         // verbatim "not mergeable") has to stay next to the recovery button,
         // and unstick the spinner so the merge can be retried.
+        setMergeErrors((prev) => ({
+          ...prev,
+          [entry.key]: mergeFailure(
+            error,
+            `The pull request could not be merged`
+          ),
+        }))
+        setMergingIds((prev) => {
+          const next = new Set(prev)
+          next.delete(entry.key)
+          return next
+        })
+      })
+  }
+
+  // EXP-734: merging a run's OWN pull request. No issue completes; the run's
+  // session closes unless the team keeps sessions on merge.
+  const confirmSessionMerge = () => {
+    const entry = sessionMergeTarget
+    if (!entry) return
+    setSessionMergeTarget(null)
+    setMergingIds((prev) => new Set(prev).add(entry.key))
+    setMergeErrors((prev) => {
+      const next = { ...prev }
+      delete next[entry.key]
+      return next
+    })
+    trpc.codingSessions.mergePr
+      .mutate(
+        { sessionId: entry.session.id },
+        { context: { skipErrorToast: true } }
+      )
+      .catch((error: unknown) => {
         setMergeErrors((prev) => ({
           ...prev,
           [entry.key]: mergeFailure(
@@ -375,6 +424,94 @@ function ReviewsPage() {
               </div>
             ))}
 
+            {/* EXP-734: pull requests a coding run opened for itself — an
+                action or chat run with no linked issue. They merge through
+                the run, not an issue, so they group on their own. */}
+            {sessionEntries.length > 0 && (
+              <div className="mb-6">
+                <GlassSectionHeader
+                  leading={
+                    <GitPullRequest className="h-2.5 w-2.5 shrink-0 text-foreground/50" />
+                  }
+                  label="Agent runs"
+                  trailing={
+                    <span className="text-xs text-foreground/50">
+                      opened by a coding run
+                    </span>
+                  }
+                />
+
+                <div className="flex flex-col gap-2">
+                  {sessionEntries.map((entry) => {
+                    const session = entry.session
+                    const merging = mergingIds.has(entry.key)
+                    const mergeError = mergeErrors[entry.key]
+                    return (
+                      <GlassRow
+                        key={entry.key}
+                        interactive
+                        className="group/row grid grid-cols-[1.5rem_4.5rem_1fr_auto] gap-0"
+                        onClick={() =>
+                          session.prUrl &&
+                          window.open(
+                            session.prUrl,
+                            `_blank`,
+                            `noopener,noreferrer`
+                          )
+                        }
+                        data-testid={`review-run-${session.id}`}
+                      >
+                        <GitPullRequest className="h-4 w-4 text-emerald-500" />
+                        <span className="truncate font-mono text-xs text-muted-foreground">
+                          #{session.prNumber}
+                        </span>
+                        <div className="min-w-0 pr-3">
+                          <div className="truncate text-sm">
+                            {session.actionName ?? `Batch run`}
+                          </div>
+                          {session.branch && (
+                            <div className="truncate font-mono text-xs text-muted-foreground">
+                              {session.branch}
+                            </div>
+                          )}
+                        </div>
+                        {/* No "Fix conflicts" here: the recovery run takes a
+                            representative ISSUE, and a run PR has none. */}
+                        <Pill
+                          size="md"
+                          mode="action"
+                          disabled={merging}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setSessionMergeTarget(entry)
+                          }}
+                        >
+                          {merging ? (
+                            <>
+                              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                              Merging…
+                            </>
+                          ) : (
+                            <>
+                              <GitMerge className="h-3.5 w-3.5" />
+                              Merge
+                            </>
+                          )}
+                        </Pill>
+                        {mergeError && (
+                          <div className="col-span-4 pt-2">
+                            <span className="text-destructive text-xs">
+                              {mergeError.message}
+                            </span>
+                          </div>
+                        )}
+                      </GlassRow>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             {externalGroups.map((group) => (
               <div key={group.repositoryId} className="mb-6">
                 <GlassSectionHeader
@@ -507,6 +644,26 @@ function ReviewsPage() {
           <DialogFooter>
             <DialogCancel onClick={() => setMergeTarget(null)} />
             <Button onClick={confirmMerge}>Merge pull request</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={sessionMergeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setSessionMergeTarget(null)
+        }}
+      >
+        <DialogContent mobile="alert">
+          <DialogHeader>
+            <DialogTitle>{`Merge PR #${sessionMergeTarget?.session.prNumber}?`}</DialogTitle>
+            <DialogDescription>
+              {`Squash-merges pull request #${sessionMergeTarget?.session.prNumber} (${sessionMergeTarget?.session.branch}) into the repository's default branch via the GitHub App. This pull request is not linked to an issue. The run's coding session closes unless the team keeps sessions on merge.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogCancel onClick={() => setSessionMergeTarget(null)} />
+            <Button onClick={confirmSessionMerge}>Merge pull request</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

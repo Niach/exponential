@@ -13,8 +13,12 @@ import { toast } from "sonner"
 import { linkSegments } from "@/lib/linkify"
 import { ArrowDown, Check, ChevronDown, ChevronRight, X } from "lucide-react"
 import { conceptIcon } from "@/lib/icons.generated"
-import type { CodingSession, Issue, User } from "@/db/schema"
+import type { CodingSession, User } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
+import {
+  mergeTargetProps,
+  type SessionMergeTarget,
+} from "@/hooks/use-agents-data"
 import { SessionMergeButton } from "@/components/session-merge-button"
 import { useSessionDevice } from "@/hooks/use-session-device"
 import { useTeamUsers } from "@/hooks/use-team-data"
@@ -210,7 +214,7 @@ export function AgentSessionView({
   session,
   currentUserId,
   identity,
-  prIssue,
+  mergeTarget,
   onCollapse,
   isFullscreen,
   onToggleFullscreen,
@@ -222,10 +226,10 @@ export function AgentSessionView({
    *  desktop header carries no identity at all, because the dock tab under
    *  the panel already does. */
   identity: SessionIdentity
-  /** EXP-678: the issue whose PR this session would merge — the linked issue,
-   *  or a batch run's resolved representative (EXP-535). Absent (action runs,
-   *  still syncing) = no Merge pill. */
-  prIssue?: Issue
+  /** EXP-678: what this session's Merge pill acts on — the linked issue, a
+   *  batch run's resolved representative (EXP-535), or the run's own chore PR
+   *  row (EXP-734). Absent (no open PR, still syncing) = no Merge pill. */
+  mergeTarget?: SessionMergeTarget
   /** Collapse the dock panel (the socket tears down on unmount). */
   onCollapse: () => void
   /** Fullscreen toggle chrome (EXP-184) — owned by the dock; absent = no button. */
@@ -350,7 +354,8 @@ export function AgentSessionView({
   // EXP-678: an open PR on a still-live run is mergeable right here. The
   // server ends the session on merge (EXP-498) and the prState echo hides
   // the pill again — no local state to unwind.
-  const canMerge = composerVisible && prIssue?.prState === `open`
+  const mergeProps = mergeTarget ? mergeTargetProps(mergeTarget) : null
+  const canMerge = composerVisible && mergeProps?.prState === `open`
   // EXP-706: a conflicted merge swaps the pill for the "Fix conflicts" run,
   // which needs the relay. The dock only mounts this view for a member with
   // steering on, but the config is the honest gate.
@@ -516,18 +521,13 @@ export function AgentSessionView({
           ) : (
             <span className="flex-1" />
           )}
-          {canMerge && prIssue && (
+          {canMerge && mergeProps && (
             <div className="flex shrink-0 items-center py-1 pr-2 pl-1">
               <SessionMergeButton
                 variant="glass"
                 size="sm"
                 label="Merge"
-                prState={prIssue.prState}
-                prNumber={prIssue.prNumber}
-                issueId={prIssue.id}
-                issueUpdatedAt={prIssue.updatedAt}
-                branch={prIssue.branch}
-                teamId={prIssue.teamId}
+                {...mergeProps}
                 currentUserId={currentUserId}
                 steerEnabled={steerEnabled}
               />

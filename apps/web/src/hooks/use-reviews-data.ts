@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
-import { issueCollection } from "@/lib/collections"
+import {
+  codingSessionCollection,
+  issueCollection,
+} from "@/lib/collections"
 import {
   useTeamBoards,
   useTeamUsers,
@@ -8,7 +11,7 @@ import {
 import { trpc } from "@/lib/trpc-client"
 import { byCreatedAtDesc } from "@/lib/ordering"
 import type { OpenPull } from "@/lib/integrations/github-pr"
-import type { Issue, Board, Team } from "@/db/schema"
+import type { CodingSession, Issue, Board, Team } from "@/db/schema"
 
 // One open PR. A batch coding run links several issues to the same prUrl —
 // they all ride ONE entry (EXP-131, never one row per issue); merging/closing
@@ -25,6 +28,14 @@ export interface ReviewEntry {
 export interface ReviewGroup {
   board: Board
   entries: ReviewEntry[]
+}
+
+// EXP-734: one open PR a coding run opened for ITSELF (an action or chat run
+// with no linked issue, `exponential_pr_open({ repositoryId, head })`). The
+// session row carries prUrl/prNumber/prState, so it needs no GitHub fetch.
+export interface SessionReviewEntry {
+  key: string
+  session: CodingSession
 }
 
 export interface ExternalPullGroup {
@@ -62,6 +73,24 @@ export function useReviewsData(team: Team | null | undefined) {
   )
 
   const { userMap } = useTeamUsers(team?.id)
+
+  // EXP-734: run PRs that link no issue. Team-scoped over the synced
+  // coding_sessions shape — the issue-less filter and the prUrl dedupe run in
+  // JS below (a live query cannot express either).
+  const { data: sessionRows } = useLiveQuery(
+    (query) =>
+      teamId
+        ? query
+            .from({ sessions: codingSessionCollection })
+            .where(({ sessions }) =>
+              and(
+                eq(sessions.teamId, teamId),
+                eq(sessions.prState, `open`)
+              )
+            )
+        : undefined,
+    [teamId]
+  )
 
   // Open PRs with no issue link, fetched live from GitHub through the server
   // (they have no synced row to live-query). Failures degrade to an empty
@@ -148,15 +177,44 @@ export function useReviewsData(team: Team | null | undefined) {
       groups.push({ board, entries: bucket })
     }
 
-    const externalCount = externalGroups.reduce(
+    // EXP-734: the run's OWN PR (no linked issue), newest per prUrl.
+    const sessionByUrl = new Map<string, CodingSession>()
+    for (const session of (sessionRows ?? []) as CodingSession[]) {
+      if (session.issueId != null || !session.prUrl) continue
+      const current = sessionByUrl.get(session.prUrl)
+      if (
+        !current ||
+        new Date(session.createdAt).getTime() >
+          new Date(current.createdAt).getTime()
+      ) {
+        sessionByUrl.set(session.prUrl, session)
+      }
+    }
+    const sessionEntries: SessionReviewEntry[] = [...sessionByUrl.values()]
+      .sort(byCreatedAtDesc)
+      .map((session) => ({ key: `session:${session.id}`, session }))
+
+    // The server already excludes run PRs from `openPulls`, but its 60 s
+    // cache can still hand back one that a run just claimed — drop it here so
+    // the same PR never renders twice.
+    const runUrls = new Set(sessionByUrl.keys())
+    const externalPullGroups = externalGroups
+      .map((group) => ({
+        ...group,
+        pulls: group.pulls.filter((pull) => !runUrls.has(pull.url)),
+      }))
+      .filter((group) => group.pulls.length > 0)
+
+    const externalCount = externalPullGroups.reduce(
       (sum, group) => sum + group.pulls.length,
       0
     )
 
     return {
       groups,
-      externalGroups,
-      count: entriesByKey.size + externalCount,
+      sessionEntries,
+      externalGroups: externalPullGroups,
+      count: entriesByKey.size + sessionEntries.length + externalCount,
       // A team with no boards skips the query and can never deliver a
       // snapshot — treat it as ready-empty instead of loading forever. The
       // external fetch has its own flag so the synced queue renders without
@@ -168,6 +226,7 @@ export function useReviewsData(team: Team | null | undefined) {
     }
   }, [
     issues,
+    sessionRows,
     isReady,
     boards,
     userMap,
