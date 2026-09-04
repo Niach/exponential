@@ -1657,9 +1657,10 @@ function AskCard({
 /** A standalone question (EXP-78): a plan approval, or an AskUserQuestion from
  *  a desktop that publishes no ask grouping. `planMode` cards (EXP-97) get a
  *  "Plan ready" presentation with the first option as the primary approve
- *  action and the plan ALWAYS rendered as markdown (folded behind a height
- *  clamp while long, EXP-249) — labels/keys always come from the wire
- *  `options`, the desktop owns the TUI key mapping. */
+ *  action and the plan ALWAYS rendered as markdown in full — a plan never
+ *  folds behind "Show more" (EXP-738, iOS/Android parity) — labels/keys
+ *  always come from the wire `options`, the desktop owns the TUI key
+ *  mapping. */
 function QuestionCard({
   item,
   active,
@@ -1673,20 +1674,18 @@ function QuestionCard({
   answerState?: AnswerState
   onAnswer: AnswerHandler
 }) {
-  const { expanded, setExpanded, clampable } = useClampToggle(item.text)
   const plan = item.planMode
+  const clamp = useClampToggle(item.text)
+  // The plan is the thing the reader must approve — it is never folded.
+  const clampable = !plan && clamp.clampable
+  const { expanded, setExpanded } = clamp
   return (
     <AskCard plan={plan} label={plan ? `Plan ready` : item.header}>
       <>
           {plan ? (
-            // The plan is GFM markdown — always rendered as markdown; a long
-            // plan folds behind a height clamp instead of dropping to raw text.
-            <div
-              className={cn(
-                `text-sm`,
-                clampable && !expanded && `max-h-40 overflow-hidden`
-              )}
-            >
+            // The plan is GFM markdown — always rendered as markdown, always
+            // in full (EXP-738).
+            <div className="text-sm">
               <MarkdownEditor
                 markdown={item.text}
                 editable={false}
