@@ -875,6 +875,13 @@ export async function retargetChildrenOfMergedPr(opts: {
   // raw-default-based PR (prod/hotfix PRs) onto the pin would be the same
   // disaster. Guard on the stored raw default too.
   if (linkedRepoRow && opts.headBranch === linkedRepoRow.defaultBranch) return
+  // EXP-712: a board pin shadows the team override in the effective compare,
+  // so a head equal to the OVERRIDE needs its own guard for the same reason.
+  if (
+    linkedRepoRow?.defaultBranchOverride &&
+    opts.headBranch === linkedRepoRow.defaultBranchOverride
+  )
+    return
   const resolved = await resolveRepoInstallationTokenInfo(repo)
   if (!resolved) return
 

@@ -1841,7 +1841,7 @@ export function registerExponentialTools(
           }
           // EXP-712: boards on one repo may develop on different branches —
           // a combined PR has exactly one base.
-          if (repo && repo.defaultBranch !== issueRepo.defaultBranch) {
+          if (!base && repo && repo.defaultBranch !== issueRepo.defaultBranch) {
             throw new Error(
               `All issues in a batch PR must share one base branch (${repo.defaultBranch} vs ${issueRepo.defaultBranch}). Pass 'base' to pick one.`
             )

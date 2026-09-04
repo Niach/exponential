@@ -145,8 +145,10 @@ struct DiffPatchBlock: View {
     @Environment(\.motion) private var motion
     @State private var viewportWidth: CGFloat = 0
     /// The content's trailing edge in the scroller's coordinate space — it
-    /// shrinks as the reader pans right.
-    @State private var contentTrailingEdge: CGFloat = 0
+    /// shrinks as the reader pans right. Seeded past any real width so the
+    /// FIRST frame already fades: measured at 0 the block would render crisp
+    /// and then flash into the fade one geometry pass later.
+    @State private var contentTrailingEdge: CGFloat = .greatestFiniteMagnitude
 
     private var overflowsTrailing: Bool {
         contentTrailingEdge > viewportWidth + 1

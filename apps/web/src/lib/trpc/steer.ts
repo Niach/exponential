@@ -105,10 +105,9 @@ const requireSessionId = (i: {
 const mintTicketInput = z
   .discriminatedUnion(`kind`, [
     // Desktop device-presence socket (no sessionId yet).
-    z.object({
-      kind: z.literal(`control`),
-      deviceLabel: z.string().max(255).optional(),
-    }),
+    // Strip mode: desktops <= 0.14.30 still send a `deviceLabel` here, which
+    // nothing has read since the relay dropped presence metadata (EXP-672).
+    z.object({ kind: z.literal(`control`) }),
     // Desktop PTY publisher for a session it started.
     z.object({
       kind: z.literal(`publisher`),
@@ -145,9 +144,6 @@ export const steerRouter = router({
 
       // Any authed user may register device presence for their own account.
       if (input.kind === `control`) {
-        // EXP-710: `deviceLabel` is still ACCEPTED (shipped desktops send it)
-        // but no longer minted into the ticket — nothing has read it since
-        // the relay dropped presence metadata (EXP-672).
         return mintSteerTicket(config, { kind: `control`, userId })
       }
 

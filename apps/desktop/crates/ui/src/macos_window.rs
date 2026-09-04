@@ -18,7 +18,7 @@
 
 #![cfg(target_os = "macos")]
 
-use cocoa::base::{id, nil, BOOL, NO, YES};
+use cocoa::base::{id, nil, BOOL, NO};
 use cocoa::foundation::{NSPoint, NSRect, NSSize};
 use gpui::{App, Pixels, Size, Window};
 use objc::{msg_send, sel, sel_impl};
@@ -45,18 +45,20 @@ pub(crate) fn resize_keeping_top(window: &Window, cx: &App, size: Size<Pixels>) 
     cx.foreground_executor()
         .spawn(async move {
             unsafe {
+                // Apply even while the window is hidden (Cmd-H mid-query):
+                // the caller latches the requested height and would otherwise
+                // never re-request it once the window comes back (EXP-716).
+                // The retain above keeps a closed window alive for this hop.
+                let frame: NSRect = msg_send![ns_window, frame];
+                let content: NSRect = msg_send![ns_window, contentRectForFrameRect: frame];
+                let top = content.origin.y + content.size.height;
+                let next = NSRect::new(
+                    NSPoint::new(content.origin.x, top - height),
+                    NSSize::new(width, height),
+                );
+                let next_frame: NSRect = msg_send![ns_window, frameRectForContentRect: next];
                 let visible: BOOL = msg_send![ns_window, isVisible];
-                if visible != NO {
-                    let frame: NSRect = msg_send![ns_window, frame];
-                    let content: NSRect = msg_send![ns_window, contentRectForFrameRect: frame];
-                    let top = content.origin.y + content.size.height;
-                    let next = NSRect::new(
-                        NSPoint::new(content.origin.x, top - height),
-                        NSSize::new(width, height),
-                    );
-                    let next_frame: NSRect = msg_send![ns_window, frameRectForContentRect: next];
-                    let _: () = msg_send![ns_window, setFrame: next_frame display: YES];
-                }
+                let _: () = msg_send![ns_window, setFrame: next_frame display: visible != NO];
                 let _: () = msg_send![ns_window, release];
             }
         })

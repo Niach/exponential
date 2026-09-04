@@ -73,12 +73,180 @@ object MarkdownParser {
             return mutableListOf<ContentBlock>(ContentBlock.TextBlock(content = RichText.EMPTY))
                 .also { normalizeBlocks(it) }
         }
-        val doc = parser.parse(markdown)
+        val doc = parser.parse(insertTableBlankLines(markdown))
         val collector = BlockCollector()
         val ctx = RenderContext(softBreaksAsNewlines)
         collector.renderChildren(doc, ctx)
         return collector.finalize()
     }
+
+    // -- Table-start pre-pass (EXP-726) ---------------------------------------
+
+    /**
+     * commonmark-java (gfm-tables) only STARTS a table after a blank line or a
+     * one-line paragraph, while web (markdown-it), desktop (comrak) and iOS
+     * (cmark-gfm) all let a table interrupt a paragraph. Without this pre-pass
+     * `intro\n| a | b |\n| --- | --- |` is ONE paragraph on Android alone: the
+     * read view joins the lines and a save flattens the table and de-escapes
+     * its `\|`s. First-party serializers always write the blank line, so this
+     * only heals text no new client has re-saved (agent/MCP-written
+     * descriptions, hand-typed markdown).
+     *
+     * A blank line (a bare `>` line at the same quote depth inside a
+     * blockquote) is inserted before a pipe row whose successor is a GFM
+     * delimiter row of the SAME cell count, when the line above is non-blank
+     * and holds no pipe of its own (i.e. is not itself a table row — splitting
+     * a table in two would be worse than the bug). Fenced code is skipped
+     * wholesale, and both table lines must be indented < 4 spaces so the
+     * inserted blank line can never turn a lazy continuation into an indented
+     * code block. Everything else — every contract fixture included — passes
+     * through byte-identical.
+     */
+    internal fun insertTableBlankLines(markdown: String): String {
+        if (!markdown.contains('|')) return markdown
+        val lines = markdown.split("\n")
+        if (lines.size < 3) return markdown
+        val out = ArrayList<String>(lines.size + 2)
+        var fence: Fence? = null
+        for ((i, raw) in lines.withIndex()) {
+            val cur = splitQuote(raw)
+            val open = fence
+            if (open != null) {
+                if (cur.depth < open.depth || open.closedBy(fenceOf(cur.body))) fence = null
+                out.add(raw)
+                continue
+            }
+            val marker = fenceOf(cur.body)
+            if (marker != null) {
+                fence = marker.copy(depth = cur.depth)
+                out.add(raw)
+                continue
+            }
+            if (i > 0 && i + 1 < lines.size && startsATightTable(lines, i, cur)) {
+                out.add(blankLineAt(cur.depth))
+            }
+            out.add(raw)
+        }
+        return out.joinToString("\n")
+    }
+
+    /** True when line [i] is a table header whose table commonmark would miss. */
+    private fun startsATightTable(lines: List<String>, i: Int, cur: QuoteLine): Boolean {
+        val prev = splitQuote(lines[i - 1])
+        val next = splitQuote(lines[i + 1])
+        if (prev.depth != cur.depth || next.depth != cur.depth) return false
+        if (prev.body.isBlank()) return false
+        if (leadingIndent(cur.body) > 3 || leadingIndent(next.body) > 3) return false
+        val header = rowCells(cur.body) ?: return false
+        val delimiter = rowCells(next.body) ?: return false
+        if (delimiter.size != header.size) return false
+        if (!delimiter.all { DELIMITER_CELL.matches(it) }) return false
+        // The line above must not be a table row itself: a pipe there means the
+        // table already started earlier and a blank line would cut it in two.
+        return rowCells(prev.body) == null
+    }
+
+    private fun blankLineAt(depth: Int): String =
+        if (depth == 0) "" else List(depth) { ">" }.joinToString(" ")
+
+    private class QuoteLine(val depth: Int, val body: String)
+
+    /** Splits a line's `>` markers (up to 3 spaces + `>` + one optional space) off its body. */
+    private fun splitQuote(line: String): QuoteLine {
+        var i = 0
+        var depth = 0
+        while (true) {
+            var j = i
+            var spaces = 0
+            while (j < line.length && line[j] == ' ' && spaces < 3) {
+                j++
+                spaces++
+            }
+            if (j >= line.length || line[j] != '>') break
+            depth++
+            i = j + 1
+            if (i < line.length && (line[i] == ' ' || line[i] == '\t')) i++
+        }
+        return QuoteLine(depth, line.substring(i))
+    }
+
+    private data class Fence(val char: Char, val len: Int, val bare: Boolean, val depth: Int = 0) {
+        fun closedBy(other: Fence?): Boolean =
+            other != null && other.char == char && other.len >= len && other.bare
+    }
+
+    /** The fence a line opens or closes, or null when it is not a fence line. */
+    private fun fenceOf(body: String): Fence? {
+        if (leadingIndent(body) > 3) return null
+        val text = body.trimStart(' ')
+        val char = text.firstOrNull() ?: return null
+        if (char != '`' && char != '~') return null
+        var len = 0
+        while (len < text.length && text[len] == char) len++
+        if (len < 3) return null
+        val info = text.substring(len)
+        // A backtick fence's info string may not contain a backtick.
+        if (char == '`' && info.contains('`')) return null
+        return Fence(char, len, bare = info.isBlank())
+    }
+
+    private fun leadingIndent(text: String): Int {
+        var n = 0
+        for (c in text) {
+            when (c) {
+                ' ' -> n += 1
+                '\t' -> n += 4
+                else -> return n
+            }
+        }
+        return n
+    }
+
+    /**
+     * The cells of a GFM table row, or null when the line carries no unescaped
+     * pipe (and so cannot be one). Optional outer pipes are dropped, matching
+     * the row splitter in [MarkdownSerializer]'s counterpart.
+     */
+    private fun rowCells(body: String): List<String>? {
+        val text = body.trim()
+        if (text.isEmpty()) return null
+        val parts = splitUnescapedPipes(text)
+        if (parts.size < 2) return null
+        var from = 0
+        var to = parts.size
+        if (parts.first().isBlank()) from++
+        if (to > from && parts.last().isBlank()) to--
+        if (to <= from) return null
+        return parts.subList(from, to)
+    }
+
+    private fun splitUnescapedPipes(text: String): List<String> {
+        val out = mutableListOf<String>()
+        val sb = StringBuilder()
+        var i = 0
+        while (i < text.length) {
+            val c = text[i]
+            when {
+                c == '\\' && i + 1 < text.length -> {
+                    sb.append(c).append(text[i + 1])
+                    i += 2
+                }
+                c == '|' -> {
+                    out.add(sb.toString())
+                    sb.clear()
+                    i++
+                }
+                else -> {
+                    sb.append(c)
+                    i++
+                }
+            }
+        }
+        out.add(sb.toString())
+        return out
+    }
+
+    private val DELIMITER_CELL = Regex("^\\s*:?-+:?\\s*$")
 
     // --- A single paragraph (one '\n'-delimited line) under construction. ---
     private class ParaBuild(var attrs: ParagraphAttrs) {

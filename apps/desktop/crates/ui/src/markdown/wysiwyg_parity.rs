@@ -218,6 +218,59 @@ async fn backslash_before_a_table_pipe_round_trips_byte_identically(cx: &mut Tes
     assert_eq!(editor.update(cx, |editor, cx| editor.markdown(cx)), first);
 }
 
+/// EXP-726 (review): a PIPE inside a CODE SPAN. `\|` is GFM's pipe escape even
+/// in there — the cell splitter resolves it before the inline parser ever sees
+/// the backticks — but the vendored engine's inline serializer emits a code
+/// span's source RAW, so the backslash run reaching the cell layer can be ODD,
+/// unlike the escaped literal text everywhere else. The cell layer therefore
+/// pads that run (`table::escape_cell_pipes`); the bare `.replace('|', "\\|")`
+/// it used to do shipped `` `grep 'a\|b'` `` as `a` + TWO backslashes + `|`,
+/// which the splitter reads as a backslash PAIR plus a CELL SEPARATOR — a
+/// surplus cell whose tail the next parse drops. Platform-local (NOT a contract
+/// fixture: no cross-client suite carries it yet).
+#[gpui::test]
+async fn code_span_pipes_in_table_cells_round_trip_byte_identically(cx: &mut TestAppContext) {
+    for md in [
+        // A bare pipe in a code span: escaped, nothing else touched.
+        "| `a\\|b` | c |\n| --- | --- |\n| 1 | 2 |",
+        // A backslash the pipe does not touch stays bare.
+        "| `a\\b\\|c` | d |\n| --- | --- |\n| 1 | 2 |",
+    ] {
+        // (a) the comrak block pipeline.
+        assert_eq!(
+            super::serialize::blocks_to_markdown(&super::parse::markdown_to_blocks(md)),
+            md,
+            "block pipeline diverged for {md:?}"
+        );
+
+        // (b) the vendored WYSIWYG engine, plus its own fixpoint.
+        let editor = cx.new(|cx| MarkdownEditor::from_markdown(cx, md.to_string(), None));
+        let first = editor.update(cx, |editor, cx| editor.markdown(cx));
+        assert_eq!(first, md);
+        let editor = cx.new(|cx| MarkdownEditor::from_markdown(cx, first.clone(), None));
+        assert_eq!(editor.update(cx, |editor, cx| editor.markdown(cx)), first);
+    }
+
+    // A LITERAL backslash immediately before the pipe INSIDE the code span. The
+    // code span holds TWO backslashes here (a code span keeps every byte, so
+    // `\\` is not an escape in there), so the run reaching the cell layer is
+    // even and the wire form is `a` + THREE backslashes + `|`: the vendored
+    // engine's fixpoint.
+    //
+    // KNOWN, out of scope, asserted for the WYSIWYG side ONLY: a backslash
+    // adjacent to a pipe inside a code span is not REPRESENTABLE (the splitter
+    // can only emit backslashes in pairs), so every client gains one per save.
+    // The comrak block pipeline run-doubles this one unconditionally (3 -> 5 ->
+    // 9); the fix here keeps the vendored engine from making it worse and, at
+    // an ODD run, from losing the cell tail outright.
+    let md = "| `a\\\\\\|b` | c |\n| --- | --- |\n| 1 | 2 |";
+    let editor = cx.new(|cx| MarkdownEditor::from_markdown(cx, md.to_string(), None));
+    let first = editor.update(cx, |editor, cx| editor.markdown(cx));
+    assert_eq!(first, md);
+    let editor = cx.new(|cx| MarkdownEditor::from_markdown(cx, first.clone(), None));
+    assert_eq!(editor.update(cx, |editor, cx| editor.markdown(cx)), first);
+}
+
 /// EXP-728: nested tables are unsupported — the flat model HOISTS a table out
 /// of its list item / blockquote (`serialize::TABLE_HOIST_FIXTURES`), and the
 /// hoisted form is the canonical one, so it must survive the vendored engine
@@ -234,3 +287,4 @@ async fn hoisted_table_fixtures_survive_wysiwyg_round_trip(cx: &mut TestAppConte
         assert_eq!(&first, hoisted, "wysiwyg round-trip diverged for fixture {name}");
     }
 }
+

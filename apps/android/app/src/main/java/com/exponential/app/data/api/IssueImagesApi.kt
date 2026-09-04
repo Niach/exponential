@@ -70,8 +70,8 @@ class IssueImagesApi @Inject constructor(
         filename: String,
         contentType: String,
     ): UploadedImage =
-        // EXP-613: inline images ride the general /files route too — the
-        // legacy image-only /images route stays server-side for old builds.
+        // EXP-613: inline images ride the general /files route; the old
+        // image-only /images route is gone (PR #584).
         post(accountId, "api/issues/$issueId/files", bytes, filename, contentType)
 
     /**

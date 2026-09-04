@@ -6,6 +6,7 @@ import { MarkdownImage } from "@/lib/markdown-image"
 import { MarkdownParagraph } from "@/components/issue-editor/markdown-paragraph"
 import { TextSelection } from "@tiptap/pm/state"
 import {
+  CellSelection,
   moveTableColumn,
   moveTableRow,
   selectedRect,
@@ -18,7 +19,10 @@ import {
   tableTrailingNodeOptions,
 } from "@/lib/markdown-table"
 import { extractMarkdownImageOccurrences } from "@/lib/storage/issue-attachments"
-import { tableMenuModel } from "@/components/issue-editor/table-controls"
+import {
+  tableChromePlacement,
+  tableMenuModel,
+} from "@/components/issue-editor/table-controls"
 
 // EXP-726 — GFM tables travel through `issues.description` / `comments.body`
 // and must come back BYTE-identical on every client. These fixtures are the
@@ -393,6 +397,105 @@ describe(`tableMenuModel`, () => {
     expect(
       tableMenuModel({ row: 1, col: 0, width: 2, height: 2 }).row.canDelete
     ).toBe(true)
+  })
+})
+
+// ── the cell model is not negotiable ──
+
+/** Position just before the cell node at (row, col) of a top-level table. */
+function cellPosition(editor: Editor, row: number, col: number) {
+  const map = TableMap.get(editor.state.doc.child(0))
+  return 1 + map.map[row * map.width + col]
+}
+
+describe(`unrepresentable cell edits`, () => {
+  const source = `| a | b |\n| --- | --- |\n| 1 | 2 |`
+
+  // A merged cell has no GFM form at all, and prosemirror-tables' merge moves
+  // the swallowed cell's paragraph into the survivor — a second block the
+  // serializer would hoist clean out of the table. No UI offers the commands;
+  // the override makes the programmatic path harmless too.
+  it(`refuses to merge or split cells`, () => {
+    const editor = makeEditor(source)
+    editor.view.dispatch(
+      editor.state.tr.setSelection(
+        CellSelection.create(
+          editor.state.doc,
+          cellPosition(editor, 1, 0),
+          cellPosition(editor, 1, 1)
+        )
+      )
+    )
+    expect(editor.commands.mergeCells()).toBe(false)
+    expect(editor.commands.mergeOrSplit()).toBe(false)
+    expect(editor.commands.splitCell()).toBe(false)
+    expect(editor.state.doc.child(0).child(1).childCount).toBe(2)
+    expect(markdownOf(editor)).toBe(source)
+    editor.destroy()
+  })
+
+  // The keymap swallows Shift-Enter inside a table, but a hard break can
+  // still arrive by paste. It collapses to a space, and at a cell's edge that
+  // space used to sit next to the pipe padding — `|  1 |` — which only
+  // converged on the canonical row after one more round trip.
+  it(`trims a hard break at a cell's start or end`, () => {
+    const editor = makeEditor(source)
+    const hardBreak = editor.state.schema.nodes.hardBreak
+    // Paragraph content starts two positions inside the cell node.
+    const start = cellPosition(editor, 1, 0) + 2
+    editor.view.dispatch(editor.state.tr.insert(start, hardBreak.create()))
+    const end = cellPosition(editor, 1, 1) + 2 + 1
+    editor.view.dispatch(editor.state.tr.insert(end, hardBreak.create()))
+    expect(markdownOf(editor)).toBe(source)
+    editor.destroy()
+  })
+})
+
+// ── hover-chrome placement ──
+
+// EXP-726 review: a table wider than its `.tableWrapper` scrolls INSIDE it,
+// so the table's own box runs past the wrapper. Anchoring the chrome to that
+// box parked the `+` and the grips off-screen AND widened the document.
+describe(`tableChromePlacement`, () => {
+  it(`anchors a table that fits off its own edges`, () => {
+    const placement = tableChromePlacement({
+      wrapperWidth: 400,
+      table: { left: 20, top: 50, width: 300, height: 90 },
+      clip: { left: 20, top: 50, width: 300, height: 90 },
+      cell: { left: 20, top: 50, width: 100, height: 30 },
+      rowRect: { left: 20, top: 80, width: 300, height: 30 },
+    })
+    expect(placement).toEqual({
+      addColumn: { left: 330, top: 95 },
+      addRow: { left: 170, top: 150 },
+      columnGrip: { left: 70, top: 40 },
+      rowGrip: { left: 10, top: 95 },
+    })
+  })
+
+  it(`clamps a scrolled-out table's chrome into the visible band`, () => {
+    const wrapperWidth = 400
+    const placement = tableChromePlacement({
+      wrapperWidth,
+      // 900px of table showing through a 360px window, scrolled to the right.
+      table: { left: -520, top: 50, width: 900, height: 90 },
+      clip: { left: 20, top: 50, width: 360, height: 90 },
+      cell: { left: -400, top: 50, width: 100, height: 30 },
+      rowRect: { left: -520, top: 80, width: 900, height: 30 },
+    })
+    // Nothing may reach past either wrapper edge — the overlay is
+    // `absolute inset-0`, so a control drawn beyond it widens the page.
+    for (const point of Object.values(placement)) {
+      expect(point.left).toBeGreaterThanOrEqual(0)
+      expect(point.left).toBeLessThanOrEqual(wrapperWidth)
+    }
+    // ...and each control tracks the band, not the unclipped table.
+    expect(placement.addColumn.left).toBe(388)
+    expect(placement.addRow.left).toBe(200)
+    // The hovered column is scrolled off to the left: the grip pins to the
+    // edge it left through instead of following the cell out of view.
+    expect(placement.columnGrip.left).toBe(34)
+    expect(placement.rowGrip.left).toBe(10)
   })
 })
 

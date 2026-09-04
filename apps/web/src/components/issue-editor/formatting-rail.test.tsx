@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import type { Editor } from "@tiptap/react"
 import {
   EditorInsertBar,
@@ -101,6 +101,10 @@ function railLabels(container: HTMLElement) {
     button.getAttribute(`aria-label`)
   )
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe(`FormattingRail button order`, () => {
   it(`draws the canonical desktop main row`, () => {
@@ -212,6 +216,31 @@ describe(`FormattingRail button order`, () => {
     const button = screen.getByLabelText(`Delete table`)
     expect(button.className).toContain(`is-destructive`)
     fireEvent.click(button)
+    expect(rec.commands).toEqual([`focus`, `deleteTable`])
+  })
+
+  // A tablet in landscape is wide enough for the DESKTOP breakpoint and
+  // still has no pointer to reveal the hover chrome with, so the gate is the
+  // hover capability, not the width.
+  it(`adds Delete table on a hover-less device the breakpoint calls desktop`, () => {
+    vi.stubGlobal(`matchMedia`, (query: string) => ({
+      matches: query.includes(`hover: none`),
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }))
+    const { editor, rec } = makeEditor({ active: { table: true } })
+    const { container } = render(
+      <FormattingRail
+        editor={editor}
+        imageUpload={imageUpload}
+        platform="desktop"
+        mode="main"
+        onModeChange={vi.fn()}
+      />
+    )
+    expect(railLabels(container)).toContain(`Delete table`)
+    fireEvent.click(screen.getByLabelText(`Delete table`))
     expect(rec.commands).toEqual([`focus`, `deleteTable`])
   })
 

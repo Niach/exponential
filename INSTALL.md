@@ -109,6 +109,8 @@ The image self-migrates on boot. No other steps. `latest` tracks upstream `maste
 
 **At every upgrade, also raise `CLIENT_MIN_VERSION_*` in `.env` to the versions the release notes name** (and `CLIENT_LATEST_VERSION_*` alongside), then `docker compose up -d`. Those floors are what stops an out-of-date Android, iOS, desktop or CLI client from talking to a server that no longer speaks its dialect — a below-floor client gets HTTP 426 and a blocking update screen instead of mystery failures. Leaving them unset turns the gate off entirely.
 
+The reverse floor matters too: native clients updated from the stores or the desktop self-updater expect a server at least as new as the release they shipped with (since iOS 0.14.23 / Android 0.14.25 / desktop 0.14.30 they attach steering images through `/api/sessions/{id}/files`, which needs web v0.18.53 or newer). Upgrade the server before, or together with, the clients.
+
 ## Backup and restore
 
 Three named volumes (`postgres_data`, `caddy_data`, `caddy_config`) plus your

@@ -63,6 +63,22 @@ const KeyboardDownIcon = conceptIcon(`ui-chevron-down`)
 const DeleteIcon = conceptIcon(`ui-delete`)
 
 /**
+ * Does this device get the rail's Delete table action?
+ *
+ * EXP-727 gated it on the mobile BREAKPOINT, but the table chrome it stands
+ * in for (table-controls.tsx) is HOVER-only: a tablet in landscape is wide
+ * enough to be called `desktop` here and still has no pointer to reveal the
+ * grips with, leaving no way to delete a table at all. Any touch device gets
+ * the button — no hover, or the width breakpoint says mobile.
+ */
+export function showsTableDelete(platform: `desktop` | `mobile`): boolean {
+  if (platform === `mobile`) return true
+  if (typeof window === `undefined` || typeof window.matchMedia !== `function`)
+    return false
+  return window.matchMedia(`(hover: none)`).matches
+}
+
+/**
  * The text to insert for the `#` button. The issue-ref autocomplete only
  * triggers at a TOKEN start (`/(?:^|\s)#…/` in lib/editor-autocomplete.ts), so
  * a `#` typed straight after a word would insert a dead character instead of
@@ -289,11 +305,12 @@ export function FormattingRail({
       >
         <CodeIcon className="size-3.5" />
       </RailButton>
-      {/* EXP-727: a phone has no hover chrome for tables (table-controls.tsx
-          is desktop-only) and a long-press inside a cell is the browser's
-          own selection, so the ONE mobile table action rides the keyboard
-          bar while the caret sits in a table. Row/column edits stay desktop. */}
-      {platform === `mobile` && isActive(`table`) && (
+      {/* EXP-727: a touch device has no hover chrome for tables
+          (table-controls.tsx is pointer-only) and a long-press inside a cell
+          is the browser's own selection, so the ONE touch table action rides
+          the keyboard bar while the caret sits in a table. Row/column edits
+          stay on the hover chrome. */}
+      {showsTableDelete(platform) && isActive(`table`) && (
         <>
           <RailSeparator />
           <RailButton

@@ -3,6 +3,7 @@ package com.exponential.app.ui.markdown
 import com.exponential.app.ui.markdown.model.ContentBlock
 import com.exponential.app.ui.markdown.model.RichText
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -283,6 +284,64 @@ class MarkdownRoundTripTest {
         assertEquals(hoisted, roundTrip(hoisted))
     }
 
+    // --- A table interrupting a paragraph (EXP-726). commonmark-java alone
+    // needs a blank line before a table, so a pre-pass inserts one; web,
+    // desktop and iOS already parse the tight form as paragraph + table, and
+    // the canonical (blank-line) form is what every client serializes. ---
+
+    @Test fun tightTableAfterAParagraphGainsItsBlankLine() {
+        val tight = "intro\n| a | b |\n| --- | --- |\n| 1 | 2 |"
+        val canonical = "intro\n\n| a | b |\n| --- | --- |\n| 1 | 2 |"
+        assertEquals(canonical, roundTrip(tight))
+        assertEquals(canonical, roundTrip(canonical))
+    }
+
+    @Test fun tightTableAfterAParagraphParsesAsParagraphPlusTable() {
+        // A trailing empty text block is the model's invariant (normalizeBlocks).
+        val blocks = MarkdownParser.parse("intro\n| a | b |\n| --- | --- |\n| 1 | 2 |")
+        assertEquals("intro", (blocks[0] as ContentBlock.TextBlock).content.text)
+        assertTrue(blocks[1] is ContentBlock.TableBlock)
+        val table = (blocks[1] as ContentBlock.TableBlock).table
+        assertEquals(listOf("a", "b"), table.header.map { it.text })
+        assertEquals(listOf(listOf("1", "2")), table.rows.map { row -> row.map { it.text } })
+    }
+
+    /** The flattening bug de-escaped `\|` into the joined paragraph. */
+    @Test fun tightTableAfterAParagraphKeepsItsEscapedPipe() =
+        assertEquals(
+            "intro\n\n| a \\| b | c |\n| --- | --- |\n| 1 | 2 |",
+            roundTrip("intro\n| a \\| b | c |\n| --- | --- |\n| 1 | 2 |"),
+        )
+
+    /** The outer pipes are optional in GFM, so the pre-pass may not require them. */
+    @Test fun tightTableWithoutOuterPipesGainsItsBlankLine() =
+        assertEquals(
+            "intro\n\n| a | b |\n| --- | --- |\n| 1 | 2 |",
+            roundTrip("intro\na | b\n--- | ---\n1 | 2"),
+        )
+
+    @Test fun tightTableInsideABlockquoteHoistsToTheTopLevel() {
+        val tight = "> intro\n> | a | b |\n> | --- | --- |\n> | 1 | 2 |"
+        val hoisted = "> intro\n\n| a | b |\n| --- | --- |\n| 1 | 2 |"
+        assertEquals(hoisted, roundTrip(tight))
+        assertEquals(hoisted, roundTrip(hoisted))
+    }
+
+    @Test fun tableLinesInsideAFenceStayCode() =
+        assertStable("```\nintro\n| a | b |\n| --- | --- |\n```")
+
+    @Test fun tableLinesInsideAFenceAreNotTouchedByThePrePass() {
+        val fenced = "```\nintro\n| a | b |\n| --- | --- |\n| 1 | 2 |\n```"
+        assertEquals(fenced, MarkdownParser.insertTableBlankLines(fenced))
+        assertStable(fenced)
+    }
+
+    @Test fun theTablePrePassIsANoOpOnEveryFixture() {
+        for (md in PRE_PASS_UNCHANGED) {
+            assertEquals(md, MarkdownParser.insertTableBlankLines(md))
+        }
+    }
+
     @Test fun tableFixturesAreIdempotent() {
         for (md in TABLE_FIXTURES) {
             val once = roundTrip(md)
@@ -302,6 +361,31 @@ class MarkdownRoundTripTest {
             "before\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nafter",
             "| @jane@example.com | #EXP-42 |\n| --- | --- |\n| x | y |",
             "| Gr\u00fc\u00dfe | \uD83D\uDE80 |\n| --- | --- |\n| \u00fc | \u00e9 |",
+        )
+
+        /**
+         * Documents the table pre-pass must pass through byte-identical: every
+         * contract fixture, both hoist fixtures, and the near-misses (a pipe
+         * line whose successor is not a matching delimiter row, an indented
+         * code block, a table row following a table row).
+         */
+        val PRE_PASS_UNCHANGED = TABLE_FIXTURES + listOf(
+            "Hello world",
+            "# Title\n\nA paragraph with **bold**.\n\n- item 1\n- item 2\n\n> a quote",
+            "- step one\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- step two",
+            "- step one\n\n  | a | b |\n  | --- | --- |\n  | 1 | 2 |\n\n- step two",
+            "> intro\n\n| a | b |\n| --- | --- |\n| 1 | 2 |",
+            "> intro\n>\n> | a | b |\n> | --- | --- |\n> | 1 | 2 |",
+            // Delimiter cell count differs from the header's: not a table.
+            "intro\n| a | b |\n| --- |\n| 1 | 2 |",
+            // No delimiter row at all.
+            "intro\n| a | b |\n| 1 | 2 |",
+            // Indented 4+: an inserted blank line would make this a code block.
+            "intro\n    | a | b |\n    | --- | --- |",
+            // The rows of a table already in canonical form.
+            "| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |",
+            "```\nintro\n| a | b |\n| --- | --- |\n```",
+            "~~~\nintro\n| a | b |\n| --- | --- |\n~~~",
         )
     }
 }

@@ -239,7 +239,7 @@ impl ControlApi for BunControlApi {
         Ok(true)
     }
 
-    fn mint_control(&self, _device_label: &str) -> Result<Option<String>, ApiError> {
+    fn mint_control(&self) -> Result<Option<String>, ApiError> {
         Ok(Some(ws_url(self.relay_port, &mint_ticket(CONTROL_CLAIMS))))
     }
 }
