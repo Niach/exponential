@@ -2,6 +2,7 @@ package com.exponential.app.ui.reviews
 
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -118,10 +119,13 @@ private fun ReviewsListContent(
     val startCandidates by viewModel.startCandidates.collectAsStateWithLifecycle()
     var mergeTarget by remember { mutableStateOf<ReviewEntry?>(null) }
     var fixTarget by remember { mutableStateOf<ReviewEntry?>(null) }
+    // EXP-734: an issueless run's own PR — merged through the session, so it
+    // gets its own confirm target.
+    var mergeRunTarget by remember { mutableStateOf<RunReviewEntry?>(null) }
 
     when {
         !state.loaded -> LoadingState(modifier = modifier)
-        state.groups.isEmpty() -> EmptyState(
+        state.isEmpty -> EmptyState(
             message = "No open pull requests",
             icon = ExpIcons.navReviews,
             modifier = modifier,
@@ -147,6 +151,20 @@ private fun ReviewsListContent(
                     )
                 }
             }
+            // EXP-734: the runs that opened a pull request of their OWN — an
+            // action or chat run whose PR links no issue, so no board group
+            // can hold it. Listed last, under one header.
+            if (state.runs.isNotEmpty()) {
+                item(key = "header-runs") { RunsHeader(count = state.runs.size) }
+                items(state.runs, key = { it.groupKey }) { entry ->
+                    RunReviewRow(
+                        entry = entry,
+                        failure = mergeErrors[entry.groupKey],
+                        merging = entry.groupKey in merging,
+                        onMerge = { mergeRunTarget = entry },
+                    )
+                }
+            }
         }
     }
 
@@ -158,6 +176,32 @@ private fun ReviewsListContent(
                 mergeTarget = null
             },
             onDismiss = { mergeTarget = null },
+        )
+    }
+
+    mergeRunTarget?.let { entry ->
+        // EXP-734: no issue is linked, so nothing is completed — say so.
+        val prLabel = entry.prNumber?.let { "PR #$it" } ?: "the pull request"
+        AlertDialog(
+            onDismissRequest = { mergeRunTarget = null },
+            title = { Text("Merge pull request?") },
+            text = {
+                Text(
+                    "Squash-merges $prLabel via the GitHub App. " +
+                        "Any live coding session for it closes.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.mergeRun(entry)
+                        mergeRunTarget = null
+                    },
+                ) { Text("Merge") }
+            },
+            dismissButton = {
+                TextButton(onClick = { mergeRunTarget = null }) { Text("Cancel") }
+            },
         )
     }
 
@@ -200,6 +244,137 @@ private fun BoardHeader(board: BoardEntity, count: Int) {
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
+    }
+}
+
+/**
+ * EXP-734: the header over the issueless runs' pull requests. Deliberately
+ * plain (no board icon) — these PRs belong to a RUN, not to a board.
+ */
+@Composable
+private fun RunsHeader(count: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            ExpIcons.navActions,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            "Agent runs",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            count.toString(),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+    }
+}
+
+/**
+ * One run's OWN pull request (EXP-734). There is no issue and no Review detail
+ * to open, so the row opens the PR on GitHub; merging goes through
+ * `codingSessions.mergePr` and completes nothing. No "Fix conflicts" here —
+ * the recovery run takes an issue-linked PR as its input.
+ */
+@Composable
+private fun RunReviewRow(
+    entry: RunReviewEntry,
+    failure: MergeFailure?,
+    merging: Boolean,
+    onMerge: () -> Unit,
+) {
+    val context = LocalContext.current
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .glassRow()
+                .clickable(enabled = entry.prUrl != null) {
+                    entry.prUrl?.let {
+                        CustomTabsIntent.Builder().build()
+                            .launchUrl(context, android.net.Uri.parse(it))
+                    }
+                }
+                .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Same green PR glyph the issue-backed review rows wear (EXP-248).
+            Icon(
+                ExpIcons.prOpen,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = DesignTokens.Semantic.Green,
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        entry.prNumber?.let { "#$it" } ?: "PR",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        entry.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+                if (!entry.branch.isNullOrBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        entry.branch,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Spacer(Modifier.width(6.dp))
+            GlassPill(
+                "Merge",
+                onClick = onMerge,
+                icon = ExpIcons.prMerged,
+                enabled = !merging,
+                loading = merging,
+            )
+        }
+
+        // A refused merge captions THIS row, like every other merge surface.
+        if (failure != null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 3.dp)
+                    .glassCard()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    failure.message,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
     }
 }
 

@@ -4,10 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
+import com.exponential.app.data.api.CodingSessionsApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.BoardEntity
@@ -53,6 +55,54 @@ data class ReviewEntry(
     val identifiers: List<String> get() = issues.map { it.identifier }
 }
 
+/**
+ * EXP-734: one reviewable pull request that belongs to a RUN, not an issue —
+ * an action or chat run that opened a chore PR via
+ * `exponential_pr_open({repositoryId, head})`. Nothing links it to a board, so
+ * these list under their own header and merge through
+ * `codingSessions.mergePr`.
+ */
+data class RunReviewEntry(
+    val groupKey: String,
+    val session: CodingSessionEntity,
+    val prUrl: String?,
+    val prNumber: Int?,
+    val branch: String?,
+    /** The run's own name — an action run's snapshot, or plain "Chat". */
+    val title: String,
+)
+
+/**
+ * The open-PR runs → review entries: collapsed by `pr_url` (a resumed run
+ * continues the same PR) keeping the NEWEST row, newest first. Top-level and
+ * pure so it can be tested without a database.
+ */
+fun buildRunEntries(sessions: List<CodingSessionEntity>): List<RunReviewEntry> {
+    val byPrUrl = LinkedHashMap<String, CodingSessionEntity>()
+    for (session in sessions) {
+        val prUrl = session.prUrl
+        if (prUrl.isNullOrEmpty()) continue
+        val current = byPrUrl[prUrl]
+        if (current == null ||
+            sortableTimestamp(session.startedAt) > sortableTimestamp(current.startedAt)
+        ) {
+            byPrUrl[prUrl] = session
+        }
+    }
+    return byPrUrl.values
+        .sortedByDescending { sortableTimestamp(it.startedAt) }
+        .map { session ->
+            RunReviewEntry(
+                groupKey = "session:${session.id}",
+                session = session,
+                prUrl = session.prUrl,
+                prNumber = session.prNumber,
+                branch = session.branch,
+                title = session.actionName ?: "Chat",
+            )
+        }
+}
+
 data class ReviewBoardGroup(
     val board: BoardEntity,
     val entries: List<ReviewEntry>,
@@ -60,8 +110,13 @@ data class ReviewBoardGroup(
 
 data class ReviewsState(
     val groups: List<ReviewBoardGroup> = emptyList(),
+    // EXP-734: issueless runs whose OWN pull request is open — listed under
+    // their own header, after the board groups.
+    val runs: List<RunReviewEntry> = emptyList(),
     val loaded: Boolean = false,
-)
+) {
+    val isEmpty: Boolean get() = groups.isEmpty() && runs.isEmpty()
+}
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -69,6 +124,7 @@ class ReviewsViewModel @Inject constructor(
     holder: DatabaseHolder,
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
+    private val codingSessionsApi: CodingSessionsApi,
     private val steerLaunch: SteerLaunchDelegate,
     selection: TeamSelection,
 ) : ViewModel() {
@@ -88,8 +144,9 @@ class ReviewsViewModel @Inject constructor(
                     combine(
                         db.issueDao().observeOpenPrsByTeam(teamId),
                         db.boardDao().observeByTeam(teamId),
-                    ) { issues, boards ->
-                        buildState(issues, boards)
+                        db.codingSessionDao().observeOpenPrRunsByTeam(teamId),
+                    ) { issues, boards, runs ->
+                        buildState(issues, boards, runs)
                     }
                 }
             }
@@ -98,6 +155,7 @@ class ReviewsViewModel @Inject constructor(
     private fun buildState(
         issues: List<IssueEntity>,
         boards: List<BoardEntity>,
+        runs: List<CodingSessionEntity>,
     ): ReviewsState {
         val boardsById = boards.associateBy { it.id }
 
@@ -139,7 +197,34 @@ class ReviewsViewModel @Inject constructor(
                 compareBy({ it.board.sortOrder }, { it.board.name.lowercase() })
             )
 
-        return ReviewsState(groups = groups, loaded = true)
+        return ReviewsState(
+            groups = groups,
+            runs = buildRunEntries(runs),
+            loaded = true,
+        )
+    }
+
+    /**
+     * Squash-merge a RUN's own pull request (EXP-734). No issue is linked, so
+     * nothing is completed: the server merges, flips the session row's
+     * `pr_state` and (unless the team keeps sessions on merge) ends the run —
+     * all of it arriving through Electric, which drops the entry off this
+     * list. Shares the merging / mergeErrors maps, keyed by [RunReviewEntry.groupKey].
+     */
+    fun mergeRun(entry: RunReviewEntry) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            val key = entry.groupKey
+            _mergeErrors.value = _mergeErrors.value - key
+            _merging.value = _merging.value + key
+            runCatching { codingSessionsApi.mergePr(accountId, entry.session.id) }
+                .onFailure { t ->
+                    if (t is CancellationException) throw t
+                    _mergeErrors.value = _mergeErrors.value +
+                        (key to MergeFailure.from(t, "The pull request could not be merged"))
+                }
+            _merging.value = _merging.value - key
+        }
     }
 
     /**
