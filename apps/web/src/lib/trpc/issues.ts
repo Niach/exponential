@@ -62,7 +62,7 @@ import {
   issueDescriptionSchema,
   issuePrioritySchema,
   type IssueStatus,
-  issueStatusInputSchema,
+  issueStatusSchema,
 } from "@/lib/domain"
 import {
   canonicalizeMarkdownImageUrls,
@@ -285,7 +285,7 @@ export const issuesRouter = router({
         .object({
           boardId: z.string().uuid(),
           title: z.string().min(1).max(500),
-          status: issueStatusInputSchema.optional(),
+          status: issueStatusSchema.optional(),
           // EXP-314: a team status row id — the precise-status alternative to
           // the anchor enum (resolveStatusWrite derives the enum from it).
           statusId: z.string().uuid().optional(),
@@ -484,7 +484,7 @@ export const issuesRouter = router({
           // EXP-707: UUID or human identifier ("EXP-42"), like issues.get.
           id: z.string().trim().min(1).max(64),
           title: z.string().min(1).max(500).optional(),
-          status: issueStatusInputSchema.optional(),
+          status: issueStatusSchema.optional(),
           // EXP-314: a team status row id — the precise-status alternative to
           // the anchor enum (resolveStatusWrite derives the enum from it).
           statusId: z.string().uuid().optional(),
@@ -969,20 +969,13 @@ export const issuesRouter = router({
     .input(
       z
         .object({
-          // EXP-707: `issueIds` is canonical (matching issueLabels.bulk*);
-          // `ids` is a transitional alias for the shipped iOS build — drop it
-          // once the next iOS release is out (tracked in the EXP-707 wave).
-          issueIds: z.array(z.string().uuid()).min(1).max(200).optional(),
-          ids: z.array(z.string().uuid()).min(1).max(200).optional(),
-          status: issueStatusInputSchema.optional(),
+          issueIds: z.array(z.string().uuid()).min(1).max(200),
+          status: issueStatusSchema.optional(),
           // EXP-314: a team status row id — the precise-status alternative to
           // the anchor enum (resolveStatusWrite derives the enum from it).
           statusId: z.string().uuid().optional(),
           priority: issuePrioritySchema.optional(),
           assigneeId: z.string().nullable().optional(),
-        })
-        .refine((i) => (i.issueIds === undefined) !== (i.ids === undefined), {
-          message: `Pass issueIds (or the deprecated ids), not both`,
         })
         .refine(
           (i) =>
@@ -1004,7 +997,7 @@ export const issuesRouter = router({
         })
     )
     .mutation(async ({ ctx, input }) => {
-      const issueIds = (input.issueIds ?? input.ids)!
+      const { issueIds } = input
       // Eligibility + team resolution only — every value the per-row writes
       // derive from is re-read under FOR UPDATE inside the transaction below.
       const eligible = await ctx.db
@@ -1139,23 +1132,14 @@ export const issuesRouter = router({
   // Bulk delete for the multi-select action bar. Same gates as bulkUpdate
   // (write == delete == membership); attachment blobs are reclaimed from S3
   // after commit like the single delete.
-  // EXP-707: `issueIds` (was `ids`) — `ids` stays a TRANSITIONAL alias
-  // (exactly one of the two, normalized here) like bulkUpdate's; remove once
-  // desktop min >= 0.14.29 (EXP-707 rename; desktop 0.14.28 sends the old
-  // key).
   bulkDelete: authedProcedure
     .input(
-      z
-        .object({
-          issueIds: z.array(z.string().uuid()).min(1).max(200).optional(),
-          ids: z.array(z.string().uuid()).min(1).max(200).optional(),
-        })
-        .refine((i) => (i.issueIds === undefined) !== (i.ids === undefined), {
-          message: `Pass issueIds (or the deprecated ids), not both`,
-        })
+      z.object({
+        issueIds: z.array(z.string().uuid()).min(1).max(200),
+      })
     )
     .mutation(async ({ ctx, input }) => {
-      const issueIds = (input.issueIds ?? input.ids)!
+      const { issueIds } = input
       const eligible = await ctx.db
         .select({ id: issues.id, teamId: boards.teamId })
         .from(issues)

@@ -570,8 +570,15 @@ impl SteerSessionView {
 
     // ── Answering ──────────────────────────────────────────────────────────
 
-    /// Send one answer and lock the card. Semantic when the card carries a
-    /// wire id, raw keystrokes otherwise (EXP-249's legacy path).
+    /// Whether this card's answer is in flight (an id-less card never is —
+    /// it has no answer key).
+    fn is_answer_locked(&self, item: &FeedItem) -> bool {
+        answer_key(item).is_some_and(|key| self.feed.is_answer_locked(&key))
+    }
+
+    /// Send one answer and lock the card. Always semantic: EXP-730 retired
+    /// the raw-keystroke path, so a card with no wire id is not answerable at
+    /// all (it renders read-only, as on web and Android).
     fn answer(
         &mut self,
         item_id: FeedItemId,
@@ -583,22 +590,23 @@ impl SteerSessionView {
         let Some(item) = self.feed.items().iter().find(|item| item.id == item_id) else {
             return;
         };
-        let key = answer_key(item);
+        // An id-less card carries no key: nothing to send, nothing to lock.
+        let Some(key) = answer_key(item) else {
+            return;
+        };
         if self.feed.is_answer_locked(&key) {
             return;
         }
         let Some(card) = item.question().cloned() else {
             return;
         };
+        let Some(question_id) = card.question_id.as_deref() else {
+            return;
+        };
         let Some(handle) = self.handle.as_ref() else {
             return;
         };
-        let sent = match card.question_id.as_deref() {
-            Some(question_id) => {
-                handle.send_answer(question_id, card.ask_id.as_deref(), &keys, text.as_deref())
-            }
-            None => handle.send_keystrokes(&keys),
-        };
+        let sent = handle.send_answer(question_id, card.ask_id.as_deref(), &keys, text.as_deref());
         if !sent {
             self.notice = Some(SharedString::from("The session is no longer connected"));
             cx.notify();
@@ -635,7 +643,7 @@ impl SteerSessionView {
             .feed
             .items()
             .iter()
-            .find(|item| answer_key(item) == answer)
+            .find(|item| answer_key(item).is_some_and(|key| key == answer))
             .map(|item| item.id)
         else {
             return;
@@ -1979,13 +1987,11 @@ impl SteerSessionView {
         let answered: Vec<&&FeedItem> = items
             .iter()
             .filter(|item| {
-                item.question().is_some_and(|card| card.resolved)
-                    || self.feed.is_answer_locked(&answer_key(item))
+                item.question().is_some_and(|card| card.resolved) || self.is_answer_locked(item)
             })
             .collect();
         let current = items.iter().find(|item| {
-            !item.question().is_some_and(|card| card.resolved)
-                && !self.feed.is_answer_locked(&answer_key(item))
+            !item.question().is_some_and(|card| card.resolved) && !self.is_answer_locked(item)
         });
         let numbered: Vec<&&FeedItem> = items
             .iter()
@@ -2092,8 +2098,8 @@ impl SteerSessionView {
         let answer = card
             .and_then(|card| card.answer.clone())
             .or_else(|| {
-                self.feed
-                    .answer_state(&answer_key(item))
+                answer_key(item)
+                    .and_then(|key| self.feed.answer_state(&key))
                     .map(|state| state.labels.join(", "))
                     .filter(|labels| !labels.is_empty())
             })
@@ -2219,10 +2225,9 @@ impl SteerSessionView {
             return div().into_any_element();
         };
         let key = answer_key(item);
-        let state = self.feed.answer_state(&key);
+        let state = key.as_deref().and_then(|key| self.feed.answer_state(key));
         let locked = state.is_some_and(|state| state.is_locked());
         let errored = state.is_some_and(|state| state.status == AnswerStatus::Error);
-        let semantic = card.question_id.is_some();
 
         if card.resolved {
             let answer = card
@@ -2302,6 +2307,11 @@ impl SteerSessionView {
                 .into_any_element();
         }
 
+        // Past the read-only gate a wire id is guaranteed: an id-less card is
+        // never active (EXP-730).
+        let Some(key) = key else {
+            return div().into_any_element();
+        };
         let picked = self.picked.get(&key).cloned().unwrap_or_default();
         let promote_first = card.plan_mode || submit_step;
         let item_id = item.id;
@@ -2314,7 +2324,6 @@ impl SteerSessionView {
                 item_id,
                 &key,
                 card.multi_select,
-                semantic,
                 promote_first && index == 0,
                 submit_step && index == 0,
                 option,
@@ -2338,16 +2347,11 @@ impl SteerSessionView {
                     .with_variant(ButtonVariant::Secondary)
                     .cursor_pointer()
                     .xsmall()
-                    .label(if semantic { "Answer" } else { "Continue" })
-                    .disabled(semantic && keys.is_empty())
+                    .label("Answer")
+                    .disabled(keys.is_empty())
                     .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                         cx.stop_propagation();
-                        let sent_keys = if semantic {
-                            keys.clone()
-                        } else {
-                            vec!["\t".to_string()]
-                        };
-                        this.answer(item_id, sent_keys, labels.clone(), None, cx);
+                        this.answer(item_id, keys.clone(), labels.clone(), None, cx);
                     })),
             );
         }
@@ -2374,7 +2378,7 @@ impl SteerSessionView {
                     ),
             );
         }
-        if errored && semantic {
+        if errored {
             column = column.child(
                 div()
                     .mt_1p5()
@@ -2392,7 +2396,6 @@ impl SteerSessionView {
         item_id: FeedItemId,
         key: &str,
         multi_select: bool,
-        semantic: bool,
         primary: bool,
         submit_label: bool,
         option: &QuestionOption,
@@ -2425,12 +2428,6 @@ impl SteerSessionView {
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 cx.stop_propagation();
                 if multi_select {
-                    if !semantic {
-                        // Legacy multi-select toggles the TUI immediately.
-                        if let Some(handle) = this.handle.as_ref() {
-                            handle.send_keystrokes(&[option_key.clone()]);
-                        }
-                    }
                     let picks = this.picked.entry(answer_key.clone()).or_default();
                     match picks.iter().position(|pick| *pick == option_key) {
                         Some(at) => {
@@ -2441,7 +2438,7 @@ impl SteerSessionView {
                     cx.notify();
                     return;
                 }
-                if free_text && semantic {
+                if free_text {
                     let open = this
                         .free_text
                         .as_ref()

@@ -1001,11 +1001,24 @@ describe(`activity event kinds`, () => {
     const pub = connectPublisher(hub)
     const member = connectMember(hub)
 
-    activity(hub, pub, { kind: `question`, text: `no options`, options: [] })
     activity(hub, pub, {
       kind: `question`,
+      id: `q`,
+      text: `no options`,
+      options: [],
+    })
+    activity(hub, pub, {
+      kind: `question`,
+      id: `q`,
       text: `oversized key`,
       options: [{ label: `A`, key: `x`.repeat(9) }],
+    })
+    // EXP-730: id is required — an id-less card (pre-0.14.31 publisher)
+    // is not answerable and never reaches a viewer.
+    activity(hub, pub, {
+      kind: `question`,
+      text: `no id`,
+      options: [{ label: `A`, key: `1` }],
     })
     activity(hub, pub, { kind: `answer_ack` }) // id is required
     activity(hub, pub, { kind: `subagent`, id: `s`, agentType: `t`, status: `paused` })

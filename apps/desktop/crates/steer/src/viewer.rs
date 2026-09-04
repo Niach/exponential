@@ -7,8 +7,9 @@
 //! have had since EXP-249. It dials the relay with a server-minted VIEWER
 //! ticket, joins the one audience there is (`channel: "activity"`), turns
 //! everything that arrives into [`ViewerEvent`]s on a channel, and sends
-//! steering back up: whole composer messages, semantic answers, raw
-//! keystrokes.
+//! steering back up: whole composer messages and semantic answers (EXP-730:
+//! a question is answered ONLY by its wire id — the id-less blind-keystroke
+//! path is gone, and an id-less card renders read-only).
 //!
 //! [`publisher`]: crate::publisher
 //! [`control_channel`]: crate::control_channel
@@ -279,14 +280,6 @@ impl ViewerHandle {
         .to_json()])
     }
 
-    /// LEGACY answer path, for a desktop that publishes no question ids: raw
-    /// keystrokes, one frame each, and NO trailing `\r` — a digit already
-    /// selects AND advances in claude's picker, so the extra return cascaded
-    /// into the next question and auto-answered it (EXP-249).
-    pub fn send_keystrokes(&self, keys: &[String]) -> bool {
-        self.send_frames(keystroke_frames(keys))
-    }
-
     /// A wakeup nudge (the machine woke, the network came back, the host
     /// device came online): cut short a pending backoff and redial now.
     ///
@@ -382,18 +375,6 @@ pub fn message_frames(text: &str) -> Vec<String> {
         .to_json(),
     );
     frames
-}
-
-/// Raw keystrokes: one `input` frame per key, no trailing `\r`.
-pub fn keystroke_frames(keys: &[String]) -> Vec<String> {
-    keys.iter()
-        .map(|key| {
-            ClientFrame::Input {
-                data: key.clone(),
-            }
-            .to_json()
-        })
-        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -987,19 +968,6 @@ mod tests {
         assert_eq!(chunks.concat(), emoji);
     }
 
-    #[test]
-    fn keystrokes_go_one_frame_each_with_no_trailing_return() {
-        // EXP-249: a digit already selects AND advances in claude's picker, so
-        // an extra `\r` would answer the NEXT question.
-        assert_eq!(
-            keystroke_frames(&["1".to_string(), "\t".to_string()]),
-            vec![
-                r#"{"t":"input","data":"1"}"#.to_string(),
-                r#"{"t":"input","data":"\t"}"#.to_string(),
-            ]
-        );
-    }
-
     // ── Against a fake relay ───────────────────────────────────────────────
 
     struct FakeTickets {
@@ -1241,7 +1209,7 @@ mod tests {
     }
 
     #[test]
-    fn answers_and_keystrokes_reach_the_relay_in_their_wire_shapes() {
+    fn an_answer_reaches_the_relay_in_its_wire_shape() {
         let harness = Harness::fast();
         let conn = harness.go_live();
         assert!(harness.handle.send_answer(
@@ -1254,12 +1222,6 @@ mod tests {
             conn.next_frame(),
             r#"{"t":"answer","questionId":"toolu_01#0","askId":"toolu_01","keys":["1"],"text":"purple"}"#
         );
-        // The legacy path: raw keystrokes, no trailing Enter.
-        assert!(harness
-            .handle
-            .send_keystrokes(&["2".to_string(), "\t".to_string()]));
-        assert_eq!(conn.next_frame(), r#"{"t":"input","data":"2"}"#);
-        assert_eq!(conn.next_frame(), r#"{"t":"input","data":"\t"}"#);
         harness.handle.shutdown();
     }
 
@@ -1268,7 +1230,6 @@ mod tests {
         let harness = Harness::fast();
         // Nothing is connected yet — the caller keeps its draft.
         assert!(!harness.handle.send_message("too early"));
-        assert!(!harness.handle.send_keystrokes(&["1".to_string()]));
         assert!(!harness.handle.send_answer("q", None, &["1".to_string()], None));
         harness.handle.shutdown();
     }

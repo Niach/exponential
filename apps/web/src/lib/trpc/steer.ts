@@ -90,38 +90,20 @@ const agentEffortValues: Record<string, readonly string[]> = {
   pi: [``, ...contract.piThinking.values],
 }
 
-// EXP-707: `sessionId` is canonical; `codingSessionId` is a transitional
-// alias for the shipped iOS build — drop it once the next iOS release is out.
-const sessionIdOrAlias = {
-  sessionId: z.string().uuid().optional(),
-  codingSessionId: z.string().uuid().optional(),
-}
-
-const requireSessionId = (i: {
-  sessionId?: string
-  codingSessionId?: string
-}) => (i.sessionId === undefined) !== (i.codingSessionId === undefined)
-
-const mintTicketInput = z
-  .discriminatedUnion(`kind`, [
-    // Desktop device-presence socket (no sessionId yet).
-    // Strip mode: desktops <= 0.14.30 still send a `deviceLabel` here, which
-    // nothing has read since the relay dropped presence metadata (EXP-672).
-    z.object({ kind: z.literal(`control`) }),
-    // Desktop PTY publisher for a session it started.
-    z.object({
-      kind: z.literal(`publisher`),
-      ...sessionIdOrAlias,
-    }),
-    // Web/mobile live view of a session — owner-only (EXP-312).
-    z.object({
-      kind: z.literal(`viewer`),
-      ...sessionIdOrAlias,
-    }),
-  ])
-  .refine((i) => i.kind === `control` || requireSessionId(i), {
-    message: `Pass sessionId (or the deprecated codingSessionId), not both`,
-  })
+const mintTicketInput = z.discriminatedUnion(`kind`, [
+  // Desktop device-presence socket (no sessionId yet).
+  z.object({ kind: z.literal(`control`) }),
+  // Desktop PTY publisher for a session it started.
+  z.object({
+    kind: z.literal(`publisher`),
+    sessionId: z.string().uuid(),
+  }),
+  // Web/mobile live view of a session — owner-only (EXP-312).
+  z.object({
+    kind: z.literal(`viewer`),
+    sessionId: z.string().uuid(),
+  }),
+])
 
 export const steerRouter = router({
   // Whether remote start + live steering is available on this instance —
@@ -147,7 +129,7 @@ export const steerRouter = router({
         return mintSteerTicket(config, { kind: `control`, userId })
       }
 
-      const sessionId = (input.sessionId ?? input.codingSessionId)!
+      const { sessionId } = input
       const session = await loadCodingSession(sessionId)
 
       // Only the session owner's own desktop may publish its PTY — or, for a
@@ -245,9 +227,6 @@ export const steerRouter = router({
           effort: z.string().max(32).optional(),
           ultracode: z.boolean().optional(),
           planMode: z.boolean().optional(),
-          // EXP-690 retired `skipPermissions`: every launch bypasses the
-          // agent's permission prompts. The schema strips (never `.strict()`),
-          // so an old client's key is dropped instead of 400'ing the start.
           // EXP-481: resume the issue's existing worktree/agent session.
           // Single-issue starts only; gated below on the device's persisted
           // `resume` cap.
@@ -1017,15 +996,9 @@ export const steerRouter = router({
   // relay is unreachable) AND best-effort fan a kill through the relay so the
   // live terminal tears down immediately.
   killSession: authedProcedure
-    .input(
-      z
-        .object(sessionIdOrAlias)
-        .refine(requireSessionId, {
-          message: `Pass sessionId (or the deprecated codingSessionId), not both`,
-        })
-    )
+    .input(z.object({ sessionId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const sessionId = (input.sessionId ?? input.codingSessionId)!
+      const { sessionId } = input
       const session = await loadCodingSession(sessionId)
       const userId = ctx.session.user.id
 

@@ -390,26 +390,21 @@ describe(`steer.startSession — routed body shape`, () => {
 })
 
 describe(`steer.startSession — agent selection (EXP-201)`, () => {
-  it(`forwards agent to the relay body and drops skipPermissions`, async () => {
+  it(`forwards agent, model and effort to the relay body`, async () => {
     queueOwnDevice()
-    // EXP-690: old clients keep sending the retired key; the input schema
-    // strips it, so it never reaches the relay.
-    const input = {
+    await caller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,
       agent: `codex`,
       model: `gpt-5.6-sol`,
       effort: `xhigh`,
-      skipPermissions: true,
-    }
-    await caller.startSession(input)
+    })
     expect(lastStartBody()).toMatchObject({
       issueId: ISSUE_A,
       agent: `codex`,
       model: `gpt-5.6-sol`,
       effort: `xhigh`,
     })
-    expect(`skipPermissions` in lastStartBody()).toBe(false)
   })
 
   it(`rejects an agent the row did not register`, async () => {
@@ -504,18 +499,6 @@ describe(`steer.startSession — agent selection (EXP-201)`, () => {
       planMode: true,
     })
     expect(lastStartBody()).toMatchObject({ agent: `pi`, planMode: true })
-
-    // EXP-690: pi never had a permission system, and the retired key is now
-    // silently accepted (and dropped) rather than rejected.
-    queueOwnDevice()
-    const legacy = {
-      issueId: ISSUE_A,
-      deviceId: `dev-1`,
-      agent: `pi`,
-      skipPermissions: true,
-    }
-    await caller.startSession(legacy)
-    expect(`skipPermissions` in lastStartBody()).toBe(false)
   })
 })
 
@@ -1118,7 +1101,7 @@ function queueSession(overrides: Record<string, unknown> = {}) {
 describe(`steer.mintTicket — owner OR host (EXP-432)`, () => {
   it(`lets the hosting account publish a requester-owned session`, async () => {
     queueSession()
-    await caller.mintTicket({ kind: `publisher`, codingSessionId: SESSION_ID })
+    await caller.mintTicket({ kind: `publisher`, sessionId: SESSION_ID })
     expect(h.mintSteerTicket).toHaveBeenCalledWith(expect.anything(), {
       kind: `publisher`,
       userId: `actor`,
@@ -1129,7 +1112,7 @@ describe(`steer.mintTicket — owner OR host (EXP-432)`, () => {
 
   it(`lets the hosting account view a requester-owned session`, async () => {
     queueSession()
-    await caller.mintTicket({ kind: `viewer`, codingSessionId: SESSION_ID })
+    await caller.mintTicket({ kind: `viewer`, sessionId: SESSION_ID })
     expect(h.mintSteerTicket).toHaveBeenCalledWith(expect.anything(), {
       kind: `viewer`,
       userId: `actor`,
@@ -1141,13 +1124,13 @@ describe(`steer.mintTicket — owner OR host (EXP-432)`, () => {
   it(`refuses a third party as publisher AND as viewer`, async () => {
     queueSession({ hostUserId: `someone-else` })
     let error = await rejectionOf(
-      caller.mintTicket({ kind: `publisher`, codingSessionId: SESSION_ID })
+      caller.mintTicket({ kind: `publisher`, sessionId: SESSION_ID })
     )
     expect((error as TRPCError).code).toBe(`FORBIDDEN`)
 
     queueSession({ hostUserId: `someone-else` })
     error = await rejectionOf(
-      caller.mintTicket({ kind: `viewer`, codingSessionId: SESSION_ID })
+      caller.mintTicket({ kind: `viewer`, sessionId: SESSION_ID })
     )
     expect((error as TRPCError).code).toBe(`FORBIDDEN`)
     expect(h.mintSteerTicket).not.toHaveBeenCalled()
@@ -1155,14 +1138,14 @@ describe(`steer.mintTicket — owner OR host (EXP-432)`, () => {
 
   it(`still mints for the session owner when there is no host`, async () => {
     queueSession({ userId: `actor`, hostUserId: null })
-    await caller.mintTicket({ kind: `viewer`, codingSessionId: SESSION_ID })
+    await caller.mintTicket({ kind: `viewer`, sessionId: SESSION_ID })
     expect(h.mintSteerTicket).toHaveBeenCalledTimes(1)
     expect(h.assertTeamMember).not.toHaveBeenCalled()
   })
 
   it(`re-checks team membership for a requester on someone else's host`, async () => {
     queueSession({ userId: `actor`, hostUserId: `host-1` })
-    await caller.mintTicket({ kind: `viewer`, codingSessionId: SESSION_ID })
+    await caller.mintTicket({ kind: `viewer`, sessionId: SESSION_ID })
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, `ws-1`)
     expect(h.mintSteerTicket).toHaveBeenCalledTimes(1)
   })
@@ -1173,7 +1156,7 @@ describe(`steer.mintTicket — owner OR host (EXP-432)`, () => {
       new TRPCError({ code: `FORBIDDEN`, message: `Not a member` })
     )
     const error = await rejectionOf(
-      caller.mintTicket({ kind: `viewer`, codingSessionId: SESSION_ID })
+      caller.mintTicket({ kind: `viewer`, sessionId: SESSION_ID })
     )
     expect((error as TRPCError).code).toBe(`FORBIDDEN`)
     expect(h.mintSteerTicket).not.toHaveBeenCalled()
@@ -1185,7 +1168,7 @@ describe(`steer.killSession — owner OR host (EXP-432)`, () => {
     // An already-ended row short-circuits the transaction write, so the
     // authorization branch is what this exercises.
     queueSession({ status: `ended` })
-    const result = await caller.killSession({ codingSessionId: SESSION_ID })
+    const result = await caller.killSession({ sessionId: SESSION_ID })
     expect(result.session).toMatchObject({ id: SESSION_ID })
     expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), SESSION_ID)
   })
@@ -1193,7 +1176,7 @@ describe(`steer.killSession — owner OR host (EXP-432)`, () => {
   it(`refuses a user who is neither owner nor host`, async () => {
     queueSession({ hostUserId: `someone-else`, status: `ended` })
     const error = await rejectionOf(
-      caller.killSession({ codingSessionId: SESSION_ID })
+      caller.killSession({ sessionId: SESSION_ID })
     )
     expect((error as TRPCError).code).toBe(`FORBIDDEN`)
     expect(h.relayPostKill).not.toHaveBeenCalled()

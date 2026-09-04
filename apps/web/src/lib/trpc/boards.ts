@@ -251,29 +251,19 @@ export const boardsRouter = router({
       })
     }),
 
-  // EXP-707: the subject param is `boardId` like every sibling (was `id`).
-  // `id` is a TRANSITIONAL alias (exactly one of the two, normalized here) —
-  // remove once desktop min >= 0.14.29 (EXP-707 rename; desktop 0.14.28 sends
-  // the old key).
   update: authedProcedure
     .input(
-      z
-        .object({
-          boardId: z.string().uuid().optional(),
-          id: z.string().uuid().optional(),
-          name: z.string().min(1).max(255).optional(),
-          color: hexColorSchema.optional(),
-          icon: boardIconSchema.nullable().optional(),
-          // EXP-712: null = follow the repo's default branch again.
-          defaultBranch: boardBranchSchema.nullable().optional(),
-        })
-        .refine((i) => (i.boardId === undefined) !== (i.id === undefined), {
-          message: `Pass boardId (or the deprecated id), not both`,
-        })
+      z.object({
+        boardId: z.string().uuid(),
+        name: z.string().min(1).max(255).optional(),
+        color: hexColorSchema.optional(),
+        icon: boardIconSchema.nullable().optional(),
+        // EXP-712: null = follow the repo's default branch again.
+        defaultBranch: boardBranchSchema.nullable().optional(),
+      })
     )
     .mutation(async ({ ctx, input }) => {
-      const { boardId: boardIdInput, id: legacyBoardId, ...updates } = input
-      const boardId = (boardIdInput ?? legacyBoardId)!
+      const { boardId, ...updates } = input
 
       await assertBoardMember(ctx.session.user.id, boardId)
 
