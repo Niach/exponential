@@ -256,6 +256,12 @@ pub(crate) struct DialogSpec {
     /// chrome would overlap the input/image, and neither is a window the user
     /// manages by hand).
     native_chrome: bool,
+    /// EXP-716: vertical placement as a fraction of the opener's height,
+    /// measured from its top edge, instead of centered. A window that
+    /// grows with its content (the search palette) needs a fixed top so it
+    /// extends downward like a dropdown; centered placement would leave a
+    /// compact opener at mid-screen and grow it off the bottom.
+    anchor_top: Option<f32>,
 }
 
 impl DialogSpec {
@@ -265,7 +271,16 @@ impl DialogSpec {
             size,
             min_size: None,
             native_chrome: true,
+            anchor_top: None,
         }
+    }
+
+    /// Place the window's top edge `fraction` of the opener's height below
+    /// the opener's top instead of centering it vertically (EXP-716). The
+    /// web palette's `sm:top-[15%]`.
+    pub(crate) fn anchor_top(mut self, fraction: f32) -> Self {
+        self.anchor_top = Some(fraction);
+        self
     }
 
     /// Lower the resize floor below the opening size (EXP-285). Every
@@ -415,6 +430,45 @@ const CHANNEL_APP_ID: &str = "at.exponential";
 #[cfg(feature = "staging")]
 const CHANNEL_APP_ID: &str = "at.exponential.staging";
 
+/// EXP-716: resize a dialog window to a new CONTENT size keeping its top
+/// edge fixed, so a window that follows its content grows downward. gpui's
+/// `Window::resize` already anchors the top-left on Windows and X11 (and a
+/// Wayland compositor places as it likes); macOS anchors the bottom-left, so
+/// it takes the native path in [`crate::macos_window`]. Deferred out of the
+/// current render either way — resizing mid-frame re-enters the platform
+/// path (the window_size.rs EXP-263 precedent).
+pub(crate) fn resize_dialog_keeping_top(
+    window: &mut Window,
+    cx: &mut App,
+    size: Size<Pixels>,
+) {
+    window.defer(cx, move |window, cx| {
+        #[cfg(target_os = "macos")]
+        if crate::macos_window::resize_keeping_top(window, cx, size) {
+            return;
+        }
+        let _ = &cx;
+        window.resize(size);
+    });
+}
+
+/// EXP-716: the vertical space a chromeless dialog's own chrome takes out of
+/// the window — the 1px card edge top and bottom off Linux (drawn by
+/// [`DialogShell`]), the CSD shadow+border under Linux — so a content-sized
+/// dialog can convert its content height into a window height.
+///
+/// `None` = the window is not open yet (sizing the `DialogSpec`): assumes
+/// the untiled Linux frame, which is what a fresh floating dialog gets.
+pub(crate) fn chromeless_vertical_chrome(window: Option<&Window>) -> Pixels {
+    if !cfg!(target_os = "linux") {
+        return px(2.);
+    }
+    match window {
+        Some(window) => crate::window_frame::frame_vertical_chrome(window),
+        None => crate::window_frame::untiled_frame_vertical_chrome(),
+    }
+}
+
 /// Open a native dialog window over `window` (the opener). `build` runs
 /// INSIDE the new window and returns the content view + semantics.
 ///
@@ -451,19 +505,25 @@ pub(crate) fn open_dialog_window(
         size.height += crate::title_bar::TITLE_BAR_HEIGHT;
         size.height = size.height.min(window.viewport_size().height);
     }
-    // Parent-relative positioning: centered over the opener's outer bounds.
+    // Parent-relative positioning: centered over the opener's outer bounds
+    // (or, EXP-716, top-anchored at the spec's fraction of the opener).
     let opener_bounds = window.bounds();
+    let top = match spec.anchor_top {
+        Some(fraction) => opener_bounds.size.height * fraction,
+        None => (opener_bounds.size.height - size.height) / 2.,
+    };
     let origin = point(
         opener_bounds.origin.x + (opener_bounds.size.width - size.width) / 2.,
-        opener_bounds.origin.y + (opener_bounds.size.height - size.height) / 2.,
+        opener_bounds.origin.y + top,
     );
     let bounds = Bounds { origin, size };
     let title = spec.title.clone();
     // EXP-720: native-chrome dialogs always resize; the floor is the explicit
     // one or the opening size (capped like the size itself, so the floor can
     // never exceed what the viewport allowed). Chromeless panels (search,
-    // image preview) stay fixed — they are transient surfaces, not windows
-    // the user manages.
+    // image preview) are never user-resizable — they are transient surfaces,
+    // not windows the user manages (the search palette follows its CONTENT
+    // instead, EXP-716: `resize_dialog_keeping_top`).
     let min_size = native_chrome.then(|| {
         let mut min = spec.min_size.unwrap_or(spec.size);
         min.height += crate::title_bar::TITLE_BAR_HEIGHT;
