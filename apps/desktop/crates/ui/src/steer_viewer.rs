@@ -1759,6 +1759,27 @@ impl SteerSessionView {
 
     /// A body that folds behind "Show more" once it runs long.
     fn render_body(&self, id: FeedItemId, text: &str, cx: &mut gpui::Context<Self>) -> AnyElement {
+        self.render_body_folding(id, text, true, cx)
+    }
+
+    /// A body that never folds: the plan a reader must approve is always
+    /// shown in full (EXP-738, parity with iOS/Android).
+    fn render_unfolded_body(
+        &self,
+        id: FeedItemId,
+        text: &str,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        self.render_body_folding(id, text, false, cx)
+    }
+
+    fn render_body_folding(
+        &self,
+        id: FeedItemId,
+        text: &str,
+        fold: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         // EXP-698: every body this renders is a CHAT body — the user bubble,
         // the plan card, the ask card, a stepper step — so the rhythm and the
@@ -1769,7 +1790,7 @@ impl SteerSessionView {
         )
         .chat(true)
         .selectable(true);
-        if !clampable(text) {
+        if !fold || !clampable(text) {
             return div().w_full().min_w_0().child(view).into_any_element();
         }
         let expanded = self.expanded_bodies.contains(&id);
@@ -2173,7 +2194,11 @@ impl SteerSessionView {
                     .w_full()
                     .min_w_0()
                     .text_sm()
-                    .child(self.render_body(item.id, &card.text, cx)),
+                    .child(if card.plan_mode {
+                        self.render_unfolded_body(item.id, &card.text, cx)
+                    } else {
+                        self.render_body(item.id, &card.text, cx)
+                    }),
             )
             .child(self.render_prompt(item, active, false, window, cx))
             .into_any_element()
