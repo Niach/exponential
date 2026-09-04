@@ -1173,15 +1173,15 @@
         "file": "shots/settings-storage/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 58886,
-        "sha256": "573a7625dfab432b2c156aaa3535f1be430fa9e9e0ce175e70af9a1479948d8c"
+        "bytes": 58918,
+        "sha256": "1c02c60cdd80bff54ece0681e8d5ff311bb201e08cdcd1e4f2939f91f7a48def"
       },
       "web-mobile": {
         "file": "shots/settings-storage/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 49022,
-        "sha256": "70873e27fdf2f6ca667bc8a245f6a8b95e06c35a9b4f73293592e0c4637417f9"
+        "bytes": 61856,
+        "sha256": "41443204e21c58c9c3a1c23025d96f9b492093ad9740886e73e3697943284bed"
       }
     },
     "settings-team": {
@@ -1230,8 +1230,8 @@
         "file": "shots/settings-widget-editor/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 43334,
-        "sha256": "21dd5a8adfd148d5cb3fdfe7b35e0b915f9425dcdc849cb1d4881c267c6b989f"
+        "bytes": 43432,
+        "sha256": "dce0e1dcfc2a9463f251df61d439fc35aff5a6ef4ec60061802f8beb9106fc77"
       }
     },
     "settings-worktrees": {
