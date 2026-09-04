@@ -1061,14 +1061,15 @@ export function IssueDetailView({
             </div>
             <div className="mx-auto max-w-3xl">
               {propsBand}
-              {/* EXP-736: relations sit directly beneath the properties band,
-                  in the same gutter and the same glass card chrome. The phone
-                  carries them inside the properties sheet instead. */}
-              <IssueRelationsCard issueId={issue.id} readOnly={readOnly} />
               {/* EXP-698 r4: the "coding now" card sits directly under the
                   properties band — same gutter, same glass chrome — instead of
                   below the description. */}
               {codingControl}
+              {/* EXP-736: relations follow the coding strip, in the same
+                  gutter and glass card chrome, matching the desktop order
+                  (chip tray, agent row, relations). The phone carries them
+                  inside the properties sheet instead. */}
+              <IssueRelationsCard issueId={issue.id} readOnly={readOnly} />
               {editor}
               {attachmentError}
               {filesSection}
