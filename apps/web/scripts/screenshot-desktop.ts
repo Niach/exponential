@@ -48,6 +48,7 @@ import {
   DEMO_DEVICE_VERSION,
   DEMO_EMAIL,
   DEMO_FEED_QUESTION,
+  demoAgentReport,
 } from "./screenshot-demo"
 
 // >1 agent so the sheet renders its agent pill strip; the caps are the ones a
@@ -57,7 +58,9 @@ import {
 const AGENTS = [`claude`, `codex`, `pi`]
 // `resume-run` (EXP-637) is advertised by every real desktop and is what makes
 // the seed's ended runs resumable — without it "Recent automated runs"
-// renders, but the Resume button never does (EXP-663).
+// renders, but the Resume button never does (EXP-663). `agent-login`
+// (EXP-484) is what puts the Login / Switch account button on each agent's
+// row in machine settings — a real desktop declares it unconditionally.
 const CAPS = [
   `actions`,
   `action-inputs`,
@@ -65,6 +68,7 @@ const CAPS = [
   `chat`,
   `automations`,
   `resume-run`,
+  `agent-login`,
 ]
 
 // Under the relay's 90s publisher-idle timeout (hub.ts PUBLISHER_IDLE_TIMEOUT_MS).
@@ -383,8 +387,18 @@ Leave this running for the whole fastlane capture. Ctrl-C to stop.
   // Start-coding circle renders its no-device state and the dialog never
   // opens (EXP-580) — so register like a real desktop's heartbeat would and
   // keep the row fresh alongside the session heartbeat.
-  const touchDevice = () =>
-    db
+  //
+  // EXP-733: the same tick re-stamps the per-agent account + usage report
+  // (`demoAgentReport`) the way a real heartbeat carries it. Every client
+  // gates its Agents section, the session usage strip and the mobile Usage
+  // sheet on these two columns — and the usage cards only render while
+  // `fetchedAt` is under 15 minutes old, so a one-time write at boot would
+  // photograph fresh cards on the first lane and an "as of 20 minutes ago"
+  // line on the last.
+  const touchDevice = () => {
+    const now = new Date()
+    const report = demoAgentReport(now)
+    return db
       .insert(devices)
       .values({
         userId,
@@ -399,21 +413,28 @@ Leave this running for the whole fastlane capture. Ctrl-C to stop.
         isDefault: true,
         agents: AGENTS,
         caps: CAPS,
-        lastSeenAt: new Date(),
+        agentAccounts: report.agentAccounts,
+        agentUsage: report.agentUsage,
+        agentUsageAt: now,
+        lastSeenAt: now,
         activeSessions: 1,
       })
       .onConflictDoUpdate({
         target: [devices.userId, devices.deviceId],
         set: {
-          lastSeenAt: new Date(),
+          lastSeenAt: now,
           label: DEMO_DEVICE_LABEL,
           version: DEMO_DEVICE_VERSION,
           isDefault: true,
           agents: AGENTS,
           caps: CAPS,
+          agentAccounts: report.agentAccounts,
+          agentUsage: report.agentUsage,
+          agentUsageAt: now,
         },
       })
       .catch((err) => console.error(`[device heartbeat]`, err))
+  }
   await touchDevice()
 
   const heartbeat = setInterval(() => {

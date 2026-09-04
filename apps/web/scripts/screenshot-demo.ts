@@ -266,3 +266,133 @@ export const DEMO_FEED_QUESTION = `Cold start is at 740ms (target <800ms). Lazy-
  * the seed's thread list.
  */
 export const SUPPORT_REPORTER_THREAD_TITLE = `Can't sign in on the iPad app`
+
+/**
+ * What the demo desktop reports about its three agent CLIs (EXP-733): the
+ * account each one is signed in as and the usage windows it last read.
+ *
+ * A real desktop collects both locally and ships them on register/heartbeat
+ * (EXP-484) into `devices.agent_accounts` / `agent_usage`; every client then
+ * renders the same rows off the synced row — the Agents section of machine
+ * settings (web, desktop, iOS, Android), the session usage strip beside a
+ * running run, and the mobile Usage sheet. Before this the stand-in desktop
+ * (`screenshot-desktop.ts`) registered neither, so every one of those
+ * surfaces photographed its empty fallback ("Sign-in status unknown", no
+ * limits) and the store could not gate drift on them at all.
+ *
+ * The numbers are PINNED, the stamps are not. `fetchedAt` has to be within
+ * `USAGE_FRESH_MS` (15 min) of the CLIENT's clock or the cards dim into an
+ * "as of …" line, and a reset renders as a live countdown (`resets in 3h
+ * 32m`) computed against that same clock — so the stub stamps both relative
+ * to ITS "now" on every heartbeat, like the real desktop. `resetsIn` is a
+ * duration for that reason, and it carries `COUNTDOWN_PAD_SECONDS` of slack
+ * past the label it is meant to print: the shutter fires up to one heartbeat
+ * (30 s) after the stamp, and without the pad the minute would already have
+ * ticked over to `3h 31m` by the time anyone looked.
+ *
+ * Claude's three windows are the SAME numbers the desktop's own DEV stub
+ * (`ui/src/device_settings.rs` `dev_agent_status`, `EXP_DEV_AGENT_ACCOUNT`)
+ * bakes into `settings-agents`, so the two places a capture shows this
+ * machine's claude limits agree. pi has no usage surface of its own — its
+ * Anthropic OAuth provider answers the same endpoint claude does — so it
+ * reports claude's windows under the provider caption pi actually prints.
+ * `screenshot-demo.test.ts` checks the pad against the countdown rule.
+ */
+export const COUNTDOWN_PAD_SECONDS = 45
+
+export interface DemoUsageWindow {
+  key: string
+  label: string
+  percent: number
+  /** Seconds from the stamp to the reset; null = the window reports none. */
+  resetsIn: number | null
+}
+
+export interface DemoAgentStatus {
+  signedIn: boolean
+  email?: string
+  plan?: string
+  windows: DemoUsageWindow[]
+}
+
+const CLAUDE_WINDOWS: DemoUsageWindow[] = [
+  { key: `session`, label: `5h`, percent: 73, resetsIn: 3 * 3_600 + 32 * 60 },
+  { key: `weekly`, label: `Week`, percent: 24, resetsIn: 30 * 3_600 },
+  { key: `model:fable`, label: `Fable`, percent: 38, resetsIn: 30 * 3_600 },
+]
+
+export const DEMO_AGENT_STATUS: Record<`claude` | `codex` | `pi`, DemoAgentStatus> = {
+  claude: {
+    signedIn: true,
+    email: DEMO_EMAIL,
+    plan: `max`,
+    windows: CLAUDE_WINDOWS,
+  },
+  codex: {
+    signedIn: true,
+    email: DEMO_EMAIL,
+    plan: `plus`,
+    windows: [
+      { key: `session`, label: `5h`, percent: 41, resetsIn: 2 * 3_600 + 5 * 60 },
+      { key: `weekly`, label: `Week`, percent: 57, resetsIn: 4 * 86_400 + 9 * 3_600 },
+    ],
+  },
+  pi: {
+    signedIn: true,
+    plan: `anthropic (oauth)`,
+    windows: CLAUDE_WINDOWS,
+  },
+}
+
+/**
+ * The two jsonb payloads for `devices.agent_accounts` / `agent_usage`, stamped
+ * against `now` — call it on EVERY heartbeat, never once at boot, or the
+ * numbers go stale 15 minutes into the run.
+ */
+export function demoAgentReport(now: Date): {
+  agentAccounts: Record<
+    string,
+    { signedIn: boolean; email?: string; plan?: string; checkedAt: string }
+  >
+  agentUsage: Record<
+    string,
+    {
+      fetchedAt: string
+      stale: boolean
+      windows: Array<{
+        key: string
+        label: string
+        percent: number
+        resetsAt: string | null
+      }>
+    }
+  >
+} {
+  const stamp = now.toISOString()
+  const agentAccounts: ReturnType<typeof demoAgentReport>[`agentAccounts`] = {}
+  const agentUsage: ReturnType<typeof demoAgentReport>[`agentUsage`] = {}
+  for (const [agent, status] of Object.entries(DEMO_AGENT_STATUS)) {
+    agentAccounts[agent] = {
+      signedIn: status.signedIn,
+      ...(status.email ? { email: status.email } : {}),
+      ...(status.plan ? { plan: status.plan } : {}),
+      checkedAt: stamp,
+    }
+    agentUsage[agent] = {
+      fetchedAt: stamp,
+      stale: false,
+      windows: status.windows.map((window) => ({
+        key: window.key,
+        label: window.label,
+        percent: window.percent,
+        resetsAt:
+          window.resetsIn === null
+            ? null
+            : new Date(
+                now.getTime() + (window.resetsIn + COUNTDOWN_PAD_SECONDS) * 1000
+              ).toISOString(),
+      })),
+    }
+  }
+  return { agentAccounts, agentUsage }
+}

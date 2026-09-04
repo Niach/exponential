@@ -1,7 +1,16 @@
 import { formatDistanceToNowStrict } from "date-fns"
 import { describe, expect, it } from "vitest"
 import {
+  accountLine,
+  formatResetCountdown,
+  parseAgentUsage,
+  usageIsFresh,
+} from "@/lib/agent-usage"
+import {
+  COUNTDOWN_PAD_SECONDS,
+  DEMO_AGENT_STATUS,
   DEMO_API_KEYS,
+  demoAgentReport,
   DEMO_DUE_DATES,
   DEMO_PENDING_INVITE_EXPIRY,
   DEMO_PINNED_PAST_DATES,
@@ -157,5 +166,66 @@ describe(`pinned past dates the settings views print absolutely`, () => {
     // Rendered as `${start}…`, so an empty one silently falls back to the
     // random `prefix` and the churn comes straight back.
     for (const key of DEMO_API_KEYS) expect(key.start).toMatch(/^expu_\w+$/)
+  })
+})
+
+describe(`demo agent report (EXP-733)`, () => {
+  const agents = Object.keys(DEMO_AGENT_STATUS)
+  /** The stub re-stamps on every heartbeat (screenshot-desktop.ts HEARTBEAT_MS). */
+  const HEARTBEAT_MS = 30_000
+
+  it(`reports all three agents, signed in, with a line each client can print`, () => {
+    expect(agents.sort()).toStrictEqual([`claude`, `codex`, `pi`])
+    const { agentAccounts } = demoAgentReport(new Date())
+    for (const agent of agents) {
+      // "Sign-in status unknown" / "Not signed in" are exactly the fallbacks
+      // the store used to photograph.
+      expect(accountLine(agentAccounts[agent])).not.toMatch(/unknown|Not signed in/)
+    }
+  })
+
+  it(`is fresh for the whole gap between two heartbeats`, () => {
+    const stamped = new Date()
+    const { agentUsage } = demoAgentReport(stamped)
+    for (const agent of agents) {
+      const usage = parseAgentUsage(agentUsage[agent])
+      expect(usage?.windows.length).toBeGreaterThan(0)
+      // Fresh at the stamp AND one heartbeat later, so the cards never dim
+      // between two ticks.
+      expect(usageIsFresh(usage, stamped)).toBe(true)
+      expect(usageIsFresh(usage, new Date(stamped.getTime() + HEARTBEAT_MS))).toBe(true)
+    }
+  })
+
+  it.each(agents)(`%s prints the same countdown however late in the heartbeat the shutter fires`, (agent) => {
+    const stamped = new Date()
+    const { agentUsage } = demoAgentReport(stamped)
+    for (const window of agentUsage[agent].windows) {
+      if (!window.resetsAt) continue
+      const atStamp = formatResetCountdown(window.resetsAt, stamped)
+      // Sampled every second across the whole gap — the label is monotonic,
+      // but sampling says WHERE the pad ran out.
+      for (let elapsed = 0; elapsed <= HEARTBEAT_MS; elapsed += 1000) {
+        const later = new Date(stamped.getTime() + elapsed)
+        expect(formatResetCountdown(window.resetsAt, later)).toBe(atStamp)
+      }
+    }
+  })
+
+  it(`pads each reset by less than a minute, so the label is the offset it names`, () => {
+    // `resets in 3h 32m` is the seeded 3h32m, not 3h33m: the pad only has to
+    // outlast one heartbeat, never a whole minute.
+    expect(COUNTDOWN_PAD_SECONDS).toBeGreaterThanOrEqual(HEARTBEAT_MS / 1000)
+    expect(COUNTDOWN_PAD_SECONDS).toBeLessThan(60)
+  })
+
+  it(`keeps every percent on the normal side of the warning threshold`, () => {
+    // The store photographs the ordinary state, not an amber or red bar.
+    for (const status of Object.values(DEMO_AGENT_STATUS)) {
+      for (const window of status.windows) {
+        expect(window.percent).toBeGreaterThan(0)
+        expect(window.percent).toBeLessThan(75)
+      }
+    }
   })
 })

@@ -58,6 +58,7 @@ under the launcher.
 | `EXP_DEV_GETTING_STARTED_TAB` | `first-steps` \| `suggestions` | The Getting started screen's active tab (EXP-686 — the action suggestion seeds moved there from the Actions screen, which no longer has tabs; Devices and Automations are their own `EXP_DEV_SCREEN` values). |
 | `EXP_DEV_OPEN_SHELL` | `1` | Open the terminal dock. |
 | `EXP_DEV_SHELL_CWD` | absolute path | Where that shell starts. Default `$HOME`, whose directory name becomes the tab title — i.e. the developer's account name. The lane sets it to `--repos-root` so the store stays username-free (EXP-651). |
+| `EXP_DEV_AGENT_ACCOUNT` | email | Settings → Agents renders the LOCAL install's own sign-in and usage rows. With this set the pane never probes the machine: it stands demo accounts (claude + codex as this address, pi as its Anthropic provider) and pinned usage windows in place of the operator's real ones (EXP-698/733). The numbers match the shots stub's synced device row (`apps/web/scripts/screenshot-demo.ts` `DEMO_AGENT_STATUS`). |
 
 ## The ready handshake
 

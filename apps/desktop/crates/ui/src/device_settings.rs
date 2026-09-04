@@ -265,7 +265,7 @@ pub(crate) fn own_agent_status(
     (accounts, status.usage)
 }
 
-/// DEV-ONLY `EXP_DEV_AGENT_ACCOUNT` (EXP-698) — stand a DEMO claude account
+/// DEV-ONLY `EXP_DEV_AGENT_ACCOUNT` (EXP-698) — stand DEMO agent accounts
 /// and demo usage windows in place of whatever this machine actually probed.
 ///
 /// Settings → Agents renders the LOCAL install's own account row, so the
@@ -274,6 +274,14 @@ pub(crate) fn own_agent_status(
 /// variable set the pane never consults the hub at all: no keychain read, no
 /// usage fetch, nothing personal to leak. Unset (every real build) this is a
 /// no-op.
+///
+/// EXP-733: the numbers are the SAME ones the stand-in desktop of the shots
+/// pipeline reports for the demo machine's synced row
+/// (`apps/web/scripts/screenshot-demo.ts` `DEMO_AGENT_STATUS`) — all three
+/// agents, so the pane's Codex and pi tabs photograph the same machine the
+/// web/mobile machine-settings shots do. Each reset carries a few seconds of
+/// pad past the label it is meant to print, so the shutter (which fires some
+/// seconds after launch) still reads `3h 32m` rather than the minute below.
 fn dev_agent_status() -> Option<(
     coding::agent_accounts::AgentAccounts,
     coding::agent_usage::AgentUsageMap,
@@ -287,54 +295,63 @@ fn dev_agent_status() -> Option<(
         .filter(|value| !value.is_empty())?;
     let now = chrono::Utc::now();
     let stamp = now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    const COUNTDOWN_PAD_SECONDS: i64 = 45;
     let resets_in = |seconds: i64| {
         Some(
-            (now + chrono::Duration::seconds(seconds))
+            (now + chrono::Duration::seconds(seconds + COUNTDOWN_PAD_SECONDS))
                 .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         )
     };
+    let window = |key: &str, label: &str, percent: u8, resets: i64| UsageWindow {
+        key: key.to_string(),
+        label: label.to_string(),
+        percent,
+        resets_at: resets_in(resets),
+    };
+    // The three windows the pane groups: the 5h session, the weekly
+    // all-models bucket and one per-model bucket under it. pi has no usage
+    // surface of its own — its Anthropic OAuth provider answers the same
+    // endpoint — so it reports the same windows under its provider caption.
+    let claude_windows = || {
+        vec![
+            window("session", "5h", 73, 3 * 3_600 + 32 * 60),
+            window("weekly", "Week", 24, 30 * 3_600),
+            window("model:fable", "Fable", 38, 30 * 3_600),
+        ]
+    };
 
     let mut accounts = AgentAccounts::new();
-    accounts.insert(
-        CodingAgent::Claude.id().to_string(),
-        AgentAccount {
-            signed_in: true,
-            email: Some(email),
-            plan: Some("max".to_string()),
-            checked_at: stamp.clone(),
-        },
-    );
-
-    // The three windows the pane groups: the 5h session, the weekly
-    // all-models bucket and one per-model bucket under it.
     let mut usage = AgentUsageMap::new();
-    usage.insert(
-        CodingAgent::Claude.id().to_string(),
-        AgentUsage {
-            fetched_at: stamp,
-            stale: false,
-            windows: vec![
-                UsageWindow {
-                    key: "session".to_string(),
-                    label: "5h".to_string(),
-                    percent: 73,
-                    resets_at: resets_in(3 * 3_600 + 32 * 60),
-                },
-                UsageWindow {
-                    key: "weekly".to_string(),
-                    label: "7d".to_string(),
-                    percent: 24,
-                    resets_at: resets_in(30 * 3_600),
-                },
-                UsageWindow {
-                    key: "model:fable".to_string(),
-                    label: "Fable".to_string(),
-                    percent: 38,
-                    resets_at: resets_in(30 * 3_600),
-                },
-            ],
-        },
+    let mut report = |agent: CodingAgent, account_email: Option<String>, plan: &str, windows: Vec<UsageWindow>| {
+        accounts.insert(
+            agent.id().to_string(),
+            AgentAccount {
+                signed_in: true,
+                email: account_email,
+                plan: Some(plan.to_string()),
+                checked_at: stamp.clone(),
+            },
+        );
+        usage.insert(
+            agent.id().to_string(),
+            AgentUsage {
+                fetched_at: stamp.clone(),
+                stale: false,
+                windows,
+            },
+        );
+    };
+    report(CodingAgent::Claude, Some(email.clone()), "max", claude_windows());
+    report(
+        CodingAgent::Codex,
+        Some(email),
+        "plus",
+        vec![
+            window("session", "5h", 41, 2 * 3_600 + 5 * 60),
+            window("weekly", "Week", 57, 4 * 86_400 + 9 * 3_600),
+        ],
     );
+    report(CodingAgent::Pi, None, "anthropic (oauth)", claude_windows());
     Some((accounts, usage))
 }
 

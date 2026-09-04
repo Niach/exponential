@@ -1051,13 +1051,21 @@ async function main() {
   // Live coding sessions for the agents screenshot. The clients hide rows
   // whose updated_at heartbeat is older than the contract staleHours window,
   // so both get a fresh heartbeat; board_id/team_id denormalize by trigger.
+  //
+  // EXP-733: the demo user's own rows name the MACHINE (`deviceId`) and the
+  // AGENT the way a real launch stamps them — `sessionAgentUsage` (×4) needs
+  // both to join the session to the stub desktop's synced usage report, which
+  // is what puts the usage strip on the steering shot and the Usage sheet on
+  // mobile. Mira's row stays bare: her machine never registers.
   const reviewIssue = inserted[13]
   await db.insert(codingSessions).values([
     {
       issueId: showcase.id,
       teamId: ws.id,
       userId: demoId,
+      deviceId: DEMO_DEVICE_ID,
       deviceLabel: DEMO_DEVICE_LABEL,
+      agent: `claude`,
       status: `running`,
       startedAt: hoursAgo(1),
     },
@@ -1073,7 +1081,9 @@ async function main() {
       issueId: reviewIssue.id,
       teamId: ws.id,
       userId: demoId,
+      deviceId: DEMO_DEVICE_ID,
       deviceLabel: DEMO_DEVICE_LABEL,
+      agent: `codex`,
       status: `in_review`,
       startedAt: hoursAgo(3),
     },
