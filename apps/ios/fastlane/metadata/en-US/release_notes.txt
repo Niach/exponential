@@ -1,5 +1,12 @@
+- Tables: write tables in issues and comments, with column alignment; edit cells on your phone and long-press to delete a whole table
+- Steering: type "/" to run the agent's built-in commands such as /compact and /clear, and watch the agent compact its context instead of guessing
+- Comments show @mentions as member pills instead of the raw address
+- Boards: every board can set its own default branch in board settings; coding sessions start from it
+- Review diffs scroll sideways with a compact header per file
+- Empty boards show an icon, a title and a hint
+- Settings, action and start-coding sheets follow the platform idioms more closely
+- A refreshed glass look across lists, sheets and controls
 - Todo and Backlog are now one list: everything that sat in Todo lives in Backlog
-- Sheets and menus share one uniform look across the app
 - The editor keeps your intentional blank lines, identically on every platform
 - Agents always run without permission prompts; the toggle is gone
 - One agent picker: agent, model, effort, plan mode, account and usage in a single card

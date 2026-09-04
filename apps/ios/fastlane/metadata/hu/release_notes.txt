@@ -1,5 +1,12 @@
+- Táblázatok: írj táblázatokat a feladatokban és kommentekben, oszlopigazítással; a cellákat telefonon szerkesztheted, hosszú nyomással pedig törölheted az egész táblázatot
+- Irányítás: írj „/” jelet az agent beépített parancsaihoz, például /compact és /clear, és nézd, ahogy az agent tömöríti a kontextusát találgatás helyett
+- A kommentek a @mentions említéseket tagcímkeként mutatják a nyers cím helyett
+- Boardok: minden board saját alapértelmezett branchet állíthat be a board beállításaiban; a kódolási munkamenetek innen indulnak
+- A Reviews diffjei oldalra görgethetők, fájlonként tömör fejléccel
+- Az üres boardok ikont, címet és tippet mutatnak
+- A beállítások, a műveletek és a kódolásindítás lapjai jobban követik a platform szokásait
+- Felfrissített üveges megjelenés a listákban, lapokon és vezérlőkön
 - A Todo és a Backlog mostantól egy lista: minden, ami a Todóban volt, a Backlogban él
-- A lapok és menük egységes megjelenést kaptak az egész alkalmazásban
 - A szerkesztő megőrzi a szándékos üres sorokat, minden platformon azonosan
 - Az agentek mindig engedélykérdések nélkül futnak; a kapcsoló megszűnt
 - Egyetlen ügynökválasztó: ügynök, modell, erőfeszítés, tervmód, fiók és használat egy kártyán

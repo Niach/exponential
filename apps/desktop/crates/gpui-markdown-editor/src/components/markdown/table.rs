@@ -623,16 +623,66 @@ fn serialize_alignment(alignment: TableColumnAlignment) -> &'static str {
     }
 }
 
-/// EXP-726: a cell is ONE inline paragraph of GFM. The inline serializer has
-/// already escaped everything that needs escaping, so the only cell-level
+/// EXP-726: a cell is ONE inline paragraph of GFM, so the only cell-level
 /// rewrites are GFM's two: an unescaped `|` would end the cell, and a newline
-/// would end the row. Doubling backslashes here (upstream) double-escaped the
-/// inline serializer's own output — `a\*b` shipped as `a\\*b`, which every
+/// would end the row. Doubling every backslash here (upstream) double-escaped
+/// the inline serializer's own output — `a\*b` shipped as `a\\*b`, which every
 /// other client then renders as a literal backslash.
 pub(crate) fn serialize_table_cell_markdown(tree: &InlineTextTree) -> String {
-    tree.serialize_markdown()
-        .replace('|', "\\|")
-        .replace('\n', " ")
+    escape_cell_pipes(&tree.serialize_markdown()).replace('\n', " ")
+}
+
+/// EXP-726: GFM's cell-level pipe escape, the exact inverse of
+/// [`split_table_cells`] (which mirrors comrak's `unescape_pipes`: ONLY the
+/// pair `\|` collapses, every other backslash pair passes through to the inline
+/// parser).
+///
+/// The input here is already inline-serialized WIRE markdown, so a run of
+/// backslashes in front of a `|` may be even (the inline serializer escaped a
+/// literal backslash: `a\|b` visible ships as `a\\` + the pipe) or ODD (a
+/// code/math/footnote span, whose source the inline serializer emits RAW — a
+/// code span holding `grep 'a\|b'` reaches this function with a bare
+/// backslash). Appending `\|` blindly is only safe for the even case: with an
+/// odd run the splitter pairs our escape's backslash with the run's last one,
+/// the `|` becomes a CELL SEPARATOR again, and the surplus cell is truncated on
+/// the next parse — the text after the pipe is simply lost.
+///
+/// So pad an odd run by one before escaping the pipe, which is the parity-aware
+/// form of the run-doubling the other three emitters do (`serialize.rs`
+/// `escape_cell_pipes`, iOS `escapeTablePipes`, Android `escapeCellPipes`) —
+/// they escape VISIBLE text, where every run is raw, and doubling an all-raw
+/// run is exactly padding it to even. The wire bytes agree across all four:
+/// visible `a\|b` is `a` + THREE backslashes + `|` + `b` either way.
+///
+/// KNOWN, accepted on every client: an ODD run of LITERAL backslashes in front
+/// of a pipe is not representable at all — the splitter only ever emits them in
+/// pairs — so a code span holding `a\|b` gains one backslash the first time it
+/// is saved (here it then holds at two; the comrak block pipeline keeps
+/// doubling). Out of scope for this fix, which only has to stop the ODD case
+/// from splitting the cell and losing its tail.
+fn escape_cell_pipes(markdown: &str) -> String {
+    let mut out = String::with_capacity(markdown.len());
+    let mut backslash_run = 0usize;
+    for ch in markdown.chars() {
+        match ch {
+            '\\' => {
+                backslash_run += 1;
+                out.push('\\');
+            }
+            '|' => {
+                if backslash_run % 2 == 1 {
+                    out.push('\\');
+                }
+                out.push_str("\\|");
+                backslash_run = 0;
+            }
+            _ => {
+                backslash_run = 0;
+                out.push(ch);
+            }
+        }
+    }
+    out
 }
 
 fn serialize_row<'a>(cells: impl IntoIterator<Item = &'a InlineTextTree>) -> String {
@@ -1300,12 +1350,59 @@ mod tests {
             // A LITERAL backslash immediately before a pipe. `\|` is the pipe
             // escape and `\\` the backslash escape, so the wire form of the
             // cell text `a\|b` is `a` + THREE backslashes + `|` + `b`. Nothing
-            // here doubles backslashes at the cell level: the inline
-            // serializer already escapes a backslash that precedes ASCII
-            // punctuation (`literal_char_needs_escape`), so by the time
-            // `serialize_table_cell_markdown` runs, the run in front of a pipe
-            // is always already even and only the pipe itself needs `\|`.
+            // is doubled at the cell level here: the inline serializer already
+            // escapes a backslash that precedes ASCII punctuation
+            // (`literal_char_needs_escape`), so this run reaches
+            // `serialize_table_cell_markdown` EVEN and only the pipe itself
+            // needs `\|`. (Raw-emitted spans are the odd-run case — see
+            // `code_span_pipe_is_escaped_past_the_splitter_exp726`.)
             "| a\\\\\\|b | c |",
+        ] {
+            let lines = vec![source.to_string(), "| --- | --- |".to_string()];
+            let table = parse_root_table_region(&lines)
+                .unwrap_or_else(|| panic!("{source:?} should parse as a table"));
+            assert_eq!(serialize_table_markdown_lines(&table)[0], source);
+        }
+    }
+
+    /// EXP-726 (review): the inline serializer emits a code/math span's SOURCE
+    /// raw — it escapes nothing in there — so, unlike escaped literal text, the
+    /// backslash run it hands the cell layer can be ODD. The cell layer has to
+    /// pad it before escaping the pipe. The bare `.replace('|', "\\|")` this
+    /// used to be emitted `a` + TWO backslashes + `|`, which the splitter reads
+    /// as a backslash PAIR followed by a CELL SEPARATOR: a surplus cell, and
+    /// everything after the pipe is dropped on the next parse.
+    #[test]
+    fn code_span_pipe_is_escaped_past_the_splitter_exp726() {
+        let cell = InlineTextTree::from_markdown("`grep 'a\\|b'`");
+        // The span goes out raw: one bare backslash in front of the pipe.
+        assert_eq!(cell.serialize_markdown(), "`grep 'a\\|b'`");
+
+        // Odd run padded to even, then the pipe escaped: THREE backslashes.
+        let wire = serialize_table_cell_markdown(&cell);
+        assert_eq!(wire, "`grep 'a\\\\\\|b'`");
+
+        // The whole span survives inside ONE cell. Under the old escape the
+        // splitter returned three cells and `b'` was gone.
+        let cells = split_table_cells(&format!("| {wire} | c |")).expect("row should split");
+        assert_eq!(cells, vec!["`grep 'a\\\\|b'`".to_string(), "c".to_string()]);
+    }
+
+    /// EXP-726 (review): pipes inside code spans at their wire FIXPOINTS. `\|`
+    /// is the pipe escape even inside a code span (the cell splitter resolves
+    /// it before the inline parser ever sees the backticks), while every other
+    /// backslash in there stays literal — so these runs are already even and
+    /// the parity pad is a no-op.
+    #[test]
+    fn code_span_pipe_cells_round_trip_byte_identically_exp726() {
+        for source in [
+            // No backslash at all: the pipe is just escaped.
+            "| `a\\|b` | c |",
+            // A backslash the pipe does not touch stays bare.
+            "| `a\\b\\|c` | d |",
+            // Backslash + pipe: an EVEN run (the code span holds two literal
+            // backslashes) plus the pipe escape = THREE backslashes.
+            "| `a\\\\\\|b` | c |",
         ] {
             let lines = vec![source.to_string(), "| --- | --- |".to_string()];
             let table = parse_root_table_region(&lines)

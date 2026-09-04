@@ -1,5 +1,12 @@
+- Tabele: scrie tabele în taskuri și comentarii, cu aliniere pe coloane; editează celulele pe telefon și apasă lung pentru a șterge un tabel întreg
+- Ghidare: scrie „/” pentru comenzile integrate ale agentului, precum /compact și /clear, și vezi cum agentul își compactează contextul în loc să ghicească
+- Comentariile arată @mentions ca etichete de membru în loc de adresa brută
+- Board-uri: fiecare board își poate seta propriul branch implicit în setările board-ului; sesiunile de cod pornesc de acolo
+- Diff-urile din Reviews se derulează lateral, cu un antet compact pentru fiecare fișier
+- Board-urile goale arată o pictogramă, un titlu și un indiciu
+- Foile de setări, de acțiuni și de pornire a codării urmăresc mai îndeaproape obiceiurile platformei
+- Un aspect de sticlă împrospătat în liste, foi și controale
 - Todo și Backlog sunt acum o singură listă: tot ce era în Todo se află acum în Backlog
-- Foile și meniurile au un aspect uniform în toată aplicația
 - Editorul păstrează liniile goale intenționate, identic pe fiecare platformă
 - Agenții rulează întotdeauna fără întrebări de permisiuni; comutatorul a dispărut
 - Un singur selector de agent: agent, model, efort, mod plan, cont și utilizare într-un singur card

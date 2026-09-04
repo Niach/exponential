@@ -714,7 +714,12 @@ struct AgentsView: View {
         // press and hold. The steering screen's "…" menu carries the twin.
         .contextMenu {
             if let issue = row.issue, !(issue.identifier ?? "").isEmpty {
-                NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
+                // A NavigationLink inside a context menu is lowered to a
+                // UIMenu outside the NavigationStack and never fires; route
+                // through the deep-link bus like the steering screen does.
+                Button {
+                    deps.deepLinkBus.navigateToIssue(issue.id, accountId: accountId)
+                } label: {
                     Label("Open issue", appIcon: AppIcons.uiIssue)
                 }
             }

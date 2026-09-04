@@ -21,7 +21,10 @@
 //! `› 1. Yes, proceed (y)` with the `›` cursor, and the footer is
 //! `Press enter to confirm or esc to cancel`. The `request_user_input`
 //! bottom pane — same row shape, arbitrary question text — carries its own
-//! `… enter to submit answer …` footer and is rejected outright.
+//! `… enter to submit answer …` footer: [`detect`] rejects it outright (the
+//! rollout already published those questions as cards), and [`detect_ask`]
+//! reads it instead, so a remote answer to one of those cards can be
+//! actuated on the grid.
 
 use crate::frames::QuestionOption;
 
@@ -40,8 +43,12 @@ const TITLE_ANCHORS: &[&str] = &[
 const FOOTER_ANCHOR: &str = "Press enter to confirm";
 
 /// The `request_user_input` bottom pane's footer — that picker owns its
-/// screen (the rollout already published its questions as cards).
+/// screen (the rollout already published its questions as cards), and it is
+/// the anchor [`detect_ask`] keys on.
 const ASK_FOOTER: &str = "enter to submit answer";
+
+/// The `request_user_input` pane's step header (`Question 2/3 (1 unanswered)`).
+const STEP_ANCHOR: &str = "Question ";
 
 /// The selection cursor codex renders on the highlighted option row.
 const SELECTION_MARKER: char = '›';
@@ -89,60 +96,8 @@ pub fn detect(lines: &[String]) -> Option<ApprovalSnapshot> {
         t.starts_with(SELECTION_MARKER) && parse_option_row(t).is_some()
     })?;
     let marker_number = parse_option_row(lines[marker_idx].trim_start())?.0;
-
-    // Expand upward to option 1, skipping wrapped-label continuation rows.
-    let mut first_idx = marker_idx;
-    let mut expect = marker_number;
-    let mut skipped = 0usize;
-    while expect > 1 {
-        let prev_idx = first_idx.checked_sub(1)?;
-        let prev = lines[prev_idx].trim_start();
-        match parse_option_row(prev) {
-            Some((n, _)) if n == expect - 1 => {
-                first_idx = prev_idx;
-                expect = n;
-                skipped = 0;
-            }
-            Some(_) => return None,
-            None => {
-                if prev.is_empty() || skipped >= CONTINUATION_MAX {
-                    return None;
-                }
-                skipped += 1;
-                first_idx = prev_idx;
-            }
-        }
-    }
-    let first_idx = (first_idx..=marker_idx)
-        .find(|&idx| matches!(parse_option_row(lines[idx].trim_start()), Some((1, _))))?;
-
-    // Collect downward, folding continuation rows into the previous label.
-    let mut options: Vec<QuestionOption> = Vec::new();
-    let mut next = 1u32;
-    let mut skipped = 0usize;
-    let mut last_option_idx = first_idx;
-    for (idx, line) in lines.iter().enumerate().skip(first_idx) {
-        let t = line.trim_start();
-        match parse_option_row(t) {
-            Some((n, label)) if n == next => {
-                options.push(QuestionOption::new(label, n.to_string()));
-                next += 1;
-                skipped = 0;
-                last_option_idx = idx;
-            }
-            Some(_) => break,
-            None => {
-                if t.is_empty() || skipped >= CONTINUATION_MAX {
-                    break;
-                }
-                skipped += 1;
-                if let Some(last) = options.last_mut() {
-                    last.label = format!("{} {}", last.label, t.trim());
-                    last_option_idx = idx;
-                }
-            }
-        }
-    }
+    let first_idx = first_option_idx(lines, marker_idx, marker_number)?;
+    let (options, last_option_idx) = collect_options(lines, first_idx);
     if options.len() < 2 || marker_number as usize > options.len() {
         return None;
     }
@@ -174,6 +129,127 @@ pub fn detect(lines: &[String]) -> Option<ApprovalSnapshot> {
         context,
         options,
     })
+}
+
+/// Walk UP from the cursor row to the row holding option 1, skipping wrapped
+/// label continuations. Shared by both pickers — their rows render alike.
+fn first_option_idx(lines: &[String], marker_idx: usize, marker_number: u32) -> Option<usize> {
+    let mut first_idx = marker_idx;
+    let mut expect = marker_number;
+    let mut skipped = 0usize;
+    while expect > 1 {
+        let prev_idx = first_idx.checked_sub(1)?;
+        let prev = lines[prev_idx].trim_start();
+        match parse_option_row(prev) {
+            Some((n, _)) if n == expect - 1 => {
+                first_idx = prev_idx;
+                expect = n;
+                skipped = 0;
+            }
+            Some(_) => return None,
+            None => {
+                if prev.is_empty() || skipped >= CONTINUATION_MAX {
+                    return None;
+                }
+                skipped += 1;
+                first_idx = prev_idx;
+            }
+        }
+    }
+    (first_idx..=marker_idx)
+        .find(|&idx| matches!(parse_option_row(lines[idx].trim_start()), Some((1, _))))
+}
+
+/// Collect the option run DOWNWARD from option 1, folding continuation rows
+/// into the previous label. Returns the options and the last row they occupy.
+fn collect_options(lines: &[String], first_idx: usize) -> (Vec<QuestionOption>, usize) {
+    let mut options: Vec<QuestionOption> = Vec::new();
+    let mut next = 1u32;
+    let mut skipped = 0usize;
+    let mut last_option_idx = first_idx;
+    for (idx, line) in lines.iter().enumerate().skip(first_idx) {
+        let t = line.trim_start();
+        match parse_option_row(t) {
+            Some((n, label)) if n == next => {
+                options.push(QuestionOption::new(label, n.to_string()));
+                next += 1;
+                skipped = 0;
+                last_option_idx = idx;
+            }
+            Some(_) => break,
+            None => {
+                if t.is_empty() || skipped >= CONTINUATION_MAX {
+                    break;
+                }
+                skipped += 1;
+                if let Some(last) = options.last_mut() {
+                    last.label = format!("{} {}", last.label, t.trim());
+                    last_option_idx = idx;
+                }
+            }
+        }
+    }
+    (options, last_option_idx)
+}
+
+/// The live `request_user_input` pane (EXP-455 sibling): the picker codex
+/// renders for the questions the ROLLOUT already published as cards, so it is
+/// never published again from here — this is the actuation surface a remote
+/// answer needs.
+///
+/// It differs from the approval overlay in the one way that matters: its
+/// footer says `enter to submit answer`, i.e. picking a row does NOT submit
+/// it. So an answer moves the cursor and confirms with Enter, and
+/// [`AskPaneSnapshot::selected`] is the proof the move landed BEFORE Enter is
+/// ever sent — no blind submit can pick the wrong row.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AskPaneSnapshot {
+    /// The `Question 2/3` header codex renders for a multi-question ask: the
+    /// 1-based step and the ask's question count. Absent on a pane that
+    /// renders no header.
+    pub step: Option<(u32, u32)>,
+    /// The 1-based option row the `›` cursor sits on.
+    pub selected: u32,
+    pub options: Vec<QuestionOption>,
+}
+
+/// Detect the `request_user_input` pane on a visible-screen snapshot.
+pub fn detect_ask(lines: &[String]) -> Option<AskPaneSnapshot> {
+    let footer_idx = lines.iter().rposition(|line| line.contains(ASK_FOOTER))?;
+    let marker_idx = lines[..footer_idx].iter().rposition(|line| {
+        let t = line.trim_start();
+        t.starts_with(SELECTION_MARKER) && parse_option_row(t).is_some()
+    })?;
+    let selected = parse_option_row(lines[marker_idx].trim_start())?.0;
+    let first_idx = first_option_idx(lines, marker_idx, selected)?;
+    let (options, last_option_idx) = collect_options(lines, first_idx);
+    // One option is a legitimate ask (unlike an approval, which always
+    // offers a refusal), but the cursor must sit on a row that exists.
+    if options.is_empty() || selected as usize > options.len() {
+        return None;
+    }
+    // The footer must sit right below the option run — a numbered list
+    // echoed further up the scrollback is not a live pane.
+    if footer_idx <= last_option_idx || footer_idx - last_option_idx > FOOTER_WINDOW {
+        return None;
+    }
+    let step = lines[..first_idx]
+        .iter()
+        .rev()
+        .take(FOOTER_WINDOW)
+        .find_map(|line| parse_step(line));
+    Some(AskPaneSnapshot {
+        step,
+        selected,
+        options,
+    })
+}
+
+/// `Question 2/3 (1 unanswered)` → `(2, 3)`.
+fn parse_step(line: &str) -> Option<(u32, u32)> {
+    let rest = line.trim().strip_prefix(STEP_ANCHOR)?;
+    let (step, total) = rest.split_whitespace().next()?.split_once('/')?;
+    Some((step.parse().ok()?, total.parse().ok()?))
 }
 
 /// Parse one option row (`› 1. Yes, proceed (y)`) into its number and label.
@@ -401,6 +477,56 @@ mod tests {
         // watcher must never double-publish it, even with an approval-ish
         // question text.
         assert_eq!(detect(&request_user_input_screen()), None);
+    }
+
+    #[test]
+    fn detect_ask_reads_the_step_cursor_and_rows() {
+        let snap = detect_ask(&request_user_input_screen()).expect("ask pane detected");
+        assert_eq!(snap.step, Some((1, 1)));
+        assert_eq!(snap.selected, 1);
+        assert_eq!(
+            snap.options
+                .iter()
+                .map(|o| (o.key.as_str(), o.label.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("1", "Option 1  First choice."),
+                ("2", "Option 2  Second choice."),
+            ]
+        );
+
+        // The cursor on a later row of a later question — what a multi-
+        // question ask looks like mid-flight.
+        let moved = screen(&[
+            "",
+            "  Question 2/3 (2 unanswered)",
+            "  Which database?",
+            "",
+            "    1. Postgres",
+            "  › 2. SQLite",
+            "",
+            "  tab to add notes | enter to submit answer | esc to interrupt",
+        ]);
+        let snap = detect_ask(&moved).expect("ask pane detected");
+        assert_eq!(snap.step, Some((2, 3)));
+        assert_eq!(snap.selected, 2);
+    }
+
+    #[test]
+    fn detect_ask_ignores_the_approval_overlay_and_a_stale_echo() {
+        // The approval overlay is the OTHER handler's surface.
+        assert_eq!(detect_ask(&exec_approval_screen()), None);
+        // A numbered list scrolled far above the footer is not a live pane.
+        let stale = screen(&[
+            "  › 1. Option 1",
+            "    2. Option 2",
+            "",
+            "",
+            "",
+            "",
+            "  tab to add notes | enter to submit answer | esc to interrupt",
+        ]);
+        assert_eq!(detect_ask(&stale), None);
     }
 
     #[test]

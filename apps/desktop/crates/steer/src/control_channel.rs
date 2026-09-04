@@ -70,10 +70,11 @@ const LIVENESS_TIMEOUT: Duration = Duration::from_secs(90);
 pub struct DeviceIdentity {
     /// Install-persistent UUID ([`crate::persistent_device_id`]).
     pub device_id: String,
-    /// OS hostname (`api::users::hostname()`). It rides the CONTROL TICKET
-    /// mint, not the `online` frame — EXP-672 took `deviceLabel` (and the
-    /// EXP-253 `caps` array) off that frame, and the phone picker's label
-    /// comes off the persisted `devices` row `devices.register` writes.
+    /// OS hostname (`api::users::hostname()`), for the LOG LINE only. It
+    /// reaches the server through `devices.register`, whose persisted row is
+    /// what every picker labels a device from: EXP-672 took `deviceLabel`
+    /// (and the EXP-253 `caps` array) off the `online` frame, and the mint
+    /// stopped carrying it too.
     pub device_label: String,
 }
 
@@ -82,9 +83,9 @@ pub struct DeviceIdentity {
 pub trait ControlApi: Send + Sync + 'static {
     /// `steer.config().enabled` — `Ok(false)` = disabled (normal, §8.3 #1).
     fn config_enabled(&self) -> Result<bool, ApiError>;
-    /// `steer.mintTicket({kind:"control", deviceLabel})` → dial URL, or
-    /// `Ok(None)` when the instance reports disabled.
-    fn mint_control(&self, device_label: &str) -> Result<Option<String>, ApiError>;
+    /// `steer.mintTicket({kind:"control"})` → dial URL, or `Ok(None)` when
+    /// the instance reports disabled.
+    fn mint_control(&self) -> Result<Option<String>, ApiError>;
 }
 
 /// Production [`ControlApi`] over the account's tRPC client.
@@ -95,8 +96,8 @@ impl ControlApi for TrpcControlApi {
         Ok(api::steer::config(&self.0)?.enabled)
     }
 
-    fn mint_control(&self, device_label: &str) -> Result<Option<String>, ApiError> {
-        Ok(api::steer::mint_control_ticket(&self.0, Some(device_label))?
+    fn mint_control(&self) -> Result<Option<String>, ApiError> {
+        Ok(api::steer::mint_control_ticket(&self.0)?
             .into_ticket()
             .map(|ticket| ticket.url))
     }
@@ -393,9 +394,7 @@ async fn run_control_loop(
 
         // §8.3 #3 — mint, then dial IMMEDIATELY (§8.7: < 5s budget).
         let api_for_mint = control_api.clone();
-        let label = device.device_label.clone();
-        let minted =
-            tokio::task::spawn_blocking(move || api_for_mint.mint_control(&label)).await;
+        let minted = tokio::task::spawn_blocking(move || api_for_mint.mint_control()).await;
         let url = match minted {
             Ok(Ok(Some(url))) => url,
             Ok(Ok(None)) => {

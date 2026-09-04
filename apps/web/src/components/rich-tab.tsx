@@ -57,6 +57,8 @@ export function RichTab({
       title={tooltip}
       onClick={onSelect}
       onKeyDown={(event) => {
+        // A keydown bubbling from the nested close button is its own click.
+        if (event.defaultPrevented || event.target !== event.currentTarget) return
         if (event.key === `Enter` || event.key === ` `) {
           event.preventDefault()
           onSelect()

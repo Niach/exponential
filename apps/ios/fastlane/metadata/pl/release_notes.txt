@@ -1,5 +1,12 @@
+- Tabele: pisz tabele w zadaniach i komentarzach, z wyrównaniem kolumn; komórki edytujesz w telefonie, a długie przytrzymanie usuwa całą tabelę
+- Sterowanie: wpisz „/”, aby uruchomić wbudowane polecenia agenta, takie jak /compact i /clear, i patrz, jak agent zagęszcza swój kontekst zamiast zgadywać
+- Komentarze pokazują @mentions jako oznaczenia członków zamiast surowego adresu
+- Tablice: każda tablica może ustawić własną gałąź domyślną w ustawieniach tablicy; sesje kodowania startują z niej
+- Diffy w Reviews przewijają się na boki, z kompaktowym nagłówkiem przy każdym pliku
+- Puste tablice pokazują ikonę, tytuł i podpowiedź
+- Arkusze ustawień, akcji i startu kodowania bliżej trzymają się zwyczajów platformy
+- Odświeżony szklany wygląd na listach, arkuszach i kontrolkach
 - Todo i Backlog to teraz jedna lista: wszystko z Todo znajduje się w Backlogu
-- Arkusze i menu mają jednolity wygląd w całej aplikacji
 - Edytor zachowuje celowe puste wiersze, identycznie na każdej platformie
 - Agenci zawsze działają bez próśb o uprawnienia; przełącznik zniknął
 - Jeden wybór agenta: agent, model, wysiłek, tryb planu, konto i użycie na jednej karcie

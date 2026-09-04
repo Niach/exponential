@@ -24,7 +24,10 @@ import { conceptIcon } from "@/lib/icons.generated"
 //
 // Everything is derived from the cell under the pointer: `+` on the table's
 // right and bottom edges append a column/row, a grip above the hovered column
-// and one left of the hovered row open the insert/move/delete menus.
+// and one left of the hovered row open the insert/move/delete menus. Those
+// edges are the VISIBLE ones — a wide table scrolls inside `.tableWrapper`,
+// so every control is clamped to that window (tableChromePlacement) and
+// re-measured on its `scroll` as well as on pointer moves.
 
 const AddIcon = conceptIcon(`ui-add`)
 const DeleteIcon = conceptIcon(`ui-delete`)
@@ -100,12 +103,99 @@ interface OverlayRect {
   height: number
 }
 
-interface HoverState extends TableCellCoords {
-  /** Position of the table node itself (one before its content start). */
-  tablePos: number
+export interface TableChromeGeometry {
+  /** Width of the `.tiptap-wrapper` the overlay is drawn inside. */
+  wrapperWidth: number
+  /**
+   * The table's own box in wrapper coordinates. A table wider than its
+   * `.tableWrapper` scrolls INSIDE it (styles.css), so this box runs past the
+   * wrapper on one or both sides.
+   */
   table: OverlayRect
+  /** The band of that box the `.tableWrapper` actually shows. */
+  clip: OverlayRect
   cell: OverlayRect
   rowRect: OverlayRect
+}
+
+interface HoverState extends TableCellCoords, TableChromeGeometry {
+  /** Position of the table node itself (one before its content start). */
+  tablePos: number
+}
+
+export interface TableChromePoint {
+  left: number
+  top: number
+}
+
+export interface TableChromePlacement {
+  addColumn: TableChromePoint
+  addRow: TableChromePoint
+  columnGrip: TableChromePoint
+  rowGrip: TableChromePoint
+}
+
+/** Gap between the table's visible edge and an edge control's centre. */
+const chromeGap = 10
+// Half-widths from styles.css: the round `+` is 24px, the column grip 28px
+// and the row grip 14px. The controls are centred on their point
+// (`translate(-50%, -50%)`), so half a width is what a clamp has to keep.
+const addHalfWidth = 12
+const columnGripHalfWidth = 14
+const rowGripHalfWidth = 7
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), Math.max(min, max))
+}
+
+/**
+ * Where each control sits, in `.tiptap-wrapper` coordinates. Pure so the
+ * clamping is unit-testable without a layout engine.
+ *
+ * Two rules, both about a table wider than its scroll container:
+ *  - anchor off the VISIBLE band (`clip`), not the table's unclipped box, or
+ *    the `+` and the grips sit off-screen the moment a column scrolls away;
+ *  - keep every centre inside the wrapper by the control's own half-width —
+ *    the overlay is `absolute inset-0`, so anything drawn past the wrapper's
+ *    right edge adds to the DOCUMENT's scroll width.
+ */
+export function tableChromePlacement({
+  wrapperWidth,
+  table,
+  clip,
+  cell,
+  rowRect,
+}: TableChromeGeometry): TableChromePlacement {
+  const clipRight = clip.left + clip.width
+  const inWrapper = (x: number, half: number) =>
+    clamp(x, half, wrapperWidth - half)
+  return {
+    addColumn: {
+      left: inWrapper(clipRight + chromeGap, addHalfWidth),
+      top: table.top + table.height / 2,
+    },
+    addRow: {
+      left: inWrapper(clip.left + clip.width / 2, addHalfWidth),
+      top: table.top + table.height + chromeGap,
+    },
+    columnGrip: {
+      // The hovered column can be scrolled out of the band: pin the grip to
+      // the edge it left through rather than let it follow the cell away.
+      left: inWrapper(
+        clamp(
+          cell.left + cell.width / 2,
+          clip.left + columnGripHalfWidth,
+          clipRight - columnGripHalfWidth
+        ),
+        columnGripHalfWidth
+      ),
+      top: table.top - chromeGap,
+    },
+    rowGrip: {
+      left: inWrapper(clip.left - chromeGap, rowGripHalfWidth),
+      top: rowRect.top + rowRect.height / 2,
+    },
+  }
 }
 
 function relativeRect(rect: DOMRect, origin: DOMRect): OverlayRect {
@@ -114,6 +204,31 @@ function relativeRect(rect: DOMRect, origin: DOMRect): OverlayRect {
     top: rect.top - origin.top,
     width: rect.width,
     height: rect.height,
+  }
+}
+
+/**
+ * The horizontal slice of the table the scroll container shows, in wrapper
+ * coordinates. `.tableWrapper` scrolls on the X axis only, so the table's own
+ * top/height carry through untouched.
+ */
+function clippedTableRect(
+  tableRect: DOMRect,
+  scroller: Element | null,
+  origin: DOMRect
+): OverlayRect {
+  let left = tableRect.left
+  let right = tableRect.right
+  if (scroller) {
+    const box = scroller.getBoundingClientRect()
+    left = Math.max(left, box.left)
+    right = Math.min(right, box.right)
+  }
+  return {
+    left: left - origin.left,
+    top: tableRect.top - origin.top,
+    width: Math.max(0, right - left),
+    height: tableRect.height,
   }
 }
 
@@ -140,13 +255,20 @@ function resolveHover(
     const map = TableMap.get(table)
     const rect = map.findCell($cell.pos - tableStart)
     const origin = wrapper.getBoundingClientRect()
+    const tableRect = tableElement.getBoundingClientRect()
+    // @tiptap/extension-table renders every table through its TableView, so
+    // the scrolling `.tableWrapper` is always there — fall back to the raw
+    // table rect anyway rather than depend on a node view's DOM.
+    const scroller = cellElement.closest(`.tableWrapper`)
     return {
       tablePos: tableStart - 1,
       row: rect.top,
       col: rect.left,
       width: map.width,
       height: map.height,
-      table: relativeRect(tableElement.getBoundingClientRect(), origin),
+      wrapperWidth: origin.width,
+      table: relativeRect(tableRect, origin),
+      clip: clippedTableRect(tableRect, scroller, origin),
       cell: relativeRect(cellElement.getBoundingClientRect(), origin),
       rowRect: relativeRect(rowElement.getBoundingClientRect(), origin),
     }
@@ -215,23 +337,37 @@ export function EditorTableControls({
       pending = null
       apply(target)
     }
-    const onMove = (event: MouseEvent) => {
-      pending = event.target instanceof Element ? event.target : null
+    const schedule = (target: Element | null) => {
+      pending = target
       if (frame === 0) frame = requestAnimationFrame(flush)
+    }
+    const onMove = (event: MouseEvent) => {
+      schedule(event.target instanceof Element ? event.target : null)
     }
     const onLeave = () => scheduleClear()
     // A structural edit moves every rect below it.
     const onUpdate = () => {
       if (lastTargetRef.current) apply(lastTargetRef.current)
     }
+    // The chrome is anchored to the table's VISIBLE band, so a horizontal
+    // scroll of the `.tableWrapper` (or a resize that changes it) leaves it
+    // stale — mousemove alone never fires for a wheel. `scroll` does not
+    // bubble, hence the capture listener on the editor root.
+    const onReflow = () => {
+      if (lastTargetRef.current) schedule(lastTargetRef.current)
+    }
 
     dom.addEventListener(`mousemove`, onMove)
     dom.addEventListener(`mouseleave`, onLeave)
+    dom.addEventListener(`scroll`, onReflow, true)
+    window.addEventListener(`resize`, onReflow)
     editor.on(`update`, onUpdate)
     return () => {
       if (frame !== 0) cancelAnimationFrame(frame)
       dom.removeEventListener(`mousemove`, onMove)
       dom.removeEventListener(`mouseleave`, onLeave)
+      dom.removeEventListener(`scroll`, onReflow, true)
+      window.removeEventListener(`resize`, onReflow)
       editor.off(`update`, onUpdate)
       cancelClear()
     }
@@ -306,6 +442,7 @@ export function EditorTableControls({
   if (!hover) return null
 
   const model = tableMenuModel(hover)
+  const placement = tableChromePlacement(hover)
   const { row, col } = hover
   const onMenuOpenChange = (open: boolean) => {
     menuOpenRef.current = open
@@ -336,10 +473,7 @@ export function EditorTableControls({
         aria-label="Add column"
         title="Add column"
         className="editor-table-add"
-        style={{
-          left: hover.table.left + hover.table.width + 10,
-          top: hover.table.top + hover.table.height / 2,
-        }}
+        style={placement.addColumn}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() =>
           runAt(row, hover.width - 1, () => {
@@ -359,10 +493,7 @@ export function EditorTableControls({
         aria-label="Add row"
         title="Add row"
         className="editor-table-add"
-        style={{
-          left: hover.table.left + hover.table.width / 2,
-          top: hover.table.top + hover.table.height + 10,
-        }}
+        style={placement.addRow}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() =>
           runAt(hover.height - 1, col, () => {
@@ -384,10 +515,7 @@ export function EditorTableControls({
             aria-label={`Column ${col + 1} options`}
             title={`Column ${col + 1} options`}
             className="editor-table-grip is-column"
-            style={{
-              left: hover.cell.left + hover.cell.width / 2,
-              top: hover.table.top - 10,
-            }}
+            style={placement.columnGrip}
             onMouseDown={(event) => event.preventDefault()}
           >
             <MoreIcon />
@@ -461,10 +589,7 @@ export function EditorTableControls({
             aria-label={`Row ${row + 1} options`}
             title={`Row ${row + 1} options`}
             className="editor-table-grip is-row"
-            style={{
-              left: hover.table.left - 10,
-              top: hover.rowRect.top + hover.rowRect.height / 2,
-            }}
+            style={placement.rowGrip}
             onMouseDown={(event) => event.preventDefault()}
           >
             <MoreIcon />

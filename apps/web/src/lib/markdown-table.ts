@@ -92,9 +92,14 @@ function writeCell(
   // from escaping start-of-line constructs mid-row.
   const paragraph = cell?.firstChild
   if (paragraph) state.renderInline(paragraph, false)
-  internals.out =
-    internals.out.slice(0, start) +
-    restoreTableCellImages(escapeTableCellText(internals.out.slice(start)))
+  // Trimmed AFTER the newline collapse: a hard break at the cell's start or
+  // end would otherwise leave a second space next to the pipe padding this
+  // writer adds, so the row only converged on the canonical `| a |` shape
+  // after an extra round trip.
+  const text = restoreTableCellImages(
+    escapeTableCellText(internals.out.slice(start)).trim()
+  )
+  internals.out = internals.out.slice(0, start) + text
   state.write(` |`)
 }
 
@@ -269,6 +274,22 @@ export const MarkdownTable = Table.extend({
           },
         },
       } satisfies MarkdownNodeSpec,
+    }
+  },
+
+  addCommands() {
+    return {
+      ...this.parent?.(),
+      // A merged (or split) cell has no GFM form: the wire contract is a
+      // RECTANGULAR grid of cells holding exactly one inline paragraph each
+      // (CONTRACT_FIXTURES, mirrored on desktop/iOS/Android). A merge also
+      // moves the swallowed cell's paragraph into the survivor, which the
+      // serializer above would then hoist out of the table entirely. No UI
+      // offers these, but `editor.commands.mergeCells()` stayed reachable —
+      // make the whole family a no-op instead.
+      mergeCells: () => () => false,
+      splitCell: () => () => false,
+      mergeOrSplit: () => () => false,
     }
   },
 

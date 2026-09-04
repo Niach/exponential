@@ -80,10 +80,10 @@ enum MintWire {
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 enum MintInput<'a> {
-    Control {
-        #[serde(rename = "deviceLabel", skip_serializing_if = "Option::is_none")]
-        device_label: Option<&'a str>,
-    },
+    // The mint carries the kind and nothing else: the device's label reaches
+    // the server through `devices.register` (the persisted row the pickers
+    // read), and the ticket never encoded it.
+    Control,
     // EXP-707: the wire name is `sessionId` (renamed from `codingSessionId`).
     Publisher {
         #[serde(rename = "sessionId")]
@@ -103,14 +103,10 @@ fn mint(trpc: &TrpcClient, input: &MintInput<'_>) -> Result<MintTicketResult, Ap
     })
 }
 
-/// `steer.mintTicket({kind: "control", deviceLabel?})` — the device-presence
-/// socket ticket (§8.3). Any authed user may register presence for their own
-/// account.
-pub fn mint_control_ticket(
-    trpc: &TrpcClient,
-    device_label: Option<&str>,
-) -> Result<MintTicketResult, ApiError> {
-    mint(trpc, &MintInput::Control { device_label })
+/// `steer.mintTicket({kind: "control"})` — the device-presence socket ticket
+/// (§8.3). Any authed user may register presence for their own account.
+pub fn mint_control_ticket(trpc: &TrpcClient) -> Result<MintTicketResult, ApiError> {
+    mint(trpc, &MintInput::Control)
 }
 
 /// `steer.mintTicket({kind: "publisher", sessionId})` — the per-session
@@ -243,7 +239,7 @@ mod tests {
             200,
             r#"{"result":{"data":{"ticket":"abc.def","url":"ws://relay.lan:4002/ws?ticket=abc.def"}}}"#,
         );
-        let result = mint_control_ticket(&client(&base), Some("MacBook")).unwrap();
+        let result = mint_control_ticket(&client(&base)).unwrap();
         assert_eq!(
             result,
             MintTicketResult::Ticket(MintedTicket {
@@ -253,17 +249,7 @@ mod tests {
         );
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/steer.mintTicket HTTP/1.1"));
-        assert!(request.ends_with(r#"{"kind":"control","deviceLabel":"MacBook"}"#));
-    }
-
-    #[test]
-    fn mint_control_omits_absent_device_label() {
-        let (base, captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"ticket":"t","url":"ws://r/ws?ticket=t"}}}"#,
-        );
-        let _ = mint_control_ticket(&client(&base), None).unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        // The kind and nothing else — no `deviceLabel` rides the mint.
         assert!(request.ends_with(r#"{"kind":"control"}"#));
     }
 

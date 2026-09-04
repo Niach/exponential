@@ -1,5 +1,12 @@
+- Tabellen: schrijf tabellen in issues en reacties, met kolomuitlijning; bewerk cellen op je telefoon en houd lang ingedrukt om een hele tabel te verwijderen
+- Sturen: typ "/" om de ingebouwde commando's van de agent te draaien, zoals /compact en /clear, en zie hoe de agent zijn context comprimeert in plaats van te gokken
+- Reacties tonen @mentions als ledenchips in plaats van het kale adres
+- Boards: elk board kan in de board-instellingen zijn eigen standaardbranch instellen; codesessies starten daarvandaan
+- Review-diffs scrollen zijwaarts, met een compacte koptekst per bestand
+- Lege boards tonen een icoon, een titel en een hint
+- Sheets voor instellingen, acties en het starten van coderen volgen de platformconventies beter
+- Een opgefriste glaslook in lijsten, sheets en bedieningselementen
 - Todo en Backlog zijn nu één lijst: alles wat in Todo stond, staat nu in Backlog
-- Sheets en menu's delen één uniforme stijl in de hele app
 - De editor behoudt je bewuste lege regels, identiek op elk platform
 - Agents draaien altijd zonder toestemmingsvragen; de schakelaar is weg
 - Eén agentkiezer: agent, model, inspanning, planmodus, account en gebruik in één kaart

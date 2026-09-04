@@ -1,5 +1,12 @@
+- Taulukot: kirjoita taulukoita issueihin ja kommentteihin, sarakkeiden tasaus mukaan lukien; muokkaa soluja puhelimella ja poista koko taulukko pitkällä painalluksella
+- Ohjaus: kirjoita "/" ja aja agentin sisäänrakennetut komennot kuten /compact ja /clear, ja katso kun agentti tiivistää kontekstinsa arvailun sijaan
+- Kommentit näyttävät @mentions-maininnat jäsenmerkkeinä paljaan osoitteen sijaan
+- Boardit: jokainen board voi asettaa oman oletushaaransa board-asetuksissa; koodausistunnot lähtevät siitä
+- Reviews-diffit vierivät sivusuunnassa, ja jokaisella tiedostolla on tiivis otsikkorivi
+- Tyhjät boardit näyttävät kuvakkeen, otsikon ja vihjeen
+- Asetusten, toimintojen ja koodauksen aloituksen paneelit noudattavat alustan tapoja tarkemmin
+- Virkistetty lasimainen ulkoasu listoissa, paneeleissa ja säätimissä
 - Todo ja Backlog ovat nyt yksi lista: kaikki Todossa ollut on nyt Backlogissa
-- Paneelit ja valikot jakavat yhtenäisen ulkoasun koko sovelluksessa
 - Editori säilyttää tarkoitukselliset tyhjät rivit samalla tavalla joka alustalla
 - Agentit ajetaan aina ilman lupakyselyitä; kytkin on poistettu
 - Yksi agenttivalitsin: agentti, malli, panostus, suunnitelmatila, tili ja käyttö yhdessä kortissa

@@ -298,7 +298,9 @@ public struct CircleIconLabel: View {
                 Circle()
                     .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
             )
-            .contentShape(Circle())
+            // The 32pt circle rides inside a 44pt hit area (Android's
+            // minimumInteractiveComponentSize twin) without growing the layout.
+            .contentShape(Circle().inset(by: min(0, (size - 44) / 2)))
     }
 }
 

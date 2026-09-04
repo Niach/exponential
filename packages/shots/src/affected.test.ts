@@ -195,7 +195,9 @@ describe(`native attribution`, () => {
     const result = nativeScope(
       `apps/android/app/src/main/java/com/exponential/app/ui/onboarding/OnboardingScreen.kt`
     )
-    expect(nativeViews(result, `android`)).toEqual([`onboarding`])
+    // `OnboardingScreen` names the `onboarding` view; the directory family adds
+    // the sibling create-team step the same screen renders (EXP-698).
+    expect(nativeViews(result, `android`).sort()).toEqual([`onboarding`, `onboarding-create-team`])
     expect(nativeViews(result, `ios`)).toEqual([])
   })
 

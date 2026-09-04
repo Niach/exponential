@@ -154,12 +154,14 @@ export function BoardSettingsDialog({
               onSelectRegistry={(repo) => void applyRepo(repo?.id ?? null)}
               onConnectNew={(picked) => void handleConnect(picked)}
               branch={board.defaultBranch}
-              onBranchChange={(defaultBranch) =>
-                void trpc.boards.update.mutate({
-                  boardId: board.id,
-                  defaultBranch,
-                })
-              }
+              onBranchChange={(defaultBranch) => {
+                setRepoError(null)
+                trpc.boards.update
+                  .mutate({ boardId: board.id, defaultBranch })
+                  .catch((err: unknown) =>
+                    setRepoError(err instanceof Error ? err.message : String(err))
+                  )
+              }}
               error={repoError}
             />
           </DialogBody>

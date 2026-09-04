@@ -59,7 +59,7 @@ use terminal::{display_offset, screen_lines, TermHandle};
 
 use crate::activity::{
     secrets_from_worktree, DiffSnapshots, EmitterConfig, NeedsInputForwarder, Redactor,
-    ANSWERS_MAX, ANSWER_MAX, NARRATION_MAX, OPTION_DESCRIPTION_MAX, OPTION_LABEL_MAX,
+    ANSWERS_MAX, ANSWER_MAX, ID_MAX, NARRATION_MAX, OPTION_DESCRIPTION_MAX, OPTION_LABEL_MAX,
     POLL_INTERVAL, QUESTION_HEADER_MAX, QUESTION_OPTIONS_MAX, QUESTION_TEXT_MAX, TOOL_DETAIL_MAX,
     TOOL_NAME_MAX,
 };
@@ -242,11 +242,28 @@ pub(crate) enum HistoryMode {
 }
 
 /// One pending `request_user_input` ask, keyed by its `call_id` — resolved
-/// (and its cards retired at the viewers) by the matching
+/// (and its cards retired at the viewers, by that same id) by the matching
 /// `function_call_output`.
 #[derive(Debug, Default)]
 struct PendingAsk {
-    questions: usize,
+    /// The cards this ask published, in card order — index `i` is card
+    /// `{call_id}#{i}`.
+    cards: Vec<AskCard>,
+    /// Card ids already injected into the TUI: a duplicate answer re-acks
+    /// (EXP-374) instead of answering twice.
+    answered: HashSet<String>,
+}
+
+/// One published `request_user_input` card.
+#[derive(Debug)]
+struct AskCard {
+    /// Codex's own `id` for the question (`None` when it carried none). The
+    /// answer payload is keyed by these when codex fills them in —
+    /// [`extract_answers`] aligns on them and falls back to the positional
+    /// walk otherwise.
+    question_id: Option<String>,
+    /// The options as PUBLISHED — their keys are what a remote answer names.
+    options: Vec<QuestionOption>,
 }
 
 #[derive(Debug, Default)]
@@ -413,6 +430,116 @@ fn handle_approval_answer(
     sender.send(ActivityEvent::AnswerAck {
         id,
         ask_id: None,
+        at: None,
+    });
+    AnswerAttempt::Settled
+}
+
+/// Gap between injected arrow keys — the TUI processes one key per render
+/// (the claude emitter's `KEYSTROKE_GAP`, which is private to that module).
+const ARROW_GAP: std::time::Duration = std::time::Duration::from_millis(60);
+
+/// A card id (`{call_id}#{index}`) split back into the codex call it came
+/// from and the 0-based card index. `None` for anything else — an approval
+/// id (`approval:3`) never parses, which is what routes the two handlers.
+fn split_card_id(id: &str) -> Option<(&str, usize)> {
+    let (call_id, index) = id.rsplit_once('#')?;
+    if call_id.is_empty() {
+        return None;
+    }
+    Some((call_id, index.parse().ok()?))
+}
+
+/// Inject a steerer's answer to a `request_user_input` CARD into the codex
+/// TUI (the ask pane, [`codex_approval_picker::detect_ask`]) and acknowledge
+/// it — the delivery half of the stable card ids: the 0.14.30 clients answer
+/// only by id, so without this the ids would be decorative.
+///
+/// Codex renders one question of an ask at a time and its pane does NOT
+/// actuate on the pick — the footer reads `enter to submit answer`. So:
+///
+/// 1. the pane's `Question i/n` header must name THIS card (a headerless
+///    pane may only be a single-card ask) — otherwise the answer is parked
+///    and retried, never injected into a neighbouring question;
+/// 2. the cursor is walked to the answered row with arrow keys — digits are
+///    not used, because the pane also takes free-text notes and a digit that
+///    lands there would be typed, not selected;
+/// 3. Enter is sent ONLY once the grid shows the cursor on that row, so a
+///    refused/ignored move can never submit the highlighted default instead.
+fn handle_ask_answer(
+    state: &mut CodexState,
+    answer: &RemoteAnswer,
+    term: &TermHandle,
+    write_input: &InputHook,
+    sender: &ActivitySender,
+) -> AnswerAttempt {
+    let Some((call_id, index)) = split_card_id(&answer.question_id) else {
+        return AnswerAttempt::Settled;
+    };
+    // Resolved (or never ours): the cards are already retired.
+    let Some(ask) = state.pending_asks.get_mut(call_id) else {
+        return AnswerAttempt::Settled;
+    };
+    if ask.answered.contains(&answer.question_id) {
+        // Already injected — never twice, but re-ack for late joiners
+        // (EXP-374).
+        sender.send(ActivityEvent::AnswerAck {
+            id: answer.question_id.clone(),
+            ask_id: Some(call_id.to_string()),
+            at: None,
+        });
+        return AnswerAttempt::Settled;
+    }
+    let Some(card) = ask.cards.get(index) else {
+        return AnswerAttempt::Settled;
+    };
+    let Some(key) = answer.keys.first() else {
+        return AnswerAttempt::Settled;
+    };
+    let Some(target) = card
+        .options
+        .iter()
+        .position(|option| &option.key == key)
+        .map(|row| row as u32 + 1)
+    else {
+        return AnswerAttempt::Settled; // not an option this card published
+    };
+    if display_offset(term) > 0 {
+        return AnswerAttempt::Retry;
+    }
+    let Some(pane) = codex_approval_picker::detect_ask(&screen_lines(term)) else {
+        return AnswerAttempt::Retry; // not painted yet, or already gone
+    };
+    match pane.step {
+        Some((step, _)) if step as usize != index + 1 => return AnswerAttempt::Retry,
+        None if index != 0 => return AnswerAttempt::Retry,
+        _ => {}
+    }
+    if target as usize > pane.options.len() {
+        return AnswerAttempt::Settled;
+    }
+    let delta = target as i64 - pane.selected as i64;
+    let arrow: &[u8] = if delta > 0 { b"\x1b[B" } else { b"\x1b[A" };
+    for _ in 0..delta.unsigned_abs() {
+        write_input(arrow);
+        std::thread::sleep(ARROW_GAP);
+    }
+    let on_target = || {
+        matches!(
+            codex_approval_picker::detect_ask(&screen_lines(term)),
+            Some(pane) if pane.selected == target
+        )
+    };
+    if !settle_for(PLAN_SUBMIT_PROBE, on_target) {
+        // The cursor never landed: park it and try again on a later frame
+        // rather than submitting whatever IS highlighted.
+        return AnswerAttempt::Retry;
+    }
+    write_input(b"\r");
+    ask.answered.insert(answer.question_id.clone());
+    sender.send(ActivityEvent::AnswerAck {
+        id: answer.question_id.clone(),
+        ask_id: Some(call_id.to_string()),
         at: None,
     });
     AnswerAttempt::Settled
@@ -647,11 +774,21 @@ fn exec_command_headline(arguments: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
-/// `request_user_input` → one id-less [`ActivityEvent::Question`] per
-/// question. Options get digit keys (a legacy keystroke may or may not land
-/// in codex's picker — harmless; the primary remote answer path is a chat
-/// reply). An option-less question can't ride the wire (the relay schema
-/// requires ≥1 option) — it degrades to a narration.
+/// `request_user_input` → one [`ActivityEvent::Question`] per question.
+/// Options get digit keys (a legacy keystroke may or may not land in codex's
+/// picker — harmless; the primary remote answer path is a chat reply). An
+/// option-less question can't ride the wire (the relay schema requires ≥1
+/// option) — it degrades to a narration.
+///
+/// The cards carry the SAME identity shape the claude emitter mints
+/// (`parse_ask_user_question`): ask id = the tool call's `call_id`, card id =
+/// `{call_id}#{0-based card index}`, with the DISPLAYED step counted from 1
+/// over the cards this ask actually published. Codex flushes each rollout
+/// line once and re-parses replay the same line, so the ids are stable per
+/// card. Without them a card is answerable only by the legacy blind-keystroke
+/// path, which the 0.14.30 clients dropped — an id-less codex question is
+/// read-only on web/Android and dropped by iOS. A call with no `call_id`
+/// (never observed) keeps the legacy id-less shape.
 fn request_user_input_events(
     call_id: Option<&str>,
     arguments: &Value,
@@ -663,8 +800,9 @@ fn request_user_input_events(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let ask_id = call_id.map(|id| truncate(id, ID_MAX));
     let mut events = Vec::new();
-    let mut published = 0usize;
+    let mut cards: Vec<AskCard> = Vec::new();
     for question in &questions {
         let Some(text) = question.get("question").and_then(Value::as_str) else {
             continue;
@@ -702,26 +840,48 @@ fn request_user_input_events(
             .get("header")
             .and_then(Value::as_str)
             .map(|h| truncate(&redactor.redact(h), QUESTION_HEADER_MAX));
+        let card = cards.len();
+        cards.push(AskCard {
+            question_id: question
+                .get("id")
+                .or_else(|| question.get("question_id"))
+                .and_then(Value::as_str)
+                .map(|id| truncate(id, ID_MAX)),
+            options: options.clone(),
+        });
         events.push(ActivityEvent::Question {
             text,
             options,
             multi_select: None,
             plan_mode: None,
-            id: None,
-            ask_id: None,
-            index: None,
+            // The claude emitter's shape: the id indexes from 0, the
+            // DISPLAYED step from 1 (patched in below, once the ask's card
+            // count is known).
+            id: ask_id.as_ref().map(|ask| format!("{ask}#{card}")),
+            ask_id: ask_id.clone(),
+            index: ask_id.as_ref().map(|_| card as u32 + 1),
             total: None,
             header,
             at: None,
         });
-        published += 1;
     }
+    let published = cards.len();
     if published > 0 {
+        // A card WITHOUT index/total is an ask's final review step to the
+        // clients, so both ride every card of an id-carrying ask.
+        if ask_id.is_some() {
+            for event in &mut events {
+                if let ActivityEvent::Question { total, .. } = event {
+                    *total = Some(published as u32);
+                }
+            }
+        }
         if let Some(call_id) = call_id {
             state.pending_asks.insert(
                 call_id.to_string(),
                 PendingAsk {
-                    questions: published,
+                    cards,
+                    answered: HashSet::new(),
                 },
             );
         }
@@ -731,10 +891,10 @@ fn request_user_input_events(
 
 /// A `function_call_output` resolves a pending ask: publish one semantic
 /// `question_resolved` (EXP-249) carrying the extracted answers, or the
-/// dismissal when none could be read. It stays id-less AND askId-less like
-/// the cards this ask published, so viewers retire every pending card and
-/// land the answers positionally. Every OTHER tool output is never read or
-/// published.
+/// dismissal when none could be read. It is keyed by the ask's `call_id` —
+/// the `askId` its cards carry — which retires exactly those cards, the same
+/// way the claude emitter's `take_ask_answers` retires an `AskUserQuestion`.
+/// Every OTHER tool output is never read or published.
 fn parse_function_call_output(
     payload: &Value,
     state: &mut CodexState,
@@ -746,7 +906,12 @@ fn parse_function_call_output(
     let Some(ask) = state.pending_asks.remove(call_id) else {
         return Vec::new();
     };
-    let answers = extract_answers(payload.get("output"), ask.questions);
+    let question_ids: Vec<Option<String>> = ask
+        .cards
+        .iter()
+        .map(|card| card.question_id.clone())
+        .collect();
+    let answers = extract_answers(payload.get("output"), &question_ids);
     let dismissed = answers.is_empty();
     let mut collected: Vec<String> = answers
         .into_iter()
@@ -755,7 +920,7 @@ fn parse_function_call_output(
     collected.truncate(ANSWERS_MAX);
     vec![ActivityEvent::QuestionResolved {
         id: None,
-        ask_id: None,
+        ask_id: Some(truncate(call_id, ID_MAX)),
         answers: (!dismissed).then_some(collected),
         dismissed: dismissed.then_some(true),
         at: None,
@@ -767,7 +932,14 @@ fn parse_function_call_output(
 /// answers live in an `answers` object/array whose entries carry string
 /// values (or `answer`/`label`/`answers` fields). A short unstructured
 /// output counts as one answer; anything else means dismissal.
-fn extract_answers(output: Option<&Value>, questions: usize) -> Vec<String> {
+///
+/// `question_ids` is codex's own id per published card, in card order: when
+/// the answers are an object keyed by ALL of them, the answers are read in
+/// CARD order through those keys, so a skipped or reordered answer can never
+/// slide onto the wrong card. Otherwise (any id missing on either side — the
+/// answer carries none) it falls back to the positional walk.
+fn extract_answers(output: Option<&Value>, question_ids: &[Option<String>]) -> Vec<String> {
+    let questions = question_ids.len();
     let Some(output) = output else {
         return Vec::new();
     };
@@ -786,6 +958,9 @@ fn extract_answers(output: Option<&Value>, questions: usize) -> Vec<String> {
             break;
         }
     }
+    if let Some(keyed) = keyed_answers(&value, question_ids) {
+        return keyed;
+    }
     let mut answers = Vec::new();
     collect_answer_strings(value.get("answers").unwrap_or(&value), &mut answers);
     if answers.is_empty() {
@@ -798,6 +973,26 @@ fn extract_answers(output: Option<&Value>, questions: usize) -> Vec<String> {
     }
     answers.truncate(questions.max(1));
     answers
+}
+
+/// The id-keyed read of an unwrapped `request_user_input` output: `Some` only
+/// when every published card has an id AND the `answers` object carries a key
+/// for each, in which case the answers come back in CARD order. `None` sends
+/// the caller down the positional walk.
+fn keyed_answers(value: &Value, question_ids: &[Option<String>]) -> Option<Vec<String>> {
+    let map = value.get("answers")?.as_object()?;
+    let mut answers = Vec::new();
+    for id in question_ids {
+        let entry = map.get(id.as_deref()?)?;
+        match entry {
+            Value::String(text) if !text.trim().is_empty() => answers.push(text.trim().to_string()),
+            Value::Array(_) | Value::Object(_) => collect_answer_strings(entry, &mut answers),
+            // A null/false answer is a skipped question, not a dismissal of
+            // the ask — keep reading the rest.
+            _ => {}
+        }
+    }
+    (!answers.is_empty()).then_some(answers)
 }
 
 fn collect_answer_strings(value: &Value, out: &mut Vec<String>) {
@@ -1117,13 +1312,28 @@ fn run_emitter_with_root(
                 loop {
                     match &config.term {
                         Some(term) => parked_answers.retain_mut(|(answer, since)| {
-                            match handle_approval_answer(
-                                &mut approvals,
-                                answer,
-                                term,
-                                &steering.write_input,
-                                &sender,
-                            ) {
+                            // The id shape routes the answer: a card of a
+                            // `request_user_input` ask (`{call_id}#{i}`) is
+                            // actuated on the ask pane, an `approval:<n>` on
+                            // the approval overlay.
+                            let outcome = if split_card_id(&answer.question_id).is_some() {
+                                handle_ask_answer(
+                                    &mut state,
+                                    answer,
+                                    term,
+                                    &steering.write_input,
+                                    &sender,
+                                )
+                            } else {
+                                handle_approval_answer(
+                                    &mut approvals,
+                                    answer,
+                                    term,
+                                    &steering.write_input,
+                                    &sender,
+                                )
+                            };
+                            match outcome {
                                 AnswerAttempt::Settled => false,
                                 AnswerAttempt::Retry => since.elapsed() < ANSWER_RETRY_TTL,
                             }
@@ -1349,24 +1559,31 @@ mod tests {
     }
 
     #[test]
-    fn request_user_input_publishes_idless_question_cards_and_flags_attention() {
+    fn request_user_input_cards_carry_call_scoped_ids_that_round_trip() {
         let mut state = CodexState::default();
-        let args = r#"{\"questions\":[{\"header\":\"Risk\",\"id\":\"q1\",\"question\":\"Ship it?\",\"options\":[{\"label\":\"Yes\",\"description\":\"do it\"},{\"label\":\"No\"}]}]}"#;
+        let args = r#"{\"questions\":[{\"header\":\"Risk\",\"id\":\"q1\",\"question\":\"Ship it?\",\"options\":[{\"label\":\"Yes\",\"description\":\"do it\"},{\"label\":\"No\"}]},{\"id\":\"q2\",\"question\":\"When?\",\"options\":[{\"label\":\"Now\"}]}]}"#;
         let line = format!(
             r#"{{"timestamp":"t","type":"response_item","payload":{{"type":"function_call","name":"request_user_input","arguments":"{args}","call_id":"ask1"}}}}"#
         );
         let events = parse(&mut state, &line);
-        assert_eq!(events.len(), 1);
+        assert_eq!(events.len(), 2);
         match &events[0] {
             ActivityEvent::Question {
                 text,
                 options,
                 id,
+                ask_id,
+                index,
+                total,
                 header,
                 ..
             } => {
                 assert_eq!(text, "Ship it?");
-                assert_eq!(id, &None, "codex questions ride the legacy id-less path");
+                // Byte-identical to the claude emitter's shape: `{askId}#{i}`
+                // with a 0-based i, the DISPLAYED step counted from 1.
+                assert_eq!(id.as_deref(), Some("ask1#0"));
+                assert_eq!(ask_id.as_deref(), Some("ask1"));
+                assert_eq!((*index, *total), (Some(1), Some(2)));
                 assert_eq!(header.as_deref(), Some("Risk"));
                 assert_eq!(options.len(), 2);
                 assert_eq!(options[0].label, "Yes");
@@ -1376,24 +1593,77 @@ mod tests {
             }
             other => panic!("expected question, got {other:?}"),
         }
+        match &events[1] {
+            ActivityEvent::Question {
+                id,
+                ask_id,
+                index,
+                total,
+                ..
+            } => {
+                assert_eq!(id.as_deref(), Some("ask1#1"));
+                assert_eq!(ask_id.as_deref(), Some("ask1"));
+                assert_eq!((*index, *total), (Some(2), Some(2)));
+            }
+            other => panic!("expected question, got {other:?}"),
+        }
         assert!(state.attention(), "pending ask flags needs-input");
 
-        // The matching output resolves the id-less cards with their answers.
+        // The matching output retires the ask's cards BY ID (askId) and
+        // carries the answers read through the questions' own ids, in card
+        // order — here deliberately serialized the other way round.
         let events = parse(
             &mut state,
-            r#"{"timestamp":"t","type":"response_item","payload":{"type":"function_call_output","call_id":"ask1","output":"{\"answers\":{\"q1\":\"Yes\"}}"}}"#,
+            r#"{"timestamp":"t","type":"response_item","payload":{"type":"function_call_output","call_id":"ask1","output":"{\"answers\":{\"q2\":\"Now\",\"q1\":\"Yes\"}}"}}"#,
         );
         assert_eq!(
             events,
             vec![ActivityEvent::QuestionResolved {
                 id: None,
-                ask_id: None,
-                answers: Some(vec!["Yes".into()]),
+                ask_id: Some("ask1".into()),
+                answers: Some(vec!["Yes".into(), "Now".into()]),
                 dismissed: None,
                 at: None,
             }]
         );
         assert!(!state.attention());
+    }
+
+    #[test]
+    fn ask_answers_without_question_ids_stay_positional() {
+        // No `id` on the questions: the answers can only be read in the order
+        // the payload lists them, and the cards still carry ids.
+        let mut state = CodexState::default();
+        let args = r#"{\"questions\":[{\"question\":\"First?\",\"options\":[{\"label\":\"A\"}]},{\"question\":\"Second?\",\"options\":[{\"label\":\"B\"}]}]}"#;
+        let line = format!(
+            r#"{{"timestamp":"t","type":"response_item","payload":{{"type":"function_call","name":"request_user_input","arguments":"{args}","call_id":"ask4"}}}}"#
+        );
+        let events = parse(&mut state, &line);
+        let ids: Vec<Option<String>> = events
+            .iter()
+            .map(|event| match event {
+                ActivityEvent::Question { id, .. } => id.clone(),
+                other => panic!("expected question, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            ids,
+            vec![Some("ask4#0".to_string()), Some("ask4#1".to_string())]
+        );
+        let events = parse(
+            &mut state,
+            r#"{"timestamp":"t","type":"response_item","payload":{"type":"function_call_output","call_id":"ask4","output":"{\"answers\":[\"A\",\"B\"]}"}}"#,
+        );
+        assert_eq!(
+            events,
+            vec![ActivityEvent::QuestionResolved {
+                id: None,
+                ask_id: Some("ask4".into()),
+                answers: Some(vec!["A".into(), "B".into()]),
+                dismissed: None,
+                at: None,
+            }]
+        );
     }
 
     #[test]
@@ -1412,7 +1682,7 @@ mod tests {
             events,
             vec![ActivityEvent::QuestionResolved {
                 id: None,
-                ask_id: None,
+                ask_id: Some("ask2".into()),
                 answers: None,
                 dismissed: Some(true),
                 at: None,
@@ -1434,6 +1704,29 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(narration_text(&events[0]), "Describe the approach");
         assert!(!state.attention(), "nothing answerable was published");
+    }
+
+    #[test]
+    fn a_degraded_question_consumes_no_card_index() {
+        // The narration is not a card: the ONE card of this ask is step 1 of
+        // 1 and owns index 0 of the call's id space.
+        let mut state = CodexState::default();
+        let args = r#"{\"questions\":[{\"question\":\"Describe the approach\",\"options\":[]},{\"question\":\"Ship it?\",\"options\":[{\"label\":\"Yes\"}]}]}"#;
+        let line = format!(
+            r#"{{"timestamp":"t","type":"response_item","payload":{{"type":"function_call","name":"request_user_input","arguments":"{args}","call_id":"ask5"}}}}"#
+        );
+        let events = parse(&mut state, &line);
+        assert_eq!(events.len(), 2);
+        assert_eq!(narration_text(&events[0]), "Describe the approach");
+        match &events[1] {
+            ActivityEvent::Question {
+                id, index, total, ..
+            } => {
+                assert_eq!(id.as_deref(), Some("ask5#0"));
+                assert_eq!((*index, *total), (Some(1), Some(1)));
+            }
+            other => panic!("expected question, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1734,6 +2027,201 @@ mod tests {
         );
         assert_eq!(outcome, AnswerAttempt::Settled);
         assert!(keys.lock().unwrap().is_empty());
+    }
+
+    // -- request_user_input answers ----------------------------------------
+
+    /// The ask pane codex paints for a `request_user_input` question, with
+    /// the cursor on `selected` (row shape from the 0.144.5 render snapshot).
+    fn paint_ask_pane(term: &TermHandle, step: (u32, u32), selected: u32) {
+        let rows = vec![
+            String::new(),
+            format!("  Question {}/{} (1 unanswered)", step.0, step.1),
+            "  Ship it?".to_string(),
+            String::new(),
+            format!("{} 1. Yes", if selected == 1 { "  ›" } else { "   " }),
+            format!("{} 2. No", if selected == 2 { "  ›" } else { "   " }),
+            String::new(),
+            "  tab to add notes | enter to submit answer | esc to interrupt".to_string(),
+        ];
+        paint(term, &rows.iter().map(String::as_str).collect::<Vec<_>>());
+    }
+
+    fn ask_line(call_id: &str, questions: usize) -> String {
+        let entries: Vec<String> = (0..questions)
+            .map(|i| {
+                format!(
+                    r#"{{\"id\":\"q{}\",\"question\":\"Ship it?\",\"options\":[{{\"label\":\"Yes\"}},{{\"label\":\"No\"}}]}}"#,
+                    i + 1
+                )
+            })
+            .collect();
+        format!(
+            r#"{{"timestamp":"t","type":"response_item","payload":{{"type":"function_call","name":"request_user_input","arguments":"{{\"questions\":[{}]}}","call_id":"{call_id}"}}}}"#,
+            entries.join(",")
+        )
+    }
+
+    /// A grid that behaves like the real pane: arrows move the cursor, Enter
+    /// submits (and the pane leaves the screen).
+    fn ask_pane_input(
+        term: &TermHandle,
+        step: (u32, u32),
+        rows: u32,
+        moves: bool,
+    ) -> (InputHook, StdArc<Mutex<Vec<String>>>) {
+        let keys = StdArc::new(Mutex::new(Vec::<String>::new()));
+        let recorded = keys.clone();
+        let term = term.clone();
+        let selected = StdArc::new(Mutex::new(1u32));
+        let hook: InputHook = StdArc::new(move |bytes: &[u8]| {
+            let key = String::from_utf8_lossy(bytes).to_string();
+            recorded.lock().unwrap().push(key.clone());
+            let mut at = selected.lock().unwrap();
+            match key.as_str() {
+                "\x1b[B" if moves => *at = (*at + 1).min(rows),
+                "\x1b[A" if moves => *at = at.saturating_sub(1).max(1),
+                "\r" => {
+                    paint(&term, &["  Working…"]);
+                    return;
+                }
+                _ => return,
+            }
+            paint_ask_pane(&term, step, *at);
+        });
+        (hook, keys)
+    }
+
+    #[test]
+    fn a_remote_ask_answer_walks_the_cursor_and_submits() {
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint_ask_pane(&term, (1, 1), 1);
+
+        let mut state = CodexState::default();
+        parse(&mut state, &ask_line("ask9", 1));
+        let (sender, rx) = ActivitySender::test_pair();
+        let (write_input, keys) = ask_pane_input(&term, (1, 1), 2, true);
+
+        let answer = RemoteAnswer {
+            question_id: "ask9#0".to_string(),
+            ask_id: Some("ask9".to_string()),
+            keys: vec!["2".to_string()],
+            text: None,
+        };
+        let outcome = handle_ask_answer(&mut state, &answer, &term, &write_input, &sender);
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        // One arrow down onto row 2, then Enter — never a bare digit (the
+        // pane also takes typed notes) and never Enter before the move.
+        assert_eq!(*keys.lock().unwrap(), vec!["\u{1b}[B", "\r"]);
+        match &drained(&rx)[..] {
+            [ActivityEvent::AnswerAck { id, ask_id, .. }] => {
+                assert_eq!(id, "ask9#0");
+                assert_eq!(ask_id.as_deref(), Some("ask9"));
+            }
+            other => panic!("expected an answer_ack, got {other:?}"),
+        }
+
+        // A duplicate re-acks without injecting again (EXP-374).
+        let outcome = handle_ask_answer(&mut state, &answer, &term, &write_input, &sender);
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert_eq!(keys.lock().unwrap().len(), 2, "no second injection");
+        assert!(matches!(
+            drained(&rx)[..],
+            [ActivityEvent::AnswerAck { .. }]
+        ));
+    }
+
+    #[test]
+    fn an_ask_answer_for_another_step_waits_for_its_question() {
+        // Both cards of a 2-question ask publish at once, but codex renders
+        // them one at a time: the answer to card #1 must never be injected
+        // into question 1's pane.
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint_ask_pane(&term, (1, 2), 1);
+
+        let mut state = CodexState::default();
+        parse(&mut state, &ask_line("ask8", 2));
+        let (sender, rx) = ActivitySender::test_pair();
+        let (write_input, keys) = ask_pane_input(&term, (1, 2), 2, true);
+
+        let answer = RemoteAnswer {
+            question_id: "ask8#1".to_string(),
+            ask_id: Some("ask8".to_string()),
+            keys: vec!["1".to_string()],
+            text: None,
+        };
+        let outcome = handle_ask_answer(&mut state, &answer, &term, &write_input, &sender);
+        assert_eq!(outcome, AnswerAttempt::Retry);
+        assert!(keys.lock().unwrap().is_empty(), "nothing injected");
+        assert!(drained(&rx).is_empty(), "no premature ack");
+
+        // Question 2 paints: the parked answer now lands (row 1 is already
+        // under the cursor, so Enter alone submits it).
+        paint_ask_pane(&term, (2, 2), 1);
+        let (write_input, keys) = ask_pane_input(&term, (2, 2), 2, true);
+        let outcome = handle_ask_answer(&mut state, &answer, &term, &write_input, &sender);
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert_eq!(*keys.lock().unwrap(), vec!["\r"]);
+        assert!(matches!(
+            drained(&rx)[..],
+            [ActivityEvent::AnswerAck { .. }]
+        ));
+    }
+
+    #[test]
+    fn an_ask_answer_never_submits_a_cursor_that_did_not_move() {
+        // The pane ignores the arrows (a codex build that binds them
+        // differently): Enter would submit the HIGHLIGHTED row, i.e. the
+        // wrong answer — so nothing is submitted and the answer is retried.
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint_ask_pane(&term, (1, 1), 1);
+
+        let mut state = CodexState::default();
+        parse(&mut state, &ask_line("ask7", 1));
+        let (sender, rx) = ActivitySender::test_pair();
+        let (write_input, keys) = ask_pane_input(&term, (1, 1), 2, false);
+
+        let answer = RemoteAnswer {
+            question_id: "ask7#0".to_string(),
+            ask_id: Some("ask7".to_string()),
+            keys: vec!["2".to_string()],
+            text: None,
+        };
+        let outcome = handle_ask_answer(&mut state, &answer, &term, &write_input, &sender);
+        assert_eq!(outcome, AnswerAttempt::Retry);
+        assert_eq!(*keys.lock().unwrap(), vec!["\u{1b}[B"], "no Enter");
+        assert!(drained(&rx).is_empty(), "no ack for an unsubmitted answer");
+    }
+
+    #[test]
+    fn an_ask_answer_for_a_resolved_or_unknown_ask_is_dropped() {
+        let emulator = terminal::Emulator::new(100, 30);
+        let term = emulator.term();
+        paint_ask_pane(&term, (1, 1), 1);
+        let mut state = CodexState::default();
+        let (sender, rx) = ActivitySender::test_pair();
+        let (write_input, keys) = ask_pane_input(&term, (1, 1), 2, true);
+        let outcome = handle_ask_answer(
+            &mut state,
+            &RemoteAnswer {
+                question_id: "gone#0".to_string(),
+                ask_id: None,
+                keys: vec!["1".to_string()],
+                text: None,
+            },
+            &term,
+            &write_input,
+            &sender,
+        );
+        assert_eq!(outcome, AnswerAttempt::Settled);
+        assert!(keys.lock().unwrap().is_empty());
+        assert!(drained(&rx).is_empty());
+        // The two id shapes route to different handlers and never overlap.
+        assert_eq!(split_card_id("ask1#2"), Some(("ask1", 2)));
+        assert_eq!(split_card_id("approval:3"), None);
     }
 
     // -- discovery ---------------------------------------------------------

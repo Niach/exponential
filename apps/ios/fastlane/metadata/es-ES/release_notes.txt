@@ -1,5 +1,12 @@
+- Tablas: escribe tablas en issues y comentarios, con alineación de columnas; edita celdas desde el teléfono y mantén pulsado para borrar una tabla entera
+- Dirección: escribe «/» para lanzar los comandos integrados del agente como /compact y /clear, y observa cómo el agente compacta su contexto en lugar de adivinar
+- Los comentarios muestran los @mentions como chips de miembro en vez de la dirección en crudo
+- Boards: cada board puede fijar su propia rama por defecto en los ajustes del board; las sesiones de código parten de ahí
+- Los diffs de Reviews se desplazan en horizontal, con una cabecera compacta por archivo
+- Los boards vacíos muestran un icono, un título y una pista
+- Las hojas de ajustes, de acciones y de inicio de código siguen mejor las convenciones de la plataforma
+- Un aspecto de cristal renovado en listas, hojas y controles
 - Todo y Backlog ahora son una sola lista: todo lo que estaba en Todo vive en Backlog
-- Las hojas y los menús comparten un estilo uniforme en toda la app
 - El editor conserva tus líneas en blanco intencionales, idénticas en todas las plataformas
 - Los agentes siempre se ejecutan sin solicitudes de permisos; el ajuste ha desaparecido
 - Un solo selector de agente: agente, modelo, esfuerzo, modo plan, cuenta y uso en una única tarjeta
