@@ -13,7 +13,9 @@ extension NSAttributedString.Key {
 /// (`apps/web/src/lib/mention-pill-extension.ts`). The token stays the literal
 /// `@email` in both the document and the editor (web: "hiding characters under
 /// an active caret makes editing hazardous"); only the styling says it is a
-/// person. Unknown addresses stay plain text.
+/// person. Read-only renderers show the member's NAME instead
+/// (`decorateForDisplay`, EXP-713) — the same split web and Android ship.
+/// Unknown addresses stay plain text.
 public enum MentionRefs {
 
     /// Mirrors the web `MENTION_SOURCE` and the Android `Mentions.REGEX`.
@@ -85,5 +87,71 @@ public enum MentionRefs {
             mutable = target
         }
         return mutable ?? attributed
+    }
+
+    /// Display-only counterpart of `decorate` for read-only renderers (the
+    /// comment cards): a resolved `@email` token is REPLACED by `@<name>`, the
+    /// way web's read-only widget and Android's `MentionDisplay` render it
+    /// (EXP-713 — the raw address was iOS-only). Never run this on a model
+    /// whose markdown gets saved: the characters change, so the derived
+    /// markdown would carry the name instead of the interchange `@email`.
+    /// Editable models keep `decorate` (attributes only).
+    ///
+    /// The spaces inside the name are non-breaking so the pill stays one unit
+    /// (web `.mention-pill { white-space: nowrap }`). Same guards as
+    /// `decorate`; already-decorated runs are skipped so a re-run (the member
+    /// list syncing in later) can never substitute twice.
+    public static func decorateForDisplay(
+        _ attributed: NSAttributedString,
+        resolver: (String) -> String?
+    ) -> NSAttributedString {
+        guard attributed.length > 0 else { return attributed }
+        let ns = attributed.string as NSString
+        let found = regex.matches(in: attributed.string, range: NSRange(location: 0, length: ns.length))
+        guard !found.isEmpty else { return attributed }
+
+        var mutable: NSMutableAttributedString?
+        // Replacements change the length, so walk back-to-front to keep every
+        // earlier match range valid (the `IssueRefs.decorateForDisplay` pattern).
+        for match in found.reversed() {
+            var effective = NSRange(location: 0, length: 0)
+            let attrs = attributed.attributes(
+                at: match.range.location, longestEffectiveRange: &effective, in: match.range)
+            guard effective.location == match.range.location, effective.length == match.range.length else {
+                continue
+            }
+            if attrs[.markdownInlineCode] != nil || attrs[.markdownCodeBlock] != nil || attrs[.link] != nil {
+                continue
+            }
+            let font = attrs[.font] as? PlatformFont
+            if expFontHasBold(font) || expFontHasItalic(font)
+                || attrs[.markdownStrikethrough] as? Bool == true {
+                continue
+            }
+            if attrs[.markdownMention] != nil { continue }
+            let email = ns.substring(with: match.range(at: 1))
+            guard let name = resolver(email) else { continue }
+            var chipAttrs = attrs
+            for (key, value) in expChipAttributes(baseColor: attrs[.foregroundColor] as? PlatformColor) {
+                chipAttrs[key] = value
+            }
+            chipAttrs[.markdownMention] = name
+            let piece = NSAttributedString(string: displayText(name: name, email: email), attributes: chipAttrs)
+            let target = mutable ?? NSMutableAttributedString(attributedString: attributed)
+            target.replaceCharacters(in: match.range, with: piece)
+            mutable = target
+        }
+        return mutable ?? attributed
+    }
+
+    /// `@<name>` with the name's internal whitespace made non-breaking; a
+    /// blank name falls back to the stored token.
+    public static func displayText(name: String, email: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "@\(email)" }
+        let joined = trimmed
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: "\u{00A0}")
+        return "@\(joined)"
     }
 }

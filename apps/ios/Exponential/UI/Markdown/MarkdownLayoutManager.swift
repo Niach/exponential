@@ -47,34 +47,82 @@ final class MarkdownLayoutManager: NSLayoutManager {
     /// `enumerateEnclosingRects`: that returns SELECTION geometry, whose
     /// non-final lines run all the way to the container edge — a wrapped chip
     /// drew a full-width bar instead of a pill (EXP-423).
+    ///
+    /// A chip that wraps is ONE chip sliced at the line break, not two closed
+    /// pills (EXP-713): the fragment ending a line keeps its right edge open
+    /// and the continuation its left edge, the way CSS `box-decoration-break:
+    /// slice` renders web's wrapped `.issue-ref-pill`. The per-run character
+    /// range is extended to the whole run first, so a partial redraw of only
+    /// the continuation line still knows it is a continuation.
     private func drawChipCapsules(in glyphsToShow: NSRange, at origin: CGPoint) {
         guard let storage = textStorage, storage.length > 0,
               let container = textContainers.first else { return }
         let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
         guard charRange.length > 0 else { return }
-        storage.enumerateAttribute(.markdownChip, in: charRange, options: []) { value, range, _ in
+        let full = NSRange(location: 0, length: storage.length)
+        var drawn = [NSRange]()
+        storage.enumerateAttribute(.markdownChip, in: charRange, options: []) { value, partial, _ in
             guard value != nil else { return }
+            var range = NSRange(location: 0, length: 0)
+            _ = storage.attribute(.markdownChip, at: partial.location, longestEffectiveRange: &range, in: full)
+            guard range.length > 0, !drawn.contains(where: { NSEqualRanges($0, range) }) else { return }
+            drawn.append(range)
             let glyphs = self.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
             guard glyphs.length > 0 else { return }
             // Issue chips are rounded rects (Linear); mention pills stay round.
             let isIssueRef = storage.attribute(
                 .markdownIssueRef, at: range.location, effectiveRange: nil) != nil
+            var boxes = [CGRect]()
             self.enumerateLineFragments(forGlyphRange: glyphs) { _, _, _, lineGlyphs, _ in
                 let intersect = NSIntersectionRange(lineGlyphs, glyphs)
                 guard intersect.length > 0 else { return }
                 let rect = self.boundingRect(forGlyphRange: intersect, in: container)
                 let box = rect.offsetBy(dx: origin.x, dy: origin.y).insetBy(dx: -2, dy: 1)
                 guard box.width > 0, box.height > 0 else { return }
+                boxes.append(box)
+            }
+            for (index, box) in boxes.enumerated() {
                 let radius = isIssueRef ? MarkdownStyle.chipCornerRadius : box.height / 2
-                let path = UIBezierPath(roundedRect: box, cornerRadius: radius)
-                MarkdownStyle.chipBackground.setFill()
-                path.fill()
-                MarkdownStyle.chipBorder.setStroke()
-                path.lineWidth = 1
-                path.stroke()
+                Self.drawChipBox(
+                    box,
+                    radius: radius,
+                    openLeft: index > 0,
+                    openRight: index < boxes.count - 1
+                )
             }
             self.drawChipStatusIcons(in: range, storage: storage, container: container, at: origin)
         }
+    }
+
+    /// Fill + hairline of one chip fragment. An open side is drawn by
+    /// extending the rounded rect past that edge and clipping it back to the
+    /// fragment, so the corners and the stroke simply never appear there.
+    private static func drawChipBox(_ box: CGRect, radius: CGFloat, openLeft: Bool, openRight: Bool) {
+        let lineWidth: CGFloat = 1
+        let overshoot = radius + lineWidth
+        var shape = box
+        // Half the stroke straddles the box edge; keep it on the closed sides.
+        var clip = box.insetBy(dx: -lineWidth, dy: -lineWidth)
+        if openLeft {
+            shape.origin.x -= overshoot
+            shape.size.width += overshoot
+            clip.origin.x += lineWidth
+            clip.size.width -= lineWidth
+        }
+        if openRight {
+            shape.size.width += overshoot
+            clip.size.width -= lineWidth
+        }
+        let context = UIGraphicsGetCurrentContext()
+        context?.saveGState()
+        if openLeft || openRight { UIBezierPath(rect: clip).addClip() }
+        let path = UIBezierPath(roundedRect: shape, cornerRadius: radius)
+        MarkdownStyle.chipBackground.setFill()
+        path.fill()
+        MarkdownStyle.chipBorder.setStroke()
+        path.lineWidth = lineWidth
+        path.stroke()
+        context?.restoreGState()
     }
 
     /// The status glyph of a resolved issue chip, painted over the token's `#`

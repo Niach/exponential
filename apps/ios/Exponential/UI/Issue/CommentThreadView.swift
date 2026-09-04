@@ -703,10 +703,10 @@ private struct RegularCommentRow: View {
                 // description and the composer (no MarkdownUI — its
                 // optimized opaque-Body metadata hard-crashed the iOS 27
                 // runtime, and one dependency for one read-only view isn't
-                // worth that class of bug). The model decorates @mentions
-                // and resolved `#IDENTIFIER` refs as tappable pills; the
-                // raw stored markdown stays untouched (the edit path
-                // reseeds from it).
+                // worth that class of bug). The model renders resolved
+                // @mentions as `@<name>` pills (EXP-713) and resolved
+                // `#IDENTIFIER` refs as tappable chips; the raw stored
+                // markdown stays untouched (the edit path reseeds from it).
                 //
                 // EXP-554: an attachment-only comment has a blank body — skip
                 // the body view entirely rather than rendering an empty block.

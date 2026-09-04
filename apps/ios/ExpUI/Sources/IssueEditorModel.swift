@@ -372,7 +372,9 @@ public final class IssueEditorModel {
     /// `.markdownIssueRef`, so a second run can no longer append the title
     /// twice. Skipping display-only models entirely would be the other fix, but
     /// it would also stop late-syncing team members from ever chipping their
-    /// `@email` mentions on a read-only comment card (EXP-322).
+    /// `@email` mentions on a read-only comment card (EXP-322). The mention
+    /// route (`MentionRefs.decorateForDisplay`) carries the same
+    /// already-decorated guard.
     private func redecorateChips() {
         for (idx, block) in blocks.enumerated() {
             switch block {
@@ -405,8 +407,9 @@ public final class IssueEditorModel {
 
     /// The one place that assembles the resolvers for a chip pass, so the
     /// live editor pass and the `load()` pass can never drift. Read-only
-    /// display models still splice the title in as text; editable models get
-    /// the serialization-invisible attachment.
+    /// display models splice the issue title in as text and substitute the
+    /// member name for a mention's address; editable models get the
+    /// serialization-invisible attachment and keep the `@email` characters.
     public func chipDecoration(
         for content: NSAttributedString,
         selection: NSRange
@@ -417,9 +420,11 @@ public final class IssueEditorModel {
                 resolver: issueRefResolver,
                 titleResolver: issueRefTitleResolver,
                 statusResolver: issueRefStatusResolver)
+            // Read-only cards show `@<name>` over the stored `@email` (EXP-713,
+            // web/Android parity); editable models below keep the address.
             let mentioned = mentionMembers.isEmpty
                 ? decorated
-                : MentionRefs.decorate(decorated) { [weak self] in self?.mentionName(for: $0) }
+                : MentionRefs.decorateForDisplay(decorated) { [weak self] in self?.mentionName(for: $0) }
             return MarkdownChipDecorator.Result(
                 attributed: mentioned,
                 selection: selection,
