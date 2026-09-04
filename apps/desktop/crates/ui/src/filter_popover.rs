@@ -25,7 +25,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     h_flex,
-    input::{Input, InputState},
+    input::{InputState},
     popover::Popover,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
@@ -35,7 +35,7 @@ use domain::rows::Label;
 use domain::statuses::{status_key_matches, IssueStatusCategory, ResolvedStatus};
 use domain::{active_filter_count, IssueFilters};
 
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::icons::{option_icon, registry, resolved_status_icon, ExpIcon};
 use crate::issue_list::parse_hex_color;
 
@@ -105,7 +105,7 @@ impl IssueFilterPopover {
 }
 
 impl RenderOnce for IssueFilterPopover {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let count = active_filter_count(&self.filters);
 
         // EXP-698: the trigger is a pill like every other header action —
@@ -163,6 +163,7 @@ impl RenderOnce for IssueFilterPopover {
                 &self.label_query,
                 self.on_filters_change.clone(),
                 self.on_view_change.clone(),
+                window,
                 cx,
             )
             .into_any_element(),
@@ -394,6 +395,7 @@ fn labels_view(
     label_query: &Entity<InputState>,
     on_filters_change: OnFiltersChange,
     on_view_change: OnViewChange,
+    window: &Window,
     cx: &App,
 ) -> impl IntoElement {
     let query = label_query.read(cx).value().trim().to_lowercase();
@@ -418,7 +420,7 @@ fn labels_view(
                 }),
         )
         .child(
-            Input::new(label_query)
+            glass_input(label_query, window, cx)
                 .small()
                 .appearance(false)
                 .cleanable(true),

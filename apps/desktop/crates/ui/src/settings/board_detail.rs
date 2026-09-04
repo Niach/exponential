@@ -21,13 +21,13 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     v_flex, ActiveTheme as _, Icon,
 };
 use sync::Store;
 
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
@@ -615,7 +615,9 @@ impl Render for BoardDetailPane {
                     .gap_2()
                     .items_center()
                     .child(icon_picker)
-                    .child(div().flex_1().child(Input::new(&self.name_input).web_input_sm())),
+                    .child(
+                        div().flex_1().child(glass_input(&self.name_input, window, cx).web_input_sm()),
+                    ),
             );
 
         let prefix_field = v_flex()

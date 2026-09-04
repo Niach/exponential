@@ -30,7 +30,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Input, InputEvent, InputState, Textarea, TextareaState},
+    input::{InputEvent, InputState, Textarea, TextareaState},
     scroll::{Scrollbar, ScrollbarAxis},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -38,7 +38,7 @@ use gpui_component::{
 use coding::{ActionInputValue, LaunchOrigin};
 
 use crate::action_run::{self, ActionRepo, ActionRepoRow, StartActionArgs};
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::automation_editor::{automation_devices, AutomationEditorState, AutomationSpec};
 use crate::coding_flow::CodingHub;
 use crate::icons::registry;
@@ -478,7 +478,7 @@ impl CreateActionDialogView {
 
     /// The left form column: icon + Name · Description · Repository ·
     /// Automation row.
-    fn form_column(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    fn form_column(&self, window: &Window, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let icon_picked = self.icon.clone();
         let icon_picker = crate::board_form::icon_picker(
             "ca-icon",
@@ -515,7 +515,7 @@ impl CreateActionDialogView {
         // placeholder (the builtin's own input definition) is its title.
         let name_row = crate::surface::glass_row_shell().child(icon_picker).child(
             div().flex_1().min_w_0().child(
-                Input::new(&self.name)
+                glass_input(&self.name, window, cx)
                     .appearance(false)
                     .h_auto()
                     .px_0()
@@ -591,7 +591,7 @@ impl CreateActionDialogView {
 }
 
 impl Render for CreateActionDialogView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let blocker = self.launch_blocker(cx);
         let body = match self.pane {
             Pane::Form => v_flex().w_full().gap_3().child(
@@ -599,7 +599,7 @@ impl Render for CreateActionDialogView {
                     .w_full()
                     .gap_5()
                     .items_start()
-                    .child(self.form_column(cx))
+                    .child(self.form_column(window, cx))
                     .child(v_flex().flex_1().min_w_0().child(self.launch.render(
                         "ca-launch",
                         |this: &mut Self| &mut this.launch,
@@ -619,6 +619,7 @@ impl Render for CreateActionDialogView {
                 .child(self.automation.render(
                     "ca-automation",
                     |this: &mut Self| &mut this.automation,
+                    window,
                     cx,
                 )),
         };

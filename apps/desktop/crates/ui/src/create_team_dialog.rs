@@ -23,13 +23,13 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
     scroll::{Scrollbar, ScrollbarAxis},
     v_flex, ActiveTheme as _, Disableable as _,
 };
 use sync::Store;
 
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 
 use crate::actions::CreateTeam;
@@ -224,9 +224,9 @@ impl Render for CreateTeamDialogView {
             div().text_sm().text_color(cx.theme().muted_foreground).child("Name")
         };
         let input = if self.embedded {
-            Input::new(&self.name).web_input()
+            glass_input(&self.name, window, cx).web_input()
         } else {
-            Input::new(&self.name).web_input_sm()
+            glass_input(&self.name, window, cx).web_input_sm()
         };
         let mut form = v_flex().gap_4().child(
             v_flex()

@@ -34,7 +34,7 @@ use gpui::{
 use gpui_component::{
     calendar::{CalendarEvent, CalendarState, Date},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
     menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
@@ -53,6 +53,7 @@ use crate::pickers::chip_button;
 use crate::wysiwyg::WysiwygDescription;
 use crate::navigation::{active_board_id, nav_for_window};
 use crate::queries;
+use crate::controls::glass_input;
 
 /// Register the App-global [`NewIssue`] handler (call once from `ui::init`).
 /// The action is the §3.6 unit action the filter bar dispatches; the target
@@ -999,7 +1000,7 @@ impl Render for CreateIssueDialogView {
                         },
                     ))
                     .child(
-                        Input::new(&self.title)
+                        glass_input(&self.title, window, cx)
                             .appearance(false)
                             .text_lg()
                             .font_weight(FontWeight::MEDIUM),

@@ -37,7 +37,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Input, InputState},
+    input::{InputState},
     popover::Popover,
     v_flex, ActiveTheme as _, Icon, Selectable as _, Sizable as _,
 };
@@ -46,6 +46,7 @@ use gpui_markdown_editor::{FormatCommand, FormatState};
 use super::description::WysiwygDescription;
 use crate::icons::registry;
 use crate::ExpIcon;
+use crate::controls::glass_input;
 
 /// Which page of the rail is showing. Link is deliberately absent — the
 /// host's `link_input` already IS that state, and duplicating it would let the
@@ -144,7 +145,7 @@ impl WysiwygDescription {
 
         let state = self.format_state(window, cx);
         let body = match (self.link_input.as_ref(), self.rail_mode) {
-            (Some((input, _)), _) => self.render_link_page(input.clone(), &state, cx),
+            (Some((input, _)), _) => self.render_link_page(input.clone(), &state, window, cx),
             (None, RailMode::Main) => self.render_main_page(&state, window, cx),
             (None, RailMode::Text) => self.render_text_page(&state, window, cx),
         };
@@ -431,12 +432,13 @@ impl WysiwygDescription {
         &self,
         url_input: Entity<InputState>,
         state: &FormatState,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let mut items: Vec<gpui::AnyElement> = vec![
             div()
                 .w_48()
-                .child(Input::new(&url_input).xsmall())
+                .child(glass_input(&url_input, window, cx).xsmall())
                 .into_any_element(),
             Self::icon_button("wysiwyg-rail-link-apply", registry::UI_CHECK, "Apply link", false)
                 .on_click(cx.listener(|this, _, window, cx| this.apply_link(window, cx)))

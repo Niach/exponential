@@ -629,9 +629,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       web: ok(`Input`, `apps/web/src/components/ui/input.tsx`),
       desktop: {
         state: `leftover`,
-        symbol: `WebControl::web_input`,
+        symbol: `controls::glass_input`,
         file: DESKTOP_CONTROLS,
-        note: `stroke is strokeCard via theme.input; radius and focus ring are theme-wide (10 / neutral ring), not 12 / strokeActive`,
+        note: `focus swaps the stroke to strokeActive, no ring (EXP-720); the radius is still theme-wide (10, not 12)`,
       },
       ios: ok(`GlassTextField`, IOS_CONTROLS),
       android: ok(`GlassTextField`, `${ANDROID_COMPONENTS}/GlassTextField.kt`),

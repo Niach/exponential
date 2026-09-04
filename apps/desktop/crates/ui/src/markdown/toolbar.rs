@@ -9,16 +9,17 @@
 //! `InputState`.
 
 use gpui::prelude::FluentBuilder as _;
-use gpui::{div, App, IntoElement, ParentElement as _, Styled as _};
+use gpui::{div, App, IntoElement, ParentElement as _, Styled as _, Window};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    input::{Input, InputState},
+    input::{InputState},
     h_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use std::ops::Range;
 
 use crate::icons::registry;
 use crate::ExpIcon;
+use crate::controls::glass_input;
 
 use super::editor::MarkdownEditor;
 
@@ -217,6 +218,7 @@ fn separator(cx: &App) -> impl IntoElement {
 /// seam for the link popover's focus handling.
 pub(super) fn render_toolbar(
     editor: &mut MarkdownEditor,
+    window: &Window,
     cx: &mut gpui::Context<MarkdownEditor>,
 ) -> impl IntoElement {
     let link_editor = editor.link_editor_inputs();
@@ -261,7 +263,7 @@ pub(super) fn render_toolbar(
             // Link control: swaps to an inline URL editor (never a prompt
             // modal — §4.5 "Links").
             if let Some((url_input, text_input)) = link_editor {
-                this.child(render_link_editor(url_input, text_input, cx))
+                this.child(render_link_editor(url_input, text_input, window, cx))
             } else {
                 this.child(toolbar_button("md-link", registry::EDITOR_LINK, "Link", cx, |this, window, cx| {
                     this.open_link_editor(window, cx);
@@ -318,13 +320,14 @@ pub(super) fn render_toolbar(
 fn render_link_editor(
     url_input: gpui::Entity<InputState>,
     text_input: gpui::Entity<InputState>,
+    window: &Window,
     cx: &mut gpui::Context<MarkdownEditor>,
 ) -> impl IntoElement {
     h_flex()
         .gap_1()
         .items_center()
-        .child(div().w_48().child(Input::new(&url_input).xsmall()))
-        .child(div().w_32().child(Input::new(&text_input).xsmall()))
+        .child(div().w_48().child(glass_input(&url_input, window, cx).xsmall()))
+        .child(div().w_32().child(glass_input(&text_input, window, cx).xsmall()))
         .child(
             Button::new("md-link-apply")
                 .ghost().cursor_pointer()

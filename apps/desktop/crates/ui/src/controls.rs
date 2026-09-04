@@ -11,13 +11,35 @@
 //! (and every native toolkit convention we mirror) points on hover.
 
 use gpui::{
-    div, px, App, Div, FontWeight, InteractiveElement as _, ParentElement as _, SharedString,
-    Styled,
+    div, prelude::FluentBuilder as _, px, App, Div, Entity, Focusable as _, FontWeight,
+    InteractiveElement as _, ParentElement as _, SharedString, Styled, Window,
 };
 use gpui_component::{
-    input::TextareaState, menu::PopupMenuItem, v_flex, ActiveTheme as _, Icon, Sizable, Size,
+    input::{Input, InputState, TextareaState},
+    menu::PopupMenuItem,
+    v_flex, ActiveTheme as _, Icon, Sizable, Size,
 };
 use theme::tokens as t;
+
+/// EXP-720: the ONE text-field recipe (styleguide `text-field`, web
+/// `components/ui/input.tsx`): card fill under the card stroke, and focus
+/// swaps the STROKE to `glass::STROKE_ACTIVE` — no ring. gpui-component's
+/// `Input` paints its focused state as `theme.ring` (the neutral RING token
+/// the web keeps for BUTTON focus-visible halos) plus a halo child, which is
+/// why an autofocused dialog field used to wear a bright grey outline no other
+/// field carried. The theme has no hook for the focused input stroke alone
+/// (`ring` also drives every other focus ring), so the swap happens here:
+/// `focus_bordered(false)` mutes the component's own focused style and the
+/// active stroke rides the caller refinement, which `Input` replays last.
+/// Every `Input` goes through this — construct with it, never `Input::new`.
+pub(crate) fn glass_input(state: &Entity<InputState>, window: &Window, cx: &App) -> Input {
+    let focused = state.focus_handle(cx).is_focused(window);
+    Input::new(state)
+        .focus_bordered(false)
+        .when(focused, |input| {
+            input.border_color(t::glass::STROKE_ACTIVE.to_hsla())
+        })
+}
 
 // EXP-698: the rung names match the TOKEN ladder (`size::CONTROL_*`), which
 // is the same ladder on all four clients — LG 36 / MD 32 / SM 24. They used

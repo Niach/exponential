@@ -72,12 +72,12 @@ use gpui::{
     SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     h_flex,
-    input::{Input, InputEvent, InputState, Textarea, TextareaState},
+    input::{InputEvent, InputState, Textarea, TextareaState},
     menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
     scroll::{Scrollbar, ScrollbarAxis},
@@ -2245,6 +2245,7 @@ impl StartCodingDialogView {
         &self,
         ix: usize,
         input: &api::actions::ActionInput,
+        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let theme = cx.theme();
@@ -2256,7 +2257,7 @@ impl StartCodingDialogView {
         };
         let field: gpui::AnyElement = match input.input_type.as_str() {
             "text" => match self.action_text_inputs.get(&input.key) {
-                Some(state) => Input::new(state).web_input_sm().into_any_element(),
+                Some(state) => glass_input(state, window, cx).web_input_sm().into_any_element(),
                 None => div().into_any_element(), // transient re-selection frame
             },
             // EXP-530: the multi-line twin of `text` — same value on the
@@ -2580,7 +2581,7 @@ impl StartCodingDialogView {
 }
 
 impl Render for StartCodingDialogView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let theme_muted = cx.theme().muted_foreground;
         let danger = cx.theme().danger;
         let warning = cx.theme().warning;
@@ -2669,7 +2670,7 @@ impl Render for StartCodingDialogView {
         match self.subject_tab {
             SubjectTab::Issues => {
                 left = left
-                    .child(Input::new(&self.search).web_input_sm())
+                    .child(glass_input(&self.search, window, cx).web_input_sm())
                     // Bounded, actually-scrollable checklist (EXP-119):
                     // compose the EXP-67 scroll-pane primitives directly —
                     // gpui-component's `overflow_y_scrollbar` wrapper drops
@@ -2739,7 +2740,7 @@ impl Render for StartCodingDialogView {
                     }
                 }
                 left = left
-                    .child(Input::new(&self.action_search).web_input_sm())
+                    .child(glass_input(&self.action_search, window, cx).web_input_sm())
                     .child(self.bounded_pane(
                         "sc-actions-scroll",
                         &self.action_list_scroll.clone(),
@@ -2757,7 +2758,7 @@ impl Render for StartCodingDialogView {
                 if !action.inputs.is_empty() {
                     let mut fields = v_flex().gap_2().p_2();
                     for (ix, input) in action.inputs.iter().enumerate() {
-                        fields = fields.child(self.action_input_field(ix, input, cx));
+                        fields = fields.child(self.action_input_field(ix, input, window, cx));
                     }
                     left = left.child(self.bounded_pane(
                         "sc-action-inputs-scroll",

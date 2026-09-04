@@ -126,8 +126,8 @@
         "file": "shots/add-server/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 31108,
-        "sha256": "4ca9fa66355b6d545ee832a72fb0744ec1a1572f66f04fa1e6c3828f2365d4d1"
+        "bytes": 31168,
+        "sha256": "c74d0fdc0127f9db52dd6b621b6b7781922ed8e1873d5e9a2804debe5e007b07"
       },
       "web": {
         "file": "shots/add-server/web.webp",
@@ -479,8 +479,8 @@
         "file": "shots/invite-accept/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 65556,
-        "sha256": "8667669af7c35e0c86b3cce67d4de72e314265b10b45a40a786519e94209e162"
+        "bytes": 64612,
+        "sha256": "65fa1b03198fb32d345c9bd45d466c5260607421efa728476b9d19c64f9e09bc"
       },
       "web": {
         "file": "shots/invite-accept/web.webp",
@@ -754,8 +754,8 @@
         "file": "shots/onboarding-create-team/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 10842,
-        "sha256": "02a3be474626d875cb5af2e30406d011e42530ac2ead4b3b71b73e33b7ab9169"
+        "bytes": 10128,
+        "sha256": "9249685fc9b4c539c683261230eea8b0adcc1a6fba0f04053d441c2389d861d1"
       },
       "ios": {
         "file": "shots/onboarding-create-team/ios.webp",
@@ -784,8 +784,8 @@
         "file": "shots/onboarding-join/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 12360,
-        "sha256": "000004359f76af7010facc234ea487c1b40cb13912faf545824e9d366571402b"
+        "bytes": 11608,
+        "sha256": "1104f783a37be48cf15e590e901de71909fbb12dd834f1154f50d94e0526fefe"
       },
       "web": {
         "file": "shots/onboarding-join/web.webp",
@@ -964,8 +964,8 @@
         "file": "shots/settings-api-keys/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 27402,
-        "sha256": "123fdc7afca5d812ecd43a10f1f1a24c15c4efb34899ad1d201566c89e7b7271"
+        "bytes": 27138,
+        "sha256": "1d714aceb43d8d5924928255b77a6fe1c24a31266ef9bdec54913a0c60ab5319"
       },
       "web": {
         "file": "shots/settings-api-keys/web.webp",
@@ -1003,8 +1003,8 @@
         "file": "shots/settings-boards-archived/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 24188,
-        "sha256": "b98779c5a0e9ded4c42b7373852a3942f8cf105d97ba628a8ddc7c3230d16529"
+        "bytes": 24244,
+        "sha256": "1f1a544159e01a56f93fff9a4377503f7a68546f642062f299fb83f69fc0fa6a"
       }
     },
     "settings-general": {
@@ -1012,8 +1012,8 @@
         "file": "shots/settings-general/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 22866,
-        "sha256": "3652a1319e0d366893a3589b2a40bd5c8fafbad828cf914c9eaa02a22f45161a"
+        "bytes": 22504,
+        "sha256": "182ccac6dbe3bf76821ac6279caf9cf485126090943a865a2442619a6e54d8ef"
       },
       "web": {
         "file": "shots/settings-general/web.webp",
@@ -1205,8 +1205,8 @@
         "file": "shots/settings-tools/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 34022,
-        "sha256": "5e2979bad63f0e734f7978ced1b44c4b1d4ba85a3495d05fcdc670820293c671"
+        "bytes": 34286,
+        "sha256": "75e816c64c811f7e6a83b0f76555bcb1d09d89434c855375c91875ad9dbb3a31"
       }
     },
     "settings-widget": {
@@ -1239,8 +1239,8 @@
         "file": "shots/settings-worktrees/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 23930,
-        "sha256": "1a649bb486d0b4a3f74bf259fa01d26d0bdac02dd7356a04081c72c1260e1b79"
+        "bytes": 23994,
+        "sha256": "2a20a8f083bc3f6f0c56134a033fb3f45af5f1adfefa5aa8856553ae4dd82b8f"
       }
     },
     "sign-in": {
@@ -1301,8 +1301,8 @@
         "file": "shots/start-coding/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 74890,
-        "sha256": "422f9c1818a26d7cf96b6533dec59a943a9ef5d268074d69cc4fb541c7b03e93"
+        "bytes": 74860,
+        "sha256": "90d8acad0e99eaed683e1a674e203f519784e8e60feafd28616d940a83ae289b"
       },
       "ios": {
         "file": "shots/start-coding/ios.webp",

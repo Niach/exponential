@@ -681,9 +681,13 @@ impl LocalReposPane {
         let remove = {
             let full_name = repo.full_name.clone();
             let clone = repo.clone_path.clone();
-            let mut button = Button::new(("repo-remove", ix))
-                .ghost()
-                .web_xs()
+            // EXP-720: a Sm pill like every other row-trailing destructive
+            // action (API keys' Revoke), the trash glyph carrying the tint.
+            let mut button = surface::glass_pill_button(
+                ("repo-remove", ix),
+                surface::PillSize::Sm,
+                cx,
+            )
                 .icon(Icon::new(registry::UI_DELETE).text_color(if in_use {
                     cx.theme().muted_foreground
                 } else {

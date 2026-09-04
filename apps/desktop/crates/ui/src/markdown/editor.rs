@@ -1969,7 +1969,7 @@ impl Render for MarkdownEditor {
             .capture_action(cx.listener(Self::on_enter))
             .capture_action(cx.listener(Self::on_tab))
             .capture_action(cx.listener(Self::on_paste))
-            .child(toolbar::render_toolbar(self, cx))
+            .child(toolbar::render_toolbar(self, window, cx))
             .when_some(error, |el, error| {
                 el.child(
                     div()

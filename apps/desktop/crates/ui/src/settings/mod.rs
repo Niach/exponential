@@ -979,6 +979,40 @@ pub(crate) fn card_header(
         )
 }
 
+/// EXP-720: the ONE danger-zone recipe, the web `settings/general.tsx` twin —
+/// a [`section`] whose [`card_title`] is tinted `danger` over ONE glass row:
+/// the muted description leading, the destructive action trailing. Both the
+/// team's "Delete team" and the device's "Reset IDE data" wear it; the
+/// red-bordered tinted card General used to draw is gone (it was the only
+/// bordered box left in the panes after EXP-282 flattened them).
+pub(crate) fn danger_zone(
+    description: impl Into<SharedString>,
+    action: impl IntoElement,
+    cx: &App,
+) -> gpui::Div {
+    section(cx)
+        .child(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(cx.theme().danger)
+                .child("Danger zone"),
+        )
+        .child(
+            crate::surface::glass_group_rows(vec![crate::surface::glass_row_shell()
+                .justify_between()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(description.into()),
+                )
+                .child(div().flex_shrink_0().child(action))]),
+        )
+}
+
 /// Inline destructive error box (web `text-destructive` / bordered error).
 pub(crate) fn error_notice(message: SharedString, cx: &App) -> impl IntoElement {
     div()

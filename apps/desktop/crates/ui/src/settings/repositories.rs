@@ -39,7 +39,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
-    input::{Input, InputState},
+    input::{InputState},
     notification::Notification,
     popover::Popover,
     skeleton::Skeleton,
@@ -48,7 +48,7 @@ use gpui_component::{
 use serde::{Deserialize, Serialize};
 use sync::Store;
 
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::github_connect::{fetch_github_status, GithubStatus};
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
@@ -1099,7 +1099,12 @@ impl RepositoriesPane {
 
                 let mut column = v_flex()
                     .w_full()
-                    .child(Input::new(&query).web_input_sm().appearance(false).cleanable(true))
+                    .child(
+                        glass_input(&query, window, cx)
+                            .web_input_sm()
+                            .appearance(false)
+                            .cleanable(true),
+                    )
                     .child(
                         div()
                             .h(px(1.))

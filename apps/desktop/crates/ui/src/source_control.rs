@@ -54,7 +54,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    input::{Input, InputState},
+    input::{InputState},
     scroll::{ScrollableElement as _, ScrollbarAxis},
     v_virtual_list, ActiveTheme as _, Disableable as _, VirtualListScrollHandle,
 };
@@ -64,7 +64,7 @@ use coding::scm::{self, CommitInfo, ConflictKind, ConflictState};
 
 use crate::coding_flow::{self, CodingHub};
 use crate::commit_graph::{self, EdgeKind, Graph, GraphRow, SquashLink, MAX_LANES};
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::diff::{build_scm_diff, DiffView};
 use crate::icons::registry;
 use crate::navigation::{self, Navigation};
@@ -1511,10 +1511,10 @@ impl HistoryList {
                 "Commit & push",
             )
             .height(px(if behind_note.is_empty() { 260. } else { 300. }))
-            .content(move |_, _| {
+            .content(move |window, cx| {
                 div()
                     .mt_2()
-                    .child(Input::new(&content_input).web_input_sm())
+                    .child(glass_input(&content_input, window, cx).web_input_sm())
                     .into_any_element()
             })
             .on_ok(move |_, cx| {

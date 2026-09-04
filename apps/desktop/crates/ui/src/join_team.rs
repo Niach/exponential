@@ -27,13 +27,13 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
     scroll::{Scrollbar, ScrollbarAxis},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 
 use api::teams::TeamInviteOut;
@@ -405,7 +405,7 @@ impl Render for JoinTeamView {
                         .text_color(cx.theme().foreground)
                         .child("Invite link"),
                 )
-                .child(Input::new(&self.token_input).web_input()),
+                .child(glass_input(&self.token_input, window, cx).web_input()),
         );
 
         let (primary_label, primary_disabled): (&'static str, bool) = match &self.preview {

@@ -242,7 +242,13 @@ pub(crate) struct DialogSpec {
     /// Inner content size, below the titlebar strip. Callers cap against the
     /// opener's viewport.
     pub size: Size<Pixels>,
-    /// EXP-285: user-resizable window with this floor. `None` = fixed size.
+    /// The resize floor. EXP-720: every native-chrome dialog is
+    /// user-resizable — the window chrome must not differ per dialog (the
+    /// macOS zoom light and the strip's maximize control used to be dead on
+    /// the fixed-size ones), and every dialog view already fills its window
+    /// (`size_full` + a `flex_1` body over a pinned footer). `None` = the
+    /// opening size is the floor; [`Self::resizable`] lowers it (EXP-285) for
+    /// the layouts that can shrink.
     min_size: Option<Size<Pixels>>,
     /// EXP-287: full window chrome — the main window's titlebar options plus
     /// the shell's [`crate::title_bar::TitleBar`] strip. `false` = fully
@@ -262,7 +268,9 @@ impl DialogSpec {
         }
     }
 
-    /// Make the dialog window user-resizable, no smaller than `min_size`.
+    /// Lower the resize floor below the opening size (EXP-285). Every
+    /// native-chrome dialog resizes either way (EXP-720); this only says the
+    /// layout tolerates less than [`Self::size`].
     pub(crate) fn resizable(mut self, min_size: Size<Pixels>) -> Self {
         self.min_size = Some(min_size);
         self
@@ -451,10 +459,15 @@ pub(crate) fn open_dialog_window(
     );
     let bounds = Bounds { origin, size };
     let title = spec.title.clone();
-    let min_size = spec.min_size.map(|mut min| {
-        if native_chrome {
-            min.height += crate::title_bar::TITLE_BAR_HEIGHT;
-        }
+    // EXP-720: native-chrome dialogs always resize; the floor is the explicit
+    // one or the opening size (capped like the size itself, so the floor can
+    // never exceed what the viewport allowed). Chromeless panels (search,
+    // image preview) stay fixed — they are transient surfaces, not windows
+    // the user manages.
+    let min_size = native_chrome.then(|| {
+        let mut min = spec.min_size.unwrap_or(spec.size);
+        min.height += crate::title_bar::TITLE_BAR_HEIGHT;
+        min.height = min.height.min(size.height);
         min
     });
 

@@ -33,8 +33,9 @@
 //! transients and the strip's chrome should not differ per dialog.
 //!
 //! Scope: Linux/X11 only, and only for dialogs that actually DRAW a maximize
-//! control (`DialogSpec::resizable`) — a fixed-size dialog would gain a WM
-//! maximize its content cannot use. Off Linux a native-chrome dialog is
+//! control — every native-chrome dialog since EXP-720 (a fixed-size dialog
+//! would gain a WM maximize its content cannot use; the chromeless panels
+//! stay fixed and unpromoted). Off Linux a native-chrome dialog is
 //! already `WindowKind::Normal`, and Wayland has no window-type protocol for
 //! `xdg_toplevel.set_parent` to trip over (unverified there — this is a
 //! no-op under a compositor either way). gpui exposes no window-type API at

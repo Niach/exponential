@@ -294,7 +294,7 @@ impl AutomationDialogView {
 }
 
 impl Render for AutomationDialogView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let danger = cx.theme().danger;
         // A trigger kind this build predates would be REWRITTEN by a save
         // (the section can only express what it can parse) — block it.
@@ -309,7 +309,7 @@ impl Render for AutomationDialogView {
             ]))
             .child(
                 self.automation
-                    .render("automation-dialog", |this| &mut this.automation, cx),
+                    .render("automation-dialog", |this| &mut this.automation, window, cx),
             );
 
         let footer = h_flex()

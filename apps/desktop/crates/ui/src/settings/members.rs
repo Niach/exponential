@@ -20,7 +20,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     clipboard::Clipboard,
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -30,7 +30,7 @@ use domain::board::format_short_date;
 use domain::contract::TEAM_ROLE_OWNER;
 use domain::rows::{User, TeamInvite, TeamMember};
 
-use crate::controls::WebControl as _;
+use crate::controls::{glass_input, WebControl as _};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
@@ -381,7 +381,7 @@ fn member_actions_menu(
 }
 
 impl Render for MembersPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return v_flex().child(
                 div()
@@ -486,7 +486,7 @@ impl Render for MembersPane {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .child(Input::new(&self.email_input).web_input_sm()),
+                            .child(glass_input(&self.email_input, window, cx).web_input_sm()),
                     )
                     .child(
                         Button::new("invite-generate")
