@@ -14,9 +14,23 @@ describe(`isNotMergeable`, () => {
     expect(
       isNotMergeable(new GitHubMergeError(405, `pull request is NOT MERGEABLE`))
     ).toBe(true)
+    // EXP-737: GitHub's newer wording for the same state — a 405 that used to
+    // fall through as a policy refusal and hid "Fix conflicts" on every client.
+    expect(
+      isNotMergeable(new GitHubMergeError(405, `Pull Request has merge conflicts`))
+    ).toBe(true)
     expect(
       isNotMergeable(
         new GitHubMergeError(405, `Squash merges are not allowed on this repository`)
+      )
+    ).toBe(false)
+    // The transient "verify mergeability" refusal is not a content conflict.
+    expect(
+      isNotMergeable(
+        new GitHubMergeError(
+          405,
+          `Base branch was modified. Review and try the merge again.`
+        )
       )
     ).toBe(false)
     expect(
@@ -51,6 +65,20 @@ describe(`prMergeFailureError`, () => {
     const error = prMergeFailureError(notMergeable, null)
     expect(error.code).toBe(`CONFLICT`)
     expect(error.message).toBe(`Pull Request is not mergeable`)
+  })
+
+  it(`answers CONFLICT for GitHub's "has merge conflicts" wording too (EXP-737)`, () => {
+    const hasConflicts = new GitHubMergeError(405, `Pull Request has merge conflicts`)
+    // Undiagnosed: the recovery run is still offered, GitHub's text verbatim.
+    const bare = prMergeFailureError(hasConflicts, null)
+    expect(bare.code).toBe(`CONFLICT`)
+    expect(bare.message).toBe(`Pull Request has merge conflicts`)
+    // Diagnosed: the code follows the diagnosis exactly as for "not mergeable".
+    const stale = prMergeFailureError(hasConflicts, {
+      conflict: false,
+      message: `Pull Request is not mergeable: its base branch 'exp/EXP-314' no longer exists.`,
+    })
+    expect(stale.code).toBe(`PRECONDITION_FAILED`)
   })
 
   it(`passes a 405 policy refusal through verbatim as PRECONDITION_FAILED`, () => {
