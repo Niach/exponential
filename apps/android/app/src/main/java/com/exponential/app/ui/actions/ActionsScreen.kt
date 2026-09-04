@@ -62,6 +62,7 @@ import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SwitchThumb
+import com.exponential.app.ui.components.actionGlyph
 import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.glassSwitchColors
@@ -411,9 +412,7 @@ private fun ActionRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            // EXP-273: the action's own curated glyph (the builtins set one
-            // too), falling back to the generic action mark.
-            action.icon?.let { ExpIcons.byName(it) } ?: ExpIcons.actionDefault,
+            actionGlyph(action),
             contentDescription = null,
             modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
@@ -647,7 +646,7 @@ private fun AutomationRow(
         verticalAlignment = Alignment.Top,
     ) {
         Icon(
-            action?.icon?.let { ExpIcons.byName(it) } ?: ExpIcons.actionDefault,
+            actionGlyph(action),
             contentDescription = null,
             modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),

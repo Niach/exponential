@@ -1,4 +1,4 @@
-import { Check, Search } from "lucide-react"
+import { Search } from "lucide-react"
 import type {
   ActionRepoOption,
   TeamAction,
@@ -7,8 +7,16 @@ import { ActionInputFields } from "@/components/launch-dialog/action-input-field
 import { GlassGroup } from "@/components/ui/glass-rows"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { conceptIcon } from "@/lib/icons.generated"
 import { getActionIcon } from "@/lib/board-icons"
 import { cn } from "@/lib/utils"
+
+// EXP-721: the mobile row idiom — a LEADING selection glyph (the natives'
+// circle / circle-check), then the action's own icon, then name over an
+// optional one-line description. The trailing check is gone: selection reads
+// from the leading glyph plus the row tint.
+const SelectedIcon = conceptIcon(`ui-selected`)
+const UnselectedIcon = conceptIcon(`ui-unselected`)
 
 // The Actions tab of the unified launch dialog (EXP-257): search + a
 // single-select list (the builtin "Fix merge conflicts" pinned first by its
@@ -99,11 +107,20 @@ export function ActionsPane({
                   selected ? `bg-glass-active` : `hover:bg-glass-active/50`
                 )}
               >
+                {selected ? (
+                  <SelectedIcon className="size-4 shrink-0 text-foreground" />
+                ) : (
+                  <UnselectedIcon className="size-4 shrink-0 text-muted-foreground" />
+                )}
                 <RowIcon className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate text-sm">
-                  {action.name}
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-sm">{action.name}</span>
+                  {action.description && (
+                    <span className="truncate text-xs text-muted-foreground">
+                      {action.description}
+                    </span>
+                  )}
                 </span>
-                {selected && <Check className="size-4 shrink-0" />}
               </div>
             )
           })

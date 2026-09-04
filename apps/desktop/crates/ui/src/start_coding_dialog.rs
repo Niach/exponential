@@ -2193,7 +2193,14 @@ impl StartCodingDialogView {
             .into_any_element()
     }
 
-    /// One Actions-tab list row: icon + name + selection check.
+    /// One Actions-tab list row: selection radio + icon + name over its
+    /// description.
+    ///
+    /// EXP-721: the SELECTION marker leads the row (the picked-one-of-many
+    /// idiom every client now wears here — iOS/Android draw the same
+    /// filled/empty circle), replacing the trailing check, and the action's
+    /// description rides one muted line under its name so the picker says
+    /// what each action DOES.
     fn action_row(
         &self,
         action: &api::actions::Action,
@@ -2203,6 +2210,12 @@ impl StartCodingDialogView {
         let muted = theme.muted_foreground;
         let is_selected = self.selected_action_id.as_deref() == Some(action.id.as_str());
         let select_id = action.id.clone();
+        let description = action
+            .description
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(|text| SharedString::from(text.to_string()));
         h_flex()
             .id(SharedString::from(format!("sc-action-{}", action.id)))
             .w_full()
@@ -2216,25 +2229,40 @@ impl StartCodingDialogView {
             .on_click(cx.listener(move |this, _: &gpui::ClickEvent, window, cx| {
                 this.select_action(select_id.clone(), window, cx);
             }))
+            .child(
+                Icon::new(if is_selected {
+                    registry::UI_SELECTED
+                } else {
+                    registry::UI_UNSELECTED
+                })
+                .small()
+                .text_color(if is_selected { theme.foreground } else { muted }),
+            )
             // EXP-273: each action draws its own curated glyph (the builtins
             // set one explicitly), so the row reads the same as the web list.
             .child(crate::icons::action_icon(action.icon.as_deref()).xsmall().text_color(muted))
             .child(
-                div()
+                v_flex()
                     .flex_1()
                     .min_w_0()
-                    .text_sm()
-                    .truncate()
-                    .text_color(theme.foreground)
-                    .child(SharedString::from(action.name.clone())),
+                    .child(
+                        div()
+                            .text_sm()
+                            .truncate()
+                            .text_color(theme.foreground)
+                            .child(SharedString::from(action.name.clone())),
+                    )
+                    // ONE line, ellipsised (the iOS `lineLimit(1)` twin) — a
+                    // wrapping blurb would make the four-row pane scroll on
+                    // its first paint.
+                    .children(description.map(|text| {
+                        div()
+                            .text_xs()
+                            .truncate()
+                            .text_color(muted)
+                            .child(text)
+                    })),
             )
-            .when(is_selected, |this| {
-                this.child(
-                    Icon::new(registry::UI_CHECK)
-                        .xsmall()
-                        .text_color(theme.primary),
-                )
-            })
             .into_any_element()
     }
 
@@ -2741,10 +2769,13 @@ impl Render for StartCodingDialogView {
                 }
                 left = left
                     .child(glass_input(&self.action_search, window, cx).web_input_sm())
+                    // EXP-721: the rows carry a description line now, so the
+                    // cap grew with them — four rows still fit before the
+                    // pane starts scrolling.
                     .child(self.bounded_pane(
                         "sc-actions-scroll",
                         &self.action_list_scroll.clone(),
-                        200.,
+                        260.,
                         list.into_any_element(),
                         cx,
                     ));

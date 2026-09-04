@@ -63,6 +63,7 @@ import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.SwitchRow
+import com.exponential.app.ui.components.actionGlyph
 import com.exponential.app.ui.components.agentSeed
 import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.components.defaultAgentFor
@@ -937,9 +938,11 @@ private fun IssueCheckRow(
 }
 
 // One selectable action (single-select, IssueCheckRow's affordances): the
-// circle/check indicator, a create (+) glyph for the builtin row / a bolt for
-// regular ones, name (+ a small repo indicator when the action clones a
-// repository), and the optional description.
+// circle/check indicator, the action's own curated glyph (EXP-721 — the row
+// used to key off `isBuiltin` and show the create mark or a generic bolt, so
+// the same action wore a different icon here than in the Actions list), name
+// (+ a small repo indicator when the action clones a repository), and the
+// optional description.
 @Composable
 private fun ActionSelectRow(
     action: ActionDto,
@@ -968,7 +971,7 @@ private fun ActionSelectRow(
         )
         Spacer(Modifier.width(10.dp))
         Icon(
-            if (action.isBuiltin) ExpIcons.actionCreate else ExpIcons.actionDefault,
+            actionGlyph(action),
             contentDescription = null,
             modifier = Modifier.size(16.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),

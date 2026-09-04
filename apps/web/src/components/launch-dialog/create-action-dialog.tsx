@@ -72,7 +72,6 @@ import { Textarea } from "@/components/ui/textarea"
 // rides this sentinel inside the dialog only.
 const NO_REPO = `none`
 
-const AutomationIcon = conceptIcon(`action-automation`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 const BackIcon = conceptIcon(`ui-back`)
 const CreateIcon = conceptIcon(`action-create`)
@@ -337,7 +336,12 @@ export function CreateActionDialog({
                 />
               </GlassGroup>
               {/* EXP-616: ONE grouped card — the repository picker row, and
-                  the automation row that slides into its detail view. */}
+                  the automation row that slides into its detail view.
+                  EXP-721: that row is picker-row SHAPED (label left, summary
+                  value trailing, chevron) — one line, no leading glyph — so
+                  the two rows of the card read as one ladder. It stays
+                  hand-rolled because `GlassPickerRow` is Select-driven and
+                  this one opens a pane. */}
               <GlassGroup>
                 <GlassPickerRow
                   label="Repository"
@@ -359,12 +363,9 @@ export function CreateActionDialog({
                   onClick={openAutomation}
                   className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-fast hover:bg-glass-active/50"
                 >
-                  <AutomationIcon className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm">Automation</span>
-                    <span className="block truncate text-xs text-foreground/50">
-                      {automationSummary}
-                    </span>
+                  <span className="text-sm text-foreground">Automation</span>
+                  <span className="ml-auto truncate text-sm text-foreground/70">
+                    {automationSummary}
                   </span>
                   <ChevronRightIcon className="size-3.5 shrink-0 text-foreground/50" />
                 </button>

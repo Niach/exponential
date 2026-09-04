@@ -64,7 +64,6 @@ import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
-import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.TopBarBackButton
@@ -77,7 +76,6 @@ import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.LabelPalette
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassGroup
 import com.exponential.app.ui.theme.glassRow
 
 // One confirm target per destructive/consequential settings action. Each tab
@@ -479,30 +477,30 @@ private fun RepositoriesSection(
                 )
             }
         }
-        Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
-            if (state.repos.isEmpty()) {
-                Text(
-                    "No repositories connected.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                )
-            }
-            state.repos.forEachIndexed { i, repo ->
-                if (i > 0) GroupDivider()
-                RepositoryRow(
-                    repo = repo,
-                    boards = state.boards,
-                    allRepos = state.repos,
-                    state = state,
-                    // Sharer-or-owner (EXP-557): remove. Everyone else gets a
-                    // read-only row (they can still code on the shared repo).
-                    canManage = isOwner ||
-                        (state.currentUserId != null && repo.sharedBy?.id == state.currentUserId),
-                    viewModel = viewModel,
-                    onConfirm = onConfirm,
-                )
-            }
+        // EXP-721: one self-bordered glass row per repository (the Boards and
+        // Labels idiom, now the rule on every client) — not a grouped card
+        // divided by hairlines. The section's spacedBy(8.dp) owns the gaps.
+        if (state.repos.isEmpty()) {
+            Text(
+                "No repositories connected.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        }
+        state.repos.forEach { repo ->
+            RepositoryRow(
+                repo = repo,
+                boards = state.boards,
+                allRepos = state.repos,
+                state = state,
+                // Sharer-or-owner (EXP-557): remove. Everyone else gets a
+                // read-only row (they can still code on the shared repo).
+                canManage = isOwner ||
+                    (state.currentUserId != null && repo.sharedBy?.id == state.currentUserId),
+                viewModel = viewModel,
+                onConfirm = onConfirm,
+            )
         }
 
         // One GitHub status LINE (EXP-329, byte-identical to web/desktop): the
@@ -681,8 +679,10 @@ private fun RepositoryRow(
     // Boards section's swap glyph opens (EXP-607), instead of a second
     // hand-rolled menu that only listed the OTHER repos.
     var retargetBoard by remember { mutableStateOf<BoardEntity?>(null) }
+    // EXP-721: the row IS the card — self-bordered glass at the board/label
+    // row padding, gapped from its siblings by the section.
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -801,110 +801,113 @@ private fun MembersSection(
         SectionHeader("Members")
         // A team must always keep at least one owner.
         val ownerCount = state.members.count { it.member.role == DomainContract.teamRoleOwner }
-        Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
-            state.members.forEachIndexed { i, row ->
-                if (i > 0) GroupDivider()
-                val isYou = row.member.userId == state.currentUserId
-                val isLastOwner = row.member.role == DomainContract.teamRoleOwner && ownerCount <= 1
-                // Each menu item gates on an explicit capability; the trigger is
-                // hidden entirely when none apply (e.g. the sole owner's own row,
-                // which used to show a single disabled "Make member").
-                val canMakeOwner = isOwner && row.member.role != DomainContract.teamRoleOwner
-                val canMakeMember = isOwner && row.member.role != DomainContract.teamRoleMember && !isLastOwner
-                val canLeave = isYou && !isLastOwner
-                val canRemove = isOwner && !isYou
-                val hasActions = canMakeOwner || canMakeMember || canLeave || canRemove
-                val displayName = userDisplayName(row.user, row.member.userId)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    // EXP-698: 12dp between the avatar, the name column, the
-                    // role pill and the overflow circle — the pill used to sit
-                    // flush against both of its neighbours.
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                ) {
-                    UserAvatar(user = row.user, nameOrEmail = displayName, size = 32.dp)
-                    Column(modifier = Modifier.weight(1f)) {
+        // EXP-721: one self-bordered glass row per member (the Boards and
+        // Labels idiom, now the rule on every client) — not a grouped card
+        // divided by hairlines. The section's spacedBy(8.dp) owns the gaps.
+        state.members.forEach { row ->
+            val isYou = row.member.userId == state.currentUserId
+            val isLastOwner = row.member.role == DomainContract.teamRoleOwner && ownerCount <= 1
+            // Each menu item gates on an explicit capability; the trigger is
+            // hidden entirely when none apply (e.g. the sole owner's own row,
+            // which used to show a single disabled "Make member").
+            val canMakeOwner = isOwner && row.member.role != DomainContract.teamRoleOwner
+            val canMakeMember = isOwner && row.member.role != DomainContract.teamRoleMember && !isLastOwner
+            val canLeave = isYou && !isLastOwner
+            val canRemove = isOwner && !isYou
+            val hasActions = canMakeOwner || canMakeMember || canLeave || canRemove
+            val displayName = userDisplayName(row.user, row.member.userId)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                // EXP-698: 12dp between the avatar, the name column, the
+                // role pill and the overflow circle — the pill used to sit
+                // flush against both of its neighbours.
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 10.dp),
+            ) {
+                UserAvatar(user = row.user, nameOrEmail = displayName, size = 32.dp)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        buildString {
+                            append(displayName)
+                            if (isYou) append(" (you)")
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    // Hide the sub-line when it would just repeat the primary
+                    // line — a name-less Apple user's display name IS the email.
+                    val email = row.user?.email
+                    if (!email.isNullOrBlank() && email != displayName) {
                         Text(
-                            buildString {
-                                append(displayName)
-                                if (isYou) append(" (you)")
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
+                            email,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        // Hide the sub-line when it would just repeat the primary
-                        // line — a name-less Apple user's display name IS the email.
-                        val email = row.user?.email
-                        if (!email.isNullOrBlank() && email != displayName) {
-                            Text(
-                                email,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
                     }
-                    // Role badge pill (iOS parity).
-                    GlassPill(row.member.role, size = PillSize.Sm, mode = PillMode.Readonly)
-                    if (hasActions) {
-                        var rowMenu by remember { mutableStateOf(false) }
-                        Box {
-                            // Horizontal `⋯` at tertiary emphasis — iOS
-                            // TeamMembersSection parity (EXP-577).
-                            CircleIconButton(
-                                ExpIcons.uiMore,
-                                contentDescription = "Member actions",
-                                onClick = { rowMenu = true },
-                            )
-                            GlassDropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
-                                // Role changes + removing others are owner-only.
-                                // The last owner can't be demoted or leave — the
-                                // "Make member" item is hidden (not disabled) then.
-                                if (canMakeOwner) {
-                                    GlassMenuItem(
-                                        leadingIcon = { Icon(ExpIcons.uiOwner, contentDescription = null) },
-                                        text = { Text("Make owner") },
-                                        onClick = {
-                                            rowMenu = false
-                                            onConfirm(SettingsConfirm.ChangeRole(row, DomainContract.teamRoleOwner))
-                                        },
-                                    )
-                                }
-                                if (canMakeMember) {
-                                    GlassMenuItem(
-                                        leadingIcon = { Icon(ExpIcons.uiMember, contentDescription = null) },
-                                        text = { Text("Make member") },
-                                        onClick = {
-                                            rowMenu = false
-                                            onConfirm(SettingsConfirm.ChangeRole(row, DomainContract.teamRoleMember))
-                                        },
-                                    )
-                                }
-                                if (canLeave) {
-                                    GlassMenuItem(
-                                        leadingIcon = { Icon(ExpIcons.navSignOut, contentDescription = null) },
-                                        text = { Text("Leave team") },
-                                        onClick = {
-                                            rowMenu = false
-                                            onConfirm(SettingsConfirm.RemoveMember(row, isSelf = true))
-                                        },
-                                        destructive = true,
-                                    )
-                                }
-                                if (canRemove) {
-                                    GlassMenuItem(
-                                        leadingIcon = { Icon(ExpIcons.uiRemoveMember, contentDescription = null) },
-                                        text = { Text("Remove") },
-                                        onClick = {
-                                            rowMenu = false
-                                            onConfirm(SettingsConfirm.RemoveMember(row, isSelf = false))
-                                        },
-                                        destructive = true,
-                                    )
-                                }
+                }
+                // Role badge pill (iOS parity).
+                GlassPill(row.member.role, size = PillSize.Sm, mode = PillMode.Readonly)
+                if (hasActions) {
+                    var rowMenu by remember { mutableStateOf(false) }
+                    Box {
+                        // Horizontal `⋯` at tertiary emphasis — iOS
+                        // TeamMembersSection parity (EXP-577).
+                        CircleIconButton(
+                            ExpIcons.uiMore,
+                            contentDescription = "Member actions",
+                            onClick = { rowMenu = true },
+                            // EXP-721: one glyph size across every settings
+                            // entity row (boards, repos, labels, members).
+                            glyphSize = 16.dp,
+                        )
+                        GlassDropdownMenu(expanded = rowMenu, onDismissRequest = { rowMenu = false }) {
+                            // Role changes + removing others are owner-only.
+                            // The last owner can't be demoted or leave — the
+                            // "Make member" item is hidden (not disabled) then.
+                            if (canMakeOwner) {
+                                GlassMenuItem(
+                                    leadingIcon = { Icon(ExpIcons.uiOwner, contentDescription = null) },
+                                    text = { Text("Make owner") },
+                                    onClick = {
+                                        rowMenu = false
+                                        onConfirm(SettingsConfirm.ChangeRole(row, DomainContract.teamRoleOwner))
+                                    },
+                                )
+                            }
+                            if (canMakeMember) {
+                                GlassMenuItem(
+                                    leadingIcon = { Icon(ExpIcons.uiMember, contentDescription = null) },
+                                    text = { Text("Make member") },
+                                    onClick = {
+                                        rowMenu = false
+                                        onConfirm(SettingsConfirm.ChangeRole(row, DomainContract.teamRoleMember))
+                                    },
+                                )
+                            }
+                            if (canLeave) {
+                                GlassMenuItem(
+                                    leadingIcon = { Icon(ExpIcons.navSignOut, contentDescription = null) },
+                                    text = { Text("Leave team") },
+                                    onClick = {
+                                        rowMenu = false
+                                        onConfirm(SettingsConfirm.RemoveMember(row, isSelf = true))
+                                    },
+                                    destructive = true,
+                                )
+                            }
+                            if (canRemove) {
+                                GlassMenuItem(
+                                    leadingIcon = { Icon(ExpIcons.uiRemoveMember, contentDescription = null) },
+                                    text = { Text("Remove") },
+                                    onClick = {
+                                        rowMenu = false
+                                        onConfirm(SettingsConfirm.RemoveMember(row, isSelf = false))
+                                    },
+                                    destructive = true,
+                                )
                             }
                         }
                     }
@@ -986,12 +989,14 @@ private fun LabelRow(
             ExpIcons.uiEdit,
             contentDescription = "Edit label",
             onClick = { editing = true },
+            glyphSize = 16.dp,
         )
         CircleIconButton(
             ExpIcons.uiDelete,
             contentDescription = "Delete label",
             onClick = { onDelete(label) },
             tint = DesignTokens.Palette.Destructive.copy(alpha = 0.7f),
+            glyphSize = 16.dp,
         )
     }
 

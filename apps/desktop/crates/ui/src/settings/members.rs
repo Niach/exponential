@@ -282,11 +282,18 @@ impl MembersPane {
             );
         }
 
-        // EXP-698: one row of an inset-grouped stack (the canonical container)
-        // instead of a hand-rolled bordered box; `glass_group_rows` draws the
-        // hairlines between them.
-        crate::surface::glass_row_shell()
+        // EXP-721: a member is an OBJECT, not a field of a form — so every
+        // team-settings entity list wears the gapped `glass_row_card` ladder
+        // (the labels list's idiom, now the rule on all four clients) instead
+        // of fusing into one inset-grouped block.
+        crate::surface::glass_row_card()
+            .flex()
+            .w_full()
+            .min_w_0()
+            .items_center()
             .justify_between()
+            .px_3()
+            .py_2()
             .child(
                 h_flex()
                     .gap_3()
@@ -411,11 +418,13 @@ impl Render for MembersPane {
             cx,
         ));
 
-        let list: Vec<gpui::Div> = rows
-            .iter()
-            .map(|row| self.render_member_row(row, &my_user_id, i_am_owner, owner_count, cx))
-            .collect();
-        body = body.child(crate::surface::glass_group_rows(list));
+        // EXP-721: gapped row CARDS, one per member — see
+        // [`Self::render_member_row`].
+        let mut list = v_flex().gap_2();
+        for row in &rows {
+            list = list.child(self.render_member_row(row, &my_user_id, i_am_owner, owner_count, cx));
+        }
+        body = body.child(list);
 
         // InviteControls (web: owner-only `showInvite`).
         if i_am_owner {
@@ -579,15 +588,18 @@ impl Render for MembersPane {
                                 .text_color(cx.theme().muted_foreground)
                                 .child(expires),
                         );
+                    // EXP-721: a pending invite is an entity too — the same
+                    // gapped row card the member rows above it wear, instead
+                    // of the hand-rolled bordered box.
                     pending = pending.child(
-                        h_flex()
+                        crate::surface::glass_row_card()
+                            .flex()
+                            .w_full()
+                            .min_w_0()
                             .justify_between()
                             .items_center()
                             .px_3()
                             .py_2()
-                            .rounded(cx.theme().radius)
-                            .border_1()
-                            .border_color(super::row_stroke(cx))
                             .child(invite_identity)
                             .child(
                                 Button::new(row_id("invite-revoke", &invite.id))

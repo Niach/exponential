@@ -58,6 +58,7 @@ import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.components.actionGlyph
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -300,7 +301,7 @@ fun AgentsScreen(
                                 // synced — it IS the identifier.
                                 issueIdentifier = row.issue?.identifier,
                                 actionIcon = row.session.actionId?.let {
-                                    rowAction?.icon?.let(ExpIcons::byName) ?: ExpIcons.actionDefault
+                                    actionGlyph(rowAction)
                                 },
                                 actionLabel = if (editsAutomation) {
                                     "Edit automation"
