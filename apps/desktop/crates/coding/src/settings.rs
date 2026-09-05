@@ -164,6 +164,14 @@ pub struct Settings {
     /// server-side per-type prefs still decide which types may leave the
     /// app at all. ON by default — a fresh install toasts until switched off.
     pub os_notifications: bool,
+    /// EXP-742: whether THIS machine's collapsed terminal dock is the
+    /// floating BUBBLE (a glass card pinned to the panel's bottom-right
+    /// corner carrying the live-session count, an aggregate status dot and
+    /// the strip's rich-tab chips) instead of the 29px bottom strip. The
+    /// open dock is the same either way; the key only picks the collapsed
+    /// form the dock returns to. Per-DEVICE like every other ui pref here,
+    /// never synced. OFF by default — the strip is what every install knows.
+    pub terminal_dock_bubble: bool,
 }
 
 /// Deserialize [`Settings::default_agent`] leniently: any non-string or
@@ -202,6 +210,7 @@ impl Default for Settings {
             tools_setup_seen: false,
             emoji_recents: Vec::new(),
             os_notifications: true,
+            terminal_dock_bubble: false,
         }
     }
 }
@@ -631,6 +640,24 @@ mod tests {
         assert_eq!(settings.pi_thinking, "xhigh");
     }
 
+    /// EXP-742: a file written before the key existed keeps the strip
+    /// (missing = OFF), and the bubble pick survives a merge-save.
+    #[test]
+    fn terminal_dock_bubble_default_off_and_round_trip_on() {
+        let dir = TempDir::new("dock-bubble");
+        let path = dir.0.join("settings.json");
+        fs::write(&path, r#"{"claudePath":"claude"}"#).unwrap();
+        assert!(!Settings::load(&path).terminal_dock_bubble);
+
+        let mut settings = Settings::load(&path);
+        settings.terminal_dock_bubble = true;
+        settings.save(&path).unwrap();
+        assert!(Settings::load(&path).terminal_dock_bubble);
+        let raw: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(raw["terminalDockBubble"], serde_json::Value::Bool(true));
+    }
+
     #[test]
     fn os_notifications_default_on_and_round_trip_off() {
         // EXP-638: a file written before the key existed keeps toasting
@@ -789,6 +816,7 @@ mod tests {
             tools_setup_seen: true,
             emoji_recents: vec!["🎉".to_string()],
             os_notifications: true,
+            terminal_dock_bubble: true,
         };
         settings.save(&path).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
@@ -801,6 +829,7 @@ mod tests {
         assert!(raw.contains("\"claudePlanMode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"piPlanMode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"changelogSeenId\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"terminalDockBubble\""), "camelCase keys: {raw}");
         assert_eq!(Settings::load(&path), settings);
     }
 

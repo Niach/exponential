@@ -52,6 +52,14 @@
 //!   Terminals only ever appear from an explicit user action: the "+" / cmd-t,
 //!   an empty-state card, a Start-coding run, or an action run — expanding
 //!   the dock itself spawns nothing (EXP-369).
+//! - **bubble** (EXP-742): the collapsed dock has a second form — a glass
+//!   card floating in the cutout panel's bottom-right corner that carries
+//!   the entry count, an aggregate status dot and the strip's own rich-tab
+//!   chips (`render_bubble`, painted by `Shell` OVER the panel because the
+//!   upstream `Dock` clips its closed band to 29px). The open dock's header
+//!   toggles which form a collapse lands on; the pick persists per device
+//!   (`Settings::terminal_dock_bubble`). In the bubble form the 29px band
+//!   paints nothing at all and reads as the panel's bottom padding.
 //!
 //! **Phase-5 deferral (§6.7):** "child exit ends the `coding_sessions` row"
 //! is the launcher's wiring — it passes an `ExitHook` into `open_tab`; the
@@ -70,7 +78,8 @@ use gpui_component::{
     menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
     spinner::Spinner,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _,
+    WindowExt as _,
 };
 use gpui::Task;
 use std::collections::{HashMap, HashSet};
@@ -101,6 +110,16 @@ const DOCK_STRIP_H: f32 = 29.;
 /// carrying the window/collapse controls above the content while the bottom
 /// strip keeps the tabs alone.
 const DOCK_HEADER_H: f32 = 28.;
+
+/// EXP-742: the bubble's inset from the cutout panel's bottom and right
+/// edges — the same 10px the panel keeps from the window (`shell.rs`
+/// `PANEL_MARGIN`), so the bubble sits in the corner the way the panel sits
+/// in the window.
+const BUBBLE_INSET: f32 = 10.;
+
+/// EXP-742: how many rich-tab chips the bubble carries before folding the
+/// rest into a "+N" count. The SELECTED entry is always one of them.
+const BUBBLE_MAX_CHIPS: usize = 3;
 
 /// EXP-688: how often the Latest-changes bar re-reads the branch diff. The
 /// same 3s cadence the steer emitter's `DiffSnapshots` publishes on. While
@@ -619,6 +638,44 @@ impl TerminalDockPanel {
             _dock_slide_task: None,
             _subscription: subscription,
         }
+    }
+
+    /// EXP-742: whether this machine's collapsed dock is the floating bubble
+    /// (`Settings::terminal_dock_bubble`). A READ-ONLY peek: the shell warms
+    /// the hub before the dock's first frame, and a headless panel (tests)
+    /// simply keeps the strip.
+    fn bubble_preferred(&self, cx: &App) -> bool {
+        CodingHub::global_ref(cx)
+            .is_some_and(|hub| hub.read(cx).settings.terminal_dock_bubble)
+    }
+
+    /// EXP-742: whether the dock band paints NOTHING right now because the
+    /// bubble stands in for it — collapsed, at rest, bubble preferred.
+    /// Mid-slide the content keeps rendering (EXP-523) and the bubble waits
+    /// for the settle, so the two never overlap.
+    fn bubble_showing(&self, cx: &App) -> bool {
+        self.dock_collapsed(cx) && self.dock_slide.is_none() && self.bubble_preferred(cx)
+    }
+
+    /// EXP-742: pick this machine's collapsed form (bubble or strip) and
+    /// collapse into it — the header toggle's action. The pick persists per
+    /// device through the ui-prefs save (no doctor rerun, no launch-defaults
+    /// push), and every later collapse, including the last tab closing,
+    /// lands on it.
+    fn collapse_into(
+        &mut self,
+        bubble: bool,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let hub = CodingHub::global(cx);
+        let mut settings = hub.read(cx).settings.clone();
+        if settings.terminal_dock_bubble != bubble {
+            settings.terminal_dock_bubble = bubble;
+            CodingHub::save_ui_prefs(&hub, settings, cx);
+        }
+        self.collapse_dock(window, cx);
+        cx.notify();
     }
 
     /// Whether the bottom dock is collapsed to its 29px strip. A chrome-less
@@ -1600,6 +1657,29 @@ impl TerminalDockPanel {
                         }
                     })),
             )
+            // EXP-742: which form the collapse lands on. A two-way switch:
+            // it flips the per-device pick AND collapses, so "Collapse to a
+            // bubble" is one click and the way back to the strip is the same
+            // button reading "Collapse to the strip" — selected while the
+            // bubble is the pick. Desktop-only chrome, so the raw glyph is
+            // fine (the `action-chat` concept is the Actions page's, not this).
+            .child({
+                let bubble = self.bubble_preferred(cx);
+                Button::new("terminal-dock-collapsed-form")
+                    .ghost().cursor_pointer()
+                    .xsmall()
+                    .icon(ExpIcon::MessageCircle)
+                    .selected(bubble)
+                    .tooltip(if bubble {
+                        "Collapse to the strip"
+                    } else {
+                        "Collapse to a bubble"
+                    })
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        this.collapse_into(!bubble, window, cx);
+                    }))
+            })
             .child(
                 Button::new("collapse-terminal-dock")
                     .ghost().cursor_pointer()
@@ -1612,6 +1692,182 @@ impl TerminalDockPanel {
                     })),
             )
             .into_any_element()
+    }
+
+    /// The strip's LOCAL entries — the manager's tabs minus the undocked
+    /// ones (EXP-65: those render in their own windows), in manager order.
+    fn visible_tab_metas(&self, cx: &App) -> Vec<TabMeta> {
+        self.manager
+            .read(cx)
+            .tabs()
+            .iter()
+            .enumerate()
+            .filter(|(_, tab)| !crate::undock::is_terminal_tab_undocked(tab.id, cx))
+            .map(|(manager_ix, tab)| TabMeta {
+                manager_ix,
+                id: tab.id,
+                title: tab.title().clone(),
+                exit_code: tab.exit_code(),
+                issue: issue_tab_meta(tab.id, cx),
+            })
+            .collect()
+    }
+
+    /// The strip index of the SELECTED entry: the active steer chip when a
+    /// steer view owns the content, else the active local tab — locals
+    /// first, then the remote chips, exactly as painted. 0 when nothing
+    /// matches (an empty strip has nothing to select).
+    fn selected_entry_ix(
+        &self,
+        metas: &[TabMeta],
+        remote: &[RemoteChip],
+        active_id: Option<TabId>,
+    ) -> usize {
+        if let Some(active) = self
+            .active_steer
+            .as_deref()
+            .filter(|id| self.steer_views.contains_key(*id))
+        {
+            if let Some(pos) = remote.iter().position(|chip| chip.session_id == active) {
+                return metas.len() + pos;
+            }
+        }
+        active_id
+            .and_then(|id| metas.iter().position(|meta| meta.id == id))
+            .unwrap_or(0)
+    }
+
+    /// EXP-742: the collapsed dock's BUBBLE — `None` unless it is showing
+    /// ([`Self::bubble_showing`]).
+    ///
+    /// Painted by the SHELL over the cutout panel, not by this panel: the
+    /// upstream `Dock` clips its closed band to a hard 29px, so nothing the
+    /// panel renders can float above it. The listeners still bind to this
+    /// entity, so a click here drives the same `expand_dock` as the strip.
+    ///
+    /// The card is the glass-card recipe (radius XL, card hairline) on the
+    /// OPAQUE popover fill — `surface::glass_bar`'s rule: a floating surface
+    /// over content that scrolls under it must not show that content
+    /// through (gpui has no in-scene backdrop blur). Inside, left to right:
+    /// an aggregate status dot + the entry count (the terminal glyph and
+    /// "Terminal" when there is nothing), up to [`BUBBLE_MAX_CHIPS`] of the
+    /// strip's own rich-tab chips (selected one guaranteed; the rest fold
+    /// into "+N"), and the chevron that opens the dock. The whole card is a
+    /// click target; chips keep their own actions (a chip click from a
+    /// collapsed dock already expands it).
+    pub(crate) fn render_bubble(&mut self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        if !self.bubble_showing(cx) {
+            return None;
+        }
+        let metas = self.visible_tab_metas(cx);
+        let active_id = self
+            .manager
+            .read(cx)
+            .active_tab()
+            .filter(|tab| !crate::undock::is_terminal_tab_undocked(tab.id, cx))
+            .map(|tab| tab.id);
+        let remote = self.remote_chips.clone();
+        let selected_ix = self.selected_entry_ix(&metas, &remote, active_id);
+        let entries: Vec<StripEntry<'_>> = metas
+            .iter()
+            .map(StripEntry::Local)
+            .chain(remote.iter().map(StripEntry::Remote))
+            .collect();
+        let total = entries.len();
+        let visible = bubble_visible_entries(total, selected_ix);
+        let hidden = total - visible.len();
+        let chips: Vec<AnyElement> = visible
+            .into_iter()
+            .map(|ix| match &entries[ix] {
+                StripEntry::Local(meta) => self.render_local_chip(meta, ix, selected_ix, true, cx),
+                StripEntry::Remote(chip) => self.render_remote_chip(chip, ix, selected_ix, cx),
+            })
+            .collect();
+        let signal = metas
+            .iter()
+            .map(|meta| local_tab_signal(meta, cx))
+            .chain(remote.iter().map(remote_chip_signal))
+            .max()
+            .unwrap_or(BubbleSignal::Quiet);
+        let tone = bubble_tone(signal, cx);
+        let foreground = cx.theme().foreground;
+        let muted = cx.theme().muted_foreground;
+
+        let summary = h_flex()
+            .flex_shrink_0()
+            .gap_1p5()
+            .items_center()
+            .pl_1()
+            .map(|cluster| {
+                if total == 0 {
+                    // EXP-723's empty-strip label, at bubble scale: the
+                    // bubble is still the only way to open the dock.
+                    cluster
+                        .text_color(muted)
+                        .child(Icon::new(registry::NAV_TERMINAL).xsmall())
+                        .child(div().text_xs().child("Terminal"))
+                } else {
+                    cluster
+                        .child(div().flex_shrink_0().size_1p5().rounded_full().bg(tone))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(foreground.opacity(0.7))
+                                .font_family(theme::terminal::FONT_FAMILY)
+                                .child(total.to_string()),
+                        )
+                }
+            });
+
+        let open = |this: &mut Self, window: &mut Window, cx: &mut gpui::Context<Self>| {
+            this.expand_dock(window, cx);
+            // EXP-369: expanding NEVER starts anything — with zero sessions
+            // the dock opens on its launch cards.
+            this.focus_visible_content(window, cx);
+        };
+        Some(
+            crate::surface::glass_card()
+                .id("terminal-dock-bubble")
+                .absolute()
+                .bottom(px(BUBBLE_INSET))
+                .right(px(BUBBLE_INSET))
+                .flex_row()
+                .items_center()
+                .gap_1()
+                .pl_1p5()
+                .pr_1()
+                .py_1()
+                .bg(cx.theme().popover)
+                .shadow_md()
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    open(this, window, cx);
+                }))
+                .child(summary)
+                .children(chips)
+                .when(hidden > 0, |card| {
+                    card.child(
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .px_1()
+                            .child(format!("+{hidden}")),
+                    )
+                })
+                .child(
+                    Button::new("expand-terminal-bubble")
+                        .ghost()
+                        .cursor_pointer()
+                        .xsmall()
+                        .icon(registry::UI_CHEVRON_UP)
+                        .tooltip("Show terminal")
+                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                            cx.stop_propagation();
+                            open(this, window, cx);
+                        })),
+                )
+                .into_any_element(),
+        )
     }
 
     /// One LOCAL terminal tab's chip (EXP-325/EXP-497) — extracted from
@@ -3281,6 +3537,101 @@ fn remote_chip_tone(display: CodingSessionDisplay, paused: bool, cx: &App) -> gp
     }
 }
 
+/// EXP-742: what one strip entry contributes to the bubble's status dot.
+/// Ordered by URGENCY — the bubble shows the `max` over every entry, so an
+/// agent waiting on a question is never hidden behind two green runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum BubbleSignal {
+    /// A plain shell, a paused host: nothing to say (muted dot).
+    Quiet,
+    /// A run whose PR is merged, a tab that exited 0 (blue).
+    Done,
+    /// A live run — running, or in review (green).
+    Running,
+    /// A tab whose child exited non-zero (red — the chip badge's tone).
+    Failed,
+    /// An agent parked on a question (amber). Wins over everything.
+    NeedsInput,
+}
+
+impl BubbleSignal {
+    /// The synced-row display's signal (the web tab's dot rules).
+    fn from_display(display: CodingSessionDisplay) -> Self {
+        match display {
+            CodingSessionDisplay::NeedsInput => Self::NeedsInput,
+            CodingSessionDisplay::Done => Self::Done,
+            CodingSessionDisplay::Review | CodingSessionDisplay::Running => Self::Running,
+        }
+    }
+}
+
+/// A LOCAL tab's signal: an exited child by its code; a live local coding
+/// session by its synced row (the desktop writes `needs_input` there, so the
+/// amber edge rides the same field the remote chips read); a plain shell —
+/// no session at all — stays quiet, the strip gives it no dot either.
+fn local_tab_signal(meta: &TabMeta, cx: &App) -> BubbleSignal {
+    match meta.exit_code {
+        Some(0) => return BubbleSignal::Done,
+        Some(_) => return BubbleSignal::Failed,
+        None => {}
+    }
+    let Some(session_id) = crate::coding_flow::LocalSessions::global_ref(cx)
+        .and_then(|sessions| sessions.read(cx).session_id_for_tab(meta.id).map(str::to_string))
+    else {
+        return BubbleSignal::Quiet;
+    };
+    let Some(store) = sync::Store::try_global(cx) else {
+        return BubbleSignal::Running;
+    };
+    let collections = store.collections().clone();
+    let sessions = collections.coding_sessions.read(cx);
+    let Some(session) = sessions.get(&session_id) else {
+        // Started, not yet synced back — a live run all the same.
+        return BubbleSignal::Running;
+    };
+    let issues = collections.issues.read(cx);
+    let pr_state = session
+        .issue_id
+        .as_deref()
+        .and_then(|issue_id| issues.get(issue_id))
+        .and_then(|issue| issue.pr_state.as_deref());
+    BubbleSignal::from_display(crate::queries::coding_session_display(session, pr_state))
+}
+
+/// A REMOTE chip's signal — its cached display, muted while the host is
+/// paused (the chip's own dot rule).
+fn remote_chip_signal(chip: &RemoteChip) -> BubbleSignal {
+    if chip.paused {
+        return BubbleSignal::Quiet;
+    }
+    BubbleSignal::from_display(chip.display)
+}
+
+/// The bubble dot's colour for the aggregate signal — the remote chip's
+/// palette plus the exit badge's red.
+fn bubble_tone(signal: BubbleSignal, cx: &App) -> gpui::Hsla {
+    match signal {
+        BubbleSignal::Quiet => cx.theme().muted_foreground.opacity(0.4),
+        BubbleSignal::Done => theme::tokens::BLUE.to_hsla(),
+        BubbleSignal::Running => theme::tokens::GREEN.to_hsla(),
+        BubbleSignal::Failed => cx.theme().danger,
+        BubbleSignal::NeedsInput => theme::tokens::YELLOW.to_hsla(),
+    }
+}
+
+/// Which strip indices the bubble paints as chips: the first
+/// [`BUBBLE_MAX_CHIPS`] entries, with the selected one swapped in for the
+/// last slot when it would otherwise fall off. Pure (unit-tested); the
+/// rest is the "+N" count.
+fn bubble_visible_entries(total: usize, selected_ix: usize) -> Vec<usize> {
+    let mut visible: Vec<usize> = (0..total).take(BUBBLE_MAX_CHIPS).collect();
+    if selected_ix < total && !visible.contains(&selected_ix) {
+        visible.pop();
+        visible.push(selected_ix);
+    }
+    visible
+}
+
 /// The chip X's confirm, sharing the web's `useKillSession` copy.
 fn prompt_kill_remote(
     session_id: String,
@@ -3463,31 +3814,17 @@ impl Render for TerminalDockPanel {
         // EXP-65: undocked tabs render in their own windows — the strip
         // skips them, and the active view is only painted here when the
         // active tab is NOT undocked (one window paints a view at a time).
-        let (metas, active_id, active_view, active_exit): (
-            Vec<TabMeta>,
+        let metas = self.visible_tab_metas(cx);
+        let (active_id, active_view, active_exit): (
             Option<TabId>,
             Option<Entity<TerminalView>>,
             Option<i32>,
         ) = {
             let manager = self.manager.read(cx);
-            let metas = manager
-                .tabs()
-                .iter()
-                .enumerate()
-                .filter(|(_, tab)| !crate::undock::is_terminal_tab_undocked(tab.id, cx))
-                .map(|(manager_ix, tab)| TabMeta {
-                    manager_ix,
-                    id: tab.id,
-                    title: tab.title().clone(),
-                    exit_code: tab.exit_code(),
-                    issue: issue_tab_meta(tab.id, cx),
-                })
-                .collect();
             let active = manager
                 .active_tab()
                 .filter(|tab| !crate::undock::is_terminal_tab_undocked(tab.id, cx));
             (
-                metas,
                 active.map(|tab| tab.id),
                 active.map(|tab| tab.view.clone()),
                 active.and_then(|tab| tab.exit_code()),
@@ -3504,16 +3841,7 @@ impl Render for TerminalDockPanel {
             .clone()
             .filter(|id| remote.iter().any(|chip| chip.session_id == *id))
             .and_then(|id| self.steer_views.get(&id).cloned());
-        let selected_ix = match self.active_steer.as_deref().filter(|_| active_steer.is_some()) {
-            Some(active) => remote
-                .iter()
-                .position(|chip| chip.session_id == active)
-                .map(|pos| metas.len() + pos)
-                .unwrap_or(0),
-            None => active_id
-                .and_then(|id| metas.iter().position(|meta| meta.id == id))
-                .unwrap_or(0),
-        };
+        let selected_ix = self.selected_entry_ix(&metas, &remote, active_id);
 
         // EXP-688: the strip is ABSOLUTE at the bottom edge and the content
         // fills the band above it, so opening the dock grows the content
@@ -3526,6 +3854,10 @@ impl Render for TerminalDockPanel {
         // rendered for the whole slide. On open the flip happens up front,
         // so this is already false on frame 1.
         let collapsed = self.dock_collapsed(cx) && self.dock_slide.is_none();
+        // EXP-742: in the bubble form the band paints NOTHING — no fill, no
+        // strip — so it reads as the panel's bottom padding under the bubble
+        // the shell floats over it (`render_bubble`).
+        let bubble = collapsed && self.bubble_preferred(cx);
         // The selected LOCAL tab, mirroring `render_strip`'s entry indexing
         // (locals first, then the remote steer chips).
         let entries_active_tab = metas.get(selected_ix).map(|meta| meta.id);
@@ -3545,7 +3877,7 @@ impl Render for TerminalDockPanel {
             // panel's own wash behind it the old glass read as a smudge
             // rather than a separate surface. `popover` is the theme's opaque
             // overlay ground; the hairline is the seam to the content above.
-            .bg(cx.theme().popover)
+            .when(!bubble, |root| root.bg(cx.theme().popover))
             // The seam to the content above. Only while OPEN: collapsed, the
             // strip IS the whole dock and carries the same hairline one pixel
             // lower, which would read as a 2px double rule.
@@ -3612,8 +3944,9 @@ impl Render for TerminalDockPanel {
             })
         };
 
-        root.children(content)
-            .child(self.render_strip(&metas, &remote, selected_ix, collapsed, window, cx))
+        root.children(content).when(!bubble, |root| {
+            root.child(self.render_strip(&metas, &remote, selected_ix, collapsed, window, cx))
+        })
     }
 }
 
@@ -3669,6 +4002,49 @@ mod tests {
         assert!(merge_changes_snapshot(previous, Some(Vec::new())).is_empty());
         // Nothing either way is still nothing.
         assert!(merge_changes_snapshot(Vec::new(), None).is_empty());
+    }
+
+    /// EXP-742: the bubble's dot is the MOST urgent entry, not the first —
+    /// a question waiting behind two green runs must still turn it amber,
+    /// and a paused host contributes nothing.
+    #[test]
+    fn bubble_signal_orders_by_urgency() {
+        assert!(BubbleSignal::NeedsInput > BubbleSignal::Failed);
+        assert!(BubbleSignal::Failed > BubbleSignal::Running);
+        assert!(BubbleSignal::Running > BubbleSignal::Done);
+        assert!(BubbleSignal::Done > BubbleSignal::Quiet);
+        let signals = [
+            BubbleSignal::Running,
+            BubbleSignal::Running,
+            BubbleSignal::NeedsInput,
+            BubbleSignal::Quiet,
+        ];
+        assert_eq!(signals.iter().copied().max(), Some(BubbleSignal::NeedsInput));
+        assert_eq!(
+            BubbleSignal::from_display(CodingSessionDisplay::Review),
+            BubbleSignal::Running
+        );
+        assert_eq!(
+            BubbleSignal::from_display(CodingSessionDisplay::Done),
+            BubbleSignal::Done
+        );
+        // An empty strip has no signal at all — the caller falls back to Quiet.
+        assert_eq!(Vec::<BubbleSignal>::new().into_iter().max(), None);
+    }
+
+    /// EXP-742: the bubble paints at most [`BUBBLE_MAX_CHIPS`] chips and the
+    /// selected entry is always among them — it takes the last slot when it
+    /// would otherwise fold into the "+N" count.
+    #[test]
+    fn bubble_keeps_the_selected_chip_visible() {
+        assert_eq!(bubble_visible_entries(0, 0), Vec::<usize>::new());
+        assert_eq!(bubble_visible_entries(2, 1), vec![0, 1]);
+        assert_eq!(bubble_visible_entries(5, 0), vec![0, 1, 2]);
+        assert_eq!(bubble_visible_entries(5, 4), vec![0, 1, 4]);
+        assert_eq!(bubble_visible_entries(5, 2), vec![0, 1, 2]);
+        // An out-of-range selection (nothing selected) never adds a slot.
+        assert_eq!(bubble_visible_entries(5, 9), vec![0, 1, 2]);
+        assert_eq!(bubble_visible_entries(BUBBLE_MAX_CHIPS, 0).len(), BUBBLE_MAX_CHIPS);
     }
 
     /// The bar renders for a diff OR an open PR — and for neither it is not

@@ -979,9 +979,16 @@ impl Render for Shell {
                                 .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
                                 .bg(theme::tokens::glass::FILL_PANEL.to_hsla())
                                 .overflow_hidden()
+                                // EXP-742: the bubble below positions
+                                // against the panel, and the panel's own
+                                // clip + radii keep it inside the card.
+                                .relative()
                                 .children(self.render_update_banner(cx))
                                 .children(self.render_offline_banner(cx))
-                                .child(div().flex_1().min_h_0().child(self.dock_area.clone())),
+                                .child(div().flex_1().min_h_0().child(self.dock_area.clone()))
+                                // LAST child: it must paint over the dock
+                                // area's band.
+                                .children(self.render_dock_bubble(cx)),
                         )
                 })
                 .into_any_element(),
@@ -1050,6 +1057,30 @@ impl Render for Shell {
 }
 
 impl Shell {
+    /// EXP-742: the collapsed terminal dock's BUBBLE — the panel's own
+    /// element (`TerminalDockPanel::render_bubble`, listeners and all),
+    /// hosted HERE as the cutout panel's last child. The upstream `Dock`
+    /// clips its closed band to a hard 29px, so the only place a card can
+    /// float over the corner is above the dock area, and the shell is what
+    /// owns that layer. `None` while the dock is open, mid-slide, or when
+    /// this machine collapses to the strip.
+    ///
+    /// Reading the pick through `CodingHub::global` (not the read-only peek)
+    /// is deliberate: it WARMS the hub on the shell's first frame, before
+    /// the panel renders, so a launch lands straight on the persisted form.
+    fn render_dock_bubble(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        if !crate::coding_flow::CodingHub::global(cx)
+            .read(cx)
+            .settings
+            .terminal_dock_bubble
+        {
+            return None;
+        }
+        let dock = self.dock_area.read(cx).bottom_dock().cloned()?;
+        let panel = crate::coding_flow::find_terminal_dock(dock.read(cx).panel())?;
+        panel.update(cx, |panel, cx| panel.render_bubble(cx))
+    }
+
     /// The §11.2 update banner: a thin strip above everything else, shown once
     /// the launch-time check found a newer `desktop-v*` release. Self-update
     /// capable installs get an in-app "Update" pipeline (download progress →
