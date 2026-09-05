@@ -46,18 +46,13 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-relations-and-design-refresh",
+    id: "2026-09-threaded-comments",
     date: "2026-09-05",
-    title: "Issue relations and a design refresh",
-    summary: "Link issues as parent, sub-issue, blocking, blocked by, duplicate or related, and get a cutout layout, bigger comment images and a quieter activity feed on every client.",
-    body: r#"- **Issue relations**: add a relation from the new card under an issue's properties on web and desktop, or from the properties sheet on iOS and Android. Typing #EXP-12 in a description or comment links the two issues as related on its own, and marking a duplicate now shows up there too.
-- **Relations for agents**: the MCP tools can add and remove relations, and an issue's relations come back with it.
-- **Cutout layout**: the content area is a rounded card floating on a darker ground on web and in the desktop app, so both read the same.
-- **Desktop sidebar**: the rail is always open and mirrors the web: team switcher, search and new issue at the top, What's new and Getting started at the bottom, and the account menu holds What's new, About and Sign out.
-- **Desktop terminal dock**: the open dock carries its own header with the window and collapse controls, sits on an opaque card, and the app text is one size bigger.
-- **Bigger comment images**: pictures attached to a comment show at full width on web, desktop, iOS and Android, and open the viewer on tap.
-- **A quieter activity feed**: events read as one muted line with a time, comments sit in a single card, and selected chips are no longer white.
-- **Subscribe button retired**: you follow an issue automatically when you create it, comment, get assigned or are mentioned, so the button is gone from every client."#,
+    title: "Threaded comments",
+    summary: "Reply under a comment on web, desktop, iOS and Android, and see when an agent posted a comment over MCP.",
+    body: r#"- **Replies**: every comment card ends with a Leave a reply row. On web and desktop the reply composer opens right there; on iOS and Android the docked composer switches to Replying to, with an x to go back to a plain comment. Replies sit under their comment with a smaller avatar, edit and delete like any comment, and threads stay one level deep.
+- **Replies for agents**: the MCP comments tool takes a parentId, and listed comments carry it.
+- **Via MCP**: a comment an agent posted over MCP says so in its header on every client, so it never reads as its key owner's words."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

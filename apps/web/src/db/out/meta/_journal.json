@@ -701,6 +701,13 @@
       "when": 1788548956477,
       "tag": "0099_issue_relations",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1788624365423,
+      "tag": "0100_comment_threads",
+      "breakpoints": true
     }
   ]
 }

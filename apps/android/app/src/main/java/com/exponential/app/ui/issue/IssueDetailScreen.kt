@@ -183,6 +183,12 @@ fun IssueDetailScreen(
     val commentSending by commentViewModel.sending.collectAsStateWithLifecycle()
     // Files queued for the next comment (EXP-554) — they upload on send.
     val commentAttachments by commentViewModel.pendingAttachments.collectAsStateWithLifecycle()
+    // EXP-741: a card's "Leave a reply…" row hands the docked composer a
+    // target; the composer expands in reply mode and posts with parentId.
+    val commentReplyTarget by commentViewModel.replyTarget.collectAsStateWithLifecycle()
+    LaunchedEffect(commentReplyTarget) {
+        if (commentReplyTarget != null) composerExpanded = true
+    }
 
     // Own-save echo recognition (EXP-689): declared BEFORE the remote sync
     // effects so, within one composition, the save is on record by the time
@@ -752,7 +758,11 @@ fun IssueDetailScreen(
                 ) {
                     IssueDetailBottomBar(
                         expanded = composerExpanded,
-                        onExpandedChange = { composerExpanded = it },
+                        onExpandedChange = {
+                            composerExpanded = it
+                            // A folded composer replies to nothing (EXP-741).
+                            if (!it) commentViewModel.setReplyTarget(null)
+                        },
                         showProperties = isModerator,
                         onOpenProperties = { propertiesOpen = true },
                         startButton = startUi,
@@ -778,6 +788,8 @@ fun IssueDetailScreen(
                         mentionMembers = mentionMembers,
                         showMentionButton = soloMemberId == null,
                         otherEditorFocused = otherEditorFocused,
+                        replyTarget = commentReplyTarget,
+                        onClearReply = { commentViewModel.setReplyTarget(null) },
                     )
                 }
             }

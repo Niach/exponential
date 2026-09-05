@@ -40,6 +40,40 @@ async function loadCommentForMutation(
   return row
 }
 
+/**
+ * EXP-741: resolve the comment a reply hangs off. Threads are ONE level deep:
+ * the parent must be a comment on the same issue, and a reply to a reply is
+ * re-parented onto that reply's own parent, so every reply renders under a
+ * top-level card on every client (the natives only offer the reply row on
+ * top-level cards; MCP callers may name any comment id).
+ */
+async function resolveReplyParent(
+  // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
+  db: typeof import("@/db/connection").db,
+  parentId: string,
+  issueId: string
+): Promise<string> {
+  const [parent] = await db
+    .select({
+      id: comments.id,
+      issueId: comments.issueId,
+      parentId: comments.parentId,
+    })
+    .from(comments)
+    .where(eq(comments.id, parentId))
+    .limit(1)
+  if (!parent) {
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Comment not found` })
+  }
+  if (parent.issueId !== issueId) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `A reply must answer a comment on the same issue`,
+    })
+  }
+  return parent.parentId ?? parent.id
+}
+
 type Tx = Parameters<
   // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
   Parameters<typeof import("@/db/connection").db.transaction>[0]
@@ -150,6 +184,8 @@ export const commentsRouter = router({
             .array(z.string().uuid())
             .max(MAX_COMMENT_ATTACHMENTS)
             .default([]),
+          // EXP-741: reply under this comment (see resolveReplyParent).
+          parentId: z.string().uuid().optional(),
         })
         .superRefine((value, refineCtx) => {
           if (
@@ -170,6 +206,9 @@ export const commentsRouter = router({
         issueContext.teamId,
         `comment`
       )
+      const parentId = input.parentId
+        ? await resolveReplyParent(ctx.db, input.parentId, input.issueId)
+        : null
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
@@ -180,6 +219,10 @@ export const commentsRouter = router({
             teamId: issueContext.teamId,
             boardId: issueContext.boardId,
             authorId: ctx.session.user.id,
+            parentId,
+            // EXP-741: the MCP server's synthetic context is the ONLY thing
+            // that marks a comment as agent-posted — never client input.
+            source: ctx.viaMcp ? `mcp` : `user`,
             body: input.body,
           })
           .returning()
@@ -399,6 +442,18 @@ export const commentsRouter = router({
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
+        // EXP-741: a top-level comment takes its replies with it (the FK
+        // cascades), so everything below runs over the whole thread — the
+        // dying root plus its replies — not just the named row.
+        const replies = await tx
+          .select({
+            id: comments.id,
+            parentId: comments.parentId,
+            body: comments.body,
+          })
+          .from(comments)
+          .where(eq(comments.parentId, input.id))
+        const dyingIds = [input.id, ...replies.map((row) => row.id)]
         // Comment attachments die with their comment (EXP-554). Collect and
         // delete BEFORE the comment row goes — the FK is ON DELETE SET NULL,
         // which would silently unlink them into the issue's Files rail.
@@ -409,7 +464,7 @@ export const commentsRouter = router({
             storageKey: attachments.storageKey,
           })
           .from(attachments)
-          .where(eq(attachments.commentId, input.id))
+          .where(inArray(attachments.commentId, dyingIds))
         if (linked.length > 0) {
           // Same reason as the unlink path in syncCommentAttachmentsInTx: a
           // linked row may still be embedded inline somewhere, so rewrite
@@ -424,7 +479,7 @@ export const commentsRouter = router({
           })
           await tx
             .delete(attachments)
-            .where(eq(attachments.commentId, input.id))
+            .where(inArray(attachments.commentId, dyingIds))
         }
         const [dying] = await tx
           .select({ body: comments.body })
@@ -434,14 +489,21 @@ export const commentsRouter = router({
         await tx.delete(comments).where(eq(comments.id, input.id))
         // EXP-736: a deleted comment takes its `#IDENT` references with it —
         // the reference rows only die when no other text still names them.
-        await syncReferenceRelations(tx, {
-          issueId: existing.issueId,
-          teamId: existing.teamId,
-          actorUserId: ctx.session.user.id,
-          previousText: getCommentBodyText(dying?.body),
-          nextText: ``,
-          excludeCommentId: input.id,
-        })
+        // Replies are gone too by now (cascade), so each dying body is one
+        // more previous→empty delta.
+        for (const gone of [
+          { id: input.id, body: dying?.body },
+          ...replies,
+        ]) {
+          await syncReferenceRelations(tx, {
+            issueId: existing.issueId,
+            teamId: existing.teamId,
+            actorUserId: ctx.session.user.id,
+            previousText: getCommentBodyText(gone.body),
+            nextText: ``,
+            excludeCommentId: gone.id,
+          })
+        }
         return { txId, storageKeys: linked.map((row) => row.storageKey) }
       })
 

@@ -36,7 +36,7 @@ use sync::Store;
 use domain::rows::{Comment, IssueEvent, Label, Board, User};
 
 use crate::comment_attachments::{self, MAX_COMMENT_ATTACHMENTS};
-use crate::comments::{self, CommentRowProps};
+use crate::comments::{self, CommentCardProps, CommentRowProps, ReplyComposerProps};
 use crate::icons::{registry, ExpIcon};
 use crate::markdown::{store_completion_source, ImageCache};
 use crate::mention_input::MentionInput;
@@ -173,6 +173,21 @@ struct EditState {
     pending: Vec<PendingCommentAttachment>,
 }
 
+/// EXP-741: the inline reply composer open under ONE top-level card (web
+/// `replyingToId` + the composer it mounts). One at a time, like the edit
+/// form; it dies with the issue switch and with a successful send.
+struct ReplyState {
+    parent_id: String,
+    input: Entity<TextareaState>,
+    /// The §4.6 mention-capable wrapper around `input`.
+    mention: Entity<MentionInput>,
+    submitting: bool,
+    /// Files picked for the reply, uploaded on send (EXP-554 rules).
+    pending: Vec<PendingCommentAttachment>,
+    /// Cmd/Ctrl+Enter submits, like the bottom composer.
+    _subscription: Subscription,
+}
+
 /// One file picked for a comment, from the pick until its upload lands
 /// (EXP-554). Modeled on `issue_detail.rs::PendingFileUpload`, with the
 /// classification and the path kept so the upload can happen on SEND (never
@@ -196,19 +211,22 @@ pub(crate) struct PendingCommentAttachment {
 }
 
 /// Which composer a pending list belongs to — the create composer at the
-/// bottom of the thread, or the inline editor of the comment being edited.
+/// bottom of the thread, the inline editor of the comment being edited, or
+/// the reply composer under a top-level card (EXP-741).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PendingScope {
     Composer,
     Edit,
+    Reply,
 }
 
 impl PendingScope {
-    /// Element-id namespace (the two strips can be on screen at once).
+    /// Element-id namespace (the strips can be on screen at once).
     pub(crate) fn id_prefix(self) -> &'static str {
         match self {
             PendingScope::Composer => "composer",
             PendingScope::Edit => "edit",
+            PendingScope::Reply => "reply",
         }
     }
 }
@@ -227,7 +245,9 @@ pub struct IssueTimeline {
     images: Entity<ImageCache>,
     submitting: bool,
     editing: Option<EditState>,
-    /// EXP-551: the emoji picker both composers share, plus which of them
+    /// EXP-741: the open reply composer, if any.
+    reply: Option<ReplyState>,
+    /// EXP-551: the emoji picker every composer shares, plus which of them
     /// currently has it open (`None` = closed). One picker is enough — only
     /// one popover can be up at a time.
     emoji_picker: Entity<crate::emoji_picker::EmojiPicker>,
@@ -314,6 +334,7 @@ impl IssueTimeline {
             images,
             submitting: false,
             editing: None,
+            reply: None,
             emoji_picker,
             emoji_open: None,
             pending_attachments: Vec::new(),
@@ -336,6 +357,7 @@ impl IssueTimeline {
         self.issue_id = issue_id;
         self.team_id = None;
         self.editing = None;
+        self.reply = None;
         self.submitting = false;
         // Pending picks are per-issue local state, like the draft: an upload
         // that never happened must not follow the user to another issue.
@@ -373,6 +395,12 @@ impl IssueTimeline {
                 mention.set_source(source);
             });
         }
+        if let Some(reply) = self.reply.as_ref() {
+            let source = source.clone();
+            reply.mention.update(cx, |mention, _| {
+                mention.set_source(source);
+            });
+        }
         let transport = queries::attachment_transport(cx);
         self.images.update(cx, |images, _| {
             images.set_transport(transport);
@@ -403,6 +431,7 @@ impl IssueTimeline {
     fn insert_emoji(&mut self, unicode: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let target = match self.emoji_open {
             Some(PendingScope::Edit) => self.editing.as_ref().map(|editing| editing.mention.clone()),
+            Some(PendingScope::Reply) => self.reply.as_ref().map(|reply| reply.mention.clone()),
             _ => Some(self.composer_mention.clone()),
         };
         if let Some(mention) = target {
@@ -415,14 +444,124 @@ impl IssueTimeline {
     // -- mutations ------------------------------------------------------------
 
     pub(crate) fn submit_comment(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.submitting {
+        self.post_comment(PendingScope::Composer, window, cx);
+    }
+
+    /// EXP-741: send the open reply composer as a comment under its parent.
+    pub(crate) fn submit_reply(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.post_comment(PendingScope::Reply, window, cx);
+    }
+
+    /// Open the reply composer under one top-level card (web `setReplyingToId`).
+    pub(crate) fn begin_reply(
+        &mut self,
+        parent_id: &str,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if self
+            .reply
+            .as_ref()
+            .is_some_and(|reply| reply.parent_id == parent_id)
+        {
             return;
         }
+        let input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(2, 8)
+                .placeholder("Leave a reply…")
+        });
+        let mention = cx.new(|cx| {
+            let mut mention = MentionInput::new(input.clone(), cx);
+            // The composer card draws the border and fill (EXP-568).
+            mention.set_appearance(false);
+            mention.set_source(Some(match self.team_id.clone() {
+                Some(team_id) => store_completion_source(team_id),
+                None => crate::markdown::emoji_completion_source(),
+            }));
+            mention
+        });
+        let subscription = cx.subscribe_in(
+            &input,
+            window,
+            |this, _, event: &InputEvent, window, cx| match event {
+                InputEvent::PressEnter { secondary: true, .. } => {
+                    this.submit_reply(window, cx);
+                }
+                InputEvent::Change => cx.notify(),
+                _ => {}
+            },
+        );
+        // The caret lands in the new composer the moment it mounts.
+        input.read(cx).focus_handle(cx).focus(window, cx);
+        self.reply = Some(ReplyState {
+            parent_id: parent_id.to_string(),
+            input,
+            mention,
+            submitting: false,
+            pending: Vec::new(),
+            _subscription: subscription,
+        });
+        if self.emoji_open == Some(PendingScope::Reply) {
+            self.emoji_open = None;
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn cancel_reply(&mut self, cx: &mut gpui::Context<Self>) {
+        self.reply = None;
+        if self.emoji_open == Some(PendingScope::Reply) {
+            self.emoji_open = None;
+        }
+        cx.notify();
+    }
+
+    fn set_submitting(&mut self, scope: PendingScope, value: bool) {
+        match scope {
+            PendingScope::Composer => self.submitting = value,
+            PendingScope::Reply => {
+                if let Some(reply) = self.reply.as_mut() {
+                    reply.submitting = value;
+                }
+            }
+            PendingScope::Edit => {}
+        }
+    }
+
+    /// The ONE create path: the bottom composer posts a top-level comment,
+    /// the reply composer a reply with `parentId` (EXP-741). Both upload their
+    /// pending picks first and keep the draft until the create lands.
+    fn post_comment(
+        &mut self,
+        scope: PendingScope,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
         let Some(issue_id) = self.issue_id.clone() else {
             return;
         };
-        let draft = self.composer.read(cx).value().trim().to_string();
-        let pending = self.pending_attachments.clone();
+        let (input, pending, parent_id, submitting) = match scope {
+            PendingScope::Composer => (
+                self.composer.clone(),
+                self.pending_attachments.clone(),
+                None,
+                self.submitting,
+            ),
+            PendingScope::Reply => match self.reply.as_ref() {
+                Some(reply) => (
+                    reply.input.clone(),
+                    reply.pending.clone(),
+                    Some(reply.parent_id.clone()),
+                    reply.submitting,
+                ),
+                None => return,
+            },
+            PendingScope::Edit => return,
+        };
+        if submitting {
+            return;
+        }
+        let draft = input.read(cx).value().trim().to_string();
         // EXP-554: an attachment-only comment is legal (the server allows an
         // empty body when the id list is non-empty).
         if draft.is_empty() && pending.is_empty() {
@@ -438,12 +577,13 @@ impl IssueTimeline {
             return;
         }
 
-        self.submitting = true;
+        self.set_submitting(scope, true);
         // NO optimistic clear: the draft (and the picks) survive a failed
         // upload, and only a successful create empties the composer.
         cx.notify();
 
         let body = draft;
+        let what = if parent_id.is_some() { "reply" } else { "comment" };
         cx.spawn_in(window, async move |this, cx| {
             let upload_issue = issue_id.clone();
             let (stamped, result) = cx
@@ -467,6 +607,7 @@ impl IssueTimeline {
                         &upload_issue,
                         &body,
                         (!ids.is_empty()).then_some(ids.as_slice()),
+                        parent_id.as_deref(),
                     )
                     .map(|_| ())
                     .map_err(|error| error.to_string());
@@ -474,20 +615,24 @@ impl IssueTimeline {
                 })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.submitting = false;
-                this.stamp_uploaded(PendingScope::Composer, &stamped);
+                this.set_submitting(scope, false);
+                this.stamp_uploaded(scope, &stamped);
                 match result {
-                    Ok(()) => {
-                        this.composer
-                            .update(cx, |input, cx| input.set_value("", window, cx));
-                        this.pending_attachments.clear();
-                    }
+                    Ok(()) => match scope {
+                        PendingScope::Composer => {
+                            this.composer
+                                .update(cx, |input, cx| input.set_value("", window, cx));
+                            this.pending_attachments.clear();
+                        }
+                        PendingScope::Reply => this.reply = None,
+                        PendingScope::Edit => {}
+                    },
                     Err(error) => {
                         log::warn!("[ui] comments.create failed: {error}");
-                        this.note_attachment_failure(PendingScope::Composer, &error);
+                        this.note_attachment_failure(scope, &error);
                         window.push_notification(
                             Notification::error(SharedString::from(format!(
-                                "Could not post comment: {error}"
+                                "Could not post {what}: {error}"
                             ))),
                             cx,
                         );
@@ -580,6 +725,10 @@ impl IssueTimeline {
             PendingScope::Composer => {
                 Some((self.composer.clone(), self.composer_mention.clone()))
             }
+            PendingScope::Reply => self
+                .reply
+                .as_ref()
+                .map(|reply| (reply.input.clone(), reply.mention.clone())),
         };
         let Some((input, mention)) = target else {
             return;
@@ -610,7 +759,7 @@ impl IssueTimeline {
         // The cap counts what the comment will END UP with: already-linked
         // rows (edit mode, minus the staged removals) plus every pick.
         let linked = match scope {
-            PendingScope::Composer => 0,
+            PendingScope::Composer | PendingScope::Reply => 0,
             PendingScope::Edit => self
                 .editing
                 .as_ref()
@@ -685,6 +834,7 @@ impl IssueTimeline {
         match scope {
             PendingScope::Composer => Some(&mut self.pending_attachments),
             PendingScope::Edit => self.editing.as_mut().map(|editing| &mut editing.pending),
+            PendingScope::Reply => self.reply.as_mut().map(|reply| &mut reply.pending),
         }
     }
 
@@ -888,19 +1038,30 @@ impl IssueTimeline {
 
     // -- reads ----------------------------------------------------------------
 
-    fn merged_items(&self, cx: &App) -> Vec<TimelineItem> {
+    /// EXP-741: this issue's comments folded into threads (web
+    /// `threadComments`) — only the top-level cards are timeline entries.
+    fn threads(&self, cx: &App) -> Threads {
         let Some(issue_id) = self.issue_id.as_deref() else {
-            return Vec::new();
+            return Threads::default();
         };
-        let collections = Store::global(cx).collections();
-        let mut items: Vec<TimelineItem> = collections
+        let comments: Vec<Comment> = Store::global(cx)
+            .collections()
             .comments
             .read(cx)
             .iter()
             .filter(|comment| comment.issue_id == issue_id)
             .cloned()
-            .map(TimelineItem::Comment)
             .collect();
+        thread_comments(comments)
+    }
+
+    fn merged_items(&self, top_level: Vec<Comment>, cx: &App) -> Vec<TimelineItem> {
+        let Some(issue_id) = self.issue_id.as_deref() else {
+            return Vec::new();
+        };
+        let collections = Store::global(cx).collections();
+        let mut items: Vec<TimelineItem> =
+            top_level.into_iter().map(TimelineItem::Comment).collect();
         items.extend(
             collections
                 .issue_events
@@ -916,6 +1077,41 @@ impl IssueTimeline {
         );
         items.sort_by_key(TimelineItem::at);
         items
+    }
+
+    /// One comment's card props — the same for a top-level card and for each
+    /// reply under it (EXP-741), so replies edit and delete like their parent.
+    /// Author-only, no global-admin bypass (EXP-398) — the server refuses the
+    /// mutation for anyone else.
+    fn card_props<'a>(
+        &'a self,
+        comment: &'a Comment,
+        user_map: &'a HashMap<String, User>,
+        current_user_id: Option<&str>,
+    ) -> CommentCardProps<'a> {
+        let author = comment
+            .author_id
+            .as_deref()
+            .and_then(|id| user_map.get(id));
+        let can_modify =
+            current_user_id.is_some() && comment.author_id.as_deref() == current_user_id;
+        let edit = self
+            .editing
+            .as_ref()
+            .filter(|edit| edit.comment_id == comment.id);
+        CommentCardProps {
+            comment,
+            author,
+            can_modify,
+            editing: edit.map(|edit| &edit.mention),
+            saving: edit.is_some_and(|edit| edit.saving),
+            // EXP-554: the edit strip hides what the user staged for removal
+            // and grows a ✕ per tile.
+            edit_removed: edit.map(|edit| &edit.removed_attachment_ids),
+            edit_pending: edit
+                .map(|edit| edit.pending.as_slice())
+                .unwrap_or_default(),
+        }
     }
 
     /// EXP-417: the synthesized first activity row — "{who} created the issue
@@ -1023,7 +1219,15 @@ fn with_time(phrase: &str, time: &str) -> String {
 
 impl Render for IssueTimeline {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let items = self.merged_items(cx);
+        // EXP-741: replies ride inside their parent's card, so only top-level
+        // comments are timeline entries; the header count still counts every
+        // row.
+        let Threads {
+            top_level,
+            replies_by_parent,
+        } = self.threads(cx);
+        let reply_count: usize = replies_by_parent.values().map(Vec::len).sum();
+        let items = self.merged_items(top_level, cx);
         let collections = Store::global(cx).collections();
         let user_map: HashMap<String, User> = collections
             .users
@@ -1049,10 +1253,11 @@ impl Render for IssueTimeline {
         let current_user_id = account.as_ref().map(|a| a.user_id.clone());
         let now_epoch = now_epoch();
 
-        let header_label = if items.is_empty() {
+        let activity_count = items.len() + reply_count;
+        let header_label = if activity_count == 0 {
             "Activity".to_string()
         } else {
-            format!("Activity ({})", items.len())
+            format!("Activity ({activity_count})")
         };
 
         // Content re-centers to the detail column; the centering must ride
@@ -1138,31 +1343,35 @@ impl Render for IssueTimeline {
                     }
                 }
                 TimelineItem::Comment(comment) => {
-                    let author = comment
-                        .author_id
-                        .as_deref()
-                        .and_then(|id| user_map.get(id));
-                    // Author-only, no global-admin bypass (EXP-398) — the
-                    // server refuses the mutation for anyone else.
-                    let can_modify =
-                        current_user_id.is_some() && comment.author_id == current_user_id;
-                    let edit = self
-                        .editing
+                    let card = self.card_props(comment, &user_map, current_user_id.as_deref());
+                    let replies: Vec<CommentCardProps<'_>> = replies_by_parent
+                        .get(&comment.id)
+                        .map(|list| {
+                            list.iter()
+                                .map(|reply| {
+                                    self.card_props(reply, &user_map, current_user_id.as_deref())
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    // EXP-741: the reply composer open under THIS card.
+                    let reply = self
+                        .reply
                         .as_ref()
-                        .filter(|edit| edit.comment_id == comment.id);
+                        .filter(|reply| reply.parent_id == comment.id)
+                        .map(|reply| ReplyComposerProps {
+                            input: &reply.mention,
+                            submitting: reply.submitting,
+                            has_draft: !reply.input.read(cx).value().trim().is_empty()
+                                || !reply.pending.is_empty(),
+                            pending: &reply.pending,
+                            emoji_open: self.emoji_open(PendingScope::Reply),
+                        });
                     let row = comments::comment_row(
                         CommentRowProps {
-                            comment,
-                            author,
-                            can_modify,
-                            editing: edit.map(|edit| &edit.mention),
-                            saving: edit.is_some_and(|edit| edit.saving),
-                            // EXP-554: the edit strip hides what the user
-                            // staged for removal and grows a ✕ per tile.
-                            edit_removed: edit.map(|edit| &edit.removed_attachment_ids),
-                            edit_pending: edit
-                                .map(|edit| edit.pending.as_slice())
-                                .unwrap_or_default(),
+                            card,
+                            replies,
+                            reply,
                             now_epoch,
                             line_above,
                             line_below,
@@ -1205,6 +1414,50 @@ impl Render for IssueTimeline {
                     .child(body.child(composer)),
             ))
     }
+}
+
+/// EXP-741: one issue's comments folded into threads — the top-level cards
+/// and each card's replies keyed by parent id (web `threadComments`).
+#[derive(Default)]
+pub(crate) struct Threads {
+    pub top_level: Vec<Comment>,
+    pub replies_by_parent: HashMap<String, Vec<Comment>>,
+}
+
+/// Threads are ONE level deep by construction (`comments.create` re-parents
+/// a reply-to-a-reply onto the root), so a row is a reply exactly when
+/// `parent_id` is set. A reply whose parent is NOT in the list (still
+/// syncing, or gone from a partial snapshot) surfaces as a top-level card
+/// rather than disappearing. Replies sort by (created_at, id) — the same
+/// tie-break the timeline applies to its entries.
+pub(crate) fn thread_comments(comments: Vec<Comment>) -> Threads {
+    let ids: HashSet<String> = comments.iter().map(|comment| comment.id.clone()).collect();
+    let mut threads = Threads::default();
+    for comment in comments {
+        match comment.parent_id.as_deref() {
+            Some(parent) if parent != comment.id && ids.contains(parent) => {
+                threads
+                    .replies_by_parent
+                    .entry(parent.to_string())
+                    .or_default()
+                    .push(comment);
+            }
+            _ => threads.top_level.push(comment),
+        }
+    }
+    for replies in threads.replies_by_parent.values_mut() {
+        replies.sort_by(|a, b| {
+            let at = |comment: &Comment| {
+                comment
+                    .created_at
+                    .as_deref()
+                    .and_then(comments::parse_epoch)
+                    .unwrap_or(0)
+            };
+            at(a).cmp(&at(b)).then_with(|| a.id.cmp(&b.id))
+        });
+    }
+    threads
 }
 
 /// Unix seconds now (for relative times).
@@ -2023,6 +2276,34 @@ mod tests {
 
         drop(store);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-741: replies group under their parent in time order, an orphan
+    /// reply surfaces as a top-level card, and nothing nests under itself.
+    #[test]
+    fn thread_comments_groups_replies_and_surfaces_orphans() {
+        let row = |id: &str, parent: Option<&str>, at: &str| -> Comment {
+            serde_json::from_value(json!({
+                "id": id, "issue_id": "i-1", "parent_id": parent, "created_at": at
+            }))
+            .unwrap()
+        };
+        let threads = thread_comments(vec![
+            row("a", None, "2026-07-03T10:00:00Z"),
+            row("a2", Some("a"), "2026-07-03T12:00:00Z"),
+            row("b", None, "2026-07-03T11:00:00Z"),
+            row("a1", Some("a"), "2026-07-03T11:30:00Z"),
+            row("orphan", Some("gone"), "2026-07-03T13:00:00Z"),
+            row("self", Some("self"), "2026-07-03T14:00:00Z"),
+        ]);
+        let top: Vec<&str> = threads.top_level.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(top, vec!["a", "b", "orphan", "self"]);
+        let replies: Vec<&str> = threads.replies_by_parent["a"]
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect();
+        assert_eq!(replies, vec!["a1", "a2"]);
+        assert_eq!(threads.replies_by_parent.len(), 1);
     }
 
     #[test]

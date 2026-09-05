@@ -397,6 +397,8 @@ const commentWireColumns = {
   teamId: comments.teamId,
   boardId: comments.boardId,
   authorId: comments.authorId,
+  parentId: comments.parentId,
+  source: comments.source,
   body: comments.body,
   editedAt: comments.editedAt,
   createdAt: comments.createdAt,
@@ -1076,6 +1078,8 @@ export function registerExponentialTools(
           .select({
             id: comments.id,
             authorId: comments.authorId,
+            parentId: comments.parentId,
+            source: comments.source,
             body: comments.body,
             createdAt: comments.createdAt,
             editedAt: comments.editedAt,
@@ -1649,15 +1653,16 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_comments_create`,
     {
-      description: `Post a regular comment on an issue (by UUID or human identifier, e.g. "MET-12") authored by the MCP user. Body is plain text.`,
+      description: `Post a regular comment on an issue (by UUID or human identifier, e.g. "MET-12") authored by the MCP user; it shows as "via MCP". Body is plain text. Pass parentId (a comment id from exponential_comments_list) to reply under that comment — threads are one level deep, so a reply to a reply lands under the same top-level comment.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         issueId: z.string().min(1),
         body: z.string().trim().min(1).max(10_000).describe(`Plain GFM text`),
         attachmentIds: z.array(uuidString).max(10).optional(),
+        parentId: uuidString.optional(),
       }),
     },
-    async ({ issueId: issueIdInput, body, attachmentIds }) => {
+    async ({ issueId: issueIdInput, body, attachmentIds, parentId }) => {
       try {
         const issueId = await resolveIssueId(issueIdInput, user.id, access)
         if (!access.full) {
@@ -1668,6 +1673,7 @@ export function registerExponentialTools(
           issueId,
           body,
           ...(attachmentIds ? { attachmentIds } : {}),
+          ...(parentId ? { parentId } : {}),
         })
         noteAgentIssueActivity(issueId, user.id)
         return ok(result.comment)

@@ -309,6 +309,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("edited_at", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
+                // EXP-741 (v28 heals older stores): reply parent + user|mcp.
+                t.column("parent_id", .text).indexed()
+                t.column("source", .text)
             }
 
             try db.create(table: "attachments", ifNotExists: true) { t in
@@ -1244,6 +1247,34 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("board_id", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
+            }
+        }
+
+        // v28 (EXP-741 threaded comments): comments.parent_id (the top-level
+        // comment a reply hangs off) + comments.source (user | mcp, the "via
+        // MCP" caption). Guarded additive ALTERs so an older store converges
+        // on the schema a fresh install gets from the v1 create above, then
+        // the comments offset resets so already-synced rows re-arrive
+        // carrying the columns (the v26 precedent).
+        migrator.registerMigration("v28_comment_threads") { db in
+            guard try db.tableExists("comments") else { return }
+            let existing = Set(try db.columns(in: "comments").map(\.name))
+            if !existing.contains("parent_id") {
+                try db.alter(table: "comments") { t in
+                    t.add(column: "parent_id", .text).indexed()
+                }
+            }
+            if !existing.contains("source") {
+                try db.alter(table: "comments") { t in
+                    t.add(column: "source", .text)
+                }
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'comments'
+                    """)
             }
         }
 

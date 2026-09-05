@@ -234,7 +234,7 @@ data class TeamInviteEntity(
 
 @Entity(
     tableName = "comments",
-    indices = [Index("issue_id"), Index("team_id")],
+    indices = [Index("issue_id"), Index("team_id"), Index("parent_id")],
 )
 @Serializable
 data class CommentEntity(
@@ -244,6 +244,11 @@ data class CommentEntity(
     // Denormalized issue→board id (v7 server trigger).
     @ColumnInfo(name = "board_id") @SerialName("board_id") @JsonNames("boardId") val boardId: String? = null,
     @ColumnInfo(name = "author_id") @SerialName("author_id") @JsonNames("authorId") val authorId: String,
+    // EXP-741: the top-level comment this one replies to (one level deep);
+    // null = a top-level card.
+    @ColumnInfo(name = "parent_id") @SerialName("parent_id") @JsonNames("parentId") val parentId: String? = null,
+    // EXP-741: `user` | `mcp` — an agent posted it over MCP ("via MCP").
+    val source: String? = null,
     @Serializable(with = JsonAsStringSerializer::class) val body: String? = null,
     val kind: String = "regular",
     @ColumnInfo(name = "edited_at") @SerialName("edited_at") @JsonNames("editedAt") val editedAt: String? = null,
@@ -252,6 +257,10 @@ data class CommentEntity(
 )
 
 enum class CommentKind { Regular }
+
+/** EXP-741: an agent posted this comment over MCP (the "via MCP" caption). */
+val CommentEntity.isViaMcp: Boolean
+    get() = source == com.exponential.app.domain.DomainContract.commentSourceMcp
 
 // Comment kinds collapsed to regular-only (contract commentKindValues = ["regular"]);
 // tolerant decode maps any legacy value to Regular.

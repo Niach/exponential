@@ -159,6 +159,9 @@
   "commentKind": {
     "values": ["regular"]
   },
+  "commentSource": {
+    "values": ["user", "mcp"]
+  },
   "notificationType": {
     "values": [
       "issue_assigned",

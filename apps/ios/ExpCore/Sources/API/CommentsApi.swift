@@ -10,11 +10,15 @@ public struct CreateCommentInput: Encodable, Sendable {
     /// to `[]`, and Swift's synthesized `encode(to:)` uses `encodeIfPresent`, so
     /// a nil simply never appears in the JSON body.
     public let attachmentIds: [String]?
+    /// EXP-741 — the top-level comment this one replies to. Optional on the
+    /// wire like `attachmentIds`: nil never appears in the JSON body.
+    public let parentId: String?
 
-    public init(issueId: String, body: String, attachmentIds: [String]? = nil) {
+    public init(issueId: String, body: String, attachmentIds: [String]? = nil, parentId: String? = nil) {
         self.issueId = issueId
         self.body = body
         self.attachmentIds = attachmentIds
+        self.parentId = parentId
     }
 }
 
@@ -57,12 +61,18 @@ public final class CommentsApi: Sendable {
         accountId: String,
         issueId: String,
         text: String,
-        attachmentIds: [String]? = nil
+        attachmentIds: [String]? = nil,
+        parentId: String? = nil
     ) async throws {
         let _: EmptyResult = try await trpc.mutation(
             accountId: accountId,
             path: "comments.create",
-            input: CreateCommentInput(issueId: issueId, body: text, attachmentIds: attachmentIds)
+            input: CreateCommentInput(
+                issueId: issueId,
+                body: text,
+                attachmentIds: attachmentIds,
+                parentId: parentId
+            )
         )
     }
 

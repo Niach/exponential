@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-threaded-comments`,
+    date: `2026-09-05`,
+    title: `Threaded comments`,
+    summary: `Reply under a comment on web, desktop, iOS and Android, and see when an agent posted a comment over MCP.`,
+    body: `- **Replies**: every comment card ends with a Leave a reply row. On web and desktop the reply composer opens right there; on iOS and Android the docked composer switches to Replying to, with an x to go back to a plain comment. Replies sit under their comment with a smaller avatar, edit and delete like any comment, and threads stay one level deep.
+- **Replies for agents**: the MCP comments tool takes a parentId, and listed comments carry it.
+- **Via MCP**: a comment an agent posted over MCP says so in its header on every client, so it never reads as its key owner's words.`,
+  },
+  {
     id: `2026-09-relations-and-design-refresh`,
     date: `2026-09-05`,
     title: `Issue relations and a design refresh`,

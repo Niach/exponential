@@ -34,10 +34,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +51,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -125,6 +129,10 @@ fun IssueDetailBottomBar(
     // toolbar controller's activeModel; the composer opts out of that toolbar,
     // so it is never the registered model itself (re-checked below by identity).
     otherEditorFocused: Boolean = false,
+    // EXP-741: the comment this composer replies to ("Replying to …" leading
+    // row, `parentId` on send). The ✕ clears it; so does a collapse.
+    replyTarget: CommentReplyTarget? = null,
+    onClearReply: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // The composer's editor model lives at bar level so the block document
@@ -235,6 +243,8 @@ fun IssueDetailBottomBar(
                 showMentionButton = showMentionButton,
                 onRequestEmoji = { emojiPickerOpen = true },
                 onCollapse = { onExpandedChange(false) },
+                replyTarget = replyTarget,
+                onClearReply = onClearReply,
             )
         } else {
             CollapsedBar(
@@ -391,6 +401,8 @@ private fun ExpandedCommentComposer(
     // unmount the sheet the moment it takes focus off the editor).
     onRequestEmoji: () -> Unit,
     onCollapse: () -> Unit,
+    replyTarget: CommentReplyTarget?,
+    onClearReply: () -> Unit,
 ) {
     BackHandler(onBack = onCollapse)
     // The composer owns its own pickers (the shared toolbar controller's
@@ -408,6 +420,36 @@ private fun ExpandedCommentComposer(
         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
         // The composer floats over the issue's own scrolling content.
         opaque = true,
+        // EXP-741: the reply target rides the composer's leading row.
+        leading = replyTarget?.let { target ->
+            {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Replying to ${target.authorName}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = TextEmphasis.Secondary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    CompositionLocalProvider(
+                        LocalMinimumInteractiveComponentSize provides Dp.Unspecified,
+                    ) {
+                        IconButton(onClick = onClearReply, modifier = Modifier.size(28.dp)) {
+                            Icon(
+                                ExpIcons.uiClose,
+                                contentDescription = "Stop replying",
+                                modifier = Modifier.size(14.dp),
+                                tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+                            )
+                        }
+                    }
+                }
+            }
+        },
         strip = {
             PendingAttachmentStrip(
                 items = pendingAttachments,
@@ -471,7 +513,7 @@ private fun ExpandedCommentComposer(
                 // No uploader: an image pasted or picked into a COMMENT is an
                 // attachment, not an inline markdown block (EXP-554).
                 onUploadImage = null,
-                placeholder = "Write a comment…",
+                placeholder = if (replyTarget == null) "Write a comment…" else "Leave a reply…",
                 minHeight = 40.dp,
                 mentionMembers = mentionMembers,
                 // The composer carries its own image/@/# row below — the

@@ -7,13 +7,16 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 
 // Server-pinned column allowlist — excludes the `board_deleted_at` trash
 // mirror (REV2-5) and the `board_archived_at` archive mirror (EXP-500), both
-// server-only (the where clause filters on them).
+// server-only (the where clause filters on them). EXP-741 adds the reply
+// parent and the user|mcp source; every client's local schema carries both.
 const COMMENT_COLUMNS = [
   `id`,
   `issue_id`,
   `team_id`,
   `board_id`,
   `author_id`,
+  `parent_id`,
+  `source`,
   `body`,
   `edited_at`,
   `created_at`,

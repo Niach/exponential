@@ -86,6 +86,9 @@ const state = {
   // Rows the NON-tx attachments probe sees (the update path's existing-links
   // check, EXP-560).
   dbAttachmentRows: [] as { id: string }[],
+  // EXP-741: what the stored comment row (the reply parent lookup) hangs off.
+  storedParentId: null as string | null,
+  storedIssueId: ISSUE_ID,
 }
 
 function resetMarkdownState() {
@@ -101,10 +104,13 @@ const nextSelectRows = () =>
     : [{ body: state.previousBody }]
 
 // The rewrite scan reads `id` + text from issues and comments; every other
-// tx-scope select rides the FIFO queue.
+// tx-scope select rides the FIFO queue (the EXP-741 replies scan also names
+// `parentId`, which the rewrite scan never does).
 function selectRowsFor(fields: Record<string, unknown>, table: unknown) {
   if (table === issuesTable) return state.issueRows
-  if (table === commentsTable && `id` in fields) return state.commentRows
+  if (table === commentsTable && `id` in fields && !(`parentId` in fields)) {
+    return state.commentRows
+  }
   return nextSelectRows()
 }
 
@@ -154,8 +160,9 @@ const fakeDb = {
                 {
                   id: COMMENT_ID,
                   authorId: state.authorId,
-                  issueId: ISSUE_ID,
+                  issueId: state.storedIssueId,
                   teamId: `ws-1`,
+                  parentId: state.storedParentId,
                 },
               ],
       }),
@@ -168,6 +175,15 @@ const caller = commentsRouter.createCaller({
   session: { user: { id: `actor` } },
   db: fakeDb,
   request: new Request(`http://localhost/`),
+} as never)
+
+// The MCP server's synthetic context (lib/mcp/tools.ts buildCtx) — the one
+// thing that marks a comment as agent-posted (EXP-741).
+const mcpCaller = commentsRouter.createCaller({
+  session: { user: { id: `actor` } },
+  db: fakeDb,
+  request: new Request(`http://localhost/`),
+  viaMcp: true,
 } as never)
 
 describe(`comments.update mention resolution (REV2-26)`, () => {
@@ -294,8 +310,9 @@ describe(`comments are author-only`, () => {
 
   it(`still requires the author to be a current team member`, async () => {
     state.authorId = `actor`
-    // Delete's linked-attachments collection pass finds nothing.
-    state.selectQueue = [[]]
+    // Delete's replies scan and linked-attachments collection pass find
+    // nothing.
+    state.selectQueue = [[], []]
     await caller.delete({ id: COMMENT_ID })
 
     expect(h.resolveTeamAccess).toHaveBeenCalledWith(`actor`, `ws-1`, `comment`)
@@ -453,6 +470,8 @@ describe(`comment attachments (EXP-554)`, () => {
 
   it(`delete cascades linked attachments and reclaims their blobs`, async () => {
     state.selectQueue = [
+      // EXP-741: the replies scan first (none here), then the linked rows.
+      [],
       [
         { id: ATTACHMENT_A, filename: `a.png`, storageKey: `key-a` },
         { id: ATTACHMENT_B, filename: `b.png`, storageKey: `key-b` },
@@ -508,6 +527,7 @@ describe(`comment attachments (EXP-554)`, () => {
 
   it(`delete cascade rewrites inline references to the placeholder`, async () => {
     state.selectQueue = [
+      [],
       [{ id: ATTACHMENT_A, filename: `cascade.png`, storageKey: `key-a` }],
     ]
     state.issueRows = [
@@ -527,6 +547,7 @@ describe(`comment attachments (EXP-554)`, () => {
 
   it(`leaves a body the exact markdown parser does not match alone`, async () => {
     state.selectQueue = [
+      [],
       [{ id: ATTACHMENT_A, filename: `cascade.png`, storageKey: `key-a` }],
     ]
     // Matched by the LIKE prefilter (bare id in the text) but not by the
@@ -584,9 +605,9 @@ describe(`comment #IDENT references (EXP-736)`, () => {
 
   it(`delete takes the dying body's references with it`, async () => {
     state.previousBody = `fixes #EXP-2`
-    // The linked-attachments collection pass finds nothing; the body read
-    // falls through to the stored comment.
-    state.selectQueue = [[]]
+    // The replies scan and the linked-attachments collection pass find
+    // nothing; the body read falls through to the stored comment.
+    state.selectQueue = [[], []]
 
     await caller.delete({ id: COMMENT_ID })
 
@@ -596,5 +617,99 @@ describe(`comment #IDENT references (EXP-736)`, () => {
       nextText: ``,
       excludeCommentId: COMMENT_ID,
     })
+  })
+})
+
+// EXP-741: threading is ONE level deep and `source` is stamped by the
+// context, never by input. The parent lookup rides the non-tx db (the same
+// stored-row probe loadCommentForMutation uses).
+describe(`comment threads (EXP-741)`, () => {
+  const PARENT_ID = COMMENT_ID
+  const ROOT_ID = `66666666-6666-4666-8666-666666666666`
+  const REPLY_ID = `77777777-7777-4777-8777-777777777777`
+  const ATTACHMENT_R = `88888888-8888-4888-8888-888888888888`
+
+  beforeEach(() => {
+    state.previousBody = ``
+    state.authorId = `actor`
+    state.selectQueue = []
+    state.storedParentId = null
+    state.storedIssueId = ISSUE_ID
+    resetMarkdownState()
+    h.getIssueTeamContext.mockImplementation(async () => ({
+      issueId: ISSUE_ID,
+      boardId: `proj-1`,
+      teamId: `ws-1`,
+    }))
+    h.resolveMentions.mockReset()
+    h.resolveMentions.mockImplementation(async () => [])
+    h.syncReferenceRelations.mockClear()
+    h.deleteStorageObjects.mockClear()
+  })
+
+  it(`a reply hangs off the named top-level comment as a user comment`, async () => {
+    const result = await caller.create({
+      issueId: ISSUE_ID,
+      body: `agreed`,
+      parentId: PARENT_ID,
+    })
+    expect(result.comment).toMatchObject({
+      parentId: PARENT_ID,
+      source: `user`,
+    })
+  })
+
+  it(`a top-level comment carries no parent`, async () => {
+    const result = await caller.create({ issueId: ISSUE_ID, body: `hi` })
+    expect(result.comment).toMatchObject({ parentId: null, source: `user` })
+  })
+
+  it(`a reply to a reply flattens onto the root`, async () => {
+    state.storedParentId = ROOT_ID
+    const result = await caller.create({
+      issueId: ISSUE_ID,
+      body: `still agreed`,
+      parentId: PARENT_ID,
+    })
+    expect(result.comment).toMatchObject({ parentId: ROOT_ID })
+  })
+
+  it(`refuses a parent from another issue`, async () => {
+    state.storedIssueId = `99999999-9999-4999-8999-999999999999`
+    await expect(
+      caller.create({ issueId: ISSUE_ID, body: `x`, parentId: PARENT_ID })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+
+  it(`the MCP context stamps source=mcp, a client never can`, async () => {
+    const result = await mcpCaller.create({ issueId: ISSUE_ID, body: `bot` })
+    expect(result.comment).toMatchObject({ source: `mcp` })
+    // `source` is not an input: the zod object strips unknown keys, so a
+    // client claiming to be an agent still lands as a user comment.
+    const spoofed = await caller.create({
+      issueId: ISSUE_ID,
+      body: `not a bot`,
+      source: `mcp`,
+    } as never)
+    expect(spoofed.comment).toMatchObject({ source: `user` })
+  })
+
+  it(`deleting a root takes its replies' attachments and references along`, async () => {
+    state.previousBody = `root #EXP-1`
+    state.selectQueue = [
+      // The replies scan, then the linked rows of root + replies.
+      [{ id: REPLY_ID, body: `reply #EXP-2` }],
+      [{ id: ATTACHMENT_R, filename: `r.png`, storageKey: `key-r` }],
+    ]
+
+    await caller.delete({ id: COMMENT_ID })
+
+    expect(h.deleteStorageObjects).toHaveBeenCalledWith([`key-r`])
+    expect(
+      h.syncReferenceRelations.mock.calls.map((call) => call[1])
+    ).toMatchObject([
+      { previousText: `root #EXP-1`, nextText: ``, excludeCommentId: COMMENT_ID },
+      { previousText: `reply #EXP-2`, nextText: ``, excludeCommentId: REPLY_ID },
+    ])
   })
 })

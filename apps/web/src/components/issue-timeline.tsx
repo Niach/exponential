@@ -19,7 +19,11 @@ import {
 } from "@/lib/collections"
 import { CommentComposer } from "@/components/comment-composer"
 import { EventRow } from "@/components/comment-rows/event"
-import { RegularCommentRow } from "@/components/comment-rows/regular"
+import {
+  RegularCommentRow,
+  type CommentCardProps,
+} from "@/components/comment-rows/regular"
+import { countThreadedComments, threadComments } from "@/lib/comment-threads"
 import { TimelineRow } from "@/components/comment-rows/timeline-row"
 import { relativeTime } from "@/components/comment-rows/format"
 import { displayUserName } from "@/lib/user-display"
@@ -109,15 +113,21 @@ export function IssueTimeline({
   )
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
+  // EXP-741: the top-level card whose inline reply composer is open (one at
+  // a time, like the edit form).
+  const [replyingToId, setReplyingToId] = useState<string | null>(null)
 
   const list = (comments ?? []) as Comment[]
+  // EXP-741: replies ride inside their parent's card, so only top-level
+  // comments are timeline entries; the header count still counts every row.
+  const threads = useMemo(() => threadComments(list), [list])
 
   type TimelineItem =
     | { kind: `comment`; at: number; comment: Comment }
     | { kind: `event`; at: number; event: IssueEvent }
   const merged = useMemo<TimelineItem[]>(() => {
     const items: TimelineItem[] = [
-      ...list.map((c) => ({
+      ...threads.topLevel.map((c) => ({
         kind: `comment` as const,
         at: new Date(c.createdAt).getTime(),
         comment: c,
@@ -135,7 +145,9 @@ export function IssueTimeline({
     ]
     items.sort((a, b) => a.at - b.at)
     return items
-  }, [list, events])
+  }, [threads, events])
+  const activityCount =
+    merged.length - threads.topLevel.length + countThreadedComments(threads)
 
   const handleSubmit = async (body: string, attachmentIds: string[]) => {
     await trpc.comments.create.mutate({
@@ -143,6 +155,22 @@ export function IssueTimeline({
       body,
       attachmentIds,
     })
+  }
+
+  // EXP-741: a reply is an ordinary comment with `parentId`; the composer
+  // under the card closes once the create lands.
+  const handleSubmitReply = async (
+    parentId: string,
+    body: string,
+    attachmentIds: string[]
+  ) => {
+    await trpc.comments.create.mutate({
+      issueId: issue.id,
+      body,
+      attachmentIds,
+      parentId,
+    })
+    setReplyingToId(null)
   }
 
   const handleEditSave = async (
@@ -171,6 +199,24 @@ export function IssueTimeline({
     await trpc.comments.delete.mutate({ id: commentId })
   }
 
+  // One comment's card props — the same for a top-level card and for each
+  // reply under it (EXP-741), so replies edit and delete like their parent.
+  // Author-only, no global-admin bypass (EXP-398): the server refuses the
+  // mutation for anyone else, so offering the menu would only ever be a lie.
+  const cardProps = (comment: Comment): CommentCardProps => ({
+    author: userMap.get(comment.authorId),
+    comment,
+    attachments: commentAttachmentMap.get(comment.id) ?? [],
+    canModify: comment.authorId === currentUserId,
+    editing: editingCommentId === comment.id,
+    users,
+    onCancelEdit: () => setEditingCommentId(null),
+    onDelete: () => void handleDelete(comment.id),
+    onEdit: () => setEditingCommentId(comment.id),
+    onSaveEdit: (text, attachmentIds) =>
+      handleEditSave(comment, text, attachmentIds),
+  })
+
   // Widget- and agent-filed issues have no creator (`creatorId` is NULL by
   // design), so they read as filed by their origin — the wording every client
   // shares.
@@ -191,7 +237,7 @@ export function IssueTimeline({
   return (
     <div className="mx-auto max-w-3xl border-t border-border px-4 py-3">
       <div className="text-sm font-medium text-foreground mb-2">
-        Activity {merged.length > 0 ? `(${merged.length})` : ``}
+        Activity {activityCount > 0 ? `(${activityCount})` : ``}
       </div>
       {/* EXP-417: the issue's own creation, synthesized rather than stored —
           natives already show it, and it is what makes an otherwise empty
@@ -231,26 +277,19 @@ export function IssueTimeline({
           )
         }
         const comment = item.comment
-        const author = userMap.get(comment.authorId)
-        // Author-only, no global-admin bypass (EXP-398): the server refuses
-        // the mutation for anyone else, so offering the menu would only ever
-        // be a lie.
-        const canModify = comment.authorId === currentUserId
         return (
           <RegularCommentRow
             key={comment.id}
-            author={author}
-            comment={comment}
-            attachments={commentAttachmentMap.get(comment.id) ?? []}
-            canModify={canModify}
+            {...cardProps(comment)}
             lineBelow={lineBelow}
-            users={users}
-            editing={editingCommentId === comment.id}
-            onCancelEdit={() => setEditingCommentId(null)}
-            onDelete={() => void handleDelete(comment.id)}
-            onEdit={() => setEditingCommentId(comment.id)}
-            onSaveEdit={(text, attachmentIds) =>
-              handleEditSave(comment, text, attachmentIds)
+            replies={(threads.repliesByParent.get(comment.id) ?? []).map(
+              cardProps
+            )}
+            replying={replyingToId === comment.id}
+            onReply={() => setReplyingToId(comment.id)}
+            onCancelReply={() => setReplyingToId(null)}
+            onSubmitReply={(text, attachmentIds) =>
+              handleSubmitReply(comment.id, text, attachmentIds)
             }
           />
         )

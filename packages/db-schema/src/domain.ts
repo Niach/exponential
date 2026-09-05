@@ -269,6 +269,12 @@ export function isCodingSessionStale(
 // Only `regular` (human) comments exist.
 export const commentKindValues = [`regular`] as const
 
+// EXP-741: who posted the comment — a person in a client, or an agent over
+// MCP (`comments.create` stamps it from the MCP context; the card header
+// carries a "via MCP" caption). Threading is `comments.parent_id`: ONE level
+// deep, a reply to a reply flattens to the root.
+export const commentSourceValues = [`user`, `mcp`] as const
+
 // Helpdesk conversation vocabulary (SERVER-ONLY — support tables never sync,
 // so these stay out of the domain contract). Direction is who wrote the
 // message; visibility gates what the anonymous magic-link page may see
@@ -418,6 +424,7 @@ export type IssueSource = (typeof issueSourceValues)[number]
 export type TeamRole = (typeof teamRoleValues)[number]
 export type BoardIcon = (typeof boardIconValues)[number]
 export type CommentKind = (typeof commentKindValues)[number]
+export type CommentSource = (typeof commentSourceValues)[number]
 export type NotificationType = (typeof notificationTypeValues)[number]
 export type PrState = (typeof prStateValues)[number]
 export type CodingSessionStatus = (typeof codingSessionStatusValues)[number]
@@ -442,6 +449,7 @@ export const boardIconSchema = z.enum(boardIconValues)
 // on every client. Aliased rather than duplicated so the two can never drift.
 export const actionIconSchema = boardIconSchema
 export const commentKindSchema = z.enum(commentKindValues)
+export const commentSourceSchema = z.enum(commentSourceValues)
 export const notificationTypeSchema = z.enum(notificationTypeValues)
 export const prStateSchema = z.enum(prStateValues)
 export const codingSessionStatusSchema = z.enum(codingSessionStatusValues)

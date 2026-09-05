@@ -4,6 +4,42 @@ import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueEventEntity
 
+/**
+ * EXP-741: one issue's comments folded into threads — the top-level cards in
+ * their input order, and each card's replies (also in input order) keyed by
+ * the parent id. Mirrors web `lib/comment-threads.ts`, the desktop
+ * `thread_comments` and iOS `threadComments`.
+ */
+internal data class CommentThreads(
+    val topLevel: List<CommentEntity>,
+    val repliesByParent: Map<String, List<CommentEntity>>,
+) {
+    /** Every row — the "Activity (N)" count. */
+    val count: Int get() = topLevel.size + repliesByParent.values.sumOf { it.size }
+}
+
+/**
+ * Threads are ONE level deep by construction (`comments.create` re-parents a
+ * reply-to-a-reply onto the root), so a row is a reply exactly when
+ * `parentId` is set. A reply whose parent is NOT in the list (still syncing,
+ * or gone from a partial snapshot) surfaces as a top-level card rather than
+ * disappearing — the row is still real activity.
+ */
+internal fun threadComments(comments: List<CommentEntity>): CommentThreads {
+    val ids = comments.mapTo(HashSet()) { it.id }
+    val topLevel = mutableListOf<CommentEntity>()
+    val replies = LinkedHashMap<String, MutableList<CommentEntity>>()
+    for (comment in comments) {
+        val parentId = comment.parentId
+        if (parentId != null && parentId != comment.id && parentId in ids) {
+            replies.getOrPut(parentId) { mutableListOf() }.add(comment)
+        } else {
+            topLevel.add(comment)
+        }
+    }
+    return CommentThreads(topLevel, replies)
+}
+
 // One timeline entry — the synthesized "created the issue" item, a human
 // comment, or a synced activity event. Moved out of CommentThread.kt (EXP-240)
 // so the pure collapse function below is unit-testable without Compose.

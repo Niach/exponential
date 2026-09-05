@@ -100,15 +100,18 @@ fun CommentThread(
     val humanComments = remember(state.comments) {
         state.comments.filter { commentKindOf(it.kind) == CommentKind.Regular }
     }
+    // EXP-741: replies ride inside their parent's card, so only top-level
+    // comments are timeline entries.
+    val threads = remember(humanComments) { threadComments(humanComments) }
     // Timeline: the created item pinned first, then regular comments + activity
     // events merged by time. The id is a secondary sort key so items sharing a
     // createdAt (e.g. a comment + the status event of one mutation) keep a
     // stable order across syncs.
-    val timeline = remember(humanComments, state.events, state.issue) {
+    val timeline = remember(threads, state.events, state.issue) {
         // EXP-530: `created` events are suppressed entirely (eventRowVisible)
         // — the synthesized Created header already shows creation, and the
         // rows exist only as the automation-trigger substrate.
-        val merged = (humanComments.map { TimelineItem.Comment(it) } +
+        val merged = (threads.topLevel.map { TimelineItem.Comment(it) } +
             state.events.filter { eventRowVisible(it.type) }.map { TimelineItem.Event(it) })
             .sortedWith(compareBy({ it.createdAt }, { it.id }))
         listOfNotNull(state.issue?.let { TimelineItem.Created(it) }) + merged
@@ -186,32 +189,51 @@ fun CommentThread(
                         key(comment.id) {
                             RegularCommentRow(
                                 comment = comment,
+                                replies = threads.repliesByParent[comment.id].orEmpty(),
                                 lineAbove = lineAbove,
                                 lineBelow = lineBelow,
-                                author = state.usersById[comment.authorId],
-                                isAuthor = state.currentUserId != null && comment.authorId == state.currentUserId,
-                                isEditing = editingId == comment.id,
-                                onEdit = {
-                                    viewModel.clearEditAttachments()
-                                    editingId = comment.id
-                                },
-                                onCancelEdit = {
-                                    viewModel.clearEditAttachments()
-                                    editingId = null
-                                },
-                                onSaveEdit = { text, keptIds ->
-                                    scope.launch {
-                                        // Keep the editor open on failure so the
-                                        // typed edit isn't silently discarded.
-                                        if (viewModel.updateComment(comment.id, text, keptIds)) {
+                                usersById = state.usersById,
+                                currentUserId = state.currentUserId,
+                                editingId = editingId,
+                                // One comment's edit/delete callbacks — the same
+                                // for the card and for each reply under it
+                                // (EXP-741), so replies edit like their parent.
+                                actions = { row ->
+                                    CommentCardActions(
+                                        onEdit = {
+                                            viewModel.clearEditAttachments()
+                                            editingId = row.id
+                                        },
+                                        onCancelEdit = {
+                                            viewModel.clearEditAttachments()
                                             editingId = null
-                                        }
-                                    }
+                                        },
+                                        onSaveEdit = { text, keptIds ->
+                                            scope.launch {
+                                                // Keep the editor open on failure so the
+                                                // typed edit isn't silently discarded.
+                                                if (viewModel.updateComment(row.id, text, keptIds)) {
+                                                    editingId = null
+                                                }
+                                            }
+                                        },
+                                        onDelete = {
+                                            scope.launch { viewModel.deleteComment(row.id) }
+                                        },
+                                    )
                                 },
-                                onDelete = {
-                                    scope.launch { viewModel.deleteComment(comment.id) }
+                                onReply = {
+                                    viewModel.setReplyTarget(
+                                        CommentReplyTarget(
+                                            parentId = comment.id,
+                                            authorName = userDisplayName(
+                                                state.usersById[comment.authorId],
+                                                comment.authorId,
+                                            ),
+                                        ),
+                                    )
                                 },
-                                attachments = attachmentsByComment[comment.id].orEmpty(),
+                                attachmentsByComment = attachmentsByComment,
                                 onOpenAttachment = { attachment ->
                                     scope.launch {
                                         // No in-app viewer: hand the bytes to
@@ -221,11 +243,7 @@ fun CommentThread(
                                         openFile(context, local, attachment.contentType)
                                     }
                                 },
-                                editAttachments = if (editingId == comment.id) {
-                                    editAttachments
-                                } else {
-                                    emptyList()
-                                },
+                                editAttachments = editAttachments,
                                 onAddEditAttachment = { uri, keptCount ->
                                     viewModel.addEditAttachment(uri, keptCount)
                                 },
