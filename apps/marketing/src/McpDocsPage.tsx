@@ -45,7 +45,7 @@ const TOOL_GROUPS: {
     heading: `Issues`,
     tools: [
       { name: `exponential_issues_list`, desc: `List and filter issues: boards, statusId / statusCategory, priority, assignee, labels (any, all, or unlabeled), comment activity, created/updated ranges, title search — each with an exclude twin — plus sort (a "-" prefix descends).` },
-      { name: `exponential_issues_get`, desc: `Get one issue with labels and recent comments, by UUID or identifier ("EXP-42").` },
+      { name: `exponential_issues_get`, desc: `Get one issue with labels, relations and recent comments, by UUID or identifier ("EXP-42").` },
       { name: `exponential_issues_create`, desc: `Create an issue. Pass statusId for a custom status.` },
       { name: `exponential_issues_update`, desc: `Update an issue's fields. Pass only what changes.` },
       { name: `exponential_issues_delete`, desc: `Permanently delete an issue and everything attached to it.` },
@@ -54,6 +54,13 @@ const TOOL_GROUPS: {
       { name: `exponential_pr_merge`, desc: `Squash-merge through the GitHub App (no gh, no token): issueId, issueIds, or repositoryId + prNumber. endSessions overrides the team's end-sessions-on-merge setting for this call.` },
       { name: `exponential_pr_retarget`, desc: `Repoint an open PR's base branch, the fix for a stacked PR whose parent already merged.` },
       { name: `exponential_issues_pr_files`, desc: `List the linked PR's changed files with patches and add/delete counts.` },
+    ],
+  },
+  {
+    heading: `Relations`,
+    tools: [
+      { name: `exponential_issue_relations_add`, desc: `Link two issues: blocks, parent, duplicate or related, stored one way (issueId blocks / is the parent of / duplicates relatedIssueId; related is symmetric). Pass inverse for blocked by, sub-issue of or duplicated by.` },
+      { name: `exponential_issue_relations_remove`, desc: `Unlink two issues, named in the direction the link is stored; exponential_issues_get lists them.` },
     ],
   },
   {
@@ -80,8 +87,8 @@ const TOOL_GROUPS: {
   {
     heading: `Comments`,
     tools: [
-      { name: `exponential_comments_list`, desc: `List an issue's comments, oldest first.` },
-      { name: `exponential_comments_create`, desc: `Post a comment as the connected user.` },
+      { name: `exponential_comments_list`, desc: `List an issue's comments, oldest first, each with its parentId when it is a reply.` },
+      { name: `exponential_comments_create`, desc: `Post a comment as the connected user; it shows as "via MCP". Pass parentId to reply under a comment (threads are one level deep).` },
       { name: `exponential_comments_update`, desc: `Edit your own comment.` },
       { name: `exponential_comments_delete`, desc: `Delete a comment.` },
     ],

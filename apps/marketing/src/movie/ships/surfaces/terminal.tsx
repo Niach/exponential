@@ -3,6 +3,11 @@
 // ✳ spinner with live counters / "❯" prompt between hairline rules / bypass-permissions footer).
 // Pixel truth: the desktop-claude-session-dock reference screenshot (local-only, untracked; plus the inline numbered diff
 // lines a tool event can carry). Frames are composition-global via props.
+// EXP-723 (terminal_dock.rs): the dock lives INSIDE the cutout panel on the opaque
+// popover under a card hairline, with its own 28px header row on top (Open in new
+// window · the collapsed-form switch (EXP-742) · Hide terminal, right-aligned) and
+// the tabs strip — rich-tab chips + the `+`, nothing else — pinned along the bottom.
+// The same strip IS the collapsed dock (`DockStrip`).
 
 import React from "react"
 import { interpolate, spring } from "remotion"
@@ -42,6 +47,32 @@ const IcPlus: React.FC<{ size?: number }> = ({ size = 12 }) => (
 const IcChevronDown: React.FC<{ size?: number }> = ({ size = 14 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
     <path d="m6 9 6 6 6-6" />
+  </svg>
+)
+// ui-undock = arrow-up-right, the EXP-742 switch = message-circle,
+// session-shell = terminal, nav-terminal = square-terminal (icons.json).
+const IcArrowUpRight: React.FC<{ size?: number }> = ({ size = 12 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M7 7h10v10" />
+    <path d="M7 17 17 7" />
+  </svg>
+)
+const IcMessageCircle: React.FC<{ size?: number }> = ({ size = 12 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+  </svg>
+)
+const IcTerminal: React.FC<{ size?: number }> = ({ size = 12 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <path d="m4 17 6-6-6-6" />
+    <path d="M12 19h8" />
+  </svg>
+)
+const IcSquareTerminal: React.FC<{ size?: number }> = ({ size = 12 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+    <path d="m7 11 2-2-2-2" />
+    <path d="M11 13h4" />
+    <rect x="3" y="3" width="18" height="18" rx="2" />
   </svg>
 )
 const IcCheck: React.FC = () => (
@@ -198,10 +229,15 @@ const SpinnerBlock: React.FC<{
 }
 
 // ── dock tabs ─────────────────────────────────────────────────────────────────
+// surface::rich_tab — a session chip leads with its status dot and mono
+// identifier; a shell chip leads with the `session-shell` glyph and is named
+// by its cwd.
 export type DockTab = {
   id: string
   label: string
-  dot?: string // leading status dot color (running session); omit for plain tabs like `zsh`
+  dot?: string // leading status dot color (running session); omit for plain tabs
+  identifier?: string // mono issue identifier ahead of the title (a session chip)
+  shell?: boolean // a plain shell tab: the terminal glyph leads instead of a dot
   popAt?: number // global frame the tab POP-springs in; omit = present from frame 0
 }
 
@@ -232,16 +268,29 @@ const TabItem: React.FC<{
         transformOrigin: `center bottom`,
       }}
     >
+      {tab.shell ? (
+        <span style={{ color: active ? C.text : C.muted, display: `flex`, flexShrink: 0 }}>
+          <IcTerminal size={12} />
+        </span>
+      ) : null}
       {tab.dot !== undefined ? (
         <span style={{ width: 5, height: 5, borderRadius: 999, backgroundColor: tab.dot, flexShrink: 0 }} />
+      ) : null}
+      {tab.identifier !== undefined ? (
+        <span style={{ fontFamily: MONO_FONT, fontSize: 11.5, color: C.muted, whiteSpace: `nowrap` }}>
+          {tab.identifier}
+        </span>
       ) : null}
       <span
         style={{
           fontFamily: UI_FONT,
-          fontSize: 12,
+          fontSize: 13,
           fontWeight: active ? 500 : 400,
           color: active ? C.text : C.muted,
           whiteSpace: `nowrap`,
+          maxWidth: 180,
+          overflow: `hidden`,
+          textOverflow: `ellipsis`,
         }}
       >
         {tab.label}
@@ -266,6 +315,71 @@ const TabItem: React.FC<{
       <span style={{ color: C.dim, display: `flex` }}>
         <IcX />
       </span>
+    </div>
+  )
+}
+
+// ── the strip (render_strip, EXP-688/723) ─────────────────────────────────────
+// ONE 29px band pinned to the panel's bottom edge, open or collapsed: the
+// rich-tab chips with the `+` right after them. An EMPTY strip names itself
+// (the terminal glyph + "Terminal"). Card hairline on top, FILL_CARD wash —
+// over the panel when collapsed, over the popover when the dock is open.
+export const DockStrip: React.FC<{
+  frame: number
+  tabs: DockTab[]
+  activeTab?: string
+  exitAt?: number
+  exitBadgeTab?: string
+}> = ({ frame, tabs, activeTab, exitAt, exitBadgeTab }) => {
+  const shown = tabs.filter((t) => t.popAt === undefined || frame >= t.popAt)
+  return (
+    <div
+      style={{
+        position: `absolute`,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: WIN.dockStrip,
+        boxSizing: `border-box`,
+        borderTop: `1px solid ${C.strokeCard}`,
+        backgroundColor: C.fillCard,
+        display: `flex`,
+        alignItems: `center`,
+        gap: 3.5,
+        padding: `0 7px`,
+        fontFamily: UI_FONT,
+      }}
+    >
+      {shown.length === 0 ? (
+        <span style={{ display: `flex`, alignItems: `center`, gap: 5, color: C.muted, flexShrink: 0 }}>
+          <IcSquareTerminal size={12} />
+          <span style={{ fontSize: 11.5 }}>Terminal</span>
+        </span>
+      ) : (
+        tabs.map((t) => (
+          <TabItem
+            key={t.id}
+            frame={frame}
+            tab={t}
+            active={t.id === activeTab}
+            badgeAt={t.id === (exitBadgeTab ?? activeTab) ? exitAt : undefined}
+          />
+        ))
+      )}
+      {/* the `+` rides the slot right AFTER the last tab (JetBrains placement) */}
+      <div
+        style={{
+          width: 20,
+          height: 20,
+          display: `flex`,
+          alignItems: `center`,
+          justifyContent: `center`,
+          color: C.muted,
+          flexShrink: 0,
+        }}
+      >
+        <IcPlus />
+      </div>
     </div>
   )
 }
@@ -313,63 +427,55 @@ export const TerminalDock: React.FC<{
   const tip = spinnerTip === undefined ? DEFAULT_SPINNER_TIP : spinnerTip
   const badgeTab = exitBadgeTab ?? activeTab
 
+  const tool: React.CSSProperties = {
+    width: 20,
+    height: 20,
+    display: `flex`,
+    alignItems: `center`,
+    justifyContent: `center`,
+    color: C.muted,
+    borderRadius: 6,
+  }
+
   return (
     <div
       style={{
         position: `absolute`,
-        left: WIN.rail,
-        right: 0,
-        bottom: 0,
+        left: WIN.panel.x,
+        right: WIN.w - WIN.panel.right,
+        bottom: WIN.h - WIN.panel.bottom,
         height: h,
-        backgroundColor: C.termBg,
-        borderTop: `1px solid ${C.strokeRow}`,
+        backgroundColor: C.popover,
+        borderTop: `1px solid ${C.strokeCard}`,
         overflow: `hidden`,
       }}
     >
-      {/* tab strip (29px, transparent — chips float on the gradient, EXP-277) */}
+      {/* render_dock_header (EXP-723): the window controls, right-aligned —
+          undock the ACTIVE tab, EXP-742's strip ⇄ bubble switch, collapse */}
       <div
         style={{
           position: `absolute`,
           top: 0,
           left: 0,
           right: 0,
-          height: WIN.dockTabs,
+          height: WIN.dockHeader,
+          boxSizing: `border-box`,
           borderBottom: `1px solid ${C.strokeRow}`,
           display: `flex`,
-          alignItems: `stretch`,
-          paddingLeft: 8,
+          alignItems: `center`,
+          justifyContent: `flex-end`,
+          gap: 1.75,
+          padding: `0 7px`,
+          opacity: contentO,
         }}
       >
-        {tabs.map((t) => (
-          <TabItem key={t.id} frame={frame} tab={t} active={t.id === activeTab} badgeAt={t.id === badgeTab ? exitAt : undefined} />
-        ))}
-        <div
-          style={{
-            alignSelf: `center`,
-            width: 22,
-            height: 22,
-            display: `flex`,
-            alignItems: `center`,
-            justifyContent: `center`,
-            color: C.muted,
-            marginLeft: 2,
-          }}
-        >
-          <IcPlus />
+        <div style={tool}>
+          <IcArrowUpRight />
         </div>
-        <div style={{ flex: 1 }} />
-        <div
-          style={{
-            alignSelf: `center`,
-            width: 22,
-            height: 22,
-            display: `flex`,
-            alignItems: `center`,
-            justifyContent: `center`,
-            color: C.muted,
-            marginRight: 6,
-          }}
-        >
+        <div style={tool}>
+          <IcMessageCircle />
+        </div>
+        <div style={tool}>
           <IcChevronDown />
         </div>
       </div>
@@ -378,10 +484,10 @@ export const TerminalDock: React.FC<{
       <div
         style={{
           position: `absolute`,
-          top: WIN.dockTabs,
+          top: WIN.dockHeader,
           left: 0,
           right: 0,
-          bottom: BOTTOM_H,
+          bottom: BOTTOM_H + WIN.dockStrip,
           overflow: `hidden`,
           display: `flex`,
           flexDirection: `column`,
@@ -419,7 +525,7 @@ export const TerminalDock: React.FC<{
       </div>
 
       {/* prompt box between hairline rules + bypass-permissions footer */}
-      <div style={{ position: `absolute`, left: 0, right: 0, bottom: 0, height: BOTTOM_H, opacity: contentO * inputO }}>
+      <div style={{ position: `absolute`, left: 0, right: 0, bottom: WIN.dockStrip, height: BOTTOM_H, opacity: contentO * inputO }}>
         <div
           style={{
             height: INPUT_H,
@@ -470,10 +576,10 @@ export const TerminalDock: React.FC<{
             position: `absolute`,
             left: 0,
             right: 0,
-            bottom: 0,
+            bottom: WIN.dockStrip,
             height: EXIT_H,
             borderTop: `1px solid ${C.strokeRow}`,
-            backgroundColor: C.termBg,
+            backgroundColor: C.popover,
             display: `flex`,
             alignItems: `center`,
             gap: 8,
@@ -485,6 +591,9 @@ export const TerminalDock: React.FC<{
           <span style={{ fontFamily: UI_FONT, fontSize: 12, color: C.muted }}>Process finished with exit code 0</span>
         </div>
       ) : null}
+
+      {/* the tabs strip — pinned to the dock's (= the panel's) bottom edge */}
+      <DockStrip frame={frame} tabs={tabs} activeTab={activeTab} exitAt={exitAt} exitBadgeTab={badgeTab} />
     </div>
   )
 }

@@ -28,12 +28,14 @@ import {
   SidebarPane,
 } from "../../ships/surfaces/board"
 import {
+  CutoutPanel,
   DockCollapsedStrip,
   ExpandedRail,
   TitleBar,
   type ChromeTab,
 } from "../../ships/surfaces/chrome"
 import { IssueDetailPane } from "../../ships/surfaces/detail"
+import type { DockTab } from "../../ships/surfaces/terminal"
 import { PhoneChassis } from "../surfaces/steerphone"
 import { BoardScreen } from "../surfaces/mobileui"
 import {
@@ -103,23 +105,28 @@ const CAMERA_KEYS_PT: CamKey[] = shotKeys([
 ])
 
 // ── Cursors (window-local coords) ───────────────────────────────────────────
-// The list pane starts under the 34px titlebar + the 44px Filter header, so
-// row 0 sits at window y 78 and every row is 28 tall. Contract group order
+// The list pane starts inside the cutout panel (y 40) under the 44px Filter
+// header, so row 0 sits at window y 84 and every row is 28 tall; the pane's
+// left edge is the panel's (x 218). Contract group order
 // (backlog → in progress → done) puts, BEFORE the drag:
-//   h:backlog 78 · EXP-151 106 · EXP-149 134 · EXP-150 162 · EXP-145 190 ·
-//   EXP-146 218 · h:in-progress 246 · EXP-148 274 · h:done 302 · EXP-144 330 ·
-//   EXP-147 358
-// AFTER it, EXP-149 lands at 274 (under EXP-148) and EXP-150 rises to 134;
+//   h:backlog 84 · EXP-151 112 · EXP-149 140 · EXP-150 168 · EXP-145 196 ·
+//   EXP-146 224 · h:in-progress 252 · EXP-148 280 · h:done 308 · EXP-144 336 ·
+//   EXP-147 364
+// AFTER it, EXP-149 lands at 280 (under EXP-148) and EXP-150 rises to 140;
 // everything from h:in-progress down is unmoved. Cursor Ys are row centers
 // (top + 14).
 const LOCAL_KEYS: CursorKey[] = [
   { f: 0, x: 900, y: 420 },
   { f: 52, x: 900, y: 420 },
-  { f: 80, x: 345, y: 148 }, // EXP-150, where the regroup leaves it
-  { f: 150, x: 345, y: 148 },
-  { f: 168, x: 345, y: 148 },
+  { f: 80, x: 399, y: 154 }, // EXP-150, where the regroup leaves it
+  { f: 150, x: 399, y: 154 },
+  { f: 168, x: 399, y: 154 },
   { f: 190, x: 900, y: 500 },
 ]
+// The strip's shell chip: the trunk clone's directory names the tab
+// (terminal_dock.rs names a shell tab by its cwd).
+const SHELL_TAB: DockTab = { id: "shell", label: "acme-shop", shell: true }
+
 
 const TAB_151: ChromeTab = {
   id: "exp151",
@@ -138,7 +145,7 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
   portrait,
 }) => {
   const dockH = WIN.dockStrip
-  const paneH = WIN.h - CONTENT_TOP - dockH
+  const paneH = WIN.panel.h - dockH
   const capSize = captionSize(portrait)
 
   const dragging = frame >= B.dragFrom
@@ -182,40 +189,43 @@ export const BoardLiveSegment: React.FC<SegmentProps> = ({
               userInitial={CL.initials}
             />
 
-            <SidebarPane actions={<BoardActions />} bottomInset={dockH}>
-              <BoardTool
-                frame={frame}
-                rows={CL_BOARD}
-                overrides={overrides}
-                hover={{ id: LIVE_EDIT_ID, from: 84, to: 150 }}
-                selectedId={NEW_ISSUE_ID}
-                regroup={regroup}
-                flashAt={{ id: LIVE_EDIT_ID, at: B.liveEdit }}
-              />
-            </SidebarPane>
+            {/* EXP-723: everything below the band lives in the cutout panel */}
+            <CutoutPanel>
+              <SidebarPane actions={<BoardActions />} bottomInset={dockH}>
+                <BoardTool
+                  frame={frame}
+                  rows={CL_BOARD}
+                  overrides={overrides}
+                  hover={{ id: LIVE_EDIT_ID, from: 84, to: 150 }}
+                  selectedId={NEW_ISSUE_ID}
+                  regroup={regroup}
+                  flashAt={{ id: LIVE_EDIT_ID, at: B.liveEdit }}
+                />
+              </SidebarPane>
 
-            {/* center: EXP-151 open in Backlog — the state feedback wraps into */}
-            <div
-              style={{
-                position: "absolute",
-                left: CENTER_X,
-                top: CONTENT_TOP,
-                width: CENTER_W,
-                height: paneH,
-                overflow: "hidden",
-              }}
-            >
-              <IssueDetailPane
-                frame={frame}
-                status="backlog"
-                priority="none"
-                issue={CL_ISSUE}
-                width={CENTER_W}
-                height={paneH}
-              />
-            </div>
+              {/* center: EXP-151 open in Backlog — the state feedback wraps into */}
+              <div
+                style={{
+                  position: "absolute",
+                  left: CENTER_X,
+                  top: CONTENT_TOP,
+                  width: CENTER_W,
+                  height: paneH,
+                  overflow: "hidden",
+                }}
+              >
+                <IssueDetailPane
+                  frame={frame}
+                  status="backlog"
+                  priority="none"
+                  issue={CL_ISSUE}
+                  width={CENTER_W}
+                  height={paneH}
+                />
+              </div>
 
-            <DockCollapsedStrip frame={frame} count={1} />
+              <DockCollapsedStrip frame={frame} tabs={[SHELL_TAB]} activeTab="shell" />
+            </CutoutPanel>
 
             {/* to reaches into the cross-fade overrun (EXP-482) so the
                 cursor doesn't pop off while the clip is still opaque */}

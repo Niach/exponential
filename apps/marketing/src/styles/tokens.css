@@ -1,7 +1,7 @@
 /* ─── Exponential marketing — design tokens (dark-only zinc) ─── */
 :root {
   /* Surfaces */
-  --bg: #09090b;
+  --bg: #050507;
   --bg-elev: #171717;
   --bg-soft: #262626;
 
@@ -37,18 +37,21 @@
 
   /* ─── Glass ladder (EXP-337) — values mirror apps/web styles.css
      (EXP-269 block) / the desktop IDE theme: pure white alphas over ONE
-     top→bottom zinc gradient; 1px strokes, never fractional. ─── */
-  --glass-bg-top: #09090b;
-  --glass-bg-bottom: #18181b;
+     top→bottom zinc gradient; 1px strokes, never fractional. EXP-723
+     darkened the ground two notches, added the cutout panel's `fillPanel`
+     wash and dropped the active fill/stroke to 9%/14%. ─── */
+  --glass-bg-top: #050507;
+  --glass-bg-bottom: #111114;
   --glass-fill-section: oklch(1 0 0 / 4%);
   --glass-fill-row: oklch(1 0 0 / 5%);
   --glass-fill-card: oklch(1 0 0 / 6%);
-  --glass-fill-active: oklch(1 0 0 / 15%);
+  --glass-fill-panel: oklch(1 0 0 / 4%);
+  --glass-fill-active: oklch(1 0 0 / 9%);
   --glass-stroke-row: oklch(1 0 0 / 6%);
   --glass-stroke-section: oklch(1 0 0 / 8%);
   --glass-stroke-card: oklch(1 0 0 / 10%);
   --glass-stroke-strong: oklch(1 0 0 / 12%);
-  --glass-stroke-active: oklch(1 0 0 / 20%);
+  --glass-stroke-active: oklch(1 0 0 / 14%);
   --glass-panel-bg: color-mix(in oklab, #171717 95%, transparent);
   --glass-blur: 16px; /* floating panels */
   --glass-blur-sm: 12px; /* smaller chrome (topbar) */

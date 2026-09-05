@@ -25,11 +25,12 @@ export const PAGE_FONT = `"Geist", "${UI_FONT}", ui-sans-serif, system-ui, sans-
 // surface above it is a white-alpha fill with a hairline white-alpha stroke.
 export const C = {
   canvas: "#09090b", // video canvas only (behind the window)
-  // Page gradient — the desktop ramp: BACKGROUND_TOP #09090b mixed
-  // GRADIENT_TOP_MIX (0.6) toward BACKGROUND_BOTTOM #18181b, so the titlebar
-  // band doesn't step hard against the content (EXP-277).
-  bgTop: "#121215",
-  bgBottom: "#18181b",
+  // Page gradient — the desktop ramp: BACKGROUND_TOP #050507 mixed
+  // GRADIENT_TOP_MIX (0.6) toward BACKGROUND_BOTTOM #111114 (EXP-723 darkened
+  // both stops two notches), so the titlebar band doesn't step hard against
+  // the content (EXP-277).
+  bgTop: "#0c0c0f",
+  bgBottom: "#111114",
   text: "#fafafa",
   muted: "#a1a1a1",
   dim: "#737373",
@@ -37,13 +38,18 @@ export const C = {
   fillSection: "rgba(255,255,255,0.04)",
   fillRow: "rgba(255,255,255,0.05)",
   fillCard: "rgba(255,255,255,0.06)",
-  fillActive: "rgba(255,255,255,0.15)",
+  // EXP-723: the cutout panel's wash and the quieter active fill.
+  fillPanel: "rgba(255,255,255,0.04)",
+  fillActive: "rgba(255,255,255,0.09)",
   // Glass stroke ladder (1px hairlines, never fractional)
   strokeRow: "rgba(255,255,255,0.06)",
   strokeSection: "rgba(255,255,255,0.08)",
   strokeCard: "rgba(255,255,255,0.10)",
   strokeStrong: "rgba(255,255,255,0.12)",
-  strokeActive: "rgba(255,255,255,0.20)",
+  strokeActive: "rgba(255,255,255,0.14)",
+  // cx.theme().popover — the OPAQUE floor the terminal dock and its strip sit
+  // on (terminal_dock.rs, EXP-723).
+  popover: "#252525",
   // Floating panels (popovers / dialogs): 95% #171717 over 16px blur, glass
   // shadow with the inset top highlight (web --glass-panel-bg / --glass-shadow).
   panelFloat: "rgba(23,23,23,0.95)",
@@ -85,7 +91,7 @@ export const C = {
   synType: "#5eead4",
   // terminal (real claude CLI grammar); the dock blends with the gradient's
   // bottom stop (theme/src/terminal.rs — EXP-277)
-  termBg: "#18181b",
+  termBg: "#111114",
   termToolDot: "#22c55e", // ● before tool names
   termProseDot: "#fafafa", // ● before Claude prose
   termSpinner: "#eab308", // ✳ Vibing…
@@ -116,24 +122,46 @@ export const R = {
   sheet: 24,
 } as const
 
-// Desktop window metrics (window-local px) — the POST-EXP-253/282 shell:
-// no top bar (tabs are glass chips in the 34px titlebar row), ONE expanded
-// labelled rail (164), the issue-list tool window at 520. The detail pane has
-// no properties sidebar since EXP-471 — its properties are the pill bar under
-// the title (shots/issue-detail/desktop.webp).
+// Desktop window metrics (window-local px) — the POST-EXP-253/282/723 shell:
+// no top bar (tabs are glass chips in the 34px decoration band), ONE
+// always-open labelled rail (208, sidebar.rs RAIL_W) sitting bare on the
+// ground, and the working surface as EXP-723's CUTOUT PANEL: a rounded card
+// inset 6px under the band and 10px on the other three sides (shell.rs
+// PANEL_MARGIN / PANEL_MARGIN_TOP) holding the issue-list tool window (520),
+// the center and the terminal dock. The detail pane has no properties
+// sidebar since EXP-471 — its properties are the pill bar under the title
+// (shots/issue-detail/desktop.webp).
+const WIN_W = 1568
+const WIN_H = 980
+const TITLE_BAR = 34
+const RAIL_W = 208
+const PANEL_MARGIN = 10
+const PANEL_MARGIN_TOP = 6
 export const WIN = {
-  w: 1568,
-  h: 980,
+  w: WIN_W,
+  h: WIN_H,
   x: 176, // comp position
   y: 50,
   radius: 10,
-  titleBar: 34,
-  rail: 164, // expanded labelled rail (sidebar.rs RAIL_EXPANDED_W)
+  titleBar: TITLE_BAR,
+  rail: RAIL_W,
   sidebar: 520, // issue-list tool window (sidebar.rs DEFAULT_DOCK_WIDTH)
   row: 28, // board row height
-  dockExpanded: 240,
-  dockStrip: 29,
-  dockTabs: 29,
+  dockExpanded: 240, // TERMINAL_DOCK_HEIGHT
+  dockHeader: 28, // DOCK_HEADER_H — the open dock's own window-controls row
+  dockStrip: 29, // DOCK_STRIP_H — the tabs strip, open or collapsed
+  // The cutout panel rect, window-local. `right`/`bottom` are the panel's
+  // far edges, so a surface pinned inside it uses `WIN.w - WIN.panel.right`
+  // as its CSS `right` inset.
+  panel: {
+    x: RAIL_W + PANEL_MARGIN,
+    y: TITLE_BAR + PANEL_MARGIN_TOP,
+    w: WIN_W - RAIL_W - 2 * PANEL_MARGIN,
+    h: WIN_H - TITLE_BAR - PANEL_MARGIN_TOP - PANEL_MARGIN,
+    right: WIN_W - PANEL_MARGIN,
+    bottom: WIN_H - PANEL_MARGIN,
+    radius: 12, // radius::LG
+  },
 } as const
 
 export const EASE = Easing.bezier(0.16, 1, 0.3, 1)

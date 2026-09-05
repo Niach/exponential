@@ -79,7 +79,7 @@ export const PhoneChassis: React.FC<{
         backgroundColor: glass ? C.canvas : undefined,
         background: glass
           ? undefined
-          : `linear-gradient(to bottom, #09090b, #18181b)`,
+          : `linear-gradient(to bottom, #050507, #111114)`,
       }}
     >
       {glass ? (
@@ -95,7 +95,7 @@ export const PhoneChassis: React.FC<{
             style={{
               position: "absolute",
               inset: 0,
-              background: `linear-gradient(to bottom, rgba(18,18,21,${GLASS.phoneAlpha}), rgba(24,24,27,${GLASS.phoneAlpha}))`,
+              background: `linear-gradient(to bottom, rgba(5,5,7,${GLASS.phoneAlpha}), rgba(17,17,20,${GLASS.phoneAlpha}))`,
             }}
           />
         </>

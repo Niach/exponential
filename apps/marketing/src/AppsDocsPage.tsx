@@ -75,6 +75,18 @@ export function AppsDocsPage() {
               swaps in place; hit <strong>Restart to update</strong> when
               it&apos;s ready. No package manager, no manual downloads.
             </p>
+            <h3>The layout</h3>
+            <p>
+              The sidebar is always open and mirrors the web app: the team
+              switcher, <strong>Search</strong> and <strong>New issue</strong>
+              {` `}at the top, then Inbox, Support, Devices, Actions,
+              Automations and Reviews, the boards, <strong>Files</strong> and
+              {` `}<strong>Source Control</strong>, and at the bottom the{` `}
+              <strong>What&apos;s new</strong> card, <strong>Getting started</strong>
+              {` `}and your account, whose menu holds What&apos;s new, About
+              and Sign out. The working area is a rounded card on a darker
+              ground, the same cutout layout the web app uses.
+            </p>
             <h3>System notifications</h3>
             <p>
               The desktop app raises real macOS, Windows and XDG
@@ -183,8 +195,8 @@ export function AppsDocsPage() {
               on the phone as on the desktop. The session&apos;s{` `}
               <strong>…</strong> menu holds <strong>Usage</strong> (how much
               of the agent&apos;s limits this run and this week have spent)
-              and <strong>Kill session</strong>, and a PR that is open puts a
-              {` `}
+              and <strong>Kill session</strong>, and an open PR the run
+              opened, on an issue or from an action or chat, puts a{` `}
               <strong>Merge</strong> pill next to{` `}
               <strong>Latest changes</strong> — replaced by{` `}
               <strong>Fix conflicts</strong> if the merge hits conflicts.

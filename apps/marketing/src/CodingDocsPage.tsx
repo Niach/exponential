@@ -347,7 +347,8 @@ export function CodingDocsPage() {
               <li>
                 Answers to the agent&apos;s questions, its permission prompts
                 and its plan card — all answerable remotely, not just at the
-                desk.
+                desk. The plan always shows in full; question cards and your
+                own messages fold behind <strong>Show more</strong>.
               </li>
             </ul>
             <p>
@@ -397,6 +398,16 @@ export function CodingDocsPage() {
                 <strong>Merge</strong> in place and hands the PR to the{` `}
                 <a href="/docs/actions/#builtins">Fix merge conflicts</a>{` `}
                 builtin.
+              </li>
+              <li>
+                Pull requests opened by an{` `}
+                <a href="/docs/actions/">action</a> or chat run, with no issue
+                attached, get their own <strong>Agent runs</strong> group in
+                Reviews, with the action name, branch and PR number, and count
+                toward the Reviews badge. The run itself shows{` `}
+                <strong>Merge</strong> too: in the desktop{` `}
+                <strong>Latest changes</strong> bar, on the web and mobile
+                Devices rows and in every steering view.
               </li>
             </ul>
             <p>
@@ -463,7 +474,13 @@ export function CodingDocsPage() {
               The terminal dock is ordinary too. Its <strong>+</strong>{` `}
               opens a plain <strong>New shell</strong>, or one of the agents
               as a steerable <a href="/docs/actions/#builtins">chat</a>{` `}
-              session with its own worktree.
+              session with its own worktree. The open dock carries a header
+              row with <strong>Open in new window</strong>, the collapsed-form
+              switch and <strong>Hide terminal</strong>; its tabs and the{` `}
+              <strong>+</strong> sit in the strip along the bottom. Collapse it
+              to that strip or, with <strong>Collapse to a bubble</strong>, to
+              a floating card in the corner that shows a status dot, the
+              session count and the tab chips. The pick sticks per device.
             </p>
           </DocsSection>
         </DocsLayout>

@@ -21,6 +21,7 @@ export const CL = {
   reporter: "Jamie Lee",
   reporterEmail: "jamie@lee.dev",
   project: "Acme Shop",
+  team: "Acme", // the rail header names the ACTIVE team (EXP-723)
   projectColor: "#a1a1aa",
   repo: "acme/shop",
   branch: "exp/EXP-151",
@@ -177,8 +178,8 @@ export const CL_ISSUE = {
   ],
   switcher: "4 / 8",
   activity: [
-    { actor: "Feedback widget", text: "created this issue" },
-    { actor: CL.reporter, text: "subscribed as reporter" },
+    { actor: "Feedback widget", text: "created this issue", time: "1 hr ago" },
+    { actor: CL.reporter, text: "subscribed as reporter", time: "1 hr ago" },
   ],
   comments: [
     {

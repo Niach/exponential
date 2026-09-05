@@ -1,8 +1,11 @@
-/* ─── The issue-detail screen (EXP-417/568/601): a FIXED header — switcher
-   row · 2xl title · one glass property tray with Start coding on its right
-   edge · the coding-now pill — over a scrolling body of description,
-   attachments rail and the Activity timeline with its reply composer.
-   There is no Details/Changes segment and no right-hand properties rail. ─── */
+/* ─── The issue-detail screen (EXP-417/568/601/723/736/741): a FIXED header
+   — switcher row (copy-link · delete right; the Subscribe toggle retired
+   with EXP-723) · 2xl title · one glass property tray with Start coding on
+   its right edge · the coding-now pill — over a scrolling body that opens
+   with the Relations card, then the description, attachments rail and the
+   Activity timeline: muted event lines with their time, comment CARDS on
+   the timeline rail that each end in a "Leave a reply…" row, and the
+   composer. There is no Details/Changes segment and no properties rail. ─── */
 import { useState, type KeyboardEvent } from "react"
 import {
   getIssue,
@@ -19,8 +22,6 @@ import { useIde } from "./state"
 import { ACTIVE_BOARD } from "./Rail"
 import { Avatar, LabelChip, PriorityIcon, StatusIcon } from "./bits"
 import {
-  IcBell,
-  IcBellOff,
   IcCalDays,
   IcChevDown,
   IcChevUp,
@@ -29,9 +30,11 @@ import {
   IcGitMerge,
   IcImage,
   IcLink,
+  IcLink2,
   IcMonitor,
   IcPaperclip,
   IcPlay,
+  IcPlus,
   IcSmile,
   IcTag,
   IcTrash,
@@ -72,31 +75,109 @@ function Description({ issueId }: { issueId: string }) {
   )
 }
 
-function ActivityRow({ item }: { item: ActivityItem }) {
-  if (item.kind === `event`) {
-    return (
-      <div className="ide-event">
-        <span className="ide-event-dot" />
-        <span className="ide-event-text">{item.text}</span>
-        <span className="ide-event-time">{`· ${item.time}`}</span>
+/* timeline::timeline_row — every feed row rides the 28px gutter; the
+   marker's box (--mk-top/--mk-size) tells the rail where to break. */
+function TimelineRow({
+  marker,
+  markerTop,
+  markerSize,
+  pad,
+  first,
+  last,
+  children,
+}: {
+  marker: React.ReactNode
+  markerTop: number
+  markerSize: number
+  pad?: number
+  first?: boolean
+  last?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      className={`ide-tl${first ? ` is-first` : ``}${last ? ` is-last` : ``}`}
+      style={
+        {
+          "--mk-top": `${markerTop}px`,
+          "--mk-size": `${markerSize}px`,
+          ...(pad !== undefined ? { "--tl-pad": `${pad}px` } : {}),
+        } as React.CSSProperties
+      }
+    >
+      <div className="ide-tl-gutter">
+        <div className="ide-tl-marker">{marker}</div>
       </div>
+      <div className="ide-tl-body">{children}</div>
+    </div>
+  )
+}
+
+/* Events are "<actor> <phrase>" in the fixture; the actor leads in the
+   foreground, the phrase and the time stay muted (timeline.rs event_row). */
+const EVENT_ACTOR = /^(.+?) (changed|added|removed|assigned|opened|merged|moved|created) (.*)$/
+
+function ActivityRow({
+  item,
+  first,
+  last,
+}: {
+  item: ActivityItem
+  first?: boolean
+  last?: boolean
+}) {
+  if (item.kind === `event`) {
+    const m = EVENT_ACTOR.exec(item.text)
+    return (
+      <TimelineRow
+        marker={<span className="ide-event-dot" />}
+        markerTop={7}
+        markerSize={6}
+        first={first}
+        last={last}
+      >
+        <div className="ide-event">
+          {m ? (
+            <>
+              <span className="ide-event-actor">{m[1]}</span>
+              <span className="ide-event-text">{`${m[2]} ${m[3]} · ${item.time}`}</span>
+            </>
+          ) : (
+            <span className="ide-event-text">{`${item.text} · ${item.time}`}</span>
+          )}
+        </div>
+      </TimelineRow>
     )
   }
   return (
-    <div className="ide-comment">
-      <Avatar person={{ initials: item.initials, name: item.author }} size={18} />
-      <div className="ide-comment-main">
-        <div className="ide-comment-head">
-          <span className="ide-comment-author">{item.author}</span>
-          <span className="ide-comment-time">{item.time}</span>
-          <div className="ide-flex1" />
-          <span className="ide-comment-menu">
-            <IcEllipsis size={11} />
-          </span>
+    <TimelineRow
+      marker={<Avatar person={{ initials: item.initials, name: item.author }} size={24} />}
+      markerTop={4}
+      markerSize={24}
+      pad={0}
+      first={first}
+      last={last}
+    >
+      <div className="ide-comment">
+        <div className="ide-comment-main">
+          <div className="ide-comment-head">
+            <span className="ide-comment-author">{item.author}</span>
+            <span className="ide-comment-time">{item.time}</span>
+            <div className="ide-flex1" />
+            <span className="ide-comment-menu">
+              <IcEllipsis size={11} />
+            </span>
+          </div>
+          <div className="ide-comment-body">{item.body}</div>
+          {/* EXP-741: the card is the thread — the reply row closes it. */}
+          <div className="ide-comment-replies">
+            <button className="ide-reply-row" type="button">
+              Leave a reply…
+            </button>
+          </div>
         </div>
-        <div className="ide-comment-body">{item.body}</div>
       </div>
-    </div>
+    </TimelineRow>
   )
 }
 
@@ -199,7 +280,6 @@ function PropertyTray({ issue }: { issue: Issue }) {
 export function IssueDetail({ issueId }: { issueId: string }) {
   const { interactive, coding, codingTarget } = useIde()
   const issue = getIssue(issueId)
-  const [subscribed, setSubscribed] = useState(true)
   const [armed, setArmed] = useState(false)
   const [draft, setDraft] = useState(``)
   const [extraComments, setExtraComments] = useState<ActivityItem[]>([])
@@ -246,14 +326,6 @@ export function IssueDetail({ issueId }: { issueId: string }) {
             <span className="ide-icbtn">
               <IcLink size={11} />
             </span>
-            <button
-              className={`ide-icbtn${interactive ? ` is-click` : ``}`}
-              type="button"
-              title={subscribed ? `Unsubscribe` : `Subscribe`}
-              onClick={interactive ? () => setSubscribed((s) => !s) : undefined}
-            >
-              {subscribed ? <IcBell size={11} /> : <IcBellOff size={11} />}
-            </button>
             <span className="ide-icbtn">
               <IcTrash size={11} />
             </span>
@@ -293,6 +365,18 @@ export function IssueDetail({ issueId }: { issueId: string }) {
         </div>
       </div>
       <div className="ide-issue-body">
+        {/* issue_relations::render_relations_card (EXP-736) opens the body:
+            the header + "Add relation" chip stand alone above an empty list. */}
+        <div className="ide-col ide-relations">
+          <div className="ide-relcard">
+            <IcLink2 size={10.5} />
+            <span className="ide-relcard-label">Relations</span>
+            <span className="ide-tchip">
+              <IcPlus size={10.5} />
+              Add relation
+            </span>
+          </div>
+        </div>
         <div className="ide-col">
           <Description issueId={issue.id} />
           <div className="ide-attachrail">
@@ -311,7 +395,12 @@ export function IssueDetail({ issueId }: { issueId: string }) {
           <div className="ide-col">
             <div className="ide-activity-head">{`Activity (${activity.length})`}</div>
             {activity.map((item, i) => (
-              <ActivityRow key={i} item={item} />
+              <ActivityRow
+                key={i}
+                item={item}
+                first={i === 0}
+                last={i === activity.length - 1}
+              />
             ))}
             <div className="ide-composer">
               <input

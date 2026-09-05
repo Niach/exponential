@@ -1,7 +1,9 @@
-// surfaces/chrome.tsx — the desktop shell chrome, post-EXP-253/282 glass shell:
-// TitleBar (34px macOS titlebar row hosting the center tab chips), ExpandedRail
-// (the ONE labelled 164px rail — nav rows, boards inline, pinned user row),
-// DockCollapsedStrip, CenterEmptyState.
+// surfaces/chrome.tsx — the desktop shell chrome, post-EXP-253/282/723 glass
+// shell: TitleBar (the 34px decoration band hosting the center tab chips —
+// bare ground, nothing else), ExpandedRail (the ONE always-open 208px rail —
+// web-style header, nav rows, boards inline, the What's new card, pinned
+// account row), CutoutPanel (EXP-723's rounded working surface every
+// content-column surface renders INTO), DockCollapsedStrip, CenterEmptyState.
 // Pixel truth: the EXP-359 real-app reference screenshot + the desktop crates —
 // crates/ui/src/surface.rs (tab_chip: h24, radius 10, FILL_ACTIVE when active),
 // crates/ui/src/sidebar.rs (rail rows: FILL_ACTIVE pill, hover FILL_ROW, no
@@ -13,9 +15,10 @@
 // WindowChassis. All frame values are COMPOSITION-GLOBAL.
 
 import React from "react"
-import { interpolate, interpolateColors, spring } from "remotion"
+import { interpolate, spring } from "remotion"
 import { C, EASE, MONO_FONT, POP, R, UI_FONT, WIN } from "../theme"
 import { IDENTITY } from "../fixtures"
+import { DockStrip, type DockTab } from "./terminal"
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const
 
@@ -51,12 +54,6 @@ const MegaphoneIcon: React.FC<{ size?: number }> = ({ size = 15 }) => (
   <Svg size={size} sw={2}>
     <path d="m3 11 18-5v12L3 14v-3z" />
     <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
-  </Svg>
-)
-
-const ChevronUpIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
-  <Svg size={size} sw={2}>
-    <path d="m18 15-6-6-6 6" />
   </Svg>
 )
 
@@ -148,11 +145,18 @@ const SquareKanbanIcon: React.FC<{ size?: number }> = ({ size = 15 }) => (
   </Svg>
 )
 
-const PanelLeftCloseIcon: React.FC<{ size?: number }> = ({ size = 15 }) => (
-  <Svg size={size} sw={1.8}>
-    <rect x="3" y="3" width="18" height="18" rx="2" />
-    <path d="M9 3v18" />
-    <path d="m16 15-3-3 3-3" />
+// nav-team-switcher = chevrons-up-down, nav-create-issue = square-pen
+// (icons.json) — the EXP-723 rail header.
+const ChevronsUpDownIcon: React.FC<{ size?: number }> = ({ size = 11 }) => (
+  <Svg size={size} sw={2}>
+    <path d="m7 15 5 5 5-5" />
+    <path d="m7 9 5-5 5 5" />
+  </Svg>
+)
+const SquarePenIcon: React.FC<{ size?: number }> = ({ size = 15 }) => (
+  <Svg size={size} sw={2}>
+    <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+    <path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" />
   </Svg>
 )
 
@@ -182,14 +186,6 @@ const SettingsIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
   <Svg size={size} sw={1.6}>
     <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
     <circle cx="12" cy="12" r="3" />
-  </Svg>
-)
-
-const SquareTerminalIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
-  <Svg size={size} sw={1.7}>
-    <path d="m7 11 2-2-2-2" />
-    <path d="M11 13h4" />
-    <rect x="3" y="3" width="18" height="18" rx="2" />
   </Svg>
 )
 
@@ -246,11 +242,13 @@ const TabStatusGlyph: React.FC<{ status: TabStatus; size?: number }> = ({
   }
 }
 
-// ── TitleBar (34px, transparent over the gradient, STROKE_ROW hairline) ───────
+// ── TitleBar (34px decoration band — bare ground, EXP-723) ───────────────────
 // Left: macOS traffic lights over the rail region. Right of the rail edge: the
 // center tab strip — glass chips (surface.rs tab_chip: h24, radius 10, active =
 // FILL_ACTIVE + white text, inactive transparent + muted). Nothing else lives
-// up here: the product has no presence facepile (there is no presence shape).
+// up here: New Issue moved into the rail header (EXP-723), the rail has no
+// collapse toggle any more, and the band carries no fill and no hairline —
+// that is what makes the panel under it read as a cutout.
 
 export type ChromeTab = {
   id: string
@@ -270,7 +268,7 @@ export const chromeTabWidth = (t: ChromeTab): number => {
   return Math.min(280, Math.max(72, w))
 }
 
-const TAB_STRIP_LEFT = WIN.rail + 6
+const TAB_STRIP_LEFT = WIN.rail + 12
 const TAB_GAP = 4
 const TAB_H = 22
 const TAB_Y = (WIN.titleBar - TAB_H) / 2
@@ -294,7 +292,6 @@ export type TitleBarProps = {
   tabs?: ChromeTab[]
   activeId?: string
   popAt?: Record<string, number> // tab id → global frame it POP-springs in (hidden before)
-  newIssue?: boolean // the primary "+ New Issue" pill (right edge); default on
 }
 
 export const TitleBar: React.FC<TitleBarProps> = ({
@@ -302,7 +299,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   tabs = [],
   activeId,
   popAt,
-  newIssue = true,
 }) => (
   <div
     style={{
@@ -312,7 +308,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       right: 0,
       height: WIN.titleBar,
       boxSizing: "border-box",
-      borderBottom: `1px solid ${C.strokeRow}`,
       display: "flex",
       alignItems: "center",
       fontFamily: UI_FONT,
@@ -338,23 +333,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         }}
       />
     ))}
-    {/* rail collapse toggle — pinned at the rail's trailing edge
-        (icons.json nav-rail-collapse = panel-left-close) */}
-    <div
-      style={{
-        position: "absolute",
-        left: WIN.rail - 25,
-        top: WIN.titleBar / 2 - 8,
-        width: 16,
-        height: 16,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: C.muted,
-      }}
-    >
-      <PanelLeftCloseIcon size={15} />
-    </div>
     {/* tab chips */}
     <div
       style={{
@@ -412,7 +390,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
               style={{
                 flex: 1,
                 minWidth: 0,
-                fontSize: 12,
+                fontSize: 13,
                 fontFamily: t.mono ? MONO_FONT : UI_FONT,
                 fontWeight: isActive ? 500 : 400,
                 color: isActive ? C.text : C.muted,
@@ -436,46 +414,63 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         )
       })}
     </div>
-    {/* the primary "+ New Issue" pill, pinned to the titlebar's right edge */}
-    {newIssue ? (
-      <div
-        style={{
-          position: "absolute",
-          right: 14,
-          top: (WIN.titleBar - 21) / 2,
-          height: 21,
-          boxSizing: "border-box",
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-          padding: "0 11px",
-          borderRadius: 999,
-          backgroundColor: "#ededed",
-          color: "#18181b",
-          fontSize: 11.5,
-          fontWeight: 600,
-          whiteSpace: "nowrap",
-        }}
-      >
-        <PlusIcon size={11} />
-        New Issue
-      </div>
-    ) : null}
   </div>
 )
 
-// ── ExpandedRail (164px labelled rail — sidebar.rs RAIL_EXPANDED_W) ───────────
-// The shipping order (shots/board/desktop.webp + sidebar.rs, EXP-699 — the
-// mobile tab-bar order): Search · hairline · Inbox / Support / Devices /
-// Actions / Automations / Reviews · hairline · a "Boards" group label with a
-// trailing plus and the team's boards (each with its own colored pickable
-// glyph; the open board carries the FILL_ACTIVE pill) · hairline · Files /
-// Source Control · and pinned at the bottom Getting started + the user row.
-// The rail column carries the FILL_SECTION wash (sidebar.rs:1155); the
-// glassier 0.72 page alpha under it is painted by WindowChassis.
+// ── CutoutPanel (EXP-723, shell.rs) ──────────────────────────────────────────
+// The working surface: a rounded card inset 6px under the band and 10px on
+// the other sides, radius::LG, the card hairline, the translucent FILL_PANEL
+// wash, overflow hidden so the dock strip takes the two bottom corners. Every
+// content-column surface (issue list, center, dock, strip) keeps its
+// window-local coordinates and renders INTO it — the inner box is the whole
+// window, offset back, so the panel simply clips.
+export const CutoutPanel: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => (
+  <div
+    style={{
+      position: "absolute",
+      left: WIN.panel.x,
+      top: WIN.panel.y,
+      width: WIN.panel.w,
+      height: WIN.panel.h,
+      boxSizing: "border-box",
+      borderRadius: WIN.panel.radius,
+      border: `1px solid ${C.strokeCard}`,
+      backgroundColor: C.fillPanel,
+      overflow: "hidden",
+      zIndex: 5,
+    }}
+  >
+    <div
+      style={{
+        position: "absolute",
+        left: -(WIN.panel.x + 1),
+        top: -(WIN.panel.y + 1),
+        width: WIN.w,
+        height: WIN.h,
+      }}
+    >
+      {children}
+    </div>
+  </div>
+)
+
+// ── ExpandedRail (208px labelled rail — sidebar.rs RAIL_W, EXP-723) ──────────
+// The shipping order (shots/board/desktop.webp + sidebar.rs): the 34px
+// titlebar strip (traffic lights only) · the web-style header (team switcher
+// · ghost Search · PRIMARY New issue, 40px) · hairline · Inbox / Support /
+// Devices / Actions / Automations / Reviews · hairline · a "Boards" group
+// label with a trailing plus and the team's boards (each with its own colored
+// pickable glyph; the open board carries the FILL_ACTIVE pill) · hairline ·
+// Files / Source Control · and pinned at the bottom the "What's new" card
+// (render_whats_new_card — shows until the head changelog entry is seen), the
+// muted Getting started row and the account row + settings gear. The column
+// is px_2 / pb_2 / gap_1 at the 14px rem (7 / 7 / 3.5); rows are h28 px_1p5
+// gap_2 text_sm. The rail column carries the FILL_SECTION wash; the glassier
+// 0.72 page alpha under it is painted by WindowChassis.
 
 export type RailRowId =
-  | "search"
   | "inbox"
   | "support"
   | "devices"
@@ -491,31 +486,44 @@ export type RailRowId =
   | "user"
 
 const ROW_H = 28
-const ROW_X = 7
+const ROW_X = 7 // px_2
 const ROW_W = WIN.rail - 14
+const GAP = 3.5 // gap_1
+const HEADER_Y = WIN.titleBar + GAP // 37.5
+const HEADER_H = 40
+const ACCOUNT_H = 36
+const WHATS_NEW_H = 62
 
-// Window-local row top Ys, transcribed off the reference shot (1440×900 @1.25)
-// and re-pitched for the six EXP-699 nav rows: nav pitch 31, hairlines at
-// 71/266/395, boards from 301, the two bottom rows pinned 60/24 up from the
-// window's bottom edge.
+// Window-local row top Ys, derived from the column's own stack (strip · gap ·
+// header · gap · divider (my_1) · gap · rows at pitch 31.5 · …) and checked
+// against shots/board/desktop.webp (Inbox centre 106.5, Boards label 305,
+// Files centre 440.5). The bottom rows are pinned up from the window's edge.
+const NAV_TOP = HEADER_Y + HEADER_H + GAP + 1 + 2 * GAP + GAP // 92.5
+const PITCH = ROW_H + GAP
+const BOARDS_LABEL_Y = NAV_TOP + 6 * PITCH + 1 + 2 * GAP + GAP // 293
+const BOARDS_TOP = BOARDS_LABEL_Y + 24 + GAP // 320.5
+const FILES_TOP = BOARDS_TOP + 3 * PITCH + 1 + 2 * GAP + GAP // 426.5
 const RAIL_ROW_Y: Record<RailRowId, number> = {
-  search: 37,
-  inbox: 78,
-  support: 109,
-  devices: 140,
-  actions: 171,
-  automations: 202,
-  reviews: 233,
-  board: 301,
-  board1: 332,
-  board2: 363,
-  files: 404,
-  "source-control": 435,
-  "getting-started": WIN.h - 74,
-  user: WIN.h - 38,
+  inbox: NAV_TOP,
+  support: NAV_TOP + PITCH,
+  devices: NAV_TOP + 2 * PITCH,
+  actions: NAV_TOP + 3 * PITCH,
+  automations: NAV_TOP + 4 * PITCH,
+  reviews: NAV_TOP + 5 * PITCH,
+  board: BOARDS_TOP,
+  board1: BOARDS_TOP + PITCH,
+  board2: BOARDS_TOP + 2 * PITCH,
+  files: FILES_TOP,
+  "source-control": FILES_TOP + PITCH,
+  "getting-started": WIN.h - 7 - ACCOUNT_H - GAP - ROW_H,
+  user: WIN.h - 7 - ACCOUNT_H,
 }
-const RAIL_DIVIDERS = [71, 266, 395] // hairline Ys between the sections
-const BOARDS_LABEL_Y = 276 // the "Boards" group label row (h 20)
+const RAIL_DIVIDERS = [
+  HEADER_Y + HEADER_H + 2 * GAP, // 84.5
+  NAV_TOP + 6 * PITCH + GAP, // 285
+  BOARDS_TOP + 3 * PITCH + GAP, // 418.5
+]
+const WHATS_NEW_Y = RAIL_ROW_Y["getting-started"] - GAP - WHATS_NEW_H
 
 // Cursor-targeting helper: window-local center of a rail row.
 export const railRowCenter = (id: string): { x: number; y: number } => ({
@@ -526,7 +534,6 @@ export const railRowCenter = (id: string): { x: number; y: number } => ({
 type NavRowId = Exclude<RailRowId, "board" | "board1" | "board2" | "user">
 
 const RAIL_ICON: Record<NavRowId, React.FC<{ size?: number }>> = {
-  search: SearchIcon,
   inbox: InboxIcon,
   support: LifeBuoyIcon,
   devices: MonitorIcon,
@@ -539,7 +546,6 @@ const RAIL_ICON: Record<NavRowId, React.FC<{ size?: number }>> = {
 }
 
 const RAIL_LABEL: Record<NavRowId, string> = {
-  search: "Search",
   inbox: "Inbox",
   support: "Support",
   devices: "Devices",
@@ -569,6 +575,16 @@ const COMPANION_BOARDS: RailBoard[] = [
   { name: "Product Feedback", glyph: "megaphone", color: "#22c55e" },
 ]
 
+// crate::changelog::LATEST.summary — the What's new card's teaser line is the
+// head changelog entry's summary (apps/web/src/lib/changelog.ts).
+const WHATS_NEW_SUMMARY =
+  "Reply under a comment on web, desktop, iOS and Android, and see when an agent posted a comment over MCP."
+
+// Text sizes at the 14px rem, scaled to the 1568-wide window like the rest of
+// the ship (text_sm 12.25 → 13.5, text_xs 10.5 → 11.5).
+const TEXT_SM = 13.5
+const TEXT_XS = 11.5
+
 export type ExpandedRailProps = {
   frame: number
   active: string
@@ -577,6 +593,7 @@ export type ExpandedRailProps = {
   activeTransition?: { from: string; at: number }
   dots?: string[] // rail row ids that carry a small dot at the row's right edge
   dotColor?: string
+  teamName?: string
   boardName?: string
   boardGlyph?: BoardGlyph
   boards?: RailBoard[] // full override of the Boards group
@@ -590,6 +607,7 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
   activeTransition,
   dots = [],
   dotColor = C.green,
+  teamName = IDENTITY.team,
   boardName = IDENTITY.project,
   boardGlyph = "code",
   boards,
@@ -614,16 +632,6 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
     fromId !== undefined ? (RAIL_ROW_Y[fromId as RailRowId] ?? toY) : toY
   const pillY = fromY + (toY - fromY) * t
 
-  const fgOf = (id: RailRowId): string => {
-    if (id === active && id === fromId) return C.text
-    if (id === active)
-      return activeTransition
-        ? interpolateColors(t, [0, 1], [C.muted, C.text])
-        : C.text
-    if (id === fromId) return interpolateColors(t, [0, 1], [C.text, C.muted])
-    return C.muted
-  }
-
   const dotFor = (id: RailRowId) =>
     dots.includes(id) ? (
       <span
@@ -637,39 +645,40 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
       />
     ) : null
 
+  const rowStyle = (top: number): React.CSSProperties => ({
+    position: "absolute",
+    left: ROW_X,
+    top,
+    width: ROW_W,
+    height: ROW_H,
+    boxSizing: "border-box",
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    padding: "0 5.25px",
+    borderRadius: R.row,
+  })
+  const labelStyle: React.CSSProperties = {
+    flex: 1,
+    minWidth: 0,
+    fontSize: TEXT_SM,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  }
+
   const navRow = (id: NavRowId) => {
     const Icon = RAIL_ICON[id]
     return (
       <div
         key={id}
         style={{
-          position: "absolute",
-          left: ROW_X,
-          top: RAIL_ROW_Y[id],
-          width: ROW_W,
-          height: ROW_H,
-          boxSizing: "border-box",
-          display: "flex",
-          alignItems: "center",
-          gap: 9,
-          padding: "0 8px",
-          borderRadius: R.row,
-          color: fgOf(id),
+          ...rowStyle(RAIL_ROW_Y[id]),
+          color: id === "getting-started" ? C.muted : C.text,
         }}
       >
-        <Icon size={14} />
-        <span
-          style={{
-            flex: 1,
-            fontSize: 12.5,
-            fontWeight: 500,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {RAIL_LABEL[id]}
-        </span>
+        <Icon size={12} />
+        <span style={labelStyle}>{RAIL_LABEL[id]}</span>
         {id === "source-control" ? (
           <span style={{ color: C.destructive, display: "flex", flex: "none" }}>
             <CircleXIcon size={12} />
@@ -713,11 +722,11 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
           key={y}
           style={{
             position: "absolute",
-            left: 12,
+            left: ROW_X,
             top: y - WIN.titleBar,
-            width: WIN.rail - 24,
+            width: ROW_W,
             height: 1,
-            backgroundColor: C.strokeRow,
+            backgroundColor: C.strokeCard,
           }}
         />
       ))}
@@ -729,9 +738,98 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
           translate: `0px ${-WIN.titleBar}px`,
         }}
       >
+        {/* render_header (EXP-723): team switcher · Search · New issue */}
+        <div
+          style={{
+            position: "absolute",
+            left: ROW_X,
+            top: HEADER_Y,
+            width: ROW_W,
+            height: HEADER_H,
+            display: "flex",
+            alignItems: "center",
+            gap: GAP,
+          }}
+        >
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              height: HEADER_H,
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "0 5.25px",
+              borderRadius: R.row,
+              color: C.text,
+            }}
+          >
+            <span
+              style={{
+                width: 28,
+                height: 28,
+                flex: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: 7,
+                backgroundColor: "#e5e5e5",
+                color: "#171717",
+                fontSize: 15,
+                fontWeight: 600,
+              }}
+            >
+              {teamName.charAt(0)}
+            </span>
+            <span
+              style={{
+                flex: 1,
+                minWidth: 0,
+                fontSize: TEXT_SM,
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {teamName}
+            </span>
+            <span style={{ color: C.muted, display: "flex", flex: "none" }}>
+              <ChevronsUpDownIcon size={11} />
+            </span>
+          </div>
+          <span
+            style={{
+              width: 32,
+              height: 32,
+              flex: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: R.row,
+              color: C.text,
+            }}
+          >
+            <SearchIcon size={15} />
+          </span>
+          <span
+            style={{
+              width: 32,
+              height: 32,
+              flex: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: R.row,
+              backgroundColor: "#e5e5e5",
+              color: "#171717",
+            }}
+          >
+            <SquarePenIcon size={15} />
+          </span>
+        </div>
         {(
           [
-            "search",
             "inbox",
             "support",
             "devices",
@@ -750,18 +848,20 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
             left: ROW_X,
             top: BOARDS_LABEL_Y,
             width: ROW_W,
-            height: 20,
+            height: 24,
             boxSizing: "border-box",
             display: "flex",
             alignItems: "center",
-            padding: "0 8px",
+            padding: "0 1.75px 0 5.25px",
             color: C.dim,
           }}
         >
-          <span style={{ flex: 1, fontSize: 11.5, fontWeight: 500 }}>
+          <span style={{ flex: 1, fontSize: TEXT_XS, fontWeight: 500 }}>
             Boards
           </span>
-          <PlusIcon size={12} />
+          <span style={{ color: C.muted, display: "flex" }}>
+            <PlusIcon size={12} />
+          </span>
         </div>
         {/* board rows */}
         {boardRows.slice(0, 3).map((b, i) => {
@@ -769,137 +869,191 @@ export const ExpandedRail: React.FC<ExpandedRailProps> = ({
           return (
             <div
               key={b.name}
-              style={{
-                position: "absolute",
-                left: ROW_X,
-                top: RAIL_ROW_Y[id],
-                width: ROW_W,
-                height: ROW_H,
-                boxSizing: "border-box",
-                display: "flex",
-                alignItems: "center",
-                gap: 9,
-                padding: "0 8px",
-                borderRadius: R.row,
-                color: fgOf(id),
-              }}
+              style={{ ...rowStyle(RAIL_ROW_Y[id]), color: C.text }}
             >
               <span style={{ color: b.color, display: "flex", flex: "none" }}>
-                {React.createElement(BOARD_GLYPH[b.glyph], { size: 15 })}
+                {React.createElement(BOARD_GLYPH[b.glyph], { size: 12 })}
               </span>
-              <span
-                style={{
-                  flex: 1,
-                  fontSize: 12.5,
-                  fontWeight: 500,
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {b.name}
-              </span>
+              <span style={labelStyle}>{b.name}</span>
               {dotFor(id)}
             </div>
           )
         })}
-        {/* pinned bottom: user + settings gear */}
+        {/* render_whats_new_card (EXP-723): radius 12, card hairline + fill,
+            p_3 — megaphone · text_sm medium title · ghost ✕, then the muted
+            text_xs summary of the head changelog entry */}
+        <div
+          style={{
+            position: "absolute",
+            left: ROW_X,
+            top: WHATS_NEW_Y,
+            width: ROW_W,
+            height: WHATS_NEW_H,
+            boxSizing: "border-box",
+            padding: 10.5,
+            borderRadius: R.section,
+            border: `1px solid ${C.strokeCard}`,
+            backgroundColor: C.fillCard,
+            color: C.text,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 7, height: 20 }}>
+            <span style={{ color: C.muted, display: "flex", flex: "none" }}>
+              <MegaphoneIcon size={13} />
+            </span>
+            <span
+              style={{
+                flex: 1,
+                minWidth: 0,
+                fontSize: TEXT_SM,
+                fontWeight: 500,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              What&apos;s new
+            </span>
+            <span
+              style={{
+                width: 20,
+                height: 20,
+                flex: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: C.muted,
+              }}
+            >
+              <XIcon size={11} />
+            </span>
+          </div>
+          <div
+            style={{
+              marginTop: 3.5,
+              fontSize: TEXT_XS,
+              color: C.muted,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {WHATS_NEW_SUMMARY}
+          </div>
+        </div>
+        {/* pinned bottom: render_account_button (h36, avatar · name ·
+            team-switcher chevrons — its menu is What's new · About · Sign out)
+            + the settings gear */}
         <div
           style={{
             position: "absolute",
             left: ROW_X,
             top: RAIL_ROW_Y.user,
             width: ROW_W,
-            height: ROW_H,
+            height: ACCOUNT_H,
             boxSizing: "border-box",
             display: "flex",
             alignItems: "center",
-            gap: 9,
-            padding: "0 8px",
-            borderRadius: R.row,
+            gap: GAP,
             color: C.muted,
           }}
         >
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              height: ACCOUNT_H,
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "0 5.25px",
+              borderRadius: R.row,
+            }}
+          >
+            <span
+              style={{
+                width: 24,
+                height: 24,
+                flex: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: 999,
+                backgroundColor: "rgba(59,130,246,0.28)",
+                color: "#93c5fd",
+                fontSize: 10,
+                fontWeight: 600,
+              }}
+            >
+              {userInitial}
+            </span>
+            <span
+              style={{
+                flex: 1,
+                fontSize: TEXT_SM,
+                color: C.text,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {userName.split(" ")[0]}
+            </span>
+            <ChevronsUpDownIcon size={11} />
+          </div>
           <span
             style={{
-              width: 20,
-              height: 20,
+              width: 24,
+              height: 24,
               flex: "none",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              borderRadius: 999,
-              backgroundColor: "rgba(59,130,246,0.28)",
-              color: "#93c5fd",
-              fontSize: 9,
-              fontWeight: 600,
+              borderRadius: 8,
+              color: C.muted,
             }}
           >
-            {userInitial}
+            <SettingsIcon size={14} />
           </span>
-          <span
-            style={{
-              flex: 1,
-              fontSize: 12.5,
-              fontWeight: 500,
-              color: C.text,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {userName.split(" ")[0]}
-          </span>
-          <SettingsIcon size={14} />
         </div>
       </div>
     </div>
   )
 }
 
-// ── DockCollapsedStrip (29px bottom strip: ▤ Terminal (1) … ⌃) ───────────────
+// ── DockCollapsedStrip (the 29px tabs strip, collapsed form — EXP-723) ───────
+// The strip IS the collapsed dock: rich-tab chips + the `+`, pinned to the
+// panel's bottom edge (render inside CutoutPanel). No window controls live
+// here any more — they sit on the open dock's header row.
 export type DockCollapsedStripProps = {
   frame: number
-  count?: number
+  tabs?: DockTab[]
+  activeTab?: string
 }
 
 export const DockCollapsedStrip: React.FC<DockCollapsedStripProps> = ({
-  count = 1,
+  frame,
+  tabs = [],
+  activeTab,
 }) => (
   <div
     style={{
       position: "absolute",
-      left: WIN.rail,
-      right: 0,
-      bottom: 0,
+      left: WIN.panel.x,
+      right: WIN.w - WIN.panel.right,
+      bottom: WIN.h - WIN.panel.bottom,
       height: WIN.dockStrip,
-      boxSizing: "border-box",
-      borderTop: `1px solid ${C.strokeRow}`,
-      display: "flex",
-      alignItems: "center",
-      padding: "0 10px 0 12px",
-      gap: 8,
-      fontFamily: UI_FONT,
       zIndex: 10,
     }}
   >
-    <span style={{ color: C.muted, display: "flex" }}>
-      <SquareTerminalIcon size={13} />
-    </span>
-    <span style={{ fontSize: 12, fontWeight: 500, color: C.muted }}>
-      {count > 1 ? `Terminal (${count})` : `Terminal`}
-    </span>
-    <div style={{ flex: 1 }} />
-    <span style={{ color: C.muted, display: "flex" }}>
-      <ChevronUpIcon size={13} />
-    </span>
+    <DockStrip frame={frame} tabs={tabs} activeTab={activeTab} />
   </div>
 )
 
 // ── CenterEmptyState ("Nothing open") ────────────────────────────────────────
 export type CenterEmptyStateProps = {
   frame: number
-  bottom?: number // window-local inset from the window's bottom edge (default: collapsed dock strip)
+  bottom?: number // window-local inset from the window's bottom edge (default: the panel margin + the collapsed dock strip)
   // WINDOW-LOCAL point to center the icon+text block on. A zoomed-in camera
   // crops the pane, so pane-centering can land the block half off-frame
   // (EXP-217) — callers pass the visible region's center instead.
@@ -907,7 +1061,7 @@ export type CenterEmptyStateProps = {
 }
 
 export const CenterEmptyState: React.FC<CenterEmptyStateProps> = ({
-  bottom = WIN.dockStrip,
+  bottom = WIN.h - WIN.panel.bottom + WIN.dockStrip,
   contentCenter,
 }) => {
   const content = (
@@ -925,14 +1079,14 @@ export const CenterEmptyState: React.FC<CenterEmptyStateProps> = ({
       </div>
     </>
   )
-  const paneLeft = WIN.rail + WIN.sidebar
-  const paneTop = WIN.titleBar
+  const paneLeft = WIN.panel.x + WIN.sidebar
+  const paneTop = WIN.panel.y
   return (
     <div
       style={{
         position: "absolute",
         left: paneLeft,
-        right: 0,
+        right: WIN.w - WIN.panel.right,
         top: paneTop,
         bottom,
         display: "flex",
@@ -967,6 +1121,8 @@ export const CenterEmptyState: React.FC<CenterEmptyStateProps> = ({
 export const CHROME_ANCHORS = {
   trafficLights: { x: 40, y: 17 },
   tabStripStart: { x: TAB_STRIP_LEFT + 40, y: WIN.titleBar / 2 },
-  dockStripChevron: { x: WIN.w - 17, y: WIN.h - WIN.dockStrip / 2 },
-  dockStripLabel: { x: WIN.rail + 60, y: WIN.h - WIN.dockStrip / 2 },
+  dockStripStart: {
+    x: WIN.panel.x + 40,
+    y: WIN.panel.bottom - WIN.dockStrip / 2,
+  },
 } as const

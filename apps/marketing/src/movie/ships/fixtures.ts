@@ -17,6 +17,7 @@ export type BoardRow = {
 export const IDENTITY = {
   workspace: "Exponential",
   project: "Exponential",
+  team: "Acme", // the rail header names the ACTIVE team (EXP-723)
   projectColor: "#a1a1aa",
   prefix: "EXP",
   repo: "niach/exponential",
@@ -57,8 +58,8 @@ export const HERO = {
   ],
   switcher: "3 / 8", // "N / M" pager next to the chevrons
   activity: [
-    { actor: "Alex Carter", text: "added label bug" },
-    { actor: "Alex Carter", text: "added this to release v0.12" },
+    { actor: "Alex Carter", text: "added label bug", time: "3 days ago" },
+    { actor: "Alex Carter", text: "added this to release v0.12", time: "2 days ago" },
   ],
   branch: "exp/EXP-142",
   pr: 214,

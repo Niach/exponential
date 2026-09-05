@@ -27,6 +27,7 @@ import {
   SidebarPane,
 } from "../../ships/surfaces/board"
 import {
+  CutoutPanel,
   DockCollapsedStrip,
   ExpandedRail,
   TitleBar,
@@ -126,9 +127,17 @@ const TAB_151 = (frame: number): ChromeTab => ({
   label: CL_ISSUE.title,
   status: frame >= B.simul ? "in_progress" : "backlog",
 })
+// The strip's chips (surface::rich_tab): the shell tab named by its cwd,
+// then the session chip — status dot · mono identifier · the issue title.
 const DOCK_TABS: DockTab[] = [
-  { id: "zsh", label: "zsh" },
-  { id: "cl", label: CL.sessionTab, dot: C.green, popAt: B.sessionTab },
+  { id: "shell", label: "acme-shop", shell: true },
+  {
+    id: "cl",
+    identifier: NEW_ISSUE_ID,
+    label: CL_ISSUE.title,
+    dot: C.green,
+    popAt: B.sessionTab,
+  },
 ]
 
 const dockHeightAt = (frame: number): number => {
@@ -148,7 +157,7 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
   portrait,
 }) => {
   const dockH = dockHeightAt(frame)
-  const paneH = WIN.h - CONTENT_TOP - dockH
+  const paneH = WIN.panel.h - dockH
   const capSize = captionSize(portrait)
 
   const heroStatus =
@@ -196,50 +205,57 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
               userInitial={CL.initials}
             />
 
-            <SidebarPane actions={<BoardActions />} bottomInset={dockH}>
-              <BoardTool
-                frame={frame}
-                rows={CL_BOARD}
-                overrides={overrides}
-                selectedId={NEW_ISSUE_ID}
-                regroup={regroup}
-              />
-            </SidebarPane>
+            {/* EXP-723: everything below the band lives in the cutout panel */}
+            <CutoutPanel>
+              <SidebarPane actions={<BoardActions />} bottomInset={dockH}>
+                <BoardTool
+                  frame={frame}
+                  rows={CL_BOARD}
+                  overrides={overrides}
+                  selectedId={NEW_ISSUE_ID}
+                  regroup={regroup}
+                />
+              </SidebarPane>
 
-            <div
-              style={{
-                position: "absolute",
-                left: CENTER_X,
-                top: CONTENT_TOP,
-                width: CENTER_W,
-                height: paneH,
-                overflow: "hidden",
-              }}
-            >
-              <IssueDetailPane
-                frame={frame}
-                codingNow={{ at: B.sessionTab, out: DUR + 30 }}
-                status={heroStatus}
-                priority="none"
-                issue={CL_ISSUE}
-                width={CENTER_W}
-                height={paneH}
-              />
-            </div>
+              <div
+                style={{
+                  position: "absolute",
+                  left: CENTER_X,
+                  top: CONTENT_TOP,
+                  width: CENTER_W,
+                  height: paneH,
+                  overflow: "hidden",
+                }}
+              >
+                <IssueDetailPane
+                  frame={frame}
+                  codingNow={{ at: B.sessionTab, out: DUR + 30 }}
+                  status={heroStatus}
+                  priority="none"
+                  issue={CL_ISSUE}
+                  width={CENTER_W}
+                  height={paneH}
+                />
+              </div>
 
-            {frame < B.simul ? (
-              <DockCollapsedStrip frame={frame} count={1} />
-            ) : (
-              <TerminalDock
-                frame={frame}
-                height={dockH}
-                tabs={DOCK_TABS}
-                activeTab={frame < B.sessionTab ? "zsh" : "cl"}
-                feed={{ events: FEED_EVENTS, schedule: FEED_SCHEDULE }}
-                inputGlow={B.steerGlow}
-                spinnerBase={{ sec: 4, tokensK: 0.8 }}
-              />
-            )}
+              {frame < B.simul ? (
+                <DockCollapsedStrip
+                  frame={frame}
+                  tabs={[DOCK_TABS[0]]}
+                  activeTab="shell"
+                />
+              ) : (
+                <TerminalDock
+                  frame={frame}
+                  height={dockH}
+                  tabs={DOCK_TABS}
+                  activeTab={frame < B.sessionTab ? "shell" : "cl"}
+                  feed={{ events: FEED_EVENTS, schedule: FEED_SCHEDULE }}
+                  inputGlow={B.steerGlow}
+                  spinnerBase={{ sec: 4, tokensK: 0.8 }}
+                />
+              )}
+            </CutoutPanel>
           </WindowChassis>
 
           {/* the phone, floating over the window's left edge (comp coords).

@@ -113,8 +113,9 @@ export const wallpaperBackground = (dx = 0, dy = 0): string =>
 // desktop's alphas (rail column 0.72, content 0.96 — theme lib.rs
 // glass_sidebar_alpha/glass_content_alpha) so the wallpaper genuinely bleeds
 // through, glassier on the left.
+// Stops = theme.ts C.bgTop / C.bgBottom (#0c0c0f / #111114, EXP-723).
 const gradientAt = (alpha: number) =>
-  `linear-gradient(to bottom, rgba(18,18,21,${alpha}), rgba(24,24,27,${alpha}))`
+  `linear-gradient(to bottom, rgba(12,12,15,${alpha}), rgba(17,17,20,${alpha}))`
 
 export const WindowChassis: React.FC<{
   children: React.ReactNode

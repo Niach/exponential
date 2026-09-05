@@ -222,20 +222,47 @@ export function IssuesDocsPage() {
           <DocsSection id="detail" num="05" label="Issue detail">
             <h2>Issue detail</h2>
             <p>
-              The full-page view puts the description front and center with a
-              properties rail (status, priority, assignee, labels, due date)
-              and the conversation below.
+              The full-page view puts the description front and center: a
+              properties card (status, priority, assignee, labels, due date,
+              board) sits under the title, then the <strong>Relations</strong>
+              {` `}card, then the conversation. On web and desktop the content
+              area is a rounded card floating on a darker ground; phones run
+              full-bleed.
             </p>
 
             <DocShot view="issue-detail" />
 
+            <h3>Relations</h3>
+            <p>
+              <strong>Add relation</strong> on the card offers{` `}
+              <strong>Parent of</strong>, <strong>Sub-issue of</strong>,{` `}
+              <strong>Blocking</strong>, <strong>Blocked by</strong>,{` `}
+              <strong>Duplicate of</strong> and <strong>Related to</strong>,
+              then a picker for the other issue; on iOS and Android the same
+              list lives in the properties sheet. Writing <code>#EXP-42</code>
+              {` `}in a description or comment links the two issues as related
+              on its own, and marking an issue as a duplicate shows up in the
+              card too. Every link shows on both issues, and adding or removing
+              one lands in both activity feeds.
+            </p>
+            <h3>Activity and comments</h3>
             <p>
               The <strong>activity timeline</strong> interleaves comments with
               events: issue created, status changes, label changes,
-              assignments, priority changes, PR opened, PR merged — each led
-              by its own icon. <strong>Subscribe</strong> to any issue to get
-              its notifications. Commenting, being assigned, or being
-              mentioned subscribes you automatically.
+              assignments, priority changes, relations, PR opened, PR merged —
+              each led by its own icon and ending in its time. You follow an
+              issue automatically when you create it, comment on it, get
+              assigned or get mentioned; there is no subscribe button.
+            </p>
+            <p>
+              Comments thread <strong>one level deep</strong>: every comment
+              card ends with a <strong>Leave a reply…</strong> row. On web and
+              desktop the reply composer opens right there; on iOS and Android
+              the docked composer switches to <strong>Replying to</strong>,
+              with an <strong>×</strong> back to a plain comment. Replies sit
+              under their comment with a smaller avatar and edit and delete
+              like any comment. A comment an agent posted over MCP says{` `}
+              <strong>via MCP</strong> in its header.
             </p>
             <p>
               Comments carry <strong>attachments</strong>, not just markdown:{` `}
