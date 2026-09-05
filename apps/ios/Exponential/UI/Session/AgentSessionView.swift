@@ -674,7 +674,11 @@ struct AgentSessionView: View {
                             },
                             isOpaque: true
                         )
-                        .padding(.bottom, 8)
+                        // EXP-743: above the floating Latest-changes bar, not
+                        // on top of it — the bar is a safe-area inset of this
+                        // scroller, so the overlay's bottom edge is the bar's
+                        // bottom edge (Android: `8.dp + bottomInset`).
+                        .padding(.bottom, 8 + (changesBarVisible ? changesBarHeight : 0))
                     }
                 }
             }
@@ -1087,7 +1091,9 @@ struct AgentSessionView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .glassRow()
+        // Opaque: the feed scrolls beneath the bar (EXP-165, the
+        // Jump-to-bottom pill's rule; Android + mobile web parity, EXP-743).
+        .glassRow(isOpaque: true)
     }
 
     /// The Merge pill beside the diff chip — merging always ends the run too
@@ -1098,6 +1104,8 @@ struct AgentSessionView: View {
             "Merge",
             size: .md,
             mode: .action { showMergeConfirm = true },
+            // Floats over the feed like the chip beside it (EXP-743).
+            isOpaque: true,
             enabled: !merging
         ) {
             if merging {
@@ -1117,7 +1125,8 @@ struct AgentSessionView: View {
             "Fix conflicts",
             icon: AppIcons.uiBranch,
             size: .md,
-            mode: .action { fixSheetOpen = true }
+            mode: .action { fixSheetOpen = true },
+            isOpaque: true
         )
         .accessibilityLabel("Fix merge conflicts")
     }

@@ -41,14 +41,22 @@ public struct GlassRow: ViewModifier {
     /// whose fixed radius survives multi-line content where the capsule
     /// button clipped it).
     public var isActive: Bool = false
+    /// Lays the opaque card surface beneath the glass tint — for a row that
+    /// FLOATS over scrolling content (the steer screen's Latest-changes chip),
+    /// where the low-alpha fill alone lets the feed bleed through. The same
+    /// switch `GlassCard` and `GlassButton` carry (Android `glassRow(opaque:)`
+    /// parity, EXP-743).
+    public var isOpaque: Bool = false
 
-    public init(isActive: Bool = false) {
+    public init(isActive: Bool = false, isOpaque: Bool = false) {
         self.isActive = isActive
+        self.isOpaque = isOpaque
     }
 
     public func body(content: Content) -> some View {
         content
             .background(isActive ? GlassTokens.fillActive : GlassTokens.fillRow)
+            .background(isOpaque ? DesignTokens.Palette.card : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
             .overlay(
                 RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
@@ -216,8 +224,8 @@ extension View {
         modifier(GlassCard(cornerRadius: cornerRadius, isOpaque: isOpaque))
     }
 
-    public func glassRow(isActive: Bool = false) -> some View {
-        modifier(GlassRow(isActive: isActive))
+    public func glassRow(isActive: Bool = false, isOpaque: Bool = false) -> some View {
+        modifier(GlassRow(isActive: isActive, isOpaque: isOpaque))
     }
 
     public func glassButton(isActive: Bool = false, isOpaque: Bool = false) -> some View {
