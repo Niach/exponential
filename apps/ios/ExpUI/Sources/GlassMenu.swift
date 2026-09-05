@@ -56,8 +56,8 @@ public enum GlassMenuTokens {
     /// White .06 over the opaque card fill == #252525 (EXP-357 parity).
     public static let tintOpacity: Double = 0.06
     /// Gap between the anchor and the menu, and the minimum screen margin.
-    static let anchorGap: CGFloat = 8
-    static let screenMargin: CGFloat = 12
+    public static let anchorGap: CGFloat = 8
+    public static let screenMargin: CGFloat = 12
 }
 
 // MARK: - Surface
@@ -375,24 +375,20 @@ private struct GlassMenuOverlay<MenuContent: View>: ViewModifier {
             content
                 .overlay {
                     if isPresented {
-                        GeometryReader { proxy in
-                            // The anchor is global; the overlay is not.
-                            let origin = proxy.frame(in: .global).origin
-                            GlassMenuPopup(
-                                anchor: anchor.offsetBy(dx: -origin.x, dy: -origin.y),
-                                dismiss: { coverBinding.wrappedValue = false }
-                            ) {
-                                menuContent()
-                            }
+                        GlassMenuPopup(anchor: anchor, dismiss: { coverBinding.wrappedValue = false }) {
+                            menuContent()
                         }
-                        .ignoresSafeArea()
                     }
                 }
         }
     }
 }
 
+/// The popup: a screen-filling outside-tap catcher plus the menu surface,
+/// positioned from the trigger's GLOBAL frame. It measures its own place in
+/// the window, so a host never converts coordinates for it.
 private struct GlassMenuPopup<Content: View>: View {
+    /// The trigger's frame in `.global` coordinates.
     let anchor: CGRect
     let dismiss: () -> Void
     @ViewBuilder let content: () -> Content
@@ -402,46 +398,38 @@ private struct GlassMenuPopup<Content: View>: View {
     @State private var appeared = false
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .topLeading) {
-                // No scrim (Android parity) — just a tap-through-proof layer
-                // that closes the menu, exactly like a dropdown's outside tap.
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture { dismiss() }
+        // The outer reader is laid out INSIDE the host's safe area, so its top
+        // edge is the first row a menu may occupy: the navigation bar's bottom
+        // on a pushed screen, the status bar's on a cover. The inner reader
+        // ignores it so the tap catcher still spans the whole window.
+        GeometryReader { host in
+            let hostTop = host.frame(in: .global).minY
+            GeometryReader { proxy in
+                let frame = proxy.frame(in: .global)
+                let placement = GlassMenuPlacement(
+                    anchor: anchor.offsetBy(dx: -frame.minX, dy: -frame.minY),
+                    top: hostTop - frame.minY,
+                    screen: proxy.size,
+                    menuSize: menuSize
+                )
+                ZStack(alignment: .topLeading) {
+                    // No scrim (Android parity) — just a tap-through-proof layer
+                    // that closes the menu, exactly like a dropdown's outside tap.
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { dismiss() }
 
-                menu(in: proxy.size)
+                    menu(placement)
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height)
             }
-            .frame(width: proxy.size.width, height: proxy.size.height)
+            .ignoresSafeArea()
         }
-        .ignoresSafeArea()
-    }
-
-    /// Below the anchor unless the measured menu would run off the bottom.
-    private func opensBelow(in screen: CGSize) -> Bool {
-        let below = anchor.maxY + GlassMenuTokens.anchorGap + menuSize.height
-        return below + GlassMenuTokens.screenMargin <= screen.height || anchor.minY < menuSize.height
-    }
-
-    private func origin(in screen: CGSize) -> CGPoint {
-        let width = max(menuSize.width, GlassMenuTokens.minWidth)
-        let maxX = max(GlassMenuTokens.screenMargin, screen.width - width - GlassMenuTokens.screenMargin)
-        let x = min(max(GlassMenuTokens.screenMargin, anchor.maxX - width), maxX)
-        let y: CGFloat
-        if opensBelow(in: screen) {
-            y = anchor.maxY + GlassMenuTokens.anchorGap
-        } else {
-            y = max(
-                GlassMenuTokens.screenMargin,
-                anchor.minY - GlassMenuTokens.anchorGap - menuSize.height
-            )
-        }
-        return CGPoint(x: x, y: y)
     }
 
     @ViewBuilder
-    private func menu(in screen: CGSize) -> some View {
-        let point = origin(in: screen)
+    private func menu(_ placement: GlassMenuPlacement) -> some View {
+        let point = placement.origin
         GlassMenuSurface {
             VStack(spacing: 0) {
                 content()
@@ -466,8 +454,59 @@ private struct GlassMenuPopup<Content: View>: View {
         .opacity(appeared ? 1 : 0)
         .scaleEffect(
             appeared ? 1 : 0.92,
-            anchor: opensBelow(in: screen) ? .topTrailing : .bottomTrailing
+            anchor: placement.opensBelow ? .topTrailing : .bottomTrailing
         )
         .offset(x: point.x, y: point.y)
+    }
+}
+
+/// Where a glass menu lands, as pure geometry (unit-tested in
+/// GlassMenuPlacementTests): trailing-aligned to its anchor, below it unless
+/// the measured menu would run off the bottom, and never above `top`.
+///
+/// `top` is the first row a menu may occupy — the host's safe-area edge. A
+/// menu hanging off a toolbar item used to be placed 8pt under the item's
+/// 32pt glyph, which on a bar taller than the glyph's capsule (the steering
+/// screen's two-line title, EXP-744) put its head under the bar's material.
+public struct GlassMenuPlacement: Equatable {
+    /// The trigger's frame, in the popup's own coordinate space.
+    public let anchor: CGRect
+    /// The lowest y a menu may start at (inclusive of the anchor gap).
+    public let top: CGFloat
+    public let screen: CGSize
+    public let menuSize: CGSize
+
+    public init(anchor: CGRect, top: CGFloat, screen: CGSize, menuSize: CGSize) {
+        self.anchor = anchor
+        self.top = top
+        self.screen = screen
+        self.menuSize = menuSize
+    }
+
+    /// Below the anchor unless the measured menu would run off the bottom.
+    public var opensBelow: Bool {
+        let below = belowY + menuSize.height
+        return below + GlassMenuTokens.screenMargin <= screen.height || anchor.minY < menuSize.height
+    }
+
+    /// The below-anchor top edge, pushed down to clear the host's top edge.
+    private var belowY: CGFloat {
+        max(anchor.maxY, top) + GlassMenuTokens.anchorGap
+    }
+
+    public var origin: CGPoint {
+        let width = max(menuSize.width, GlassMenuTokens.minWidth)
+        let maxX = max(GlassMenuTokens.screenMargin, screen.width - width - GlassMenuTokens.screenMargin)
+        let x = min(max(GlassMenuTokens.screenMargin, anchor.maxX - width), maxX)
+        let y: CGFloat
+        if opensBelow {
+            y = belowY
+        } else {
+            y = max(
+                top + GlassMenuTokens.screenMargin,
+                anchor.minY - GlassMenuTokens.anchorGap - menuSize.height
+            )
+        }
+        return CGPoint(x: x, y: y)
     }
 }
