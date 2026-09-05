@@ -1,17 +1,9 @@
-- Tablas: escribe tablas en issues y comentarios, con alineación de columnas; edita celdas desde el teléfono y mantén pulsado para borrar una tabla entera
-- Dirección: escribe «/» para lanzar los comandos integrados del agente como /compact y /clear, y observa cómo el agente compacta su contexto en lugar de adivinar
-- Los comentarios muestran los @mentions como chips de miembro en vez de la dirección en crudo
-- Boards: cada board puede fijar su propia rama por defecto en los ajustes del board; las sesiones de código parten de ahí
-- Los diffs de Reviews se desplazan en horizontal, con una cabecera compacta por archivo
-- Los boards vacíos muestran un icono, un título y una pista
-- Las hojas de ajustes, de acciones y de inicio de código siguen mejor las convenciones de la plataforma
-- Un aspecto de cristal renovado en listas, hojas y controles
-- Todo y Backlog ahora son una sola lista: todo lo que estaba en Todo vive en Backlog
-- El editor conserva tus líneas en blanco intencionales, idénticas en todas las plataformas
-- Los agentes siempre se ejecutan sin solicitudes de permisos; el ajuste ha desaparecido
-- Un solo selector de agente: agente, modelo, esfuerzo, modo plan, cuenta y uso en una única tarjeta
-- Acciones: crea y edita acciones con sus entradas directamente en tu teléfono
-- Reviews: nueva lista y diff de PR con tarjetas por archivo; «Resolver conflictos de merge» sustituye a «Merge» cuando un merge encuentra un conflicto
-- Las insignias de navegación son puntos: Inbox y Soporte con no leídos, Dispositivos mientras hay una ejecución activa, Reviews mientras una PR está abierta
-- Dirección: los planes ya no se cortan ni se muestran dos veces, y una sesión terminada cierra su vista
-- Iniciar una ejecución en una máquina sin conexión se rechaza de inmediato en lugar de ponerse en cola en silencio
+- Relaciones entre issues: enlaza issues como padre, sub-issue, bloquea, bloqueado por, duplicado o relacionado desde la hoja de propiedades; escribir #EXP-12 en una descripción o un comentario enlaza los dos issues por su cuenta
+- Comentarios en hilo: responde debajo de un comentario desde el editor acoplado; los hilos se quedan en un solo nivel, y un comentario que un agente publicó por MCP lo indica en su cabecera
+- Un primer arranque guiado: crear un equipo te lleva por el primer board, las invitaciones a compañeros y la configuración de dispositivos, en el mismo orden que en web y escritorio
+- Ajustes del equipo: los propietarios pueden crear enlaces de invitación desde la sección «Members»
+- Merge desde ejecuciones de acciones y de chat: una ejecución que abrió una pull request muestra «Merge» en su vista de dirección, y Reviews lista esas pull requests bajo «Agent runs»
+- Imágenes de comentarios más grandes: las imágenes adjuntas a un comentario se ven a todo el ancho y abren el visor al tocarlas
+- Un feed de actividad más tranquilo: los eventos se leen como una línea atenuada con la hora, los comentarios viven en una sola tarjeta
+- El botón «Subscribe» se retira: sigues un issue automáticamente cuando lo creas, comentas, te lo asignan o te mencionan
+- Dirección: la barra de contexto ya no tapa la transcripción

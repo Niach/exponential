@@ -1,17 +1,9 @@
-- Tables: write tables in issues and comments, with column alignment; edit cells on your phone and long-press to delete a whole table
-- Steering: type "/" to run the agent's built-in commands such as /compact and /clear, and watch the agent compact its context instead of guessing
-- Comments show @mentions as member pills instead of the raw address
-- Boards: every board can set its own default branch in board settings; coding sessions start from it
-- Review diffs scroll sideways with a compact header per file
-- Empty boards show an icon, a title and a hint
-- Settings, action and start-coding sheets follow the platform idioms more closely
-- A refreshed glass look across lists, sheets and controls
-- Todo and Backlog are now one list: everything that sat in Todo lives in Backlog
-- The editor keeps your intentional blank lines, identically on every platform
-- Agents always run without permission prompts; the toggle is gone
-- One agent picker: agent, model, effort, plan mode, account and usage in a single card
-- Actions: create and edit actions with their inputs right on your phone
-- Reviews: a new list and PR diff with per-file cards; Fix merge conflicts replaces Merge when a merge hits a conflict
-- Navigation badges are dots: Inbox and Support on unread, Devices while a run is live, Reviews while a PR is open
-- Steering: plans are no longer cut off or shown twice, and a finished session closes its view
-- Starting a run on an offline machine is refused right away instead of being silently queued
+- Issue relations: link issues as parent, sub-issue, blocking, blocked by, duplicate or related from the properties sheet; typing #EXP-12 in a description or comment links the two issues on its own
+- Threaded comments: reply under a comment from the docked composer; threads stay one level deep, and a comment an agent posted over MCP says so in its header
+- A guided first run: creating a team walks through the first board, inviting teammates and setting up devices, in the same order as web and desktop
+- Team settings: owners can create invite links from the Members section
+- Merge from action and chat runs: a run that opened a pull request shows Merge in its steering view, and Reviews lists those pull requests under Agent runs
+- Bigger comment images: pictures attached to a comment show at full width and open the viewer on tap
+- A quieter activity feed: events read as one muted line with a time, comments sit in a single card
+- Subscribe button retired: you follow an issue automatically when you create it, comment, get assigned or are mentioned
+- Steering: the context bar no longer overlaps the transcript

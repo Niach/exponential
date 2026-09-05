@@ -1,17 +1,9 @@
-- Tabulky: pište tabulky v úkolech i komentářích, včetně zarovnání sloupců; buňky upravíte v telefonu a dlouhým stiskem smažete celou tabulku
-- Řízení: napište „/“ a spusťte vestavěné příkazy agenta jako /compact a /clear, a sledujte, jak agent zhušťuje svůj kontext, místo aby hádal
-- Komentáře zobrazují @mentions jako jmenovky členů místo holé adresy
-- Boardy: každý board si může v nastavení boardu nastavit vlastní výchozí větev; kódovací relace startují z ní
-- Diffy v Reviews se posouvají do stran a mají kompaktní hlavičku u každého souboru
-- Prázdné boardy ukazují ikonu, titulek a nápovědu
-- Panely nastavení, akcí a spuštění kódování lépe dodržují zvyklosti platformy
-- Osvěžený skleněný vzhled v seznamech, panelech i ovládacích prvcích
-- Todo a Backlog jsou nyní jeden seznam: vše z Todo je teď v Backlogu
-- Editor zachovává vaše záměrné prázdné řádky, stejně na každé platformě
-- Agenti vždy běží bez dotazů na oprávnění; přepínač zmizel
-- Jeden výběr agenta: agent, model, úsilí, režim plánu, účet a využití na jedné kartě
-- Akce: vytvářejte a upravujte akce včetně jejich vstupů přímo v telefonu
-- Reviews: nový seznam a diff PR s kartami pro každý soubor; „Vyřešit konflikty merge“ nahradí „Merge“, když merge narazí na konflikt
-- Odznaky navigace jsou tečky: Inbox a Podpora při nepřečteném, Zařízení dokud běží spuštění, Reviews dokud je PR otevřený
-- Řízení: plány se už neořezávají ani nezobrazují dvakrát a ukončená relace zavře své zobrazení
-- Spuštění na offline stroji je odmítnuto okamžitě, místo aby se tiše zařadilo do fronty
+- Vazby mezi úkoly: propojte úkoly jako nadřazený, podúkol, blokuje, blokován, duplikát nebo souvisí přímo v panelu vlastností; napsáním #EXP-12 do popisu nebo komentáře se oba úkoly propojí samy
+- Vlákna komentářů: odpovězte pod komentářem přímo v ukotveném editoru; vlákna zůstávají jen o úroveň hlouběji a komentář, který agent poslal přes MCP, to uvádí ve své hlavičce
+- Provázený první start: po vytvoření týmu vás průvodce provede prvním boardem, pozvánkami pro kolegy a nastavením zařízení, ve stejném pořadí jako na webu a na desktopu
+- Nastavení týmu: vlastníci mohou vytvářet zvací odkazy v sekci „Members“
+- Merge z běhů akcí a chatu: běh, který otevřel pull request, ukazuje ve svém zobrazení řízení tlačítko „Merge“ a Reviews tyto pull requesty vypisuje pod „Agent runs“
+- Větší obrázky v komentářích: obrázky přiložené ke komentáři se zobrazují na plnou šířku a klepnutím se otevřou v prohlížeči
+- Klidnější přehled aktivity: události jsou jeden tlumený řádek s časem, komentáře drží v jedné kartě
+- Tlačítko „Subscribe“ zmizelo: úkol sledujete automaticky, když jej vytvoříte, okomentujete, dostanete přidělený nebo jste v něm zmíněni
+- Řízení: kontextová lišta už nepřekrývá přepis

@@ -1,17 +1,9 @@
-- Tabeller: skriv tabeller i saker og kommentarer, med kolonnejustering; rediger celler på telefonen og hold inne for å slette en hel tabell
-- Styring: skriv «/» for å kjøre agentens innebygde kommandoer som /compact og /clear, og se agenten komprimere konteksten sin i stedet for å gjette
-- Kommentarer viser @mentions som medlemsbrikker i stedet for den rå adressen
-- Tavler: hver tavle kan sette sin egen standardbranch i tavleinnstillingene; kodeøkter starter derfra
-- Review-differ scroller sidelengs, med en kompakt topptekst per fil
-- Tomme tavler viser et ikon, en tittel og et hint
-- Ark for innstillinger, handlinger og start av koding følger plattformens skikker tettere
-- Et oppfrisket glasslook i lister, ark og kontroller
-- Todo og Backlog er nå én liste: alt som lå i Todo ligger nå i Backlog
-- Editoren bevarer dine bevisste tomme linjer, identisk på alle plattformer
-- Agenter kjører alltid uten tillatelsesspørsmål; bryteren er borte
-- Én agentvelger: agent, modell, innsats, planmodus, konto og bruk i ett enkelt kort
-- Handlinger: opprett og rediger handlinger med inndataene deres rett på telefonen
-- Reviews: ny liste og PR-diff med kort per fil; «Løs merge-konflikter» erstatter «Merge» når en merge treffer en konflikt
-- Navigasjonsmerker er prikker: Innboks og Support ved ulest, Enheter mens en kjøring pågår, Reviews mens en PR er åpen
-- Styring: planer blir ikke lenger kuttet eller vist to ganger, og en fullført økt lukker visningen sin
-- Å starte en kjøring på en frakoblet maskin avvises med en gang i stedet for å bli stille lagt i kø
+- Relasjoner mellom saker: knytt saker som overordnet, undersak, blokkerer, blokkert av, duplikat eller relatert fra egenskapsarket; skriver du #EXP-12 i en beskrivelse eller kommentar, knyttes de to sakene sammen av seg selv
+- Kommentartråder: svar under en kommentar fra det forankrede skrivefeltet; tråder går bare ett nivå ned, og en kommentar en agent har lagt inn via MCP sier det i toppteksten sin
+- En veiledet første gang: å opprette et team tar deg gjennom den første tavlen, invitasjoner til lagkamerater og oppsett av enheter, i samme rekkefølge som på web og desktop
+- Teaminnstillinger: eiere kan lage invitasjonslenker i «Members»-seksjonen
+- Merge fra handlings- og chatkjøringer: en kjøring som har åpnet en pull request viser «Merge» i styringsvisningen sin, og Reviews lister de pull requestene under «Agent runs»
+- Større kommentarbilder: bilder som er lagt ved en kommentar vises i full bredde og åpner viseren ved trykk
+- En roligere aktivitetsstrøm: hendelser står som én dempet linje med klokkeslett, kommentarer ligger i ett kort
+- «Subscribe»-knappen er borte: du følger en sak automatisk når du oppretter den, kommenterer, blir tildelt eller blir nevnt
+- Styring: kontekstlinjen dekker ikke lenger utskriften

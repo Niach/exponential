@@ -1,17 +1,9 @@
-- Tabele: scrie tabele în taskuri și comentarii, cu aliniere pe coloane; editează celulele pe telefon și apasă lung pentru a șterge un tabel întreg
-- Ghidare: scrie „/” pentru comenzile integrate ale agentului, precum /compact și /clear, și vezi cum agentul își compactează contextul în loc să ghicească
-- Comentariile arată @mentions ca etichete de membru în loc de adresa brută
-- Board-uri: fiecare board își poate seta propriul branch implicit în setările board-ului; sesiunile de cod pornesc de acolo
-- Diff-urile din Reviews se derulează lateral, cu un antet compact pentru fiecare fișier
-- Board-urile goale arată o pictogramă, un titlu și un indiciu
-- Foile de setări, de acțiuni și de pornire a codării urmăresc mai îndeaproape obiceiurile platformei
-- Un aspect de sticlă împrospătat în liste, foi și controale
-- Todo și Backlog sunt acum o singură listă: tot ce era în Todo se află acum în Backlog
-- Editorul păstrează liniile goale intenționate, identic pe fiecare platformă
-- Agenții rulează întotdeauna fără întrebări de permisiuni; comutatorul a dispărut
-- Un singur selector de agent: agent, model, efort, mod plan, cont și utilizare într-un singur card
-- Acțiuni: creează și editează acțiuni cu intrările lor direct pe telefon
-- Reviews: listă nouă și diff de PR cu carduri per fișier; „Rezolvă conflictele de merge” înlocuiește „Merge” când un merge întâlnește un conflict
-- Insignele de navigare sunt puncte: Inbox și Suport la necitite, Dispozitive cât timp rulează o execuție, Reviews cât timp un PR este deschis
-- Ghidare: planurile nu mai sunt tăiate sau afișate de două ori, iar o sesiune încheiată își închide vizualizarea
-- Pornirea unei execuții pe o mașină offline este refuzată imediat în loc să fie pusă tăcut în coadă
+- Relații între taskuri: leagă taskurile ca părinte, subtask, blochează, blocat de, duplicat sau înrudit din foaia de proprietăți; scrierea lui #EXP-12 într-o descriere sau într-un comentariu leagă singură cele două taskuri
+- Comentarii pe fire: răspunde sub un comentariu din editorul ancorat; firele rămân pe un singur nivel, iar un comentariu publicat de un agent prin MCP o spune în antetul lui
+- O primă pornire ghidată: crearea unei echipe te poartă prin primul board, invitarea colegilor și configurarea dispozitivelor, în aceeași ordine ca pe web și pe desktop
+- Setările echipei: proprietarii pot crea linkuri de invitație din secțiunea „Members”
+- Merge din execuțiile de acțiuni și de chat: o execuție care a deschis un pull request arată „Merge” în vizualizarea sa de ghidare, iar Reviews listează acele pull request-uri sub „Agent runs”
+- Imagini mai mari în comentarii: imaginile atașate unui comentariu apar pe toată lățimea și se deschid în vizualizator la atingere
+- Un flux de activitate mai liniștit: evenimentele stau pe o singură linie estompată, cu ora, iar comentariile stau într-un singur card
+- Butonul „Subscribe” a dispărut: urmărești automat un task când îl creezi, îl comentezi, ți se atribuie sau ești menționat
+- Ghidare: bara de context nu mai acoperă transcrierea

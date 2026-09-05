@@ -1,17 +1,9 @@
-- Tabeller: skriv tabeller i ärenden och kommentarer, med kolumnjustering; redigera celler i telefonen och håll ned för att ta bort en hel tabell
-- Styrning: skriv "/" för att köra agentens inbyggda kommandon som /compact och /clear, och se agenten komprimera sin kontext i stället för att gissa
-- Kommentarer visar @mentions som medlemsbrickor i stället för den råa adressen
-- Boards: varje board kan sätta sin egen standardbranch i board-inställningarna; kodsessioner startar därifrån
-- Review-diffar scrollar i sidled, med en kompakt rubrik per fil
-- Tomma boards visar en ikon, en titel och en ledtråd
-- Blad för inställningar, åtgärder och att starta kodning följer plattformens konventioner närmare
-- Ett uppfräschat glasutseende i listor, blad och kontroller
-- Todo och Backlog är nu en enda lista: allt som låg i Todo finns nu i Backlog
-- Redigeraren behåller dina avsiktliga tomma rader, identiskt på varje plattform
-- Agenter körs alltid utan behörighetsfrågor; reglaget är borta
-- En agentväljare: agent, modell, ansträngning, planläge, konto och användning i ett enda kort
-- Åtgärder: skapa och redigera åtgärder med deras indata direkt på din telefon
-- Reviews: ny lista och PR-diff med kort per fil; "Lös merge-konflikter" ersätter "Merge" när en merge stöter på en konflikt
-- Navigeringsmärken är prickar: Inkorg och Support vid oläst, Enheter medan en körning pågår, Reviews medan en PR är öppen
-- Styrning: planer klipps inte längre av eller visas två gånger, och en avslutad session stänger sin vy
-- Att starta en körning på en offline-maskin avvisas direkt i stället för att tyst läggas i kö
+- Relationer mellan ärenden: koppla ärenden som överordnat, underärende, blockerar, blockeras av, dubblett eller relaterat från egenskapsbladet; skriver du #EXP-12 i en beskrivning eller kommentar kopplas de två ärendena ihop av sig själva
+- Kommentarstrådar: svara under en kommentar från det dockade skrivfältet; trådar går bara en nivå ned, och en kommentar som en agent lagt via MCP säger det i sin rubrik
+- En guidad första start: att skapa ett team tar dig genom första boarden, att bjuda in lagkamrater och att sätta upp enheter, i samma ordning som på webben och desktop
+- Teaminställningar: ägare kan skapa inbjudningslänkar i "Members"-avsnittet
+- Merge från åtgärds- och chattkörningar: en körning som öppnat en pull request visar "Merge" i sin styrningsvy, och Reviews listar de pull requestarna under "Agent runs"
+- Större kommentarsbilder: bilder som bifogats en kommentar visas i full bredd och öppnar visaren vid tryck
+- Ett lugnare aktivitetsflöde: händelser står som en dämpad rad med tid, kommentarer ligger i ett enda kort
+- Knappen "Subscribe" är borttagen: du följer ett ärende automatiskt när du skapar det, kommenterar, blir tilldelad eller blir nämnd
+- Styrning: kontextraden täcker inte längre utskriften
