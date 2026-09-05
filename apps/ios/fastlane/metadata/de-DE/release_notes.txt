@@ -1,17 +1,9 @@
-- Tabellen: schreibe Tabellen in Issues und Kommentaren, samt Spaltenausrichtung; Zellen bearbeitest du am Handy, langes Drücken löscht eine ganze Tabelle
-- Steuerung: tippe „/“ für die eingebauten Befehle des Agents wie /compact und /clear, und sieh zu, wie der Agent seinen Kontext verdichtet statt zu raten
-- Kommentare zeigen @mentions als Mitglieder-Chips statt der rohen Adresse
-- Boards: jedes Board kann in den Board-Einstellungen seinen eigenen Standard-Branch setzen; Coding-Sessions starten von dort
-- Review-Diffs scrollen zur Seite, mit kompakter Kopfzeile pro Datei
-- Leere Boards zeigen ein Icon, einen Titel und einen Hinweis
-- Sheets für Einstellungen, Actions und Start-Coding folgen den Plattform-Idiomen genauer
-- Ein aufgefrischter Glas-Look in Listen, Sheets und Bedienelementen
-- Todo und Backlog sind jetzt eine Liste: alles aus Todo liegt nun im Backlog
-- Der Editor erhält deine bewussten Leerzeilen, identisch auf jeder Plattform
-- Agents laufen immer ohne Berechtigungsabfragen; der Schalter ist weg
-- Ein Agent-Picker: Agent, Modell, Aufwand, Planmodus, Konto und Nutzung in einer einzigen Karte
-- Actions: Actions samt Eingaben direkt am Handy erstellen und bearbeiten
-- Reviews: neue Liste und PR-Diff mit Karten pro Datei; „Merge-Konflikte beheben“ ersetzt „Merge“, wenn ein Merge auf einen Konflikt trifft
-- Navigations-Badges sind Punkte: Inbox und Support bei Ungelesenem, Geräte während ein Lauf aktiv ist, Reviews solange ein PR offen ist
-- Steuerung: Pläne werden nicht mehr abgeschnitten oder doppelt angezeigt, und eine beendete Session schließt ihre Ansicht
-- Ein Lauf auf einem Offline-Gerät wird sofort abgelehnt statt still in die Warteschlange gestellt
+- Issue-Verknüpfungen: verknüpfe Issues als übergeordnet, Sub-Issue, blockiert, blockiert von, Duplikat oder verwandt direkt im Eigenschaften-Sheet; ein #EXP-12 in einer Beschreibung oder einem Kommentar verknüpft die beiden Issues von selbst
+- Kommentar-Threads: antworte unter einem Kommentar aus dem angedockten Editor; Threads bleiben eine Ebene tief, und ein Kommentar, den ein Agent über MCP geschrieben hat, sagt das in seiner Kopfzeile
+- Ein geführter erster Start: das Anlegen eines Teams führt dich durch das erste Board, das Einladen von Teamkollegen und das Einrichten von Geräten, in derselben Reihenfolge wie Web und Desktop
+- Team-Einstellungen: Eigentümer können Einladungslinks im Bereich „Members“ erstellen
+- Merge aus Action- und Chat-Läufen: ein Lauf, der einen Pull Request geöffnet hat, zeigt „Merge“ in seiner Steuerungsansicht, und Reviews listet diese Pull Requests unter „Agent runs“
+- Größere Bilder in Kommentaren: an einen Kommentar angehängte Bilder erscheinen in voller Breite und öffnen beim Tippen den Viewer
+- Ein ruhigerer Aktivitäts-Feed: Ereignisse stehen als eine gedämpfte Zeile mit Uhrzeit, Kommentare sitzen in einer einzigen Karte
+- Der Button „Subscribe“ ist weg: du folgst einem Issue automatisch, wenn du es erstellst, kommentierst, zugewiesen wirst oder erwähnt wirst
+- Steuerung: die Kontextleiste überdeckt das Transkript nicht mehr

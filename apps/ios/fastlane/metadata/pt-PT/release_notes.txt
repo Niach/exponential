@@ -1,17 +1,9 @@
-- Tabelas: escreva tabelas em issues e comentários, com alinhamento de colunas; edite células no telemóvel e mantenha premido para apagar uma tabela inteira
-- Orientação: escreva «/» para correr os comandos integrados do agente, como /compact e /clear, e veja o agente compactar o seu contexto em vez de adivinhar
-- Os comentários mostram as @mentions como etiquetas de membro em vez do endereço em bruto
-- Boards: cada board pode definir o seu próprio branch predefinido nas definições do board; as sessões de código começam a partir dele
-- Os diffs das Reviews deslizam na horizontal, com um cabeçalho compacto por ficheiro
-- Os boards vazios mostram um ícone, um título e uma dica
-- As folhas de definições, de ações e de início de código seguem mais de perto os hábitos da plataforma
-- Um aspeto de vidro renovado em listas, folhas e controlos
-- Todo e Backlog são agora uma única lista: tudo o que estava em Todo vive no Backlog
-- O editor mantém as suas linhas em branco intencionais, de forma idêntica em todas as plataformas
-- Os agentes correm sempre sem pedidos de permissão; o interruptor desapareceu
-- Um único seletor de agente: agente, modelo, esforço, modo de plano, conta e utilização num só cartão
-- Ações: crie e edite ações com as suas entradas diretamente no telemóvel
-- Reviews: nova lista e diff de PR com cartões por ficheiro; «Resolver conflitos de merge» substitui «Merge» quando um merge encontra um conflito
-- Os emblemas de navegação são pontos: Inbox e Suporte com não lidos, Dispositivos enquanto uma execução está ativa, Reviews enquanto uma PR está aberta
-- Orientação: os planos já não são cortados nem mostrados duas vezes, e uma sessão terminada fecha a sua vista
-- Iniciar uma execução numa máquina offline é recusado de imediato em vez de ficar silenciosamente em fila
+- Relações entre issues: ligue issues como pai, subissue, bloqueia, bloqueada por, duplicado ou relacionada a partir da folha de propriedades; escrever #EXP-12 numa descrição ou num comentário liga as duas issues sozinho
+- Comentários em fio: responda por baixo de um comentário a partir do editor fixo; os fios ficam por um nível, e um comentário publicado por um agente via MCP di-lo no seu cabeçalho
+- Um primeiro arranque guiado: criar uma equipa passa pelo primeiro board, pelos convites a colegas e pela configuração de dispositivos, pela mesma ordem que na web e no desktop
+- Definições da equipa: os proprietários podem criar ligações de convite na secção «Members»
+- Merge a partir de execuções de ações e de chat: uma execução que abriu uma pull request mostra «Merge» na sua vista de orientação, e as Reviews listam essas pull requests em «Agent runs»
+- Imagens maiores nos comentários: as imagens anexadas a um comentário aparecem em largura total e abrem o visualizador ao toque
+- Um fluxo de atividade mais calmo: os eventos ficam numa linha discreta com a hora, os comentários vivem num só cartão
+- O botão «Subscribe» foi retirado: segue uma issue automaticamente quando a cria, comenta, lhe é atribuída ou é mencionado
+- Orientação: a barra de contexto já não sobrepõe a transcrição

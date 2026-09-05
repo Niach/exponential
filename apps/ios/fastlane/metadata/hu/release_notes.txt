@@ -1,17 +1,9 @@
-- Táblázatok: írj táblázatokat a feladatokban és kommentekben, oszlopigazítással; a cellákat telefonon szerkesztheted, hosszú nyomással pedig törölheted az egész táblázatot
-- Irányítás: írj „/” jelet az agent beépített parancsaihoz, például /compact és /clear, és nézd, ahogy az agent tömöríti a kontextusát találgatás helyett
-- A kommentek a @mentions említéseket tagcímkeként mutatják a nyers cím helyett
-- Boardok: minden board saját alapértelmezett branchet állíthat be a board beállításaiban; a kódolási munkamenetek innen indulnak
-- A Reviews diffjei oldalra görgethetők, fájlonként tömör fejléccel
-- Az üres boardok ikont, címet és tippet mutatnak
-- A beállítások, a műveletek és a kódolásindítás lapjai jobban követik a platform szokásait
-- Felfrissített üveges megjelenés a listákban, lapokon és vezérlőkön
-- A Todo és a Backlog mostantól egy lista: minden, ami a Todóban volt, a Backlogban él
-- A szerkesztő megőrzi a szándékos üres sorokat, minden platformon azonosan
-- Az agentek mindig engedélykérdések nélkül futnak; a kapcsoló megszűnt
-- Egyetlen ügynökválasztó: ügynök, modell, erőfeszítés, tervmód, fiók és használat egy kártyán
-- Műveletek: hozz létre és szerkessz műveleteket a bemeneteikkel együtt közvetlenül a telefonodon
-- Reviews: új lista és PR-diff fájlonkénti kártyákkal; a „Merge-konfliktusok javítása” váltja a „Merge”-et, ha egy merge konfliktusba ütközik
-- A navigációs jelvények pontok: Beérkezett és Támogatás olvasatlannál, Eszközök amíg fut egy futtatás, Reviews amíg nyitva van egy PR
-- Irányítás: a tervek már nem vágódnak le és nem jelennek meg kétszer, a befejezett munkamenet pedig bezárja a nézetét
-- Egy offline gépen indított futtatást azonnal elutasítunk ahelyett, hogy csendben sorba állna
+- Feladatkapcsolatok: kösd össze a feladatokat szülőként, részfeladatként, blokkolóként, blokkoltként, duplikátumként vagy kapcsolódóként a tulajdonságlapon; ha #EXP-12 szerepel egy leírásban vagy kommentben, a két feladat magától összekapcsolódik
+- Kommentszálak: válaszolj egy komment alatt a dokkolt szerkesztőből; a szálak egy szint mélyek maradnak, és az a komment, amelyet egy agent MCP-n át írt, ezt jelzi a fejlécében
+- Vezetett első indulás: a csapat létrehozása végigvisz az első boardon, a csapattársak meghívásán és az eszközök beállításán, ugyanabban a sorrendben, mint a weben és az asztali appban
+- Csapatbeállítások: a tulajdonosok a „Members” szakaszban hozhatnak létre meghívó linkeket
+- Merge a művelet- és chatfuttatásokból: az a futtatás, amely pull requestet nyitott, a „Merge” gombot mutatja az irányítási nézetében, a Reviews pedig ezeket a pull requesteket az „Agent runs” alatt sorolja fel
+- Nagyobb képek a kommentekben: a kommenthez csatolt képek teljes szélességben látszanak, és koppintásra megnyílnak a nézegetőben
+- Csendesebb tevékenységfolyam: az események egy halvány sorban állnak időponttal, a kommentek egyetlen kártyán ülnek
+- A „Subscribe” gomb megszűnt: a feladatot automatikusan követed, ha létrehozod, kommenteled, hozzád rendelik vagy megemlítenek benne
+- Irányítás: a kontextussáv már nem takarja az átiratot

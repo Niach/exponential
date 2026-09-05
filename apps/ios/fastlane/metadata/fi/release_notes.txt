@@ -1,17 +1,9 @@
-- Taulukot: kirjoita taulukoita issueihin ja kommentteihin, sarakkeiden tasaus mukaan lukien; muokkaa soluja puhelimella ja poista koko taulukko pitkällä painalluksella
-- Ohjaus: kirjoita "/" ja aja agentin sisäänrakennetut komennot kuten /compact ja /clear, ja katso kun agentti tiivistää kontekstinsa arvailun sijaan
-- Kommentit näyttävät @mentions-maininnat jäsenmerkkeinä paljaan osoitteen sijaan
-- Boardit: jokainen board voi asettaa oman oletushaaransa board-asetuksissa; koodausistunnot lähtevät siitä
-- Reviews-diffit vierivät sivusuunnassa, ja jokaisella tiedostolla on tiivis otsikkorivi
-- Tyhjät boardit näyttävät kuvakkeen, otsikon ja vihjeen
-- Asetusten, toimintojen ja koodauksen aloituksen paneelit noudattavat alustan tapoja tarkemmin
-- Virkistetty lasimainen ulkoasu listoissa, paneeleissa ja säätimissä
-- Todo ja Backlog ovat nyt yksi lista: kaikki Todossa ollut on nyt Backlogissa
-- Editori säilyttää tarkoitukselliset tyhjät rivit samalla tavalla joka alustalla
-- Agentit ajetaan aina ilman lupakyselyitä; kytkin on poistettu
-- Yksi agenttivalitsin: agentti, malli, panostus, suunnitelmatila, tili ja käyttö yhdessä kortissa
-- Toiminnot: luo ja muokkaa toimintoja syötteineen suoraan puhelimella
-- Reviews: uusi lista ja PR-diff tiedostokohtaisilla korteilla; "Korjaa merge-konfliktit" korvaa "Merge"-painikkeen, kun merge osuu konfliktiin
-- Navigointimerkit ovat pisteitä: Saapuneet ja Tuki lukemattomista, Laitteet kun ajo on käynnissä, Reviews kun PR on auki
-- Ohjaus: suunnitelmia ei enää katkaista tai näytetä kahdesti, ja päättynyt istunto sulkee näkymänsä
-- Ajon käynnistys offline-koneella hylätään heti sen sijaan, että se jäisi hiljaa jonoon
+- Issue-yhteydet: liitä issueita toisiinsa ylätehtävänä, alitehtävänä, estävänä, estettynä, duplikaattina tai liittyvänä ominaisuuspaneelista; #EXP-12 kuvauksessa tai kommentissa yhdistää kaksi issueta itsestään
+- Kommenttiketjut: vastaa kommentin alle telakoidusta kirjoituskentästä; ketjut pysyvät yhden tason syvyisinä, ja MCP:n kautta agentin kirjoittama kommentti kertoo sen otsikossaan
+- Ohjattu ensimmäinen käynnistys: tiimin luominen vie sinut ensimmäisen boardin, tiimikavereiden kutsumisen ja laitteiden käyttöönoton läpi, samassa järjestyksessä kuin webissä ja työpöydällä
+- Tiimin asetukset: omistajat voivat luoda kutsulinkkejä "Members"-osiosta
+- Merge toiminto- ja chat-ajoista: ajo, joka avasi pull requestin, näyttää "Merge"-painikkeen ohjausnäkymässään, ja Reviews listaa nämä pull requestit "Agent runs" -kohtaan
+- Isommat kommenttikuvat: kommenttiin liitetyt kuvat näkyvät täydessä leveydessä ja avautuvat napautuksella katseluun
+- Rauhallisempi tapahtumavirta: tapahtumat ovat yksi vaimennettu rivi kellonaikoineen, kommentit ovat yhdessä kortissa
+- "Subscribe"-painike poistui: seuraat issueta automaattisesti, kun luot sen, kommentoit, saat sen itsellesi tai sinut mainitaan
+- Ohjaus: kontekstipalkki ei enää peitä keskustelunäkymää

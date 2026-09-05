@@ -1,17 +1,9 @@
-- Tableaux : écrivez des tableaux dans les issues et les commentaires, avec alignement des colonnes ; modifiez les cellules sur votre téléphone et appuyez longuement pour supprimer un tableau entier
-- Pilotage : tapez « / » pour lancer les commandes intégrées de l'agent comme /compact et /clear, et voyez l'agent compacter son contexte au lieu de deviner
-- Les commentaires affichent les @mentions sous forme de pastilles de membre plutôt que l'adresse brute
-- Boards : chaque board peut définir sa propre branche par défaut dans les réglages du board ; les sessions de code démarrent depuis elle
-- Les diffs de Reviews défilent latéralement, avec un en-tête compact par fichier
-- Les boards vides affichent une icône, un titre et une indication
-- Les feuilles de réglages, d'actions et de démarrage de code suivent de plus près les usages de la plateforme
-- Un look verre rafraîchi dans les listes, les feuilles et les contrôles
-- Todo et Backlog ne font plus qu'une liste : tout ce qui était dans Todo se trouve dans le Backlog
-- L'éditeur conserve vos lignes vides intentionnelles, à l'identique sur chaque plateforme
-- Les agents s'exécutent toujours sans demandes d'autorisation ; le réglage a disparu
-- Un seul sélecteur d'agent : agent, modèle, effort, mode plan, compte et utilisation dans une seule carte
-- Actions : créez et modifiez des actions et leurs entrées directement sur votre téléphone
-- Reviews : nouvelle liste et diff de PR avec des cartes par fichier ; « Corriger les conflits de merge » remplace « Merge » quand un merge rencontre un conflit
-- Les badges de navigation sont des points : Inbox et Support pour les non-lus, Appareils tant qu'une exécution est en cours, Reviews tant qu'une PR est ouverte
-- Pilotage : les plans ne sont plus tronqués ni affichés deux fois, et une session terminée ferme sa vue
-- Lancer une exécution sur une machine hors ligne est refusé immédiatement au lieu d'être mis en file en silence
+- Relations entre issues : liez des issues comme parent, sous-issue, bloque, bloquée par, doublon ou liée depuis la feuille de propriétés ; taper #EXP-12 dans une description ou un commentaire lie les deux issues tout seul
+- Commentaires en fil : répondez sous un commentaire depuis le champ ancré ; les fils restent sur un seul niveau, et un commentaire posté par un agent via MCP l'indique dans son en-tête
+- Un premier lancement guidé : créer une équipe vous fait passer par le premier board, les invitations de coéquipiers et la configuration des appareils, dans le même ordre que sur le web et le bureau
+- Réglages de l'équipe : les propriétaires peuvent créer des liens d'invitation depuis la section « Members »
+- Merge depuis les exécutions d'actions et de chat : une exécution qui a ouvert une pull request affiche « Merge » dans sa vue de pilotage, et Reviews liste ces pull requests sous « Agent runs »
+- Images de commentaires plus grandes : les images jointes à un commentaire s'affichent sur toute la largeur et ouvrent la visionneuse d'une touche
+- Un flux d'activité plus calme : les événements tiennent sur une ligne discrète avec une heure, les commentaires restent dans une seule carte
+- Le bouton « Subscribe » disparaît : vous suivez une issue automatiquement quand vous la créez, la commentez, qu'elle vous est assignée ou que vous y êtes mentionné
+- Pilotage : la barre de contexte ne recouvre plus la transcription

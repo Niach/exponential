@@ -89,9 +89,46 @@ const state = {
   // EXP-741: what the stored comment row (the reply parent lookup) hangs off.
   storedParentId: null as string | null,
   storedIssueId: ISSUE_ID,
+  // EXP-741: the reply parent vanished between the client's read and the
+  // insert (the lookup runs inside the tx, so this must be a NOT_FOUND).
+  parentMissing: false,
+  // Every `where` the tx saw, so a test can prove WHICH rows a delete names.
+  selectWheres: [] as { table: unknown; condition: unknown }[],
+  deleteWheres: [] as { table: unknown; condition: unknown }[],
+}
+
+/**
+ * The values a drizzle condition binds, in order — `eq(comments.id, x)` and
+ * `inArray(attachments.commentId, ids)` both land here. EXP-741: what the
+ * delete path names is the whole invariant (the named row and nothing else),
+ * and the fake tx ignores conditions, so the test has to read them.
+ */
+function boundParams(condition: unknown): unknown[] {
+  const found: unknown[] = []
+  const walk = (node: unknown) => {
+    if (!node || typeof node !== `object`) return
+    if (Array.isArray(node)) {
+      node.forEach(walk)
+      return
+    }
+    const record = node as {
+      constructor?: { name?: string }
+      value?: unknown
+      queryChunks?: unknown
+    }
+    if (record.constructor?.name === `Param`) {
+      found.push(record.value)
+      return
+    }
+    if (Array.isArray(record.queryChunks)) record.queryChunks.forEach(walk)
+  }
+  walk(condition)
+  return found
 }
 
 function resetMarkdownState() {
+  state.selectWheres = []
+  state.deleteWheres = []
   state.issueRows = []
   state.commentRows = []
   state.issueUpdates = []
@@ -104,10 +141,22 @@ const nextSelectRows = () =>
     : [{ body: state.previousBody }]
 
 // The rewrite scan reads `id` + text from issues and comments; every other
-// tx-scope select rides the FIFO queue (the EXP-741 replies scan also names
-// `parentId`, which the rewrite scan never does).
+// tx-scope select rides the FIFO queue. EXP-741: the reply-parent lookup moved
+// INTO the insert tx and is the only comments select naming `issueId` and
+// `parentId` together, so it gets its own branch.
 function selectRowsFor(fields: Record<string, unknown>, table: unknown) {
   if (table === issuesTable) return state.issueRows
+  if (table === commentsTable && `parentId` in fields && `issueId` in fields) {
+    return state.parentMissing
+      ? []
+      : [
+          {
+            id: COMMENT_ID,
+            issueId: state.storedIssueId,
+            parentId: state.storedParentId,
+          },
+        ]
+  }
   if (table === commentsTable && `id` in fields && !(`parentId` in fields)) {
     return state.commentRows
   }
@@ -118,7 +167,8 @@ const fakeTx = {
   execute: async () => ({ rows: [{ txid: `42` }] }),
   select: (fields: Record<string, unknown> = {}) => ({
     from: (table?: unknown) => ({
-      where: () => {
+      where: (condition?: unknown) => {
+        state.selectWheres.push({ table, condition })
         // Drizzle builders are awaitable at every stage: `.where()` is awaited
         // directly by the attachment queries and `.limit()` by the body read.
         const rows = selectRowsFor(fields, table)
@@ -144,7 +194,11 @@ const fakeTx = {
       returning: async () => [{ id: COMMENT_ID, ...values }],
     }),
   }),
-  delete: () => ({ where: async () => undefined }),
+  delete: (table?: unknown) => ({
+    where: async (condition?: unknown) => {
+      state.deleteWheres.push({ table, condition })
+    },
+  }),
 }
 
 const fakeDb = {
@@ -310,9 +364,8 @@ describe(`comments are author-only`, () => {
 
   it(`still requires the author to be a current team member`, async () => {
     state.authorId = `actor`
-    // Delete's replies scan and linked-attachments collection pass find
-    // nothing.
-    state.selectQueue = [[], []]
+    // Delete's linked-attachments collection pass finds nothing.
+    state.selectQueue = [[]]
     await caller.delete({ id: COMMENT_ID })
 
     expect(h.resolveTeamAccess).toHaveBeenCalledWith(`actor`, `ws-1`, `comment`)
@@ -468,10 +521,8 @@ describe(`comment attachments (EXP-554)`, () => {
     expect(h.deleteStorageObjects).toHaveBeenCalledWith([`key-b`])
   })
 
-  it(`delete cascades linked attachments and reclaims their blobs`, async () => {
+  it(`delete hard-deletes its own linked attachments and reclaims their blobs`, async () => {
     state.selectQueue = [
-      // EXP-741: the replies scan first (none here), then the linked rows.
-      [],
       [
         { id: ATTACHMENT_A, filename: `a.png`, storageKey: `key-a` },
         { id: ATTACHMENT_B, filename: `b.png`, storageKey: `key-b` },
@@ -525,9 +576,8 @@ describe(`comment attachments (EXP-554)`, () => {
     expect(h.deleteStorageObjects).toHaveBeenCalledWith([`key-b`])
   })
 
-  it(`delete cascade rewrites inline references to the placeholder`, async () => {
+  it(`delete rewrites inline references to the placeholder`, async () => {
     state.selectQueue = [
-      [],
       [{ id: ATTACHMENT_A, filename: `cascade.png`, storageKey: `key-a` }],
     ]
     state.issueRows = [
@@ -547,7 +597,6 @@ describe(`comment attachments (EXP-554)`, () => {
 
   it(`leaves a body the exact markdown parser does not match alone`, async () => {
     state.selectQueue = [
-      [],
       [{ id: ATTACHMENT_A, filename: `cascade.png`, storageKey: `key-a` }],
     ]
     // Matched by the LIKE prefilter (bare id in the text) but not by the
@@ -605,9 +654,9 @@ describe(`comment #IDENT references (EXP-736)`, () => {
 
   it(`delete takes the dying body's references with it`, async () => {
     state.previousBody = `fixes #EXP-2`
-    // The replies scan and the linked-attachments collection pass find
-    // nothing; the body read falls through to the stored comment.
-    state.selectQueue = [[], []]
+    // The linked-attachments collection pass finds nothing; the body read
+    // falls through to the stored comment.
+    state.selectQueue = [[]]
 
     await caller.delete({ id: COMMENT_ID })
 
@@ -635,6 +684,7 @@ describe(`comment threads (EXP-741)`, () => {
     state.selectQueue = []
     state.storedParentId = null
     state.storedIssueId = ISSUE_ID
+    state.parentMissing = false
     resetMarkdownState()
     h.getIssueTeamContext.mockImplementation(async () => ({
       issueId: ISSUE_ID,
@@ -694,22 +744,64 @@ describe(`comment threads (EXP-741)`, () => {
     expect(spoofed.comment).toMatchObject({ source: `user` })
   })
 
-  it(`deleting a root takes its replies' attachments and references along`, async () => {
+  it(`a vanished parent is a NOT_FOUND, not an FK failure`, async () => {
+    // The lookup runs INSIDE the insert tx (a parent deleted between the
+    // client's read and the insert must not surface as a 500).
+    state.parentMissing = true
+    await expect(
+      caller.create({ issueId: ISSUE_ID, body: `x`, parentId: PARENT_ID })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+
+  // EXP-741 + EXP-398: `comments.parent_id` is ON DELETE SET NULL, so deleting
+  // a root leaves every reply standing (it flattens to a top-level card via
+  // threadComments) — nobody's words, attachments or references are destroyed
+  // by someone else's delete. The delete path therefore names the ONE row.
+  it(`deleting a root leaves its replies and their attachments alone`, async () => {
     state.previousBody = `root #EXP-1`
     state.selectQueue = [
-      // The replies scan, then the linked rows of root + replies.
-      [{ id: REPLY_ID, body: `reply #EXP-2` }],
+      // The linked rows: the ROOT's own attachment only.
       [{ id: ATTACHMENT_R, filename: `r.png`, storageKey: `key-r` }],
     ]
 
     await caller.delete({ id: COMMENT_ID })
 
+    // The attachment scan + hard delete are scoped to the dying comment, so a
+    // reply's attachment is never collected and its blob never reclaimed.
+    const attachmentScan = state.selectWheres.find(
+      (entry) => entry.table === attachmentsTable
+    )
+    expect(boundParams(attachmentScan?.condition)).toEqual([COMMENT_ID])
+    expect(
+      state.deleteWheres.map((entry) => [
+        entry.table === attachmentsTable ? `attachments` : `comments`,
+        boundParams(entry.condition),
+      ])
+    ).toEqual([
+      [`attachments`, [COMMENT_ID]],
+      [`comments`, [COMMENT_ID]],
+    ])
     expect(h.deleteStorageObjects).toHaveBeenCalledWith([`key-r`])
+
+    // Only the dying body is a previous→empty reference delta; the reply's
+    // `#IDENT` rows survive with the reply.
     expect(
       h.syncReferenceRelations.mock.calls.map((call) => call[1])
     ).toMatchObject([
-      { previousText: `root #EXP-1`, nextText: ``, excludeCommentId: COMMENT_ID },
-      { previousText: `reply #EXP-2`, nextText: ``, excludeCommentId: REPLY_ID },
+      {
+        previousText: `root #EXP-1`,
+        nextText: ``,
+        excludeCommentId: COMMENT_ID,
+      },
     ])
+    expect(h.syncReferenceRelations).toHaveBeenCalledTimes(1)
+    // Nothing ever looks up the replies: there is no thread-wide pass left.
+    expect(
+      state.selectWheres.some(
+        (entry) =>
+          entry.table === commentsTable &&
+          boundParams(entry.condition).includes(REPLY_ID)
+      )
+    ).toBe(false)
   })
 })

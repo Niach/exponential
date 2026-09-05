@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import type { SteerTicketClaims } from "@exp/steer-ticket"
 import { Hub, type RelaySocket } from "./hub"
 import {
@@ -1028,6 +1028,50 @@ describe(`activity event kinds`, () => {
     activity(hub, pub, { kind: `compaction`, phase: `started`, trigger: `magic` })
     activity(hub, pub, { kind: `unknown_kind`, text: `x` })
     expect(member.events().length).toBe(0)
+  })
+
+  test(`a rejected frame warns once per socket per window`, () => {
+    // A dropped frame used to vanish without a trace, so a publisher/relay
+    // version skew (EXP-730 made `question.id` required) was invisible from
+    // the relay side. The line names the role, the frame `t` and the failing
+    // path — never the frame's contents.
+    const warn = spyOn(console, `warn`).mockImplementation(() => {})
+    try {
+      const hub = new Hub()
+      const pub = connectPublisher(hub)
+      const member = connectMember(hub)
+
+      activity(hub, pub, {
+        kind: `question`,
+        text: `secret question`,
+        options: [{ label: `A`, key: `1` }],
+      })
+      expect(member.events().length).toBe(0)
+      expect(warn).toHaveBeenCalledTimes(1)
+      const line = String(warn.mock.calls[0]![0])
+      expect(line).toContain(`publisher`)
+      expect(line).toContain(`t=activity`)
+      expect(line).toContain(`event.id`)
+      expect(line).not.toContain(`secret question`)
+
+      // Rate limited per socket: further rejects on the same one stay quiet.
+      activity(hub, pub, {
+        kind: `question`,
+        text: `secret question`,
+        options: [{ label: `A`, key: `1` }],
+      })
+      hub.onMessage(pub, `{"t":`)
+      expect(warn).toHaveBeenCalledTimes(1)
+
+      // A different socket gets its own line.
+      hub.onMessage(member, JSON.stringify({ t: `answer` }))
+      expect(warn).toHaveBeenCalledTimes(2)
+      expect(String(warn.mock.calls[1]![0])).toContain(`viewer`)
+
+      hub.destroy()
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
 

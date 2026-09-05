@@ -73,12 +73,20 @@ export function canonicalizeRelation(
   return { issueId: from, relatedIssueId: to, type }
 }
 
-/** The per-side display label, byte-locked against contract.json. */
+/**
+ * The per-side display label, byte-locked against contract.json.
+ *
+ * A type the table does not know (a fifth relation type from a NEWER server
+ * reaching an old tab, since rows arrive over Electric and are never version
+ * gated) degrades to the symmetric `related` phrasing — the same
+ * "never drop, never crash" rule the unknown status category follows. Reading
+ * `.forward` off `undefined` would throw INSIDE the timeline render.
+ */
 export function relationLabel(
   type: IssueRelationType,
   direction: RelationDirection
 ): string {
-  const labels = ISSUE_RELATION_LABELS[type]
+  const labels = ISSUE_RELATION_LABELS[type] ?? ISSUE_RELATION_LABELS.related
   return direction === `forward` ? labels.forward : labels.inverse
 }
 
@@ -104,7 +112,10 @@ export function relationEventParts(
       ? payload.relatedIdentifier
       : null
 
-  if (!type || type === `related`) {
+  // Unknown types read as the symmetric addition/removal too (see
+  // relationLabel): "added related issue EXP-3" is wrong-ish but harmless,
+  // where a thrown label is a blank timeline.
+  if (!type || !(type in ISSUE_RELATION_LABELS) || type === `related`) {
     return {
       prefix: kind === `relation_added` ? `added related issue` : `removed related issue`,
       identifier,
@@ -369,7 +380,9 @@ export async function syncDuplicateMirror(
  *   longer appears ANYWHERE on the issue — the new text plus every other slot
  *   (description + comments). `excludeCommentId` names the comment slot this
  *   call is replacing; its ABSENCE means the call is replacing the
- *   DESCRIPTION, so the stored description is skipped instead.
+ *   DESCRIPTION, so the stored description is skipped instead. And because the
+ *   canonical row is SHARED by the pair, the OTHER issue's slots are scanned
+ *   too: a row survives while either side still names the other.
  * - only `source='reference'` rows are removed. An explicit pick stays.
  */
 export async function syncReferenceRelations(
@@ -442,12 +455,59 @@ export async function syncReferenceRelations(
   )
   if (orphaned.length === 0) return
 
-  const orphanRows = await tx
-    .select({ id: issues.id, identifier: issues.identifier })
+  // ONE query for both halves of the far-side scan below: the editing issue's
+  // own identifier, plus every orphan candidate WITH its description.
+  const scanRows = await tx
+    .select({
+      id: issues.id,
+      identifier: issues.identifier,
+      description: issues.description,
+    })
     .from(issues)
-    .where(and(eq(issues.teamId, teamId), inArray(issues.identifier, orphaned)))
-  for (const row of orphanRows) {
-    if (row.id === issueId) continue
+    .where(
+      and(
+        eq(issues.teamId, teamId),
+        or(inArray(issues.identifier, orphaned), eq(issues.id, issueId))
+      )
+    )
+  const selfIdentifier = scanRows.find((row) => row.id === issueId)?.identifier
+  const candidates = scanRows.filter((row) => row.id !== issueId)
+  if (candidates.length === 0) return
+
+  // The row is SHARED. A `related` row is canonical (issue_id < related_issue_id),
+  // so `#B` in A's comment and `#A` in B's description resolve to the SAME row —
+  // dropping it because A stopped naming B would silently kill a link B still
+  // writes. So scan the OTHER side too (its description came back above, its
+  // comments in one batched read) and delete only when NEITHER issue names the
+  // other any more. Same token parser on both sides, so the two directions can
+  // never disagree about what counts as a reference.
+  const farTexts = new Map<string, string[]>(
+    candidates.map((row) => [row.id, [row.description ?? ``]])
+  )
+  if (selfIdentifier) {
+    const farComments = await tx
+      .select({ issueId: comments.issueId, body: comments.body })
+      .from(comments)
+      .where(
+        inArray(
+          comments.issueId,
+          candidates.map((row) => row.id)
+        )
+      )
+    for (const row of farComments) {
+      farTexts.get(row.issueId)?.push(row.body)
+    }
+  }
+
+  for (const row of candidates) {
+    if (
+      selfIdentifier &&
+      (farTexts.get(row.id) ?? []).some((text) =>
+        extractIssueRefs(text).includes(selfIdentifier)
+      )
+    ) {
+      continue
+    }
     const canonical = canonicalizeRelation(issueId, row.id, `related`)
     await deleteRelationInTx(
       tx,

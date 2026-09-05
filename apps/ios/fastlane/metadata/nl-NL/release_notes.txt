@@ -1,17 +1,9 @@
-- Tabellen: schrijf tabellen in issues en reacties, met kolomuitlijning; bewerk cellen op je telefoon en houd lang ingedrukt om een hele tabel te verwijderen
-- Sturen: typ "/" om de ingebouwde commando's van de agent te draaien, zoals /compact en /clear, en zie hoe de agent zijn context comprimeert in plaats van te gokken
-- Reacties tonen @mentions als ledenchips in plaats van het kale adres
-- Boards: elk board kan in de board-instellingen zijn eigen standaardbranch instellen; codesessies starten daarvandaan
-- Review-diffs scrollen zijwaarts, met een compacte koptekst per bestand
-- Lege boards tonen een icoon, een titel en een hint
-- Sheets voor instellingen, acties en het starten van coderen volgen de platformconventies beter
-- Een opgefriste glaslook in lijsten, sheets en bedieningselementen
-- Todo en Backlog zijn nu één lijst: alles wat in Todo stond, staat nu in Backlog
-- De editor behoudt je bewuste lege regels, identiek op elk platform
-- Agents draaien altijd zonder toestemmingsvragen; de schakelaar is weg
-- Eén agentkiezer: agent, model, inspanning, planmodus, account en gebruik in één kaart
-- Acties: maak en bewerk acties met hun invoer rechtstreeks op je telefoon
-- Reviews: nieuwe lijst en PR-diff met kaarten per bestand; "Mergeconflicten oplossen" vervangt "Merge" wanneer een merge op een conflict stuit
-- Navigatiebadges zijn stippen: Inbox en Support bij ongelezen, Apparaten zolang een run actief is, Reviews zolang een PR open is
-- Sturen: plannen worden niet meer afgekapt of dubbel getoond, en een afgeronde sessie sluit zijn weergave
-- Een run starten op een offline machine wordt direct geweigerd in plaats van stil in de wachtrij gezet
+- Relaties tussen issues: koppel issues als bovenliggend, sub-issue, blokkeert, geblokkeerd door, duplicaat of gerelateerd vanuit het eigenschappenblad; #EXP-12 typen in een beschrijving of reactie koppelt de twee issues vanzelf
+- Reacties in threads: reageer onder een reactie vanuit het vastgezette invoerveld; threads blijven één niveau diep, en een reactie die een agent via MCP plaatste, zegt dat in zijn koptekst
+- Een begeleide eerste start: een team aanmaken loodst je langs het eerste board, het uitnodigen van teamgenoten en het instellen van apparaten, in dezelfde volgorde als web en desktop
+- Teaminstellingen: eigenaren kunnen uitnodigingslinks maken in de sectie "Members"
+- Merge vanuit actie- en chatruns: een run die een pull request heeft geopend, toont "Merge" in zijn stuurweergave, en Reviews toont die pull requests onder "Agent runs"
+- Grotere afbeeldingen in reacties: afbeeldingen bij een reactie tonen op volle breedte en openen bij een tik de viewer
+- Een rustiger activiteitenfeed: gebeurtenissen staan als één gedempte regel met een tijd, reacties zitten in één kaart
+- De knop "Subscribe" is weg: je volgt een issue automatisch wanneer je het aanmaakt, erop reageert, het toegewezen krijgt of erin genoemd wordt
+- Sturen: de contextbalk overlapt het transcript niet meer

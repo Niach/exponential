@@ -1,17 +1,9 @@
-- Tabelle: scrivi tabelle nelle issue e nei commenti, con allineamento delle colonne; modifica le celle dal telefono e tieni premuto per eliminare un'intera tabella
-- Guida: digita «/» per lanciare i comandi integrati dell'agente come /compact e /clear, e guarda l'agente compattare il proprio contesto invece di tirare a indovinare
-- I commenti mostrano le @mentions come chip del membro invece dell'indirizzo grezzo
-- Board: ogni board può impostare il proprio branch predefinito nelle impostazioni della board; le sessioni di coding partono da lì
-- I diff di Reviews scorrono in orizzontale, con un'intestazione compatta per file
-- Le board vuote mostrano un'icona, un titolo e un suggerimento
-- I fogli di impostazioni, azioni e avvio del coding seguono più da vicino le convenzioni della piattaforma
-- Un look vetro rinnovato in liste, fogli e controlli
-- Todo e Backlog ora sono un'unica lista: tutto ciò che era in Todo vive nel Backlog
-- L'editor conserva le tue righe vuote intenzionali, identiche su ogni piattaforma
-- Gli agenti vengono sempre eseguiti senza richieste di autorizzazione; l'interruttore non c'è più
-- Un unico selettore di agente: agente, modello, impegno, modalità piano, account e utilizzo in una sola scheda
-- Azioni: crea e modifica azioni con i loro input direttamente dal telefono
-- Reviews: nuova lista e diff della PR con schede per file; «Risolvi conflitti di merge» sostituisce «Merge» quando un merge incontra un conflitto
-- I badge di navigazione sono punti: Inbox e Supporto con non letti, Dispositivi mentre un'esecuzione è attiva, Reviews mentre una PR è aperta
-- Guida: i piani non vengono più tagliati o mostrati due volte, e una sessione terminata chiude la sua vista
-- Avviare un'esecuzione su una macchina offline viene rifiutato subito invece di essere messo in coda in silenzio
+- Relazioni tra issue: collega le issue come padre, sotto-issue, blocca, bloccata da, duplicato o correlata dal foglio delle proprietà; scrivere #EXP-12 in una descrizione o in un commento collega le due issue da solo
+- Commenti in thread: rispondi sotto un commento dall'editor agganciato; i thread restano di un solo livello, e un commento pubblicato da un agente via MCP lo dichiara nella sua intestazione
+- Un primo avvio guidato: creare un team ti porta attraverso la prima board, l'invito dei compagni di squadra e la configurazione dei dispositivi, nello stesso ordine di web e desktop
+- Impostazioni del team: i proprietari possono creare link di invito dalla sezione «Members»
+- Merge dalle esecuzioni di azioni e chat: un'esecuzione che ha aperto una pull request mostra «Merge» nella sua vista di guida, e Reviews elenca quelle pull request sotto «Agent runs»
+- Immagini dei commenti più grandi: le immagini allegate a un commento appaiono a tutta larghezza e aprono il visualizzatore al tocco
+- Un feed di attività più tranquillo: gli eventi stanno su una sola riga attenuata con l'ora, i commenti vivono in un'unica scheda
+- Il pulsante «Subscribe» va in pensione: segui un'issue automaticamente quando la crei, la commenti, ti viene assegnata o vieni menzionato
+- Guida: la barra del contesto non copre più la trascrizione

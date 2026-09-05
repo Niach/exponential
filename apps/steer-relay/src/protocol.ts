@@ -375,3 +375,31 @@ export function parseClientFrame(raw: string): ClientFrame | null {
   const parsed = clientFrame.safeParse(json)
   return parsed.success ? parsed.data : null
 }
+
+/** Why a frame failed [`parseClientFrame`], as LOG-SAFE fragments: the frame's
+ * own `t` (sanitized, when it is a string at all) and the FIRST zod issue's
+ * path + code. Never a value out of the frame — the activity channel is
+ * scrubbed and `data`/`text`/`event` contents must never reach the relay log,
+ * so only structural facts come back. Computed on the reject path only (it
+ * re-parses), and rate-limited by the caller. */
+export function describeClientFrameRejection(raw: string): {
+  t: string | null
+  issue: string
+} {
+  let json: unknown
+  try {
+    json = JSON.parse(raw)
+  } catch {
+    return { t: null, issue: `not_json` }
+  }
+  const rawT = (json as { t?: unknown } | null)?.t
+  // A discriminator is a short keyword; anything else is hostile input, so it
+  // is clipped and stripped of everything that could forge a log line.
+  const t =
+    typeof rawT === `string` ? rawT.slice(0, 32).replace(/[^\w-]/g, `?`) : null
+  const parsed = clientFrame.safeParse(json)
+  if (parsed.success) return { t, issue: `none` }
+  const first = parsed.error.issues[0]
+  const path = first?.path.join(`.`)
+  return { t, issue: `${path || `<root>`}: ${first?.code ?? `invalid`}` }
+}

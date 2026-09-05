@@ -38,7 +38,10 @@ struct IssueRelationsSection: View {
     }
 
     private func row(_ relation: IssueRelationRow) -> some View {
-        let status = IssueStatus.from(relation.other.status)
+        // The counterpart's status comes RESOLVED from the view model (EXP-314):
+        // a custom status has no builtin anchor to draw, so reading the enum
+        // here would show the wrong glyph and color.
+        let status = relation.otherStatus
         return HStack(spacing: 10) {
             AppIcon(status.iconName, size: AppIcon.Size.small)
                 .foregroundStyle(status.color)

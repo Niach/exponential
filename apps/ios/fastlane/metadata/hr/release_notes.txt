@@ -1,17 +1,9 @@
-- Tablice: pišite tablice u zadacima i komentarima, uz poravnanje stupaca; ćelije uredite na telefonu, a dugim pritiskom obrišite cijelu tablicu
-- Upravljanje: upišite „/“ za ugrađene naredbe agenta poput /compact i /clear te gledajte kako agent sažima svoj kontekst umjesto da nagađa
-- Komentari prikazuju @mentions kao pločice članova umjesto gole adrese
-- Boardovi: svaki board može u postavkama boarda postaviti vlastitu zadanu granu; sesije kodiranja kreću od nje
-- Diffovi u Reviews klize bočno, uz kompaktno zaglavlje po datoteci
-- Prazni boardovi prikazuju ikonu, naslov i savjet
-- Listovi postavki, akcija i pokretanja kodiranja bliže prate konvencije platforme
-- Osvježen stakleni izgled u popisima, listovima i kontrolama
-- Todo i Backlog sada su jedna lista: sve iz Todo sada je u Backlogu
-- Uređivač čuva vaše namjerne prazne retke, identično na svakoj platformi
-- Agenti se uvijek izvode bez upita za dozvole; prekidač je uklonjen
-- Jedan odabir agenta: agent, model, trud, način plana, račun i potrošnja na jednoj kartici
-- Akcije: stvarajte i uređujte akcije s njihovim ulazima izravno na telefonu
-- Reviews: novi popis i diff PR-a s karticama po datoteci; „Riješi merge konflikte“ zamjenjuje „Merge“ kad merge naiđe na konflikt
-- Navigacijske oznake su točke: Inbox i Podrška kod nepročitanog, Uređaji dok traje izvođenje, Reviews dok je PR otvoren
-- Upravljanje: planovi se više ne režu niti prikazuju dvaput, a završena sesija zatvara svoj prikaz
-- Pokretanje na stroju koji je offline odbija se odmah umjesto da se tiho stavi u red
+- Veze među zadacima: povežite zadatke kao nadređeni, podzadatak, blokira, blokiran, duplikat ili povezan iz lista svojstava; upisivanje #EXP-12 u opis ili komentar samo poveže dva zadatka
+- Niti komentara: odgovorite ispod komentara iz usidrenog uređivača; niti ostaju na jednoj razini, a komentar koji je agent objavio preko MCP-a to navodi u svom zaglavlju
+- Vođeno prvo pokretanje: stvaranje tima vodi vas kroz prvi board, pozivanje suradnika i postavljanje uređaja, istim redoslijedom kao na webu i desktopu
+- Postavke tima: vlasnici mogu izraditi pozivne poveznice u odjeljku „Members“
+- Merge iz izvođenja akcija i chata: izvođenje koje je otvorilo pull request prikazuje „Merge“ u svom prikazu upravljanja, a Reviews te pull requestove navodi pod „Agent runs“
+- Veće slike u komentarima: slike priložene komentaru prikazuju se punom širinom i dodirom se otvaraju u pregledniku
+- Mirniji pregled aktivnosti: događaji stoje u jednom prigušenom retku s vremenom, komentari su u jednoj kartici
+- Gumb „Subscribe“ je uklonjen: zadatak pratite automatski kad ga stvorite, komentirate, dobijete dodijeljen ili ste u njemu spomenuti
+- Upravljanje: traka konteksta više ne prekriva prijepis

@@ -1,17 +1,9 @@
-- Tabele: pisz tabele w zadaniach i komentarzach, z wyrównaniem kolumn; komórki edytujesz w telefonie, a długie przytrzymanie usuwa całą tabelę
-- Sterowanie: wpisz „/”, aby uruchomić wbudowane polecenia agenta, takie jak /compact i /clear, i patrz, jak agent zagęszcza swój kontekst zamiast zgadywać
-- Komentarze pokazują @mentions jako oznaczenia członków zamiast surowego adresu
-- Tablice: każda tablica może ustawić własną gałąź domyślną w ustawieniach tablicy; sesje kodowania startują z niej
-- Diffy w Reviews przewijają się na boki, z kompaktowym nagłówkiem przy każdym pliku
-- Puste tablice pokazują ikonę, tytuł i podpowiedź
-- Arkusze ustawień, akcji i startu kodowania bliżej trzymają się zwyczajów platformy
-- Odświeżony szklany wygląd na listach, arkuszach i kontrolkach
-- Todo i Backlog to teraz jedna lista: wszystko z Todo znajduje się w Backlogu
-- Edytor zachowuje celowe puste wiersze, identycznie na każdej platformie
-- Agenci zawsze działają bez próśb o uprawnienia; przełącznik zniknął
-- Jeden wybór agenta: agent, model, wysiłek, tryb planu, konto i użycie na jednej karcie
-- Akcje: twórz i edytuj akcje wraz z ich wejściami bezpośrednio na telefonie
-- Reviews: nowa lista i diff PR z kartami per plik; „Rozwiąż konflikty merge” zastępuje „Merge”, gdy merge napotka konflikt
-- Plakietki nawigacji to kropki: Skrzynka i Wsparcie przy nieprzeczytanych, Urządzenia gdy trwa uruchomienie, Reviews gdy PR jest otwarty
-- Sterowanie: plany nie są już ucinane ani pokazywane dwukrotnie, a zakończona sesja zamyka swój widok
-- Uruchomienie na maszynie offline jest odrzucane od razu zamiast cicho trafiać do kolejki
+- Relacje między zadaniami: powiąż zadania jako nadrzędne, podzadanie, blokuje, zablokowane przez, duplikat lub powiązane z panelu właściwości; wpisanie #EXP-12 w opisie lub komentarzu samo łączy oba zadania
+- Wątki komentarzy: odpowiadaj pod komentarzem z zadokowanego pola pisania; wątki mają tylko jeden poziom, a komentarz, który agent wysłał przez MCP, mówi o tym w swoim nagłówku
+- Prowadzony pierwszy start: utworzenie zespołu przeprowadza przez pierwszą tablicę, zapraszanie współpracowników i konfigurację urządzeń, w tej samej kolejności co w wersji web i desktop
+- Ustawienia zespołu: właściciele tworzą linki z zaproszeniem w sekcji „Members”
+- Merge z uruchomień akcji i czatu: uruchomienie, które otworzyło pull request, pokazuje „Merge” w swoim widoku sterowania, a Reviews wypisuje te pull requesty pod „Agent runs”
+- Większe obrazy w komentarzach: obrazy dołączone do komentarza pokazują się na pełnej szerokości, a dotknięcie otwiera podgląd
+- Spokojniejszy strumień aktywności: zdarzenia to jeden przygaszony wiersz z godziną, komentarze siedzą w jednej karcie
+- Przycisk „Subscribe” znika: zadanie obserwujesz automatycznie, gdy je utworzysz, skomentujesz, dostaniesz przypisane lub zostaniesz w nim wspomniany
+- Sterowanie: pasek kontekstu już nie zasłania zapisu rozmowy

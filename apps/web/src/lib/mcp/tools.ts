@@ -548,7 +548,14 @@ export function registerExponentialTools(
   // EXP-734: the chore path also hands over the PR it just opened — the
   // session row is the ONLY home for an issue-less PR, so `pr_url/pr_number/
   // pr_state` land next to the branch; issue and batch callers pass nothing
-  // (their issue rows carry the PR).
+  // (their issue rows carry the PR). That stamp is ISSUE-LESS-ONLY, on the
+  // caller's row exactly as `applySessionPrState` (pr-sync.ts) reads it: an
+  // issue-scoped run may open a side chore PR too, and stamping it there
+  // would strand `pr_state` at `open` forever — every advancing path
+  // (pr-sync, the poller, `codingSessions.mergePr`) filters `issue_id IS
+  // NULL`. So an issue-scoped caller's row is left ALONE by the chore path
+  // (its branch is its issue branch), guarded both here and at the call
+  // site; the batch/issue paths pass no `pr` and are untouched.
   async function parkSessionInReview(
     tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
     opts: {
@@ -576,7 +583,8 @@ export function registerExponentialTools(
       .where(
         and(
           eq(codingSessions.id, opts.callerSessionId),
-          eq(codingSessions.status, `running`)
+          eq(codingSessions.status, `running`),
+          ...(opts.pr ? [isNull(codingSessions.issueId)] : [])
         )
       )
   }
@@ -1951,8 +1959,11 @@ export function registerExponentialTools(
             throw e
           }
 
+          // Only an ISSUE-LESS caller row takes the PR: an issue-scoped run
+          // opening a side chore PR keeps its issue branch and its issue's PR
+          // state (see parkSessionInReview).
           const callerSession = await loadCallerSession()
-          if (callerSession) {
+          if (callerSession && !callerSession.issueId) {
             await db.transaction(async (tx) => {
               await parkSessionInReview(tx, {
                 callerSessionId: callerSession.id,
