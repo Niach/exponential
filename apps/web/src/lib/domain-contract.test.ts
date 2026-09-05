@@ -14,6 +14,7 @@ import {
   teamRoleValues,
   boardIconValues,
   commentKindValues,
+  commentSourceValues,
   notificationTypeValues,
   prStateValues,
   codingSessionStatusValues,
@@ -146,6 +147,12 @@ describe(`domain-contract parity`, () => {
 
   it(`comment kind values match the contract`, () => {
     expect([...commentKindValues]).toEqual([...contract.commentKind.values])
+  })
+
+  it(`comment source values match the contract (EXP-741)`, () => {
+    expect([...commentSourceValues]).toEqual([
+      ...contract.commentSource.values,
+    ])
   })
 
   it(`notification type values match the contract`, () => {

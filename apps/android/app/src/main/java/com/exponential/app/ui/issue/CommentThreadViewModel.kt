@@ -143,7 +143,21 @@ class CommentThreadViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CommentThreadState())
 
     fun bind(issueId: String) {
+        if (issueIdFlow.value != issueId) _replyTarget.value = null
         issueIdFlow.value = issueId
+    }
+
+    // ── Reply target (EXP-741) ───────────────────────────────────────────────
+
+    /**
+     * The comment the docked composer replies to: set by a card's "Leave a
+     * reply…" row, cleared by the bar's ✕, a collapse, or a successful send.
+     */
+    private val _replyTarget = MutableStateFlow<CommentReplyTarget?>(null)
+    val replyTarget: StateFlow<CommentReplyTarget?> = _replyTarget
+
+    fun setReplyTarget(target: CommentReplyTarget?) {
+        _replyTarget.value = target
     }
 
     // ── Comment attachments (EXP-554) ────────────────────────────────────────
@@ -346,11 +360,15 @@ class CommentThreadViewModel @Inject constructor(
     fun send(onSent: () -> Unit = {}) {
         val text = _draft.value.trim()
         if ((text.isEmpty() && _pendingAttachments.value.isEmpty()) || _sending.value) return
+        // EXP-741: a reply is an ordinary comment with parentId; the target
+        // is read at send time and cleared with the draft.
+        val parentId = _replyTarget.value?.parentId
         viewModelScope.launch {
             _sending.value = true
-            if (createComment(text)) {
+            if (createComment(text, parentId)) {
                 _draft.value = ""
                 _pendingAttachments.value = emptyList()
+                _replyTarget.value = null
                 onSent()
             }
             _sending.value = false
@@ -360,7 +378,7 @@ class CommentThreadViewModel @Inject constructor(
     // Returns true only when the comment was actually posted, so the composer
     // keeps the draft (and the pending attachments) when the send is declined
     // (nothing to post) or an upload/the request fails.
-    suspend fun createComment(text: String): Boolean {
+    suspend fun createComment(text: String, parentId: String? = null): Boolean {
         val issueId = issueIdFlow.value ?: return false
         val accountId = auth.activeAccountId.value ?: return false
         val body = text.trim()
@@ -371,7 +389,7 @@ class CommentThreadViewModel @Inject constructor(
         // Attachment-only comments are allowed; an empty one is not.
         if (body.isEmpty() && attachmentIds.isEmpty()) return false
         return runCatching {
-            commentsApi.create(accountId, issueId, body, attachmentIds.ifEmpty { null })
+            commentsApi.create(accountId, issueId, body, attachmentIds.ifEmpty { null }, parentId)
         }
             .onFailure { reportFailure(it, "The comment could not be posted") }
             .isSuccess
@@ -411,3 +429,6 @@ class CommentThreadViewModel @Inject constructor(
     }
 
 }
+
+/** EXP-741: the comment the docked composer replies to. */
+data class CommentReplyTarget(val parentId: String, val authorName: String)

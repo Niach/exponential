@@ -1128,8 +1128,14 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, S
     public let editedAt: String?
     public let createdAt: String
     public let updatedAt: String
+    /// EXP-741: the top-level comment this one replies to (one level deep);
+    /// nil = a top-level card.
+    public let parentId: String?
+    /// EXP-741: `user` | `mcp` — an agent posted it over MCP ("via MCP").
+    public let source: String?
 
     public var commentKind: CommentKind { CommentKind(rawString: kind) }
+    public var isViaMcp: Bool { source == DomainContract.commentSourceMcp }
 
     public init(
         id: String,
@@ -1140,7 +1146,9 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, S
         kind: String,
         editedAt: String?,
         createdAt: String,
-        updatedAt: String
+        updatedAt: String,
+        parentId: String? = nil,
+        source: String? = nil
     ) {
         self.id = id
         self.issueId = issueId
@@ -1151,10 +1159,13 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, S
         self.editedAt = editedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.parentId = parentId
+        self.source = source
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, body, kind
+        case id, body, kind, source
+        case parentId = "parent_id"
         case issueId = "issue_id"
         case teamId = "team_id"
         case authorId = "author_id"
@@ -1179,6 +1190,10 @@ extension CommentEntity: Codable {
         editedAt = try container.decodeIfPresent(String.self, forKey: .editedAt)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)
+        // EXP-741: both absent from a pre-rotation snapshot — a row without
+        // them is a top-level, person-written comment.
+        parentId = try? container.decodeIfPresent(String.self, forKey: .parentId)
+        source = try? container.decodeIfPresent(String.self, forKey: .source)
     }
 }
 

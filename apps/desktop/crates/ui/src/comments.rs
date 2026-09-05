@@ -13,12 +13,15 @@
 //! submits). The §4.6 caret-anchored `@`-autocomplete layers onto the same
 //! `InputState` when the markdown-editor track lands it.
 
-use gpui::{div, Entity, FontWeight, IntoElement, ParentElement, SharedString, Styled};
+use gpui::{
+    div, px, Div, Entity, FontWeight, InteractiveElement as _, IntoElement, ParentElement,
+    SharedString, StatefulInteractiveElement as _, Styled,
+};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, Icon,
+    v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 
 use domain::rows::{Comment, User};
@@ -132,11 +135,14 @@ pub(crate) fn relative_time_epoch(then: i64, now_epoch: i64) -> String {
 // One comment row (comment-rows/regular.tsx)
 // ---------------------------------------------------------------------------
 
-/// Everything one comment row needs from the thread's state.
-pub(crate) struct CommentRowProps<'a> {
+/// Everything ONE comment needs to render its header, body and edit form —
+/// the top-level card and each reply under it (EXP-741) share this shape, so
+/// a reply edits, saves and deletes exactly like the card it sits under (web
+/// `CommentCardProps`).
+pub(crate) struct CommentCardProps<'a> {
     pub comment: &'a Comment,
     pub author: Option<&'a User>,
-    /// Author-or-admin gate (web `canModify`) — shows the `…` Edit/Delete menu.
+    /// Author-only gate (web `canModify`) — shows the `…` Edit/Delete menu.
     pub can_modify: bool,
     /// `Some(editor)` while THIS comment is being edited (web `editing`) —
     /// the §4.6 mention-capable input.
@@ -147,6 +153,25 @@ pub(crate) struct CommentRowProps<'a> {
     pub edit_removed: Option<&'a std::collections::HashSet<String>>,
     /// EXP-554, edit mode only: attachments picked during this edit.
     pub edit_pending: &'a [PendingCommentAttachment],
+}
+
+/// EXP-741: the inline reply composer open under a top-level card.
+pub(crate) struct ReplyComposerProps<'a> {
+    pub input: &'a Entity<MentionInput>,
+    pub submitting: bool,
+    pub has_draft: bool,
+    pub pending: &'a [PendingCommentAttachment],
+    /// Whether the REPLY composer's emoji popover is open.
+    pub emoji_open: bool,
+}
+
+/// Everything one comment row needs from the thread's state.
+pub(crate) struct CommentRowProps<'a> {
+    pub card: CommentCardProps<'a>,
+    /// EXP-741: this card's replies in thread order (`thread_comments`).
+    pub replies: Vec<CommentCardProps<'a>>,
+    /// EXP-741: `Some` while the reply composer is open under this card.
+    pub reply: Option<ReplyComposerProps<'a>>,
     pub now_epoch: i64,
     /// EXP-698 round 5: whether the timeline rail continues above/below this
     /// row (false on the feed's first/last row).
@@ -162,21 +187,36 @@ pub(crate) struct CommentRowProps<'a> {
     pub emoji_open: bool,
 }
 
-/// Web `RegularCommentRow`: avatar · (name · relative time · [`…` menu]) over
-/// the rendered GFM body, or the edit textarea + Save/Cancel when editing.
-pub(crate) fn comment_row(
-    props: CommentRowProps<'_>,
+/// Display name for a comment's author (row present or not).
+fn comment_author_name(comment: &Comment, author: Option<&User>) -> String {
+    match comment.author_id.as_deref() {
+        Some(id) => user_label(id, author),
+        None => author_label(author),
+    }
+}
+
+/// The header line + body/edit form + attachment strip of one comment (web
+/// `CommentCardContent`) — the top-level card's content, and each reply's.
+fn comment_card_content(
+    card: &CommentCardProps<'_>,
+    now_epoch: i64,
+    team_id: Option<&str>,
+    images: &Entity<ImageCache>,
+    emoji_picker: &Entity<EmojiPicker>,
+    emoji_open: bool,
     cx: &mut gpui::Context<IssueTimeline>,
-) -> impl IntoElement {
-    let name = match props.comment.author_id.as_deref() {
-        Some(id) => user_label(id, props.author),
-        None => author_label(props.author),
-    };
-    let comment_id = props.comment.id.clone();
-    let created = props.comment.created_at.as_deref().unwrap_or("");
-    let mut meta = relative_time(created, props.now_epoch);
-    if props.comment.edited_at.is_some() {
+) -> gpui::AnyElement {
+    let name = comment_author_name(card.comment, card.author);
+    let comment_id = card.comment.id.clone();
+    let created = card.comment.created_at.as_deref().unwrap_or("");
+    let mut meta = relative_time(created, now_epoch);
+    if card.comment.edited_at.is_some() {
         meta.push_str(" · edited");
+    }
+    // EXP-741: an agent posted it over MCP — the same caption on every
+    // client, so a bot's words never read as its key owner's.
+    if card.comment.source.as_deref() == Some(domain::contract::COMMENT_SOURCE_MCP) {
+        meta.push_str(" · via MCP");
     }
 
     // EXP-723: the name reads at the body size (`text_sm`, medium) with the
@@ -199,7 +239,7 @@ pub(crate) fn comment_row(
                 .text_color(cx.theme().muted_foreground)
                 .child(SharedString::from(meta)),
         )
-        .when(props.can_modify && props.editing.is_none(), |row| {
+        .when(card.can_modify && card.editing.is_none(), |row| {
             let edit_id = comment_id.clone();
             let delete_id = comment_id.clone();
             row.child(div().flex_1()).child(
@@ -239,7 +279,7 @@ pub(crate) fn comment_row(
             )
         });
 
-    let body: gpui::AnyElement = match props.editing {
+    let body: gpui::AnyElement = match card.editing {
         // EXP-698 round 5: the row's own bubble IS the card now — the edit
         // strip keeps its rhythm but drops the nested fill/stroke it carried
         // since EXP-568 (a card inside a card composites to a third material).
@@ -251,12 +291,12 @@ pub(crate) fn comment_row(
             // picks, above the Save/Cancel row.
             .children(comment_attachments_strip(
                 &comment_id,
-                props.images,
-                props.edit_removed,
+                images,
+                card.edit_removed,
                 cx,
             ))
             .children(pending_attachments_strip(
-                props.edit_pending,
+                card.edit_pending,
                 PendingScope::Edit,
                 cx,
             ))
@@ -267,14 +307,14 @@ pub(crate) fn comment_row(
                     .child(emoji_button(
                         SharedString::from(format!("comment-edit-emoji-{comment_id}")),
                         PendingScope::Edit,
-                        props.emoji_picker,
-                        props.emoji_open,
+                        emoji_picker,
+                        emoji_open,
                         cx,
                     ))
                     .child(attach_button(
                         SharedString::from(format!("comment-edit-attach-{comment_id}")),
                         PendingScope::Edit,
-                        edit_attachments_full(&props, cx),
+                        edit_attachments_full(card, cx),
                         cx,
                     ))
                     .child(
@@ -282,7 +322,7 @@ pub(crate) fn comment_row(
                             .primary()
                             .web_xs()
                             .label("Save")
-                            .loading(props.saving)
+                            .loading(card.saving)
                             .on_click(cx.listener({
                                 let comment_id = comment_id.clone();
                                 move |this, _, window, cx| {
@@ -300,7 +340,7 @@ pub(crate) fn comment_row(
         None => {
             // Read-only rendered GFM with live `@email`/`#IDENT` pills
             // (§4.5 — same decoration pass as the description).
-            let source = props.comment.body.clone().unwrap_or_default();
+            let source = card.comment.body.clone().unwrap_or_default();
             // EXP-554: an attachment-only comment has NO body — rendering an
             // empty MarkdownView would leave a phantom line above the strip.
             let rendered = (!source.trim().is_empty()).then(|| {
@@ -311,8 +351,8 @@ pub(crate) fn comment_row(
                 // EXP-521: comment bodies join the window selection layer —
                 // sweep-select and copy across comments like on the web.
                 .selectable(true)
-                .images(props.images.clone());
-                if let Some(team_id) = props.team_id {
+                .images(images.clone());
+                if let Some(team_id) = team_id {
                     let team = team_id.to_string();
                     view = view
                         .resolver(RefResolver::from_store(team_id))
@@ -327,13 +367,43 @@ pub(crate) fn comment_row(
                 .children(rendered)
                 .children(comment_attachments_strip(
                     &comment_id,
-                    props.images,
+                    images,
                     None,
                     cx,
                 ))
                 .into_any_element()
         }
     };
+
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .child(header)
+        .child(body)
+        .into_any_element()
+}
+
+/// Web `RegularCommentRow`: avatar · (name · relative time · [`…` menu]) over
+/// the rendered GFM body, or the edit textarea + Save/Cancel when editing.
+/// EXP-741: the card is the THREAD — its replies sit indented under the body
+/// behind one hairline, each with a 20px avatar, and the "Leave a reply…" row
+/// closes every top-level card (the reply composer opens in its place).
+pub(crate) fn comment_row(
+    props: CommentRowProps<'_>,
+    cx: &mut gpui::Context<IssueTimeline>,
+) -> impl IntoElement {
+    let name = comment_author_name(props.card.comment, props.card.author);
+    let comment_id = props.card.comment.id.clone();
+
+    let content = comment_card_content(
+        &props.card,
+        props.now_epoch,
+        props.team_id,
+        props.images,
+        props.emoji_picker,
+        props.emoji_open,
+        cx,
+    );
 
     // `.w_full()` is load-bearing on the bubble and the composer below:
     // without an explicit width the flex sizes to content, so a long
@@ -347,13 +417,82 @@ pub(crate) fn comment_row(
     // is the marker; it centres in the 28px gutter (gpui-component's `Size`
     // ladder has no 28 rung).
     let avatar = crate::user_avatar::user_avatar(
-        props.comment.author_id.as_deref().unwrap_or_default(),
+        props.card.comment.author_id.as_deref().unwrap_or_default(),
         &name,
-        props.author.and_then(|user| user.image.as_deref()),
+        props.card.author.and_then(|user| user.image.as_deref()),
         gpui_component::Size::Small,
         cx,
     )
     .into_any_element();
+
+    // EXP-741: the replies block + the reply row, behind one hairline.
+    let stroke = theme::tokens::glass::STROKE_CARD.to_hsla();
+    let mut thread = v_flex()
+        .w_full()
+        .min_w_0()
+        .mt_3()
+        .pt_2()
+        .border_t_1()
+        .border_color(stroke);
+    for reply in &props.replies {
+        let reply_name = comment_author_name(reply.comment, reply.author);
+        let reply_avatar = crate::user_avatar::user_avatar(
+            reply.comment.author_id.as_deref().unwrap_or_default(),
+            &reply_name,
+            reply.author.and_then(|user| user.image.as_deref()),
+            gpui_component::Size::Size(px(20.)),
+            cx,
+        );
+        thread = thread.child(
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .gap_2()
+                .items_start()
+                .py_1p5()
+                .child(div().flex_shrink_0().mt_0p5().child(reply_avatar))
+                .child(comment_card_content(
+                    reply,
+                    props.now_epoch,
+                    props.team_id,
+                    props.images,
+                    props.emoji_picker,
+                    props.emoji_open,
+                    cx,
+                )),
+        );
+    }
+    thread = thread.child(match props.reply.as_ref() {
+        Some(reply) => composer_card(
+            PendingScope::Reply,
+            reply.input,
+            reply.submitting,
+            reply.has_draft,
+            reply.pending,
+            props.emoji_picker,
+            reply.emoji_open,
+            cx,
+        )
+        .into_any_element(),
+        None => {
+            let foreground = cx.theme().foreground;
+            let parent_id = comment_id.clone();
+            div()
+                .id(SharedString::from(format!("comment-reply-{comment_id}")))
+                .w_full()
+                .py_1()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .cursor_pointer()
+                .hover(move |style| style.text_color(foreground))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.begin_reply(&parent_id, window, cx);
+                }))
+                .child("Leave a reply…")
+                .into_any_element()
+        }
+    });
+
     // EXP-723: 12/10/12 — a touch more air than the EXP-698 card had, so the
     // header does not sit on the card's own stroke now that it reads larger.
     let bubble = crate::surface::glass_card()
@@ -362,8 +501,8 @@ pub(crate) fn comment_row(
         .px_3()
         .pt_2p5()
         .pb_3()
-        .child(header)
-        .child(body);
+        .child(content)
+        .child(thread);
     // `pt_1` matches the row's `marker_top`, keeping the bubble's header level
     // with the avatar; `pb_2` is the gap to the next row and rides the
     // CONTENT, never a margin — the row's own height is what the gutter
@@ -393,16 +532,15 @@ pub(crate) fn comment_row(
 
 /// Is this comment's attachment set already at the server cap? (Edit mode —
 /// kept rows plus this edit's picks.)
-fn edit_attachments_full(props: &CommentRowProps<'_>, cx: &gpui::App) -> bool {
-    let kept = crate::comment_attachments::comment_attachments(&props.comment.id, cx)
+fn edit_attachments_full(card: &CommentCardProps<'_>, cx: &gpui::App) -> bool {
+    let kept = crate::comment_attachments::comment_attachments(&card.comment.id, cx)
         .into_iter()
         .filter(|row| {
-            props
-                .edit_removed
+            card.edit_removed
                 .is_none_or(|staged| !staged.contains(&row.id))
         })
         .count();
-    kept + props.edit_pending.len() >= MAX_COMMENT_ATTACHMENTS
+    kept + card.edit_pending.len() >= MAX_COMMENT_ATTACHMENTS
 }
 
 /// EXP-568: the composer CARD — attachment chips on top, the borderless
@@ -422,64 +560,103 @@ pub(crate) fn composer_row(
     emoji_open: bool,
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> impl IntoElement {
+    div().w_full().mt_2().child(composer_card(
+        PendingScope::Composer,
+        input,
+        submitting,
+        has_draft,
+        pending,
+        emoji_picker,
+        emoji_open,
+        cx,
+    ))
+}
+
+/// The ONE composer card, for the thread's bottom composer AND the reply
+/// composer under a top-level card (EXP-741). `scope` picks the element-id
+/// namespace, which pending list the tools feed and which submit the send
+/// button fires; the reply scope adds a Cancel beside the send.
+fn composer_card(
+    scope: PendingScope,
+    input: &Entity<MentionInput>,
+    submitting: bool,
+    has_draft: bool,
+    pending: &[PendingCommentAttachment],
+    emoji_picker: &Entity<EmojiPicker>,
+    emoji_open: bool,
+    cx: &mut gpui::Context<IssueTimeline>,
+) -> Div {
     let full = pending.len() >= MAX_COMMENT_ATTACHMENTS;
-    div().w_full().mt_2().child(crate::composer::glass_composer(
+    // The bottom composer keeps its historical ids; the reply composer gets
+    // its own namespace so both can be on screen at once.
+    let id = |name: &str| -> SharedString {
+        match scope {
+            PendingScope::Reply => SharedString::from(format!("reply-{name}")),
+            _ => SharedString::from(format!("comment-{name}")),
+        }
+    };
+    let submit = {
+        let send = composer_submit_button(scope, id("submit"), submitting, submitting || !has_draft, cx);
+        match scope {
+            PendingScope::Reply => h_flex()
+                .gap_2()
+                .items_center()
+                .child(
+                    crate::surface::glass_pill_button(id("cancel"), crate::surface::PillSize::Sm, cx)
+                        .label("Cancel")
+                        .disabled(submitting)
+                        .on_click(cx.listener(|this, _, _, cx| this.cancel_reply(cx))),
+                )
+                .child(send)
+                .into_any_element(),
+            _ => send.into_any_element(),
+        }
+    };
+    crate::composer::glass_composer(
         crate::composer::GlassComposer::new(input.clone().into_any_element())
-            .strip(pending_attachments_strip(pending, PendingScope::Composer, cx))
+            .strip(pending_attachments_strip(pending, scope, cx))
             .tool(
-                composer_tool("comment-image", registry::EDITOR_IMAGE, "Insert image", cx)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.pick_comment_images(PendingScope::Composer, window, cx);
+                composer_tool(id("image"), registry::EDITOR_IMAGE, "Insert image", cx).on_click(
+                    cx.listener(move |this, _, window, cx| {
+                        this.pick_comment_images(scope, window, cx);
+                    }),
+                ),
+            )
+            .tool(attach_button(id("attach"), scope, full, cx))
+            .tool(
+                composer_tool(id("issue-ref"), registry::EDITOR_ISSUE_REF, "Link an issue", cx)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.insert_issue_ref_trigger(scope, window, cx);
                     })),
             )
-            .tool(attach_button(
-                "comment-attach",
-                PendingScope::Composer,
-                full,
-                cx,
-            ))
-            .tool(
-                composer_tool(
-                    "comment-issue-ref",
-                    registry::EDITOR_ISSUE_REF,
-                    "Link an issue",
-                    cx,
-                )
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.insert_issue_ref_trigger(PendingScope::Composer, window, cx);
-                })),
-            )
-            .tool(
-                emoji_button(
-                    "comment-emoji",
-                    PendingScope::Composer,
-                    emoji_picker,
-                    emoji_open,
-                    cx,
-                )
-                .into_any_element(),
-            )
-            .submit(submit_button(submitting, submitting || !has_draft, cx)),
-    ))
+            .tool(emoji_button(id("emoji"), scope, emoji_picker, emoji_open, cx).into_any_element())
+            .submit(submit),
+    )
 }
 
 /// The comment composer's send: the shared round ghost submit
 /// ([`crate::composer::composer_submit`]) on the `ui-submit` glyph, plus this
-/// surface's loading flag and handler.
-fn submit_button(
+/// surface's loading flag and handler (the bottom composer posts a comment,
+/// the reply composer a reply — EXP-741).
+fn composer_submit_button(
+    scope: PendingScope,
+    id: SharedString,
     submitting: bool,
     disabled: bool,
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> Button {
-    crate::composer::composer_submit("comment-submit", registry::UI_SUBMIT, disabled, cx)
+    crate::composer::composer_submit(id, registry::UI_SUBMIT, disabled, cx)
         .loading(submitting)
-        .on_click(cx.listener(|this, _, window, cx| this.submit_comment(window, cx)))
+        .on_click(cx.listener(move |this, _, window, cx| match scope {
+            PendingScope::Reply => this.submit_reply(window, cx),
+            _ => this.submit_comment(window, cx),
+        }))
 }
 
 /// A composer tool button: the shared 24px ghost glyph
 /// ([`crate::composer::composer_tool`]) plus a tooltip.
 fn composer_tool(
-    id: &'static str,
+    id: impl Into<gpui::ElementId>,
     icon: crate::icons::ExpIcon,
     tooltip: &'static str,
     cx: &mut gpui::Context<IssueTimeline>,

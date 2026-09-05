@@ -42,6 +42,10 @@ struct IssueDetailBottomBar: View {
     let startUi: StartCircleUi
     let onOpenProperties: () -> Void
     let onStartCoding: () -> Void
+    /// EXP-741: the comment this composer replies to. Setting it expands the
+    /// composer in reply mode ("Replying to …" + `parentId` on send); the ✕,
+    /// a send and a collapse clear it.
+    @Binding var replyTarget: CommentReplyTarget?
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -100,6 +104,9 @@ struct IssueDetailBottomBar: View {
             }
         }
         .animation(motion.standard, value: expanded)
+        .onChange(of: replyTarget) { _, target in
+            if target != nil, !expanded { expand() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true
         }
@@ -289,9 +296,33 @@ struct IssueDetailBottomBar: View {
     private var expandedComposer: some View {
         // EXP-698: the ONE composer card. Opaque — it floats over the feed.
         GlassComposer(isOpaque: true) {
+            // EXP-741: the reply target rides the composer's leading row.
+            if let target = replyTarget {
+                HStack(spacing: 8) {
+                    Text("Replying to \(target.authorName)")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Button {
+                        replyTarget = nil
+                    } label: {
+                        AppIcon(AppIcons.uiClose, size: 14)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Stop replying")
+                }
+                .padding(.leading, 12)
+                .padding(.trailing, 4)
+                .padding(.top, 6)
+            }
+        } field: {
             MarkdownEditor(
                 model: composerEditor,
-                placeholder: "Write a comment…",
+                placeholder: replyTarget == nil ? "Write a comment…" : "Leave a reply…",
                 baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
                 accountId: accountId,
                 httpClient: deps.httpClient,
@@ -406,6 +437,8 @@ struct IssueDetailBottomBar: View {
 
     private func collapse() {
         withAnimation(motion.standard) { expanded = false }
+        // A folded composer replies to nothing (EXP-741).
+        replyTarget = nil
     }
 
     // MARK: - Composer plumbing (ported from the old CommentThreadView composer)
@@ -462,7 +495,8 @@ struct IssueDetailBottomBar: View {
                 accountId: accountId,
                 issueId: issue.id,
                 text: md,
-                attachmentIds: attachmentIds
+                attachmentIds: attachmentIds,
+                parentId: replyTarget?.parentId
             )
             resetComposer()
             collapse()

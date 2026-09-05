@@ -2,10 +2,11 @@
 //! composer + author-or-admin edit/delete). Verified against
 //! `apps/web/src/lib/trpc/comments.ts`:
 //!
-//! - `comments.create({issueId, body, attachmentIds?})` →
+//! - `comments.create({issueId, body, attachmentIds?, parentId?})` →
 //!   `{txId, comment, mentionedUserIds}` (`body` is GFM markdown; the SERVER
 //!   resolves `@email` mentions and auto-subscribes — the desktop only
-//!   produces the `@email` source text, §4.6)
+//!   produces the `@email` source text, §4.6; `parentId` makes it a reply
+//!   under that top-level comment, EXP-741)
 //! - `comments.update({id, body, attachmentIds?})` → `{txId, comment}`
 //!   (author-or-admin)
 //! - `comments.delete({id})` → `{txId}` (author-or-admin; the server hard-
@@ -32,6 +33,10 @@ pub struct CommentOut {
     pub issue_id: Option<String>,
     #[serde(default)]
     pub author_id: Option<String>,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
     #[serde(default)]
     pub body: Option<String>,
     #[serde(default)]
@@ -61,12 +66,14 @@ pub struct CommentsUpdateOutput {
 /// `comments.create` — mutation. Blocking; background executor only (§3.5).
 /// `attachment_ids` links freshly uploaded attachments (EXP-554); `None`
 /// omits the field entirely, keeping the wire body byte-identical to the
-/// pre-EXP-554 one for plain text comments.
+/// pre-EXP-554 one for plain text comments. `parent_id` (EXP-741) makes the
+/// comment a reply under that top-level comment; `None` omits it likewise.
 pub fn comments_create(
     trpc: &TrpcClient,
     issue_id: &str,
     body: &str,
     attachment_ids: Option<&[String]>,
+    parent_id: Option<&str>,
 ) -> Result<CommentsCreateOutput, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -75,6 +82,8 @@ pub fn comments_create(
         body: &'a str,
         #[serde(rename = "attachmentIds", skip_serializing_if = "Option::is_none")]
         attachment_ids: Option<&'a [String]>,
+        #[serde(rename = "parentId", skip_serializing_if = "Option::is_none")]
+        parent_id: Option<&'a str>,
     }
     trpc.mutation(
         "comments.create",
@@ -82,6 +91,7 @@ pub fn comments_create(
             issue_id,
             body,
             attachment_ids,
+            parent_id,
         },
     )
 }
@@ -139,7 +149,7 @@ mod tests {
             200,
             r#"{"result":{"data":{"txId":21,"comment":{"id":"c-1","issueId":"i-1","authorId":"u-1","body":"ping @a@b.com"},"mentionedUserIds":["u-2"]}}}"#,
         );
-        let out = comments_create(&client(&base), "i-1", "ping @a@b.com", None).unwrap();
+        let out = comments_create(&client(&base), "i-1", "ping @a@b.com", None, None).unwrap();
         assert_eq!(out.comment.body.as_deref(), Some("ping @a@b.com"));
         assert_eq!(out.mentioned_user_ids, vec!["u-2".to_string()]);
         assert_eq!(out.tx_id, Some(21));
@@ -160,7 +170,7 @@ mod tests {
             r#"{"result":{"data":{"txId":24,"comment":{"id":"c-2","issueId":"i-1"},"mentionedUserIds":[]}}}"#,
         );
         let ids = vec!["att-1".to_string(), "att-2".to_string()];
-        comments_create(&client(&base), "i-1", "", Some(&ids)).unwrap();
+        comments_create(&client(&base), "i-1", "", Some(&ids), None).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"issueId":"i-1","body":"","attachmentIds":["att-1","att-2"]}"#

@@ -27,6 +27,7 @@ import {
   type AutomationTrigger,
   codingSessionStatusSchema,
   commentBodyWithAttachmentsSchema,
+  commentSourceValues,
   issueDescriptionSchema,
   issueEventTypeSchema,
   issueEventTypeValues,
@@ -126,6 +127,9 @@ export const issueRelationSourceEnum = pgEnum(
   `issue_relation_source`,
   issueRelationSourceValues
 )
+
+// EXP-741: who posted a comment (a person, or an agent over MCP).
+export const commentSourceEnum = pgEnum(`comment_source`, commentSourceValues)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -659,6 +663,15 @@ export const comments = pgTable(
     authorId: text(`author_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
+    // EXP-741: the top-level comment this one replies to — ONE level deep
+    // (`comments.create` flattens a reply-to-a-reply onto the root), same
+    // issue, cascade-deleted with its parent. NULL = a top-level comment.
+    parentId: uuid(`parent_id`).references((): AnyPgColumn => comments.id, {
+      onDelete: `cascade`,
+    }),
+    // EXP-741: `mcp` when an agent posted it over MCP (the card header shows
+    // "via MCP"); stamped server-side from the MCP context, never by input.
+    source: commentSourceEnum().notNull().default(`user`),
     // Plain GFM markdown (was jsonb `{ text }`).
     body: text().notNull(),
     editedAt: timestamp(`edited_at`, { withTimezone: true }),
@@ -668,6 +681,7 @@ export const comments = pgTable(
     index(`idx_comments_issue`).on(table.issueId),
     index(`idx_comments_team`).on(table.teamId),
     index(`idx_comments_board`).on(table.boardId),
+    index(`idx_comments_parent`).on(table.parentId),
     // Serves issues.search's comment-body FTS branch (REV-14). Same
     // byte-identical-expression contract as idx_issues_fts.
     index(`idx_comments_body_fts`).using(

@@ -74,6 +74,9 @@ struct IssueDetailView: View {
     /// so the screen can mount ONE candidate menu above the keyboard for it and
     /// for the description alike. CommentThreadView re-seeds it per Edit tap.
     @State private var commentEditEditor = IssueEditorModel()
+    /// EXP-741: the reply the docked composer is composing — set by the
+    /// thread's "Leave a reply…" row, cleared by the bar.
+    @State private var commentReplyTarget: CommentReplyTarget?
     @FocusState private var titleFocused: Bool
 
     // Shown while team membership is still syncing, so a signed-in viewer
@@ -268,7 +271,8 @@ struct IssueDetailView: View {
                         CommentThreadView(
                             issue: issue,
                             singleMemberTeam: vm.singleMemberTeam,
-                            editEditor: $commentEditEditor
+                            editEditor: $commentEditEditor,
+                            replyTarget: $commentReplyTarget
                         )
                     }
                     .padding(20)
@@ -317,7 +321,8 @@ struct IssueDetailView: View {
                             isModerator: vm.permissions.isModerator,
                             startUi: startCircleUi(vm: vm, issue: issue),
                             onOpenProperties: { activeSheet = .properties },
-                            onStartCoding: { presentStartSheet(vm: vm) }
+                            onStartCoding: { presentStartSheet(vm: vm) },
+                            replyTarget: $commentReplyTarget
                         )
                     }
                 }

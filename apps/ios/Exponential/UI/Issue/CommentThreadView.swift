@@ -12,6 +12,30 @@ import UniformTypeIdentifiers
 // events as dot rows on a connecting vertical rail, and folds runs of >2
 // consecutive events behind a "Show N activity items" expander. Composing NEW
 // comments moved to the docked bottom-bar composer (IssueDetailBottomBar).
+//
+// EXP-741: a top-level card is the THREAD — its replies sit indented under the
+// body behind one hairline, each with a 20pt avatar, and the "Leave a reply…"
+// row closes every top-level card. Tapping it hands the bottom-bar composer a
+// reply target (`CommentReplyTarget`), which posts with `parentId`.
+
+/// The comment the docked composer is replying to (EXP-741): set by the
+/// thread's reply row, cleared by the bar on send, collapse or its ✕.
+struct CommentReplyTarget: Equatable {
+    let parentId: String
+    let authorName: String
+}
+
+/// The edit/delete callbacks of ONE comment — a top-level card and each
+/// reply under it get their own set (web `CommentCardProps`).
+struct CommentCardActions {
+    let onEdit: () -> Void
+    let onCancelEdit: () -> Void
+    /// Saves the edit with the FULL desired attachment id list; returns whether
+    /// the mutation went through (a failure keeps the composer open).
+    let onSaveEdit: ([String]) async -> Bool
+    let onDelete: () -> Void
+}
+
 struct CommentThreadView: View {
     let issue: IssueEntity
     /// Solo teams hide the comment editors' @ affordance (EXP-246) — same
@@ -22,6 +46,9 @@ struct CommentThreadView: View {
     /// not by this timeline: its `@`/`#`/`:` menu is mounted screen-level, in
     /// the bottom safe-area inset that rides above the keyboard (EXP-592).
     @Binding var editEditor: IssueEditorModel
+    /// EXP-741: the reply the docked composer is composing, owned by the
+    /// detail view so the thread and the bar share it.
+    @Binding var replyTarget: CommentReplyTarget?
     /// Horizontal padding of the hosting column, escaped by the top rule so the
     /// line runs edge to edge (EXP-327).
     var hostPadding: CGFloat = 20
@@ -55,6 +82,12 @@ struct CommentThreadView: View {
         comments.filter { $0.commentKind == .regular }
     }
 
+    /// EXP-741: replies ride inside their parent's card, so only the top-level
+    /// comments are timeline entries.
+    private var threads: CommentThreads {
+        threadComments(humanComments)
+    }
+
     /// This issue's team statuses in render order (EXP-314). Empty while the
     /// boards/statuses shapes are still syncing — `IssueStatusResolver.resolve`
     /// degrades to the constructed builtin defaults, so rendering never fails.
@@ -76,7 +109,7 @@ struct CommentThreadView: View {
         let visibleEvents = events.filter {
             eventPhrase($0, users: users, labels: labels, boards: boards) != nil
         }
-        let rest = (humanComments.map { TimelineItem.comment($0) }
+        let rest = (threads.topLevel.map { TimelineItem.comment($0) }
             + visibleEvents.map { TimelineItem.event($0) })
             .sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
         return [created] + rest
@@ -246,12 +279,12 @@ struct CommentThreadView: View {
         ) {
             RegularCommentRow(
                 comment: comment,
-                attachments: attachmentsByComment[comment.id] ?? [],
+                replies: threads.repliesByParent[comment.id] ?? [],
+                attachmentsByComment: attachmentsByComment,
                 issueId: issue.id,
-                author: users[comment.authorId],
-                authorId: comment.authorId,
-                isAuthor: comment.authorId == deps.auth.userId,
-                isEditing: editingCommentId == comment.id,
+                users: users,
+                currentUserId: deps.auth.userId,
+                editingCommentId: editingCommentId,
                 editEditor: editEditor,
                 singleMemberTeam: singleMemberTeam,
                 baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
@@ -262,52 +295,66 @@ struct CommentThreadView: View {
                 resolveIssueRefTitle: { identifier in resolveIssueRefTitle(identifier) },
                 resolveIssueRefStatus: { identifier in resolveIssueRefStatus(identifier) },
                 onOpenIssue: { issueId in deps.deepLinkBus.navigateToIssue(issueId) },
-                onEdit: {
-                    // Fresh model per edit, seeded from the comment's markdown — the
-                    // same rich block editor as the composer (images, mentions,
-                    // lists, #issue-ref pills). Resolver/search set BEFORE load so
-                    // existing refs decorate on seed.
-                    let editor = IssueEditorModel()
-                    editor.issueRefResolver = { resolveIssueRef($0) }
-                    editor.issueRefTitleResolver = { resolveIssueRefTitle($0) }
-                    editor.issueRefStatusResolver = { resolveIssueRefStatus($0) }
-                    editor.issueRefSearch = { searchIssueRefs($0) }
-                    editor.load(
-                        markdown: getCommentBodyText(comment.body),
-                        baseURL: deps.auth.instanceBaseURL(forAccountId: accountId)
+                actions: { row in cardActions(for: row) },
+                onReply: {
+                    replyTarget = CommentReplyTarget(
+                        parentId: comment.id,
+                        authorName: displayName(for: users[comment.authorId], id: comment.authorId)
                     )
-                    editEditor = editor
-                    editingCommentId = comment.id
-                },
-                onCancelEdit: { editingCommentId = nil },
-                onSaveEdit: { attachmentIds in
-                    // The editor's own keyboard toolbar can still inline an
-                    // image into the BODY (that path predates EXP-554 and stays
-                    // as it was); `attachmentIds` is the new, separate list of
-                    // linked rows — a FULL desired set, so anything the user
-                    // removed is hard-deleted server-side.
-                    let ok = await editEditor.commitPendingImages(uploader: makeCommentImageUploader())
-                    guard ok, !editEditor.hasUncommittedDrafts else { return false }
-                    let md = editEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !md.isEmpty || !attachmentIds.isEmpty else { return false }
-                    do {
-                        try await deps.commentsApi.update(
-                            accountId: accountId,
-                            id: comment.id,
-                            text: md,
-                            attachmentIds: attachmentIds
-                        )
-                        editingCommentId = nil
-                        return true
-                    } catch {
-                        return false
-                    }
-                },
-                onDelete: {
-                    Task { try? await deps.commentsApi.delete(accountId: accountId, id: comment.id) }
                 }
             )
         }
+    }
+
+    /// One comment's edit/delete callbacks — the same for a top-level card and
+    /// for each reply under it (EXP-741), so replies edit like their parent.
+    private func cardActions(for comment: CommentEntity) -> CommentCardActions {
+        CommentCardActions(
+            onEdit: {
+                // Fresh model per edit, seeded from the comment's markdown — the
+                // same rich block editor as the composer (images, mentions,
+                // lists, #issue-ref pills). Resolver/search set BEFORE load so
+                // existing refs decorate on seed.
+                let editor = IssueEditorModel()
+                editor.issueRefResolver = { resolveIssueRef($0) }
+                editor.issueRefTitleResolver = { resolveIssueRefTitle($0) }
+                editor.issueRefStatusResolver = { resolveIssueRefStatus($0) }
+                editor.issueRefSearch = { searchIssueRefs($0) }
+                editor.load(
+                    markdown: getCommentBodyText(comment.body),
+                    baseURL: deps.auth.instanceBaseURL(forAccountId: accountId)
+                )
+                editEditor = editor
+                editingCommentId = comment.id
+            },
+            onCancelEdit: { editingCommentId = nil },
+            onSaveEdit: { attachmentIds in
+                // The editor's own keyboard toolbar can still inline an
+                // image into the BODY (that path predates EXP-554 and stays
+                // as it was); `attachmentIds` is the new, separate list of
+                // linked rows — a FULL desired set, so anything the user
+                // removed is hard-deleted server-side.
+                let ok = await editEditor.commitPendingImages(uploader: makeCommentImageUploader())
+                guard ok, !editEditor.hasUncommittedDrafts else { return false }
+                let md = editEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !md.isEmpty || !attachmentIds.isEmpty else { return false }
+                do {
+                    try await deps.commentsApi.update(
+                        accountId: accountId,
+                        id: comment.id,
+                        text: md,
+                        attachmentIds: attachmentIds
+                    )
+                    editingCommentId = nil
+                    return true
+                } catch {
+                    return false
+                }
+            },
+            onDelete: {
+                Task { try? await deps.commentsApi.delete(accountId: accountId, id: comment.id) }
+            }
+        )
     }
 
     /// The comment-edit image uploader (the NEW-comment path lives in
@@ -512,7 +559,98 @@ private struct TimelineRow<Marker: View, Content: View>: View {
 
 // MARK: - Regular comment
 
+/// The threaded card (EXP-741): the top-level comment's content, then its
+/// replies indented behind one hairline, then the "Leave a reply…" row.
 private struct RegularCommentRow: View {
+    let comment: CommentEntity
+    let replies: [CommentEntity]
+    let attachmentsByComment: [String: [AttachmentEntity]]
+    let issueId: String
+    let users: [String: UserEntity]
+    let currentUserId: String?
+    let editingCommentId: String?
+    let editEditor: IssueEditorModel
+    let singleMemberTeam: Bool
+    let baseURL: URL?
+    let accountId: String
+    let httpClient: HTTPClient?
+    let mentionMembers: [MentionMember]
+    let resolveIssueRef: (String) -> String?
+    let resolveIssueRefTitle: (String) -> String?
+    let resolveIssueRefStatus: (String) -> IssueRefStatusInfo?
+    let onOpenIssue: (String) -> Void
+    let actions: (CommentEntity) -> CommentCardActions
+    let onReply: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            content(for: comment)
+
+            // The replies block + the reply row, behind one hairline.
+            Rectangle()
+                .fill(GlassTokens.strokeCard)
+                .frame(height: GlassTokens.hairline)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
+            ForEach(replies) { reply in
+                HStack(alignment: .top, spacing: 8) {
+                    UserAvatar(user: users[reply.authorId], id: reply.authorId, size: 20)
+                        .padding(.top, 2)
+                    content(for: reply)
+                }
+                .padding(.vertical, 6)
+            }
+            Button(action: onReply) {
+                Text("Leave a reply…")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("comment-reply-\(comment.id)")
+        }
+        // Glass comment card (EXP-240) — the avatar lives in the timeline
+        // gutter, not inside the card. EXP-723 opened the paddings up
+        // (12 / 10 / 12) so the body breathes under the bigger header.
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    private func content(for row: CommentEntity) -> some View {
+        CommentCardContent(
+            comment: row,
+            attachments: attachmentsByComment[row.id] ?? [],
+            issueId: issueId,
+            author: users[row.authorId],
+            authorId: row.authorId,
+            isAuthor: row.authorId == currentUserId,
+            isEditing: editingCommentId == row.id,
+            editEditor: editEditor,
+            singleMemberTeam: singleMemberTeam,
+            baseURL: baseURL,
+            accountId: accountId,
+            httpClient: httpClient,
+            mentionMembers: mentionMembers,
+            resolveIssueRef: resolveIssueRef,
+            resolveIssueRefTitle: resolveIssueRefTitle,
+            resolveIssueRefStatus: resolveIssueRefStatus,
+            onOpenIssue: onOpenIssue,
+            actions: actions(row)
+        )
+        // Re-seed the per-comment @State (edit attachments, display model)
+        // when the row underneath changes identity.
+        .id(row.id)
+    }
+}
+
+/// The header line + body/edit form + attachment strip of ONE comment — the
+/// top-level card's content, and each reply's (web `CommentCardContent`).
+private struct CommentCardContent: View {
     let comment: CommentEntity
     /// EXP-554 — the rows whose `comment_id` is this comment, already ordered.
     let attachments: [AttachmentEntity]
@@ -535,12 +673,7 @@ private struct RegularCommentRow: View {
     let resolveIssueRefTitle: (String) -> String?
     let resolveIssueRefStatus: (String) -> IssueRefStatusInfo?
     let onOpenIssue: (String) -> Void
-    let onEdit: () -> Void
-    let onCancelEdit: () -> Void
-    /// Saves the edit with the FULL desired attachment id list; returns whether
-    /// the mutation went through (a failure keeps the composer open).
-    let onSaveEdit: ([String]) async -> Bool
-    let onDelete: () -> Void
+    let actions: CommentCardActions
 
     @Environment(AppDependencies.self) private var deps
 
@@ -595,11 +728,18 @@ private struct RegularCommentRow: View {
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
+                // EXP-741: an agent posted it over MCP — the same caption on
+                // every client, so a bot's words never read as its key owner's.
+                if comment.isViaMcp {
+                    Text("· via MCP")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
                 Spacer()
                 if canModify && !isEditing {
                     GlassMenu {
-                        GlassMenuItem("Edit", icon: AppIcons.uiEdit, action: onEdit)
-                        GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true, action: onDelete)
+                        GlassMenuItem("Edit", icon: AppIcons.uiEdit, action: actions.onEdit)
+                        GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true, action: actions.onDelete)
                     } label: {
                         // EXP-698 r5: a BARE vertical ellipsis — the glass ring
                         // it wore made a comment's overflow menu louder than
@@ -698,7 +838,7 @@ private struct RegularCommentRow: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .disabled(saving)
-                    Button("Cancel", action: onCancelEdit)
+                    Button("Cancel", action: actions.onCancelEdit)
                         .controlSize(.small)
                         .disabled(saving)
                 }
@@ -753,14 +893,9 @@ private struct RegularCommentRow: View {
                 CommentAttachmentsStrip(attachments: attachments)
             }
         }
-        // Glass comment card (EXP-240) — the avatar lives in the timeline
-        // gutter, not inside the card. EXP-723 opened the paddings up
-        // (12 / 10 / 12) so the body breathes under the bigger header.
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
-        .padding(.bottom, 12)
+        // The card chrome lives on `RegularCommentRow` (EXP-741): this is the
+        // content of a top-level card OR of one reply inside it.
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
         .photosPicker(
             isPresented: $showPhotoPicker,
             selection: $photoItems,
@@ -817,7 +952,7 @@ private struct RegularCommentRow: View {
             }
             attachmentIds += outcome.items.compactMap(\.uploadedId)
         }
-        if await onSaveEdit(attachmentIds) {
+        if await actions.onSaveEdit(attachmentIds) {
             pendingAttachments = []
         }
     }

@@ -800,20 +800,27 @@ async function main() {
   // `DEMO_SHOWCASE_COMMENT_HOURS_AGO` explains which offsets survive the gap
   // between the seed and the shutter, and on which clients.
   const showcase = inserted[4]
-  await db.insert(comments).values([
-    {
+  // EXP-741: Mira's profiling comment opens the thread and Jonas answers IN
+  // it (parent_id), so every issue-comments shot shows a reply under its
+  // card; the offsets are unchanged.
+  const [miraComment] = await db
+    .insert(comments)
+    .values({
       issueId: showcase.id,
       teamId: ws.id,
       boardId: showcase.boardId,
       authorId: mira,
       body: `Profiled on a mid-range device — the shape subscribe alone is **410 ms**. Deferring it until after first frame gets us to ~750 ms cold.`,
       createdAt: hoursAgo(DEMO_SHOWCASE_COMMENT_HOURS_AGO.mira),
-    },
+    })
+    .returning()
+  await db.insert(comments).values([
     {
       issueId: showcase.id,
       teamId: ws.id,
       boardId: showcase.boardId,
       authorId: jonas,
+      parentId: miraComment.id,
       body: `Nice find. I'll take the board snapshot cache — we can reuse the reducer state and paint before sync finishes.`,
       createdAt: hoursAgo(DEMO_SHOWCASE_COMMENT_HOURS_AGO.jonas),
     },

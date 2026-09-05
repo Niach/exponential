@@ -349,6 +349,13 @@ pub struct Comment {
     pub team_id: Option<String>,
     #[serde(default)]
     pub author_id: Option<String>,
+    /// EXP-741: the top-level comment this one replies to (one level deep);
+    /// `None` = a top-level card.
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    /// EXP-741: `user` | `mcp` — an agent posted it over MCP ("via MCP").
+    #[serde(default)]
+    pub source: Option<String>,
     /// GFM markdown (the cross-client interchange contract).
     #[serde(default)]
     pub body: Option<String>,

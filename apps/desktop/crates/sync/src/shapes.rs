@@ -268,6 +268,8 @@ pub const SHAPES: [ShapeSpec; 20] = [
             "issue_id",
             "team_id",
             "author_id",
+            "parent_id",
+            "source",
             "body",
             "edited_at",
             "created_at",

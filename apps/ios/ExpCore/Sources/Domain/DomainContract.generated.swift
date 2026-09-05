@@ -19,6 +19,7 @@ public enum DomainContract {
     public static let teamRoleValues: [String] = ["owner", "member"]
     public static let boardIconValues: [String] = ["code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle", "palette", "pen-tool", "database", "server", "cloud", "cpu", "layers", "boxes", "folder", "file-text", "calendar", "clock", "users", "user", "flag", "target", "trophy", "lock", "key", "mail", "phone", "bell", "git-branch", "bot", "sparkles", "flask-conical", "shopping-cart", "credit-card", "map-pin", "compass", "briefcase", "graduation-cap", "puzzle", "gamepad-2", "coffee", "plane", "house", "building", "leaf", "sun", "activity", "chart-line", "scale", "car"]
     public static let commentKindValues: [String] = ["regular"]
+    public static let commentSourceValues: [String] = ["user", "mcp"]
     public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply"]
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
     public static let codingSessionStatusValues: [String] = ["running", "in_review", "ended"]
@@ -69,6 +70,8 @@ public enum DomainContract {
     public static let teamRoleOwner: String = "owner"
     public static let teamRoleMember: String = "member"
     public static let commentKindRegular: String = "regular"
+    public static let commentSourceUser: String = "user"
+    public static let commentSourceMcp: String = "mcp"
     public static let notificationTypeIssueAssigned: String = "issue_assigned"
     public static let notificationTypeIssueComment: String = "issue_comment"
     public static let notificationTypeIssueStatusChanged: String = "issue_status_changed"

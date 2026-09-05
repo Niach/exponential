@@ -211,9 +211,13 @@ import androidx.room.RoomDatabase
     //      relation edges between issues (blocks / parent / duplicate /
     //      related, plus the auto-linked #IDENT references). New table, so the
     //      destructive fallback wipes + resyncs.
+    // v47 (EXP-741): comments.parent_id (the top-level comment a reply hangs
+    //      off) + comments.source (user | mcp, the "via MCP" caption). New
+    //      columns on the comments shape allowlist; destructive fallback
+    //      wipes + resyncs so every comment row arrives carrying them.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 46,
+    version = 47,
     exportSchema = false,
 )
 abstract class ExponentialDatabase : RoomDatabase() {

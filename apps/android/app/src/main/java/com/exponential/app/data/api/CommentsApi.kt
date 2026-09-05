@@ -13,6 +13,9 @@ data class CreateCommentInput(
     // `explicitNulls = false`, so null is OMITTED from the wire body rather
     // than sent as `null` — older servers keep parsing the input.
     @SerialName("attachmentIds") val attachmentIds: List<String>? = null,
+    // EXP-741: the top-level comment this one replies to. Omitted when null,
+    // exactly like attachmentIds.
+    @SerialName("parentId") val parentId: String? = null,
 )
 
 @Serializable
@@ -35,11 +38,12 @@ class CommentsApi @Inject constructor(private val trpc: TrpcClient) {
         issueId: String,
         text: String,
         attachmentIds: List<String>? = null,
+        parentId: String? = null,
     ) {
         trpc.mutationUnit(
             accountId,
             path = "comments.create",
-            input = CreateCommentInput(issueId, text, attachmentIds),
+            input = CreateCommentInput(issueId, text, attachmentIds, parentId),
             inputSerializer = CreateCommentInput.serializer(),
         )
     }

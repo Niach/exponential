@@ -489,6 +489,14 @@ export const componentStyles = `
   background: var(--section);
 }
 .cmp-comment .cmp-pill { margin-top: 8px; }
+/* EXP-741: the card is the thread — replies under the body behind one
+   hairline, then the muted reply row that closes every top-level card. */
+.cmp-comment .replies { margin-top: 12px; padding-top: 4px; border-top: 1px solid var(--stroke); }
+.cmp-comment .reply { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; }
+.cmp-comment .reply .cmp-avatar { width: 20px; height: 20px; margin-top: 2px; font-size: 9px; }
+.cmp-comment .reply-body { flex: 1; min-width: 0; }
+.cmp-comment .reply-row { padding: 6px 0; font-size: 12px; color: var(--fg-50); cursor: pointer; }
+.cmp-comment .reply-row:hover { color: var(--fg); }
 
 /* ---------------------------------------------------------------- sheet */
 .cmp-sheet {
