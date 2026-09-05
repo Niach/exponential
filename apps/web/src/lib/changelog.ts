@@ -31,7 +31,8 @@ export const CHANGELOG: ChangelogEntry[] = [
     summary: `Reply under a comment on web, desktop, iOS and Android, and see when an agent posted a comment over MCP.`,
     body: `- **Replies**: every comment card ends with a Leave a reply row. On web and desktop the reply composer opens right there; on iOS and Android the docked composer switches to Replying to, with an x to go back to a plain comment. Replies sit under their comment with a smaller avatar, edit and delete like any comment, and threads stay one level deep.
 - **Replies for agents**: the MCP comments tool takes a parentId, and listed comments carry it.
-- **Via MCP**: a comment an agent posted over MCP says so in its header on every client, so it never reads as its key owner's words.`,
+- **Via MCP**: a comment an agent posted over MCP says so in its header on every client, so it never reads as its key owner's words.
+- **Desktop dock as a bubble**: the terminal and steering dock can collapse into a floating bubble instead of the bottom strip; switch from the dock header, and the choice sticks per account.`,
   },
   {
     id: `2026-09-relations-and-design-refresh`,

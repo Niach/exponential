@@ -1949,8 +1949,45 @@ describe(`exponential_pr_open — repositoryId path`, () => {
     )
     expect(sql).toContain(`"id" =`)
     expect(params).toContain(SESSION)
-    // Never the loose issue-less sweep.
-    expect(sql).not.toContain(`"issue_id" is null`)
+    // The row is pinned by id (never the pre-EXP-637 heuristic sweep) and the
+    // PR stamp additionally requires the row to be issue-less, matching what
+    // `applySessionPrState` advances later.
+    expect(sql).toContain(`"issue_id" is null`)
+  })
+
+  // EXP-734 follow-up: an ISSUE-scoped run may open a side chore PR. Its row
+  // must keep its issue branch and stay out of the issue-less PR lifecycle —
+  // pr-sync/the poller/`codingSessions.mergePr` all filter `issue_id IS NULL`,
+  // so a stamp here would strand `pr_state` at `open` forever.
+  it(`leaves an issue-scoped caller's row alone on the chore path`, async () => {
+    const updates = armRepoPr()
+    dbRows.current = [
+      {
+        id: SESSION,
+        teamId: WS,
+        issueId: UUID,
+        branch: `exp/EXP-1`,
+        status: `running`,
+        userId: `user-1`,
+        hostUserId: null,
+      },
+    ]
+
+    const result = await collectTools(USER, SESSION).get(
+      `exponential_pr_open`
+    )!({
+      repositoryId: REPO,
+      head: `exp/chat-1a2b3c4d`,
+      title: `Chore`,
+    })
+
+    // The PR is still opened and returned — only the stamp is withheld.
+    expect(parseOk(result)).toEqual({
+      url: `https://github.com/acme/app/pull/9`,
+      number: 9,
+    })
+    expect(updates).toHaveLength(0)
+    expect(db.transaction).not.toHaveBeenCalled()
   })
 
   it(`ignores a header naming somebody else's run`, async () => {

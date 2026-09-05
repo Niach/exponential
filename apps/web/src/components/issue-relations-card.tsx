@@ -25,10 +25,10 @@ import { GlassSectionHeader } from "@/components/ui/glass-rows"
 import { Pill } from "@/components/ui/pill"
 
 // EXP-736 — the issue's relation graph, both sides in one card. Rows come off
-// the `issue_relations` shape (never a fetch): the shape carries a row as long
-// as EITHER issue's board is visible, and the far issue is resolved through
-// the already-synced issues shape, so a row whose other side isn't visible to
-// this viewer is simply dropped rather than rendered half-blank.
+// the `issue_relations` shape (never a fetch): the shape is scoped by the row's
+// SOURCE issue's board (its `board_id` mirror), so the far issue is resolved
+// separately through the already-synced issues shape and a row whose other side
+// isn't visible to this viewer is dropped rather than rendered half-blank.
 //
 // Every pick is stored in ONE canonical direction (lib/issue-relations.ts);
 // the inverse halves of the picker just pass `inverse: true`. "Duplicate of"

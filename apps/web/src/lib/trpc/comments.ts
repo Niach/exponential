@@ -40,20 +40,28 @@ async function loadCommentForMutation(
   return row
 }
 
+type Tx = Parameters<
+  // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
+  Parameters<typeof import("@/db/connection").db.transaction>[0]
+>[0]
+
 /**
  * EXP-741: resolve the comment a reply hangs off. Threads are ONE level deep:
  * the parent must be a comment on the same issue, and a reply to a reply is
  * re-parented onto that reply's own parent, so every reply renders under a
  * top-level card on every client (the natives only offer the reply row on
  * top-level cards; MCP callers may name any comment id).
+ *
+ * Runs INSIDE the insert transaction: a parent deleted between the lookup and
+ * the insert would otherwise fail the FK as an opaque 500 instead of the
+ * NOT_FOUND the caller can act on.
  */
 async function resolveReplyParent(
-  // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
-  db: typeof import("@/db/connection").db,
+  tx: Tx,
   parentId: string,
   issueId: string
 ): Promise<string> {
-  const [parent] = await db
+  const [parent] = await tx
     .select({
       id: comments.id,
       issueId: comments.issueId,
@@ -73,11 +81,6 @@ async function resolveReplyParent(
   }
   return parent.parentId ?? parent.id
 }
-
-type Tx = Parameters<
-  // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
-  Parameters<typeof import("@/db/connection").db.transaction>[0]
->[0]
 
 /**
  * Reconcile a comment's linked attachments to exactly `attachmentIds`
@@ -206,12 +209,11 @@ export const commentsRouter = router({
         issueContext.teamId,
         `comment`
       )
-      const parentId = input.parentId
-        ? await resolveReplyParent(ctx.db, input.parentId, input.issueId)
-        : null
-
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
+        const parentId = input.parentId
+          ? await resolveReplyParent(tx, input.parentId, input.issueId)
+          : null
         const [comment] = await tx
           .insert(comments)
           .values({
@@ -442,18 +444,14 @@ export const commentsRouter = router({
 
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        // EXP-741: a top-level comment takes its replies with it (the FK
-        // cascades), so everything below runs over the whole thread — the
-        // dying root plus its replies — not just the named row.
-        const replies = await tx
-          .select({
-            id: comments.id,
-            parentId: comments.parentId,
-            body: comments.body,
-          })
-          .from(comments)
-          .where(eq(comments.parentId, input.id))
-        const dyingIds = [input.id, ...replies.map((row) => row.id)]
+        // EXP-741 + EXP-398: a delete destroys the NAMED ROW AND NOTHING ELSE.
+        // Replies survive their root — `comments.parent_id` is ON DELETE SET
+        // NULL, so a teammate's reply flattens to a top-level card (every
+        // client's thread helper already renders a reply with a missing parent
+        // that way) instead of being deleted by someone else's delete. Their
+        // attachments and their `#IDENT` references stay with them, so
+        // everything below runs over this one comment only.
+        const dyingIds = [input.id]
         // Comment attachments die with their comment (EXP-554). Collect and
         // delete BEFORE the comment row goes — the FK is ON DELETE SET NULL,
         // which would silently unlink them into the issue's Files rail.
@@ -489,21 +487,16 @@ export const commentsRouter = router({
         await tx.delete(comments).where(eq(comments.id, input.id))
         // EXP-736: a deleted comment takes its `#IDENT` references with it —
         // the reference rows only die when no other text still names them.
-        // Replies are gone too by now (cascade), so each dying body is one
-        // more previous→empty delta.
-        for (const gone of [
-          { id: input.id, body: dying?.body },
-          ...replies,
-        ]) {
-          await syncReferenceRelations(tx, {
-            issueId: existing.issueId,
-            teamId: existing.teamId,
-            actorUserId: ctx.session.user.id,
-            previousText: getCommentBodyText(gone.body),
-            nextText: ``,
-            excludeCommentId: gone.id,
-          })
-        }
+        // Only THIS body is a previous→empty delta; surviving replies keep
+        // their own references (and the scan below still sees their text).
+        await syncReferenceRelations(tx, {
+          issueId: existing.issueId,
+          teamId: existing.teamId,
+          actorUserId: ctx.session.user.id,
+          previousText: getCommentBodyText(dying?.body),
+          nextText: ``,
+          excludeCommentId: input.id,
+        })
         return { txId, storageKeys: linked.map((row) => row.storageKey) }
       })
 

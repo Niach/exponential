@@ -31,6 +31,10 @@ struct IssueRelationRow: Identifiable, Sendable {
     let type: IssueRelationType
     let inverse: Bool
     let other: IssueEntity
+    /// The counterpart's status resolved against the TEAM's rows (EXP-314), not
+    /// its builtin anchor: a counterpart sitting in a custom status must render
+    /// that row's glyph and color, like Android and desktop do.
+    let otherStatus: ResolvedIssueStatus
 
     var label: String { type.label(inverse: inverse) }
     var iconName: String { type.iconName(inverse: inverse) }
@@ -44,9 +48,11 @@ final class IssueDetailViewModel {
     /// issue's team by `teamStatuses`.
     var statusRows: [IssueStatusEntity] = []
     var issueLabels: [IssueLabelEntity] = []
-    /// EXP-736: this issue's relations, resolved to the OTHER issue and read
-    /// from this issue's side. Rows whose counterpart isn't synced are hidden.
-    var relationRows: [IssueRelationRow] = []
+    /// EXP-736: the observed relation rows plus the counterpart issues, kept raw
+    /// so `relationRows` re-resolves the counterpart's status when the team's
+    /// statuses (or the board that scopes them) land AFTER the relations do.
+    private var relationEntities: [IssueRelationEntity] = []
+    private var relationOthers: [String: IssueEntity] = [:]
     var users: [UserEntity] = []
     /// Every synced `team_members` row; scoped to this issue's team by
     /// `teamUsers` (EXP-487).
@@ -1066,16 +1072,30 @@ final class IssueDetailViewModel {
 
     // MARK: - Relations (EXP-736)
 
-    /// Turn the observed rows into the Relations list: each row read from THIS
-    /// issue's side, the counterpart resolved, ordered like the picker.
+    /// Keep the observed payload; the list itself is derived below.
     private func applyRelations(_ rows: [IssueRelationEntity], others: [IssueEntity]) {
-        let byId = Dictionary(others.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        relationRows = rows.compactMap { row -> IssueRelationRow? in
+        relationEntities = rows
+        relationOthers = Dictionary(others.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The Relations list: each row read from THIS issue's side, the counterpart
+    /// resolved (its status through the team's rows, so a custom status renders
+    /// its own glyph and color), ordered like the picker. Rows whose counterpart
+    /// isn't synced are hidden.
+    var relationRows: [IssueRelationRow] {
+        let team = teamStatuses
+        return relationEntities.compactMap { row -> IssueRelationRow? in
             guard let type = IssueRelationType.from(row.type) else { return nil }
             let inverse = row.relatedIssueId == issueId
             let otherId = inverse ? row.issueId : row.relatedIssueId
-            guard let other = byId[otherId] else { return nil }
-            return IssueRelationRow(id: row.id, type: type, inverse: inverse, other: other)
+            guard let other = relationOthers[otherId] else { return nil }
+            return IssueRelationRow(
+                id: row.id,
+                type: type,
+                inverse: inverse,
+                other: other,
+                otherStatus: IssueStatusResolver.resolve(other, team: team)
+            )
         }
         .sorted { lhs, rhs in
             let lo = RelationPick.order(type: lhs.type, inverse: lhs.inverse)

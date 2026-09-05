@@ -8,6 +8,7 @@ import {
   CLOSE_REPLACED,
   CLOSE_SESSION_ENDED,
   CLOSE_SLOW_CONSUMER,
+  describeClientFrameRejection,
   parseClientFrame,
   type ActivityEvent,
   type ClientFrame,
@@ -57,6 +58,8 @@ interface Conn {
   deviceId?: string
   // publisher/viewer sockets belong to a room after hello/join.
   sessionId?: string
+  /** Last time this socket's rejected-frame warning was logged (rate limit). */
+  lastFrameWarnAt?: number
 }
 
 /** One replayable activity event, pre-serialized once: the same string feeds
@@ -115,6 +118,12 @@ const PUBLISHER_IDLE_CHECK_INTERVAL_MS = 30_000
 // foreground/push/network kick cost a mint + activity_reset + full replay.
 // Same 3-missed-ticks ratio as the publisher's 30s ping / 90s idle window.
 const VIEWER_KEEPALIVE_INTERVAL_MS = 15_000
+// A frame the schema rejects is dropped on the floor; without a log line a
+// publisher/client version skew (EXP-730 made `question.id` required, so a
+// pre-0.14.31 desktop's id-less card now fails the parse) is invisible from
+// the relay side. One warning per SOCKET per window keeps a chatty or hostile
+// client from filling the log.
+const FRAME_WARN_INTERVAL_MS = 30_000
 
 function frame(msg: ServerFrame): string {
   return JSON.stringify(msg)
@@ -203,8 +212,29 @@ export class Hub {
     }
 
     const msg = parseClientFrame(data)
-    if (!msg) return
+    if (!msg) {
+      this.warnRejectedFrame(conn, data)
+      return
+    }
     this.onControl(conn, msg)
+  }
+
+  /** One rate-limited line for a frame the schema rejected: the socket's role,
+   *  the frame's `t`, and the first zod issue's path — structure only, never
+   *  frame CONTENT (the activity channel is scrubbed and stays that way). */
+  private warnRejectedFrame(conn: Conn, raw: string) {
+    const now = Date.now()
+    if (
+      conn.lastFrameWarnAt !== undefined &&
+      now - conn.lastFrameWarnAt < FRAME_WARN_INTERVAL_MS
+    ) {
+      return
+    }
+    conn.lastFrameWarnAt = now
+    const { t, issue } = describeClientFrameRejection(raw)
+    console.warn(
+      `[hub] dropped ${conn.claims.role} frame (t=${t ?? `?`}): ${issue}`
+    )
   }
 
   /** REV2-X: Bun delivers protocol-level ping frames to a dedicated `ping`

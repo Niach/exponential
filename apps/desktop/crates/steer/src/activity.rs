@@ -1072,7 +1072,16 @@ fn parse_assistant_entry(entry: &Value, redactor: &Redactor) -> Vec<ActivityEven
                 let name = block.get("name").and_then(Value::as_str).unwrap_or("tool");
                 // Interactive prompts become answerable question events; a
                 // malformed input falls through to the generic tool headline.
-                let tool_use_id = block.get("id").and_then(Value::as_str);
+                //
+                // An EMPTY id is treated as absent (the hooks parser's
+                // `string_field` posture): taken verbatim it would mint
+                // `id: Some("")`, and the relay's activity schema requires a
+                // non-empty question id (EXP-730) — the card would be dropped
+                // on the wire instead of falling back to a synthetic id.
+                let tool_use_id = block
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty());
                 if name == "AskUserQuestion" {
                     if let Some(questions) = parse_ask_user_question(
                         tool_use_id,
@@ -1331,7 +1340,12 @@ const SYNTHETIC_ID_TEXT_SEED: usize = 256;
 ///
 /// `ordinal` disambiguates two cards whose text is genuinely identical (the
 /// same picker re-asked later in the run); pass a per-session counter.
-fn synthetic_question_id(session: &str, kind: &str, text: &str, ordinal: u32) -> String {
+pub(crate) fn synthetic_question_id(
+    session: &str,
+    kind: &str,
+    text: &str,
+    ordinal: u32,
+) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     let ordinal = ordinal.to_string();
     let text = truncate(text, SYNTHETIC_ID_TEXT_SEED);
@@ -1369,6 +1383,7 @@ fn parse_ask_user_question(
     // for the pathological entry that has neither) is the deterministic
     // stand-in if a future transcript shape ever drops it.
     let ask_id = tool_use_id
+        .filter(|id| !id.is_empty())
         .map(|id| truncate(id, ID_MAX))
         .unwrap_or_else(|| {
             synthetic_question_id(
@@ -1442,7 +1457,10 @@ fn parse_exit_plan_mode(
         .map(|p| truncate_marked(&redactor.redact(p), QUESTION_TEXT_MAX))
         .filter(|p| !p.trim().is_empty());
     let text = plan.unwrap_or_else(|| "Plan ready for approval.".to_string());
+    // An empty tool_use id is no id at all (EXP-730: the relay drops a card
+    // whose `id` is the empty string) — fall back like an absent one.
     let id = tool_use_id
+        .filter(|id| !id.is_empty())
         .map(|id| truncate(id, ID_MAX))
         .unwrap_or_else(|| synthetic_question_id(entry_uuid.unwrap_or_default(), "plan", &text, 0));
     ActivityEvent::Question {
@@ -6030,6 +6048,64 @@ mod tests {
             [ActivityEvent::Question { text, .. }] => {
                 assert_eq!(text.len(), QUESTION_TEXT_MAX);
                 assert!(text.ends_with(TRUNCATION_MARKER));
+            }
+            other => panic!("expected one question, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_empty_tool_use_id_falls_back_to_a_stable_synthetic_id() {
+        // EXP-730: the relay requires a non-empty question id, so an empty
+        // `tool_use.id` must be treated as ABSENT — taken verbatim it shipped
+        // `id: Some("")` and the card was dropped on the wire.
+        let redactor = Redactor::new(vec![]);
+        let plan = serde_json::json!({
+            "type": "assistant",
+            "uuid": "entry-1",
+            "message": { "content": [
+                { "type": "tool_use", "id": "", "name": "ExitPlanMode",
+                  "input": { "plan": "## Plan\n1. Do the thing" } },
+            ]}
+        })
+        .to_string();
+        let id = match &parse_transcript_line(&plan, &redactor)[..] {
+            [ActivityEvent::Question { id, .. }] => {
+                let id = id.clone().expect("a plan card always carries an id");
+                assert_eq!(
+                    id,
+                    synthetic_question_id("entry-1", "plan", "## Plan\n1. Do the thing", 0)
+                );
+                id
+            }
+            other => panic!("expected one question, got {other:?}"),
+        };
+        // Re-parsing the same line (history replay, a re-emitted twin) mints
+        // the same identity, so the card replaces rather than duplicates.
+        match &parse_transcript_line(&plan, &redactor)[..] {
+            [ActivityEvent::Question { id: again, .. }] => {
+                assert_eq!(again.as_deref(), Some(id.as_str()))
+            }
+            other => panic!("expected one question, got {other:?}"),
+        }
+
+        // Same rule on the ask path: no `{empty}#0` ids.
+        let ask = serde_json::json!({
+            "type": "assistant",
+            "uuid": "entry-2",
+            "message": { "content": [
+                { "type": "tool_use", "id": "", "name": "AskUserQuestion",
+                  "input": { "questions": [
+                      { "question": "Which color?",
+                        "options": [{ "label": "Red" }, { "label": "Blue" }] },
+                  ]}},
+            ]}
+        })
+        .to_string();
+        match &parse_transcript_line(&ask, &redactor)[..] {
+            [ActivityEvent::Question { id, ask_id, .. }] => {
+                let ask_id = ask_id.clone().expect("an ask id");
+                assert!(!ask_id.is_empty());
+                assert_eq!(id.as_deref(), Some(format!("{ask_id}#0").as_str()));
             }
             other => panic!("expected one question, got {other:?}"),
         }

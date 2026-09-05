@@ -708,6 +708,13 @@
       "when": 1788624365423,
       "tag": "0100_comment_threads",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1788629079987,
+      "tag": "0101_comment_replies_survive",
+      "breakpoints": true
     }
   ]
 }

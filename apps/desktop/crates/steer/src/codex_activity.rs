@@ -64,8 +64,9 @@ use crate::activity::{
     TOOL_NAME_MAX,
 };
 use crate::activity::{
-    normalize_compaction_trigger, pump_commands, settle, settle_for, tail_transcript, truncate,
-    AnswerAttempt, RemoteAnswer, ANSWER_RETRY_TTL, COMPACTION_MAX, PLAN_SUBMIT_PROBE,
+    normalize_compaction_trigger, pump_commands, settle, settle_for, synthetic_question_id,
+    tail_transcript, truncate, AnswerAttempt, RemoteAnswer, ANSWER_RETRY_TTL, COMPACTION_MAX,
+    PLAN_SUBMIT_PROBE,
 };
 use crate::codex_approval_picker::{self, ApprovalSnapshot, CodexApprovalWatcher};
 use crate::frames::{ActivityEvent, CompactionPhase, QuestionOption};
@@ -787,8 +788,18 @@ fn exec_command_headline(arguments: &Value) -> Option<String> {
 /// line once and re-parses replay the same line, so the ids are stable per
 /// card. Without them a card is answerable only by the legacy blind-keystroke
 /// path, which the 0.14.30 clients dropped — an id-less codex question is
-/// read-only on web/Android and dropped by iOS. A call with no `call_id`
-/// (never observed) keeps the legacy id-less shape.
+/// read-only on web/Android and dropped by iOS.
+///
+/// EXP-730 went further: the relay's activity schema now REQUIRES a non-empty
+/// `question.id`, so an id-less card is silently dropped on the wire instead
+/// of degrading. A call with no `call_id` (never observed, but the rollout
+/// vocabulary is not ours) therefore falls back to a SYNTHETIC ask id, minted
+/// the same way the claude emitter mints its hookless fallbacks
+/// ([`synthetic_question_id`]) — a pure function of the line's own
+/// `arguments`, so re-parsing the same rollout line (attach replay, a
+/// re-emitted history buffer) lands on the same identity rather than
+/// duplicating the card. Only a real `call_id` registers a pending ask: a
+/// synthetic one has no `function_call_output` to retire it by.
 fn request_user_input_events(
     call_id: Option<&str>,
     arguments: &Value,
@@ -800,7 +811,9 @@ fn request_user_input_events(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let ask_id = call_id.map(|id| truncate(id, ID_MAX));
+    let ask_id = call_id.map(|id| truncate(id, ID_MAX)).unwrap_or_else(|| {
+        synthetic_question_id("", "codex-ask", &arguments.to_string(), 0)
+    });
     let mut events = Vec::new();
     let mut cards: Vec<AskCard> = Vec::new();
     for question in &questions {
@@ -857,9 +870,9 @@ fn request_user_input_events(
             // The claude emitter's shape: the id indexes from 0, the
             // DISPLAYED step from 1 (patched in below, once the ask's card
             // count is known).
-            id: ask_id.as_ref().map(|ask| format!("{ask}#{card}")),
-            ask_id: ask_id.clone(),
-            index: ask_id.as_ref().map(|_| card as u32 + 1),
+            id: Some(format!("{ask_id}#{card}")),
+            ask_id: Some(ask_id.clone()),
+            index: Some(card as u32 + 1),
             total: None,
             header,
             at: None,
@@ -868,12 +881,11 @@ fn request_user_input_events(
     let published = cards.len();
     if published > 0 {
         // A card WITHOUT index/total is an ask's final review step to the
-        // clients, so both ride every card of an id-carrying ask.
-        if ask_id.is_some() {
-            for event in &mut events {
-                if let ActivityEvent::Question { total, .. } = event {
-                    *total = Some(published as u32);
-                }
+        // clients, so both ride every card (every ask carries an id now,
+        // synthetic or not).
+        for event in &mut events {
+            if let ActivityEvent::Question { total, .. } = event {
+                *total = Some(published as u32);
             }
         }
         if let Some(call_id) = call_id {
@@ -1627,6 +1639,72 @@ mod tests {
             }]
         );
         assert!(!state.attention());
+    }
+
+    #[test]
+    fn request_user_input_without_call_id_mints_a_stable_synthetic_id() {
+        // EXP-730: the relay requires a non-empty `question.id`, so a rollout
+        // line whose `request_user_input` carries no `call_id` must still ship
+        // an id — and the SAME id every time that line is parsed, or an
+        // attach replay would duplicate the card.
+        let args = r#"{\"questions\":[{\"question\":\"Ship it?\",\"options\":[{\"label\":\"Yes\"},{\"label\":\"No\"}]},{\"question\":\"When?\",\"options\":[{\"label\":\"Now\"}]}]}"#;
+        let line = format!(
+            r#"{{"timestamp":"t","type":"response_item","payload":{{"type":"function_call","name":"request_user_input","arguments":"{args}"}}}}"#
+        );
+
+        let ids = |line: &str| {
+            let mut state = CodexState::default();
+            let events = parse(&mut state, line);
+            assert_eq!(events.len(), 2);
+            let ids: Vec<(Option<String>, Option<String>, Option<u32>, Option<u32>)> = events
+                .iter()
+                .map(|event| match event {
+                    ActivityEvent::Question {
+                        id,
+                        ask_id,
+                        index,
+                        total,
+                        ..
+                    } => (id.clone(), ask_id.clone(), *index, *total),
+                    other => panic!("expected question, got {other:?}"),
+                })
+                .collect();
+            // No `call_id` means no pending ask to retire by output, so the
+            // needs-input flag must not latch on it.
+            assert!(!state.attention());
+            ids
+        };
+
+        let first = ids(&line);
+        let (id0, ask0, index0, total0) = first[0].clone();
+        let ask0 = ask0.expect("synthetic ask id");
+        assert!(
+            ask0.starts_with("syn-codex-ask-"),
+            "namespaced synthetic id, got {ask0}"
+        );
+        assert_eq!(id0.as_deref(), Some(format!("{ask0}#0").as_str()));
+        assert_eq!((index0, total0), (Some(1), Some(2)));
+        let (id1, ask1, index1, total1) = first[1].clone();
+        assert_eq!(id1.as_deref(), Some(format!("{ask0}#1").as_str()));
+        assert_eq!(ask1.as_deref(), Some(ask0.as_str()));
+        assert_eq!((index1, total1), (Some(2), Some(2)));
+
+        // Re-emitting the same card (replay off the same rollout line, fresh
+        // state) lands on the same identity.
+        assert_eq!(ids(&line), first);
+
+        // A different ask on the same run is a different card.
+        let other_args = r#"{\"questions\":[{\"question\":\"Deploy?\",\"options\":[{\"label\":\"Yes\"}]}]}"#;
+        let other_line = format!(
+            r#"{{"timestamp":"t","type":"response_item","payload":{{"type":"function_call","name":"request_user_input","arguments":"{other_args}"}}}}"#
+        );
+        let mut state = CodexState::default();
+        match &parse(&mut state, &other_line)[0] {
+            ActivityEvent::Question { ask_id, .. } => {
+                assert_ne!(ask_id.as_deref(), Some(ask0.as_str()));
+            }
+            other => panic!("expected question, got {other:?}"),
+        }
     }
 
     #[test]

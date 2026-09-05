@@ -665,9 +665,15 @@ export const comments = pgTable(
       .references(() => users.id, { onDelete: `cascade` }),
     // EXP-741: the top-level comment this one replies to — ONE level deep
     // (`comments.create` flattens a reply-to-a-reply onto the root), same
-    // issue, cascade-deleted with its parent. NULL = a top-level comment.
+    // issue. NULL = a top-level comment. SET NULL, never cascade: deleting a
+    // root must not delete a teammate's reply (EXP-398 — nobody deletes
+    // someone else's words), and the same goes for the account-deletion
+    // cascade off `author_id`. An orphaned reply FLATTENS to a top-level card:
+    // every client's thread helper already renders a reply whose parent is
+    // missing as top-level (lib/comment-threads.ts, iOS CommentThreads,
+    // Android TimelineCollapse, desktop timeline.rs).
     parentId: uuid(`parent_id`).references((): AnyPgColumn => comments.id, {
-      onDelete: `cascade`,
+      onDelete: `set null`,
     }),
     // EXP-741: `mcp` when an agent posted it over MCP (the card header shows
     // "via MCP"); stamped server-side from the MCP context, never by input.

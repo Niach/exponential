@@ -96,6 +96,21 @@ describe(`relationLabel`, () => {
     expect(relationLabel(`related`, `forward`)).toBe(`related to`)
     expect(relationLabel(`related`, `inverse`)).toBe(`related to`)
   })
+
+  it(`degrades an unknown type to the symmetric phrasing`, () => {
+    // A fifth relation type from a NEWER server reaching an old tab: rows
+    // arrive over Electric, so this renders rather than throwing mid-timeline.
+    const future = `mirrors` as never
+    expect(relationLabel(future, `forward`)).toBe(`related to`)
+    expect(relationLabel(future, `inverse`)).toBe(`related to`)
+    expect(
+      relationEventPhrase(`relation_added`, {
+        type: future,
+        relatedIdentifier: `EXP-3`,
+        direction: `forward`,
+      })
+    ).toBe(`added related issue EXP-3`)
+  })
 })
 
 describe(`relationEventPhrase (the cross-client phrase table)`, () => {
@@ -173,6 +188,11 @@ const state = {
   descriptionRows: [] as Row[],
   /** Comment bodies the survivor scan reads. */
   commentRows: [] as Row[],
+  /** `{id, identifier, description}`: the far-side scan's one issue read —
+   * the editing issue (for its own identifier) plus each orphan candidate. */
+  farIssueRows: [] as Row[],
+  /** `{issueId, body}`: the far issues' comments. */
+  farCommentRows: [] as Row[],
   insertResults: [] as Row[][],
   deleteResults: [] as Row[][],
   inserted: [] as Row[],
@@ -182,9 +202,16 @@ const state = {
 
 function rowsFor(fields: Record<string, unknown>, table: unknown): Row[] {
   if (table === issueRelations) return state.relationRows
-  if (table === comments) return state.commentRows
+  if (table === comments) {
+    // The far-side scan reads bodies WITH their issue id; the own-issue
+    // survivor scan only ever projects the body.
+    return `issueId` in fields ? state.farCommentRows : state.commentRows
+  }
   if (table === issues) {
-    return `description` in fields ? state.descriptionRows : state.issueRows
+    if (`description` in fields) {
+      return `id` in fields ? state.farIssueRows : state.descriptionRows
+    }
+    return state.issueRows
   }
   return []
 }
@@ -240,6 +267,13 @@ beforeEach(() => {
   ]
   state.descriptionRows = [{ description: `` }]
   state.commentRows = []
+  // The far-side scan's read: the editing issue (A, so the scan knows its own
+  // identifier) plus the candidate B, neither writing anything back.
+  state.farIssueRows = [
+    { id: A, identifier: `EXP-1`, description: `` },
+    { id: B, identifier: `EXP-2`, description: `` },
+  ]
+  state.farCommentRows = []
   state.insertResults = []
   state.deleteResults = []
   state.inserted = []
@@ -450,6 +484,64 @@ describe(`syncReferenceRelations`, () => {
     expect(h.recordIssueEvent.mock.calls[0]![1]).toMatchObject({
       type: `relation_removed`,
     })
+  })
+
+  it(`keeps the row while the OTHER issue's description still names this one`, async () => {
+    // The canonical `related` row is shared by the pair: A's comment said
+    // `#EXP-2` and B's description says `#EXP-1`, which is ONE row. Editing
+    // the token out of A must not delete the link B still writes.
+    state.farIssueRows = [
+      { id: A, identifier: `EXP-1`, description: `` },
+      { id: B, identifier: `EXP-2`, description: `caused by #EXP-1` },
+    ]
+
+    await syncReferenceRelations(fakeTx, {
+      issueId: A,
+      teamId: TEAM,
+      actorUserId: `actor`,
+      previousText: `see #EXP-2`,
+      nextText: ``,
+      excludeCommentId: `comment-1`,
+    })
+
+    expect(state.deletes).toBe(0)
+    expect(h.recordIssueEvent).not.toHaveBeenCalled()
+  })
+
+  it(`keeps the row while the OTHER issue's comments still name this one`, async () => {
+    state.farCommentRows = [{ issueId: B, body: `dup of #EXP-1` }]
+
+    await syncReferenceRelations(fakeTx, {
+      issueId: A,
+      teamId: TEAM,
+      actorUserId: `actor`,
+      previousText: `see #EXP-2`,
+      nextText: ``,
+      excludeCommentId: `comment-1`,
+    })
+
+    expect(state.deletes).toBe(0)
+  })
+
+  it(`deletes when the far side names some OTHER issue`, async () => {
+    // Only the editing issue's own identifier counts as the far side keeping
+    // the link alive — B referencing EXP-9 is a different pair.
+    state.farIssueRows = [
+      { id: A, identifier: `EXP-1`, description: `` },
+      { id: B, identifier: `EXP-2`, description: `see #EXP-9` },
+    ]
+    state.deleteResults = [[relationRow()]]
+
+    await syncReferenceRelations(fakeTx, {
+      issueId: A,
+      teamId: TEAM,
+      actorUserId: `actor`,
+      previousText: `see #EXP-2`,
+      nextText: ``,
+      excludeCommentId: `comment-1`,
+    })
+
+    expect(state.deletes).toBe(1)
   })
 
   it(`writes a reference row for an identifier the edit added`, async () => {
