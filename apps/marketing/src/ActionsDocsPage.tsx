@@ -132,7 +132,10 @@ export function ActionsDocsPage() {
               hands the action to one of your online desktops and drops you
               into the live session, the same watch-and-steer view as a coding
               run. All four clients edit actions in full; the writes are still
-              owner-only.
+              owner-only. A run that opens a pull request shows{` `}
+              <strong>Merge</strong> in its session view, and the PR is listed
+              under <strong>Agent runs</strong> in{` `}
+              <a href="/docs/coding/#review-merge">Reviews</a>.
             </p>
             <p>
               Desktop web and the IDE give <strong>Actions</strong> and{` `}

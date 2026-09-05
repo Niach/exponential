@@ -271,9 +271,12 @@ const Avatar: React.FC<{ size: number; text: string }> = ({ size, text }) => (
 // order Inbox / Support / Devices / Actions / Automations / Reviews with DOT
 // badges (unread white, live green — never counts), a "Boards" group carries
 // the colored board glyphs, and Getting started + the user row are pinned at
-// the bottom.
+// the bottom. EXP-723: the sidebar sits bare on the ground (no right
+// hairline) and the content column is the CUTOUT — a rounded card inset 10px
+// with the card hairline and the panel wash (app-shell.ts MAIN_PANEL_CLASS),
+// here at the mock's ~0.53 scale: inset 5, radius 8.
 // The list header holds ONLY the ghost Filter button, and the agent dock bar
-// rides along the viewport's bottom edge.
+// rides along the panel's bottom edge.
 export const WEB = { w: 560, chrome: 34, viewport: 348, sidebar: 156 } as const
 
 const WEB_NAV: { label: string; dot?: string; icon: React.ReactNode }[] = [
@@ -497,12 +500,11 @@ export const WebBrowserMock: React.FC = () => (
 
     {/* the web app */}
     <div style={{ display: "flex", height: WEB.viewport }}>
-      {/* sidebar */}
+      {/* sidebar — bare on the ground since EXP-723 */}
       <div
         style={{
           width: WEB.sidebar,
           flexShrink: 0,
-          borderRight: `1px solid ${C.strokeCard}`,
           padding: "9px 6px 8px",
           boxSizing: "border-box",
           display: "flex",
@@ -654,13 +656,19 @@ export const WebBrowserMock: React.FC = () => (
         </div>
       </div>
 
-      {/* main — grouped issue list + the agent dock bar */}
+      {/* main — the cutout panel: grouped issue list + the agent dock bar */}
       <div
         style={{
           flex: 1,
           minWidth: 0,
           display: "flex",
           flexDirection: "column",
+          margin: 5,
+          boxSizing: "border-box",
+          borderRadius: 8,
+          border: `1px solid ${C.strokeCard}`,
+          backgroundColor: C.fillPanel,
+          overflow: "hidden",
         }}
       >
         <div

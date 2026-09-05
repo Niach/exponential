@@ -928,9 +928,9 @@ button.mob-backbtn {
 
    Fills and strokes are the SHARED glass tokens (packages/design-tokens →
    ExpUI GlassTokens): fillSection .039 (segmented capsule), fillRow .051
-   (cards), fillCard .059 (toggle track), fillActive .149 (selected segment),
+   (cards), fillCard .059 (toggle track), fillActive .09 (selected segment),
    strokeSection .078, strokeCard .102. The sheet surface is the opaque
-   `glass.backgroundBottom` #18181b — flat, no gradient and no material
+   `glass.backgroundBottom` #111114 — flat, no gradient and no material
    (GlassSheetTokens.background). */
 
 .mss-phone {
@@ -951,8 +951,8 @@ button.mob-backbtn {
   height: 696px;
   transform: scale(var(--mss-scale));
   transform-origin: top left;
-  /* GlassSheetTokens.background — opaque #18181b, no blur. */
-  background: #18181b;
+  /* GlassSheetTokens.background — opaque #111114, no blur. */
+  background: #111114;
   color: #fff;
   font-family: var(--font-ui);
   font-size: 17px;
@@ -1016,7 +1016,7 @@ button.mob-backbtn {
 }
 
 .mss-segbtn.is-active {
-  background: rgba(255, 255, 255, 0.149);
+  background: rgba(255, 255, 255, 0.09);
   color: #fff;
 }
 
@@ -1184,7 +1184,7 @@ button.mob-backbtn {
 .mss-action {
   margin-top: auto;
   padding: 10px 16px;
-  background: #18181b;
+  background: #111114;
   flex: none;
 }
 

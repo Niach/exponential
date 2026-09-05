@@ -79,6 +79,9 @@ import {
   UserPlus,
   X,
   Zap,
+  Link2,
+  MessageCircle,
+  Terminal,
   type LucideProps,
 } from "lucide-react"
 
@@ -212,3 +215,7 @@ const clock = (d: string): IdeIcon =>
 
 export const IcProgress24 = clock(`M12 12 L12 6 A6 6 0 0 1 12 18 Z`)
 export const IcProgress34 = clock(`M12 12 L12 6 A6 6 0 1 1 6 12 Z`)
+// EXP-723/742 rail + dock chrome and the relations card
+export const IcMessageCircle = wrap(MessageCircle) // the dock's collapsed-form switch
+export const IcLink2 = wrap(Link2) // relation-section
+export const IcTerminal = wrap(Terminal) // session-shell

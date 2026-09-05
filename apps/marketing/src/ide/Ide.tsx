@@ -305,16 +305,19 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
           style={scale < 1 ? { width: BASE_W, transform: `scale(${scale})` } : undefined}
         >
           {/* The labelled rail is the ONE full-height column (it carries
-              its own titlebar strip); the titlebar, panes and terminal dock
-              all live in the content column right of it. */}
+              its own titlebar strip); the decoration band, the cutout panel
+              with its panes and the terminal dock all live in the content
+              column right of it (shell.rs, EXP-723). */}
           <Rail />
           <div className="ide-main">
             <Topbar />
-            <div className="ide-main-top">
-              {tool !== `reviews` && <SidebarPanel />}
-              <CenterArea />
+            <div className="ide-panel">
+              <div className="ide-main-top">
+                {tool !== `reviews` && <SidebarPanel />}
+                <CenterArea />
+              </div>
+              <TerminalDock />
             </div>
-            <TerminalDock />
           </div>
           {pendingCoding && <StartCodingDialog />}
         </div>

@@ -1,10 +1,12 @@
 /* ─── Full-page web issue detail ───
-   Mirrors apps/web issue-detail-view.tsx after EXP-568: breadcrumb bar with
-   the position switcher / copy-link / subscribe / delete actions, then ONE
-   centered max-w-3xl reading column — big title, the properties GLASS CARD
-   (no sidebar rail any more), the markdown description with the editor's
-   insert rail, the "Coding now" glass row, and the activity timeline
-   (issue-timeline.tsx + comment-rows/*). */
+   Mirrors apps/web issue-detail-view.tsx after EXP-568/723/736/741:
+   breadcrumb bar with the position switcher / copy-link / delete actions
+   (the Subscribe toggle is gone since EXP-723), then ONE centered max-w-3xl
+   reading column — big title, the properties GLASS CARD (no sidebar rail any
+   more), the "Coding now" glass row, the Relations card, the markdown
+   description with the editor's insert rail, and the activity timeline
+   (issue-timeline.tsx + comment-rows/*) whose comment cards end in the
+   "Leave a reply…" row. */
 import { useState } from "react"
 import {
   getIssue,
@@ -25,8 +27,6 @@ import {
   ICON_3,
   ICON_35,
   ICON_4,
-  IcBell,
-  IcBellOff,
   IcCalendar,
   IcChevDown,
   IcChevRight,
@@ -37,6 +37,7 @@ import {
   IcImage,
   IcLink2,
   IcPaperclip,
+  IcPlus,
   IcSmile,
   IcSubmit,
   IcTag,
@@ -93,8 +94,8 @@ function EventRow({ actor, text, value, time }: {
   actor: string
   text: string
   value?: string
-  /* Only the "created the issue" line carries a stamp — comment-rows/event.tsx
-     prints no time on a status/assignee/label/PR row. */
+  /* EXP-723: every event line ends in its own relative time
+     (comment-rows/event.tsx), the way the creation row always did. */
   time?: string
 }) {
   const status = value ? STATUS_BY_LABEL[value] : undefined
@@ -121,9 +122,9 @@ function ActivityRow({ item }: { item: ActivityItem }) {
     /* The fixture text is one sentence: "<actor> changed status to <value>". */
     const m = /^(.+?) (changed status to )(.+)$/.exec(item.text)
     return m ? (
-      <EventRow actor={m[1]} text={m[2]} value={m[3]} />
+      <EventRow actor={m[1]} text={m[2]} value={m[3]} time={item.time} />
     ) : (
-      <EventRow actor={``} text={item.text} />
+      <EventRow actor={``} text={item.text} time={item.time} />
     )
   }
   return (
@@ -135,6 +136,12 @@ function ActivityRow({ item }: { item: ActivityItem }) {
           <span className="web-comment-time">{item.time}</span>
         </div>
         <div className="web-comment-body">{item.body}</div>
+        {/* EXP-741: the card is the thread — the reply row closes it. */}
+        <div className="web-comment-replies">
+          <button className="web-reply-row" type="button">
+            Leave a reply…
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -188,7 +195,6 @@ export function WebIssueDetail({ issueId }: { issueId: string }) {
   const { interactive, closeIssue } = useWeb()
   const issue = getIssue(issueId)
   const session = AGENT_SESSIONS.find((s) => s.issueId === issue.id)
-  const [subscribed, setSubscribed] = useState(true)
   const [draft, setDraft] = useState(``)
   const [extra, setExtra] = useState<ActivityItem[]>([])
 
@@ -240,14 +246,6 @@ export function WebIssueDetail({ issueId }: { issueId: string }) {
           <button className="web-icbtn is-glass is-click" type="button" title="Copy link to issue">
             <IcLink2 size={ICON_4} />
           </button>
-          <button
-            className={`web-subscribe${interactive ? ` is-click` : ``}`}
-            type="button"
-            onClick={interactive ? () => setSubscribed((s) => !s) : undefined}
-          >
-            {subscribed ? <IcBell size={ICON_3} /> : <IcBellOff size={ICON_3} />}
-            {subscribed ? `Subscribed` : `Subscribe`}
-          </button>
           <button className="web-icbtn is-glass is-click" type="button" title="Delete issue">
             <IcTrash size={ICON_4} />
           </button>
@@ -258,20 +256,6 @@ export function WebIssueDetail({ issueId }: { issueId: string }) {
         <div className="web-col">
           <div className="web-issue-title">{issue.title}</div>
           <PropsCard issue={issue} />
-          <div className="web-editor">
-            <Description issueId={issue.id} />
-            <div className="web-editrail">
-              <span className="web-editrail-btn">
-                <IcSmile size={ICON_4} />
-              </span>
-              <span className="web-editrail-btn">
-                <IcImage size={ICON_4} />
-              </span>
-              <span className="web-editrail-btn">
-                <IcPaperclip size={ICON_4} />
-              </span>
-            </div>
-          </div>
 
           {session && (
             <div className="web-codingstack">
@@ -296,6 +280,38 @@ export function WebIssueDetail({ issueId }: { issueId: string }) {
               </div>
             </div>
           )}
+
+          {/* EXP-736: the Relations card follows the coding strip
+              (issue-relations-card.tsx) — header + "Add relation" stand alone
+              above an empty list, which is what makes the affordance
+              discoverable. The glyph is `relation-section` (link-2). */}
+          <div className="web-relations">
+            <div className="web-relcard">
+              <div className="web-relhead">
+                <IcLink2 size={ICON_35} className="web-relhead-icon" />
+                <span>Relations</span>
+                <button className="web-outlinebtn is-click" type="button">
+                  <IcPlus size={ICON_3} />
+                  Add relation
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="web-editor">
+            <Description issueId={issue.id} />
+            <div className="web-editrail">
+              <span className="web-editrail-btn">
+                <IcSmile size={ICON_4} />
+              </span>
+              <span className="web-editrail-btn">
+                <IcImage size={ICON_4} />
+              </span>
+              <span className="web-editrail-btn">
+                <IcPaperclip size={ICON_4} />
+              </span>
+            </div>
+          </div>
 
           <div className="web-timeline">
             <div className="web-timeline-head">{`Activity (${activity.length + extra.length})`}</div>

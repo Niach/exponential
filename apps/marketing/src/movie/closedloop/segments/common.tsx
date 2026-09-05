@@ -29,11 +29,12 @@ export type SegmentProps = { frame: number; portrait: boolean }
 // (EXP-176/200/392 history) — the narrative line stays readable at ~375px.
 export const captionSize = (portrait: boolean): number => (portrait ? 56 : 72)
 
-// Center-pane geometry (window-local, post-EXP-253/282 shell: expanded rail
-// 164 + issue-list tool window 520; tabs live in the 34px titlebar).
-export const CENTER_X = WIN.rail + WIN.sidebar // 684
-export const CENTER_W = WIN.w - CENTER_X // 884
-export const CONTENT_TOP = WIN.titleBar // 34
+// Center-pane geometry (window-local, post-EXP-723 shell: everything below
+// the 34px band lives INSIDE the cutout panel — the issue-list tool window
+// (520) then the center; tabs live in the band).
+export const CENTER_X = WIN.panel.x + WIN.sidebar // 738
+export const CENTER_W = WIN.panel.right - CENTER_X // 820
+export const CONTENT_TOP = WIN.panel.y // 40
 
 const RISE_DUR = 10
 const OUTRO_HOLD = 4 // stay fully opaque under the newcomer's fast rise

@@ -519,6 +519,6 @@ export const batchCodingScriptFor = (issues: Issue[]): ScriptLine[] => [
   { kind: `ok`, text: `Session finished · ${issues.length} issues in one PR` },
 ]
 
-export const SHELL_TAB_TITLE = `~/E/r/N/exponential`
-export const claudeTabTitle = (issueId: string): string => `claude · ${issueId}`
+/* The shell tab is named by its cwd (the trunk clone's directory). */
+export const SHELL_TAB_TITLE = `exponential`
 export const batchTabTitle = (count: number): string => `claude · batch (${count} issues)`

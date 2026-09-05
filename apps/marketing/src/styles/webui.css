@@ -52,11 +52,12 @@
   /* EXP-269 glass ladder */
   --w-fill-section: rgba(255, 255, 255, 0.04);
   --w-fill-row: rgba(255, 255, 255, 0.05);
-  --w-fill-active: rgba(255, 255, 255, 0.15);
+  --w-fill-panel: rgba(255, 255, 255, 0.04);
+  --w-fill-active: rgba(255, 255, 255, 0.09);
   --w-stroke-row: rgba(255, 255, 255, 0.06);
   --w-stroke-section: rgba(255, 255, 255, 0.08);
   --w-stroke-card: rgba(255, 255, 255, 0.1);
-  --w-stroke-active: rgba(255, 255, 255, 0.2);
+  --w-stroke-active: rgba(255, 255, 255, 0.14);
 
   /* --radius: 12px → the shadcn radius ladder */
   --w-r-sm: 8px;
@@ -76,7 +77,7 @@
   display: flex;
   transform-origin: top left;
   /* body::before — ONE top→bottom gradient behind the whole app. */
-  background: linear-gradient(to bottom, #09090b, #18181b);
+  background: linear-gradient(to bottom, #050507, #111114);
   color: var(--w-fg);
   font-family: var(--font-ui);
   font-size: var(--text-sm);
@@ -156,7 +157,8 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--w-border);
+  /* EXP-723: no right hairline — the sidebar sits bare on the ground and the
+     cutout panel's own stroke is the divider. */
 }
 
 /* SidebarHeader p-2 + the EXP-449 action row (gap-1). */
@@ -397,6 +399,14 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* EXP-723 cutout (team/app-shell.ts MAIN_PANEL_CLASS): a rounded card inset
+     10px on every side — PX literals, not rem steps — with the card hairline
+     and the translucent panel wash over the page gradient. */
+  margin: 10px;
+  border: 1px solid var(--w-stroke-card);
+  border-radius: var(--w-r-xl);
+  background: var(--w-fill-panel);
+  overflow: hidden;
 }
 .web-page {
   display: flex;
@@ -989,24 +999,6 @@
   margin: 0 var(--w1);
   background: var(--w-border);
 }
-.web-subscribe {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--w1_5);
-  height: var(--w6);
-  padding: 0 var(--w2_5);
-  border-radius: 999px;
-  border: 1px solid var(--w-stroke-card);
-  background: var(--w-fill-card);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  color: var(--w-muted-70);
-  white-space: nowrap;
-}
-.web-subscribe:hover {
-  background: var(--w-fill-active);
-  color: var(--w-fg);
-}
 
 .web-detail-scroll {
   flex: 1;
@@ -1156,6 +1148,31 @@
 }
 
 /* CodingRowStack px-5 py-2 → GlassRow (issue-coding-rows.tsx). */
+/* issue-relations-card.tsx (EXP-736): the same gutter + glass chrome as the
+   coding strip, one section header with the Add-relation pill. */
+.web-relations {
+  padding: var(--w3) var(--w4) 0;
+}
+.web-relcard {
+  padding: var(--w2) var(--w3);
+  border: 1px solid var(--w-stroke-card);
+  border-radius: var(--w-r-xl);
+  background: var(--w-popover-40);
+}
+.web-relhead {
+  display: flex;
+  align-items: center;
+  gap: var(--w2);
+  padding-bottom: var(--w1);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.web-relhead-icon {
+  color: var(--w-muted);
+}
+.web-relhead .web-outlinebtn {
+  margin-left: auto;
+}
 .web-codingstack {
   padding: var(--w2) var(--w5);
 }
@@ -1251,14 +1268,14 @@
   padding: var(--w2) 0;
 }
 /* comment-rows/regular.tsx: the body is a glass CARD — rounded-xl, the card
-   hairline and fill, px-3 pt-2 pb-2.5, author header inside it. */
+   hairline and fill, px-3 pt-2.5 pb-3 (EXP-723), author header inside it. */
 .web-comment-main {
   flex: 1;
   min-width: 0;
   border: 1px solid var(--w-stroke-card);
   border-radius: var(--w-r-xl);
   background: var(--w-fill-card);
-  padding: var(--w2) var(--w3) var(--w2_5);
+  padding: var(--w2_5) var(--w3) var(--w3);
 }
 .web-comment-head {
   display: flex;
@@ -1267,11 +1284,33 @@
   font-size: var(--text-xs);
 }
 .web-comment-author {
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--w-fg);
 }
 .web-comment-time {
   color: var(--w-muted);
+}
+/* EXP-741: the card is the thread — replies behind one hairline, then the
+   muted "Leave a reply…" ghost xs button that closes every top-level card. */
+.web-comment-replies {
+  margin-top: var(--w3);
+  padding-top: var(--w2);
+  border-top: 1px solid var(--w-stroke-card);
+}
+.web-reply-row {
+  display: flex;
+  align-items: center;
+  width: calc(100% + var(--w4));
+  height: var(--w6);
+  margin: 0 calc(-1 * var(--w2));
+  padding: 0 var(--w2);
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  color: var(--w-muted);
+}
+.web-reply-row:hover {
+  color: var(--w-fg);
 }
 .web-comment-body {
   margin-top: var(--w1);

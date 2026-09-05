@@ -1,7 +1,8 @@
 // surfaces/detail.tsx — IssueDetailPane: the issue-detail center pane.
 // EXP-471 rebuilt it against shots/issue-detail/desktop.webp — the post-EXP-282
 // desktop detail has NO properties sidebar and NO rich-text toolbar:
-//   · a pager row ("9 / 17" + prev/next) with copy-link · subscribe · delete right
+//   · a pager row ("9 / 17" + prev/next) with copy-link · delete right (the
+//     Subscribe toggle retired with EXP-723)
 //   · the big title
 //   · ONE bordered PROPERTIES PILL BAR (status · priority · assignee · label ·
 //     due · board · origin — issue_header.rs `chip_row`) with the light
@@ -9,9 +10,14 @@
 //   · that launcher becomes "● Coding… / ⊗ Stop" while a LOCAL run is up
 //     (coding_flow.rs); EXP-698 suppresses the synced coding-now CARD for a
 //     local run, so this pane never draws one
+//   · the Relations card (EXP-736: issue_relations::render_relations_card opens
+//     the scrolling body — header + "Add relation" chip above an empty list)
 //   · the markdown description, then the emoji / image / attach affordance row
-//   · a full-bleed hairline, "Activity (n)", the event rows + comments, and the
-//     "Leave a reply..." composer.
+//   · a full-bleed hairline, "Activity (n)", the timeline: muted event lines
+//     ending in their time, comment CARDS on the 28px gutter rail that each
+//     close with a "Leave a reply…" row (EXP-723/741), and the composer.
+// EXP-723 raised the app rem 13 → 14, so the transcribed text sizes below
+// carry the 14/13 step (12 → 13, 13 → 14, 23 → 25).
 // Pixel truth: the committed store shot (1440×900 @1.25) — pane-local Ys were
 // transcribed off it. All frames are composition-global; the assembler passes
 // `frame` down (no useCurrentFrame here).
@@ -80,10 +86,18 @@ const IcCircleX: React.FC<IconProps> = (p) => (
     <path d="m9 9 6 6" />
   </Svg>
 )
-const IcBell: React.FC<IconProps> = (p) => (
+// relation-section = link-2, ui-add = plus (icons.json)
+const IcLink2: React.FC<IconProps> = (p) => (
+  <Svg {...p} sw={1.8}>
+    <path d="M9 17H7A5 5 0 0 1 7 7h2" />
+    <path d="M15 7h2a5 5 0 1 1 0 10h-2" />
+    <line x1="8" x2="16" y1="12" y2="12" />
+  </Svg>
+)
+const IcPlus: React.FC<IconProps> = (p) => (
   <Svg {...p}>
-    <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-    <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+    <path d="M5 12h14" />
+    <path d="M12 5v14" />
   </Svg>
 )
 const IcTrash: React.FC<IconProps> = (p) => (
@@ -127,20 +141,6 @@ const IcCircleUser: React.FC<IconProps> = (p) => (
     <circle cx="12" cy="12" r="10" />
     <circle cx="12" cy="10" r="3" />
     <path d="M6.2 19.4a6.5 6.5 0 0 1 11.6 0" />
-  </Svg>
-)
-const IcGitPr: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
-    <circle cx="6" cy="6" r="3" />
-    <circle cx="18" cy="18" r="3" />
-    <path d="M13 6h3a2 2 0 0 1 2 2v7" />
-    <path d="M6 9v12" />
-  </Svg>
-)
-const IcCircleDot: React.FC<IconProps> = (p) => (
-  <Svg {...p}>
-    <circle cx="12" cy="12" r="9" />
-    <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
   </Svg>
 )
 const IcCode: React.FC<IconProps> = (p) => (
@@ -260,12 +260,6 @@ const popIn = (frame: number, at: number | undefined) =>
     ? 0
     : spring({ frame: frame - at, fps: 30, config: POP })
 
-const activityIconFor = (text: string): React.FC<IconProps> => {
-  if (text.includes("label")) return IcTag
-  if (text.includes("pull request") || text.includes("PR")) return IcGitPr
-  return IcCircleDot
-}
-
 // One property chip in the tray: `glass_pill` at the Sm rung (24px capsule,
 // hairline stroke) carrying a colored glyph + its value (pickers.rs
 // `chip_button` / surface.rs `glass_pill`).
@@ -289,7 +283,7 @@ const Prop: React.FC<{
     <Icon size={13} style={{ color }} />
     <span
       style={{
-        fontSize: 12,
+        fontSize: 13,
         color: C.text,
         whiteSpace: "nowrap",
       }}
@@ -298,6 +292,52 @@ const Prop: React.FC<{
     </span>
   </div>
 )
+
+// timeline::timeline_row — the 28px gutter with the row's marker centred and
+// a 1px card-stroke rail above and below it, broken 6px around the marker.
+const GUTTER = 28
+const RAIL_BREAK = 6
+const TimelineRow: React.FC<{
+  marker: React.ReactNode
+  markerTop: number
+  markerSize: number
+  padY?: number
+  first?: boolean
+  last?: boolean
+  children: React.ReactNode
+}> = ({ marker, markerTop, markerSize, padY = 3.5, first, last, children }) => {
+  const aboveH = markerTop + padY - RAIL_BREAK
+  const belowTop = markerTop + markerSize + RAIL_BREAK
+  const rail: React.CSSProperties = {
+    position: "absolute",
+    left: GUTTER / 2 - 0.5,
+    width: 1,
+    backgroundColor: C.strokeCard,
+  }
+  return (
+    <div style={{ display: "flex", gap: 7, paddingTop: padY, paddingBottom: padY }}>
+      <div style={{ position: "relative", width: GUTTER, flex: "none" }}>
+        {!first && aboveH > 0 ? (
+          <span style={{ ...rail, top: -padY, height: aboveH }} />
+        ) : null}
+        {!last ? <span style={{ ...rail, top: belowTop, bottom: -padY }} /> : null}
+        <div
+          style={{
+            position: "relative",
+            marginTop: markerTop,
+            height: markerSize,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {marker}
+        </div>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+    </div>
+  )
+}
 
 // ── Issue content shown by the pane ──────────────────────────────────────────
 export type DetailComment = {
@@ -312,7 +352,7 @@ export type DetailIssueContent = {
   title: string
   descriptionParas: readonly string[]
   switcher: string
-  activity: readonly { actor: string; text: string }[]
+  activity: readonly { actor: string; text: string; time?: string }[]
   comments?: readonly DetailComment[]
   imagesMeta?: string // legacy field — the current detail has no images meta row
   pr?: number
@@ -430,7 +470,7 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
             color: C.muted,
           }}
         >
-          <span style={{ fontSize: 12, marginRight: 4 }}>{issue.switcher}</span>
+          <span style={{ fontSize: 13, marginRight: 4 }}>{issue.switcher}</span>
           <div
             style={{
               width: 18,
@@ -454,7 +494,7 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
             <IcChevronDown size={13} sw={1.8} />
           </div>
           <div style={{ flex: 1 }} />
-          {[IcLink, IcBell, IcTrash].map((Icon, i) => (
+          {[IcLink, IcTrash].map((Icon, i) => (
             <div
               key={i}
               style={{
@@ -474,11 +514,11 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
         <div
           style={{
             marginTop: 16,
-            height: 30,
-            fontSize: 23,
+            height: 32,
+            fontSize: 25,
             fontWeight: 700,
             letterSpacing: -0.3,
-            lineHeight: "30px",
+            lineHeight: "32px",
           }}
         >
           {issue.title}
@@ -575,7 +615,7 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
               backgroundColor: codingActive ? C.fillCard : PRIMARY_BG,
               border: codingActive ? `1px solid ${C.strokeCard}` : undefined,
               color: codingActive ? C.text : PRIMARY_FG,
-              fontSize: 12.5,
+              fontSize: 13.5,
               fontWeight: 600,
               whiteSpace: "nowrap",
             }}
@@ -595,6 +635,54 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
           </div>
         </div>
 
+        {/* EXP-736: the Relations card (issue_relations.rs) — glass card,
+            px_3 py_2p5: link-2 glyph · "Relations" text_sm medium at 70% ·
+            the "Add relation" chip on the right. Empty here: the header and
+            the chip stand alone, which is what makes it discoverable. */}
+        <div
+          style={{
+            marginTop: 8,
+            height: 40,
+            boxSizing: "border-box",
+            display: "flex",
+            alignItems: "center",
+            gap: 5.25,
+            padding: "0 10.5px",
+            borderRadius: 16,
+            border: `1px solid ${C.strokeCard}`,
+            backgroundColor: C.fillCard,
+          }}
+        >
+          <IcLink2 size={12} style={{ color: C.muted }} />
+          <span
+            style={{
+              flex: 1,
+              fontSize: 13.5,
+              fontWeight: 500,
+              color: "rgba(250,250,250,0.7)",
+            }}
+          >
+            Relations
+          </span>
+          <div
+            style={{
+              height: 24,
+              boxSizing: "border-box",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "0 8px",
+              borderRadius: 999,
+              border: `1px solid ${C.strokeCard}`,
+              fontSize: 13,
+              color: C.text,
+              whiteSpace: "nowrap",
+            }}
+          >
+            <IcPlus size={12} style={{ color: C.muted }} />
+            Add relation
+          </div>
+        </div>
       </div>
 
       {/* description + the emoji / image / attach affordances */}
@@ -612,7 +700,7 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
               key={para.slice(0, 24)}
               style={{
                 margin: 0,
-                fontSize: 13.5,
+                fontSize: 14.5,
                 lineHeight: 1.55,
                 color: DESC_FG,
               }}
@@ -642,94 +730,140 @@ export const IssueDetailPane: React.FC<IssueDetailPaneProps> = ({
       {/* full-bleed hairline */}
       <div style={{ marginTop: 12, borderTop: `1px solid ${C.strokeRow}` }} />
 
-      {/* activity + composer */}
+      {/* activity + composer (timeline.rs) */}
       <div style={{ ...prose, paddingTop: 16 }}>
-        <div style={{ height: 18, fontSize: 13, fontWeight: 600, color: C.text }}>
+        <div style={{ height: 18, fontSize: 14, fontWeight: 600, color: C.text }}>
           {`Activity (${issue.activity.length + (issue.comments?.length ?? 0)})`}
         </div>
-        <div style={{ marginTop: 10, display: "flex", flexDirection: "column" }}>
-          {issue.activity.map((item) => {
-            const Icon = activityIconFor(item.text)
-            return (
+        <div style={{ marginTop: 6, display: "flex", flexDirection: "column" }}>
+          {issue.activity.map((item, i) => (
+            <TimelineRow
+              key={item.text}
+              marker={
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 999,
+                    backgroundColor: C.muted,
+                  }}
+                />
+              }
+              markerTop={7}
+              markerSize={6}
+              first={i === 0}
+              last={i === issue.activity.length - 1 && !issue.comments?.length}
+            >
+              {/* event_row: ONE muted text_xs line, the actor in the
+                  foreground, ending in its relative time (EXP-723) */}
               <div
-                key={item.text}
                 style={{
-                  height: 26,
+                  height: 20,
                   display: "flex",
                   alignItems: "center",
-                  gap: 10,
+                  fontSize: 11.5,
+                  color: C.muted,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
                 }}
               >
-                <Icon size={13} style={{ color: C.muted }} />
-                <span style={{ fontSize: 12.5, color: C.muted }}>
-                  <span style={{ fontWeight: 600, color: C.text }}>
-                    {item.actor}
-                  </span>
-                  {` ${item.text}`}
+                <span style={{ fontWeight: 500, color: C.text, marginRight: 3.5 }}>
+                  {item.actor}
                 </span>
+                {item.text}
+                {item.time ? ` · ${item.time}` : ""}
               </div>
-            )
-          })}
-        </div>
-        {(issue.comments ?? []).map((c) => (
-          <div
-            key={c.actor + c.time}
-            style={{ marginTop: 14, display: "flex", gap: 10 }}
-          >
-            <span
-              style={{
-                width: 24,
-                height: 24,
-                flex: "none",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                borderRadius: 999,
-                backgroundColor: "rgba(234,179,8,0.22)",
-                color: "#facc15",
-                fontSize: 10,
-                fontWeight: 600,
-              }}
+            </TimelineRow>
+          ))}
+          {(issue.comments ?? []).map((c, i, all) => (
+            <TimelineRow
+              key={c.actor + c.time}
+              marker={
+                <span
+                  style={{
+                    width: 24,
+                    height: 24,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: 999,
+                    backgroundColor: "rgba(234,179,8,0.22)",
+                    color: "#facc15",
+                    fontSize: 10,
+                    fontWeight: 600,
+                  }}
+                >
+                  {c.initials}
+                </span>
+              }
+              markerTop={4}
+              markerSize={24}
+              padY={0}
+              last={i === all.length - 1}
             >
-              {c.initials}
-            </span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                style={{ display: "flex", alignItems: "center", gap: 8, height: 16 }}
-              >
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: C.text }}>
-                  {c.actor}
-                </span>
-                <span style={{ fontSize: 11.5, color: C.muted }}>{c.time}</span>
+              {/* comments::comment_row — the comment is a glass CARD (radius
+                  16, px_3 pt_2p5 pb_3): text_sm medium name · muted text_xs
+                  time, the body, then the thread's "Leave a reply…" row
+                  behind one hairline (EXP-741) */}
+              <div style={{ paddingTop: 3.5, paddingBottom: 7 }}>
+                <div
+                  style={{
+                    boxSizing: "border-box",
+                    padding: "8.75px 10.5px 10.5px",
+                    borderRadius: 16,
+                    border: `1px solid ${C.strokeCard}`,
+                    backgroundColor: C.fillCard,
+                  }}
+                >
+                  <div
+                    style={{ display: "flex", alignItems: "baseline", gap: 7 }}
+                  >
+                    <span style={{ fontSize: 13.5, fontWeight: 500, color: C.text }}>
+                      {c.actor}
+                    </span>
+                    <span style={{ fontSize: 11.5, color: C.muted }}>{c.time}</span>
+                  </div>
+                  <p
+                    style={{
+                      margin: "3.5px 0 0",
+                      fontSize: 13.5,
+                      lineHeight: 1.5,
+                      color: DESC_FG,
+                    }}
+                  >
+                    {c.body}
+                  </p>
+                  <div
+                    style={{
+                      marginTop: 10.5,
+                      paddingTop: 7,
+                      borderTop: `1px solid ${C.strokeCard}`,
+                    }}
+                  >
+                    <div style={{ padding: "3.5px 0", fontSize: 11.5, color: C.muted }}>
+                      Leave a reply…
+                    </div>
+                  </div>
+                </div>
               </div>
-              <p
-                style={{
-                  margin: "5px 0 0",
-                  fontSize: 13,
-                  lineHeight: 1.5,
-                  color: DESC_FG,
-                }}
-              >
-                {c.body}
-              </p>
-            </div>
-          </div>
-        ))}
-        {/* composer */}
+            </TimelineRow>
+          ))}
+        </div>
+        {/* composer_card */}
         <div
           style={{
-            marginTop: 18,
+            marginTop: 10,
             height: 46,
             boxSizing: "border-box",
             border: `1px solid ${C.strokeStrong}`,
             borderRadius: 12,
             backgroundColor: C.fillSection,
             padding: "13px 14px",
-            fontSize: 13,
+            fontSize: 14,
             color: C.muted,
           }}
         >
-          Leave a reply...
+          Leave a reply…
         </div>
       </div>
     </div>

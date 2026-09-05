@@ -1,17 +1,20 @@
-/* ─── Bottom terminal dock (terminal_dock.rs `render_strip`, EXP-688): ONE
-   29px glass strip, open or collapsed — leading terminal glyph (plus the
-   word "Terminal" only when there are no tabs to name it), the session
-   chips with the `+` right after them, then the right cluster: "Open in
-   new window" for the ACTIVE tab and the open/close chevron. ─── */
+/* ─── Bottom terminal dock (terminal_dock.rs, EXP-688/723/742): ONE 29px
+   strip pinned to the panel's bottom edge, open or collapsed — the rich-tab
+   chips with the `+` right after them, and NOTHING else (an empty strip
+   names itself: the terminal glyph + "Terminal"). The OPEN dock grows
+   upward out of it on the opaque popover, topped by its own 28px header
+   row: "Open in new window", the collapsed-form switch (strip ⇄ bubble,
+   EXP-742) and "Hide terminal", right-aligned. ─── */
 import { useEffect, useRef } from "react"
-import { SHELL_TAB_TITLE, batchTabTitle, claudeTabTitle, type ScriptLine } from "./data"
+import { SHELL_TAB_TITLE, batchTabTitle, getIssue, type ScriptLine } from "./data"
 import { useIde } from "./state"
 import {
   IcArrowUpRight,
   IcChevDown,
-  IcChevUp,
+  IcMessageCircle,
   IcPlus,
   IcSquareTerminal,
+  IcTerminal,
   IcX,
 } from "./icons"
 
@@ -49,17 +52,17 @@ export function TerminalDock() {
 
   /* The strip names itself only while it has no chips to name it. */
   const hasTabs = dockOpen || coding !== `idle`
+  const issue = codingTarget?.kind === `issue` ? getIssue(codingTarget.id) : null
 
   const strip = (
     <div
       className={`ide-dock-tabs${interactive ? ` is-click` : ``}`}
       onClick={interactive ? () => setDockOpen(!dockOpen) : undefined}
     >
-      <span className="ide-dock-glyph">
-        <IcSquareTerminal size={10} />
-      </span>
       {hasTabs ? (
         <>
+          {/* surface::rich_tab — the shell chip leads with the
+              `session-shell` glyph and is named by its cwd. */}
           <button
             className={`ide-dock-tab${dockTab === `shell` ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
             type="button"
@@ -73,12 +76,15 @@ export function TerminalDock() {
                 : undefined
             }
           >
-            {SHELL_TAB_TITLE}
+            <IcTerminal size={10.5} />
+            <span className="ide-dock-title">{SHELL_TAB_TITLE}</span>
             <span className="ide-dock-x" aria-hidden>
               <IcX size={9} />
             </span>
           </button>
           {coding !== `idle` && (
+            /* A session chip: the status dot, the mono identifier and the
+               issue title (a batch run names itself). */
             <button
               className={`ide-dock-tab${dockTab === `claude` ? ` is-active` : ``}${interactive ? ` is-click` : ``}`}
               type="button"
@@ -92,9 +98,17 @@ export function TerminalDock() {
                   : undefined
               }
             >
-              {codingTarget?.kind === `batch`
-                ? batchTabTitle(codingTarget.issueIds.length)
-                : claudeTabTitle(codingTarget?.id ?? ``)}
+              <span className="ide-dock-dot" />
+              {issue ? (
+                <>
+                  <span className="ide-dock-id">{issue.id}</span>
+                  <span className="ide-dock-title">{issue.title}</span>
+                </>
+              ) : (
+                <span className="ide-dock-title">
+                  {batchTabTitle(codingTarget?.kind === `batch` ? codingTarget.issueIds.length : 0)}
+                </span>
+              )}
               {coding === `ended` && <span className="ide-exitbadge">0</span>}
               <span className="ide-dock-x" aria-hidden>
                 <IcX size={9} />
@@ -103,17 +117,15 @@ export function TerminalDock() {
           )}
         </>
       ) : (
-        <span className="ide-dock-name">Terminal</span>
+        <>
+          <span className="ide-dock-glyph">
+            <IcSquareTerminal size={10.5} />
+          </span>
+          <span className="ide-dock-name">Terminal</span>
+        </>
       )}
       <span className="ide-icbtn" title="New terminal">
         <IcPlus size={11} />
-      </span>
-      <div className="ide-flex1" />
-      <span className="ide-icbtn" title="Open in new window">
-        <IcArrowUpRight size={11} />
-      </span>
-      <span className="ide-icbtn" title={dockOpen ? `Hide terminal` : `Show terminal`}>
-        {dockOpen ? <IcChevDown size={11} /> : <IcChevUp size={11} />}
       </span>
     </div>
   )
@@ -131,6 +143,25 @@ export function TerminalDock() {
 
   return (
     <div className="ide-dock">
+      {/* terminal_dock::render_dock_header (EXP-723): the window controls
+          that used to sit on the strip. The middle glyph is EXP-742's
+          two-way switch — "Collapse to a bubble" / "Collapse to the strip". */}
+      <div className="ide-dock-head">
+        <span className="ide-icbtn" title="Open in new window">
+          <IcArrowUpRight size={11} />
+        </span>
+        <span className="ide-icbtn" title="Collapse to a bubble">
+          <IcMessageCircle size={11} />
+        </span>
+        <button
+          className={`ide-icbtn${interactive ? ` is-click` : ``}`}
+          type="button"
+          title="Hide terminal"
+          onClick={interactive ? () => setDockOpen(false) : undefined}
+        >
+          <IcChevDown size={11} />
+        </button>
+      </div>
       {claudeVisible ? (
         <div className="ide-term" ref={termRef}>
           {codingScript.slice(0, scriptPos.done).map((line, i) => (

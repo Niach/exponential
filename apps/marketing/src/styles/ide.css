@@ -3,9 +3,10 @@
    captured 1440×900 window (shots/<view>/desktop.webp is the reference).
 
    Every metric below is the value the Rust source lays out with. gpui sizes
-   its spacing helpers in REMS against a 13px root (theme::FONT_SIZE_PX), so
-   `gap_1` = 3.25px, `px_2` = 6.5px, `px_3` = 9.75px, `px_4` = 13px,
-   `text_xs` = 9.75px, `text_sm` = 11.375px, `text_2xl` = 19.5px. Colors are
+   its spacing helpers in REMS against a 14px root (theme::FONT_SIZE_PX,
+   raised from 13 by EXP-723), so `gap_1` = 3.5px, `px_2` = 7px,
+   `px_3` = 10.5px, `px_4` = 14px, `text_xs` = 10.5px, `text_sm` = 12.25px,
+   `text_2xl` = 21px. Colors are
    the generated design tokens (glass fills/strokes = pure white alphas over
    the one page gradient). */
 
@@ -14,20 +15,23 @@
    are reused by the web-app and mobile recreations, which mount outside
    .ide-root. */
 :root {
-  /* ── type: gpui rems against theme::FONT_SIZE_PX = 13 ── */
-  --f-xs: 9.75px;
-  --f-sm: 11.375px;
-  --f-md: 13px;
+  /* ── type: gpui rems against theme::FONT_SIZE_PX = 14 (EXP-723) ── */
+  --f-xs: 10.5px;
+  --f-sm: 12.25px;
+  --f-md: 14px;
 
   /* ── glass ladder (packages/design-tokens) ── */
   --g-fill-section: rgba(255, 255, 255, 0.039);
   --g-fill-row: rgba(255, 255, 255, 0.051);
   --g-fill-card: rgba(255, 255, 255, 0.059);
-  --g-fill-active: rgba(255, 255, 255, 0.149);
+  --g-fill-panel: rgba(255, 255, 255, 0.039);
+  --g-fill-active: rgba(255, 255, 255, 0.09);
   --g-stroke-row: rgba(255, 255, 255, 0.059);
   --g-stroke-section: rgba(255, 255, 255, 0.078);
   --g-stroke-card: rgba(255, 255, 255, 0.102);
-  --g-stroke-active: rgba(255, 255, 255, 0.2);
+  --g-stroke-active: rgba(255, 255, 255, 0.14);
+  /* cx.theme().popover — the OPAQUE floor under the terminal dock. */
+  --g-popover: #252525;
   --g-border: rgba(255, 255, 255, 0.102);
   --ide-fg: #fafafa;
   --ide-muted: #a1a1a1;
@@ -56,7 +60,7 @@
   transform-origin: top left;
   /* EXP-277: the desktop lifts the gradient's top stop 60% toward the bottom
      so the titlebar band stops reading as a hard step. */
-  background: linear-gradient(180deg, #141316 0%, #1b1a1d 100%);
+  background: linear-gradient(180deg, #0c0c0f 0%, #111114 100%);
   color: var(--ide-fg);
   font-family: var(--font-ui);
   font-size: var(--f-md);
@@ -185,13 +189,13 @@
 
 .ide-rail {
   position: relative;
-  width: 164px;
+  width: 208px; /* sidebar.rs RAIL_W — EXP-723: one width, always open */
   flex: none;
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 3.25px;
-  padding: 0 6.5px 6.5px;
+  gap: 3.5px;
+  padding: 0 7px 7px;
   /* EXP-285: the rail is the ONE lighter column; EXP-293 makes it the glass
      one, so the blurred desktop behind the window bleeds through. */
   background: rgba(255, 255, 255, 0.058);
@@ -222,7 +226,7 @@
 .ide-lights {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   padding-left: 3px;
 }
 .ide-lights i {
@@ -231,10 +235,68 @@
   border-radius: 999px;
   display: block;
 }
-.ide-rail-toggle {
+/* EXP-723: the web-style rail header — team switcher (ghost, h40, px_1p5,
+   28px team avatar, text_sm semibold name, chevrons-up-down) + the two
+   CONTROL_MD (32px) buttons: ghost Search and the PRIMARY New issue. */
+.ide-rail-head {
+  flex: none;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 3.5px;
+}
+.ide-rail-team {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 5.25px;
+  border-radius: 10px;
+  color: var(--ide-fg);
+}
+.ide-rail-team.is-click:hover {
+  background: var(--g-fill-row);
+}
+.ide-rail-teamavatar {
+  width: 28px;
+  height: 28px;
+  flex: none;
   display: inline-flex;
-  color: var(--ide-muted);
-  padding-right: 1px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: var(--ide-primary);
+  color: var(--ide-primary-fg);
+  font-size: var(--f-md);
+  font-weight: 600;
+}
+.ide-rail-teamname {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--f-sm);
+  font-weight: 600;
+}
+.ide-rail-headbtn {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: var(--ide-fg);
+}
+.ide-rail-headbtn.is-click:hover {
+  background: var(--g-fill-row);
+}
+.ide-rail-headbtn.is-primary {
+  background: var(--ide-primary);
+  color: var(--ide-primary-fg);
 }
 
 .ide-railrow {
@@ -242,12 +304,64 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6.5px;
-  padding: 0 4.875px;
+  gap: 7px;
+  padding: 0 5.25px;
   border-radius: 10px;
   font-size: var(--f-sm);
   color: var(--ide-fg);
   width: 100%;
+}
+/* EXP-723: the footer's What's new card — the desktop mirror of the web
+   WhatsNewCard (sidebar.rs render_whats_new_card): radius 12, card
+   hairline + fill, p_3; megaphone + text_sm medium title + ghost ✕, then
+   the muted text_xs summary. */
+.ide-whatsnew {
+  flex: none;
+  width: 100%;
+  padding: 10.5px;
+  border-radius: 12px;
+  border: 1px solid var(--g-stroke-card);
+  background: var(--g-fill-card);
+  text-align: left;
+}
+.ide-whatsnew.is-click:hover {
+  background: var(--g-fill-active);
+}
+.ide-whatsnew-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ide-fg);
+}
+.ide-whatsnew-row > svg {
+  color: var(--ide-muted);
+}
+.ide-whatsnew-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--f-sm);
+  font-weight: 500;
+}
+.ide-whatsnew-x {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: var(--ide-muted);
+}
+.ide-whatsnew-sum {
+  margin-top: 3.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--f-xs);
+  color: var(--ide-muted);
 }
 .ide-railrow.is-click:hover {
   background: var(--g-fill-row);
@@ -276,7 +390,7 @@
 .ide-rail-div {
   height: 1px;
   flex: none;
-  margin: 3.25px 0;
+  margin: 3.5px 0;
   background: var(--g-border);
 }
 .ide-rail-grouphead {
@@ -284,7 +398,7 @@
   flex: none;
   display: flex;
   align-items: center;
-  padding: 0 1.625px 0 4.875px;
+  padding: 0 1.75px 0 5.25px;
   font-size: var(--f-xs);
   font-weight: 500;
   color: rgba(250, 250, 250, 0.5);
@@ -307,18 +421,25 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 3.25px;
+  gap: 3.5px;
 }
+/* sidebar.rs render_account_button: ghost, h36, px_1p5, gap_2 — the
+   avatar, text_sm name and the team-switcher chevrons (its menu is the
+   web account menu: What's new · About · Sign out). */
 .ide-rail-account .ide-railrow {
   flex: 1;
   min-width: 0;
+  height: 36px;
+}
+.ide-rail-account .ide-railrow > svg:last-child {
+  color: var(--ide-muted);
 }
 .ide-avatar-me {
-  background: linear-gradient(180deg, #6366f1, #4f46e5) !important;
-  color: #fff !important;
-  width: 18px;
-  height: 18px;
-  font-size: 8px;
+  background: rgba(236, 72, 153, 0.28) !important;
+  color: #f9a8d4 !important;
+  width: 24px;
+  height: 24px;
+  font-size: 9px;
 }
 .ide-rail-gear {
   width: 20px;
@@ -339,6 +460,23 @@
   display: flex;
   flex-direction: column;
 }
+/* EXP-723's CUTOUT (shell.rs PANEL_MARGIN / PANEL_MARGIN_TOP): the working
+   surface floats on the ground as a rounded card — 6px under the decoration
+   band, 10px elsewhere, radius::LG 12, the card hairline and the translucent
+   FILL_PANEL wash; overflow hidden so the dock strip takes the corners. */
+.ide-panel {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 6px 10px 10px;
+  border: 1px solid var(--g-stroke-card);
+  border-radius: 12px;
+  background: var(--g-fill-panel);
+  overflow: hidden;
+}
 
 /* Titlebar: tab strip + New Issue (app_title_bar.rs, 34px, hairline under). */
 .ide-titlebar {
@@ -346,14 +484,15 @@
   flex: none;
   display: flex;
   align-items: center;
-  padding-left: 8px;
+  padding-left: 12px;
   padding-right: 8px;
-  border-bottom: 1px solid var(--g-stroke-row);
+  /* EXP-723: NO fill and no hairline of its own — the band is bare ground
+     above the panel, which is what makes the panel read as a cutout. */
 }
 .ide-tabstrip {
   display: flex;
   align-items: center;
-  gap: 3.25px;
+  gap: 3.5px;
   min-width: 0;
   overflow: hidden;
 }
@@ -362,8 +501,8 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 3.25px;
-  padding: 0 6.5px;
+  gap: 3.5px;
+  padding: 0 7px;
   border-radius: 10px;
   font-size: var(--f-sm);
   color: var(--ide-muted);
@@ -389,8 +528,8 @@
 .ide-tab-tools {
   display: inline-flex;
   align-items: center;
-  gap: 1.625px;
-  margin-left: 3.25px;
+  gap: 1.75px;
+  margin-left: 3.5px;
 }
 .ide-tab-undock {
   width: 16px;
@@ -419,20 +558,6 @@
 }
 
 /* EXP-449: fixed 96px solid button — primary_button (h_6, px_2p5, radius 10). */
-.ide-newissue {
-  width: 96px;
-  height: 24px;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3.25px;
-  border-radius: 10px;
-  background: var(--ide-primary);
-  color: var(--ide-primary-fg);
-  font-size: var(--f-xs);
-  font-weight: 500;
-}
 
 .ide-main-top {
   flex: 1;
@@ -496,7 +621,7 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6.5px;
+  gap: 7px;
   padding: 0 13px;
 }
 .ide-toolhead-title {
@@ -524,13 +649,13 @@
   height: 30px;
   display: flex;
   align-items: center;
-  gap: 3.25px;
-  padding: 0 6.5px;
+  gap: 3.5px;
+  padding: 0 7px;
 }
 .ide-tooltab {
   display: inline-flex;
   align-items: center;
-  gap: 4.875px;
+  gap: 5.25px;
   height: 22px;
   padding: 0 8px;
   border-radius: 999px;
@@ -545,7 +670,7 @@
 }
 .ide-tooltabs-trailing {
   position: absolute;
-  right: 6.5px;
+  right: 7px;
   top: 0;
   bottom: 0;
   display: flex;
@@ -559,13 +684,13 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding: 6.5px 13px;
+  padding: 7px 13px;
 }
 .ide-filterbtn {
   height: 32px;
   display: inline-flex;
   align-items: center;
-  gap: 4.875px;
+  gap: 5.25px;
   padding: 0 12px;
   border-radius: 999px;
   font-size: var(--f-sm);
@@ -586,8 +711,8 @@
   height: 28px;
   display: flex;
   align-items: center;
-  gap: 4.875px;
-  padding: 0 9.75px;
+  gap: 5.25px;
+  padding: 0 10.5px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.051);
 }
 .ide-group-chev {
@@ -623,7 +748,7 @@
   height: 28px;
   display: flex;
   align-items: center;
-  padding: 0 9.75px;
+  padding: 0 10.5px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.031);
   overflow: hidden;
 }
@@ -634,11 +759,11 @@
   background: var(--g-fill-active);
 }
 .ide-row-sel {
-  width: 16.25px;
+  width: 17.5px;
   flex: none;
 }
 .ide-row-cell {
-  width: 19.5px;
+  width: 21px;
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -657,21 +782,21 @@
 .ide-row-title {
   flex: 1;
   min-width: 88px;
-  margin-left: 6.5px;
+  margin-left: 7px;
   font-size: var(--f-sm);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .ide-row-labels {
-  margin-left: 6.5px;
+  margin-left: 7px;
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 4.875px;
+  gap: 5.25px;
 }
 .ide-row-assignee {
-  margin-left: 9.75px;
+  margin-left: 10.5px;
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -682,8 +807,8 @@
 .ide-chip {
   display: inline-flex;
   align-items: center;
-  gap: 3.25px;
-  padding: 0 4.875px;
+  gap: 3.5px;
+  padding: 0 5.25px;
   border: 1px solid rgba(255, 255, 255, 0.051);
   border-radius: 999px;
   font-size: var(--f-xs);
@@ -691,18 +816,18 @@
   white-space: nowrap;
 }
 .ide-chip-dot {
-  width: 4.875px;
-  height: 4.875px;
+  width: 5.25px;
+  height: 5.25px;
   flex: none;
   border-radius: 999px;
 }
 /* due cell (issue_list::due_cell) */
 .ide-due {
-  margin-left: 9.75px;
+  margin-left: 10.5px;
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 3.25px;
+  gap: 3.5px;
   font-size: var(--f-xs);
   color: var(--ide-muted);
   white-space: nowrap;
@@ -756,7 +881,7 @@
   height: 26.5px;
   display: flex;
   align-items: center;
-  gap: 1.625px;
+  gap: 1.75px;
   padding: 0 16px;
 }
 .ide-issue-toprow .ide-icbtn {
@@ -766,19 +891,19 @@
 .ide-switcher {
   font-size: var(--f-xs);
   color: var(--ide-muted);
-  margin-right: 3.25px;
+  margin-right: 3.5px;
 }
 .ide-issue-title {
   /* Textarea text_2xl / SEMIBOLD / line_height rems(2.) inside the header's
      pt_3 · pb_1 stack — the tray lands at y=110 in the reference frame. */
   padding: 13px 16px 10px;
-  font-size: 19.5px;
+  font-size: 21px;
   font-weight: 600;
   line-height: 26px;
   letter-spacing: -0.012em;
 }
 .ide-issue-chiprow {
-  padding: 0 16px 9.75px;
+  padding: 0 16px 10.5px;
 }
 
 /* surface::glass_tray — one wrapping tray, radius 12, white 4% over 10%. */
@@ -786,8 +911,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 3.25px;
-  padding: 3.25px 4.875px;
+  gap: 3.5px;
+  padding: 3.5px 5.25px;
   border-radius: 12px;
   border: 1px solid var(--g-stroke-card);
   background: var(--g-fill-section);
@@ -797,7 +922,7 @@
   height: 24px;
   display: inline-flex;
   align-items: center;
-  gap: 4.875px;
+  gap: 5.25px;
   padding: 0 8px;
   border-radius: 999px;
   font-size: var(--f-xs);
@@ -822,7 +947,7 @@
 /* issue_detail::coding_now_card (EXP-698) — a full-width glass TRAY holding
    the state badge, the identity caption and the Watch action. */
 .ide-issue-agentrow {
-  margin: 0 16px 6.5px;
+  margin: 0 16px 7px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -836,7 +961,7 @@
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 4.875px;
+  gap: 5.25px;
   height: 22px;
   padding: 0 8px;
   border-radius: 999px;
@@ -857,7 +982,7 @@
 .ide-nowwatch {
   flex: none;
   height: 22px;
-  gap: 4.875px;
+  gap: 5.25px;
   padding: 0 10px;
   border-radius: 999px;
   font-size: var(--f-xs);
@@ -874,7 +999,7 @@
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 4.875px;
+  gap: 5.25px;
   height: 22px;
   padding: 0 10px;
   border-radius: 999px;
@@ -888,8 +1013,8 @@
   color: #ef4444;
 }
 .ide-nowdot {
-  width: 4.875px;
-  height: 4.875px;
+  width: 5.25px;
+  height: 5.25px;
   flex: none;
   border-radius: 999px;
   background: #22c55e;
@@ -913,7 +1038,7 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding-top: 6.5px;
+  padding-top: 7px;
 }
 .ide-issue-desc {
   padding: 3px 16px 0;
@@ -936,8 +1061,8 @@
 .ide-attachrail {
   display: flex;
   align-items: center;
-  gap: 6.5px;
-  padding: 6.5px 16px 0;
+  gap: 7px;
+  padding: 7px 16px 0;
 }
 .ide-attachrail .ide-icbtn {
   width: 20px;
@@ -949,51 +1074,139 @@
   margin-top: 13px;
   border-top: 1px solid var(--g-stroke-row);
 }
+/* issue_relations::render_relations_card (EXP-736): FIRST in the scrolling
+   body, in the DETAIL_GUTTER, pb_2 — a glass card (radius 16, card hairline
+   + fill) with px_3 py_2p5, the link-2 glyph, the "Relations" text_sm medium
+   label at 70% and the "Add relation" chip on the right. */
+.ide-relations {
+  padding: 0 16px 7px;
+}
+.ide-relcard {
+  display: flex;
+  align-items: center;
+  gap: 5.25px;
+  padding: 8.75px 10.5px;
+  border-radius: 16px;
+  border: 1px solid var(--g-stroke-card);
+  background: var(--g-fill-card);
+}
+.ide-relcard > svg {
+  color: var(--ide-muted);
+}
+.ide-relcard-label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--f-sm);
+  font-weight: 500;
+  color: rgba(250, 250, 250, 0.7);
+}
 .ide-timeline > .ide-col {
-  padding: 0 16px 13px;
+  padding: 0 16px 14px;
+}
+/* timeline::timeline_row (EXP-698 r5 / EXP-723): a 28px gutter carrying the
+   row's marker with a 1px card-stroke rail above and below it, broken 6px
+   around the marker; the feed's first row draws no rail above and its last
+   row none below. --mk-top/--mk-size position the break. */
+.ide-tl {
+  display: flex;
+  gap: 7px;
+  padding: var(--tl-pad, 3.5px) 0;
+}
+.ide-tl-gutter {
+  position: relative;
+  width: 28px;
+  flex: none;
+}
+.ide-tl-gutter::before,
+.ide-tl-gutter::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 1px;
+  margin-left: -0.5px;
+  background: var(--g-stroke-card);
+}
+.ide-tl-gutter::before {
+  top: calc(-1 * var(--tl-pad, 3.5px));
+  height: calc(var(--mk-top, 2px) + var(--tl-pad, 3.5px) - 6px);
+}
+.ide-tl-gutter::after {
+  top: calc(var(--mk-top, 2px) + var(--mk-size, 6px) + 6px);
+  bottom: calc(-1 * var(--tl-pad, 3.5px));
+}
+.ide-tl.is-first .ide-tl-gutter::before,
+.ide-tl.is-last .ide-tl-gutter::after {
+  display: none;
+}
+.ide-tl-marker {
+  position: relative;
+  margin-top: var(--mk-top, 2px);
+  height: var(--mk-size, 6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ide-tl-body {
+  flex: 1;
+  min-width: 0;
 }
 .ide-activity-head {
-  padding: 9.75px 0 3.25px;
+  padding: 10.5px 0 3.5px;
   font-size: var(--f-sm);
   font-weight: 500;
 }
+/* timeline::event_row — ONE muted text_xs line (py_1, gap_2): the actor in
+   foreground medium, the phrase, and ` · <time>` on EVERY event (EXP-723). */
 .ide-event {
   display: flex;
   align-items: center;
-  gap: 6.5px;
-  padding: 3.25px 0;
+  min-height: 20px;
+  gap: 3.5px;
+  padding: 3.5px 0;
   font-size: var(--f-xs);
   color: var(--ide-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.ide-event-actor {
+  color: var(--ide-fg);
+  font-weight: 500;
 }
 .ide-event-dot {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   flex: none;
   border-radius: 999px;
-  border: 1px solid var(--ide-dim);
+  background: var(--ide-muted);
 }
 .ide-event-text {
   color: var(--ide-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.ide-event-time {
-  color: var(--ide-dim);
-}
+/* comments::comment_row — the comment is a glass CARD (radius 16, card
+   hairline + fill, px_3 pt_2p5 pb_3) beside a 24px avatar in the gutter;
+   the name reads text_sm medium with the muted text_xs time beside it, and
+   the card is the THREAD: replies behind one hairline, then the muted
+   "Leave a reply…" row (EXP-741). */
 .ide-comment {
-  display: flex;
-  gap: 8.125px;
-  padding: 6.5px 0;
+  padding: 3.5px 0 7px;
 }
 .ide-comment-main {
   flex: 1;
   min-width: 0;
+  padding: 8.75px 10.5px 10.5px;
+  border-radius: 16px;
+  border: 1px solid var(--g-stroke-card);
+  background: var(--g-fill-card);
 }
 .ide-comment-head {
   display: flex;
-  align-items: center;
-  gap: 6.5px;
+  align-items: baseline;
+  gap: 7px;
 }
 .ide-comment-author {
-  font-size: var(--f-xs);
+  font-size: var(--f-sm);
   font-weight: 500;
 }
 .ide-comment-time {
@@ -1003,11 +1216,27 @@
 .ide-comment-menu {
   color: var(--ide-dim);
   display: inline-flex;
+  align-self: center;
 }
 .ide-comment-body {
-  margin-top: 1.625px;
+  margin-top: 3.5px;
   font-size: var(--f-sm);
   line-height: 1.5;
+}
+.ide-comment-replies {
+  margin-top: 10.5px;
+  padding-top: 7px;
+  border-top: 1px solid var(--g-stroke-card);
+}
+.ide-reply-row {
+  width: 100%;
+  padding: 3.5px 0;
+  font-size: var(--f-xs);
+  color: var(--ide-muted);
+  text-align: left;
+}
+.ide-reply-row.is-click:hover {
+  color: var(--ide-fg);
 }
 .ide-activity-empty {
   font-size: var(--f-xs);
@@ -1015,7 +1244,7 @@
   padding: 6px 0;
 }
 .ide-composer {
-  margin-top: 9.75px;
+  margin-top: 10.5px;
   height: 40px;
   display: flex;
   align-items: center;
@@ -1178,7 +1407,7 @@
   font-size: var(--f-xs);
   color: var(--ide-muted);
   /* pl_5 under the row's leading glyph */
-  padding-left: 16.25px;
+  padding-left: 17.5px;
   margin-top: 2px;
 }
 .ide-review-mergedtag {
@@ -1237,7 +1466,7 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 4.875px;
+  gap: 5.25px;
   padding: 0 13px 6px;
   font-size: var(--f-sm);
   color: var(--ide-fg);
@@ -1252,7 +1481,7 @@
   height: 24px;
   display: flex;
   align-items: center;
-  gap: 4.875px;
+  gap: 5.25px;
   padding-right: 10px;
   font-size: var(--f-sm);
 }
@@ -1423,8 +1652,8 @@
   min-height: 44px;
   display: flex;
   align-items: center;
-  gap: 6.5px;
-  padding: 6.5px 13px;
+  gap: 7px;
+  padding: 7px 13px;
 }
 .ide-sc-bar-text {
   font-size: var(--f-sm);
@@ -1537,36 +1766,56 @@
 /* ─────────────────────────── Terminal dock ──────────────────────────────── */
 
 /* terminal_dock::render_strip — ONE h29 strip, open or collapsed, pinned to
-   the panel's bottom edge; the content grows UPWARD out of it (EXP-688). */
+   the panel's bottom edge; the content grows UPWARD out of it (EXP-688).
+   EXP-723: the OPEN dock sits on the opaque popover under a card hairline
+   and carries its own 28px header row (window controls, right-aligned); the
+   strip is tabs + the `+` and nothing else. */
 .ide-dock {
   flex: none;
-  height: 320px;
+  height: 240px; /* TERMINAL_DOCK_HEIGHT */
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--g-border);
-  background: #18181b;
+  border-top: 1px solid var(--g-stroke-card);
+  background: var(--g-popover);
 }
 .ide-dock.is-collapsed {
   height: 29px;
+  border-top: 0;
   background: none;
+}
+.ide-dock-head {
+  flex: none;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1.75px;
+  padding: 0 7px;
+  border-bottom: 1px solid var(--g-stroke-row);
+}
+.ide-dock-head .ide-icbtn {
+  width: 20px;
+  height: 20px;
+}
+.ide-dock-head .ide-icbtn.is-selected {
+  background: var(--g-fill-active);
+  color: var(--ide-fg);
 }
 .ide-dock-tabs {
   flex: none;
   height: 29px;
   display: flex;
   align-items: center;
-  gap: 3.25px;
-  padding: 0 9.75px;
-  border-top: 1px solid var(--g-border);
-}
-.ide-dock.is-collapsed .ide-dock-tabs {
-  border-top: 0;
+  gap: 3.5px;
+  padding: 0 7px;
+  border-top: 1px solid var(--g-stroke-card);
+  background: var(--g-fill-card);
 }
 .ide-dock-glyph {
   display: inline-flex;
   flex: none;
   color: var(--ide-muted);
-  margin-right: 3.25px;
+  margin-right: 3.5px;
 }
 .ide-dock-name {
   font-size: var(--f-sm);
@@ -1575,13 +1824,38 @@
 .ide-dock-tab {
   display: inline-flex;
   align-items: center;
-  gap: 6.5px;
+  gap: 5.25px;
   height: 24px;
   padding: 0 8px;
   border-radius: 10px;
   color: var(--ide-muted);
   font-size: var(--f-sm);
   white-space: nowrap;
+}
+/* surface::rich_tab — the session chip: 5px status dot, mono identifier,
+   the title; the shell chip leads with the `session-shell` glyph. */
+.ide-dock-tab > svg:first-child {
+  color: var(--ide-muted);
+}
+.ide-dock-tab.is-active > svg:first-child {
+  color: var(--ide-fg);
+}
+.ide-dock-dot {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 999px;
+  background: #22c55e;
+}
+.ide-dock-id {
+  font-family: var(--ide-mono);
+  font-size: var(--f-xs);
+  color: var(--ide-muted);
+}
+.ide-dock-title {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ide-dock-tab:hover {
   background: var(--g-fill-row);
@@ -1737,7 +2011,7 @@
   display: flex;
   flex-direction: column;
   gap: 13px;
-  padding: 6.5px 20px 0;
+  padding: 7px 20px 0;
 }
 /* controls::segmented — full-width capsule, h36, 3px inset. */
 .ide-segmented {
@@ -1805,9 +2079,9 @@
 .ide-dlg-issue {
   display: flex;
   align-items: center;
-  gap: 6.5px;
+  gap: 7px;
   height: 26px;
-  padding: 0 4.875px;
+  padding: 0 5.25px;
   border-radius: 8px;
   font-size: var(--f-sm);
 }
@@ -1923,7 +2197,7 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 3.25px;
+  gap: 3.5px;
   padding: 0 4px;
   color: var(--ide-muted);
 }
@@ -1933,7 +2207,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4.875px;
+  gap: 5.25px;
   border-radius: 999px;
   border: 1px solid transparent;
   font-size: var(--f-sm);
@@ -1995,8 +2269,8 @@
 .ide-dlg-action {
   display: flex;
   align-items: flex-start;
-  gap: 6.5px;
-  padding: 5px 4.875px;
+  gap: 7px;
+  padding: 5px 5.25px;
   border-radius: 8px;
 }
 .ide-dlg-action.is-click:hover {

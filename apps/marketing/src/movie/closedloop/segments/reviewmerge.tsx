@@ -31,11 +31,13 @@ import {
   SidebarPane,
 } from "../../ships/surfaces/board"
 import {
+  CutoutPanel,
   DockCollapsedStrip,
   ExpandedRail,
   TitleBar,
   type ChromeTab,
 } from "../../ships/surfaces/chrome"
+import type { DockTab } from "../../ships/surfaces/terminal"
 import {
   PrDiffPane,
   prDiffMergeCenter,
@@ -133,13 +135,20 @@ const TAB_151: ChromeTab = {
 // Phone placement in COMP coordinates inside the camera layer.
 const PHONE_POS = { x: 1490, y: 280, scale: 1 } as const
 
+// The strip's chips: the shell tab (named by its cwd) and EXP-151's session
+// chip — its run is still up, in review, while the PR merges.
+const DOCK_TABS: DockTab[] = [
+  { id: "shell", label: "acme-shop", shell: true },
+  { id: "cl", identifier: NEW_ISSUE_ID, label: CL_ISSUE.title, dot: C.green },
+]
+
 // ── The clip ──────────────────────────────────────────────────────────────────
 export const ReviewMergeSegment: React.FC<SegmentProps> = ({
   frame,
   portrait,
 }) => {
   const dockH = WIN.dockStrip
-  const paneH = WIN.h - CONTENT_TOP - dockH
+  const paneH = WIN.panel.h - dockH
   const capSize = captionSize(portrait)
 
   const heroStatus =
@@ -181,48 +190,51 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
               userInitial={CL.initials}
             />
 
-            {/* sidebar: the board's issue list — the PrDiff is a CENTER
-                screen, so the list pane behind it stays put (EXP-706) */}
-            <SidebarPane actions={<BoardActions />} bottomInset={dockH}>
-              <BoardTool
-                frame={frame}
-                rows={CL_BOARD}
-                overrides={{
-                  [NEW_ISSUE_ID]: {
-                    status: frame >= B.mergedAt ? "done" : "in_progress",
-                  },
+            {/* EXP-723: everything below the band lives in the cutout panel */}
+            <CutoutPanel>
+              {/* sidebar: the board's issue list — the PrDiff is a CENTER
+                  screen, so the list pane behind it stays put (EXP-706) */}
+              <SidebarPane actions={<BoardActions />} bottomInset={dockH}>
+                <BoardTool
+                  frame={frame}
+                  rows={CL_BOARD}
+                  overrides={{
+                    [NEW_ISSUE_ID]: {
+                      status: frame >= B.mergedAt ? "done" : "in_progress",
+                    },
+                  }}
+                  selectedId={NEW_ISSUE_ID}
+                />
+              </SidebarPane>
+
+              {/* center: the PrDiff screen (what a Reviews row opens) */}
+              <div
+                style={{
+                  position: "absolute",
+                  left: CENTER_X,
+                  top: CONTENT_TOP,
+                  width: CENTER_W,
+                  height: paneH,
+                  overflow: "hidden",
                 }}
-                selectedId={NEW_ISSUE_ID}
-              />
-            </SidebarPane>
+              >
+                <PrDiffPane
+                  frame={frame}
+                  paintAt={B.paint}
+                  statsRollAt={B.statsRoll}
+                  scrollY={0}
+                  head={CL_PR_HEAD}
+                  files={CL_DIFF_FILES}
+                  rows={CL_DIFF_ROWS}
+                  fileStats={CL_FILE_STATS}
+                  mergeState={mergeState}
+                  mergeMorphAt={mergeMorphAt}
+                  mergeHover={frame >= B.mergeHover && frame < B.confirmAt}
+                />
+              </div>
 
-            {/* center: the PrDiff screen (what a Reviews row opens) */}
-            <div
-              style={{
-                position: "absolute",
-                left: CENTER_X,
-                top: CONTENT_TOP,
-                width: CENTER_W,
-                height: paneH,
-                overflow: "hidden",
-              }}
-            >
-              <PrDiffPane
-                frame={frame}
-                paintAt={B.paint}
-                statsRollAt={B.statsRoll}
-                scrollY={0}
-                head={CL_PR_HEAD}
-                files={CL_DIFF_FILES}
-                rows={CL_DIFF_ROWS}
-                fileStats={CL_FILE_STATS}
-                mergeState={mergeState}
-                mergeMorphAt={mergeMorphAt}
-                mergeHover={frame >= B.mergeHover && frame < B.confirmAt}
-              />
-            </div>
-
-            <DockCollapsedStrip frame={frame} count={2} />
+              <DockCollapsedStrip frame={frame} tabs={DOCK_TABS} activeTab="cl" />
+            </CutoutPanel>
 
             <CursorLayer
               keys={CURSOR_KEYS}

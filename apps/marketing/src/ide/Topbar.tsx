@@ -1,9 +1,10 @@
-/* ─── The 34px window titlebar right of the rail (EXP-277/288/449): the
-   center tab strip plus the solid "New Issue" button at the far right. ─── */
+/* ─── The 34px decoration band right of the rail (EXP-277/288/723): bare
+   ground above the cutout panel, hosting ONLY the center tab strip — New
+   issue moved into the rail header with EXP-723. ─── */
 import { getIssue } from "./data"
 import { useIde, type Tab } from "./state"
 import { StatusIcon } from "./bits"
-import { IcExternalLink, IcFile, IcGitMerge, IcPlus, IcX } from "./icons"
+import { IcExternalLink, IcFile, IcGitMerge, IcX } from "./icons"
 
 function TabChip({ tab }: { tab: Tab }) {
   const { active, selectTab, closeTab, interactive } = useIde()
@@ -57,10 +58,6 @@ export function Topbar() {
         ))}
       </div>
       <div className="ide-flex1" />
-      <button className="ide-newissue" type="button">
-        <IcPlus size={11} />
-        New Issue
-      </button>
     </div>
   )
 }

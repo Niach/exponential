@@ -18,6 +18,7 @@ import {
   SidebarPane,
 } from "../../ships/surfaces/board"
 import {
+  CutoutPanel,
   DockCollapsedStrip,
   ExpandedRail,
   TitleBar,
@@ -102,7 +103,7 @@ const TAB_151: ChromeTab = {
 
 const MacScreenFrozen: React.FC = () => {
   const dockH = WIN.dockStrip
-  const paneH = WIN.h - CONTENT_TOP - dockH
+  const paneH = WIN.panel.h - dockH
   return (
     <div
       style={{
@@ -122,39 +123,45 @@ const MacScreenFrozen: React.FC = () => {
           userName={CL.user}
           userInitial={CL.initials}
         />
-        <SidebarPane actions={<BoardActions />} bottomInset={dockH}>
-          <BoardTool
-            frame={FROZEN}
-            rows={CL_BOARD}
-            overrides={{
-              [NEW_ISSUE_ID]: { status: "done" },
-              [REMOTE_DRAG_ID]: { status: "in_progress" },
-              [LIVE_EDIT_ID]: { assignee: "JL" },
+        <CutoutPanel>
+          <SidebarPane actions={<BoardActions />} bottomInset={dockH}>
+            <BoardTool
+              frame={FROZEN}
+              rows={CL_BOARD}
+              overrides={{
+                [NEW_ISSUE_ID]: { status: "done" },
+                [REMOTE_DRAG_ID]: { status: "in_progress" },
+                [LIVE_EDIT_ID]: { assignee: "JL" },
+              }}
+              selectedId={NEW_ISSUE_ID}
+              prDotId={{ id: NEW_ISSUE_ID, at: 0 }}
+            />
+          </SidebarPane>
+          <div
+            style={{
+              position: "absolute",
+              left: CENTER_X,
+              top: CONTENT_TOP,
+              width: CENTER_W,
+              height: paneH,
+              overflow: "hidden",
             }}
-            selectedId={NEW_ISSUE_ID}
-            prDotId={{ id: NEW_ISSUE_ID, at: 0 }}
-          />
-        </SidebarPane>
-        <div
-          style={{
-            position: "absolute",
-            left: CENTER_X,
-            top: CONTENT_TOP,
-            width: CENTER_W,
-            height: paneH,
-            overflow: "hidden",
-          }}
-        >
-          <IssueDetailPane
+          >
+            <IssueDetailPane
+              frame={FROZEN}
+              status="done"
+              priority="none"
+              issue={CL_ISSUE}
+              width={CENTER_W}
+              height={paneH}
+            />
+          </div>
+          <DockCollapsedStrip
             frame={FROZEN}
-            status="done"
-            priority="none"
-            issue={CL_ISSUE}
-            width={CENTER_W}
-            height={paneH}
+            tabs={[{ id: "shell", label: "acme-shop", shell: true }]}
+            activeTab="shell"
           />
-        </div>
-        <DockCollapsedStrip frame={FROZEN} count={2} />
+        </CutoutPanel>
       </WindowChassis>
     </div>
   )

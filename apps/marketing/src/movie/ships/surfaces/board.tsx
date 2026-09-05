@@ -327,15 +327,15 @@ export const SidebarPane: React.FC<{
   children: React.ReactNode
   title?: string // legacy label for non-board tools (Reviews); the board pane has none
   actions?: React.ReactNode
-  bottomInset?: number // px kept free at the window bottom (animated dock height); default the collapsed strip
+  bottomInset?: number // px kept free at the PANEL bottom (animated dock height); default the collapsed strip
 }> = ({ children, title, actions, bottomInset = WIN.dockStrip }) => (
   <div
     style={{
       position: `absolute`,
-      left: WIN.rail,
-      top: WIN.titleBar,
+      left: WIN.panel.x,
+      top: WIN.panel.y,
       width: WIN.sidebar,
-      height: WIN.h - WIN.titleBar - bottomInset,
+      height: WIN.panel.h - bottomInset,
       borderRight: `1px solid ${C.strokeRow}`,
       display: `flex`,
       flexDirection: `column`,
