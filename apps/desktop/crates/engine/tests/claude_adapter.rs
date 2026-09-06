@@ -46,6 +46,10 @@ struct Run {
     argv: Vec<String>,
     /// Every line the adapter wrote to claude's stdin, parsed.
     stdin: Vec<Value>,
+    /// How many notifications the client had already taken when the
+    /// `session/prompt` resolved: anything the adapter published BEFORE the
+    /// settle has an index below this, anything after does not.
+    updates_at_settle: usize,
 }
 
 impl Run {
@@ -73,6 +77,20 @@ impl Run {
                 ))
             })
             .collect()
+    }
+
+    /// Where in the stream the client saw the edge reporting `status` for the
+    /// tool call `id` — the index the settle is compared against.
+    fn subagent_edge_at(&self, id: &str, status: &str) -> Option<usize> {
+        self.updates.iter().position(|notification| {
+            let Some(edge) =
+                notification.meta.as_ref().and_then(|meta| meta.get("exponentialSubagent"))
+            else {
+                return false;
+            };
+            edge.get("id").and_then(Value::as_str) == Some(id)
+                && edge.get("status").and_then(Value::as_str) == Some(status)
+        })
     }
 
     /// The control responses the adapter wrote back to claude.
@@ -144,6 +162,21 @@ impl Drop for Workdir {
     }
 }
 
+/// A scenario the spike never recorded: frames written into the run's own
+/// scratch tree and replayed by the same fake, for an edge the CLI only
+/// produces under conditions a capture cannot be coaxed into.
+fn synthetic(work: &Path, turn1: &[&str], after_answer: &[&str]) -> PathBuf {
+    let dir = work.join("synthetic");
+    std::fs::create_dir_all(&dir).expect("a synthetic scenario directory");
+    std::fs::copy(Path::new(FIXTURES).join("initialize.jsonl"), dir.join("initialize.jsonl"))
+        .expect("the shared initialize response");
+    std::fs::write(dir.join("turn1.jsonl"), format!("{}\n", turn1.join("\n")))
+        .expect("the turn frames");
+    std::fs::write(dir.join("after-answer.jsonl"), format!("{}\n", after_answer.join("\n")))
+        .expect("the frames that follow the permission answer");
+    dir
+}
+
 fn workdir(scenario: &str) -> Workdir {
     let path = std::env::temp_dir()
         .join(format!("exp746-claude-{scenario}-{}", uuid::Uuid::new_v4().simple()));
@@ -166,13 +199,21 @@ fn fake_claude() -> PathBuf {
 }
 
 fn spec(scenario: &str, work: &Path, plan_mode: bool) -> AdapterSpec {
+    spec_at(&Path::new(FIXTURES).join(scenario), work, plan_mode)
+}
+
+/// The same launch against an arbitrary scenario directory, so a test can
+/// hand the fake SYNTHETIC frames it wrote itself for an edge no recording
+/// holds (it must carry its own `initialize.jsonl`: the fake's fallback to
+/// `../initialize.jsonl` only reaches inside the fixture tree).
+fn spec_at(scenario_dir: &Path, work: &Path, plan_mode: bool) -> AdapterSpec {
     let spawn = terminal::pty::SpawnSpec::new(fake_claude().display().to_string())
         .cwd(work)
         // Transcripts are looked up in the CHILD's config dir, so `session/list`
         // and `session/load` read the run's own scratch tree, never the
         // developer's real ~/.claude.
         .env("CLAUDE_CONFIG_DIR", work.join("claude-config").display().to_string())
-        .env("EXP_FAKE_CLAUDE_DIR", Path::new(FIXTURES).join(scenario).display().to_string())
+        .env("EXP_FAKE_CLAUDE_DIR", scenario_dir.display().to_string())
         .env("EXP_FAKE_CLAUDE_ARGV", work.join("argv.txt").display().to_string())
         .env("EXP_FAKE_CLAUDE_STDIN", work.join("stdin.jsonl").display().to_string())
         // The key the inline --mcp-config resolves through `${EXP_MCP_TOKEN}`.
@@ -211,7 +252,20 @@ async fn drive(
     permission: PermissionAnswer,
     elicitation: ElicitationAnswer,
 ) -> Run {
-    let adapter = ClaudeAgent::new(spec(scenario, work, plan_mode)).expect("the adapter builds");
+    drive_at(&Path::new(FIXTURES).join(scenario), work, prompt, plan_mode, permission, elicitation)
+        .await
+}
+
+async fn drive_at(
+    scenario_dir: &Path,
+    work: &Path,
+    prompt: &str,
+    plan_mode: bool,
+    permission: PermissionAnswer,
+    elicitation: ElicitationAnswer,
+) -> Run {
+    let adapter =
+        ClaudeAgent::new(spec_at(scenario_dir, work, plan_mode)).expect("the adapter builds");
     let updates: Arc<Mutex<Vec<SessionNotification>>> = Arc::new(Mutex::new(Vec::new()));
     let permissions: Arc<Mutex<Vec<RequestPermissionRequest>>> = Arc::new(Mutex::new(Vec::new()));
     let elicitations: Arc<Mutex<Vec<CreateElicitationRequest>>> = Arc::new(Mutex::new(Vec::new()));
@@ -219,6 +273,11 @@ async fn drive(
     let seen_updates = updates.clone();
     let seen_permissions = permissions.clone();
     let seen_elicitations = elicitations.clone();
+    // Read the moment the prompt resolves, so a test can tell an update the
+    // adapter published BEFORE the settle from one it published after.
+    let settled_at: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
+    let counted_updates = updates.clone();
+    let count_at_settle = settled_at.clone();
     let prompt = prompt.to_string();
 
     let driven = Client
@@ -265,6 +324,8 @@ async fn drive(
                 ))
                 .block_task()
                 .await?;
+            *count_at_settle.lock().expect("the settle count") =
+                counted_updates.lock().expect("updates").len();
             Ok::<_, Error>((session, response))
         });
 
@@ -285,10 +346,13 @@ async fn drive(
         })
         .unwrap_or_default();
 
+    let updates_at_settle = *settled_at.lock().expect("the settle count");
+    let updates = std::mem::take(&mut *updates.lock().expect("updates"));
+
     Run {
         stop_reason: response.stop_reason,
         session,
-        updates: Arc::try_unwrap(updates).expect("one owner").into_inner().expect("updates"),
+        updates,
         permissions: Arc::try_unwrap(permissions)
             .expect("one owner")
             .into_inner()
@@ -299,6 +363,7 @@ async fn drive(
             .expect("elicitations"),
         argv,
         stdin,
+        updates_at_settle,
     }
 }
 
@@ -1055,22 +1120,115 @@ async fn a_subagents_permission_chunks_and_edges_carry_the_parent_tool_use() {
         Some(&serde_json::json!("Append probe to probe.txt"))
     );
 
-    // The completed edge reaches the client BEFORE the run ends: the terminal
-    // `task_notification` publishes it and only then settles the turn it was
-    // deferring, so a client never sees a prompt finish with the subagent
-    // card still spinning.
-    let completed = run
+    // In THIS recording the task completes before the turn's `result`, so the
+    // completed edge is simply mid-stream: the answer the CLI streamed after
+    // it still follows. The ordering that matters when the outcome is
+    // DEFERRED (publish, then settle) is locked by the `subagent-deferred`
+    // test below, which this recording cannot exercise.
+    let completed = run.subagent_edge_at(parent, "completed").expect("a completed edge");
+    assert!(completed < run.updates.len() - 1, "{completed} of {}", run.updates.len());
+}
+
+/// EXP-753 — a BACKGROUNDED subagent never adopts a MAIN-THREAD permission.
+///
+/// The CLI sends no `agent_id` on a main-thread `can_use_tool` (every
+/// permission the spike recorded omits it), so attribution cannot guess from
+/// "the one live task": a Task started with `is_backgrounded: true` stays
+/// live while the main thread keeps working, and nesting that Bash approval
+/// under its card files the permission inside a subagent the user never
+/// connected it to. Synthetic frames, because a recording of a backgrounded
+/// Task racing a main-thread approval is not reproducible on demand.
+#[tokio::test]
+async fn a_backgrounded_subagent_never_adopts_a_main_thread_permission() {
+    let work = workdir("subagent-background");
+    let scenario = synthetic(
+        &work.0,
+        &[
+            r#"{"type":"system","subtype":"init","cwd":"/work/tree/subagent","session_id":"11111111-2222-3333-4444-555555555555","tools":["Task","Bash"],"model":"claude-opus-5[1m]","permissionMode":"default","slash_commands":["compact"],"agents":["general-purpose"],"uuid":"00000000-0000-4000-8000-000000000001"}"#,
+            r#"{"type":"system","subtype":"task_started","task_id":"bg-task-1","tool_use_id":"toolu_thebackgroundtask","description":"Tail the dev server","subagent_type":"general-purpose","is_backgrounded":true,"spawn_depth":1,"task_type":"local_agent","uuid":"00000000-0000-4000-8000-000000000002","session_id":"11111111-2222-3333-4444-555555555555"}"#,
+            r#"{"type":"control_request","request_id":"0f1c2d3e-4a5b-6c7d-8e9f-000000000001","request":{"subtype":"can_use_tool","tool_name":"Bash","display_name":"Bash","input":{"command":"echo main >> main.txt","description":"Append main to main.txt"},"description":"Append main to main.txt","tool_use_id":"toolu_themainthreadbash"}}"#,
+        ],
+        &[
+            r#"{"type":"system","subtype":"task_updated","task_id":"bg-task-1","patch":{"status":"completed"},"uuid":"00000000-0000-4000-8000-000000000003","session_id":"11111111-2222-3333-4444-555555555555"}"#,
+            r#"{"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","result":"Appended.","session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000004","queued_turn_count":0}"#,
+        ],
+    );
+    let run = drive_at(
+        &scenario,
+        &work.0,
+        "Tail the dev server in the background and append main to main.txt.",
+        false,
+        pick("allow-once"),
+        cancel_elicitations(),
+    )
+    .await;
+
+    assert_eq!(run.stop_reason, StopReason::EndTurn);
+    // The background task WAS live when the permission was raised: its started
+    // edge is on the stream and nothing ended it until the answer went back.
+    assert_eq!(
+        run.subagent_edges().first().cloned(),
+        Some(("toolu_thebackgroundtask".to_string(), "started".to_string()))
+    );
+
+    // And the main thread's permission stays where it belongs: top level.
+    let permission = run.permissions.first().expect("the main thread's permission");
+    let meta = permission.tool_call.meta.as_ref().expect("the permission carries meta");
+    assert_eq!(meta.get("subagentId"), None, "{meta:?}");
+    assert_eq!(
+        meta.get("permission").and_then(|meta| meta.get("description")),
+        Some(&serde_json::json!("Append main to main.txt"))
+    );
+    // Nothing else on the stream claims the subagent either.
+    let nested: Vec<String> = run
         .updates
         .iter()
-        .position(|notification| {
-            notification
-                .meta
-                .as_ref()
-                .and_then(|meta| meta.get("exponentialSubagent"))
-                .and_then(|edge| edge.get("status"))
-                .and_then(Value::as_str)
-                == Some("completed")
+        .filter(|notification| {
+            notification.meta.as_ref().and_then(|meta| meta.get("subagentId")).is_some()
         })
-        .expect("a completed edge");
-    assert!(completed < run.updates.len() - 1, "{completed} of {}", run.updates.len());
+        .map(|notification| shape(&notification.update))
+        .collect();
+    assert!(nested.is_empty(), "{nested:?}");
+}
+
+/// EXP-753 — the DEFERRED outcome, and the edge that releases it.
+///
+/// `subagent-deferred/` is the `subagent/` capture with its terminal
+/// `task_updated`/`task_notification` moved AFTER the turn's `result`: the
+/// task is still live when the result lands, so the outcome is HELD BACK and
+/// the terminal frame is what releases it. The recording never gets there (it
+/// completes the task first, so the result settles directly), which is what
+/// left the whole deferral path untested — drop the `settle_deferred` call in
+/// the task handler and THIS turn hangs to the drive budget while the
+/// recorded one still passes. It is the shape a backgrounded subagent
+/// produces on every run.
+#[tokio::test]
+async fn a_deferred_turn_publishes_the_completed_edge_before_it_settles() {
+    let work = workdir("subagent-deferred");
+    let run = drive(
+        "subagent-deferred",
+        &work.0,
+        "Use the Task tool to launch one subagent that appends probe to probe.txt.",
+        false,
+        pick("allow-once"),
+        cancel_elicitations(),
+    )
+    .await;
+
+    // It settles at all: the deferred outcome is released by the terminal task
+    // frame, so a subagent that completes after the `result` never wedges the
+    // turn (the drive budget is what a hang would spend).
+    assert_eq!(run.stop_reason, StopReason::EndTurn);
+
+    let parent = "toolu_01R79m5CpGKpY22SFu6n5MSZ";
+    let completed = run.subagent_edge_at(parent, "completed").expect("a completed edge");
+    // The client had that edge in hand BEFORE the prompt resolved: settling
+    // first ends the run with the subagent card still spinning. (The pump
+    // publishes and settles inside ONE frame with no await between, so the
+    // wire order only diverges once one creeps in — this pins it there.)
+    assert!(
+        completed < run.updates_at_settle,
+        "completed edge at {completed}, settle after {}",
+        run.updates_at_settle
+    );
 }
