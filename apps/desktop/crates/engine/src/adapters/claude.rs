@@ -75,6 +75,12 @@ pub const SUBAGENT_META_KEY: &str = "exp/subagent";
 /// it belongs to a subagent's nested run (claude's `parent_tool_use_id`).
 pub const PARENT_TOOL_CALL_META_KEY: &str = "exp/parentToolCallId";
 
+/// The subagents the CLI ships. They are spawned by the model, never picked
+/// for the main thread, so the `agent` option offers only what the user (or a
+/// plugin) configured.
+const BUILTIN_AGENT_NAMES: [&str; 5] =
+    ["claude", "general-purpose", "Explore", "Plan", "statusline-setup"];
+
 /// Config option ids. `mode` is NOT among the options the adapter advertises —
 /// modes ride the ACP-native `SessionModeState`/`session/set_mode` lane, and
 /// advertising both would render two mode chips on every client. It is still
@@ -199,7 +205,8 @@ impl ConnectTo<Client> for ClaudeAgent {
                 .on_receive_request(
                     async move |request: ListSessionsRequest, responder, _cx| {
                         let cwd = request.cwd.clone().unwrap_or_else(|| on_list.cwd().to_path_buf());
-                        responder.respond(ListSessionsResponse::new(transcript_sessions(&cwd)))
+                        let sessions = transcript_sessions(&on_list.spec.spawn.env, &cwd);
+                        responder.respond(ListSessionsResponse::new(sessions))
                     },
                     on_receive_request!(),
                 )
@@ -311,6 +318,9 @@ struct State {
     fast_supported: bool,
     mode: String,
     commands: Vec<wire::CommandRow>,
+    /// The catalog as the CLI reported it, kept because the terminal-only
+    /// names arrive LATER (on `system/init`) and re-filter it.
+    raw_commands: Vec<wire::SlashCommandInfo>,
     terminal_commands: Vec<String>,
     tools: HashMap<String, ToolEntry>,
     /// Text/thinking blocks already streamed, per message id, in document
@@ -329,6 +339,12 @@ struct State {
     local_only_command: bool,
     /// The plan a "clear context" approval is waiting to re-prompt with.
     pending_plan_restart: Option<PlanRestart>,
+    /// Set while the `/clear` the restart injects has not reported its own
+    /// `result` yet. Discriminated by output tokens rather than by counting
+    /// results: a local command does no model work, so a result with tokens is
+    /// always the plan turn and settles even when a future CLI stops
+    /// answering `/clear` at all.
+    skip_local_command_result: bool,
     cancelled: bool,
     closed: bool,
 }
@@ -531,6 +547,7 @@ impl ClaudeSession {
         let mut state = self.lock();
         if !info.commands.is_empty() {
             state.commands = wire::available_commands(&info.commands, &state.terminal_commands);
+            state.raw_commands = info.commands.clone();
         }
         if !info.models.is_empty() {
             if state.model.is_empty() {
@@ -550,6 +567,10 @@ impl ClaudeSession {
                     .map(str::to_string),
                 _ => None,
             })
+            // The CLI reports its own built-in subagents beside the user's;
+            // offering those as a "run as" pick would be a lie (they are
+            // spawned by the model, never selected for the main thread).
+            .filter(|agent| !BUILTIN_AGENT_NAMES.contains(&agent.as_str()))
             .collect();
         state.fast_supported = info.fast_mode_state.is_some();
         state.fast = info.fast_mode_state.as_deref() == Some("on");
@@ -1076,10 +1097,10 @@ impl ClaudeSession {
                         names.iter().filter_map(Value::as_str).map(str::to_string).collect()
                     })
                     .unwrap_or_default();
-                if state.commands.is_empty() && !system.slash_commands.is_empty() {
-                    // Names only until the initialize response lands, which is
-                    // still enough for the `/` menu to offer them.
-                    let rows: Vec<wire::SlashCommandInfo> = system
+                if state.raw_commands.is_empty() && !system.slash_commands.is_empty() {
+                    // Names only, until the initialize response lands — still
+                    // enough for the `/` menu to offer them.
+                    state.raw_commands = system
                         .slash_commands
                         .iter()
                         .map(|name| wire::SlashCommandInfo {
@@ -1087,9 +1108,13 @@ impl ClaudeSession {
                             ..wire::SlashCommandInfo::default()
                         })
                         .collect();
-                    let terminal = state.terminal_commands.clone();
-                    state.commands = wire::available_commands(&rows, &terminal);
                 }
+                // Re-filter: the terminal-only names are an init-frame fact,
+                // and the initialize response that seeded the catalog did not
+                // have them yet.
+                let terminal = state.terminal_commands.clone();
+                let raw = state.raw_commands.clone();
+                state.commands = wire::available_commands(&raw, &terminal);
                 drop(state);
                 self.publish_commands(cx);
                 self.publish_config(cx);
@@ -1600,6 +1625,29 @@ impl ClaudeSession {
         }
         self.merge_usage(cx, &result.usage, result.total_cost_usd);
 
+        // A "clear context" plan approval interrupted this turn on purpose:
+        // the same ACP turn continues on a fresh conversation instead of
+        // settling here.
+        let restart = self.lock().pending_plan_restart.take();
+        if let Some(restart) = restart {
+            self.restart_with_plan(cx, restart);
+            return;
+        }
+
+        let output_tokens =
+            result.usage.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+        {
+            let mut state = self.lock();
+            if state.skip_local_command_result {
+                state.skip_local_command_result = false;
+                if output_tokens == 0 {
+                    // The `/clear` turn the restart injected: it ends a turn
+                    // the client never asked for.
+                    return;
+                }
+            }
+        }
+
         let (local_only, delivered) = {
             let state = self.lock();
             (state.local_only_command, state.delivered_text)
@@ -1611,15 +1659,6 @@ impl ClaudeSession {
                     TextContent::new(result.result.clone()),
                 ))),
             );
-        }
-
-        // A "clear context" plan approval interrupted this turn on purpose:
-        // the same ACP turn continues on a fresh conversation instead of
-        // settling here.
-        let restart = self.lock().pending_plan_restart.take();
-        if let Some(restart) = restart {
-            self.restart_with_plan(cx, restart);
-            return;
         }
 
         let cancelled = self.lock().cancelled;
@@ -1643,7 +1682,11 @@ impl ClaudeSession {
             if let Err(error) = session.control_request(wire::set_permission_mode(&mode)).await {
                 log::warn!("engine: claude plan-mode switch failed: {error}");
             }
-            session.lock().mode = mode.clone();
+            {
+                let mut state = session.lock();
+                state.mode = mode.clone();
+                state.skip_local_command_result = true;
+            }
             let _ = session.send(wire::user_message("/clear", None));
             let prompt = format!("{PLAN_RESTART_PROMPT}\n\n{plan}");
             let _ = session.send(wire::user_message(&prompt, None));
@@ -1990,7 +2033,7 @@ impl ClaudeSession {
     /// renders exactly like the run did (minus the per-edit diffs, which only
     /// the PostToolUse hook can produce).
     fn replay_history(self: &Arc<Self>, cx: &ConnectionTo<Client>, session_id: &SessionId) {
-        let Some(path) = transcript_path(session_id.0.as_ref()) else {
+        let Some(path) = transcript_path(&self.spec.spawn.env, session_id.0.as_ref()) else {
             log::warn!("engine: no claude transcript for {}", session_id.0);
             return;
         };
@@ -2967,17 +3010,26 @@ fn image_block(block: &Value) -> Option<ContentBlock> {
 
 /// `~/.claude/projects` — every project directory, not just the munged one: a
 /// worktree can differ from where claude persisted the conversation.
-fn claude_projects_root() -> Option<PathBuf> {
-    let config = match std::env::var_os("CLAUDE_CONFIG_DIR") {
-        Some(dir) => PathBuf::from(dir),
+///
+/// `CLAUDE_CONFIG_DIR` is read from the CHILD's environment, not this
+/// process's: the transcripts that matter are the ones the CLI we spawn would
+/// write, and `PreparedLaunch::spawn.env` is what it runs with.
+fn claude_projects_root(env: &[(String, String)]) -> Option<PathBuf> {
+    let config = match env
+        .iter()
+        .find(|(key, _)| key == "CLAUDE_CONFIG_DIR")
+        .map(|(_, value)| PathBuf::from(value))
+        .or_else(|| std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from))
+    {
+        Some(dir) => dir,
         None => PathBuf::from(std::env::var_os("HOME")?).join(".claude"),
     };
     let projects = config.join("projects");
     projects.is_dir().then_some(projects)
 }
 
-fn transcript_path(session_id: &str) -> Option<PathBuf> {
-    let root = claude_projects_root()?;
+fn transcript_path(env: &[(String, String)], session_id: &str) -> Option<PathBuf> {
+    let root = claude_projects_root(env)?;
     let name = format!("{session_id}.jsonl");
     std::fs::read_dir(root)
         .ok()?
@@ -2989,8 +3041,8 @@ fn transcript_path(session_id: &str) -> Option<PathBuf> {
 /// Past conversations for `session/list`, newest first. `cwd` filters to the
 /// transcripts recorded for that directory when the file says so; a
 /// transcript whose cwd is unreadable is kept (a moved worktree still lists).
-fn transcript_sessions(cwd: &Path) -> Vec<SessionInfo> {
-    let Some(root) = claude_projects_root() else { return Vec::new() };
+fn transcript_sessions(env: &[(String, String)], cwd: &Path) -> Vec<SessionInfo> {
+    let Some(root) = claude_projects_root(env) else { return Vec::new() };
     let Ok(projects) = std::fs::read_dir(root) else { return Vec::new() };
     let mut rows: Vec<(std::time::SystemTime, SessionInfo)> = Vec::new();
     for project in projects.filter_map(Result::ok) {
@@ -3026,16 +3078,17 @@ fn transcript_head(path: &Path) -> (Option<String>, Option<String>) {
     let Ok(text) = std::fs::read_to_string(path) else { return (None, None) };
     let mut cwd = None;
     let mut title = None;
-    for line in text.lines().take(64) {
+    for line in text.lines().take(256) {
         let Ok(value) = serde_json::from_str::<Value>(line) else { continue };
         if cwd.is_none() {
             cwd = value.get("cwd").and_then(Value::as_str).map(str::to_string);
         }
         if title.is_none() {
-            title = value
-                .get("summary")
-                .and_then(Value::as_str)
-                .or_else(|| value.get("title").and_then(Value::as_str))
+            // Three spellings across CLI versions; `aiTitle` is what 2.1.263
+            // writes.
+            title = ["summary", "aiTitle", "title"]
+                .iter()
+                .find_map(|key| value.get(*key).and_then(Value::as_str))
                 .map(str::to_string);
         }
         if cwd.is_some() && title.is_some() {

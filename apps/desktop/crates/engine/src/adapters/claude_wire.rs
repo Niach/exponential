@@ -258,6 +258,9 @@ pub struct SystemMsg {
     pub capabilities: Vec<String>,
     pub slash_commands: Vec<String>,
     pub tools: Vec<String>,
+    /// camelCase on the wire (measured): `permissionMode`, not the
+    /// snake_case its siblings use.
+    #[serde(rename = "permissionMode", alias = "permission_mode")]
     pub permission_mode: Option<String>,
     pub effort: Option<String>,
     /// `system/task_started`: the subagent id that a later `can_use_tool`
