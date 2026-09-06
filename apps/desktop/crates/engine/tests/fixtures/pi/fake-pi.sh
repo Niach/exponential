@@ -10,6 +10,9 @@
 #   after_confirm.jsonl     events to emit once the client answers a dialog
 #   prompt.plan.events.jsonl  a plan turn's events, used when
 #                             `$EXP_FAKE_PI_PLAN` is set (EXP-752)
+#   prompt.hang.events.jsonl  a turn that STREAMS AND NEVER SETTLES, used when
+#                             `$EXP_FAKE_PI_HANG` is set — the mid-turn state
+#                             the plan switch refuses (EXP-752)
 #
 # `$EXP_FAKE_PI_EDIT`, when set, is rewritten as the answered dialog's tool
 # actually edits it — that is what gives the adapter a before/after diff.
@@ -65,6 +68,9 @@ while IFS= read -r line; do
 		events="$dir/$command.events.jsonl"
 		if [ "$command" = "prompt" ] && [ -n "$EXP_FAKE_PI_PLAN" ]; then
 			events="$dir/prompt.plan.events.jsonl"
+		fi
+		if [ "$command" = "prompt" ] && [ -n "$EXP_FAKE_PI_HANG" ]; then
+			events="$dir/prompt.hang.events.jsonl"
 		fi
 		if [ -f "$events" ]; then
 			cat "$events"
