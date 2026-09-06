@@ -126,7 +126,23 @@ impl RunLifecycle {
         // 5. End the row through the observer-based path, so the CLI's
         //    `registry::end_outcome_resolves` applies on BOTH transports.
         let end = (!ctx.replay).then(|| coding::end_session(&ctx.trpc, &ctx.session_id));
-        ctx.phase(EnginePhase::Ended);
+        // 6. EXP-758: this run's child (if it had one) is gone with the
+        //    connection, so the record must stop naming it: a pid left here
+        //    would make the next start's reaper sweep hunt a dead process,
+        //    and a RECYCLED pid is one it could signal by mistake.
+        if !ctx.replay {
+            upsert_run_record(
+                &ctx.data_dir,
+                &ctx.session_id,
+                &crate::host::SessionIds::default(),
+                RunPids::default(),
+            );
+        }
+        // 7. The phases, in the order a view must read them (EXP-758): the
+        //    reason first, the end last.
+        for phase in end_phases(error.as_deref()) {
+            ctx.phase(phase);
+        }
 
         let exit = EngineExit {
             session_id: ctx.session_id.clone(),
@@ -148,29 +164,81 @@ impl RunLifecycle {
     }
 }
 
+/// EXP-758: the live-process half of a run record: the ACP child and the
+/// host that spawned it. Both set while the run is up, both cleared by the
+/// end sequence, so a record still carrying them names an orphan.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct RunPids {
+    pub(crate) acp_child: Option<u32>,
+    pub(crate) host: Option<u32>,
+}
+
 /// D8: the ids `prepare` could not know, written back onto `runs.json` the
-/// moment `session/new` (or `session/load`) answers.
+/// moment `session/new` (or `session/load`) answers, plus the EXP-758 pids,
+/// recorded on the same edge because that is the first moment the child is
+/// known to have a session at all.
 pub(crate) fn record_session_ids(ctx: &SessionCtx) {
     if ctx.replay {
         return;
     }
     let ids = ctx.ids();
-    if ids.acp.is_none() && ids.native.is_none() {
+    let pids = RunPids {
+        acp_child: ctx.child_exit.pid(),
+        host: Some(std::process::id()),
+    };
+    if ids.acp.is_none() && ids.native.is_none() && pids.acp_child.is_none() {
         return;
     }
-    let Some(mut record) = coding::run_registry::get(&ctx.data_dir, &ctx.session_id) else {
+    upsert_run_record(&ctx.data_dir, &ctx.session_id, &ids, pids);
+}
+
+/// The one writer of the engine's fields on a [`coding::run_registry`]
+/// record. A present id wins over what is on disk, an absent one leaves it
+/// alone, and the pids are written verbatim (the end sequence clears them by
+/// passing [`RunPids::default`]). A no-op when nothing changed: `record`
+/// rewrites the whole file.
+pub(crate) fn upsert_run_record(
+    data_dir: &std::path::Path,
+    session_id: &str,
+    ids: &crate::host::SessionIds,
+    pids: RunPids,
+) {
+    let Some(mut record) = coding::run_registry::get(data_dir, session_id) else {
         return;
     };
-    if record.acp_session_id == ids.acp && record.agent_native_session_id == ids.native {
+    let mut changed = false;
+    if ids.acp.is_some() && record.acp_session_id != ids.acp {
+        record.acp_session_id = ids.acp.clone();
+        changed = true;
+    }
+    if ids.native.is_some() && record.agent_native_session_id != ids.native {
+        record.agent_native_session_id = ids.native.clone();
+        changed = true;
+    }
+    if record.acp_child_pid != pids.acp_child {
+        record.acp_child_pid = pids.acp_child;
+        changed = true;
+    }
+    if record.host_pid != pids.host {
+        record.host_pid = pids.host;
+        changed = true;
+    }
+    if !changed {
         return;
     }
-    if ids.acp.is_some() {
-        record.acp_session_id = ids.acp;
+    coding::run_registry::record(data_dir, record);
+}
+
+/// EXP-758: the phase edges the end sequence emits, in order. An exit that
+/// carries an error (a failed spawn, a handshake that never answered, a
+/// transport that died) says so FIRST: `EngineExit::error` used to reach the
+/// host callback alone, so the CLI printed nothing and the session tab showed
+/// an empty transcript that had simply "ended".
+pub(crate) fn end_phases(error: Option<&str>) -> Vec<EnginePhase> {
+    match error {
+        Some(error) => vec![EnginePhase::Failed(error.to_string()), EnginePhase::Ended],
+        None => vec![EnginePhase::Ended],
     }
-    if ids.native.is_some() {
-        record.agent_native_session_id = ids.native;
-    }
-    coding::run_registry::record(&ctx.data_dir, record);
 }
 
 /// `steer::publish` with the ACP path's hooks. The differences from the PTY
@@ -447,6 +515,109 @@ mod tests {
             Ok(EngineCommand::Steer(text)) => assert_eq!(text, "hello world"),
             _ => panic!("expected one steer message"),
         }
+    }
+
+    /// EXP-758: the reason is a phase of its own, and it comes BEFORE the
+    /// end: a view that reads the two in order paints the banner and then
+    /// closes the session, never the other way round.
+    #[test]
+    fn a_failed_exit_says_why_before_it_says_ended() {
+        assert_eq!(end_phases(None), vec![EnginePhase::Ended]);
+        assert_eq!(
+            end_phases(Some("initialize timed out")),
+            vec![
+                EnginePhase::Failed("initialize timed out".to_string()),
+                EnginePhase::Ended
+            ]
+        );
+    }
+
+    fn temp_data_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "exp758-lifecycle-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("the clock is past the epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("the scratch data dir is creatable");
+        dir
+    }
+
+    /// A record with only the fields `prepare` writes; the rest defaults.
+    fn seed_record(data_dir: &std::path::Path, session_id: &str) {
+        let record: coding::run_registry::RunRecord = serde_json::from_value(serde_json::json!({
+            "sessionId": session_id,
+            "accountId": "acct-1",
+            "agent": "claude",
+            "kind": "issue",
+            "cwd": "/tmp/worktree",
+            "transport": "acp",
+            // Inside the registry's TTL, or the next write would prune it.
+            "recordedAt": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("the clock is past the epoch")
+                .as_secs(),
+        }))
+        .expect("the seed record decodes");
+        coding::run_registry::record(data_dir, record);
+    }
+
+    /// EXP-758: a host that dies without its end sequence (Cmd-Q, a crash)
+    /// leaves a codex/pi child with no `claude-hooks` anchor on it, so the
+    /// record has to name the pid while the run is live, and stop naming it
+    /// the moment the run ends, or the next start's reaper hunts a pid the OS
+    /// has since handed to somebody else.
+    #[test]
+    fn the_run_record_names_the_child_while_it_lives_and_forgets_it_after() {
+        let data_dir = temp_data_dir("pids");
+        seed_record(&data_dir, "sess-1");
+
+        let ids = crate::host::SessionIds {
+            acp: Some("acp-1".to_string()),
+            native: Some("native-1".to_string()),
+        };
+        upsert_run_record(
+            &data_dir,
+            "sess-1",
+            &ids,
+            RunPids {
+                acp_child: Some(4242),
+                host: Some(std::process::id()),
+            },
+        );
+        let live = coding::run_registry::get(&data_dir, "sess-1").expect("the record is there");
+        assert_eq!(live.acp_session_id.as_deref(), Some("acp-1"));
+        assert_eq!(live.agent_native_session_id.as_deref(), Some("native-1"));
+        assert_eq!(live.acp_child_pid, Some(4242));
+        assert_eq!(live.host_pid, Some(std::process::id()));
+
+        // The end sequence: pids gone, the ids it learned kept.
+        upsert_run_record(
+            &data_dir,
+            "sess-1",
+            &crate::host::SessionIds::default(),
+            RunPids::default(),
+        );
+        let ended = coding::run_registry::get(&data_dir, "sess-1").expect("the record is there");
+        assert_eq!(ended.acp_child_pid, None);
+        assert_eq!(ended.host_pid, None);
+        assert_eq!(ended.acp_session_id.as_deref(), Some("acp-1"));
+        assert_eq!(ended.agent_native_session_id.as_deref(), Some("native-1"));
+
+        // A session with no record of its own is left alone.
+        upsert_run_record(
+            &data_dir,
+            "sess-unknown",
+            &ids,
+            RunPids {
+                acp_child: Some(7),
+                host: Some(8),
+            },
+        );
+        assert!(coding::run_registry::get(&data_dir, "sess-unknown").is_none());
+        let _ = std::fs::remove_dir_all(&data_dir);
     }
 
     #[test]

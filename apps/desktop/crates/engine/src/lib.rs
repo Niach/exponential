@@ -53,7 +53,7 @@ pub use local::{
     SubagentEdge, SubagentEdgeStatus, ToolCardKind, ToolCardStatus, COMPACTION_TRIGGER_META_KEY,
     SUBAGENT_ID_META_KEY, SUBAGENT_META_KEY,
 };
-pub use mapper::{AnswerDecision, MapOut, Mapper, MapperConfig, PendingAskKey};
+pub use mapper::{clamp_usage, AnswerDecision, MapOut, Mapper, MapperConfig, PendingAskKey};
 pub use session::{
     start, start_with, ConfigValue, EngineError, EngineParts, EngineSession, EngineStart,
     HistoryHandle, OpenTranscript, ResumeHandle,
