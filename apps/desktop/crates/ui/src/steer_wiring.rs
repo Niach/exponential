@@ -568,6 +568,9 @@ fn register_device(
 ) {
     let agents = advertisement.agents.clone();
     let unauthed_agents = advertisement.unauthed_agents.clone();
+    // EXP-749: which of those speak ACP here. Sent even when empty — a NULL
+    // column means "older build, assume all", which is a different answer.
+    let acp_agents = advertisement.acp_agents.clone();
     let caps = caps.to_vec();
     // EXP-484: WHO each installed CLI is signed in as, straight off the
     // doctor probe that produced this advertisement. Skipped when nothing is
@@ -595,6 +598,7 @@ fn register_device(
                     platform: Some(std::env::consts::OS),
                     agents: &agents,
                     unauthed_agents: &unauthed_agents,
+                    acp_agents: Some(&acp_agents),
                     caps: &caps,
                     launch_defaults: Some(&launch_defaults),
                     agent_accounts: agent_accounts.as_ref(),

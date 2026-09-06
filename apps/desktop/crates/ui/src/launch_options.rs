@@ -112,10 +112,25 @@ pub(crate) fn agent_defaults(settings: &coding::Settings, agent: CodingAgent) ->
     )
 }
 
+/// EXP-749: the pill note for an agent that RUNS on the target machine but
+/// not on its session screen. The pickers never hide such an agent, they say
+/// where it lands.
+pub(crate) const TERMINAL_ONLY_NOTE: &str = "runs in a terminal tab";
+
+/// EXP-749: does `agent` start in a terminal tab on a machine advertising
+/// `acp_agents`? `None` = the machine never said (an older build, or a
+/// doctor that has not landed) — assume the session screen and stay quiet.
+pub(crate) fn runs_in_terminal(acp_agents: Option<&[CodingAgent]>, agent: CodingAgent) -> bool {
+    acp_agents.is_some_and(|ready| !ready.contains(&agent))
+}
+
 /// The LAUNCH strip's pills for `agents` (the doctor's pickable list).
+/// `terminal_only` (EXP-749) are the ones that would run on the PTY path
+/// there; a signed-out agent's note wins, since it cannot run at all yet.
 pub(crate) fn launch_pills(
     agents: &[CodingAgent],
     unauthed: &[CodingAgent],
+    terminal_only: &[CodingAgent],
 ) -> Vec<AgentPill> {
     agents
         .iter()
@@ -123,9 +138,11 @@ pub(crate) fn launch_pills(
             label: SharedString::from(agent.label()),
             icon: Some(agent_icon(*agent)),
             dimmed: unauthed.contains(agent),
-            note: unauthed
-                .contains(agent)
-                .then(|| SharedString::from("not signed in")),
+            note: match (unauthed.contains(agent), terminal_only.contains(agent)) {
+                (true, _) => Some(SharedString::from("not signed in")),
+                (false, true) => Some(SharedString::from(TERMINAL_ONLY_NOTE)),
+                (false, false) => None,
+            },
         })
         .collect()
 }
@@ -543,6 +560,10 @@ pub(crate) fn settled_agent(
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RemoteDefaults {
     pub(crate) agents: Vec<CodingAgent>,
+    /// EXP-749: which of those run on that machine's SESSION SCREEN. `None`
+    /// = it never said, so nothing is claimed; the rest of `agents` carries
+    /// the "runs in a terminal tab" note. Never a filter.
+    pub(crate) acp_agents: Option<Vec<CodingAgent>>,
     pub(crate) settings: coding::Settings,
 }
 
@@ -787,6 +808,17 @@ impl LaunchOptionsSection {
                 .map(|report| report.unauthed_agents())
                 .unwrap_or_default(),
         };
+        // EXP-749: a remote machine's agents that would land on the PTY path
+        // there. Local runs say nothing here — the local doctor's own acp
+        // rows (Settings → Tools) and "Start in terminal" cover this machine.
+        let terminal_only: Vec<CodingAgent> = match &self.remote {
+            Some(remote) => pickable
+                .iter()
+                .copied()
+                .filter(|agent| runs_in_terminal(remote.acp_agents.as_deref(), *agent))
+                .collect(),
+            None => Vec::new(),
+        };
         // D13: the external pills sit AFTER the builtins, so a strip without
         // any is byte-identical to the one every other surface renders.
         let externals = self.externals.clone();
@@ -806,7 +838,7 @@ impl LaunchOptionsSection {
         let agent = self.agent;
         let effort_disabled = self.ultracode && agent.supports_ultracode();
 
-        let mut pills = launch_pills(&pickable, &unauthed);
+        let mut pills = launch_pills(&pickable, &unauthed, &terminal_only);
         pills.extend(external_pills(&externals));
         let builtin_count = pickable.len();
         let mut group = AgentDefaultsGroup::new(
@@ -870,6 +902,36 @@ impl LaunchOptionsSection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-749: an agent a remote machine can RUN but not on its session
+    /// screen keeps its pill and gains a note — the strip never hides it,
+    /// because the run still happens there, in a terminal tab.
+    #[test]
+    fn launch_pills_note_terminal_only_agents() {
+        let all = CodingAgent::ALL.to_vec();
+        let pills = launch_pills(&all, &[], &[CodingAgent::Pi]);
+        assert_eq!(pills.len(), all.len(), "a note never removes a pill");
+        assert_eq!(pills[0].note, None);
+        assert_eq!(
+            pills[2].note.as_deref(),
+            Some(TERMINAL_ONLY_NOTE),
+            "pi runs in a terminal tab there"
+        );
+        // Not signed in beats it: that agent cannot run at all yet.
+        let pills = launch_pills(&all, &[CodingAgent::Pi], &[CodingAgent::Pi]);
+        assert_eq!(pills[2].note.as_deref(), Some("not signed in"));
+        assert!(pills[2].dimmed, "a terminal-tab note never dims a pill");
+        let pills = launch_pills(&all, &[], &[CodingAgent::Claude]);
+        assert!(!pills[0].dimmed);
+
+        // The unknown/ready cases the notes derive from.
+        assert!(!runs_in_terminal(None, CodingAgent::Pi));
+        assert!(runs_in_terminal(Some(&[]), CodingAgent::Pi));
+        assert!(!runs_in_terminal(
+            Some(&[CodingAgent::Claude, CodingAgent::Pi]),
+            CodingAgent::Pi
+        ));
+    }
 
     /// EXP-696: the device settle's agent rule (web
     /// `use-launch-options.ts`), which is what keeps a remote start from

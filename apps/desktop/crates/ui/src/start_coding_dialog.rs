@@ -823,6 +823,8 @@ impl StartCodingDialogView {
             .remote_device()
             .map(|device| launch_options::RemoteDefaults {
                 agents: device.agents.clone(),
+                // EXP-749: what that machine says about its session screen.
+                acp_agents: device.acp_agents.clone(),
                 settings: device.defaults.clone(),
             });
         // EXP-746: the machine decides both of these. `start_in_terminal` is
@@ -1449,6 +1451,25 @@ impl StartCodingDialogView {
             self.checked.remove(&issue_id);
         }
         cx.notify();
+    }
+
+    /// EXP-749: the run WILL start on the target machine, just not on its
+    /// session screen — that machine advertises the selected agent as
+    /// runnable but not ACP-ready. Never a blocker, a muted line beside one:
+    /// a machine that never advertised readiness (an older build) says
+    /// nothing, and a local run is covered by "Start in terminal".
+    fn terminal_note(&self) -> Option<SharedString> {
+        let device = self.remote_device()?;
+        launch_options::runs_in_terminal(device.acp_agents.as_deref(), self.launch.agent).then(
+            || {
+                format!(
+                    "{} runs {} in a terminal tab.",
+                    device.label,
+                    self.launch.agent.label()
+                )
+                .into()
+            },
+        )
     }
 
     /// Why the launch button is disabled right now; `None` = launchable.
@@ -2656,6 +2677,7 @@ impl StartCodingDialogView {
     fn footer(
         &self,
         blocker: Option<SharedString>,
+        terminal_note: Option<SharedString>,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let mut footer = h_flex()
@@ -2665,17 +2687,32 @@ impl StartCodingDialogView {
             .pt_3()
             .border_t_1()
             .border_color(cx.theme().border);
-        if let Some(reason) = &blocker {
-            if !self.launching {
-                footer = footer.child(
+        if !self.launching {
+            let mut lines = v_flex().flex_1().min_w_0().gap_0p5();
+            let mut any = false;
+            if let Some(reason) = &blocker {
+                any = true;
+                lines = lines.child(
                     div()
-                        .flex_1()
-                        .min_w_0()
                         .text_xs()
                         .truncate()
                         .text_color(cx.theme().muted_foreground)
                         .child(reason.clone()),
                 );
+            }
+            // EXP-749: the run is fine, it just lands on the PTY path there.
+            if let Some(note) = &terminal_note {
+                any = true;
+                lines = lines.child(
+                    div()
+                        .text_xs()
+                        .truncate()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(note.clone()),
+                );
+            }
+            if any {
+                footer = footer.child(lines);
             }
         }
         footer
@@ -2797,6 +2834,8 @@ impl Render for StartCodingDialogView {
         };
 
         let blocker = self.launch_blocker(cx);
+        // EXP-749: not a blocker — the transport the target machine would use.
+        let terminal_note = self.terminal_note();
         // EXP-268: two-column widescreen layout (web `launch-dialog.tsx`
         // parity) — subject tabs full-width on top, then picker LEFT /
         // options RIGHT, error + footer full-width below. EXP-525: the
@@ -3000,7 +3039,7 @@ impl Render for StartCodingDialogView {
                             .child(Scrollbar::new(&body_scroll).axis(ScrollbarAxis::Vertical)),
                     ),
             )
-            .child(self.footer(blocker, cx))
+            .child(self.footer(blocker, terminal_note, cx))
             .into_any_element()
     }
 }
@@ -3024,6 +3063,7 @@ mod tests {
         advertised.start_in_terminal = false;
         let remote = launch_options::RemoteDefaults {
             agents: vec![coding::CodingAgent::Claude],
+            acp_agents: None,
             settings: advertised,
         };
         assert_eq!(
@@ -3039,6 +3079,7 @@ mod tests {
         terminal_host.start_in_terminal = true;
         let remote = launch_options::RemoteDefaults {
             agents: vec![coding::CodingAgent::Claude],
+            acp_agents: None,
             settings: terminal_host,
         };
         assert_eq!(seeded_start_in_terminal(&off, Some(&remote)), (true, false));

@@ -557,6 +557,7 @@ impl DeviceSettingsView {
                 agents: None,
                 caps: None,
                 unauthed_agents: None,
+                acp_agents: None,
                 launch_defaults: None,
                 launch_defaults_updated_at: None,
                 agent_accounts: None,
