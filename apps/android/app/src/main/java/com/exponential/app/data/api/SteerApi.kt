@@ -63,6 +63,15 @@ data class AgentLaunchDefaults(
 data class DeviceLaunchDefaults(
     @SerialName("defaultAgent") val defaultAgent: String? = null,
     @SerialName("agents") val agents: Map<String, AgentLaunchDefaults> = emptyMap(),
+    /**
+     * EXP-746: run coding sessions in a terminal tab instead of the desktop's
+     * session screen — DEVICE-GLOBAL, not per agent, so it lives beside
+     * [agents] rather than inside one. Nullable like every sibling: the decode
+     * has no `coerceInputValues`, so an explicit `null` on the wire would
+     * otherwise throw and drop the whole launch-defaults object. Read it as
+     * `== true`.
+     */
+    @SerialName("startInTerminal") val startInTerminal: Boolean? = null,
 )
 
 /**
@@ -260,6 +269,15 @@ data class SteerDevice(
      * account buttons only appear for machines that advertise it.
      */
     val canAgentLogin: Boolean get() = caps?.contains("agent-login") == true
+
+    /**
+     * EXP-746: whether this machine runs coding sessions through the in-process
+     * ACP engine (the session screen) rather than only on a terminal PTY.
+     * Read-only here — nothing on mobile picks a transport, and the machine's
+     * own "Start in terminal" default still overrides it; the cap only lets a
+     * picker say which experience a remote start will get.
+     */
+    val supportsAcp: Boolean get() = caps?.contains("acp") == true
 
     companion object {
         const val KIND_DESKTOP = "desktop"

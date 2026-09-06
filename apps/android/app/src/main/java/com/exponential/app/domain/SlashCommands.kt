@@ -53,6 +53,39 @@ object SlashCommands {
     }
 
     /**
+     * EXP-746: the `/` menu's catalog for a live ACP run — the CONTRACT rows
+     * first, then the commands the agent itself advertised in `config_state`,
+     * deduped by lowercased name (a contract row always wins: the desktop can
+     * execute it, and the agent's own twin would shadow that). Byte-identical
+     * ordering ×4 (`mergeAgentCommands` on web, iOS/desktop `merged`).
+     *
+     * An agent row carries no [SlashCommand.agents] filter: it came from THIS
+     * run's agent, and the list handed in is already agent-scoped — nothing
+     * re-filters a merged catalog.
+     */
+    fun merged(contract: List<SlashCommand>, agent: List<ConfigCommand>): List<SlashCommand> {
+        if (agent.isEmpty()) return contract
+        val seen = contract.mapTo(mutableSetOf()) { it.name.lowercase() }
+        return contract + agent.mapNotNull { command ->
+            // The wire form may or may not carry the sigil; the catalog never
+            // does (its `insertion` adds it).
+            val name = command.name.removePrefix("/").trim()
+            if (name.isEmpty() || !seen.add(name.lowercase())) {
+                null
+            } else {
+                SlashCommand(
+                    name = name,
+                    description = command.description,
+                    argHint = command.hint.orEmpty(),
+                    agents = emptyList(),
+                    // Only the contract knows which commands discard context.
+                    confirm = false,
+                )
+            }
+        }
+    }
+
+    /**
      * The rows the `/` menu should offer for the CURRENT draft, or an empty
      * list when the menu must stay shut.
      *
@@ -61,10 +94,17 @@ object SlashCommands {
      * or a path never pops it. The filter is a case-insensitive name PREFIX;
      * a bare `/` offers every row for the agent.
      */
-    fun matches(draft: String, agent: String?): List<SlashCommand> {
+    fun matches(
+        draft: String,
+        agent: String?,
+        /** EXP-746: the run's own advertised commands, appended after the
+         *  contract rows. Empty on a PTY run, which advertises none. */
+        agentCommands: List<ConfigCommand> = emptyList(),
+    ): List<SlashCommand> {
         if (!MENU_DRAFT.matches(draft)) return emptyList()
         val query = draft.drop(1)
-        return catalogFor(agent).filter { it.name.startsWith(query, ignoreCase = true) }
+        return merged(catalogFor(agent), agentCommands)
+            .filter { it.name.startsWith(query, ignoreCase = true) }
     }
 
     /**
@@ -73,12 +113,17 @@ object SlashCommands {
      * Prose that merely mentions a command, and paths like `/api/foo`, are not
      * commands.
      */
-    fun commandFor(text: String, agent: String?): SlashCommand? {
+    fun commandFor(
+        text: String,
+        agent: String?,
+        agentCommands: List<ConfigCommand> = emptyList(),
+    ): SlashCommand? {
         val trimmed = text.trim()
         if (!trimmed.startsWith("/")) return null
         val head = trimmed.drop(1).takeWhile { !it.isWhitespace() }
         if (head.isEmpty()) return null
-        return catalogFor(agent).firstOrNull { it.name.equals(head, ignoreCase = true) }
+        return merged(catalogFor(agent), agentCommands)
+            .firstOrNull { it.name.equals(head, ignoreCase = true) }
     }
 
     /** The confirm dialog's title — byte-identical ×4. */

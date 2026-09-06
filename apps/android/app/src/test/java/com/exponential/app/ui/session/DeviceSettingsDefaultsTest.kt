@@ -7,6 +7,7 @@ import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.domain.DomainContract
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -145,5 +146,23 @@ class DeviceSettingsDefaultsTest {
         assertEquals(agents, editableAgents(echoed))
         assertEquals("codex", seededDefaultAgent(echoed, agents))
         assertEquals(edited, agents.associateWith { agentDraft(echoed, it) })
+    }
+
+    @Test
+    fun `buildDefaults carries startInTerminal`() {
+        val agents = listOf("claude")
+        val drafts = mapOf("claude" to AgentDraft("fable", "", ultracode = false, planMode = false))
+        // EXP-746: DEVICE-GLOBAL — it rides beside the per-agent map, never
+        // inside one, and is written as a concrete boolean.
+        assertTrue(
+            buildDefaults("claude", agents, drafts, startInTerminal = true).startInTerminal == true,
+        )
+        assertEquals(
+            false,
+            buildDefaults("claude", agents, drafts, startInTerminal = false).startInTerminal,
+        )
+        // Absent on the wire reads as off, and an explicit null never throws.
+        assertNull(DeviceLaunchDefaults(defaultAgent = "claude").startInTerminal)
+        assertEquals(false, DeviceLaunchDefaults(startInTerminal = false).startInTerminal)
     }
 }

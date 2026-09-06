@@ -1094,6 +1094,48 @@ class SteerConnection internal constructor(
         }
     }
 
+    /**
+     * EXP-746: change one live agent option (model, effort, a thinking
+     * toggle) by naming the option id and one of the values the publisher last
+     * advertised in `config_state`. A BLANK [value] is the "CLI default" pick
+     * the launch vocabulary already speaks.
+     *
+     * FIRE-AND-FORGET: there is no ack frame and nothing locks — the publisher
+     * re-emits `config_state` once it applied, and that repaint IS the
+     * confirmation. An agent that REFUSES simply re-emits the old value and
+     * the chip snaps back, which is the intended behaviour, not an error.
+     */
+    fun setConfig(id: String, value: String) {
+        if (id.isBlank()) return
+        val socket = ws ?: return
+        scope.launch {
+            runCatching {
+                val frame = buildJsonObject {
+                    put("t", "set_config")
+                    put("id", id)
+                    put("value", value)
+                }
+                socket.send(json.encodeToString(JsonObject.serializer(), frame))
+            }
+        }
+    }
+
+    /** EXP-746: switch to one of the ids `config_state.modes[]` advertised.
+     *  Fire-and-forget on the same terms as [setConfig]. */
+    fun setMode(id: String) {
+        if (id.isBlank()) return
+        val socket = ws ?: return
+        scope.launch {
+            runCatching {
+                val frame = buildJsonObject {
+                    put("t", "set_mode")
+                    put("id", id)
+                }
+                socket.send(json.encodeToString(JsonObject.serializer(), frame))
+            }
+        }
+    }
+
     private fun lockAnswer(lockKey: String, labels: List<String> = emptyList()) {
         _activity.value = _activity.value.lockAnswer(lockKey, labels)
         ackTimeouts.remove(lockKey)?.cancel()

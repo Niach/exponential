@@ -63,6 +63,14 @@ fun EndedRunRow(
     identifier: String? = null,
     // The machine that ran it, when the surface tracks one.
     deviceLabel: String? = null,
+    /**
+     * EXP-746: the Devices screen's "Past" caption, composed once by
+     * `pastRunByline` — `<device> · <agent label> · ended by <who> · <time>`.
+     * When set it REPLACES the device/time line below, so the ×4 string is
+     * whatever that one function produced; the Automations list passes none
+     * and keeps the caption it always had.
+     */
+    byline: String? = null,
     // The run is still going: "Running", and the row opens it.
     isLive: Boolean = false,
     onOpen: (() -> Unit)? = null,
@@ -117,12 +125,14 @@ fun EndedRunRow(
                         )
                     }
                     // "started 5m ago" while it runs, "ended 5m ago" once it
-                    // finished — iOS `runByline` parity.
-                    val trailing = listOfNotNull(
-                        deviceLabel?.takeIf { it.isNotBlank() },
-                        timeLabel.takeIf { it.isNotEmpty() }
-                            ?.let { if (isLive) "started $it" else "ended $it" },
-                    ).joinToString(" · ")
+                    // finished — iOS `runByline` parity. EXP-746: a finished
+                    // row given a composed byline shows that instead.
+                    val trailing = byline?.takeIf { it.isNotBlank() && !isLive }
+                        ?: listOfNotNull(
+                            deviceLabel?.takeIf { it.isNotBlank() },
+                            timeLabel.takeIf { it.isNotEmpty() }
+                                ?.let { if (isLive) "started $it" else "ended $it" },
+                        ).joinToString(" · ")
                     if (trailing.isNotEmpty()) {
                         Text(
                             // The dot only separates — nothing precedes it on

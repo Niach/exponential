@@ -7,8 +7,19 @@ import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.COMPACTED_LABEL
 import com.exponential.app.domain.COMPACTING_LABEL
 import com.exponential.app.domain.COMPACTION_TIMEOUT_MS
+import com.exponential.app.domain.CONFIG_DEFAULT_VALUE_LABEL
+import com.exponential.app.domain.CONFIG_MODE_CHIP_ID
+import com.exponential.app.domain.CONFIG_MODE_LABEL
 import com.exponential.app.domain.CompactionState
+import com.exponential.app.domain.ConfigChip
+import com.exponential.app.domain.ConfigCommand
+import com.exponential.app.domain.ConfigMode
+import com.exponential.app.domain.ConfigOption
+import com.exponential.app.domain.ConfigValue
 import com.exponential.app.domain.FEED_CAP
+import com.exponential.app.domain.SessionConfigState
+import com.exponential.app.domain.SessionUsageState
+import com.exponential.app.domain.configChips
 import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.SUBAGENT_FALLBACK_TYPE
 import com.exponential.app.domain.activeQuestionIds
@@ -762,6 +773,125 @@ class AgentFeedTest {
         assertEquals("Context compacted", COMPACTED_LABEL)
     }
 
+    // ── EXP-746: the live configuration + usage slots ───────────────────────
+
+    @Test
+    fun `config_state and usage are state beside the feed, never rows`() {
+        val state = ActivityFeedState()
+            .applying(narration("working"))
+            .applying(configState())
+            .applying(usage(124_000, 200_000, 1.235))
+
+        // One narration, and nothing the new kinds appended.
+        assertEquals(1, state.feed.size)
+        assertTrue(state.feed.single() is AgentFeedItem.Narration)
+        assertTrue(groupFeedRows(state.feed).size == 1)
+
+        val config = state.config!!
+        assertEquals(listOf("model", "effort"), config.options.map { it.id })
+        assertEquals("Model", config.options.first().label)
+        assertEquals("opus", config.options.first().value)
+        assertEquals(listOf("opus", "sonnet"), config.options.first().values.map { it.id })
+        assertEquals("plan", config.currentMode)
+        assertEquals(listOf("plan", "auto"), config.modes.map { it.id })
+        assertEquals(listOf("review", "usage"), config.commands.map { it.name })
+        assertEquals("<path>", config.commands.first().hint)
+
+        assertEquals(SessionUsageState(124_000, 200_000, 1.235), state.usage)
+    }
+
+    @Test
+    fun `a newer config_state replaces the snapshot`() {
+        val state = ActivityFeedState()
+            .applying(configState())
+            .applying(
+                event(
+                    """{"kind":"config_state","options":[""" +
+                        """{"id":"model","label":"Model","value":"sonnet"}],"currentMode":"auto"}""",
+                ),
+            )
+        // A snapshot, never a merge: the old options and modes are gone.
+        assertEquals(listOf("model"), state.config?.options?.map { it.id })
+        assertEquals("sonnet", state.config?.options?.first()?.value)
+        assertEquals("auto", state.config?.currentMode)
+        assertTrue(state.config?.modes.orEmpty().isEmpty())
+    }
+
+    @Test
+    fun `a malformed config_state leaves the previous snapshot standing`() {
+        val good = ActivityFeedState().applying(configState())
+        val after = good
+            .applying(event("""{"kind":"config_state"}"""))
+            .applying(event("""{"kind":"config_state","options":"not-an-array"}"""))
+        assertEquals(good.config, after.config)
+        // A wholly unreadable usage frame keeps the numbers too.
+        val used = good.applying(usage(10, 100, null))
+        assertEquals(
+            used.usage,
+            used.applying(event("""{"kind":"usage","contextUsed":"lots"}""")).usage,
+        )
+    }
+
+    @Test
+    fun `a zero context size clears the usage slot`() {
+        // The engine reporting a zero window means "unknown", not "0%".
+        val state = ActivityFeedState()
+            .applying(usage(124_000, 200_000, null))
+            .applying(usage(0, 0, null))
+        assertNull(state.usage)
+    }
+
+    @Test
+    fun `configChips puts the mode chip first`() {
+        val chips = configChips(
+            SessionConfigState(
+                options = listOf(
+                    ConfigOption(
+                        id = "model",
+                        label = "Model",
+                        value = "opus",
+                        values = listOf(ConfigValue("opus", "Opus")),
+                    ),
+                    // A blank value is the CLI's own default.
+                    ConfigOption(id = "effort", label = "Effort", value = ""),
+                ),
+                currentMode = "plan",
+                modes = listOf(ConfigMode("plan", "Plan"), ConfigMode("auto", "Auto")),
+            ),
+        )
+        assertEquals(
+            listOf(CONFIG_MODE_CHIP_ID, "model", "effort"),
+            chips.map { it.id },
+        )
+        assertEquals(ConfigChip.Kind.Mode, chips.first().kind)
+        assertEquals(CONFIG_MODE_LABEL, chips.first().label)
+        assertEquals("Plan", chips.first().valueLabel)
+        assertEquals(listOf("plan", "auto"), chips.first().values.map { it.id })
+        assertEquals("Opus", chips[1].valueLabel)
+        // No modes, no mode chip.
+        assertTrue(configChips(SessionConfigState()).isEmpty())
+        assertTrue(configChips(null).isEmpty())
+    }
+
+    @Test
+    fun `the config default label is the one every client shows`() {
+        // Byte-identical to web, iOS and the desktop.
+        assertEquals("CLI default", CONFIG_DEFAULT_VALUE_LABEL)
+        assertEquals("Mode", CONFIG_MODE_LABEL)
+        val chips = configChips(
+            SessionConfigState(options = listOf(ConfigOption(id = "effort", label = "Effort"))),
+        )
+        assertEquals(CONFIG_DEFAULT_VALUE_LABEL, chips.single().valueLabel)
+        // A value the option never advertised still reads as itself.
+        val unknown = configChips(
+            SessionConfigState(
+                options = listOf(ConfigOption(id = "model", label = "Model", value = "haiku")),
+            ),
+        )
+        assertEquals("haiku", unknown.single().valueLabel)
+        assertEquals(emptyList<ConfigValue>(), unknown.single().values)
+    }
+
     // ── fixtures ────────────────────────────────────────────────────────────
 
     private fun ActivityFeedState.applying(event: JsonObject) = applyActivityEvent(event)
@@ -770,6 +900,27 @@ class AgentFeedTest {
         Json.parseToJsonElement(raw.trimIndent()) as JsonObject
 
     private fun narration(text: String) = event("""{"kind":"narration","text":"$text"}""")
+
+    /** A full `config_state` snapshot — options, modes and agent commands. */
+    private fun configState() = event(
+        """
+        {"kind":"config_state",
+         "options":[
+           {"id":"model","label":"Model","category":"model","value":"opus",
+            "values":[{"id":"opus","label":"Opus"},{"id":"sonnet","label":"Sonnet"}]},
+           {"id":"effort","label":"Effort","value":""}],
+         "currentMode":"plan",
+         "modes":[{"id":"plan","label":"Plan","description":"Ask first"},
+                  {"id":"auto","label":"Auto"}],
+         "commands":[{"name":"review","description":"Review the diff","hint":"<path>"},
+                     {"name":"usage","description":"Show usage"}]}
+        """,
+    )
+
+    private fun usage(used: Int, size: Int, cost: Double?) = event(
+        """{"kind":"usage","contextUsed":$used,"contextSize":$size""" +
+            (if (cost == null) "}" else ""","costUsd":$cost}"""),
+    )
 
     private fun tool(id: Long) = AgentFeedItem.Tool(id, "Edit", "src/a.ts")
 

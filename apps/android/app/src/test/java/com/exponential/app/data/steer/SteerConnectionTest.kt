@@ -626,6 +626,116 @@ class SteerConnectionTest {
         }
     }
 
+    // ── EXP-746: steering v2 control frames ─────────────────────────────────
+
+    @Test
+    fun setConfigSendsOneSetConfigFrame() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            val socket = liveWithFeed(transport, connection)
+            val before = socket.sent.size
+            connection.setConfig("model", "opus")
+            waitUntil("the set_config frame") { socket.sent.size > before }
+            // Fire-and-forget: one frame, no ack, no lock.
+            assertEquals(
+                json.parseToJsonElement("""{"t":"set_config","id":"model","value":"opus"}"""),
+                json.parseToJsonElement(socket.sent.last()),
+            )
+            assertTrue(connection.activity.value.answerLocks.isEmpty())
+            // A blank value is the "CLI default" pick and still goes out.
+            connection.setConfig("effort", "")
+            waitUntil("the blank set_config frame") { socket.sent.size > before + 1 }
+            assertEquals(
+                json.parseToJsonElement("""{"t":"set_config","id":"effort","value":""}"""),
+                json.parseToJsonElement(socket.sent.last()),
+            )
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun setModeSendsOneSetModeFrame() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            val socket = liveWithFeed(transport, connection)
+            val before = socket.sent.size
+            connection.setMode("plan")
+            waitUntil("the set_mode frame") { socket.sent.size > before }
+            assertEquals(
+                json.parseToJsonElement("""{"t":"set_mode","id":"plan"}"""),
+                json.parseToJsonElement(socket.sent.last()),
+            )
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun aSetConfigOnADeadSocketSendsNothing() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            val socket = liveWithFeed(transport, connection)
+            val before = socket.sent.size
+            connection.park()
+            connection.setConfig("model", "opus")
+            connection.setMode("plan")
+            // Nothing to send on, and nothing thrown either.
+            delay(stagingTimings.replayQuietMs * 3)
+            assertEquals(before, socket.sent.size)
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun aStagedReplayReDerivesConfigAndUsageOnCommit() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings.copy(replayMaxMs = 30_000))
+        try {
+            val socket = liveWithFeed(transport, connection)
+            socket.emit(CONFIG_FRAME)
+            socket.emit(USAGE_FRAME)
+            waitUntil("the live config") { connection.activity.value.config != null }
+
+            // Every viewer join triggers a replay: the commit folds from a
+            // FRESH state, so both slots must come back off the replayed
+            // snapshots or the chips blank out on every reconnect.
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(narration("replayed one"))
+            socket.emit(CONFIG_FRAME)
+            socket.emit(USAGE_FRAME)
+            socket.emit("""{"t":"activity_synced"}""")
+            waitUntil("the committed replay") {
+                connection.activity.value.feed.any {
+                    it is com.exponential.app.domain.AgentFeedItem.Narration &&
+                        it.text == "replayed one"
+                }
+            }
+            assertEquals("opus", connection.activity.value.config?.options?.first()?.value)
+            assertEquals(200_000, connection.activity.value.usage?.contextSize)
+
+            // A replay that carries neither leaves the slots empty — they are
+            // state derived from the log, not a sticky client cache.
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(narration("replayed two"))
+            socket.emit("""{"t":"activity_synced"}""")
+            waitUntil("the second commit") {
+                connection.activity.value.feed.any {
+                    it is com.exponential.app.domain.AgentFeedItem.Narration &&
+                        it.text == "replayed two"
+                }
+            }
+            assertNull(connection.activity.value.config)
+            assertNull(connection.activity.value.usage)
+        } finally {
+            connection.close()
+        }
+    }
+
     @Test
     fun closeIsFinalAndAKickCannotReviveIt() = runBlocking {
         val transport = FakeTransport()
@@ -646,6 +756,18 @@ private const val JOIN_FRAME = """{"t":"join","channel":"activity"}"""
 
 /** One semantic question card (EXP-249 wire id `q1`) — the plan-approval
  *  shape whose lock has to survive a replay. */
+/** EXP-746: a `config_state` snapshot — latest-wins state, replayed on join. */
+private const val CONFIG_FRAME =
+    """{"t":"activity","event":{"kind":"config_state","options":[""" +
+        """{"id":"model","label":"Model","value":"opus",""" +
+        """"values":[{"id":"opus","label":"Opus"}]}],"currentMode":"plan",""" +
+        """"modes":[{"id":"plan","label":"Plan"}]}}"""
+
+/** EXP-746: the run's context meter, same latest-wins rule. */
+private const val USAGE_FRAME =
+    """{"t":"activity","event":{"kind":"usage","contextUsed":124000,""" +
+        """"contextSize":200000,"costUsd":1.24}}"""
+
 private const val QUESTION_FRAME =
     """{"t":"activity","event":{"kind":"question","id":"q1","text":"Approve?",""" +
         """"options":[{"label":"Yes","key":"1"},{"label":"No","key":"2"}]}}"""
