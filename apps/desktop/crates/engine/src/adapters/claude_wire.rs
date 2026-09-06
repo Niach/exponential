@@ -337,7 +337,11 @@ pub struct UserMsg {
     /// Message-level and carrying NO `tool_use_id`: honour it only when the
     /// message holds exactly one `tool_result` block.
     pub tool_use_result: Value,
+    /// camelCase on the wire (measured), unlike its snake_case siblings; the
+    /// alias keeps a hand-written fixture in either spelling decoding.
+    #[serde(rename = "isReplay", alias = "is_replay")]
     pub is_replay: bool,
+    #[serde(rename = "isSynthetic", alias = "is_synthetic")]
     pub is_synthetic: bool,
     pub session_id: String,
     pub uuid: String,
