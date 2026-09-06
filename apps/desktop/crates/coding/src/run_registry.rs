@@ -202,7 +202,21 @@ pub struct RunRecord {
     /// one of the three builtins. `agent` above then carries the settings
     /// default and means nothing — an older host reading this record still
     /// resumes something sane instead of failing to parse.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ///
+    /// Its `env` is the ONE field that never reaches this file: an external
+    /// agent's declared env is where a user puts that agent's TOKEN, and
+    /// settings.json is the single place it may live. Copied here it would
+    /// stay readable for the 30-day TTL after the user rotated it and deleted
+    /// the agent, and a replay would respawn the binary with the stale value.
+    /// So the spec is written env-less, a record that predates that rule
+    /// loses its env on load (see [`load_registry`]), and
+    /// [`RunRecord::resolved_external_agent`] re-attaches the LIVE env by id
+    /// wherever a resume or a replay spawns the binary again.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_external_agent"
+    )]
     pub external_agent: Option<crate::settings::ExternalAgentSpec>,
     /// Unix seconds — the TTL prune's key.
     pub recorded_at: u64,
@@ -215,7 +229,51 @@ pub struct RunRecord {
     pub extra: BTreeMap<String, serde_json::Value>,
 }
 
+/// EXP-746: write [`RunRecord::external_agent`] without its `env`. `serde`
+/// hands a field-level `serialize_with` the whole `Option`, and the `None`
+/// arm is unreachable behind the field's `skip_serializing_if`.
+fn serialize_external_agent<S>(
+    spec: &Option<crate::settings::ExternalAgentSpec>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match spec {
+        Some(spec) => crate::settings::ExternalAgentSpec {
+            env: BTreeMap::new(),
+            ..spec.clone()
+        }
+        .serialize(serializer),
+        None => serializer.serialize_none(),
+    }
+}
+
 impl RunRecord {
+    /// EXP-746: the external agent this run ran under, with its `env` taken
+    /// from the CURRENT settings (`configured`) instead of from disk — the
+    /// record carries none. `None` for every builtin run.
+    ///
+    /// An agent the user has since deleted (or whose id they changed) still
+    /// resumes on its recorded `command`/`args`, just without a declared env:
+    /// a rotated secret is never replayed out of a stale copy, and the run
+    /// fails loudly on the agent's own auth instead.
+    pub fn resolved_external_agent(
+        &self,
+        configured: &[crate::settings::ExternalAgentSpec],
+    ) -> Option<crate::settings::ExternalAgentSpec> {
+        let recorded = self.external_agent.as_ref()?;
+        let env = configured
+            .iter()
+            .find(|entry| entry.id == recorded.id)
+            .map(|entry| entry.env.clone())
+            .unwrap_or_default();
+        Some(crate::settings::ExternalAgentSpec {
+            env,
+            ..recorded.clone()
+        })
+    }
+
     /// EXP-746: the engine this run was recorded under. A missing value
     /// (every pre-746 record) and an id this build does not know both read
     /// as [`crate::launcher::LaunchTransport::Terminal`] — where a resume
@@ -318,6 +376,13 @@ fn load_registry(data_dir: &Path) -> Registry {
                 // `skipPermissions` through every rewrite forever.
                 for dead in DEAD_KEYS {
                     record.extra.remove(*dead);
+                }
+                // EXP-746: an external agent's env is settings.json's alone.
+                // A record written before that rule still carries it, so it
+                // is dropped on the way in — nothing downstream can spawn on
+                // a stale secret, and the next write purges it from the file.
+                if let Some(external) = record.external_agent.as_mut() {
+                    external.env.clear();
                 }
                 registry.records.push(record);
             }
@@ -563,6 +628,93 @@ mod tests {
             future.transport(),
             crate::launcher::LaunchTransport::Terminal
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-746: an external agent's `env` is settings.json's alone — it is
+    /// never written here, and a resume re-resolves the LIVE one by id.
+    #[test]
+    fn an_external_agent_env_never_reaches_the_registry() {
+        let dir = temp_dir("external-env");
+        let spec = crate::settings::ExternalAgentSpec {
+            id: "acme".to_string(),
+            label: "Acme ACP".to_string(),
+            command: "acme".to_string(),
+            args: vec!["--acp".to_string()],
+            env: BTreeMap::from([("ACME_TOKEN".to_string(), "sk-live-1".to_string())]),
+        };
+        let mut run = sample("sess-ext");
+        run.external_agent = Some(spec.clone());
+        record(&dir, run);
+
+        let raw = std::fs::read_to_string(registry_path(&dir)).unwrap();
+        assert!(!raw.contains("sk-live-1"), "the secret was written: {raw}");
+        let entries: Vec<serde_json::Value> = serde_json::from_str(&raw).unwrap();
+        let written = &entries[0]["externalAgent"];
+        assert_eq!(written["command"], "acme");
+        assert_eq!(written["args"], serde_json::json!(["--acp"]));
+        assert_eq!(written["env"], serde_json::json!({}));
+
+        // The command and args are pinned; the env comes back from the live
+        // settings entry ...
+        let loaded = get(&dir, "sess-ext").expect("record");
+        assert!(loaded.external_agent.as_ref().unwrap().env.is_empty());
+        assert_eq!(
+            loaded.resolved_external_agent(std::slice::from_ref(&spec)),
+            Some(spec.clone())
+        );
+        // ... an agent the user has since deleted resumes env-less rather
+        // than on a rotated token, and so does one whose id no longer
+        // matches.
+        let mut renamed = spec.clone();
+        renamed.id = "acme-2".to_string();
+        for configured in [Vec::new(), vec![renamed]] {
+            let resolved = loaded
+                .resolved_external_agent(&configured)
+                .expect("the recorded spec");
+            assert_eq!(resolved.command, "acme");
+            assert!(resolved.env.is_empty());
+        }
+        // A builtin run resolves to no external agent at all.
+        assert_eq!(
+            sample("sess-builtin").resolved_external_agent(std::slice::from_ref(&spec)),
+            None
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A record a build before that rule wrote still carries the secret on
+    /// disk: it is dropped on the way in, and a neighbour's write purges it
+    /// from the file for good.
+    #[test]
+    fn a_previously_recorded_external_agent_env_is_purged() {
+        let dir = temp_dir("external-env-legacy");
+        let now = now_secs();
+        let json = format!(
+            r#"[{{
+                "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"team",
+                "cwd":"/repos/owner/name.worktrees/code-review-1a2b3c4d","recordedAt":{now},
+                "transport":"acp","externalAgent":{{"id":"acme","label":"Acme ACP",
+                "command":"acme","args":["--acp"],"env":{{"ACME_TOKEN":"sk-live-1"}}}}
+            }}]"#
+        );
+        std::fs::write(registry_path(&dir), json).unwrap();
+
+        let loaded = get(&dir, "sess-1").expect("record");
+        let external = loaded.external_agent.as_ref().expect("the spec");
+        assert_eq!(external.command, "acme");
+        assert!(external.env.is_empty(), "the stale secret is dropped");
+
+        record(&dir, sample("sess-2"));
+        let raw = std::fs::read_to_string(registry_path(&dir)).unwrap();
+        assert!(!raw.contains("ACME_TOKEN"), "{raw}");
+        let entries: Vec<serde_json::Value> = serde_json::from_str(&raw).unwrap();
+        let kept = entries
+            .iter()
+            .find(|entry| entry["sessionId"] == "sess-1")
+            .expect("the record survives");
+        assert_eq!(kept["externalAgent"]["command"], "acme");
+        assert_eq!(kept["externalAgent"]["env"], serde_json::json!({}));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

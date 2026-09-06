@@ -158,7 +158,14 @@ fn resolve_source(session_id: &str, cx: &mut App) -> (SessionFeed, FeedSource) {
 /// to the relay and the "no transcript" banner.
 fn open_transcript(record: &coding::run_registry::RunRecord, cx: &App) -> Option<engine::EngineSession> {
     let runtime = crate::steer_wiring::runtime(cx)?;
-    let agent = match record.external_agent.clone() {
+    // EXP-746: a replay respawns the recorded binary, so it needs the same
+    // spec the run had — except its env, which runs.json never stores. The
+    // LIVE settings entry is what supplies it; an external agent the user has
+    // since deleted replays env-less rather than on a rotated token.
+    let configured = crate::coding_flow::CodingHub::global_ref(cx)
+        .map(|hub| hub.read(cx).settings.external_agents.clone())
+        .unwrap_or_default();
+    let agent = match record.resolved_external_agent(&configured) {
         Some(spec) => coding::AgentKind::External(spec),
         None => coding::AgentKind::Builtin(record.agent),
     };

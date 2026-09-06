@@ -2635,8 +2635,10 @@ fn prepare_resume_run(
         // an EXTERNAL one — dropping the recorded spec here would relaunch
         // the builtin `record.agent` (the settings default, which means
         // nothing for an external record) and feed it the external agent's
-        // ACP session id.
-        external: record.external_agent.clone(),
+        // ACP session id. The recorded command and args are the pin; the
+        // spawn env comes from the CURRENT settings entry, never from the
+        // record (which never carried one).
+        external: record.resolved_external_agent(&deps.settings.external_agents),
     };
     let agent_kind = agent_kind(&options);
     // The builtin CLI this resume runs, if any. Everything keyed on the
@@ -3945,7 +3947,8 @@ mod tests {
     /// EXP-746 (D13): a run recorded under an EXTERNAL agent resumes into
     /// THAT binary — the spec rides the options the engine builds its
     /// adapter from, the builtin `record.agent` never gates it, and the new
-    /// row carries no agent (the server's vocabulary is closed).
+    /// row carries no agent (the server's vocabulary is closed). Its spawn
+    /// env comes from the CURRENT settings entry: runs.json never stores one.
     #[test]
     fn an_external_agent_resume_re_enters_the_recorded_external_agent() {
         let dir = temp_dir("resume-external");
@@ -3958,11 +3961,17 @@ mod tests {
         // The builtin the record names is not even installed: an external
         // run never touched it, so it must not gate the resume.
         deps.settings.claude_path = dir.0.join("no-such-claude").to_string_lossy().into_owned();
-        let spec = external_spec();
+        let mut spec = external_spec();
+        spec.env.insert("ACME_TOKEN".to_string(), "sk-live-1".to_string());
+        deps.settings.external_agents = vec![spec.clone()];
         let mut record = resume_record(&dir.0, "sess-old");
         record.transport = Some("acp".to_string());
         record.acp_session_id = Some("acp-9".to_string());
-        record.external_agent = Some(spec.clone());
+        // What the registry hands back: the command pinned, no env.
+        record.external_agent = Some(crate::settings::ExternalAgentSpec {
+            env: Default::default(),
+            ..spec.clone()
+        });
 
         let prepared =
             match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
@@ -3986,9 +3995,17 @@ mod tests {
         );
         drop(requests);
         // ... and the resumed run's own record keeps the spec, so a resume
-        // of the resume chains into the same binary.
+        // of the resume chains into the same binary — minus the env, which
+        // stays settings.json's and is re-resolved by id on the way back out.
         let fresh = crate::run_registry::get(&dir.0, "sess-a").expect("record");
-        assert_eq!(fresh.external_agent.as_ref(), Some(&spec));
+        let recorded = fresh.external_agent.as_ref().expect("the spec");
+        assert_eq!(recorded.id, spec.id);
+        assert_eq!(recorded.command, spec.command);
+        assert!(recorded.env.is_empty(), "the token is not recorded");
+        assert_eq!(
+            fresh.resolved_external_agent(&deps.settings.external_agents),
+            Some(spec.clone())
+        );
     }
 
     /// EXP-746 (D8): every pre-746 record (no `transport`) resumes into the
