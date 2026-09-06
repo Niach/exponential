@@ -2157,6 +2157,15 @@ impl ConfigLink {
 /// viewer's chips never paint at all. Truncating is always the better answer:
 /// a shortened label still names the model, and a 65th agent command is one a
 /// `/` menu filtered by draft would rarely have shown anyway.
+///
+/// EXP-758: the caps are only half the schema. `protocol.ts` also puts
+/// `.min(1)` on every MACHINE id — `options[].id`, `options[].values[].id`,
+/// `modes[].id` and `commands[].name` — so ONE empty string an adapter let
+/// through (an agent command with no name, a model list with a blank entry)
+/// drops the whole frame just as silently as an over-cap label. Empty-id rows
+/// are dropped here instead, and the CURRENT selections that name them
+/// (`current_mode`, `option.value`) are nulled — those two carry no `.min(1)`,
+/// but an empty one matches no id and would only paint a blank chip.
 pub fn clamp_config_state(event: &mut ActivityEvent) {
     let ActivityEvent::ConfigState {
         options,
@@ -2168,6 +2177,7 @@ pub fn clamp_config_state(event: &mut ActivityEvent) {
     else {
         return;
     };
+    options.retain(|option| !option.id.is_empty());
     options.truncate(CONFIG_OPTIONS_MAX);
     for option in options.iter_mut() {
         option.id = truncate(&option.id, CONFIG_ID_MAX);
@@ -2175,10 +2185,14 @@ pub fn clamp_config_state(event: &mut ActivityEvent) {
         if let Some(category) = &mut option.category {
             *category = truncate(category, CONFIG_CATEGORY_MAX);
         }
+        if option.value.as_deref().is_some_and(str::is_empty) {
+            option.value = None;
+        }
         if let Some(value) = &mut option.value {
             *value = truncate(value, CONFIG_LABEL_MAX);
         }
         if let Some(values) = &mut option.values {
+            values.retain(|value| !value.id.is_empty());
             values.truncate(CONFIG_VALUES_MAX);
             for value in values.iter_mut() {
                 value.id = truncate(&value.id, CONFIG_ID_MAX);
@@ -2186,10 +2200,14 @@ pub fn clamp_config_state(event: &mut ActivityEvent) {
             }
         }
     }
+    if current_mode.as_deref().is_some_and(str::is_empty) {
+        *current_mode = None;
+    }
     if let Some(mode) = current_mode {
         *mode = truncate(mode, CONFIG_ID_MAX);
     }
     if let Some(modes) = modes {
+        modes.retain(|mode| !mode.id.is_empty());
         modes.truncate(CONFIG_MODES_MAX);
         for mode in modes.iter_mut() {
             mode.id = truncate(&mode.id, CONFIG_ID_MAX);
@@ -2200,6 +2218,7 @@ pub fn clamp_config_state(event: &mut ActivityEvent) {
         }
     }
     if let Some(commands) = commands {
+        commands.retain(|command| !command.name.is_empty());
         commands.truncate(CONFIG_COMMANDS_MAX);
         for command in commands.iter_mut() {
             command.name = truncate(&command.name, CONFIG_ID_MAX);
@@ -5779,6 +5798,98 @@ mod tests {
         let mut narration = ActivityEvent::narration("untouched");
         clamp_config_state(&mut narration);
         assert_eq!(narration, ActivityEvent::narration("untouched"));
+    }
+
+    /// EXP-758: the relay's zod schema puts `.min(1)` on every MACHINE id of
+    /// a `config_state` (`options[].id`, `options[].values[].id`,
+    /// `modes[].id`, `commands[].name`), and `activityEventSchema` is a
+    /// discriminated union — so ONE empty id an adapter let through drops the
+    /// WHOLE frame in silence and the viewer's chips never paint. The clamp
+    /// drops the offending rows instead; every valid sibling survives.
+    #[test]
+    fn config_state_empty_ids_are_dropped_not_left_to_the_relay() {
+        use crate::frames::{ConfigCommand, ConfigMode, ConfigOption, ConfigValue};
+
+        let mut event = ActivityEvent::ConfigState {
+            options: vec![
+                ConfigOption {
+                    // A blank value is a selection that names no id: null it
+                    // rather than paint an empty chip.
+                    value: Some(String::new()),
+                    values: Some(vec![
+                        ConfigValue::new("", "nameless"),
+                        ConfigValue::new("opus", "Opus"),
+                    ]),
+                    ..ConfigOption::new("model", "Model")
+                },
+                ConfigOption::new("", "nameless option"),
+                ConfigOption {
+                    value: Some("high".to_string()),
+                    ..ConfigOption::new("effort", "Effort")
+                },
+            ],
+            current_mode: Some(String::new()),
+            modes: Some(vec![
+                ConfigMode::new("", "nameless mode"),
+                ConfigMode::new("plan", "Plan"),
+            ]),
+            commands: Some(vec![
+                ConfigCommand::new("", "nameless command"),
+                ConfigCommand::new("compact", "Compact the transcript"),
+            ]),
+            at: None,
+        };
+        clamp_config_state(&mut event);
+
+        let ActivityEvent::ConfigState {
+            options,
+            current_mode,
+            modes,
+            commands,
+            ..
+        } = &event
+        else {
+            panic!("still a config_state");
+        };
+        assert_eq!(
+            options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
+            vec!["model", "effort"]
+        );
+        assert_eq!(options[0].value, None, "a blank selection is nulled");
+        assert_eq!(
+            options[0]
+                .values
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|v| v.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["opus"]
+        );
+        assert_eq!(
+            options[1].value.as_deref(),
+            Some("high"),
+            "a real selection is untouched"
+        );
+        assert_eq!(*current_mode, None);
+        assert_eq!(
+            modes
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["plan"]
+        );
+        assert_eq!(
+            commands
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["compact"]
+        );
     }
 
     /// EXP-746: the publisher→engine seam is a plain queue — submit, drain,
