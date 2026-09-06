@@ -476,12 +476,16 @@ struct CtxSpec {
 
 fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
     // REV2-17: the session's own launcher secrets (the EXP-73 credential
-    // file, a token in a remote URL) plus the `expu_` key, masked out of
-    // every wire string.
+    // file, a token in a remote URL, the `.exp-mcp.json` key) plus the
+    // `expu_` key, masked out of every wire string. Built ONCE and shared:
+    // the mapper's strings and the lifecycle's `diff` ticker are two
+    // publishers of the same run and must mask the same set, or the weaker
+    // one becomes the leak.
     let mut secrets = steer::activity::secrets_from_worktree(&spec.run.worktree);
-    secrets.extend(spec.personal_key.clone());
+    secrets.extend(spec.personal_key);
+    let redactor = Arc::new(steer::Redactor::new(secrets));
     let mapper = Mapper::new(MapperConfig {
-        redactor: steer::Redactor::new(secrets),
+        redactor: Arc::clone(&redactor),
         cwd: spec.run.worktree.clone(),
         agent: AdapterKind::from_agent(&spec.agent).session_agent(),
         session_seed: spec.session_id.clone(),
@@ -494,13 +498,13 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         data_dir: spec.data_dir,
         account_id: spec.account_id,
         own_user_id: spec.own_user_id,
-        personal_key: spec.personal_key,
         issue_id: spec.issue_id,
         foreign_host: spec.foreign_host,
         publish: spec.publish,
         local_sink: spec.local_sink,
         turn_signal: Arc::new(steer::TurnSignal::new()),
         agent: spec.agent,
+        redactor,
         replay: spec.replay,
         resume: spec.resume,
         prompt: spec.prompt,

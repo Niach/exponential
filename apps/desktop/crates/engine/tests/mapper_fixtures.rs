@@ -21,7 +21,9 @@ use serde_json::{json, Value};
 fn mapper() -> Mapper {
     Mapper::new(MapperConfig {
         // REV2-17: the session's `expu_` key is an exact-match secret.
-        redactor: steer::Redactor::new(vec!["expu_supersecretkey".to_string()]),
+        redactor: std::sync::Arc::new(steer::Redactor::new(vec![
+            "expu_supersecretkey".to_string(),
+        ])),
         cwd: PathBuf::from("/tmp/worktree"),
         agent: steer::SessionAgent::Claude,
         session_seed: "sess-1".to_string(),

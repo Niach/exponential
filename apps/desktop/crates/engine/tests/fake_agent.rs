@@ -19,7 +19,7 @@
 //!
 //! No network: `publish: false` with a recording sink in its place.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -428,12 +428,19 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
 }
 
 fn start_fake(name: &str) -> Harness {
+    start_fake_with(name, |_| {})
+}
+
+/// `start_fake`, with a hook that shapes the scratch worktree before the
+/// engine ever looks at it — a real git repo, the launcher's secrets on disk.
+fn start_fake_with(name: &str, setup: impl FnOnce(&Path)) -> Harness {
     let worktree = std::env::temp_dir().join(format!(
         "exp746-engine-{name}-{}-{}",
         std::process::id(),
         Instant::now().elapsed().as_nanos()
     ));
     std::fs::create_dir_all(&worktree).expect("the scratch worktree is creatable");
+    setup(&worktree);
     // EXP-478: the host takes the hold BEFORE start and keeps it until the
     // session is registered — the harness stands in for that host.
     let hold = coding::launch_gate::hold(&worktree);
@@ -740,5 +747,69 @@ fn starting_never_releases_the_hosts_launch_hold() {
     // host) owns it — an exclusive prune must not be able to run.
     let ran = coding::launch_gate::try_exclusive(harness.session.worktree(), || ());
     assert!(ran.is_none(), "the launch hold is still live after start");
+    harness.session.kill("killed");
+}
+
+/// REV2-17: the debounced worktree `diff` is a published string like any
+/// other, and the run's own launcher secrets are exactly what an agent can
+/// copy into a tracked file. The mapper masked them from the start; the
+/// lifecycle's diff ticker used to build its OWN redactor from the `expu_`
+/// key alone, so the credential-file token crossed to the relay verbatim.
+/// The planted secret deliberately matches none of the static
+/// `SECRET_PATTERNS`: only the shared exact-match set can catch it.
+#[test]
+fn the_wire_diff_masks_the_runs_launcher_secrets() {
+    const SECRET: &str = "n0tapatterntoken-4f2c9ab1d7e6";
+    let harness = start_fake_with("diffsecret", |worktree| {
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .args(args)
+                .current_dir(worktree)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@example.com")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@example.com")
+                .output()
+                .expect("git runs");
+            assert!(
+                output.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "--quiet", "-b", "main"]);
+        std::fs::write(worktree.join("notes.md"), "seed\n").expect("the seed file is writable");
+        git(&["add", "notes.md"]);
+        git(&["commit", "--quiet", "-m", "seed"]);
+        // The EXP-73 credential file the launcher writes into the shared git
+        // dir — `secrets_from_worktree` recovers the token from it.
+        std::fs::write(
+            worktree.join(".git").join("exp-git-credentials"),
+            format!("username=x-access-token\npassword={SECRET}\n"),
+        )
+        .expect("the credential file is writable");
+        // ... and the agent copying that token into a TRACKED file, which is
+        // what puts it in the worktree patch.
+        std::fs::write(worktree.join("notes.md"), format!("seed\ntoken: {SECRET}\n"))
+            .expect("the tracked file is writable");
+    });
+
+    until("the worktree diff", || {
+        !events_of(&harness.sink, "diff").is_empty()
+    });
+    let published = serde_json::to_string(&events_of(&harness.sink, "diff"))
+        .expect("the diff events serialize");
+    assert!(
+        published.contains("notes.md"),
+        "the diff covers the tracked file: {published}"
+    );
+    assert!(
+        !published.contains(SECRET),
+        "the credential-file token reached the wire: {published}"
+    );
+    assert!(
+        published.contains("[redacted]"),
+        "the token was dropped instead of masked: {published}"
+    );
     harness.session.kill("killed");
 }

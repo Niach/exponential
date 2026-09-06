@@ -519,7 +519,6 @@ pub(crate) struct SessionCtx {
     pub(crate) account_id: String,
     #[allow(dead_code)]
     pub(crate) own_user_id: Option<String>,
-    pub(crate) personal_key: Option<String>,
     pub(crate) issue_id: Option<String>,
     /// EXP-444: a foreign requester on a shared host. The ACP path has no
     /// login affordance to suppress, so nothing reads it yet.
@@ -530,6 +529,14 @@ pub(crate) struct SessionCtx {
     pub(crate) turn_signal: Arc<steer::TurnSignal>,
     /// The builtin agent, or the user's external ACP binary (D13).
     pub(crate) agent: coding::AgentKind,
+    /// REV2-17: the ONE redactor of this run — the session's launcher secrets
+    /// (EXP-73 credential file, a token in the remote URL, the
+    /// `.exp-mcp.json` key) plus the `expu_` key, on top of the static
+    /// patterns. The mapper holds the same `Arc` and the lifecycle's `diff`
+    /// ticker masks with it, so no publisher of this run carries a weaker
+    /// secret set than another. The key itself is deliberately NOT kept
+    /// here: a second redactor built from it alone is exactly the leak.
+    pub(crate) redactor: Arc<steer::Redactor>,
     /// Read-only transcript replay: no row, no publisher, no heartbeat.
     pub(crate) replay: bool,
     pub(crate) resume: Option<ResumeHandle>,

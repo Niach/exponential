@@ -401,19 +401,20 @@ fn spawn_tickers(ctx: &Arc<SessionCtx>, active: Arc<AtomicBool>) {
                     api::coding_sessions::set_needs_input(&trpc, &session_id, pending).is_ok()
                 }))
             };
-            let redactor = steer::Redactor::new(
-                ctx.personal_key.iter().cloned().collect::<Vec<String>>(),
-            );
             while active.load(Ordering::SeqCst) {
                 std::thread::sleep(steer::POLL_INTERVAL);
                 if !active.load(Ordering::SeqCst) {
                     break;
                 }
                 needs_input.tick(ctx.needs_input.load(Ordering::SeqCst), &hook);
+                // REV2-17: the run's ONE redactor (`SessionCtx.redactor`),
+                // never a weaker key-only one — the worktree patch is the
+                // likeliest place a launcher secret an agent copied into a
+                // tracked file shows up.
                 if let Some(event) = diffs.next_diff(
                     &ctx.run.worktree,
                     ctx.run.base_ref.as_deref(),
-                    &redactor,
+                    &ctx.redactor,
                 ) {
                     let mut out = crate::mapper::MapOut::default();
                     out.local.push(crate::local::LocalFeedEvent::Activity {

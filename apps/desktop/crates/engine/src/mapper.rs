@@ -27,6 +27,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use agent_client_protocol::schema::v1::{
@@ -67,8 +68,10 @@ pub use crate::local::{COMPACTION_TRIGGER_META_KEY, SUBAGENT_ID_META_KEY, SUBAGE
 /// Everything the mapper needs that is constant for a session.
 pub struct MapperConfig {
     /// Session secrets (installation token, the `expu_` personal key) plus the
-    /// static patterns — every wire string passes through it.
-    pub redactor: steer::Redactor,
+    /// static patterns — every wire string passes through it. Shared
+    /// (`SessionCtx.redactor`) so the lifecycle's `diff` ticker masks with the
+    /// SAME secret set as the mapper (REV2-17).
+    pub redactor: Arc<steer::Redactor>,
     /// The worktree, for relativizing tool-call paths.
     pub cwd: std::path::PathBuf,
     /// Keys the command catalog and the codex sigil guard; `External` is
@@ -1828,7 +1831,7 @@ mod tests {
 
     fn mapper() -> Mapper {
         Mapper::new(MapperConfig {
-            redactor: steer::Redactor::new(vec!["expu_supersecretkey".to_string()]),
+            redactor: Arc::new(steer::Redactor::new(vec!["expu_supersecretkey".to_string()])),
             cwd: PathBuf::from("/tmp/worktree"),
             agent: steer::SessionAgent::Claude,
             session_seed: "sess-1".to_string(),
