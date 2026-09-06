@@ -995,7 +995,7 @@
       },
       "notes": {
         "web": "Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION in apps/web/scripts/screenshot-demo.ts.",
-        "desktop": "The owning desktop app IS the session host — there is no dock to open on it, and the host-side terminal only has content while an agent is actually running. Capture it by hand: `bun run shots -- --manual steering` with a live session on screen."
+        "desktop": "The owning desktop app HOSTS and RENDERS the session since EXP-746: a `Screen::Session` tab in the center panel, not a dock. `EXP_DEV_SCREEN=session:<coding_sessions row id>` opens that tab, but the transcript only fills while an agent is actually running, so the shot stays a hand capture: `bun run shots -- --manual steering` with a live session on screen."
       },
       "desktop": {
         "drive": {
