@@ -41,15 +41,18 @@ pub mod sink;
 pub mod transport;
 
 pub use adapters::{Adapter, AdapterKind, AdapterSpec};
-pub use host::{client_capabilities, EngineExit, EngineHost, KillFeed, KillReason, LocalSink};
+pub use host::{
+    client_capabilities, ChildExitLink, EngineExit, EngineHost, KillFeed, KillReason, LocalSink,
+    NATIVE_SESSION_META_KEY,
+};
 pub use local::{
     EnginePhase, LocalFeedEvent, PlanEntryPriorityView, PlanEntryStatusView, PlanEntryView,
-    ToolCardKind, ToolCardStatus,
+    SubagentEdge, SubagentEdgeStatus, ToolCardKind, ToolCardStatus, SUBAGENT_META_KEY,
 };
 pub use mapper::{AnswerDecision, MapOut, Mapper, MapperConfig, PendingAskKey};
 pub use session::{
-    start, ConfigValue, EngineError, EngineSession, EngineStart, HistoryHandle, OpenTranscript,
-    ResumeHandle,
+    start, start_with, ConfigValue, EngineError, EngineParts, EngineSession, EngineStart,
+    HistoryHandle, OpenTranscript, ResumeHandle,
 };
 pub use sink::{EventSink, RecordingSink};
 pub use transport::{spawn_lines, ChildLines, LineWriter, StderrPolicy};

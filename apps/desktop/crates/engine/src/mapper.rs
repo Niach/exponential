@@ -618,6 +618,16 @@ impl Mapper {
         self.emit_config_state(out);
     }
 
+    /// `session/set_mode` answered with nothing, so the engine mirrors the
+    /// mode it just set: the re-emitted `config_state` is the ONLY
+    /// confirmation the wire has (D4). An agent that also pushes
+    /// `CurrentModeUpdate` then re-emits an identical snapshot, which is
+    /// latest-wins and therefore free.
+    pub fn set_current_mode(&mut self, mode_id: &str, out: &mut MapOut) {
+        self.config_state.current_mode = Some(steer::truncate(mode_id, ID_MAX));
+        self.emit_config_state(out);
+    }
+
     /// Debounce tick: emits whatever the coalescers have been holding.
     pub fn flush(&mut self, out: &mut MapOut) {
         if let Some(text) = self.message.take_if_idle() {
