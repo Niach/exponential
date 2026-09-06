@@ -154,6 +154,41 @@ public enum AgentUsagePresentation {
         ].filter { !$0.cards.isEmpty }
     }
 
+    // MARK: - Session context + spend (EXP-746)
+
+    /// The heading over the run's own context/spend block in the Usage sheet.
+    /// A SIBLING of `usageGroups`, never a group inside it: those cards are
+    /// fixture-locked ×4 percentages of a rate-limit window, and a token count
+    /// with no percent would draw an empty rail there.
+    /// Byte-identical ×4 (web `agent-usage.ts` `CONTEXT_SECTION_TITLE`,
+    /// Android `AgentUsagePresentation.kt`, desktop `ui/src/usage_bar.rs`).
+    public static let contextSectionTitle = "Context"
+
+    /// The run's context line — `"124k / 200k (62%)"`. Counts round to whole
+    /// thousands from 1000 up, the percentage is FLOORED, and an unknown size
+    /// prints nothing at all. Locked ×4 by the test
+    /// `context usage reads used over size with a percent`.
+    public static func formatContextUsage(used: Int, size: Int) -> String? {
+        guard size > 0 else { return nil }
+        let percent = min(100, max(0, Int((Double(max(0, used)) * 100 / Double(size)).rounded(.down))))
+        return "\(formatTokens(max(0, used))) / \(formatTokens(size)) (\(percent)%)"
+    }
+
+    /// The run's spend — `"$1.24"`, two decimals. Nil under half a cent (and
+    /// for an absent figure): an agent that reports `0.0009` has effectively
+    /// spent nothing and "$0.00" reads as a bug. Locked ×4 by the test
+    /// `a cost under half a cent renders nothing`.
+    public static func formatUsageCost(_ cost: Double?) -> String? {
+        guard let cost, cost >= 0.005 else { return nil }
+        return String(format: "$%.2f", cost)
+    }
+
+    /// Whole thousands from 1000 up (`124000` → `124k`), the raw count below.
+    private static func formatTokens(_ count: Int) -> String {
+        guard count >= 1000 else { return "\(count)" }
+        return "\(Int((Double(count) / 1000).rounded()))k"
+    }
+
     /// The idle-session line Claude's own app shows: a session window at 0%
     /// with nothing to reset has not started yet. Locked ×4.
     public static let sessionNotStartedCaption = "Starts when a message is sent"

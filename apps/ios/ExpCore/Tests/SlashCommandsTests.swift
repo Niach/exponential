@@ -159,6 +159,58 @@ final class SlashCommandsTests: XCTestCase {
         XCTAssertNil(SlashCommands.command(for: "/review", agent: "claude"))
     }
 
+    // MARK: - Agent commands (EXP-746)
+
+    func testMergedListsTheContractCommandsFirst() {
+        let merged = SlashCommands.merged(
+            SlashCommands.catalog(for: "claude"),
+            agent: [
+                AgentConfigCommand(name: "review", description: "Review the diff", hint: "<path>"),
+                AgentConfigCommand(name: "cost", description: "Show the spend"),
+            ]
+        )
+        XCTAssertEqual(merged.map(\.name), ["compact", "clear", "review", "cost"])
+        // An agent row keeps its hint (so accepting it leaves the caret at the
+        // argument) and never claims a confirm dialog.
+        XCTAssertEqual(merged[2].argHint, "<path>")
+        XCTAssertEqual(merged[2].insertion, "/review ")
+        XCTAssertFalse(merged[2].confirm)
+        XCTAssertEqual(merged[3].insertion, "/cost")
+    }
+
+    func testAnAgentCommandThatShadowsAContractNameIsDropped() {
+        let merged = SlashCommands.merged(
+            SlashCommands.catalog(for: "claude"),
+            agent: [
+                AgentConfigCommand(name: "Compact", description: "the agent's own"),
+                AgentConfigCommand(name: "/clear", description: "slash-prefixed"),
+                AgentConfigCommand(name: "review", description: "Review the diff"),
+                AgentConfigCommand(name: "REVIEW", description: "a dupe of its own"),
+                AgentConfigCommand(name: "  ", description: "nameless"),
+            ]
+        )
+        XCTAssertEqual(merged.map(\.name), ["compact", "clear", "review"])
+        XCTAssertEqual(merged[0].description, DomainContract.steerCommandDescriptions[0])
+    }
+
+    func testTheMenuMatchesOverTheMergedCatalog() {
+        let extra = [AgentConfigCommand(name: "review", description: "Review the diff")]
+        XCTAssertEqual(
+            SlashCommands.matches(draft: "/", agent: "claude", extra: extra).map(\.name),
+            ["compact", "clear", "review"]
+        )
+        XCTAssertEqual(
+            SlashCommands.matches(draft: "/re", agent: "claude", extra: extra).map(\.name),
+            ["review"]
+        )
+        // The menu still closes on anything that is not a leading partial name.
+        XCTAssertTrue(SlashCommands.matches(draft: "/review ", agent: "claude", extra: extra).isEmpty)
+        XCTAssertEqual(
+            SlashCommands.matches(draft: "/c", agent: "claude", extra: []).map(\.name),
+            SlashCommands.matches(draft: "/c", agent: "claude").map(\.name)
+        )
+    }
+
     // MARK: - Confirm
 
     func testOnlyTheConversationDiscardingCommandsConfirm() {

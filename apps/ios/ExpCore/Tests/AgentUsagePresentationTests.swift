@@ -285,6 +285,33 @@ final class AgentUsagePresentationTests: XCTestCase {
         XCTAssertNil(AgentUsagePresentation.parseAgentLoginResult(nil))
     }
 
+    // MARK: - Session context + spend (EXP-746)
+
+    func testContextUsageReadsUsedOverSizeWithAPercent() {
+        XCTAssertEqual(
+            AgentUsagePresentation.formatContextUsage(used: 124_000, size: 200_000),
+            "124k / 200k (62%)"
+        )
+        // Counts below a thousand print raw; the percent FLOORS.
+        XCTAssertEqual(AgentUsagePresentation.formatContextUsage(used: 999, size: 1000), "999 / 1k (99%)")
+        XCTAssertEqual(
+            AgentUsagePresentation.formatContextUsage(used: 129_999, size: 200_000),
+            "130k / 200k (64%)"
+        )
+        // An unknown size has nothing honest to print.
+        XCTAssertNil(AgentUsagePresentation.formatContextUsage(used: 10, size: 0))
+        XCTAssertEqual(AgentUsagePresentation.contextSectionTitle, "Context")
+    }
+
+    func testACostUnderHalfACentRendersNothing() {
+        XCTAssertEqual(AgentUsagePresentation.formatUsageCost(1.24), "$1.24")
+        XCTAssertEqual(AgentUsagePresentation.formatUsageCost(1.239), "$1.24")
+        XCTAssertEqual(AgentUsagePresentation.formatUsageCost(0.005), "$0.01")
+        XCTAssertNil(AgentUsagePresentation.formatUsageCost(0.004))
+        XCTAssertNil(AgentUsagePresentation.formatUsageCost(0))
+        XCTAssertNil(AgentUsagePresentation.formatUsageCost(nil))
+    }
+
     private func session(
         agent: String? = "claude",
         status: String = "running",

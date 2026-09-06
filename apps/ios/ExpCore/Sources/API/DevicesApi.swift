@@ -70,10 +70,20 @@ public struct AgentLaunchDefaultsInput: Encodable, Sendable {
 public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
     public let defaultAgent: String?
     public let agents: [String: AgentLaunchDefaultsInput]?
+    /// EXP-746: the device-global "Start in terminal" preference. Only a set
+    /// field rides (synthesized `encodeIfPresent`), and the server drops a
+    /// non-boolean rather than storing one — an absent key leaves whatever the
+    /// machine already had.
+    public let startInTerminal: Bool?
 
-    public init(defaultAgent: String? = nil, agents: [String: AgentLaunchDefaultsInput]? = nil) {
+    public init(
+        defaultAgent: String? = nil,
+        agents: [String: AgentLaunchDefaultsInput]? = nil,
+        startInTerminal: Bool? = nil
+    ) {
         self.defaultAgent = defaultAgent
         self.agents = agents
+        self.startInTerminal = startInTerminal
     }
 }
 
