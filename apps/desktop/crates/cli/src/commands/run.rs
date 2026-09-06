@@ -71,14 +71,18 @@ pub fn run(args: &[String]) -> CommandResult {
         launch::LaunchHost::Foreground,
         runtime.as_ref(),
     );
-    let sidecars = Sidecars::start();
+    let sidecars = Sidecars::new();
     let personal_key = context::ensure_personal_key(&ctx).ok();
 
+    let request = PrepareRequest::Action(request);
+    // EXP-758: binds only the sidecar this launch's agent can use: a codex
+    // run (or an external ACP agent) binds neither server.
+    let wired = sidecars.for_launch(launch::request_agent(&request));
     let prepared = coding::prepare_with_hooks(
-        &PrepareRequest::Action(request),
+        &request,
         &deps,
-        sidecars.hook_setup().as_ref(),
-        sidecars.observer_setup().as_ref(),
+        wired.hooks.as_ref(),
+        wired.observer.as_ref(),
     )
     .map_err(|err| anyhow!("{err}"))?;
     let prepared = match prepared {
@@ -95,7 +99,15 @@ pub fn run(args: &[String]) -> CommandResult {
         sidecars: &sidecars,
         personal_key,
     };
+    // EXP-758: `code` parity, the fallback notice prints before the attach.
+    let transport_notice = prepared.transport_notice.clone();
     let session = Arc::new(session_host::launch(&env, prepared, interactive, None)?);
+    // EXP-758 (EXP-478): no session list here either: the run IS this
+    // process, so the launch gate ends at its own registration point.
+    session.release_launch_hold();
+    if let Some(notice) = &transport_notice {
+        println!("{notice}");
+    }
 
     let outcome = match (interactive, session.attaches_by_line()) {
         // EXP-746: same fork as `code` — an ACP run attaches as a line

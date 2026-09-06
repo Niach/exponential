@@ -57,14 +57,18 @@ pub fn run(args: &[String]) -> CommandResult {
     let runtime = steer::SteerRuntime::new().ok();
     let deps = launch::coding_deps(&ctx, seeds, launch::LaunchHost::Foreground, runtime.as_ref());
 
-    let sidecars = Sidecars::start();
+    let sidecars = Sidecars::new();
     let personal_key = context::ensure_personal_key(&ctx).ok();
 
+    let request = PrepareRequest::Issue(request);
+    // EXP-758: binds only the sidecar this launch's agent can use: a codex
+    // run (or an external ACP agent) binds neither server.
+    let wired = sidecars.for_launch(launch::request_agent(&request));
     let prepared = coding::prepare_with_hooks(
-        &PrepareRequest::Issue(request),
+        &request,
         &deps,
-        sidecars.hook_setup().as_ref(),
-        sidecars.observer_setup().as_ref(),
+        wired.hooks.as_ref(),
+        wired.observer.as_ref(),
     )
     .map_err(|err| anyhow::anyhow!("{err}"))?;
     let prepared = match prepared {
@@ -81,14 +85,24 @@ pub fn run(args: &[String]) -> CommandResult {
         sidecars: &sidecars,
         personal_key,
     };
+    // EXP-758: printed BEFORE the attach's "Connecting" line, so a run that
+    // silently fell back to the terminal says so ("Started in a terminal
+    // because codex's ACP check failed") instead of just looking different.
+    let transport_notice = prepared.transport_notice.clone();
     let session = session_host::launch(&env, prepared, interactive, Some(issue.id.clone()))?;
     let session = Arc::new(session);
+    // EXP-758 (EXP-478): this process is the run's only registry: there is
+    // no session list to push into, so the gate ends here.
+    session.release_launch_hold();
     println!(
         "Session {} on branch {} (worktree {})",
         session.session_id,
         session.branch,
         session.worktree.display()
     );
+    if let Some(notice) = &transport_notice {
+        println!("{notice}");
+    }
 
     match (interactive, session.attaches_by_line()) {
         // EXP-746: an ACP run has no PTY to tee, so its attach is a line
@@ -140,11 +154,10 @@ pub fn attend(session: &Arc<RunningSession>) -> CommandResult {
         });
     }
 
-    let exit = session.wait();
+    let exit = session.wait_detailed();
     drop(raw);
     println!();
-    println!("Session ended (exit {}).", exit.code);
-    Ok(if exit.success { ExitCode::SUCCESS } else { ExitCode::FAILURE })
+    print_exit(&exit)
 }
 
 // ---------------------------------------------------------------------------
@@ -193,10 +206,23 @@ pub fn attend_acp(session: &Arc<RunningSession>) -> CommandResult {
         });
     }
 
-    let exit = session.wait();
+    let exit = session.wait_detailed();
     println!();
-    println!("Session ended (exit {}).", exit.code);
-    Ok(if exit.success { ExitCode::SUCCESS } else { ExitCode::FAILURE })
+    print_exit(&exit)
+}
+
+/// EXP-758: the ONE exit line every attach prints, and the ONLY place
+/// [`engine::EngineExit::error`] reaches the user on the CLI: a handshake or
+/// transport failure used to read as a bare "exit -1". The live feed's
+/// `EnginePhase::Failed` carries the same string, so [`print_event`]
+/// deliberately renders nothing for it: a detached wait and a PTY attach
+/// never see the feed at all, but every path reaches this line.
+fn print_exit(exit: &session_host::SessionExit) -> CommandResult {
+    if let Some(error) = &exit.error {
+        println!("Session failed: {error}");
+    }
+    println!("Session ended (exit {}).", exit.child.code);
+    Ok(if exit.child.success { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
 
 /// The attach's shared memory: what the composer needs from the printer, plus
@@ -237,9 +263,11 @@ fn print_event(event: &engine::LocalFeedEvent, state: &Mutex<AttachState>) {
         engine::LocalFeedEvent::Phase(phase) => match phase {
             engine::EnginePhase::Connecting => println!("Connecting to the agent..."),
             engine::EnginePhase::Live => println!("Connected."),
-            engine::EnginePhase::Failed(error) => println!("Session failed: {error}"),
-            // `attend_acp` prints the exit line itself once `wait` returns.
-            engine::EnginePhase::Ended => {}
+            // EXP-758: `Failed` and `Ended` both belong to the exit line
+            // ([`print_exit`], which has the same error text off
+            // `EngineExit`), so printing the failure here as well would say it
+            // twice on the one path that gets both.
+            engine::EnginePhase::Failed(_) | engine::EnginePhase::Ended => {}
         },
         // Deliberately unrendered on a line printer: `ToolCall` repeats the
         // wire `tool` event this feed already carries, `EditDiff` is covered
@@ -586,9 +614,8 @@ pub fn wait_with_signals(session: &Arc<RunningSession>) -> CommandResult {
             let exit = session.wait();
             return Ok(if exit.success { ExitCode::SUCCESS } else { ExitCode::FAILURE });
         }
-        if let Some(exit) = session.wait_timeout(Duration::from_millis(500)) {
-            println!("Session ended (exit {}).", exit.code);
-            return Ok(if exit.success { ExitCode::SUCCESS } else { ExitCode::FAILURE });
+        if let Some(exit) = session.wait_timeout_detailed(Duration::from_millis(500)) {
+            return print_exit(&exit);
         }
     }
 }

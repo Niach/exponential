@@ -135,7 +135,61 @@ pub struct RunningSession {
     /// EXP-746: which vocabulary the local attach speaks to this run — the
     /// contract catalog is agent-scoped (`steer::commands::catalog_for`).
     pub agent: steer::SessionAgent,
+    /// EXP-758 (EXP-478): the clone's launch gate, held since before the
+    /// worktree existed. It rides HERE, not in `launch`, because the branch
+    /// is only protected once its OWNER has registered the run: the daemon's
+    /// `held` set is built from the live-session list (`run_device_command`),
+    /// which `launch` returns BEFORE being pushed into. Dropping the hold
+    /// inside `launch` left exactly that window open, and a `worktree_prune`
+    /// landing in it sees a branch with no unique commits and no live session
+    /// and removes the worktree under a run that just started. Every owner
+    /// calls [`RunningSession::release_launch_hold`] right after its own
+    /// registration point (desktop parity: `ui/src/coding_flow.rs` inserts
+    /// into `LocalSessions`, THEN drops); a session dropped without that
+    /// releases by RAII anyway.
+    launch_hold: Mutex<Option<coding::LaunchHold>>,
     backend: Backend,
+}
+
+impl RunningSession {
+    /// EXP-758: the run is registered with its owner: the auto-prune can
+    /// see it now, so the launch gate is free. Idempotent.
+    pub fn release_launch_hold(&self) {
+        if let Ok(mut hold) = self.launch_hold.lock() {
+            drop(hold.take());
+        }
+    }
+
+    /// Whether this run still parks the prune on its clone (test seam).
+    #[cfg(test)]
+    pub(crate) fn holds_launch_gate(&self) -> bool {
+        self.launch_hold
+            .lock()
+            .map(|hold| hold.is_some())
+            .unwrap_or(false)
+    }
+}
+
+/// EXP-758 test seam: a session whose backend is an already-dead PTY, for the
+/// registration-ORDER tests here and in `daemon` (a real one spawns an agent).
+#[cfg(test)]
+pub(crate) fn test_session(
+    session_id: &str,
+    launch_hold: Option<coding::LaunchHold>,
+) -> RunningSession {
+    let (control_tx, _control_rx) = flume::unbounded::<Control>();
+    let (_done_tx, done_rx) = flume::bounded::<ChildExit>(1);
+    let writer: Arc<Mutex<Box<dyn std::io::Write + Send>>> =
+        Arc::new(Mutex::new(Box::new(Vec::new())));
+    RunningSession {
+        session_id: session_id.to_string(),
+        issue_identifier: "EXP-1".to_string(),
+        worktree: PathBuf::from("/tmp/exp-test-worktree"),
+        branch: "exp/EXP-1".to_string(),
+        agent: steer::SessionAgent::Claude,
+        launch_hold: Mutex::new(launch_hold),
+        backend: Backend::Pty { done_rx, control_tx, writer },
+    }
 }
 
 impl RunningSession {
@@ -158,20 +212,43 @@ impl RunningSession {
 
     /// Block until the agent child exits.
     pub fn wait(&self) -> ChildExit {
+        self.wait_detailed().child
+    }
+
+    /// EXP-758: [`RunningSession::wait`] plus the engine's failure text.
+    /// `ChildExit`, the vocabulary every caller of this module already
+    /// speaks, has no room for [`engine::EngineExit::error`], so a
+    /// handshake or transport failure reached the CLI only as "exit -1".
+    /// The attaches wait through here and print it. Always `None` on the
+    /// PTY arm: a spawned child's failure IS its exit code.
+    pub fn wait_detailed(&self) -> SessionExit {
         match &self.backend {
-            Backend::Pty { done_rx, .. } => done_rx
-                .recv()
-                .unwrap_or(ChildExit { code: -1, success: false, signal: None }),
-            Backend::Acp { session } => engine_child_exit(&session.wait()),
+            Backend::Pty { done_rx, .. } => SessionExit {
+                child: done_rx
+                    .recv()
+                    .unwrap_or(ChildExit { code: -1, success: false, signal: None }),
+                error: None,
+            },
+            Backend::Acp { session } => session_exit(&session.wait()),
         }
     }
 
     /// `Some(exit)` once the child has exited, `None` on timeout.
     pub fn wait_timeout(&self, timeout: Duration) -> Option<ChildExit> {
+        self.wait_timeout_detailed(timeout).map(|exit| exit.child)
+    }
+
+    /// [`RunningSession::wait_detailed`] with a bound (EXP-758).
+    pub fn wait_timeout_detailed(&self, timeout: Duration) -> Option<SessionExit> {
         match &self.backend {
-            Backend::Pty { done_rx, .. } => done_rx.recv_timeout(timeout).ok(),
+            Backend::Pty { done_rx, .. } => {
+                done_rx.recv_timeout(timeout).ok().map(|child| SessionExit {
+                    child,
+                    error: None,
+                })
+            }
             Backend::Acp { session } => {
-                session.wait_timeout(timeout).map(|exit| engine_child_exit(&exit))
+                session.wait_timeout(timeout).map(|exit| session_exit(&exit))
             }
         }
     }
@@ -264,6 +341,23 @@ impl RunningSession {
     }
 }
 
+/// EXP-758: how a run ended, for the callers that RENDER it: the child exit
+/// every caller already speaks, plus the engine's failure text when the run
+/// never got a child to fail (a handshake or transport error).
+pub struct SessionExit {
+    pub child: ChildExit,
+    /// [`engine::EngineExit::error`]; always `None` on the PTY arm.
+    pub error: Option<String>,
+}
+
+/// EXP-758: [`engine_child_exit`] keeping the error the exit line prints.
+fn session_exit(exit: &engine::EngineExit) -> SessionExit {
+    SessionExit {
+        child: engine_child_exit(exit),
+        error: exit.error.clone(),
+    }
+}
+
 /// EXP-746: an engine exit in the `ChildExit` vocabulary every caller of this
 /// module already speaks (`code`/`run` print it, `daemon` logs it). A run
 /// whose adapter owned a child reports the child's real exit; a handshake
@@ -306,10 +400,16 @@ pub fn launch(
 /// never hang).
 fn launch_pty(
     env: &LaunchEnv,
-    prepared: PreparedLaunch,
+    mut prepared: PreparedLaunch,
     interactive: bool,
     issue_id: Option<String>,
 ) -> anyhow::Result<RunningSession> {
+    // EXP-758 (EXP-478): out FIRST, because the destructure below would
+    // drop the gate pre-spawn, which is the ACP arm's bug in a quieter
+    // shape. It rides the returned session until the owner registers it
+    // ([`RunningSession::release_launch_hold`]); every `?` between here and
+    // the return releases it by RAII.
+    let launch_hold = prepared.launch_hold.take();
     let PreparedLaunch {
         session_id,
         issue_identifier,
@@ -569,6 +669,7 @@ fn launch_pty(
         worktree,
         branch,
         agent: session_agent,
+        launch_hold: Mutex::new(launch_hold),
         backend: Backend::Pty { done_rx, control_tx, writer },
     })
 }
@@ -583,16 +684,22 @@ fn launch_acp(
     mut prepared: PreparedLaunch,
     issue_id: Option<String>,
 ) -> anyhow::Result<RunningSession> {
+    let session_id = prepared.session_id.clone();
     // Unreachable by construction: `resolve_transport` only answers `Acp`
     // when `CodingDeps::acp_available` said this host has a runtime
     // (`launch::coding_deps`). There is deliberately no spawn-time fallback —
     // an ACP-prepared launch carries an EMPTY `spawn.args`, so there is no
-    // TUI invocation left to run.
-    let runtime = env
-        .runtime
-        .context("the ACP engine needs the steer runtime")?;
+    // TUI invocation left to run. EXP-758: a remote RESUME reaches it anyway
+    // (a run recorded as ACP re-enters the engine even on a runtime-less
+    // host), and this return used to be the ONE launch failure that left the
+    // `running` row behind, a ghost badge until the server sweep.
+    let Some(runtime) = env.runtime else {
+        return Err(fail_before_start(
+            anyhow::anyhow!("the ACP engine needs the steer runtime"),
+            || coding::end_session_best_effort(&env.ctx.trpc, &session_id),
+        ));
+    };
 
-    let session_id = prepared.session_id.clone();
     let issue_identifier = prepared.issue_identifier.clone();
     let worktree = prepared.worktree.clone();
     let branch = prepared.branch.clone();
@@ -625,8 +732,10 @@ fn launch_acp(
     let kill = trpc_kill_feed(env, &session_id);
 
     // EXP-478: the launch gate has to outlive registration, and
-    // `EngineStart`'s destructure would drop it pre-spawn — so the host holds
-    // it and releases it only once the session is registered.
+    // `EngineStart`'s destructure would drop it pre-spawn, so it comes out
+    // here (`engine::start` asserts it did) and rides the returned session.
+    // EXP-758: it is released by the OWNER, not here: a `drop` at the end of
+    // this function is still pre-registration.
     let launch_hold = prepared.launch_hold.take();
 
     let host = Arc::new(CliEngineHost {
@@ -656,10 +765,10 @@ fn launch_acp(
     .map_err(|err| {
         // Nothing ran, so nothing will end the row: do it here or the badge
         // ghosts until the server sweep (PTY parity, `pty::open` above).
-        coding::end_session_best_effort(&env.ctx.trpc, &session_id);
-        anyhow::anyhow!("{err}")
+        fail_before_start(anyhow::anyhow!("{err}"), || {
+            coding::end_session_best_effort(&env.ctx.trpc, &session_id)
+        })
     })?;
-    drop(launch_hold);
 
     Ok(RunningSession {
         session_id,
@@ -667,8 +776,21 @@ fn launch_acp(
         worktree,
         branch,
         agent: session_agent,
+        // EXP-758: NOT dropped here: the owner releases it once the run is
+        // registered (see [`RunningSession::launch_hold`]).
+        launch_hold: Mutex::new(launch_hold),
         backend: Backend::Acp { session },
     })
+}
+
+/// EXP-758: the ACP arm's early-failure sequence. `prepare`'s step 6 already
+/// created the `running` row, so EVERY path out of [`launch_acp`] that never
+/// reaches the engine has to end it first, since the engine owns
+/// `coding::end_session` from `engine::start` onwards, and nothing else will.
+/// Pure in the end action so the ordering is unit-testable without a server.
+fn fail_before_start(err: anyhow::Error, end_row: impl FnOnce()) -> anyhow::Error {
+    end_row();
+    err
 }
 
 /// EXP-746: which steer agent vocabulary an ACP run speaks. An EXTERNAL agent
@@ -1214,5 +1336,67 @@ mod tests {
         let clean = engine_child_exit(&exit(None, None));
         assert!(clean.success);
         assert_eq!(clean.code, 0);
+    }
+
+    /// EXP-758: the engine's failure text survives the trip into the
+    /// `ChildExit` vocabulary: it is what `code`/`run` print on the exit
+    /// line, and "exit -1" alone never said what went wrong.
+    #[test]
+    fn an_engine_exit_keeps_its_error_for_the_exit_line() {
+        let failed = session_exit(&engine::EngineExit {
+            session_id: "sess-1".to_string(),
+            outcome: "ended".to_string(),
+            child: None,
+            error: Some("the agent did not connect".to_string()),
+            end: None,
+        });
+        assert_eq!(failed.error.as_deref(), Some("the agent did not connect"));
+        assert!(!failed.child.success);
+    }
+
+    /// EXP-758: `prepare`'s step 6 created the `running` row, so a launch
+    /// that never reaches the engine must end it BEFORE it returns: the
+    /// runtime-less `launch_acp` return used to be the one path that didn't,
+    /// leaving a badge that ghosted until the server sweep.
+    #[test]
+    fn a_launch_failure_ends_the_row_before_it_returns() {
+        let ended = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&ended);
+        let err = fail_before_start(anyhow::anyhow!("no steer runtime"), move || {
+            flag.store(true, Ordering::SeqCst)
+        });
+        assert!(ended.load(Ordering::SeqCst), "the row must be ended");
+        assert_eq!(err.to_string(), "no steer runtime");
+    }
+
+    /// EXP-758 (EXP-478): the gate rides the SESSION, not `launch`: the
+    /// daemon pushes the run into its live list first and releases only then
+    /// (`spawn_prepared`). While the hold is live the clone's prune pass
+    /// refuses to run, which is exactly what protects a just-born worktree
+    /// with no unique commits from a `worktree_prune` command.
+    #[test]
+    fn a_session_holds_the_launch_gate_until_its_owner_releases_it() {
+        let clone = std::env::temp_dir().join(format!(
+            "exp-cli-launch-gate-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&clone).expect("temp clone");
+        let session = test_session("sess-1", Some(coding::launch_gate::hold(&clone)));
+        assert!(session.holds_launch_gate());
+        assert!(
+            coding::launch_gate::try_exclusive(&clone, || ()).is_none(),
+            "a registered-pending run must park the prune"
+        );
+
+        session.release_launch_hold();
+        assert!(!session.holds_launch_gate());
+        assert!(
+            coding::launch_gate::try_exclusive(&clone, || ()).is_some(),
+            "the prune runs again once the run is registered"
+        );
+        // Idempotent: a second release (or the drop) never underflows.
+        session.release_launch_hold();
+        let _ = std::fs::remove_dir_all(&clone);
     }
 }
