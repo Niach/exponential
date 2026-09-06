@@ -97,7 +97,7 @@ pub fn run(args: &[String]) -> CommandResult {
     };
     let session = Arc::new(session_host::launch(&env, prepared, interactive, None)?);
 
-    match (interactive, session.attaches_by_line()) {
+    let outcome = match (interactive, session.attaches_by_line()) {
         // EXP-746: same fork as `code` — an ACP run attaches as a line
         // transcript, a PTY run as the raw byte tee.
         (true, true) => super::code::attend_acp(&session),
@@ -106,7 +106,13 @@ pub fn run(args: &[String]) -> CommandResult {
             println!("Session {} running — steer it from the web.", session.session_id);
             super::code::wait_with_signals(&session)
         }
+    };
+    // EXP-757 (daemon parity): a repo-less run's scratch dir goes with the
+    // run; the run record keeps it resumable.
+    if coding::scratch::is_scratch_dir(&ctx.data_dir, &session.worktree) {
+        coding::scratch::reclaim(&ctx.data_dir, &session.worktree);
     }
+    outcome
 }
 
 /// Resolve an action reference: a builtin id (or its short alias), a UUID,

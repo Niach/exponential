@@ -217,7 +217,7 @@ fn assemble(
         // EXP-637: the backstop for run worktrees the run cleanup could not
         // remove at exit (a held gate, a crash). Nomination only — git still
         // decides, and dirty/ahead worktrees survive.
-        run_registry_dir: crate::window_size::app_data_dir(),
+        run_registry_dir: Some(coding_flow::coding_data_dir(cx)),
     }
 }
 

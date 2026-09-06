@@ -329,6 +329,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // EXP-229 parity: end orphaned rows a previous crash left `running`
     // (pid-guarded — rows owned by a live sibling process are skipped).
     reconcile_stale_sessions(&ctx);
+    // EXP-757 (desktop parity): reclaim the scratch dirs of repo-less runs
+    // nothing runs any more; a live sibling's (the desktop app on this
+    // machine) are the keep set. Nothing is live in THIS process yet.
+    sweep_scratch_dirs(&ctx);
 
     let sidecars = Arc::new(Sidecars::start());
     let runtime = match steer::SteerRuntime::new() {
@@ -505,25 +509,45 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // EXP-637: a finished RUN reclaims its own worktree — but only when
         // it is provably clean and carries no commits. Blocking git on the
         // 1Hz loop is fine: it runs once per finished run, not per tick.
+        // EXP-757: a finished repo-LESS run has no worktree to judge — its
+        // scratch dir (and claude trust entries) simply go; the run record
+        // stays, since it is what keeps the run resumable.
         {
             let mut guard = lock_sessions(&sessions);
-            let reaped: Vec<(String, coding::RunCleanup)> = guard
+            let reaped: Vec<(String, Option<coding::RunCleanup>, PathBuf)> = guard
                 .iter()
                 .filter(|live| live.session.is_done())
-                .filter_map(|live| {
-                    live.cleanup
-                        .clone()
-                        .map(|cleanup| (live.session.session_id.clone(), cleanup))
+                .map(|live| {
+                    (
+                        live.session.session_id.clone(),
+                        live.cleanup.clone(),
+                        live.session.worktree.clone(),
+                    )
                 })
                 .collect();
             guard.retain(|live| !live.session.is_done());
             drop(guard);
-            for (session_id, cleanup) in reaped {
-                let verdict = coding::remove_if_clean(&cleanup);
-                if matches!(verdict, coding::CleanupOutcome::Removed) {
-                    coding::run_registry::remove(&ctx.data_dir, &session_id);
+            for (session_id, cleanup, worktree) in reaped {
+                match cleanup {
+                    Some(cleanup) => {
+                        let verdict = coding::remove_if_clean(&cleanup);
+                        if matches!(verdict, coding::CleanupOutcome::Removed) {
+                            coding::run_registry::remove(&ctx.data_dir, &session_id);
+                        }
+                        log::info!(
+                            "run cleanup [{session_id}] on {}: {verdict:?}",
+                            cleanup.branch
+                        );
+                    }
+                    None if coding::scratch::is_scratch_dir(&ctx.data_dir, &worktree) => {
+                        let removed = coding::scratch::reclaim(&ctx.data_dir, &worktree);
+                        log::info!(
+                            "scratch reclaim [{session_id}] {}: removed={removed}",
+                            worktree.display()
+                        );
+                    }
+                    None => {}
                 }
-                log::info!("run cleanup [{session_id}] on {}: {verdict:?}", cleanup.branch);
             }
         }
 
@@ -990,6 +1014,26 @@ fn dial_control(
         on_start,
         on_check_in,
     ))
+}
+
+/// EXP-757: the startup pass of [`coding::scratch::sweep`], on its own
+/// thread (a dir walk plus a `~/.claude.json` rewrite — nothing the daemon
+/// loop should wait on).
+fn sweep_scratch_dirs(ctx: &Arc<Ctx>) {
+    let ctx = Arc::clone(ctx);
+    std::thread::spawn(move || {
+        let live = registry::live_ids(&ctx.data_dir);
+        let report = coding::scratch::sweep(&ctx.data_dir, &live);
+        if !report.is_noop() {
+            log::info!(
+                "scratch sweep: removed {} run dir(s), dropped {} trust entr(y/ies), kept {} live + {} young",
+                report.removed.len(),
+                report.trust_dropped,
+                report.kept_live,
+                report.kept_young
+            );
+        }
+    });
 }
 
 fn reconcile_stale_sessions(ctx: &Ctx) {

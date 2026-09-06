@@ -2682,11 +2682,18 @@ fn prepare_resume_run(
         Some(record.transport()),
     );
 
-    // Step 1 — the workspace. A scratch dir the user cleared, or a worktree
-    // the prune reclaimed, is a hard stop: there is nothing to resume INTO
-    // (the callers filter on `resumable()` first; this is the backstop).
+    // Step 1 — the workspace. EXP-757: a repo-less run's scratch dir is
+    // disposable (reclaimed when the run ended, `crate::scratch`), so it is
+    // simply re-created at the recorded path — the agent's transcript is
+    // keyed by that path, not stored in it. A worktree the prune reclaimed
+    // is a hard stop: there is nothing to resume INTO (the callers filter on
+    // `resumable()` first; this is the backstop).
     let cwd = record.cwd.clone();
-    if !cwd.is_dir() {
+    if record.clone.is_none() {
+        std::fs::create_dir_all(&cwd)
+            .map_err(|e| CodingError::Io(format!("re-create the run's scratch dir: {e}")))?;
+        crate::scratch::touch(&cwd);
+    } else if !cwd.is_dir() {
         return Err(CodingError::Io(format!(
             "this run's workspace is gone ({})",
             cwd.display()
@@ -5725,8 +5732,10 @@ mod tests {
         assert!(prompt.contains("This session stays open after you finish"));
     }
 
-    /// A workspace the prune (or the user) reclaimed has nothing to resume
-    /// INTO — the launch must refuse, not spawn in a fabricated directory.
+    /// A REPO-BACKED workspace the prune (or the user) reclaimed has nothing
+    /// to resume INTO — the launch must refuse, not spawn in a fabricated
+    /// directory. (`repository_id` stays `None`, so no token is minted before
+    /// the check.)
     #[test]
     fn prepare_resume_run_refuses_a_missing_workspace() {
         let dir = temp_dir("resume-gone");
@@ -5737,6 +5746,7 @@ mod tests {
         });
         let deps = make_deps(&base, &dir.0, worktrees);
         let mut record = resume_record(&dir.0, "sess-old3");
+        record.clone = Some(dir.0.join("clone"));
         record.cwd = dir.0.join("vanished");
 
         match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps) {
@@ -5745,6 +5755,40 @@ mod tests {
             }
             other => panic!("expected the missing-workspace error, got {other:?}"),
         }
+    }
+
+    /// EXP-757: a repo-LESS run's scratch dir was reclaimed when it ended.
+    /// The resume re-creates it at the recorded path and lands the MCP
+    /// config in it — the dir held nothing the resume needs.
+    #[test]
+    fn prepare_resume_run_recreates_a_reclaimed_scratch_dir() {
+        let dir = temp_dir("resume-scratch-reclaimed");
+        let (base, _captured) = canned_server_recording(vec![(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-new4","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
+                .to_string(),
+        )]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        deps.claude_projects_root = Some(dir.0.join("empty-projects"));
+        let record = resume_record(&dir.0, "sess-old4");
+        let scratch = record.cwd.clone();
+        fs::remove_dir_all(&scratch).unwrap();
+        assert!(record.resumable(), "the record alone makes a repo-less run resumable");
+
+        let prepared =
+            match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
+                Prepared::Ready(prepared) => prepared,
+                other => panic!("expected Ready, got {other:?}"),
+            };
+        assert_eq!(prepared.worktree, scratch);
+        assert!(scratch.is_dir());
+        assert!(scratch.join(crate::mcp_json::MCP_JSON_FILE).exists());
+        assert!(prepared.run_cleanup.is_none());
+        assert_eq!(prepared.session_id, "sess-new4");
     }
 
     /// A fix-conflicts action request with the PR's repo group attached

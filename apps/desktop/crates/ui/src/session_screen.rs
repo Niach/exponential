@@ -64,7 +64,7 @@ pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) 
     // row's Electric echo is a network round trip — so the swap has to run at
     // open time too. Both call the same rule, and the loser finds the tab
     // already renamed.
-    if let Some(resumed_from) = resumed_from_id(session_id) {
+    if let Some(resumed_from) = resumed_from_id(session_id, cx) {
         crate::screens::take_over_session_tab(&resumed_from, session_id, window, cx);
     }
     crate::navigation::navigate(
@@ -80,9 +80,8 @@ pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) 
 /// device's run registry — the local half of the link the synced row carries,
 /// written by `prepare_resume_run` before the launch ever reaches this window.
 /// `None` for a fresh run, and for a session hosted on another machine.
-fn resumed_from_id(session_id: &str) -> Option<String> {
-    crate::window_size::app_data_dir()
-        .and_then(|data_dir| coding::run_registry::get(&data_dir, session_id))
+fn resumed_from_id(session_id: &str, cx: &App) -> Option<String> {
+    coding::run_registry::get(&crate::coding_flow::coding_data_dir(cx), session_id)
         .and_then(|record| record.resumed_from_id)
 }
 
@@ -132,8 +131,8 @@ pub(crate) fn feed_source_for(
 /// [`feed_source_for`] against the live state, then the source it names.
 fn resolve_source(session_id: &str, cx: &mut App) -> (SessionFeed, FeedSource) {
     let engine = local_engine(session_id, cx);
-    let record = crate::window_size::app_data_dir()
-        .and_then(|data_dir| coding::run_registry::get(&data_dir, session_id));
+    let record =
+        coding::run_registry::get(&crate::coding_flow::coding_data_dir(cx), session_id);
     let feed = feed_source_for(
         engine.is_some(),
         record.as_ref().map(|record| record.transport()),

@@ -552,9 +552,12 @@ impl LocalSessions {
             // provably clean and carries no commits ([`coding::run_cleanup`]).
             // Background, because it shells out to git; a worktree left
             // dirty stays, and shows as dirty in Worktrees.
+            // EXP-757: the run registry the LAUNCHER writes — never
+            // `window_size::app_data_dir`, which is the window-layout dir
+            // and a different folder on macOS/Windows/staging.
+            let data_dir = coding_data_dir(cx);
             if let Some(cleanup) = entry.run_cleanup.clone() {
                 let session_id = entry.session_id.clone();
-                let data_dir = crate::window_size::app_data_dir();
                 cx.spawn(async move |cx| {
                     let verdict = cx
                         .background_executor()
@@ -567,9 +570,7 @@ impl LocalSessions {
                         if matches!(verdict, coding::CleanupOutcome::Removed) {
                             // The workspace is gone: nothing left to resume,
                             // so the record goes too.
-                            if let Some(dir) = &data_dir {
-                                coding::run_registry::remove(dir, &session_id);
-                            }
+                            coding::run_registry::remove(&data_dir, &session_id);
                         }
                         log::info!(
                             "run cleanup [{session_id}] on {}: {verdict:?}",
@@ -580,6 +581,21 @@ impl LocalSessions {
                     });
                 })
                 .detach();
+            } else if coding::scratch::is_scratch_dir(&data_dir, &entry.worktree) {
+                // EXP-757: a repo-less run's scratch dir (and its claude
+                // trust entries) go with the run. The RECORD stays — it is
+                // what keeps the run resumable; the resume re-creates the dir.
+                let session_id = entry.session_id.clone();
+                let worktree = entry.worktree.clone();
+                cx.background_executor()
+                    .spawn(async move {
+                        let removed = coding::scratch::reclaim(&data_dir, &worktree);
+                        log::info!(
+                            "scratch reclaim [{session_id}] {}: removed={removed}",
+                            worktree.display()
+                        );
+                    })
+                    .detach();
             }
             TokenRefreshers::release(&entry.clone, cx);
             // EXP-640: the crash-recovery registry entry is deliberately NOT
@@ -1321,15 +1337,8 @@ pub fn build_batch_deps(cx: &mut App) -> Option<CodingDeps> {
 
 /// EXP-637: does the run registry still hold a resumable workspace for
 /// `session_id`? Callable from a render pass (`&App`).
-pub fn run_is_resumable_ref(session_id: &str, _cx: &App) -> bool {
-    run_is_resumable_now(session_id)
-}
-
-fn run_is_resumable_now(session_id: &str) -> bool {
-    let Some(data_dir) = crate::window_size::app_data_dir() else {
-        return false;
-    };
-    coding::run_registry::get(&data_dir, session_id)
+pub fn run_is_resumable_ref(session_id: &str, cx: &App) -> bool {
+    coding::run_registry::get(&coding_data_dir(cx), session_id)
         .is_some_and(|record| record.resumable())
 }
 
