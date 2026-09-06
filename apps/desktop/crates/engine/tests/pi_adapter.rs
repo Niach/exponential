@@ -9,6 +9,10 @@
 //! interactive channel.
 //!
 //! Nothing here needs `pi` itself to be installed, so it runs in CI.
+//!
+//! Unix-only, like `transport.rs`'s own child tests: the fake is a `/bin/sh`
+//! script, and pi ships no Windows build to test against anyway.
+#![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
