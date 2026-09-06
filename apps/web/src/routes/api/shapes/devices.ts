@@ -33,6 +33,8 @@ const DEVICE_COLUMNS = [
   `agents`,
   `caps`,
   `unauthed_agents`,
+  // EXP-749: the ACP-ready subset of `agents` (NULL = assume all).
+  `acp_agents`,
   `launch_defaults`,
   `launch_defaults_updated_at`,
   `agent_accounts`,

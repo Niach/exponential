@@ -46,13 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-session-pages-and-chat",
-    date: "2026-09-06",
-    title: "Session pages and chat",
-    summary: "A coding session opens on its own page from the bottom strip, and a Chat button talks to your agent without an issue or a repository.",
-    body: r#"- **Sessions on their own page**: the bottom bar on the web is now only the strip of your running sessions. Click one and the steering view fills the page; the resizable panel and its fullscreen switch are gone.
-- **Chat**: the strip ends in a Chat button. On the web it opens the Chat page: your newest running chat, or a start card that picks a machine and an agent, plus your past chats with Resume. In the desktop app the terminal dock's strip has the same button, and the chat opens as a session tab (or a terminal tab when you start agents in the terminal).
-- **Chat without a repository**: a chat started from the web Chat page or the desktop dock no longer needs a repository. Without one it runs in a scratch folder with only the Exponential tools, so nothing is cloned or branched; pick a repository in the start-coding dialog to work on code as before."#,
+    id: "2026-09-acp-follow-ups",
+    date: "2026-09-07",
+    title: "Steering that keeps its transcript",
+    summary: "Your chat with an agent survives long subagent runs, remote pickers say which agents start in a terminal, and pi plans on the session page.",
+    body: r#"- **Transcript survives subagents**: rejoining a session after a subagent made thousands of tool calls no longer shows an empty transcript. Subagent tool rows are dropped first, each subagent keeps its last 50, and the collapsed subagent card still says how many calls it made.
+- **Terminal hint in remote pickers**: when a machine can run an agent but not drive it on the session page, the agent picker on web, desktop, iOS and Android says it starts in a terminal tab instead of falling back silently.
+- **Live command output**: an agent that runs its commands through the session page streams output as it happens, shows the real exit code, and gets a Stop button on the running command.
+- **pi plan mode on the session page**: a pi run started in plan mode now opens as a session tab like claude's, with a Plan and Default mode switch and the plan approval card.
+- **Codex usage from the live session**: the usage sheet reads Codex rate limits from the running session, so the desktop no longer starts a second app-server to ask.
+- **Faster tool checks**: the pi check remembers its verdict per installed build and honours a hand-configured pi path; run the CLI doctor to re-check in full."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

@@ -206,6 +206,10 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     status: z.enum([`started`, `completed`]),
     detail: z.string().max(1024).optional(),
     at: z.number().optional(),
+    // EXP-748: the publisher's count of this subagent's tool calls, stamped
+    // on the completed edge. The replay log evicts subagent tool events
+    // first, so this is what keeps "N tool calls" honest after eviction.
+    toolCalls: z.number().int().nonnegative().optional(),
   }),
   z.object({
     kind: z.literal(`permission`),

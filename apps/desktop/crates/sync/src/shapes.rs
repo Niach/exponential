@@ -485,6 +485,8 @@ pub const SHAPES: [ShapeSpec; 20] = [
             "agents",
             "caps",
             "unauthed_agents",
+            // EXP-749: the ACP-ready subset of `agents` (NULL = assume all).
+            "acp_agents",
             "launch_defaults",
             "launch_defaults_updated_at",
             // EXP-484: the read-only per-agent status the machine reports —

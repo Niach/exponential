@@ -289,6 +289,12 @@ pub enum ActivityEvent {
     },
     /// A `Task` subagent's lifecycle edge — `id` keys the
     /// [`ActivityEvent::Tool`] events attributed to it.
+    ///
+    /// EXP-748: `tool_calls` is the publisher's count of tool events this
+    /// subagent made, stamped on the `completed` edge. Replay buffers evict
+    /// subagent tool events first (they carry little for a viewer), so the
+    /// count survives where the rows do not; clients render
+    /// `max(visible tool rows, toolCalls)`.
     #[serde(rename_all = "camelCase")]
     Subagent {
         id: String,
@@ -298,6 +304,8 @@ pub enum ActivityEvent {
         detail: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_calls: Option<u32>,
     },
     /// The session is sitting on a permission prompt. INFORMATIONAL — it
     /// carries no options and is never answerable remotely (the local TUI
@@ -1202,6 +1210,7 @@ mod tests {
                     status: SubagentStatus::Started,
                     detail: Some("Map the steer crate".into()),
                     at: None,
+                    tool_calls: None,
                 }
             }
             .to_json(),
@@ -1215,6 +1224,7 @@ mod tests {
                     status: SubagentStatus::Completed,
                     detail: None,
                     at: None,
+                    tool_calls: None,
                 }
             }
             .to_json(),
@@ -1487,6 +1497,7 @@ mod tests {
                 status: SubagentStatus::Started,
                 detail: None,
                 at: None,
+                tool_calls: None,
             },
             ActivityEvent::Permission { tool: "Bash".into(), detail: None, at: None },
             ActivityEvent::compaction(CompactionPhase::Started, None),
@@ -2249,6 +2260,7 @@ mod tests {
                 status: SubagentStatus::Completed,
                 detail: Some("Map the steer crate".into()),
                 at: None,
+                tool_calls: None,
             },
             ActivityEvent::Permission {
                 tool: "Bash".into(),

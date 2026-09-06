@@ -707,6 +707,7 @@ impl Mapper {
                     .as_ref()
                     .map(|detail| self.clean(detail, TOOL_DETAIL_MAX)),
                 at: None,
+                tool_calls: None,
             },
             None,
         );
@@ -2313,6 +2314,7 @@ mod tests {
             agent_type: "explore".to_string(),
             status: SubagentEdgeStatus::Started,
             detail: None,
+            tool_calls: None,
         };
         let notification = notify(SessionUpdate::AgentMessageChunk(chunk("", None)))
             .meta(edge.to_meta().clone());

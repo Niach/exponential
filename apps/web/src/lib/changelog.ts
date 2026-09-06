@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-acp-follow-ups`,
+    date: `2026-09-07`,
+    title: `Steering that keeps its transcript`,
+    summary: `Your chat with an agent survives long subagent runs, remote pickers say which agents start in a terminal, and pi plans on the session page.`,
+    body: `- **Transcript survives subagents**: rejoining a session after a subagent made thousands of tool calls no longer shows an empty transcript. Subagent tool rows are dropped first, each subagent keeps its last 50, and the collapsed subagent card still says how many calls it made.
+- **Terminal hint in remote pickers**: when a machine can run an agent but not drive it on the session page, the agent picker on web, desktop, iOS and Android says it starts in a terminal tab instead of falling back silently.
+- **Live command output**: an agent that runs its commands through the session page streams output as it happens, shows the real exit code, and gets a Stop button on the running command.
+- **pi plan mode on the session page**: a pi run started in plan mode now opens as a session tab like claude's, with a Plan and Default mode switch and the plan approval card.
+- **Codex usage from the live session**: the usage sheet reads Codex rate limits from the running session, so the desktop no longer starts a second app-server to ask.
+- **Faster tool checks**: the pi check remembers its verdict per installed build and honours a hand-configured pi path; run the CLI doctor to re-check in full.`,
+  },
+  {
     id: `2026-09-session-pages-and-chat`,
     date: `2026-09-06`,
     title: `Session pages and chat`,

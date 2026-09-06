@@ -1871,6 +1871,7 @@ mod tests {
             status: SubagentStatus::Started,
             detail: Some("Map the crate".into()),
             at: None,
+            tool_calls: None,
         });
         feed.apply(ActivityEvent::Tool {
             name: "Grep".into(),
@@ -1931,6 +1932,7 @@ mod tests {
             status: SubagentStatus::Started,
             detail: Some("first".into()),
             at: None,
+            tool_calls: None,
         });
         feed.apply(ActivityEvent::Tool {
             name: "Grep".into(),
@@ -1944,6 +1946,7 @@ mod tests {
             status: SubagentStatus::Started,
             detail: None,
             at: None,
+            tool_calls: None,
         });
         // EXP-350: an old desktop stamps the FALLBACK type on the completed
         // edge — it must never degrade the label, and its detail wins.
@@ -1953,6 +1956,7 @@ mod tests {
             status: SubagentStatus::Completed,
             detail: Some("done exploring".into()),
             at: None,
+            tool_calls: None,
         });
 
         let agents = feed.subagents();
