@@ -2,9 +2,10 @@
 //!
 //! An agent that wants a LIVE command runs it through us: `terminal/create`
 //! spawns it on a PTY we own, `terminal/output` reads the retained buffer,
-//! `terminal/wait_for_exit` resolves when the child is reaped, and the tool
-//! call that embeds the terminal (`ToolCallContent::Terminal`) hangs a card
-//! off the feed row that streams while the command runs.
+//! `terminal/wait_for_exit` resolves once the child is reaped AND its output
+//! is drained, and the tool call that embeds the terminal
+//! (`ToolCallContent::Terminal`) hangs a card off the feed row that streams
+//! while the command runs.
 //!
 //! Three rules hold the whole module up:
 //!
@@ -19,12 +20,14 @@
 //!   chunk — so nothing is lost and the UI never sees an unbound key.
 //! - **The registry outlives nothing.** `kill_all` runs at both end-of-run
 //!   sites and on `Drop`: an agent that dies mid-command must not leave its
-//!   child behind.
+//!   child behind — SIGHUP first, SIGKILL to the child's group after a
+//!   grace, because a HUP-ignoring server would otherwise outlive the run.
 
 use std::collections::HashMap;
 use std::io::Read;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use terminal::pty::{ChildExit, Pty, SpawnSpec};
 
@@ -40,6 +43,111 @@ const TERMINAL_ROWS: u16 = 50;
 /// is "the client decides", and an unbounded buffer of a `bun install` is
 /// megabytes of nothing kept for the whole session.
 const DEFAULT_OUTPUT_BYTE_LIMIT: usize = 1 << 20;
+
+/// How long the reaped child's exit waits for the reader thread to hit EOF
+/// before it resolves anyway. On Linux `waitpid` routinely returns with tens
+/// of kilobytes still sitting in the master, so publishing the exit right
+/// there truncates what `terminal/output` answers and puts the exit code in
+/// FRONT of the last chunks on the feed. The bound is the escape hatch for a
+/// master that never EOFs (a grandchild still holding the slave open).
+const DRAIN_GRACE: Duration = Duration::from_secs(2);
+
+/// How long a killed child gets to die of SIGHUP before it is SIGKILLed.
+const KILL_GRACE: Duration = Duration::from_millis(500);
+
+/// The escalation thread's poll step while it waits out [`KILL_GRACE`].
+const KILL_POLL: Duration = Duration::from_millis(10);
+
+/// Turns the PTY's byte stream into text ACROSS reads. A `read` boundary
+/// lands wherever the kernel put it, so both of these straddle it routinely
+/// on any chatty command:
+///
+/// - a multibyte codepoint (`━`, `✓`, `é`) — decoded per read, its halves
+///   become two U+FFFD in the buffer the agent reads back verbatim;
+/// - the line discipline's `\r\n` — split, the `\r` stays in the buffer.
+///
+/// So the incomplete tail and a trailing `\r` are HELD until the next read
+/// decides what they are. [`ChunkDecoder::flush`] releases whatever the EOF
+/// left over.
+#[derive(Default)]
+struct ChunkDecoder {
+    /// The tail bytes of a codepoint the next read completes.
+    carry: Vec<u8>,
+    /// A `\r` at the end of a read: dropped if the next read starts with
+    /// `\n` (the pair is one newline), emitted as itself otherwise.
+    pending_cr: bool,
+}
+
+impl ChunkDecoder {
+    fn decode(&mut self, bytes: &[u8]) -> String {
+        let mut input = std::mem::take(&mut self.carry);
+        input.extend_from_slice(bytes);
+        let mut text = String::with_capacity(input.len() + 1);
+        let mut rest: &[u8] = &input;
+        loop {
+            match std::str::from_utf8(rest) {
+                Ok(valid) => {
+                    text.push_str(valid);
+                    rest = &rest[rest.len()..];
+                    break;
+                }
+                Err(err) => {
+                    let valid_up_to = err.valid_up_to();
+                    text.push_str(std::str::from_utf8(&rest[..valid_up_to]).unwrap_or_default());
+                    match err.error_len() {
+                        // Genuinely invalid bytes — exactly what
+                        // `from_utf8_lossy` would have made of them.
+                        Some(len) => {
+                            text.push(char::REPLACEMENT_CHARACTER);
+                            rest = &rest[valid_up_to + len..];
+                        }
+                        // Truncated: the next read finishes this codepoint.
+                        None => {
+                            rest = &rest[valid_up_to..];
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        self.carry.extend_from_slice(rest);
+        self.newlines(text)
+    }
+
+    /// EOF: hand back the `\r` we were holding and a replacement character
+    /// for a codepoint the child never finished writing.
+    fn flush(&mut self) -> String {
+        let mut text = String::new();
+        if self.pending_cr {
+            self.pending_cr = false;
+            text.push('\r');
+        }
+        if !std::mem::take(&mut self.carry).is_empty() {
+            text.push(char::REPLACEMENT_CHARACTER);
+        }
+        text
+    }
+
+    /// The line discipline turns every `\n` into `\r\n`; a scrollback card
+    /// wants neither the carriage return nor a phantom blank line.
+    fn newlines(&mut self, decoded: String) -> String {
+        let mut text = String::with_capacity(decoded.len() + 1);
+        if self.pending_cr {
+            self.pending_cr = false;
+            // Held over from the last read: only a `\n` right here makes it
+            // half of a pair.
+            if !decoded.starts_with('\n') {
+                text.push('\r');
+            }
+        }
+        text.push_str(&decoded);
+        if text.ends_with('\r') {
+            text.pop();
+            self.pending_cr = true;
+        }
+        text.replace("\r\n", "\n")
+    }
+}
 
 /// Where a terminal's chunks go: the session's local feed. Built by the
 /// caller (from a `Weak<SessionCtx>`, so a live terminal never keeps the
@@ -109,6 +217,10 @@ struct TerminalHandle {
     /// resolves immediately and keeps resolving.
     gate: Mutex<Option<flume::Sender<()>>>,
     signal: flume::Receiver<()>,
+    /// Set the moment `waitpid` returned — BEFORE the drain the exit waits
+    /// out, because this is what makes a pid safe to signal: once the child
+    /// is reaped its number may belong to somebody else.
+    reaped: Arc<AtomicBool>,
     /// Behind a lock because `Pty` is `Send` but not `Sync`, and every handle
     /// is shared with its reader and wait threads.
     pty: Mutex<Pty>,
@@ -116,6 +228,10 @@ struct TerminalHandle {
 }
 
 impl TerminalHandle {
+    /// Publish the exit: the closing feed event, then the gate. Called by the
+    /// wait thread once BOTH edges landed — the child reaped and the reader
+    /// at EOF — so the exit code is the last thing the feed sees and a
+    /// `terminal/output` taken after `wait_for_exit` is complete.
     fn record_exit(&self, exit: ChildExit) {
         {
             let mut state = self.lock();
@@ -180,13 +296,28 @@ impl TerminalHandle {
         }
     }
 
+    /// `terminal/kill`, `release`, cancel and end-of-run all land here.
+    /// portable-pty's signaller sends ONE SIGHUP, which a HUP-ignoring child
+    /// (a dev server, `trap '' HUP`) survives — so after a grace the child
+    /// and its group get SIGKILL. Never blocks the caller: the escalation
+    /// rides its own thread and signals nothing once the child is reaped.
     fn kill(&self) {
-        if let Ok(pty) = self.pty.lock() {
-            pty.kill();
+        let pid = match self.pty.lock() {
+            Ok(pty) => {
+                pty.kill();
+                pty.process_id()
+            }
+            Err(_) => None,
+        };
+        if let Some(pid) = pid {
+            if !self.reaped.load(Ordering::SeqCst) {
+                escalate_kill(pid, Arc::clone(&self.reaped));
+            }
         }
     }
 
-    /// Resolves once the child is reaped — immediately, if it already was.
+    /// Resolves once the child is reaped and drained — immediately, if it
+    /// already was.
     async fn exited(&self) {
         let _ = self.signal.recv_async().await;
     }
@@ -195,6 +326,47 @@ impl TerminalHandle {
         self.state.lock().unwrap_or_else(|err| err.into_inner())
     }
 }
+
+/// Block until the reader thread hit EOF — it drops its end of `edge`, and
+/// nothing is ever sent on it — or `grace` expires. `true` = the master is
+/// drained; `false` = the fallback fired and there may be bytes we will
+/// never see (a grandchild holding the slave open).
+fn await_drain(edge: &flume::Receiver<()>, grace: Duration) -> bool {
+    matches!(
+        edge.recv_timeout(grace),
+        Err(flume::RecvTimeoutError::Disconnected)
+    )
+}
+
+/// SIGKILL the child (and its group) unless it dies of the SIGHUP first.
+/// portable-pty `setsid`s every child, so it leads its own group and the
+/// group signal reaches what a shell spawned without touching anything else.
+#[cfg(unix)]
+fn escalate_kill(pid: u32, reaped: Arc<AtomicBool>) {
+    let _ = std::thread::Builder::new()
+        .name("acp-term-kill".into())
+        .spawn(move || {
+            let deadline = Instant::now() + KILL_GRACE;
+            while Instant::now() < deadline {
+                if reaped.load(Ordering::SeqCst) {
+                    return;
+                }
+                std::thread::sleep(KILL_POLL);
+            }
+            if reaped.load(Ordering::SeqCst) {
+                return;
+            }
+            unsafe {
+                libc::killpg(pid as i32, libc::SIGKILL);
+                libc::kill(pid as i32, libc::SIGKILL);
+            }
+        });
+}
+
+/// Windows has no SIGHUP to ignore: portable-pty's killer is already a
+/// `TerminateProcess`.
+#[cfg(not(unix))]
+fn escalate_kill(_pid: u32, _reaped: Arc<AtomicBool>) {}
 
 /// What `terminal/output` answers with.
 pub(crate) struct TerminalSnapshot {
@@ -226,6 +398,10 @@ impl Terminals {
         let (exit_slot, _wait) = pty.spawn_wait_thread(wake)?;
         let id = format!("term-{}", self.next.fetch_add(1, Ordering::SeqCst) + 1);
         let (gate, signal) = flume::bounded(0);
+        // Nothing is ever SENT on this: the reader thread DROPPING it is the
+        // EOF edge, so a panicking reader releases the exit too.
+        let (drained, drain_edge) = flume::bounded::<()>(0);
+        let reaped = Arc::new(AtomicBool::new(false));
         let handle = Arc::new(TerminalHandle {
             state: Mutex::new(TerminalState {
                 buffer: OutputBuffer::new(output_byte_limit),
@@ -234,6 +410,7 @@ impl Terminals {
             }),
             gate: Mutex::new(Some(gate)),
             signal,
+            reaped: Arc::clone(&reaped),
             pty: Mutex::new(pty),
             sink,
         });
@@ -244,20 +421,28 @@ impl Terminals {
             .name(name.clone())
             .spawn(move || {
                 let mut buf = [0u8; 8192];
+                let mut decoder = ChunkDecoder::default();
                 loop {
                     match reader.read(&mut buf) {
                         // EOF, or the master's EIO once the child side closed.
                         Ok(0) | Err(_) => break,
                         Ok(read) => {
-                            // The line discipline turns every `\n` into
-                            // `\r\n`; a scrollback card wants neither the
-                            // carriage return nor a phantom blank line.
-                            let chunk =
-                                String::from_utf8_lossy(&buf[..read]).replace("\r\n", "\n");
-                            reading.push(&chunk);
+                            let chunk = decoder.decode(&buf[..read]);
+                            // Empty when the read was nothing but a held `\r`
+                            // or half a codepoint — no row for that.
+                            if !chunk.is_empty() {
+                                reading.push(&chunk);
+                            }
                         }
                     }
                 }
+                let tail = decoder.flush();
+                if !tail.is_empty() {
+                    reading.push(&tail);
+                }
+                // Last: the exit below is published only after this drop, so
+                // no chunk can land behind the exit code.
+                drop(drained);
             })
             .map_err(|err| anyhow::anyhow!("spawn {name}: {err}"))?;
 
@@ -278,6 +463,12 @@ impl Terminals {
                         success: false,
                         signal: None,
                     });
+                // Reaped: the pid is no longer ours to signal.
+                reaped.store(true, Ordering::SeqCst);
+                // …but the master may still hold what the child wrote right
+                // before exiting, so the exit resolves on the LATER of the
+                // two edges (bounded by DRAIN_GRACE).
+                await_drain(&drain_edge, DRAIN_GRACE);
                 waiting.record_exit(exit);
             })
             .map_err(|err| anyhow::anyhow!("spawn acp-term-wait-{id}: {err}"))?;
@@ -425,12 +616,8 @@ mod tests {
 
         let exit = block_on(terminals.wait(&id)).expect("the terminal is known");
         assert_eq!(exit.code, 3);
-        until("the output", || {
-            terminals
-                .snapshot(&id)
-                .is_some_and(|snapshot| snapshot.output == "ab")
-        });
         let snapshot = terminals.snapshot(&id).expect("the terminal is known");
+        assert_eq!(snapshot.output, "ab");
         assert!(!snapshot.truncated);
         assert_eq!(snapshot.exit.map(|exit| exit.code), Some(3));
 
@@ -454,6 +641,184 @@ mod tests {
             "ab"
         );
         assert_eq!(outputs.last().map(|(.., code)| *code), Some(Some(3)));
+    }
+
+    /// The bug this guards (review C1): `waitpid` returns while the master
+    /// still holds what the child wrote right before exiting, so the exit
+    /// used to resolve over an undrained buffer — the agent's follow-up
+    /// `terminal/output` read a truncated summary and the feed got the exit
+    /// code BEFORE the last chunks (CLI prints `(exit 0)`, then more output;
+    /// the card is closed while lines keep appending).
+    #[cfg(unix)]
+    #[test]
+    fn the_exit_waits_for_the_last_chunk_the_child_wrote() {
+        let terminals = Terminals::default();
+        let (sink, events) = recording();
+        // Well over one 8 KB read, written in one go right before the exit.
+        let payload: String = (0..200).map(|line| format!("summary line {line:0>48}\n")).collect();
+        assert!(payload.len() > 8192);
+        let id = terminals
+            .create(
+                // `$0` carries the payload, so nothing has to survive
+                // quoting.
+                &SpawnSpec::new("sh")
+                    .arg("-c")
+                    .arg("printf %s \"$0\"; exit 3")
+                    .arg(&payload),
+                None,
+                sink,
+            )
+            .expect("the terminal spawns");
+        terminals.bind(&id, "tc-1");
+
+        let exit = block_on(terminals.wait(&id)).expect("the terminal is known");
+        assert_eq!(exit.code, 3);
+        // No polling: what `terminal/output` answers right after the wait is
+        // already the whole thing. (macOS drains the master when the session
+        // leader exits, so this only LOSES on Linux — where the reviewer's
+        // probe left ~3.5 KB unread in 8 of 300 runs; the drain edge itself
+        // is locked deterministically by the unit test below.)
+        let snapshot = terminals.snapshot(&id).expect("the terminal is known");
+        assert_eq!(snapshot.output, payload);
+
+        let events = events.lock().expect("the event log is not poisoned");
+        let chunks: Vec<(String, Option<i32>)> = events
+            .iter()
+            .map(|event| match event {
+                LocalFeedEvent::Output { chunk, exit_code, .. } => (chunk.clone(), *exit_code),
+                other => panic!("a terminal emits Output only, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            chunks.iter().map(|(chunk, _)| chunk.as_str()).collect::<String>(),
+            payload
+        );
+        // The exit code is the LAST event, and the only one carrying one.
+        assert_eq!(chunks.last().map(|(_, code)| *code), Some(Some(3)));
+        assert!(chunks[..chunks.len() - 1].iter().all(|(_, code)| code.is_none()));
+    }
+
+    /// The bug this guards (review C2): a PTY read boundary lands mid-
+    /// codepoint on any wide-character output, and decoding each read on its
+    /// own turned both halves into U+FFFD in the buffer the agent reads back.
+    #[cfg(unix)]
+    #[test]
+    fn a_multibyte_stream_crossing_read_boundaries_is_not_mangled() {
+        let terminals = Terminals::default();
+        let (sink, _events) = recording();
+        // 12 KB of a 3-byte codepoint: every 8192-byte read ends mid-`━`.
+        let payload = "━".repeat(4000);
+        let id = terminals
+            .create(
+                &SpawnSpec::new("sh")
+                    .arg("-c")
+                    .arg("printf %s \"$0\"")
+                    .arg(&payload),
+                None,
+                sink,
+            )
+            .expect("the terminal spawns");
+
+        let _ = block_on(terminals.wait(&id));
+        let snapshot = terminals.snapshot(&id).expect("the terminal is known");
+        assert!(
+            !snapshot.output.contains(char::REPLACEMENT_CHARACTER),
+            "no codepoint was split into replacement characters"
+        );
+        assert_eq!(snapshot.output, payload);
+    }
+
+    /// The bug this guards (review C3): portable-pty's signaller sends ONE
+    /// SIGHUP, so a child that ignores it (any HUP-reload server) survived
+    /// `terminal/kill`, the cancel and the end of the run — `wait_for_exit`
+    /// never resolved and the PTY leaked for the process lifetime.
+    #[cfg(unix)]
+    #[test]
+    fn a_hup_ignoring_child_is_killed_after_the_grace() {
+        let terminals = Terminals::default();
+        let (sink, _events) = recording();
+        let id = terminals
+            .create(
+                &SpawnSpec::new("sh")
+                    .arg("-c")
+                    .arg("trap '' HUP; printf ready; sleep 30"),
+                None,
+                sink,
+            )
+            .expect("the terminal spawns");
+        let handle = terminals.get(&id).expect("the terminal is known");
+        // Only kill once the trap is actually installed.
+        until("the trap", || {
+            terminals
+                .snapshot(&id)
+                .is_some_and(|snapshot| snapshot.output.contains("ready"))
+        });
+
+        assert!(terminals.kill(&id), "kill finds the terminal");
+        let started = Instant::now();
+        block_on(handle.exited());
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "the HUP-ignoring child was escalated to SIGKILL, not waited out"
+        );
+        assert!(handle.snapshot().exit.is_some(), "the exit is recorded");
+    }
+
+    /// The exit's second edge, deterministically: it waits for the reader
+    /// thread's EOF (the PTY test above only catches the race when the
+    /// kernel loses it), and the grace is what keeps a master that never
+    /// EOFs from wedging `wait_for_exit` forever.
+    #[test]
+    fn the_exit_waits_for_the_readers_eof_but_not_forever() {
+        let (drained, edge) = flume::bounded::<()>(0);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            drop(drained);
+        });
+        let started = Instant::now();
+        assert!(await_drain(&edge, Duration::from_secs(5)), "the EOF edge");
+        assert!(started.elapsed() >= Duration::from_millis(50));
+
+        // A reader that never finishes: the exit resolves on the grace.
+        let (_never, edge) = flume::bounded::<()>(0);
+        let started = Instant::now();
+        assert!(!await_drain(&edge, Duration::from_millis(50)), "the grace");
+        assert!(started.elapsed() >= Duration::from_millis(50));
+    }
+
+    /// A codepoint the read boundary cut in half is held, not replaced.
+    #[test]
+    fn a_codepoint_split_across_reads_survives() {
+        let mut decoder = ChunkDecoder::default();
+        let heavy = "━".as_bytes();
+        assert_eq!(decoder.decode(&heavy[..2]), "");
+        assert_eq!(decoder.decode(&[heavy[2], b'x']), "━x");
+        assert_eq!(decoder.flush(), "");
+    }
+
+    /// A `\r` is held until the next read says whether it was half of a pair.
+    #[test]
+    fn a_crlf_split_across_reads_becomes_one_newline() {
+        let mut decoder = ChunkDecoder::default();
+        assert_eq!(decoder.decode(b"a\r"), "a");
+        assert_eq!(decoder.decode(b"\nb"), "\nb");
+        // A carriage return the child meant (a progress line) still lands.
+        assert_eq!(decoder.decode(b"c\r"), "c");
+        assert_eq!(decoder.decode(b"d"), "\rd");
+        // …as does one the EOF caught.
+        assert_eq!(decoder.decode(b"e\r"), "e");
+        assert_eq!(decoder.flush(), "\r");
+    }
+
+    /// Bytes that are not UTF-8 at all still decode the way
+    /// `from_utf8_lossy` did, and a tail the child never finished writing
+    /// becomes one replacement character at EOF.
+    #[test]
+    fn invalid_bytes_still_decode_lossily() {
+        let mut decoder = ChunkDecoder::default();
+        assert_eq!(decoder.decode(b"a\xffb"), "a\u{fffd}b");
+        assert_eq!(decoder.decode(&[0xe2, 0x94]), "");
+        assert_eq!(decoder.flush(), "\u{fffd}");
     }
 
     /// The ACP truncation contract: drop from the START, never mid-codepoint
