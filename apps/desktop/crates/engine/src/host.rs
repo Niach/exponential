@@ -1035,7 +1035,12 @@ fn blocks_text(blocks: &[ContentBlock]) -> String {
 }
 
 /// The elicitation's id: its ACP scope where it has one, else a stable
-/// stand-in the mapper hashes.
+/// stand-in the mapper hashes. D3 pins the card id to the ACP tool-call id,
+/// and every ask an agent raises mid-tool is SESSION-scoped with that id on
+/// it (claude `AskUserQuestion`, codex `requestUserInput`), so the
+/// `<id>#<n>` stepper stays correlatable with the tool card it belongs to.
+/// A session scope with no tool call (pi) has nothing to name and falls
+/// through to the synthetic id.
 fn elicitation_id(request: &CreateElicitationRequest) -> String {
     use agent_client_protocol::schema::v1::{ElicitationMode, ElicitationScope};
     let scope = match &request.mode {
@@ -1044,15 +1049,23 @@ fn elicitation_id(request: &CreateElicitationRequest) -> String {
         _ => None,
     };
     match scope {
-        Some(ElicitationScope::Request(scope)) => format!("{:?}", scope.request_id),
-        _ => request
-            .meta
-            .as_ref()
-            .and_then(|meta| meta.get("askId"))
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
+        Some(ElicitationScope::Session(scope)) => {
+            if let Some(tool_call_id) = &scope.tool_call_id {
+                return tool_call_id.to_string();
+            }
+        }
+        // The wire id, never `{:?}`: a numeric JSON-RPC id is `3`, not
+        // `Number(3)`.
+        Some(ElicitationScope::Request(scope)) => return scope.request_id.to_string(),
+        _ => {}
     }
+    request
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.get("askId"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// The accumulated stepper fields in `elicitation/create`'s own shape.
@@ -1233,5 +1246,55 @@ mod tests {
             ]))
         );
         assert!(!content.contains_key("skipped"));
+    }
+
+    /// D3: the ask card is named by the ACP tool call it interrupts, so the
+    /// `<id>#<n>` stepper correlates with that tool's own card.
+    #[test]
+    fn a_session_scoped_elicitation_is_named_by_its_tool_call() {
+        use agent_client_protocol::schema::v1::{ElicitationSessionScope, ToolCallId};
+        let request = form_elicitation(
+            ElicitationSessionScope::new(SessionId::new("acp-1"))
+                .tool_call_id(ToolCallId::new("toolu_01ask")),
+        );
+        assert_eq!(elicitation_id(&request), "toolu_01ask");
+    }
+
+    /// A session scope with no tool call names nothing: the mapper mints the
+    /// synthetic id from the message instead.
+    #[test]
+    fn a_session_elicitation_without_a_tool_call_has_no_id() {
+        use agent_client_protocol::schema::v1::ElicitationSessionScope;
+        let request = form_elicitation(ElicitationSessionScope::new(SessionId::new("acp-1")));
+        assert_eq!(elicitation_id(&request), "");
+    }
+
+    /// A request-scoped ask (an external ACP agent, pre-session) carries the
+    /// WIRE id, never its `Debug` spelling.
+    #[test]
+    fn a_request_scoped_elicitation_carries_the_wire_request_id() {
+        use agent_client_protocol::schema::v1::{ElicitationRequestScope, RequestId};
+        assert_eq!(
+            elicitation_id(&form_elicitation(ElicitationRequestScope::new(
+                RequestId::Number(3)
+            ))),
+            "3"
+        );
+        assert_eq!(
+            elicitation_id(&form_elicitation(ElicitationRequestScope::new(
+                RequestId::Str("req-7".to_string())
+            ))),
+            "req-7"
+        );
+    }
+
+    fn form_elicitation(
+        scope: impl Into<agent_client_protocol::schema::v1::ElicitationScope>,
+    ) -> CreateElicitationRequest {
+        use agent_client_protocol::schema::v1::{ElicitationFormMode, ElicitationSchema};
+        CreateElicitationRequest::new(
+            ElicitationFormMode::new(scope, ElicitationSchema::new()),
+            "Which approach?",
+        )
     }
 }

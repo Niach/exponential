@@ -25,14 +25,17 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use agent_client_protocol::schema::v1::{
-    AvailableCommand, AvailableCommandsUpdate, ContentBlock, ContentChunk, InitializeRequest,
+    AvailableCommand, AvailableCommandsUpdate, ContentBlock, ContentChunk,
+    CreateElicitationRequest, ElicitationAction, ElicitationContentValue, ElicitationFormMode,
+    ElicitationPropertySchema, ElicitationSchema, ElicitationSessionScope, InitializeRequest,
     InitializeResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
     NewSessionResponse, PermissionOption, PermissionOptionId, PermissionOptionKind, PromptRequest,
     PromptResponse, ReadTextFileRequest, RequestPermissionOutcome, RequestPermissionRequest,
     SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption, SessionId,
     SessionMode, SessionModeId, SessionModeState, SessionNotification, SessionUpdate,
     SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
-    SetSessionModeResponse, StopReason, TextContent, ToolCall, ToolCallId, ToolKind,
+    SetSessionModeResponse, StopReason, StringPropertySchema, TextContent, ToolCall, ToolCallId,
+    ToolKind,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{
@@ -59,6 +62,8 @@ struct FakeState {
     released: AtomicBool,
     /// The permission option the client picked.
     chosen: Mutex<Option<String>>,
+    /// The form field the client sent back for the elicitation.
+    elicited: Mutex<Option<String>>,
     /// The cancel notification arrived (the deadlock guard).
     cancelled: AtomicBool,
     /// The client answered `fs/read_text_file` with an error.
@@ -297,6 +302,40 @@ async fn run_turn(
                 if let RequestPermissionOutcome::Selected(selected) = response.outcome {
                     *state.chosen.lock().expect("the choice slot is not poisoned") =
                         Some(selected.option_id.0.to_string());
+                }
+            }
+            StopReason::EndTurn
+        }
+        // The ask an agent raises mid-tool: session-scoped, carrying the id
+        // of the tool call it interrupts.
+        "ask" => {
+            let response = cx
+                .send_request(CreateElicitationRequest::new(
+                    ElicitationFormMode::new(
+                        ElicitationSessionScope::new(session_id.clone())
+                            .tool_call_id(ToolCallId::new("tc-ask")),
+                        ElicitationSchema::new().property(
+                            "approach",
+                            ElicitationPropertySchema::String(
+                                StringPropertySchema::new().title("Which approach?").enum_values(
+                                    vec!["rewrite".to_string(), "patch".to_string()],
+                                ),
+                            ),
+                            false,
+                        ),
+                    ),
+                    "The agent has a question",
+                ))
+                .block_task()
+                .await;
+            if let Ok(response) = response {
+                if let ElicitationAction::Accept(accept) = response.action {
+                    *state.elicited.lock().expect("the form slot is not poisoned") = accept
+                        .content
+                        .and_then(|content| match content.get("approach") {
+                            Some(ElicitationContentValue::String(text)) => Some(text.clone()),
+                            _ => None,
+                        });
                 }
             }
             StopReason::EndTurn
@@ -646,6 +685,50 @@ fn a_permission_is_answerable_and_resolves_the_agents_request() {
             .expect("the choice slot is not poisoned")
             .as_deref(),
         Some("allow")
+    );
+    harness.session.kill("killed");
+}
+
+/// D3: an `elicitation/create` card is named by the tool call its SESSION
+/// scope carries — `<toolCallId>#<n>` steps, `#submit` at the end — never a
+/// synthetic hash, so the ask stays correlatable with the tool event it
+/// interrupts.
+#[test]
+fn an_elicitation_is_a_stepper_keyed_on_its_tool_call() {
+    let harness = start_fake("elicitation");
+    harness.session.send_prompt("ask".to_string());
+    until("the question card", || {
+        !events_of(&harness.sink, "question").is_empty()
+    });
+    let question = events_of(&harness.sink, "question").remove(0);
+    assert_eq!(question["id"], "tc-ask#0");
+    assert_eq!(question["askId"], "tc-ask");
+    assert_eq!(question["options"][0]["key"], "rewrite");
+
+    harness.session.answer(steer::RemoteAnswer {
+        question_id: "tc-ask#0".to_string(),
+        ask_id: Some("tc-ask".to_string()),
+        keys: vec!["patch".to_string()],
+        text: None,
+    });
+
+    // A lone-step form submits on its answer: the agent gets the field back.
+    until("the agent's accepted form", || {
+        harness
+            .state
+            .elicited
+            .lock()
+            .expect("the form slot is not poisoned")
+            .is_some()
+    });
+    assert_eq!(
+        harness
+            .state
+            .elicited
+            .lock()
+            .expect("the form slot is not poisoned")
+            .as_deref(),
+        Some("patch")
     );
     harness.session.kill("killed");
 }
