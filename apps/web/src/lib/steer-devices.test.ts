@@ -7,6 +7,8 @@ import {
   deviceAgentLaunchDefaults,
   deviceDefaultAgent,
   deviceIsMine,
+  deviceStartsInTerminal,
+  deviceSupportsAcp,
   deviceUpdateAvailable,
   showDeviceUpdateButton,
   type SteerDevice,
@@ -165,6 +167,35 @@ describe(`device launch defaults`, () => {
       ultracode: false,
       planMode: false,
     })
+  })
+})
+
+// EXP-746: the device-GLOBAL transport toggle and the engine capability.
+describe(`start in terminal (EXP-746)`, () => {
+  it(`reads the device-global toggle, defaulting to the session screen`, () => {
+    expect(
+      deviceStartsInTerminal(
+        server({ launchDefaults: { startInTerminal: true } })
+      )
+    ).toBe(true)
+    expect(
+      deviceStartsInTerminal(
+        server({ launchDefaults: { startInTerminal: false } })
+      )
+    ).toBe(false)
+    // A machine that never toggled it (or an older build that cannot) runs on
+    // the session screen.
+    expect(
+      deviceStartsInTerminal(server({ launchDefaults: { defaultAgent: `claude` } }))
+    ).toBe(false)
+    expect(deviceStartsInTerminal(server())).toBe(false)
+    expect(deviceStartsInTerminal(undefined)).toBe(false)
+  })
+
+  it(`gates ACP hosting on the advertised cap`, () => {
+    expect(deviceSupportsAcp({ caps: [`worktrees`, `acp`] })).toBe(true)
+    expect(deviceSupportsAcp({ caps: [`worktrees`] })).toBe(false)
+    expect(deviceSupportsAcp({})).toBe(false)
   })
 })
 

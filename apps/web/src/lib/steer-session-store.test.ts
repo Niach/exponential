@@ -812,3 +812,186 @@ describe(`compaction`, () => {
     store.dispose()
   })
 })
+
+// EXP-746: `config_state` and `usage` are latest-wins SLOTS on the snapshot,
+// and the two outbound frames that change them are fire-and-forget.
+describe(`live config + usage (EXP-746)`, () => {
+  const configEvent = (over: Record<string, unknown> = {}) => ({
+    t: `activity`,
+    event: {
+      kind: `config_state`,
+      options: [
+        {
+          id: `model`,
+          label: `Model`,
+          value: `opus`,
+          values: [
+            { id: `opus`, label: `Opus` },
+            { id: `sonnet`, label: `Sonnet` },
+          ],
+        },
+      ],
+      modes: [{ id: `plan`, label: `Plan` }],
+      currentMode: `plan`,
+      commands: [{ name: `review`, description: `Review the diff` }],
+      ...over,
+    },
+  })
+  const usageEvent = (over: Record<string, unknown> = {}) => ({
+    t: `activity`,
+    event: {
+      kind: `usage`,
+      contextUsed: 124_000,
+      contextSize: 200_000,
+      costUsd: 1.24,
+      ...over,
+    },
+  })
+
+  it(`config_state lands in the snapshot as a slot, never a feed row`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(configEvent())
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toEqual([])
+    expect(store.getSnapshot().config).toEqual({
+      options: [
+        {
+          id: `model`,
+          label: `Model`,
+          value: `opus`,
+          values: [
+            { id: `opus`, label: `Opus` },
+            { id: `sonnet`, label: `Sonnet` },
+          ],
+        },
+      ],
+      modes: [{ id: `plan`, label: `Plan` }],
+      commands: [{ name: `review`, description: `Review the diff` }],
+      currentMode: `plan`,
+    })
+    store.dispose()
+  })
+
+  it(`a newer config_state replaces the whole snapshot`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(configEvent())
+    socket.frame(
+      configEvent({
+        options: [{ id: `effort`, label: `Effort`, value: `high` }],
+        modes: undefined,
+        currentMode: undefined,
+        commands: undefined,
+      })
+    )
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().config).toEqual({
+      options: [{ id: `effort`, label: `Effort`, value: `high` }],
+      modes: [],
+      commands: [],
+    })
+    store.dispose()
+  })
+
+  it(`a malformed config_state leaves the previous snapshot standing`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(configEvent())
+    await vi.advanceTimersByTimeAsync(100)
+    const before = store.getSnapshot().config
+    socket.frame({ t: `activity`, event: { kind: `config_state` } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().config).toBe(before)
+    store.dispose()
+  })
+
+  it(`usage lands in the snapshot and a zero context size clears it`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(usageEvent())
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().usage).toEqual({
+      contextUsed: 124_000,
+      contextSize: 200_000,
+      costUsd: 1.24,
+    })
+    expect(store.getSnapshot().feed).toEqual([])
+    // "Unknown", not "empty" — a stale meter beside a live run reads as
+    // current, so the slot goes rather than standing.
+    socket.frame(usageEvent({ contextUsed: 0, contextSize: 0 }))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().usage).toBeNull()
+    store.dispose()
+  })
+
+  it(`an activity_reset drops the config and usage slots`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame(configEvent())
+    socket.frame(usageEvent())
+    await vi.advanceTimersByTimeAsync(100)
+    socket.frame({ t: `activity_reset` })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().config).toBeNull()
+    expect(store.getSnapshot().usage).toBeNull()
+    store.dispose()
+  })
+
+  it(`setConfig sends one set_config frame and nothing else`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    const before = socket.sent.length
+    expect(store.setConfig(`model`, `sonnet`)).toBe(true)
+    expect(socket.sent.slice(before)).toEqual([
+      JSON.stringify({ t: `set_config`, id: `model`, value: `sonnet` }),
+    ])
+    // Fire-and-forget: no optimistic slot write, the re-emission repaints.
+    expect(store.getSnapshot().config).toBeNull()
+    store.dispose()
+  })
+
+  it(`setConfig sends a blank value verbatim`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    const before = socket.sent.length
+    expect(store.setConfig(`model`, ``)).toBe(true)
+    expect(socket.sent.slice(before)).toEqual([
+      JSON.stringify({ t: `set_config`, id: `model`, value: `` }),
+    ])
+    store.dispose()
+  })
+
+  it(`setMode sends one set_mode frame`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    const before = socket.sent.length
+    expect(store.setMode(`plan`)).toBe(true)
+    expect(socket.sent.slice(before)).toEqual([
+      JSON.stringify({ t: `set_mode`, id: `plan` }),
+    ])
+    store.dispose()
+  })
+
+  it(`setConfig on a closed socket returns false and sends nothing`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.serverClose(1006)
+    const before = socket.sent.length
+    expect(store.setConfig(`model`, `sonnet`)).toBe(false)
+    expect(store.setMode(`plan`)).toBe(false)
+    expect(socket.sent).toHaveLength(before)
+    store.dispose()
+  })
+
+  it(`a future activity kind is still ignored`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `activity`, event: { kind: `telemetry`, value: 7 } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toEqual([])
+    expect(store.getSnapshot().config).toBeNull()
+    expect(store.getSnapshot().usage).toBeNull()
+    store.dispose()
+  })
+})

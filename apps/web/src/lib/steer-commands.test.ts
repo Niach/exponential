@@ -3,12 +3,15 @@ import { contract } from "@exp/domain-contract"
 import {
   filterSteerCommands,
   matchSlashDraft,
+  mergeAgentCommands,
   parseSteerCommand,
   steerCommandDraft,
   steerCommandConfirmCopy,
   steerCommandsFor,
   COMPACTED_LABEL,
   COMPACTING_LABEL,
+  CONFIG_DEFAULT_VALUE_LABEL,
+  CONFIG_MODE_LABEL,
   DEFAULT_STEER_AGENT,
   STEER_COMMANDS,
 } from "./steer-commands"
@@ -148,5 +151,65 @@ describe(`copy`, () => {
       cancel: `Cancel`,
     })
     expect(steerCommandConfirmCopy(`compact`).title).toBe(`Run /compact?`)
+  })
+})
+
+// EXP-746: on an ACP run the `/` menu is the contract catalog UNION the
+// agent's own advertised commands. Mirrored ×4 with these exact names.
+describe(`mergeAgentCommands`, () => {
+  const claude = steerCommandsFor(`claude`)
+
+  it(`mergeAgentCommands lists the contract commands first`, () => {
+    const merged = mergeAgentCommands(
+      claude,
+      [
+        { name: `review`, description: `Review the diff`, hint: `<path>` },
+        { name: `ship`, description: `Open the PR` },
+      ],
+      `claude`
+    )
+    expect(merged.slice(0, claude.length)).toEqual(claude)
+    expect(merged.slice(claude.length)).toEqual([
+      {
+        name: `review`,
+        description: `Review the diff`,
+        argHint: `<path>`,
+        agents: [`claude`],
+        confirm: false,
+      },
+      {
+        name: `ship`,
+        description: `Open the PR`,
+        argHint: ``,
+        agents: [`claude`],
+        confirm: false,
+      },
+    ])
+    // An agent-less run is a claude run, like everywhere else.
+    expect(
+      mergeAgentCommands([], [{ name: `ship`, description: `` }])[0].agents
+    ).toEqual([DEFAULT_STEER_AGENT])
+  })
+
+  it(`an agent command that shadows a contract name is dropped`, () => {
+    const shadow = claude[0]
+    const merged = mergeAgentCommands(
+      claude,
+      [
+        { name: shadow.name.toUpperCase(), description: `The agent's own` },
+        { name: `   `, description: `blank` },
+      ],
+      `claude`
+    )
+    // The contract's own entry survives untouched — never confirm-flipped by
+    // an agent that happens to ship the same name.
+    expect(merged).toEqual(claude)
+  })
+})
+
+describe(`config chip copy (EXP-746)`, () => {
+  it(`pins the chip labels byte for byte`, () => {
+    expect(CONFIG_DEFAULT_VALUE_LABEL).toBe(`CLI default`)
+    expect(CONFIG_MODE_LABEL).toBe(`Mode`)
   })
 })

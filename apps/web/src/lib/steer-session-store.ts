@@ -3,6 +3,8 @@ import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import {
   ackAnswer,
   answerKey,
+  parseConfigState,
+  parseSessionUsage,
   applyQuestionResolved,
   beginAnswer,
   clearAnswer,
@@ -19,6 +21,8 @@ import {
   FEED_CAP,
   type AnswerStates,
   type EchoEntry,
+  type SessionConfigState,
+  type SessionUsageState,
 } from "@/lib/agent-feed"
 import {
   isAcceptedImageContentType,
@@ -172,6 +176,25 @@ export type ActivityEvent =
       trigger?: `manual` | `auto`
       at?: number
     }
+  // EXP-746 (ACP engine): the agent's live configuration and its context
+  // meter. Both are LATEST-WINS STATE — the newest event replaces the
+  // previous one in a snapshot SLOT and never appends a feed row (the `diff`
+  // precedent). The relay replays its latest of each right after the log.
+  | {
+      kind: `config_state`
+      options: SessionConfigState[`options`]
+      currentMode?: string
+      modes?: SessionConfigState[`modes`]
+      commands?: SessionConfigState[`commands`]
+      at?: number
+    }
+  | {
+      kind: `usage`
+      contextUsed: number
+      contextSize: number
+      costUsd?: number
+      at?: number
+    }
 
 type ServerFrame =
   | { t: `activity`; event: ActivityEvent }
@@ -289,6 +312,12 @@ export interface SteerSessionSnapshot {
   latestDiff: string | null
   /** Non-null while the agent is compacting (EXP-724). */
   compacting: CompactionState | null
+  /** EXP-746: the agent's live configuration behind the composer chips — a
+   *  latest-wins SLOT, like `latestDiff`, never a feed row. Null until the
+   *  engine publishes one (every PTY run stays null). */
+  config: SessionConfigState | null
+  /** EXP-746: the run's own context/spend meter, same latest-wins rule. */
+  usage: SessionUsageState | null
   answerStates: AnswerStates
   /** The socket is actually open. Distinct from the phase: a silent
    *  slow-consumer redial keeps `phase: live` while the socket is briefly
@@ -355,6 +384,11 @@ export interface SteerSessionStore {
     labels: string[],
     text?: string
   ): void
+  /** EXP-746: switch one live config option (a composer chip). False = the
+   *  socket is down and nothing went out. */
+  setConfig(id: string, value: string): boolean
+  /** EXP-746: switch the session mode (the mode chip). */
+  setMode(id: string): boolean
   setDraftText(text: string): void
   addDraftImages(files: File[]): AddDraftImagesResult
   removeDraftImage(url: string): void
@@ -396,6 +430,8 @@ export function createSteerSessionStore(
   let feed: FeedItem[] = []
   let latestDiff: string | null = null
   let compacting: CompactionState | null = null
+  let config: SessionConfigState | null = null
+  let usage: SessionUsageState | null = null
   let compactionTimer: ReturnType<typeof setTimeout> | null = null
   let answerStates: AnswerStates = {}
   let connected = false
@@ -418,6 +454,8 @@ export function createSteerSessionStore(
     feed,
     latestDiff,
     compacting,
+    config,
+    usage,
     answerStates,
     connected,
   }
@@ -427,7 +465,16 @@ export function createSteerSessionStore(
     for (const listener of listeners) listener()
   }
   const commit = () => {
-    snapshot = { phase, feed, latestDiff, compacting, answerStates, connected }
+    snapshot = {
+      phase,
+      feed,
+      latestDiff,
+      compacting,
+      config,
+      usage,
+      answerStates,
+      connected,
+    }
     notify()
   }
   const commitDraft = () => {
@@ -510,6 +557,13 @@ export function createSteerSessionStore(
     feed = []
     latestDiff = null
     clearCompaction()
+    // EXP-746: the latest-wins slots go with the log. The relay replays its
+    // own latest `config_state`/`usage` immediately after it, and the
+    // coalescer applies reset + replay + commit in ONE synchronous batch, so
+    // the chips repaint before any render — the same flicker exposure the
+    // diff bar has always had.
+    config = null
+    usage = null
     answerStates = {}
     // After a reset the replayed transcript event is the ONLY copy of a sent
     // message and must render.
@@ -639,6 +693,22 @@ export function createSteerSessionStore(
         // start marker for its automatic compaction, and the fold happened
         // either way.
         append({ kind: `compaction` })
+        return
+      }
+      case `config_state`: {
+        // EXP-746: a SLOT, not a row. A payload we cannot read keeps the
+        // previous snapshot standing — blanking the chips mid-run would read
+        // as "the agent lost its settings", which is never what a malformed
+        // frame means.
+        const next = parseConfigState(event)
+        if (next) config = next
+        return
+      }
+      case `usage`: {
+        // Same slot rule, opposite null handling: an unusable payload (a zero
+        // context window included) CLEARS the meter — a stale used/size beside
+        // a live run reads as current, and "unknown" is what a zero size says.
+        usage = parseSessionUsage(event)
         return
       }
       default:
@@ -837,6 +907,11 @@ export function createSteerSessionStore(
             return
           }
           default:
+            // Unknown frames are inert — `activity_synced` (EXP-656) included:
+            // web deliberately does NOT stage a replay behind it. Both EXP-746
+            // kinds are latest-wins, so a mid-replay intermediate value is
+            // invisible by construction, and staging the whole feed is its own
+            // change. Not an oversight.
             return
         }
       }
@@ -929,6 +1004,24 @@ export function createSteerSessionStore(
   ): boolean => {
     if (ws?.readyState !== WebSocket.OPEN) return false
     ws.send(JSON.stringify({ t: `answer`, questionId, askId, keys, text }))
+    return true
+  }
+
+  /** EXP-746: change one live agent option. Fire-and-forget — the publisher
+   *  re-emits `config_state` once it applied and that repaint IS the
+   *  confirmation, so there is no optimistic write and no ack timer. A blank
+   *  `value` is the "CLI default" choice and rides verbatim. */
+  const sendConfigFrame = (id: string, value: string): boolean => {
+    if (ws?.readyState !== WebSocket.OPEN) return false
+    ws.send(JSON.stringify({ t: `set_config`, id, value }))
+    return true
+  }
+
+  /** EXP-746: switch to one of the modes `config_state.modes[]` advertised.
+   *  Same fire-and-forget rule as `sendConfigFrame`. */
+  const sendModeFrame = (id: string): boolean => {
+    if (ws?.readyState !== WebSocket.OPEN) return false
+    ws.send(JSON.stringify({ t: `set_mode`, id }))
     return true
   }
 
@@ -1079,6 +1172,16 @@ export function createSteerSessionStore(
         }, ANSWER_ACK_TIMEOUT_MS)
       )
       commit()
+    },
+    /** EXP-746: fire-and-forget config switches. No optimistic slot write —
+     *  the publisher's re-emitted `config_state` is the confirmation, and a
+     *  refused switch simply repaints the OLD value (which is honest: the
+     *  agent kept it). */
+    setConfig(id, value) {
+      return sendConfigFrame(id, value)
+    },
+    setMode(id) {
+      return sendModeFrame(id)
     },
     setDraftText(text) {
       draftText = text
