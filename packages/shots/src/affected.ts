@@ -101,14 +101,14 @@ const IGNORED: RegExp[] = [
   /^apps\/desktop\/crates\/ui\/src\/(lib|window_hooks)\.rs$/,
   // The CLI is gpui-free by construction; the styleguide site READS the store.
   /^apps\/desktop\/crates\/cli\//,
-  // The scrubbed activity feed and the relay publisher. The desktop is the
-  // session HOST: it renders its agent in a real terminal grid and draws no
-  // activity feed of its own (`views.json` steering, desktop: "there is no
-  // dock to open on it"), so this extraction can only move pixels on the OTHER
-  // clients — which read it off the relay, not out of this crate. Named file by
-  // file on purpose: `crates/steer/src/lib.rs` also owns
-  // `persistent_device_id`, which decides which synced `devices` row the
-  // machine-settings view calls "this machine".
+  // The scrubbed activity feed and the relay publisher: the PUBLISHING half of
+  // steering. The desktop's own `steering` shot is captured as a VIEWER
+  // (EXP-732) — it renders what the relay stub publishes, not what these files
+  // build — so a change here can only move pixels on the clients that read the
+  // feed, never in this frame. Named file by file on purpose: the rest of
+  // `crates/steer/src/` DOES draw the session screen's feed (see
+  // DESKTOP_FAMILIES), and `lib.rs` owns `persistent_device_id`, which decides
+  // which synced `devices` row the machine-settings view calls "this machine".
   /^apps\/desktop\/crates\/steer\/src\/(activity|codex_activity|publisher)\.rs$/,
   // An OS-level surface, not in-app pixels: notification banners are drawn by
   // the notification centre, and the in-app toggle that gates them lives in
@@ -276,12 +276,36 @@ const DESKTOP_FAMILIES: { test: RegExp; views: RegExp; why: string }[] = [
     // tab plumbing: every pixel this crate draws is inside a terminal grid.
     // The CHROME around the grid — dock strip, tab bar, open/close slide —
     // is `crates/ui/src/terminal_dock.rs` and keeps its own attribution.
-    // `steering` is here because the desktop steers its agent through a real
-    // terminal; its catalog entry is `drive: manual`, so the lane skips it
-    // either way.
+    // `steering` LEFT this family with EXP-732: the shot is the ACP session
+    // SCREEN, drawn by `session_screen.rs` off the relay feed, and no terminal
+    // grid is in the frame — it has its own family below.
     test: /^apps\/desktop\/crates\/terminal\//,
-    views: /^(terminal|steering)$/,
+    views: /^terminal$/,
     why: `the terminal grid`,
+  },
+  {
+    // The session screen and what fills it: the ACP engine and its adapters,
+    // the steer crate's viewer/feed/wire types, and the two ui modules that
+    // draw the tab (`session_screen.rs` renders it, `steer_viewer.rs` is the
+    // relay-fed feed behind it when this process hosts no engine — which is
+    // exactly how the shot is captured, EXP-732).
+    test: /^apps\/desktop\/crates\/(engine\/src\/|steer\/src\/(viewer|feed|frames|journal)\.rs|ui\/src\/(session_screen|steer_viewer)\.rs)/,
+    views: /^steering$/,
+    why: `the coding-session screen and its feed`,
+  },
+  {
+    // The rest of the steer crate that DRAWS: the grid pickers (permission,
+    // plan, question, login, codex approval), the hook sidecar and the control
+    // channel behind them. They render into the PTY grid AND ride the feed the
+    // session screen shows, so they claim both — never the whole lane.
+    //
+    // `crates/steer/src/lib.rs` stays out of both families: it owns
+    // `persistent_device_id`, which decides which synced `devices` row
+    // machine-settings calls "this machine". So do the Cargo manifests — a
+    // dependency bump in either crate can move pixels anywhere.
+    test: /^apps\/desktop\/crates\/steer\/src\/(?!lib\.rs)/,
+    views: /^(steering|terminal)$/,
+    why: `the session pickers the agent draws into the grid`,
   },
   {
     // The markdown parser/serializer, the WYSIWYG editor, its toolbar and
@@ -593,10 +617,11 @@ function captured(viewId: string, platform: Platform): boolean {
 
 /**
  * Can an unattended run produce this pair at all? A `drive: manual` desktop
- * view (the steering host terminal) is captured by hand with `--manual`, so
- * the missing-image rule must not keep listing it (EXP-647): it would sit in
- * every scope forever and cost the same "drop it" judgement on every run. A
- * diff that names it still attributes to it — the log then says so.
+ * view (`chat`, started from the dock strip; `steering` was one until EXP-732
+ * automated it) is captured by hand with `--manual`, so the missing-image rule
+ * must not keep listing it (EXP-647): it would sit in every scope forever and
+ * cost the same "drop it" judgement on every run. A diff that names it still
+ * attributes to it — the log then says so.
  */
 function automatable(view: View, platform: Platform): boolean {
   if (platform === `desktop`) return view.desktop?.drive.kind !== `manual`
@@ -646,8 +671,21 @@ function desktopTokens(view: View): string[] {
  */
 const DESKTOP_WRAPPER = /_(prefs|pane|section|dialog|popover|sheet)$/
 
+/**
+ * Modules whose NAME lies about what they draw, matched before anything else
+ * and always widened.
+ *
+ * `session.rs` is the AUTH session — the login/bootstrap/sign-out glue every
+ * window goes through — and it collided with `steering` the moment that view's
+ * drive became `session:$steeredSession` (EXP-732), which would have narrowed a
+ * change in the sign-in path to one screenshot of a coding session. The name
+ * match is a heuristic; this is where a name it gets wrong is written down.
+ */
+const DESKTOP_NAME_LIES = new Set([`apps/desktop/crates/ui/src/session.rs`])
+
 /** Views a `crates/ui/src/**.rs` path names. Empty = widen to the whole lane. */
 function desktopMatches(path: RepoPath): string[] {
+  if (DESKTOP_NAME_LIES.has(path)) return []
   const match = path.match(/^apps\/desktop\/crates\/ui\/src\/(.+)\.rs$/)
   if (!match) return []
   const segments = match[1]!.split(`/`).filter((segment) => segment !== `mod`)

@@ -20,10 +20,20 @@
  */
 import { and, asc, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { actions, automations, boards, devices, issues, supportThreads, teams } from "@/db/schema"
+import {
+  actions,
+  automations,
+  boards,
+  codingSessions,
+  devices,
+  issues,
+  supportThreads,
+  teams,
+} from "@/db/schema"
 import { mintSupportToken } from "@/lib/helpdesk/token"
 import {
   DEMO_DEVICE_ID,
+  DEMO_STEERED_SESSION_ID,
   EMPTY_BOARD_SLUG,
   SUPPORT_REPORTER_THREAD_TITLE,
   TEAM_SLUG,
@@ -54,6 +64,13 @@ export interface DemoIds {
   actionId?: string
   deviceId?: string
   automationId?: string
+  /**
+   * The `coding_sessions` row the `steering` view is photographed on — the
+   * demo user's running showcase run, which the seed stamps with the pinned
+   * `DEMO_STEERED_SESSION_ID` so both the web route and the desktop's
+   * `EXP_DEV_SCREEN=session:<id>` can name it (EXP-732).
+   */
+  steeredSessionId?: string
 }
 
 export async function resolveDemoIds(): Promise<DemoIds> {
@@ -152,6 +169,20 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     .where(eq(devices.deviceId, DEMO_DEVICE_ID))
     .limit(1)
 
+  // The showcase run behind the `steering` shot. Its id is PINNED by the seed,
+  // so this is a presence check rather than a lookup: an older seed (or a
+  // reseed that never planted the row) leaves the desktop's
+  // `EXP_DEV_SCREEN=session:<id>` pointing at nothing, and the app would open
+  // its default screen and photograph the board under `steering`. Reported as
+  // absent so the view skips instead.
+  const [steeredSession] = await db
+    .select({ id: codingSessions.id })
+    .from(codingSessions)
+    .where(
+      and(eq(codingSessions.id, DEMO_STEERED_SESSION_ID), eq(codingSessions.teamId, team.id))
+    )
+    .limit(1)
+
   const [automation] = await db
     .select({ id: automations.id })
     .from(automations)
@@ -175,5 +206,6 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     actionId: action.id,
     deviceId: device?.id,
     automationId: automation?.id,
+    steeredSessionId: steeredSession?.id,
   }
 }
