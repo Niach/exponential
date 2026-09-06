@@ -52,8 +52,9 @@ use std::time::Duration;
 use gpui::{
     bounce, div, ease_in_out, prelude::FluentBuilder as _, px, relative, AnimationExt as _,
     AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle, Focusable,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement as _, StyledImage as _, Styled as _, Subscription, Task, Window,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle,
+    ScrollWheelEvent, SharedString, StatefulInteractiveElement as _, StyledImage as _, Styled as _,
+    Subscription, Task, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
@@ -227,6 +228,14 @@ pub(crate) struct SteerSessionView {
     /// and a folded diff are different questions about the same row).
     expanded_extras: HashSet<FeedItemId>,
     scroll: ScrollHandle,
+    /// EXP-732: whether the feed pane follows its tail. On by default — a
+    /// session tab opens on the newest rows (the question waiting for an
+    /// answer, the composer's context), and every appended row keeps it
+    /// there. An upward wheel scroll releases it so the reader can look back
+    /// while the agent keeps talking; scrolling back to the bottom re-arms
+    /// it. `ScrollHandle::scroll_to_bottom` is deferred to the next layout,
+    /// so the request is made when the feed CHANGES, never during render.
+    follow_tail: bool,
     focus_handle: FocusHandle,
     _drain: Task<()>,
     _subscriptions: Vec<Subscription>,
@@ -353,6 +362,7 @@ impl SteerSessionView {
             extras: crate::session_extras::LocalExtras::default(),
             expanded_extras: HashSet::new(),
             scroll: ScrollHandle::new(),
+            follow_tail: true,
             focus_handle: cx.focus_handle(),
             _drain: drain,
             _subscriptions: subscriptions,
@@ -668,8 +678,30 @@ impl SteerSessionView {
             }
         }
         self.note_compaction(was_compacting, cx);
+        self.feed_changed();
         cx.notify();
     }
+
+    /// The feed gained, replaced or replayed rows: keep the pane on its tail
+    /// while the reader has not scrolled away (see `follow_tail`).
+    fn feed_changed(&self) {
+        if self.follow_tail {
+            self.scroll.scroll_to_bottom();
+        }
+    }
+
+    /// The feed pane's wheel handler: an upward scroll is the reader looking
+    /// back, so the tail stops following; `render` re-arms it once the pane
+    /// is back at the bottom.
+    fn on_feed_wheel(&mut self, event: &ScrollWheelEvent, window: &Window) {
+        if event.delta.pixel_delta(window.line_height()).y > px(0.) {
+            self.follow_tail = false;
+        }
+    }
+
+    /// Pixels of slack under which the pane counts as "at the bottom" — a
+    /// fractional-pixel offset after a resize must not un-follow the tail.
+    const TAIL_SLACK: gpui::Pixels = px(8.);
 
     /// EXP-746 — one event off the in-process engine.
     ///
@@ -717,6 +749,7 @@ impl SteerSessionView {
             }
             other => self.extras.apply(other),
         }
+        self.feed_changed();
         cx.notify();
     }
 
@@ -779,6 +812,7 @@ impl SteerSessionView {
                     if quiet >= REPLAY_QUIET || capped {
                         let was_compacting = this.feed.compacting().is_some();
                         this.feed.force_swap();
+                        this.feed_changed();
                         this.note_compaction(was_compacting, cx);
                         this.staging_started = None;
                         cx.notify();
@@ -1824,7 +1858,11 @@ impl SteerSessionView {
                     .child(div().text_xs().text_color(muted).child("Working…")),
             );
         }
-        crate::scroll_pane::v_scroll_pane("steer-feed", &self.scroll, column).into_any_element()
+        crate::scroll_pane::v_scroll_pane("steer-feed", &self.scroll, column)
+            .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, window, _cx| {
+                this.on_feed_wheel(event, window);
+            }))
+            .into_any_element()
     }
 
     fn render_row(
@@ -3468,6 +3506,14 @@ impl Focusable for SteerSessionView {
 
 impl Render for SteerSessionView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // EXP-732: the reader scrolled back down to the tail — follow again.
+        // Offsets grow negative as the pane scrolls, so "at the bottom" is
+        // `offset.y <= -max_offset.y` (within the slack).
+        if !self.follow_tail
+            && self.scroll.offset().y <= -self.scroll.max_offset().y + Self::TAIL_SLACK
+        {
+            self.follow_tail = true;
+        }
         let header = self.chrome.then(|| self.render_header(cx));
         let feed = self.render_feed(window, cx);
         let banners = self.render_banners(cx);
