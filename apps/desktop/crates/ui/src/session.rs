@@ -58,6 +58,32 @@ pub fn upgrade_required_handler(cx: &mut App) -> sync::UpgradeRequiredFn {
     })
 }
 
+/// EXP-757: the startup pass of [`coding::scratch::sweep`], off the
+/// foreground. The keep set is what THIS process has live plus what the
+/// shared session registry attributes to a live sibling (the CLI daemon on
+/// the same machine — REV-20, one data dir).
+fn sweep_scratch_dirs(cx: &mut App) {
+    let data_dir = crate::coding_flow::coding_data_dir(cx);
+    let mut live: Vec<String> = crate::coding_flow::LocalSessions::global_ref(cx)
+        .map(|sessions| sessions.read(cx).session_ids())
+        .unwrap_or_default();
+    cx.background_executor()
+        .spawn(async move {
+            live.extend(crate::session_registry::live_ids(&data_dir));
+            let report = coding::scratch::sweep(&data_dir, &live);
+            if !report.is_noop() {
+                log::info!(
+                    "scratch sweep: removed {} run dir(s), dropped {} trust entr(y/ies), kept {} live + {} young",
+                    report.removed.len(),
+                    report.trust_dropped,
+                    report.kept_live,
+                    report.kept_young
+                );
+            }
+        })
+        .detach();
+}
+
 /// Start (or resume) syncing `account`: builds the [`sync::AccountSyncConfig`]
 /// (per-account DB path + call-time token provider, §5.7) and flips the
 /// session machine to `Synced` via [`Store::connect`]. Returns `false` (and
@@ -90,6 +116,12 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
             // through, so orphans heal on the next connect instead of
             // blocking "coding now" for the server sweep's 2h window.
             crate::session_registry::reconcile_stale_sessions(account, cx);
+            // EXP-757: reclaim the scratch dirs (and claude trust entries)
+            // of repo-less runs nothing is running any more — crashes,
+            // older builds. Live runs, ours and a sibling daemon's, are the
+            // keep set. Background: a dir walk plus a `~/.claude.json`
+            // rewrite.
+            sweep_scratch_dirs(cx);
             // EXP-369: give the account a clock for its daily digest.
             claim_timezone(account, cx);
             true

@@ -249,6 +249,27 @@ fn stale_ids(
         .collect()
 }
 
+/// EXP-757: the recorded sessions a LIVE sibling process on this machine
+/// still owns, across every account — the scratch sweep's keep set (the
+/// caller adds its own in-process live set; an entry under our own pid at
+/// startup is a re-exec/crash leftover the reconcile ends).
+pub(crate) fn live_ids(data_dir: &Path) -> Vec<String> {
+    let _guard = LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    live_ids_from(load(data_dir), std::process::id(), process_is_alive)
+}
+
+fn live_ids_from(
+    entries: Vec<RegistryEntry>,
+    own_pid: u32,
+    process_alive: impl Fn(u32) -> bool,
+) -> Vec<String> {
+    entries
+        .into_iter()
+        .filter(|entry| entry_is_owned_by_live_instance(entry.pid, own_pid, &process_alive))
+        .map(|entry| entry.id)
+        .collect()
+}
+
 /// Is `pid` a live process on this machine? `kill(pid, 0)` delivers no signal
 /// and only reports reachability: `Ok` = alive, `EPERM` = alive but owned by
 /// another user, `ESRCH` = gone. Windows has no cheap equivalent without a new
@@ -364,6 +385,30 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
+    }
+
+    /// EXP-757: only entries a DIFFERENT, live pid owns are live — our own
+    /// pid's leftovers and pid-less entries are the reconcile's, and a dead
+    /// pid's are orphans. Every account counts.
+    #[test]
+    fn live_ids_are_the_other_live_instances_sessions() {
+        let entries = vec![
+            RegistryEntry { id: "ours".into(), account_id: "a".into(), pid: Some(100) },
+            RegistryEntry { id: "sibling".into(), account_id: "b".into(), pid: Some(200) },
+            RegistryEntry { id: "dead".into(), account_id: "a".into(), pid: Some(300) },
+            RegistryEntry { id: "unowned".into(), account_id: "a".into(), pid: None },
+        ];
+        let live = live_ids_from(entries, 100, |pid| pid == 200);
+        assert_eq!(live, vec!["sibling".to_string()]);
+    }
+
+    #[test]
+    fn live_ids_reads_the_file() {
+        let dir = TempDir::new("live-ids");
+        record(&dir.path, "sess-own", "acct-1");
+        // Recorded under our own pid: not a sibling's.
+        assert!(live_ids(&dir.path).is_empty());
+        assert!(live_ids(&TempDir::new("live-ids-missing").path).is_empty());
     }
 
     #[test]

@@ -146,6 +146,148 @@ fn seed_true(obj: &mut serde_json::Map<String, serde_json::Value>, key: &str) ->
     true
 }
 
+// ---------------------------------------------------------------------------
+// EXP-757: the other direction — dropping the entries seeded for scratch
+// dirs that no longer exist. Same posture as the seeder: only `projects`
+// keys are touched (never the top-level flags), everything else rides
+// through verbatim, an unparseable or non-object file is left alone, and
+// the steady state writes nothing.
+// ---------------------------------------------------------------------------
+
+/// Drop the `projects` entries for exactly `paths` (the launcher seeds the
+/// raw cwd and its canonical twin; the caller passes both). Best-effort.
+pub fn forget(paths: &[PathBuf]) {
+    // Same reason as [`ensure_onboarded`]: the tests exercise the `_in_config`
+    // core against temp files and must never touch the developer's config.
+    #[cfg(test)]
+    {
+        let _ = paths;
+    }
+    #[cfg(not(test))]
+    forget_live(paths);
+}
+
+#[cfg_attr(test, allow(dead_code))]
+fn forget_live(paths: &[PathBuf]) {
+    let Some(config) = claude_config_path() else {
+        return;
+    };
+    match forget_in_config(&config, paths) {
+        Ok(0) => {}
+        Ok(dropped) => log::info!("claude trust: dropped {dropped} scratch project entr{}", plural_y(dropped)),
+        Err(err) => log::warn!("claude trust: {err}"),
+    }
+}
+
+/// Drop every `projects` entry under `root` (raw or canonical) whose path is
+/// no longer a directory — the scratch dirs a sweep just removed, and any an
+/// older build left keyed. Returns how many were dropped. Best-effort.
+pub fn forget_missing_under(root: &Path) -> usize {
+    #[cfg(test)]
+    {
+        let _ = root;
+        0
+    }
+    #[cfg(not(test))]
+    forget_missing_under_live(root)
+}
+
+#[cfg_attr(test, allow(dead_code))]
+fn forget_missing_under_live(root: &Path) -> usize {
+    let Some(config) = claude_config_path() else {
+        return 0;
+    };
+    let mut roots = vec![root.to_path_buf()];
+    if let Ok(canonical) = std::fs::canonicalize(root) {
+        if canonical != *root {
+            roots.push(canonical);
+        }
+    }
+    match forget_missing_under_in_config(&config, &roots, |path| path.is_dir()) {
+        Ok(dropped) => {
+            if dropped > 0 {
+                log::info!("claude trust: dropped {dropped} stale scratch project entr{}", plural_y(dropped));
+            }
+            dropped
+        }
+        Err(err) => {
+            log::warn!("claude trust: {err}");
+            0
+        }
+    }
+}
+
+fn plural_y(count: usize) -> &'static str {
+    if count == 1 {
+        "y"
+    } else {
+        "ies"
+    }
+}
+
+/// The testable core of [`forget`]: remove the listed keys, returning how
+/// many were present.
+fn forget_in_config(config: &Path, paths: &[PathBuf]) -> Result<usize, String> {
+    retain_projects(config, |key| {
+        !paths.iter().any(|path| path.to_string_lossy() == key)
+    })
+}
+
+/// The testable core of [`forget_missing_under`]: `is_dir` is injected so
+/// the rule (under a root, not the root itself, no longer a directory) is
+/// testable without a filesystem.
+fn forget_missing_under_in_config(
+    config: &Path,
+    roots: &[PathBuf],
+    is_dir: impl Fn(&Path) -> bool,
+) -> Result<usize, String> {
+    retain_projects(config, |key| {
+        let path = Path::new(key);
+        // `starts_with` is component-wise, so a trailing slash or a
+        // different separator spelling still matches its root.
+        let under_root = roots
+            .iter()
+            .any(|root| path.starts_with(root) && path != root.as_path());
+        // Kept unless it is one of ours AND its directory is gone.
+        !under_root || is_dir(path)
+    })
+}
+
+/// Load, keep the `projects` keys `keep` approves, write back only when
+/// something was dropped. Missing file = nothing to forget.
+fn retain_projects(config: &Path, keep: impl Fn(&str) -> bool) -> Result<usize, String> {
+    let existing = match std::fs::read_to_string(config) {
+        Ok(existing) => existing,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(err) => return Err(format!("read {}: {err}", config.display())),
+    };
+    if existing.trim().is_empty() {
+        return Ok(0);
+    }
+    let mut root: serde_json::Value = serde_json::from_str(&existing)
+        .map_err(|err| format!("parse {}: {err}", config.display()))?;
+    let Some(top) = root.as_object_mut() else {
+        return Err(format!("{}: top level is not an object", config.display()));
+    };
+    let Some(projects) = top.get_mut("projects") else {
+        return Ok(0);
+    };
+    let Some(projects) = projects.as_object_mut() else {
+        return Err(format!("{}: `projects` is not an object", config.display()));
+    };
+    let before = projects.len();
+    projects.retain(|key, _| keep(key));
+    let dropped = before - projects.len();
+    if dropped == 0 {
+        return Ok(0);
+    }
+    let serialized = serde_json::to_string_pretty(&root)
+        .map_err(|err| format!("serialize {}: {err}", config.display()))?;
+    let temp = config.with_extension("json.exp-tmp");
+    crate::atomic_config::replace_preserving_mode(config, &temp, &serialized)?;
+    Ok(dropped)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -343,6 +485,146 @@ mod tests {
         assert_eq!(
             project(&root, "/repos/real/worktree")["hasTrustDialogAccepted"],
             true
+        );
+        let _ = std::fs::remove_dir_all(config.parent().unwrap());
+    }
+
+    // ---- EXP-757: forgetting ----
+
+    fn seeded_config(tag: &str, keys: &[&str]) -> PathBuf {
+        let config = temp_config(tag);
+        let paths: Vec<PathBuf> = keys.iter().map(PathBuf::from).collect();
+        assert_eq!(ensure_onboarded_in_config(&config, &paths, true), Ok(true));
+        config
+    }
+
+    #[test]
+    fn forget_drops_raw_and_canonical_keys_only() {
+        let config = seeded_config(
+            "forget",
+            &[
+                "/data/actions/builtin_chat/1a2b3c4d",
+                "/private/data/actions/builtin_chat/1a2b3c4d",
+                "/repos/exponential.worktrees/exp-abc",
+            ],
+        );
+        let gone = vec![
+            PathBuf::from("/data/actions/builtin_chat/1a2b3c4d"),
+            PathBuf::from("/private/data/actions/builtin_chat/1a2b3c4d"),
+        ];
+        assert_eq!(forget_in_config(&config, &gone), Ok(2));
+        let root = parsed(&config);
+        assert!(project(&root, "/data/actions/builtin_chat/1a2b3c4d").is_null());
+        assert!(project(&root, "/private/data/actions/builtin_chat/1a2b3c4d").is_null());
+        assert_eq!(
+            project(&root, "/repos/exponential.worktrees/exp-abc")["hasTrustDialogAccepted"],
+            true
+        );
+        // The top-level flags are never ours to unset.
+        assert_eq!(root["hasCompletedOnboarding"], true);
+        assert_eq!(root["bypassPermissionsModeAccepted"], true);
+        let _ = std::fs::remove_dir_all(config.parent().unwrap());
+    }
+
+    #[test]
+    fn forget_is_a_no_op_without_a_write() {
+        let config = seeded_config("forget-noop", &["/repos/kept"]);
+        let before = std::fs::read_to_string(&config).unwrap();
+        assert_eq!(
+            forget_in_config(&config, &[PathBuf::from("/data/actions/x/y")]),
+            Ok(0)
+        );
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), before);
+        // No file at all: nothing to forget, nothing created.
+        let missing = temp_config("forget-missing");
+        assert_eq!(
+            forget_in_config(&missing, &[PathBuf::from("/data/actions/x/y")]),
+            Ok(0)
+        );
+        assert!(!missing.exists());
+        let _ = std::fs::remove_dir_all(config.parent().unwrap());
+    }
+
+    #[test]
+    fn forget_missing_under_drops_only_gone_dirs_under_the_root() {
+        let config = temp_config("forget-under");
+        std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+        std::fs::write(
+            &config,
+            r#"{
+  "hasCompletedOnboarding": true,
+  "projects": {
+    "/data/actions/builtin_chat/gone": {"hasTrustDialogAccepted": true, "history": [1]},
+    "/data/actions/builtin_chat/gone/": {"hasTrustDialogAccepted": true},
+    "/private/data/actions/builtin_chat/gone": {"hasTrustDialogAccepted": true},
+    "/data/actions/builtin_chat/alive": {"hasTrustDialogAccepted": true},
+    "/data/actions/legacy-action": {"hasTrustDialogAccepted": true},
+    "/data/actions": {"hasTrustDialogAccepted": true},
+    "/data/actions-not-ours/gone": {"hasTrustDialogAccepted": true},
+    "/repos/exponential": {"hasTrustDialogAccepted": true}
+  },
+  "numStartups": 7
+}"#,
+        )
+        .unwrap();
+        let roots = vec![
+            PathBuf::from("/data/actions"),
+            PathBuf::from("/private/data/actions"),
+        ];
+        let alive = |path: &Path| path == Path::new("/data/actions/builtin_chat/alive");
+        assert_eq!(
+            forget_missing_under_in_config(&config, &roots, alive),
+            Ok(4)
+        );
+        let root = parsed(&config);
+        let projects = root["projects"].as_object().unwrap();
+        let mut keys: Vec<&String> = projects.keys().collect();
+        keys.sort();
+        assert_eq!(
+            keys,
+            vec![
+                "/data/actions",
+                "/data/actions-not-ours/gone",
+                "/data/actions/builtin_chat/alive",
+                "/repos/exponential",
+            ]
+        );
+        assert_eq!(root["numStartups"], 7);
+        assert_eq!(root["hasCompletedOnboarding"], true);
+        // Second pass: steady state, no write.
+        let before = std::fs::read_to_string(&config).unwrap();
+        assert_eq!(
+            forget_missing_under_in_config(&config, &roots, alive),
+            Ok(0)
+        );
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), before);
+        let _ = std::fs::remove_dir_all(config.parent().unwrap());
+    }
+
+    #[test]
+    fn forget_leaves_an_unparseable_or_shapeless_config_alone() {
+        let config = temp_config("forget-broken");
+        std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+        std::fs::write(&config, "{ not json").unwrap();
+        assert!(forget_in_config(&config, &[PathBuf::from("/data/actions/x/y")]).is_err());
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), "{ not json");
+
+        std::fs::write(&config, r#"{"projects": []}"#).unwrap();
+        assert!(
+            forget_missing_under_in_config(&config, &[PathBuf::from("/data/actions")], |_| false)
+                .is_err()
+        );
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), r#"{"projects": []}"#);
+
+        // No `projects` map at all: nothing to do, nothing written.
+        std::fs::write(&config, r#"{"hasCompletedOnboarding": true}"#).unwrap();
+        assert_eq!(
+            forget_missing_under_in_config(&config, &[PathBuf::from("/data/actions")], |_| false),
+            Ok(0)
+        );
+        assert_eq!(
+            std::fs::read_to_string(&config).unwrap(),
+            r#"{"hasCompletedOnboarding": true}"#
         );
         let _ = std::fs::remove_dir_all(config.parent().unwrap());
     }

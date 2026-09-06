@@ -286,17 +286,16 @@ impl RunRecord {
             .unwrap_or(crate::launcher::LaunchTransport::Terminal)
     }
 
-    /// Whether the recorded workspace still exists: the resume spawns IN
-    /// this cwd, and a repo-backed run also needs its worktree's `.git`
-    /// link (a removed worktree leaves the dir gone, or gutted).
+    /// Whether the recorded workspace can still be resumed INTO. A
+    /// repo-backed run needs its worktree, `.git` link included (a removed
+    /// worktree leaves the dir gone, or gutted). EXP-757: a repo-less run's
+    /// scratch dir is disposable — reclaimed when the run ends and re-created
+    /// by the resume ([`crate::scratch`]) — so the record alone resumes it.
     pub fn resumable(&self) -> bool {
-        if !self.cwd.is_dir() {
-            return false;
+        if self.clone.is_none() {
+            return true;
         }
-        if self.clone.is_some() && !self.cwd.join(".git").exists() {
-            return false;
-        }
-        true
+        self.cwd.is_dir() && self.cwd.join(".git").exists()
     }
 
     /// What this record is CALLED wherever a resume is offered or narrated
@@ -409,6 +408,12 @@ fn entry_recorded_at(entry: &serde_json::Value) -> Option<u64> {
     entry.get("recordedAt")?.as_u64()
 }
 
+/// EXP-757: the third key read off an unknown entry — the scratch sweep's
+/// keep set must cover a live run a NEWER build recorded.
+fn entry_cwd(entry: &serde_json::Value) -> Option<&str> {
+    entry.get("cwd")?.as_str()
+}
+
 fn save(data_dir: &Path, registry: &Registry) {
     let path = registry_path(data_dir);
     let tmp = path.with_extension("json.tmp");
@@ -478,6 +483,29 @@ pub fn latest_for_issue(
         .max_by_key(|record| record.recorded_at)
 }
 
+/// EXP-757: the recorded cwds of `session_ids` — the scratch sweep's keep
+/// set. Reads unknown entries too: an older host must never sweep the live
+/// scratch dir of a run a newer build recorded.
+pub fn cwds_for(data_dir: &Path, session_ids: &[String]) -> Vec<PathBuf> {
+    let _guard = locked();
+    let registry = load_registry(data_dir);
+    let wanted = |id: &str| session_ids.iter().any(|wanted| wanted == id);
+    let mut cwds: Vec<PathBuf> = registry
+        .records
+        .iter()
+        .filter(|record| wanted(&record.session_id))
+        .map(|record| record.cwd.clone())
+        .collect();
+    cwds.extend(
+        registry
+            .unknown
+            .iter()
+            .filter(|entry| entry_session_id(entry).is_some_and(wanted))
+            .filter_map(|entry| entry_cwd(entry).map(PathBuf::from)),
+    );
+    cwds
+}
+
 pub fn remove(data_dir: &Path, session_id: &str) {
     let _guard = locked();
     let mut registry = load_registry(data_dir);
@@ -511,26 +539,11 @@ pub fn branches_for_clone(data_dir: &Path, clone: &Path) -> Vec<String> {
     branches
 }
 
+/// A fully populated repo-backed record for tests in this crate (the scratch
+/// sweep's tests need real records without restating the struct).
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn temp_dir(tag: &str) -> PathBuf {
-        let mut dir = std::env::temp_dir();
-        dir.push(format!(
-            "exp-run-registry-{tag}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    fn sample(session_id: &str) -> RunRecord {
-        RunRecord {
+pub(crate) fn sample_record(session_id: &str) -> RunRecord {
+    RunRecord {
             session_id: session_id.to_string(),
             board_id: None,
             account_id: "acc-1".to_string(),
@@ -569,7 +582,29 @@ mod tests {
             acp_session_id: None,
             agent_native_session_id: None,
             external_agent: None,
-        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!(
+            "exp-run-registry-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn sample(session_id: &str) -> RunRecord {
+        sample_record(session_id)
     }
 
     #[test]
@@ -1096,12 +1131,50 @@ mod tests {
         std::fs::write(worktree.join(".git"), "gitdir: /elsewhere").unwrap();
         assert!(record.resumable());
 
-        // A repo-less scratch run only needs its directory.
-        let scratch = dir.join("scratch");
-        std::fs::create_dir_all(&scratch).unwrap();
+        // EXP-757: a repo-less scratch run is resumable WITHOUT its
+        // directory — the sweep reclaims it and the resume re-creates it.
         record.clone = None;
-        record.cwd = scratch;
+        record.cwd = dir.join("scratch-gone");
         assert!(record.resumable());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cwds_for_reads_known_and_unknown_entries() {
+        let dir = temp_dir("cwds-for");
+        let mut known = sample("sess-known");
+        known.cwd = PathBuf::from("/data/actions/act-1/aaaaaaaa");
+        record(&dir, known);
+        record(&dir, sample("sess-other"));
+        // An entry this build cannot parse (a newer kind) still names its cwd.
+        let mut entries: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("runs.json")).unwrap())
+                .unwrap();
+        entries.push(serde_json::json!({
+            "sessionId": "sess-future",
+            "kind": "hologram",
+            "cwd": "/data/actions/act-2/bbbbbbbb",
+            "recordedAt": now_secs()
+        }));
+        std::fs::write(dir.join("runs.json"), serde_json::to_string(&entries).unwrap()).unwrap();
+
+        let mut cwds = cwds_for(
+            &dir,
+            &[
+                "sess-known".to_string(),
+                "sess-future".to_string(),
+                "sess-missing".to_string(),
+            ],
+        );
+        cwds.sort();
+        assert_eq!(
+            cwds,
+            vec![
+                PathBuf::from("/data/actions/act-1/aaaaaaaa"),
+                PathBuf::from("/data/actions/act-2/bbbbbbbb"),
+            ]
+        );
+        assert!(cwds_for(&dir, &[]).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

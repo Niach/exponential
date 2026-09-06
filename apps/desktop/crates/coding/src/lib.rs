@@ -66,6 +66,7 @@ pub mod remote_admin;
 pub mod reaper;
 pub mod run_cleanup;
 pub mod run_registry;
+pub mod scratch;
 pub mod scm;
 pub mod settings;
 #[cfg(test)]

@@ -144,6 +144,24 @@ pub fn stale_ids(data_dir: &Path, account_id: &str) -> Vec<String> {
         .collect()
 }
 
+/// EXP-757: every recorded session a LIVE sibling process still owns, across
+/// all accounts — the scratch sweep's keep set (desktop parity:
+/// `session_registry::live_ids`). Our own pid's entries are excluded: at
+/// startup they are a re-exec/crash leftover the reconcile ends, and a
+/// running daemon protects its own runs through its in-process set.
+pub fn live_ids(data_dir: &Path) -> Vec<String> {
+    let _guard = locked();
+    let own_pid = std::process::id();
+    load(data_dir)
+        .into_iter()
+        .filter(|entry| match entry.pid {
+            Some(pid) => pid != own_pid && process_alive(pid),
+            None => false,
+        })
+        .map(|entry| entry.id)
+        .collect()
+}
+
 /// Live sessions a daemon at `pid` still owns (EXP-641: `exponential update`
 /// must not restart a daemon out from under a running agent). Entries kept
 /// only for reconcile carry no pid ([`mark_ended`]) and are NOT live.
@@ -224,6 +242,25 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.path);
         }
+    }
+
+    /// EXP-757: our own pid's entries and ended (pid-less) entries are not
+    /// live; a sibling's is — here faked with pid 1 (launchd/init, always
+    /// alive on unix).
+    #[test]
+    fn live_ids_names_only_a_live_siblings_sessions() {
+        let dir = TempDir::new("live-ids");
+        record(&dir.path, "sess-own", "acct-1");
+        record(&dir.path, "sess-ended", "acct-1");
+        mark_ended(&dir.path, "sess-ended");
+        let mut entries = load(&dir.path);
+        entries.push(RegistryEntry {
+            id: "sess-sibling".to_string(),
+            account_id: "acct-2".to_string(),
+            pid: Some(1),
+        });
+        save(&dir.path, &entries);
+        assert_eq!(live_ids(&dir.path), vec!["sess-sibling".to_string()]);
     }
 
     #[test]
