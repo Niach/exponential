@@ -75,27 +75,60 @@ const COMPACTION_TIMEOUT: Duration = Duration::from_secs(180);
 /// The live rate-limit windows codex pushes over `account/rateLimits/updated`,
 /// parsed into the SAME shape the desktop usage sheet reads.
 ///
-/// EXP-746 E3: the engine core has no usage hook yet, so this is an
-/// adapter-side snapshot. Clone the handle off the agent BEFORE it is moved
-/// into `Adapter::Codex` and the host can read it whenever it likes; a
-/// follow-up wires it into `coding::agent_usage` so the poller can stop
-/// spawning a second app-server per machine.
-#[derive(Clone, Default)]
-pub struct CodexUsage(Arc<Mutex<Vec<coding::agent_usage::UsageWindow>>>);
+/// EXP-754: every store also PUBLISHES into `coding::agent_usage::live`, and
+/// the handle holds that registry's session guard for the run. One machine
+/// runs one app-server per session, so the usage poller reads these numbers
+/// instead of spawning a second one of its own. Clone the handle off the
+/// agent BEFORE it is moved into `Adapter::Codex` and the host can read it
+/// whenever it likes.
+#[derive(Clone)]
+pub struct CodexUsage(Arc<UsageSlot>);
+
+struct UsageSlot {
+    windows: Mutex<Vec<coding::agent_usage::UsageWindow>>,
+    /// The live-registry attachment, released by [`CodexUsage::detach`] at
+    /// session end — or, if nobody gets there, by dropping the last handle.
+    attached: Mutex<Option<coding::agent_usage::live::Attached>>,
+}
 
 impl CodexUsage {
+    /// Register a live codex session with the machine's usage registry.
+    pub fn attach() -> CodexUsage {
+        CodexUsage(Arc::new(UsageSlot {
+            windows: Mutex::new(Vec::new()),
+            attached: Mutex::new(Some(coding::agent_usage::live::attach(
+                coding::CodingAgent::Codex,
+            ))),
+        }))
+    }
+
     pub fn windows(&self) -> Vec<coding::agent_usage::UsageWindow> {
-        match self.0.lock() {
+        match self.0.windows.lock() {
             Ok(windows) => windows.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
         }
     }
 
+    /// The session ended: release the registry slot NOW rather than whenever
+    /// the last handle happens to drop (the host keeps one for the run's
+    /// lifetime). Idempotent.
+    fn detach(&self) {
+        let attached = match self.0.attached.lock() {
+            Ok(mut slot) => slot.take(),
+            Err(poisoned) => poisoned.into_inner().take(),
+        };
+        drop(attached);
+    }
+
     fn store(&self, windows: Vec<coding::agent_usage::UsageWindow>) {
-        match self.0.lock() {
+        let published = windows.clone();
+        match self.0.windows.lock() {
             Ok(mut slot) => *slot = windows,
             Err(poisoned) => *poisoned.into_inner() = windows,
         }
+        // EXP-754: the machine's usage poller reads THIS instead of spawning
+        // a second `codex app-server` to ask the same account again.
+        coding::agent_usage::live::publish(coding::CodingAgent::Codex, published);
     }
 }
 
@@ -145,7 +178,7 @@ impl CodexAgent {
         Ok(CodexAgent {
             spec,
             connection,
-            usage: CodexUsage::default(),
+            usage: CodexUsage::attach(),
         })
     }
 
@@ -154,7 +187,7 @@ impl CodexAgent {
         CodexAgent {
             spec,
             connection,
-            usage: CodexUsage::default(),
+            usage: CodexUsage::attach(),
         }
     }
 
@@ -536,6 +569,10 @@ impl ConnectTo<Client> for CodexAgent {
                         shared.child_gone(),
                     )
                     .await;
+                    // EXP-754: the session is over, so it stops answering for
+                    // this machine's usage numbers (its `Drop` is the backstop
+                    // for every path that never reaches this line).
+                    shared.usage.detach();
                     Ok(())
                 })
                 .await
