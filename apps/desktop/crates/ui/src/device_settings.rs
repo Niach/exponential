@@ -490,6 +490,10 @@ pub struct DeviceSettingsView {
     claude_ultracode: bool,
     claude_plan_mode: bool,
     pi_plan_mode: bool,
+    /// EXP-746 (D7): the machine runs its coding sessions in a TERMINAL tab
+    /// instead of the in-process session engine. Device-GLOBAL, so it sits in
+    /// its own group above the per-agent card rather than inside one.
+    start_in_terminal: bool,
     agent_tab: CodingAgent,
     editor_agents: Vec<CodingAgent>,
     /// The current baseline as a Settings value (drafts overlay it): the
@@ -720,6 +724,7 @@ impl DeviceSettingsView {
             claude_ultracode: seeded.claude_ultracode,
             claude_plan_mode: seeded.claude_plan_mode,
             pi_plan_mode: seeded.pi_plan_mode,
+            start_in_terminal: seeded.start_in_terminal,
             agent_tab: seeded.default_agent,
             editor_agents,
             seeded_label: row.label.clone().unwrap_or_default(),
@@ -907,6 +912,7 @@ impl DeviceSettingsView {
         self.claude_ultracode = baseline.claude_ultracode;
         self.claude_plan_mode = baseline.claude_plan_mode;
         self.pi_plan_mode = baseline.pi_plan_mode;
+        self.start_in_terminal = baseline.start_in_terminal;
         let status = self.agent_status(cx);
         if !self.tab_agents(&status).contains(&self.agent_tab) {
             self.agent_tab = baseline.default_agent;
@@ -930,6 +936,7 @@ impl DeviceSettingsView {
         drafted.claude_ultracode = self.claude_ultracode;
         drafted.claude_plan_mode = self.claude_plan_mode;
         drafted.pi_plan_mode = self.pi_plan_mode;
+        drafted.start_in_terminal = self.start_in_terminal;
         drafted
     }
 
@@ -1154,6 +1161,10 @@ impl DeviceSettingsView {
             settings.claude_ultracode = drafted.claude_ultracode;
             settings.claude_plan_mode = drafted.claude_plan_mode;
             settings.pi_plan_mode = drafted.pi_plan_mode;
+            // EXP-746: the overlay is field-by-field, not a struct
+            // assignment — a new launch default that misses this line is
+            // saved everywhere EXCEPT on this machine's own row.
+            settings.start_in_terminal = drafted.start_in_terminal;
             self.set_error(
                 "defaults",
                 CodingHub::save_settings(&hub, settings, cx)
@@ -1616,6 +1627,22 @@ impl DeviceSettingsView {
 
         // EXP-686: no section title — the "Default agent" row already names
         // what the block is.
+        //
+        // EXP-746 (D7): "Start in terminal" is device-GLOBAL, so it gets its
+        // own group above the per-agent card — inside one it would read as a
+        // per-agent knob and would move when the tab does.
+        let start_in_terminal = surface::glass_group_rows(vec![surface::glass_toggle_row(
+            crate::launch_options::START_IN_TERMINAL_LABEL,
+            Some(crate::launch_options::START_IN_TERMINAL_HINT.into()),
+            Switch::new("device-start-in-terminal")
+                .checked(self.start_in_terminal)
+                .on_click(cx.listener(|this: &mut Self, on: &bool, _, cx| {
+                    this.start_in_terminal = *on;
+                    this.save_defaults(cx);
+                }))
+                .into_any_element(),
+            cx,
+        )]);
         let mut body = v_flex()
             .w_full()
             .gap_2()
@@ -1625,6 +1652,7 @@ impl DeviceSettingsView {
                 &self.agent_select,
                 cx,
             )]))
+            .child(start_in_terminal)
             .child(group.render(cx));
         if !online {
             body = body.child(

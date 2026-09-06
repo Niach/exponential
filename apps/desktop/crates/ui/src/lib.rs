@@ -96,6 +96,10 @@ mod pr_merge;
 mod queries;
 mod repo_resolver;
 mod reviews_view;
+// EXP-746: the ONE agent-run row (Automations' run log, Devices' Running and
+// Past) and the two Devices sections that render it.
+mod run_rows;
+mod sessions_section;
 mod screens;
 mod scroll_pane;
 mod search_sheet;
