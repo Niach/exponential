@@ -4,8 +4,10 @@ import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.MergeTarget
+import com.exponential.app.domain.pastRunByline
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 // EXP-312 follow-up: the Agents list is OWNER-ONLY. A teammate's live session
@@ -33,6 +35,10 @@ class AgentRowsTest {
         prUrl: String? = null,
         prNumber: Int? = null,
         prState: String? = null,
+        // EXP-746: `schedule`/`event` is what makes a run an AUTOMATED one —
+        // the whole predicate behind "Past".
+        startedReason: String? = null,
+        agent: String? = null,
     ) = CodingSessionEntity(
         id = id,
         issueId = issueId,
@@ -40,15 +46,43 @@ class AgentRowsTest {
         userId = userId,
         status = status,
         branch = branch,
+        agent = agent,
         endedBy = endedBy,
         endedAt = endedAt,
         actionName = actionName,
+        startedReason = startedReason,
         prUrl = prUrl,
         prNumber = prNumber,
         prState = prState,
         startedAt = startedAt,
         createdAt = startedAt,
         updatedAt = updatedAt,
+    )
+
+    // A FINISHED, person-started run — what "Past" lists (EXP-746).
+    private fun pastRun(
+        id: String,
+        userId: String = "me",
+        teamId: String = "team-1",
+        issueId: String? = null,
+        endedBy: String? = "agent",
+        endedAt: String? = "2026-07-17T11:00:00Z",
+        updatedAt: String = "2026-07-17T11:00:00Z",
+        startedAt: String = "2026-07-17T09:00:00Z",
+        startedReason: String? = null,
+        agent: String? = "claude",
+    ) = session(
+        id = id,
+        userId = userId,
+        issueId = issueId,
+        teamId = teamId,
+        status = "ended",
+        endedBy = endedBy,
+        endedAt = endedAt,
+        updatedAt = updatedAt,
+        startedAt = startedAt,
+        startedReason = startedReason,
+        agent = agent,
     )
 
     private fun issue(
@@ -448,5 +482,169 @@ class AgentRowsTest {
         assertNull(rows.single { it.session.id == "action-run" }.mergeTarget)
         assertNull(rows.single { it.session.id == "no-pr" }.mergeTarget)
         assertNull(rows.single { it.session.id == "issue-run" }.mergeTarget)
+    }
+
+    // ── EXP-746: the Devices screen's "Past" list ───────────────────────────
+
+    @Test
+    fun `lists only the caller's own finished runs in this team`() {
+        val rows = pastRunRows(
+            sessions = listOf(
+                pastRun("mine"),
+                // EXP-673: a person-started run reports, then ends with its
+                // tab (or a kill) — every ended path still lists.
+                pastRun("mine-killed", endedBy = "user"),
+                pastRun("mine-merged", endedBy = "merge"),
+                // Pre-EXP-637 rows carry no ended_by at all.
+                pastRun("legacy", endedBy = null),
+                pastRun("theirs", userId = "teammate"),
+                pastRun("elsewhere", teamId = "team-2"),
+            ),
+            issues = emptyList(),
+            currentUserId = "me",
+            teamId = "team-1",
+            nowMs = nowMs,
+        )
+        // Equal `ended_at` stamps keep their input order (a stable sort).
+        assertEquals(
+            listOf("mine", "mine-killed", "mine-merged", "legacy"),
+            rows.map { it.session.id },
+        )
+    }
+
+    @Test
+    fun `a still-live run is never a past run`() {
+        val rows = pastRunRows(
+            sessions = listOf(
+                session("running", userId = "me", issueId = null),
+                pastRun("done"),
+            ),
+            issues = emptyList(),
+            currentUserId = "me",
+            teamId = "team-1",
+            nowMs = nowMs,
+        )
+        assertEquals(listOf("done"), rows.map { it.session.id })
+    }
+
+    @Test
+    fun `a scheduled run never lists under Past`() {
+        // The DAO already filters on `started_reason IS NULL`, but the pure
+        // rule has to hold on its own: an automation-heavy team would
+        // otherwise see its Automations rows leak into this list, and the
+        // query cap would push the real ones off the end.
+        val mixed = (1..60).map { i ->
+            pastRun(
+                "run-$i",
+                endedAt = "2026-07-%02dT11:00:00Z".format((i % 28) + 1),
+                startedReason = when (i % 3) {
+                    0 -> "schedule"
+                    1 -> "event"
+                    else -> null
+                },
+            )
+        }
+        val rows = pastRunRows(
+            sessions = mixed,
+            issues = emptyList(),
+            currentUserId = "me",
+            teamId = "team-1",
+            nowMs = nowMs,
+        )
+        assertEquals(20, rows.size)
+        assertTrue(rows.all { it.session.startedReason == null })
+    }
+
+    @Test
+    fun `newest first by when the run ended, falling back to its heartbeat`() {
+        val rows = pastRunRows(
+            sessions = listOf(
+                pastRun("middle", endedAt = "2026-07-17T10:00:00Z"),
+                pastRun("newest", endedAt = "2026-07-17T11:00:00Z"),
+                // Swept before it ever stamped ended_at — orders off
+                // updated_at, the heartbeat stamp.
+                pastRun("oldest", endedAt = null, updatedAt = "2026-07-17T08:00:00Z"),
+            ),
+            issues = emptyList(),
+            currentUserId = "me",
+            teamId = "team-1",
+            nowMs = nowMs,
+        )
+        assertEquals(listOf("newest", "middle", "oldest"), rows.map { it.session.id })
+    }
+
+    @Test
+    fun `the list is capped at twenty`() {
+        val rows = pastRunRows(
+            sessions = (1..40).map {
+                pastRun("run-$it", endedAt = "2026-07-%02dT11:00:00Z".format(it % 28 + 1))
+            },
+            issues = emptyList(),
+            currentUserId = "me",
+            teamId = "team-1",
+            nowMs = nowMs,
+        )
+        assertEquals(PAST_RUN_LIMIT, rows.size)
+        assertEquals(20, PAST_RUN_LIMIT)
+        assertEquals("2026-07-28T11:00:00Z", rows.first().session.endedAt)
+    }
+
+    @Test
+    fun `signed out or no team selected lists nothing`() {
+        val sessions = listOf(pastRun("mine"))
+        assertEquals(
+            emptyList<PastRunRow>(),
+            pastRunRows(sessions, emptyList(), currentUserId = null, teamId = "team-1"),
+        )
+        assertEquals(
+            emptyList<PastRunRow>(),
+            pastRunRows(sessions, emptyList(), currentUserId = "me", teamId = null),
+        )
+    }
+
+    @Test
+    fun `an issue-scoped run joins its issue, an action run has none`() {
+        val rows = pastRunRows(
+            sessions = listOf(
+                pastRun("issue-run", issueId = "issue-1", endedAt = "2026-07-17T11:00:00Z"),
+                pastRun("action-run", endedAt = "2026-07-17T10:00:00Z"),
+            ),
+            issues = listOf(issue("issue-1")),
+            currentUserId = "me",
+            teamId = "team-1",
+            nowMs = nowMs,
+        )
+        assertEquals("EXP-1", rows.first().issue?.identifier)
+        assertNull(rows.last().issue)
+    }
+
+    @Test
+    fun `the past byline names device, agent and who ended it`() {
+        // Byte-identical ×4 — web `pastRunByline`, iOS `PastRuns.byline`,
+        // desktop `devices_view::past_run_byline`.
+        assertEquals(
+            "buildbox · Claude Code · ended by you · 5m ago",
+            pastRunByline("buildbox", "Claude Code", "user", "5m ago"),
+        )
+        assertEquals(
+            "buildbox · Codex · ended by agent · 2h ago",
+            pastRunByline("buildbox", "Codex", "agent", "2h ago"),
+        )
+        assertEquals(
+            "buildbox · ended by the app · 1d ago",
+            pastRunByline("buildbox", null, "client", "1d ago"),
+        )
+        assertEquals(
+            "buildbox · ended by a merge · just now",
+            pastRunByline("buildbox", "", "merge", "just now"),
+        )
+        assertEquals(
+            "buildbox · ended by the system · just now",
+            pastRunByline("buildbox", null, "system", "just now"),
+        )
+        // An unknown (or absent) ended_by drops its clause rather than
+        // printing a raw wire token.
+        assertEquals("buildbox · 3m ago", pastRunByline("buildbox", null, null, "3m ago"))
+        assertEquals("buildbox · 3m ago", pastRunByline("buildbox", null, "sideways", "3m ago"))
     }
 }

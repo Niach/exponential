@@ -178,4 +178,17 @@ class DeviceRowsTest {
         val foreign = worktree { copy(issueIdentifier = null) }
         assertNull(resumeWorktreeFor(listOf(foreign), "row-1", "EXP-42", "claude"))
     }
+
+    @Test
+    fun `the acp cap says the machine runs sessions on the engine`() {
+        // EXP-746: read-only on mobile — nothing here picks a transport, the
+        // cap only lets a picker say which experience a start will get.
+        assertTrue(
+            entity { copy(caps = """["resume-run","acp"]""") }
+                .toSteerDevice(nowMs, "me").supportsAcp,
+        )
+        assertFalse(entity().toSteerDevice(nowMs, "me").supportsAcp)
+        // An older machine advertises no caps at all.
+        assertFalse(entity { copy(caps = null) }.toSteerDevice(nowMs, "me").supportsAcp)
+    }
 }

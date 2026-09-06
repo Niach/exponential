@@ -355,4 +355,53 @@ class AgentUsagePresentationTest {
         assertNull(parseAgentLoginResult("""{"agent":"claude","phase":"url"""))
         assertNull(parseAgentLoginResult(null))
     }
+
+    // ── EXP-746: this run's own context window + spend ──────────────────────
+
+    @Test
+    fun `context usage reads used over size with a percent`() {
+        // `124k / 200k (62%)`: k-rounded from 1000 up, no decimals, percent
+        // FLOORED. Byte-identical ×4.
+        assertEquals(
+            "124k / 200k (62%)",
+            AgentUsagePresentation.formatContextUsage(SessionUsageState(124_000, 200_000)),
+        )
+        assertEquals(62, AgentUsagePresentation.contextPercent(SessionUsageState(124_000, 200_000)))
+        // Under a thousand keeps its exact count.
+        assertEquals(
+            "999 / 1k (99%)",
+            AgentUsagePresentation.formatContextUsage(SessionUsageState(999, 1_000)),
+        )
+        assertEquals(
+            "0 / 200k (0%)",
+            AgentUsagePresentation.formatContextUsage(SessionUsageState(0, 200_000)),
+        )
+        // Nothing to show reads as nothing, never as "0 / 0".
+        assertEquals("", AgentUsagePresentation.formatContextUsage(null))
+        assertEquals("", AgentUsagePresentation.formatContextUsage(SessionUsageState(10, 0)))
+        assertNull(AgentUsagePresentation.contextPercent(null))
+        assertNull(AgentUsagePresentation.contextPercent(SessionUsageState(10, 0)))
+    }
+
+    @Test
+    fun `a cost under half a cent renders nothing`() {
+        assertEquals(
+            "\$1.24",
+            AgentUsagePresentation.formatUsageCost(SessionUsageState(1, 2, costUsd = 1.239)),
+        )
+        assertEquals(
+            "\$0.01",
+            AgentUsagePresentation.formatUsageCost(SessionUsageState(1, 2, costUsd = 0.005)),
+        )
+        // A run that has spent effectively nothing shows no cost at all.
+        assertNull(AgentUsagePresentation.formatUsageCost(SessionUsageState(1, 2, costUsd = 0.004)))
+        assertNull(AgentUsagePresentation.formatUsageCost(SessionUsageState(1, 2, costUsd = 0.0)))
+        assertNull(AgentUsagePresentation.formatUsageCost(SessionUsageState(1, 2)))
+        assertNull(AgentUsagePresentation.formatUsageCost(null))
+    }
+
+    @Test
+    fun `the context section title is the one every client shows`() {
+        assertEquals("Context", AgentUsagePresentation.CONTEXT_SECTION_TITLE)
+    }
 }

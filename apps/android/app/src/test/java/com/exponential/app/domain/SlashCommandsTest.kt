@@ -95,6 +95,56 @@ class SlashCommandsTest {
         assertNull(SlashCommands.commandFor("compact", "claude"))
     }
 
+    // ── EXP-746: the run's own advertised commands ─────────────────────────
+
+    @Test
+    fun `merged lists the contract commands first`() {
+        val agent = listOf(
+            ConfigCommand("review", "Review the diff", hint = "<path>"),
+            // The wire form may carry the sigil; the catalog never does.
+            ConfigCommand("/usage", "Show usage"),
+        )
+        val merged = SlashCommands.merged(SlashCommands.catalogFor("claude"), agent)
+        assertEquals(listOf("compact", "clear", "review", "usage"), merged.map { it.name })
+        // Only the contract knows what discards context.
+        assertFalse(merged.single { it.name == "review" }.confirm)
+        assertEquals("<path>", merged.single { it.name == "review" }.argHint)
+        assertEquals("/review ", merged.single { it.name == "review" }.insertion)
+        assertEquals("/usage", merged.single { it.name == "usage" }.insertion)
+        // Nothing advertised leaves the contract catalog untouched.
+        assertEquals(SlashCommands.catalogFor("claude"), SlashCommands.merged(SlashCommands.catalogFor("claude"), emptyList()))
+    }
+
+    @Test
+    fun `an agent command that shadows a contract name is dropped`() {
+        val merged = SlashCommands.merged(
+            SlashCommands.catalogFor("claude"),
+            listOf(
+                ConfigCommand("Compact", "the agent's own"),
+                ConfigCommand("review", "first wins"),
+                ConfigCommand("REVIEW", "the duplicate"),
+                ConfigCommand("  ", "nameless"),
+            ),
+        )
+        assertEquals(listOf("compact", "clear", "review"), merged.map { it.name })
+        // The CONTRACT row survives, with its own copy and its confirm flag.
+        assertTrue(merged.single { it.name == "compact" }.confirm.not())
+        assertEquals("first wins", merged.single { it.name == "review" }.description)
+    }
+
+    @Test
+    fun `the menu and the command lookup both see the advertised rows`() {
+        val agent = listOf(ConfigCommand("review", "Review the diff"))
+        assertEquals(
+            listOf("compact", "clear", "review"),
+            SlashCommands.matches("/", "claude", agent).map { it.name },
+        )
+        assertEquals(listOf("review"), SlashCommands.matches("/rev", "claude", agent).map { it.name })
+        assertEquals("review", SlashCommands.commandFor("/review src/a.kt", "claude", agent)?.name)
+        // Without the advertisement it is prose again.
+        assertNull(SlashCommands.commandFor("/review src/a.kt", "claude"))
+    }
+
     @Test
     fun `the confirm copy is the one every client shows`() {
         assertEquals("Run /clear?", SlashCommands.confirmTitle("clear"))

@@ -243,7 +243,7 @@ object AgentUsagePresentation {
         if (cost < 0.005) return null
         // Locale.US, always: a comma decimal separator would break the ×4
         // string parity on a German phone.
-        return String.format(java.util.Locale.US, "$%.2f", cost)
+        return String.format(java.util.Locale.US, "\$%.2f", cost)
     }
 
     /** `1234` → `1k`; below 1000 the exact count. */
