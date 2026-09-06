@@ -63,6 +63,7 @@ import {
 import {
   mergeAgentCommands,
   parseSteerCommand,
+  steerAgentId,
   steerCommandConfirmCopy,
   steerCommandsFor,
   COMPACTED_LABEL,
@@ -445,15 +446,17 @@ export function AgentSessionView({
    *  steered `/<agent command>` came back as a prose bubble here while the
    *  menu that sent it listed the row (Android and iOS merge on both sides
    *  too). The "…" Compact entry follows: a run whose agent advertises
-   *  `/compact` can run it. */
+   *  `/compact` can run it. An agent-less run that published a `config_state`
+   *  is an EXTERNAL agent, not a claude one (`steerAgentId`). */
+  const catalogAgent = steerAgentId(session.agent, config !== null)
   const agentCommands = useMemo(
     () =>
       mergeAgentCommands(
-        steerCommandsFor(session.agent),
+        steerCommandsFor(catalogAgent),
         config?.commands ?? [],
-        session.agent
+        catalogAgent
       ),
-    [session.agent, config?.commands]
+    [catalogAgent, config?.commands]
   )
   /** EXP-389: the agent is actively working — live and nothing waiting on
    *  the user (no active question card, synced needs_input clear; all three
@@ -2281,10 +2284,18 @@ function MessageComposer({
   /** EXP-724: a context-discarding command waiting on its confirmation. */
   const [confirming, setConfirming] = useState<SteerCommand | null>(null)
   // EXP-746: the contract catalog for this agent, then the agent's OWN
-  // advertised commands (an ACP run publishes them in `config_state`).
+  // advertised commands (an ACP run publishes them in `config_state`). An
+  // agent-less run that published one is EXTERNAL: no contract rows at all,
+  // only what it advertised itself (`steerAgentId`).
+  const catalogAgent = steerAgentId(agent, config !== null)
   const commands = useMemo(
-    () => mergeAgentCommands(steerCommandsFor(agent), config?.commands ?? [], agent),
-    [agent, config?.commands]
+    () =>
+      mergeAgentCommands(
+        steerCommandsFor(catalogAgent),
+        config?.commands ?? [],
+        catalogAgent
+      ),
+    [catalogAgent, config?.commands]
   )
   const chips = useMemo(() => configChips(config), [config])
   const menu = useSlashCommandMenu({

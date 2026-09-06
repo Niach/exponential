@@ -30,6 +30,36 @@ export interface SteerCommand {
  *  claude run (contract order puts claude first). */
 export const DEFAULT_STEER_AGENT: string = contract.codingAgent.values[0]
 
+/** EXP-746: the catalog id of an EXTERNAL ACP agent — deliberately a value
+ *  contract `codingAgent` (and therefore `steerCommands`) cannot name, so its
+ *  curated catalog is EMPTY. Mirrors the desktop's
+ *  `steer::commands::agent_id(SessionAgent::External)`. */
+export const EXTERNAL_STEER_AGENT = `external`
+
+/** EXP-746: which catalog a session's `/` menu and command pills key off.
+ *
+ *  A row that names no agent is normally a claude run that predates the
+ *  column — but an EXTERNAL ACP agent syncs no agent EITHER, because
+ *  `coding_sessions.agent` takes contract values only and there is none for
+ *  one. The two are told apart by `config_state`: only the ACP engine
+ *  publishes it (every PTY run publishes none), and an ACP run for
+ *  claude/codex/pi always stamps its id — so an agent-less run that published
+ *  one is external, and it gets the contract-less id above.
+ *
+ *  Without this, a phone offered `/compact` and `/clear` (confirm dialog and
+ *  all) for a run whose desktop-side catalog is empty: the literal text
+ *  reached the agent as a prompt and nothing was cleared. Mirrored ×4
+ *  (iOS `SlashCommands.agentId(_:acp:)`, Android `SlashCommands.agentId`,
+ *  desktop `slash_commands::agent_of`). */
+export function steerAgentId(
+  agent: string | null | undefined,
+  acp: boolean
+): string {
+  const id = agent?.trim()
+  if (id) return id
+  return acp ? EXTERNAL_STEER_AGENT : DEFAULT_STEER_AGENT
+}
+
 /** The whole catalog, in contract order. */
 export const STEER_COMMANDS: readonly SteerCommand[] =
   contract.steerCommands.commands

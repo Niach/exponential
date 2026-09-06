@@ -75,6 +75,30 @@ public enum SlashCommands {
     /// desktop old enough not to stamp it.
     public static var defaultAgent: String { DomainContract.codingAgentValues[0] }
 
+    /// EXP-746: the catalog id of an EXTERNAL ACP agent. Deliberately a value
+    /// contract `codingAgent` (and so `steerCommands`) cannot name, so its
+    /// curated catalog is EMPTY — the desktop's
+    /// `steer::commands::agent_id(SessionAgent::External)`.
+    public static let externalAgent = "external"
+
+    /// EXP-746: which catalog a session's `/` menu and command pills key off.
+    ///
+    /// A row that names no agent is normally a claude run that predates the
+    /// column — but an EXTERNAL agent syncs no agent EITHER, because
+    /// `coding_sessions.agent` takes contract values only and there is none
+    /// for one. `acp` tells them apart: only the ACP engine publishes a
+    /// `config_state`, and an ACP run for claude/codex/pi always stamps its
+    /// id. Without this a phone offered `/compact` and `/clear` — confirm
+    /// dialog and all — for a run whose desktop-side catalog is empty, and
+    /// the literal text reached the agent as a prompt. Mirrored ×4 (web
+    /// `steerAgentId`, Android `SlashCommands.agentId`, desktop
+    /// `slash_commands::agent_of`).
+    public static func agentId(_ agent: String?, acp: Bool) -> String {
+        let trimmed = agent?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmed.isEmpty { return trimmed }
+        return acp ? externalAgent : defaultAgent
+    }
+
     /// Every command the given agent can run, in catalog order.
     public static func catalog(for agent: String?) -> [SlashCommand] {
         let resolved = resolve(agent)

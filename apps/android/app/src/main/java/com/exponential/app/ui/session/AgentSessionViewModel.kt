@@ -286,14 +286,21 @@ class AgentSessionViewModel @Inject constructor(
         session,
         sessionConfig,
     ) { text, row, config ->
-        SlashCommands.matches(text, row?.agent, config?.commands.orEmpty())
+        SlashCommands.matches(
+            text,
+            SlashCommands.agentId(row?.agent, config != null),
+            config?.commands.orEmpty(),
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The catalog command the draft would RUN if sent, if any (EXP-724) — the
-     *  screen confirms before sending the ones that discard context. */
+     *  screen confirms before sending the ones that discard context. EXP-746:
+     *  keyed on the run's catalog agent, so an EXTERNAL run (agent-less, but
+     *  publishing a `config_state`) never confirms a `/clear` its agent would
+     *  only read as prose. */
     fun pendingSlashCommand(): SlashCommand? = SlashCommands.commandFor(
         draft.value,
-        session.value?.agent,
+        SlashCommands.agentId(session.value?.agent, sessionConfig.value != null),
         sessionConfig.value?.commands.orEmpty(),
     )
 

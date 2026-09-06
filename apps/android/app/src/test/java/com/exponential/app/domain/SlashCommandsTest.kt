@@ -145,6 +145,35 @@ class SlashCommandsTest {
         assertNull(SlashCommands.commandFor("/review src/a.kt", "claude"))
     }
 
+    /**
+     * EXP-746, mirrored ×4 under this name (web `steerAgentId`, iOS
+     * `testAnAgentLessAcpRunIsAnExternalAgent`, desktop
+     * `an_agent_less_acp_run_is_an_external_agent`): "no agent" alone does not
+     * mean claude. An EXTERNAL ACP agent syncs no agent either, so offering it
+     * `/compact` and `/clear` — confirm dialog and all — sent the literal text
+     * to an agent whose desktop-side catalog is empty, and nothing ran.
+     */
+    @Test
+    fun `an agent-less acp run is an external agent`() {
+        assertFalse(SlashCommands.EXTERNAL_AGENT in DomainContract.codingAgentValues)
+        assertEquals(SlashCommands.EXTERNAL_AGENT, SlashCommands.agentId(null, acp = true))
+        assertEquals(SlashCommands.EXTERNAL_AGENT, SlashCommands.agentId("  ", acp = true))
+        // A named agent keeps its own catalog on the ACP path.
+        assertEquals("codex", SlashCommands.agentId("codex", acp = true))
+        // A PTY run publishes no `config_state`: an agent-less one there is
+        // the claude run it always was.
+        assertEquals("claude", SlashCommands.agentId(null, acp = false))
+        assertEquals("claude", SlashCommands.agentId("", acp = false))
+
+        val external = SlashCommands.agentId(null, acp = true)
+        assertTrue(SlashCommands.catalogFor(external).isEmpty())
+        // Only what the agent advertised reaches the menu and the lookup — no
+        // `/clear`, so no confirm dialog for a command nothing would run.
+        val agent = listOf(ConfigCommand("review", "Review the diff"))
+        assertEquals(listOf("review"), SlashCommands.matches("/", external, agent).map { it.name })
+        assertNull(SlashCommands.commandFor("/clear", external, agent))
+    }
+
     @Test
     fun `the confirm copy is the one every client shows`() {
         assertEquals("Run /clear?", SlashCommands.confirmTitle("clear"))

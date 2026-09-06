@@ -168,9 +168,13 @@ final class AgentSessionModel {
     /// lives in ExpCore's SlashCommands, mirrored ×4).
     var slashMatches: [SlashCommand] {
         // EXP-746: the contract catalog UNION whatever the agent itself
-        // advertised on `config_state` (contract first, dedupe by name).
+        // advertised on `config_state` (contract first, dedupe by name). An
+        // agent-less run that published one is EXTERNAL, so it contributes no
+        // contract rows at all (`agentId(_:acp:)`).
         SlashCommands.matches(
-            draft: draftText, agent: session?.agent, extra: sessionConfig?.commands ?? []
+            draft: draftText,
+            agent: catalogAgent,
+            extra: sessionConfig?.commands ?? []
         )
     }
 
@@ -180,10 +184,17 @@ final class AgentSessionModel {
         AgentFeed.configChips(sessionConfig)
     }
 
+    /// EXP-746: the id the catalog is keyed on — this run's agent, or, for an
+    /// agent-less run that publishes a `config_state`, the external one that
+    /// cannot name itself on the wire.
+    var catalogAgent: String {
+        SlashCommands.agentId(session?.agent, acp: sessionConfig != nil)
+    }
+
     /// The catalog command the draft would SEND as, if any — what the confirm
     /// gate reads before a `/clear` goes out.
     var pendingSlashCommand: SlashCommand? {
-        SlashCommands.command(for: draftText, agent: session?.agent)
+        SlashCommands.command(for: draftText, agent: catalogAgent)
     }
 
     /// The draft as it would be sent — what the send button's enablement and

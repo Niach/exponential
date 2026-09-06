@@ -937,9 +937,13 @@ impl SteerSessionView {
                 coding::AgentKind::External(_) => SessionAgent::External,
             };
         }
+        // A REMOTE run has only its row to go on, and an EXTERNAL agent's row
+        // names no agent at all — the `config_state` it published (nothing on
+        // the PTY path does) is what tells the two apart.
+        let acp = self.feed.config().is_some();
         self.row
             .as_ref()
-            .map_or(SessionAgent::Claude, slash_commands::agent_of)
+            .map_or(SessionAgent::Claude, |row| slash_commands::agent_of(row, acp))
     }
 
     /// The `/` menu's agent half — what the AGENT advertised for this run

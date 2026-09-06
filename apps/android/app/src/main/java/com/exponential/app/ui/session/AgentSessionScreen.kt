@@ -294,9 +294,12 @@ fun AgentSessionScreen(
     val chips = remember(sessionConfig) { configChips(sessionConfig) }
     // EXP-746: the `/` hint counts the MERGED catalog — an agent that
     // advertises commands has a menu even if the contract had none for it.
-    val slashCatalogAvailable = remember(session?.agent, sessionConfig) {
+    // An agent-less run that publishes a `config_state` is an EXTERNAL agent
+    // (`SlashCommands.agentId`), which has no contract rows at all.
+    val catalogAgent = SlashCommands.agentId(session?.agent, sessionConfig != null)
+    val slashCatalogAvailable = remember(catalogAgent, sessionConfig) {
         SlashCommands.merged(
-            SlashCommands.catalogFor(session?.agent),
+            SlashCommands.catalogFor(catalogAgent),
             sessionConfig?.commands.orEmpty(),
         ).isNotEmpty()
     }
@@ -599,7 +602,7 @@ fun AgentSessionScreen(
                             answerStates = answerStates,
                             answerLabels = answerLabels,
                             // EXP-724: filters the command pill's catalog.
-                            agent = session?.agent,
+                            agent = catalogAgent,
                             // EXP-746: the run's own advertised
                             // commands, so a steered agent command
                             // renders as a command row, not prose.

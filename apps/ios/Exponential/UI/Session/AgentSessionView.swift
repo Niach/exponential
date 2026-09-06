@@ -728,7 +728,7 @@ struct AgentSessionView: View {
                 // it reads the same merge).
                 if let command = SlashCommands.command(
                     for: text,
-                    agent: model?.session?.agent,
+                    agent: model?.catalogAgent,
                     extra: model?.sessionConfig?.commands ?? []
                 ) {
                     CommandPill(command: command, text: text)

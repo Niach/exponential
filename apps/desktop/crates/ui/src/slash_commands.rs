@@ -30,16 +30,25 @@ const MENU_LIMIT: usize = 8;
 
 /// Which agent a synced session row runs. A row that names none predates the
 /// column — contract order puts claude first, so claude it is.
-pub(crate) fn agent_of(row: &domain::rows::CodingSession) -> SessionAgent {
-    agent_from_id(row.agent.as_deref())
+///
+/// EXP-746: unless the run published a `config_state` (`acp`). Only the ACP
+/// engine publishes one, and an ACP run for claude/codex/pi always stamps its
+/// id, so an agent-less one is an EXTERNAL agent — the synced column takes
+/// contract values only and has none for it — and its curated catalog is
+/// empty. Mirrored ×4 (`steerAgentId` on web, `SlashCommands.agentId` on iOS
+/// and Android).
+pub(crate) fn agent_of(row: &domain::rows::CodingSession, acp: bool) -> SessionAgent {
+    agent_from_id(row.agent.as_deref(), acp)
 }
 
 /// The pure half of [`agent_of`] — `coding_sessions.agent` is a raw wire
 /// string, and an unknown one is claude like an absent one.
-fn agent_from_id(agent: Option<&str>) -> SessionAgent {
+fn agent_from_id(agent: Option<&str>, acp: bool) -> SessionAgent {
     match agent.map(str::trim) {
         Some(id) if id.eq_ignore_ascii_case("codex") => SessionAgent::Codex,
         Some(id) if id.eq_ignore_ascii_case("pi") => SessionAgent::Pi,
+        Some(id) if !id.is_empty() => SessionAgent::Claude,
+        _ if acp => SessionAgent::External,
         _ => SessionAgent::Claude,
     }
 }
@@ -301,11 +310,39 @@ mod tests {
 
     #[test]
     fn a_row_without_a_known_agent_steers_a_claude_session() {
-        assert_eq!(agent_from_id(None), SessionAgent::Claude);
-        assert_eq!(agent_from_id(Some("codex")), SessionAgent::Codex);
-        assert_eq!(agent_from_id(Some(" pi ")), SessionAgent::Pi);
-        assert_eq!(agent_from_id(Some("claude")), SessionAgent::Claude);
-        assert_eq!(agent_from_id(Some("something-else")), SessionAgent::Claude);
+        assert_eq!(agent_from_id(None, false), SessionAgent::Claude);
+        assert_eq!(agent_from_id(Some("codex"), false), SessionAgent::Codex);
+        assert_eq!(agent_from_id(Some(" pi "), false), SessionAgent::Pi);
+        assert_eq!(agent_from_id(Some("claude"), false), SessionAgent::Claude);
+        assert_eq!(
+            agent_from_id(Some("something-else"), false),
+            SessionAgent::Claude
+        );
+    }
+
+    /// EXP-746, mirrored ×4 under this name (web `steerAgentId`, iOS
+    /// `testAnAgentLessAcpRunIsAnExternalAgent`, Android
+    /// `an agent-less acp run is an external agent`): a REMOTE viewer cannot
+    /// ask the run what it is, so an agent-less row that published a
+    /// `config_state` is the external agent it must be — otherwise the menu
+    /// offered claude's `/clear`, confirm dialog and all, and the text
+    /// reached the agent as an ordinary prompt.
+    #[test]
+    fn an_agent_less_acp_run_is_an_external_agent() {
+        assert_eq!(agent_from_id(None, true), SessionAgent::External);
+        assert_eq!(agent_from_id(Some("  "), true), SessionAgent::External);
+        // A named agent keeps its own catalog on the ACP path.
+        assert_eq!(agent_from_id(Some("codex"), true), SessionAgent::Codex);
+        // ...and the menu it leaves is the agent's own commands, nothing else.
+        assert!(names("/", agent_from_id(None, true)).is_empty());
+        assert_eq!(
+            agent_names(
+                "/",
+                agent_from_id(None, true),
+                &[agent_command("review", None)]
+            ),
+            vec!["review"]
+        );
     }
 
     #[test]

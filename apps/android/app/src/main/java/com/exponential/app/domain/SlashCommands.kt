@@ -45,6 +45,31 @@ object SlashCommands {
     /** A session with no recorded agent ran on the default one. */
     private val defaultAgent: String = DomainContract.codingAgentValues.first()
 
+    /**
+     * EXP-746: the catalog id of an EXTERNAL ACP agent — deliberately a value
+     * contract `codingAgent` (and so `steerCommands`) cannot name, so its
+     * curated catalog is EMPTY, exactly like the desktop's
+     * `steer::commands::agent_id(SessionAgent::External)`.
+     */
+    const val EXTERNAL_AGENT: String = "external"
+
+    /**
+     * EXP-746: which catalog a session's `/` menu and command rows key off.
+     *
+     * A row that names no agent is normally a claude run that predates the
+     * column — but an EXTERNAL agent syncs no agent EITHER, because
+     * `coding_sessions.agent` takes contract values only and there is none for
+     * one. [acp] tells them apart: only the ACP engine publishes a
+     * `config_state`, and an ACP run for claude/codex/pi always stamps its id.
+     * Without this the phone offered `/compact` and `/clear` — confirm dialog
+     * and all — for a run whose desktop-side catalog is empty, and the literal
+     * text reached the agent as a prompt. Mirrored ×4 (web `steerAgentId`, iOS
+     * `SlashCommands.agentId`, desktop `slash_commands::agent_of`).
+     */
+    fun agentId(agent: String?, acp: Boolean): String =
+        agent?.takeIf { it.isNotBlank() }?.trim()
+            ?: if (acp) EXTERNAL_AGENT else defaultAgent
+
     /** The rows applicable to [agent] (null = the default agent), in contract
      *  order. */
     fun catalogFor(agent: String?): List<SlashCommand> {

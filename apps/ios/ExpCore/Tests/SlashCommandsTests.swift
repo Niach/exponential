@@ -70,6 +70,34 @@ final class SlashCommandsTests: XCTestCase {
         XCTAssertTrue(SlashCommands.catalog(for: "gemini").isEmpty)
     }
 
+    /// EXP-746, mirrored ×4 (web `an agent-less acp run is an external agent`,
+    /// Android and desktop the same name): "no agent" alone does not mean
+    /// claude — an EXTERNAL ACP agent syncs no agent either, and the phone
+    /// must not offer it `/compact` and `/clear`, confirm dialog and all, for
+    /// a run whose desktop-side catalog is empty.
+    func testAnAgentLessAcpRunIsAnExternalAgent() {
+        XCTAssertFalse(DomainContract.codingAgentValues.contains(SlashCommands.externalAgent))
+        XCTAssertEqual(SlashCommands.agentId(nil, acp: true), SlashCommands.externalAgent)
+        XCTAssertEqual(SlashCommands.agentId("  ", acp: true), SlashCommands.externalAgent)
+        // A named agent keeps its own catalog on the ACP path.
+        XCTAssertEqual(SlashCommands.agentId("codex", acp: true), "codex")
+        // A PTY run publishes no `config_state`, so an agent-less one there
+        // is still the claude run it always was.
+        XCTAssertEqual(SlashCommands.agentId(nil, acp: false), SlashCommands.defaultAgent)
+        XCTAssertEqual(SlashCommands.agentId("", acp: false), SlashCommands.defaultAgent)
+
+        let external = SlashCommands.agentId(nil, acp: true)
+        XCTAssertTrue(SlashCommands.catalog(for: external).isEmpty)
+        // Only what the agent advertised reaches the menu and the lookup — no
+        // `/clear`, so no confirm dialog for a command nothing would run.
+        let extra = [AgentConfigCommand(name: "review", description: "Review the diff")]
+        XCTAssertEqual(
+            SlashCommands.matches(draft: "/", agent: external, extra: extra).map(\.name),
+            ["review"]
+        )
+        XCTAssertNil(SlashCommands.command(for: "/clear", agent: external, extra: extra))
+    }
+
     // MARK: - Menu query rule
 
     func testABareSlashListsEverythingTheAgentCanRun() {
