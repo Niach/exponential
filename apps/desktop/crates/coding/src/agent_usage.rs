@@ -527,6 +527,101 @@ pub fn fetch_oauth_usage(access_token: &str, user_agent: &str) -> UsageFetch {
 }
 
 // ---------------------------------------------------------------------------
+// Live windows, published by a running session
+// ---------------------------------------------------------------------------
+
+/// EXP-754 — the rate-limit windows a LIVE agent session already knows.
+///
+/// One machine runs ONE `codex app-server` per session, and that connection
+/// is pushed `account/rateLimits/updated` on every turn. Those numbers are
+/// fresher than anything [`collect_if_due`] could fetch, and fetching them
+/// itself costs a SECOND app-server spawn against the same account (the very
+/// contention [`crate::usage_cache::SHARED_TTL_SECS`] exists to bound). So
+/// the adapter publishes here and the collector reads here.
+///
+/// Process-global on purpose: publisher (the engine's codex adapter) and
+/// reader (the desktop's device-sync beat, the daemon's device worker) live
+/// in the same process. A SIBLING process still shares the on-disk
+/// [`crate::usage_cache`], which this path writes exactly like a fetch would.
+///
+/// `coding` never depends on `engine`, so the publish side is a plain
+/// function the adapter calls, not a hook the engine installs.
+pub mod live {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    use super::UsageWindow;
+    use crate::agent::CodingAgent;
+
+    /// What one agent's live sessions have published on this machine.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct LiveUsage {
+        /// The last windows a session reported (empty = a session is
+        /// attached but has not heard a rate-limit frame yet).
+        pub windows: Vec<UsageWindow>,
+        /// Unix seconds of the last [`publish`].
+        pub updated_at_secs: Option<u64>,
+        /// How many sessions are attached RIGHT NOW. `> 0` is what makes the
+        /// numbers current no matter how long ago the last frame arrived
+        /// (an idle turn-less session reports nothing new).
+        pub sessions: usize,
+    }
+
+    static LIVE: OnceLock<Mutex<HashMap<CodingAgent, LiveUsage>>> = OnceLock::new();
+
+    fn live() -> MutexGuard<'static, HashMap<CodingAgent, LiveUsage>> {
+        let lock = LIVE.get_or_init(|| Mutex::new(HashMap::new()));
+        match lock.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// A live session for `agent` has started. Hold the guard for the run.
+    #[must_use = "dropping the guard immediately detaches the session"]
+    pub fn attach(agent: CodingAgent) -> Attached {
+        live().entry(agent).or_default().sessions += 1;
+        Attached(agent)
+    }
+
+    /// One attached session. `Drop` is the release path, so a panicked or
+    /// abandoned run detaches itself; an owner that knows the session ended
+    /// simply drops it earlier.
+    pub struct Attached(CodingAgent);
+
+    impl Drop for Attached {
+        fn drop(&mut self) {
+            let mut live = live();
+            let entry = live.entry(self.0).or_default();
+            // Saturating: a double release must never wrap to usize::MAX and
+            // pin the numbers "live" forever.
+            entry.sessions = entry.sessions.saturating_sub(1);
+        }
+    }
+
+    /// A session reported new windows. Latest-wins, like every other usage
+    /// slot; the stamp is what makes them expire after the session ends.
+    pub fn publish(agent: CodingAgent, windows: Vec<UsageWindow>) {
+        let mut live = live();
+        let entry = live.entry(agent).or_default();
+        entry.windows = windows;
+        entry.updated_at_secs = Some(crate::run_registry::now_secs());
+    }
+
+    /// What this machine's sessions last said about `agent`, if anything.
+    pub fn snapshot(agent: CodingAgent) -> Option<LiveUsage> {
+        live().get(&agent).cloned()
+    }
+
+    /// Tests only: the registry is process-global, so a test that asserts on
+    /// it starts from empty (and takes the suite's own lock to stay so).
+    #[cfg(test)]
+    pub fn reset() {
+        live().clear();
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The collector
 // ---------------------------------------------------------------------------
 
@@ -563,6 +658,9 @@ impl AgentStatusPayload {
 /// app-server` spawn. Callers run it off the UI/main thread. `now` is unix
 /// seconds — passed in so one pass stamps one instant (and tests are
 /// deterministic).
+///
+/// EXP-754: an agent a LIVE session already reports for ([`live`]) skips all
+/// of that — no spawn, no request, and no poll floor either.
 pub fn collect_if_due(
     data_dir: &Path,
     settings: &Settings,
@@ -590,26 +688,51 @@ pub fn collect_if_due(
             continue;
         }
         let mut entry = cache.get(&id).cloned().unwrap_or_default();
-        if usage_cache::poll_due(&entry, now) {
-            changed = true;
-            // Claim the slot BEFORE the (slow) fetch and persist it, so the
-            // sibling process sharing this token (IDE vs daemon) sees the
-            // poll as taken instead of spending a second request.
-            entry.next_poll_at_secs = now + usage_cache::MIN_POLL_SECS;
-            cache.insert(id.clone(), entry.clone());
-            usage_cache::save(data_dir, &cache);
-            let probe = probe_agent(agent, settings, check.version.as_deref(), &mut entry, now);
-            if let Some(account) = probe.account {
-                // Persist the identity: the not-due beats in between re-use it
-                // instead of dropping back to the doctor's presence-only row.
-                entry.account = Some(account.clone());
-                accounts.insert(id.clone(), account);
+        let mut polled = false;
+        // EXP-754: a live session on this machine has already been told the
+        // numbers. Reading them spawns nothing, sends nothing and contends
+        // with no sibling process, so this runs BEFORE (and instead of) the
+        // poll policy.
+        match live_probe(agent, &entry, now) {
+            Some(probe) => {
+                if usage_cache::poll_due(&entry, now)
+                    || probe.outcome == PollOutcome::Changed
+                {
+                    // Deliberately past `MIN_POLL_SECS`: the floor exists to
+                    // ration requests, and a live read is not one. Moving
+                    // numbers reach the bar as fast as codex reports them.
+                    changed = true;
+                    usage_cache::apply_outcome(&mut entry, probe.outcome, probe.windows, now, &stamp);
+                    cache.insert(id.clone(), entry.clone());
+                }
             }
-            usage_cache::apply_outcome(&mut entry, probe.outcome, probe.windows, now, &stamp);
-            cache.insert(id.clone(), entry.clone());
-        } else if let Some(account) = &entry.account {
-            // Not due: the cached identity still enriches what the doctor's
-            // presence-only probe could not name (codex's email/plan).
+            // No live session (or its numbers went stale): today's path.
+            None if usage_cache::poll_due(&entry, now) => {
+                polled = true;
+                changed = true;
+                // Claim the slot BEFORE the (slow) fetch and persist it, so the
+                // sibling process sharing this token (IDE vs daemon) sees the
+                // poll as taken instead of spending a second request.
+                entry.next_poll_at_secs = now + usage_cache::MIN_POLL_SECS;
+                cache.insert(id.clone(), entry.clone());
+                usage_cache::save(data_dir, &cache);
+                let probe = probe_agent(agent, settings, check.version.as_deref(), &mut entry, now);
+                if let Some(account) = probe.account {
+                    // Persist the identity: the not-due beats in between re-use it
+                    // instead of dropping back to the doctor's presence-only row.
+                    entry.account = Some(account.clone());
+                    accounts.insert(id.clone(), account);
+                }
+                usage_cache::apply_outcome(&mut entry, probe.outcome, probe.windows, now, &stamp);
+                cache.insert(id.clone(), entry.clone());
+            }
+            None => {}
+        }
+        // A pass that did not probe — nothing due, or the live numbers
+        // answered — keeps the identity the last probe named: it still
+        // enriches what the doctor's presence-only check could not name
+        // (codex's email/plan), and a rate-limit frame names nobody.
+        if let (false, Some(account)) = (polled, &entry.account) {
             let mut account = account.clone();
             account.checked_at = stamp.clone();
             accounts
@@ -637,6 +760,42 @@ struct AgentProbe {
     outcome: PollOutcome,
     windows: Option<Vec<UsageWindow>>,
     account: Option<crate::agent_accounts::AgentAccount>,
+}
+
+/// EXP-754 — the windows a LIVE session already published, when they are
+/// worth reporting: a session is attached right now, or one just ended and
+/// its last numbers are still inside the shared TTL.
+///
+/// `None` means "nobody is telling us" — the caller falls back to the poll
+/// policy and its spawn. Only codex has a publisher: it pushes
+/// `account/rateLimits/updated` down the app-server connection. claude and pi
+/// answer over an endpoint the poller has to call itself.
+fn live_probe(agent: CodingAgent, entry: &AgentCacheEntry, now: u64) -> Option<AgentProbe> {
+    if agent != CodingAgent::Codex {
+        return None;
+    }
+    let live = live::snapshot(agent)?;
+    if live.windows.is_empty() {
+        return None;
+    }
+    let current = live.sessions > 0
+        || live
+            .updated_at_secs
+            .is_some_and(|at| now.saturating_sub(at) < usage_cache::SHARED_TTL_SECS);
+    if !current {
+        return None;
+    }
+    let outcome = if usage_cache::windows_hash(&live.windows) == entry.last_windows_hash {
+        PollOutcome::Unchanged
+    } else {
+        PollOutcome::Changed
+    };
+    Some(AgentProbe {
+        outcome,
+        windows: Some(live.windows),
+        // A rate-limit frame names no identity; the cached one stays.
+        account: None,
+    })
 }
 
 fn probe_agent(
@@ -1048,6 +1207,163 @@ mod tests {
             !dir.join("agent-usage.json").exists(),
             "nothing was fetched, so nothing was cached"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // -----------------------------------------------------------------
+    // EXP-754 — the live path
+    // -----------------------------------------------------------------
+
+    /// [`live`] is process-global, so the tests that assert on it run one at
+    /// a time and each starts from empty.
+    static LIVE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn live_lock() -> std::sync::MutexGuard<'static, ()> {
+        match LIVE_TEST_LOCK.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    fn usage_dir(tag: &str) -> std::path::PathBuf {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!(
+            "exp-live-usage-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn session_window(percent: u8) -> UsageWindow {
+        UsageWindow {
+            key: "session".to_string(),
+            label: "5h".to_string(),
+            percent,
+            resets_at: Some("2026-09-06T14:00:00.000Z".to_string()),
+        }
+    }
+
+    /// codex installed and signed in, nothing else on the machine — so a pass
+    /// touches codex and only codex.
+    fn codex_ready_report() -> DoctorReport {
+        use crate::doctor::{Tool, ToolCheck};
+
+        let missing = |tool| ToolCheck {
+            tool,
+            ok: false,
+            version: None,
+            error: Some("not found".to_string()),
+            authed: None,
+            account: None,
+            usage_eligible: false,
+            acp: None,
+            acp_note: None,
+        };
+        DoctorReport {
+            claude: missing(Tool::Claude),
+            codex: ToolCheck {
+                tool: Tool::Codex,
+                ok: true,
+                version: Some("codex-cli 0.144.5".to_string()),
+                error: None,
+                authed: Some(true),
+                account: None,
+                usage_eligible: false,
+                acp: None,
+                acp_note: None,
+            },
+            pi: missing(Tool::Pi),
+            git: missing(Tool::Git),
+        }
+    }
+
+    /// The codex path points at nothing: if the collector fell back to its
+    /// `codex app-server` probe the numbers could only come back missing or
+    /// stale. They come back live — and the SECOND pass proves the live read
+    /// is not held back by `MIN_POLL_SECS`.
+    #[test]
+    fn live_codex_windows_land_without_spawning_the_app_server() {
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("live-codex");
+        let settings = Settings {
+            codex_path: "/nonexistent/codex".to_string(),
+            ..Settings::default()
+        };
+        let report = codex_ready_report();
+
+        let session = live::attach(CodingAgent::Codex);
+        live::publish(CodingAgent::Codex, vec![session_window(4)]);
+
+        let now = crate::run_registry::now_secs();
+        let payload = collect_if_due(&dir, &settings, &report, now);
+        let usage = payload.usage.get("codex").expect("the live windows");
+        assert_eq!(usage.windows, vec![session_window(4)]);
+        assert!(!usage.stale, "a live read is a read, not a fallback");
+
+        // Ten seconds later — deep inside the poll floor — moving numbers
+        // still land, because reading them costs nothing.
+        live::publish(CodingAgent::Codex, vec![session_window(9)]);
+        let payload = collect_if_due(&dir, &settings, &report, now + 10);
+        let usage = payload.usage.get("codex").expect("the live windows");
+        assert_eq!(usage.windows, vec![session_window(9)]);
+        assert!(!usage.stale);
+
+        drop(session);
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A session that ended long enough ago is not a source any more: the
+    /// pass goes back to the probe, and the probe's failure dims the numbers
+    /// the last real fetch left behind instead of reporting the dead
+    /// session's.
+    #[test]
+    fn a_stale_live_snapshot_with_no_session_falls_back_to_the_probe() {
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("stale-live");
+        let settings = Settings {
+            codex_path: "/nonexistent/codex".to_string(),
+            ..Settings::default()
+        };
+
+        // A session ran, published, and ended.
+        drop(live::attach(CodingAgent::Codex));
+        live::publish(CodingAgent::Codex, vec![session_window(4)]);
+
+        // What an earlier real poll cached.
+        let earlier = vec![session_window(71)];
+        let mut entry = AgentCacheEntry::default();
+        usage_cache::apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(earlier.clone()),
+            1_000,
+            "EARLIER",
+        );
+        let mut cache = usage_cache::UsageCache::default();
+        cache.insert("codex".to_string(), entry);
+        usage_cache::save(&dir, &cache);
+
+        let now = crate::run_registry::now_secs() + usage_cache::SHARED_TTL_SECS + 60;
+        let payload = collect_if_due(&dir, &settings, &codex_ready_report(), now);
+        let usage = payload.usage.get("codex").expect("the cached windows");
+        assert_eq!(usage.windows, earlier, "a dead session is not a source");
+        assert_eq!(usage.fetched_at, "EARLIER", "the numbers keep their own age");
+        assert!(usage.stale, "the probe could not run, so the bar is dimmed");
+        let reloaded = usage_cache::load(&dir);
+        assert_eq!(
+            reloaded.get("codex").unwrap().next_poll_at_secs,
+            now + usage_cache::FAILED_BACKOFF_SECS
+        );
+
+        live::reset();
         let _ = std::fs::remove_dir_all(&dir);
     }
 
